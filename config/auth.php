@@ -139,4 +139,31 @@ return [
 
     'password_timeout' => 10800,
 
+    /*
+    |--------------------------------------------------------------------------
+    | Storefront customer password recovery
+    |--------------------------------------------------------------------------
+    |
+    | otp_digits -- how many digits the API recovery code
+    | (POST api/{slug}/forgot-password-send-otp) has.
+    |
+    | The default is 4, which is what the unreleased storefront client has always been sent and
+    | what packages/workdo/Api/src/documentation/theme.json documents ("otp": "1234"). The server
+    | is length-agnostic, and tests/Feature/Security/CustomerOtpLengthCompatibilityTest drives the
+    | whole flow at 6 digits to prove it -- so this is a one-line environment change, not a code
+    | change, the moment someone can confirm that client's input accepts 6.
+    |
+    | Raising it is a real security improvement: with the per-account send cap and attempt limit in
+    | App\Services\CustomerPasswordResetService, 4 digits leaves roughly a one-in-three chance to
+    | an attacker sustaining the maximum rate for a week; 6 digits leaves about 0.4%.
+    |
+    | The value is clamped to [MIN_OTP_DIGITS, MAX_OTP_DIGITS] by that service, so a typo here
+    | cannot produce a shorter, weaker code.
+    |
+    */
+
+    'customer_password_reset' => [
+        'otp_digits' => env('CUSTOMER_OTP_DIGITS', 4),
+    ],
+
 ];

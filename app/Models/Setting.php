@@ -16,7 +16,58 @@ class Setting extends Model
         'name', 'value',  'created_by', 'store_id'
     ];
 
-    public static function paymentList($slug) 
+    /**
+     * P1-SEC-29: a store cannot save, or switch on, a custom domain or sub-domain that another store holds. Every Eloquent writer of
+     * `settings` passes through here (see App\Services\HostClaims).
+     */
+    protected static function booted(): void
+    {
+        static::saving(function (Setting $setting) {
+            \App\Services\HostClaims::assertFree($setting);
+            \App\Services\StoredPathPolicy::setting($setting);   // P1-SEC-28
+            \App\Services\SettingOwnership::keep($setting);      // P1-PLT-07
+        });
+    }
+
+    /**
+     * Write one store-scoped setting, landing on the row the READERS actually serve. P1-PLT-07.
+     *
+     * `settings` has no unique index, so a (name, store_id) pair can carry more than one row -- which is exactly what the writers that
+     * used to put `created_by` in their match key produced. The two sides then disagree about which row is the live one:
+     *
+     *   readers take the NEWEST -- `pluck('value','name')` lets a later key overwrite an earlier one (helper.php:374, :379,
+     *       Utility.php:196), and App\Services\StoreSettingsAccess:134-136 already records this as "the one a reader sees".
+     *   updateOrCreate takes the OLDEST -- its lookup is `where($attributes)->first()` with no ORDER BY
+     *       (Illuminate\Database\Eloquent\Builder::firstOrCreate), which scans ascending id.
+     *
+     * MEASURED on SQLite with two rows for one name: a save through the handler landed on the oldest row while
+     * `Utility::GetValueByName` kept returning the newest, so the merchant's save was silently lost and the screen still said it had
+     * been saved. Resolving the newest row here is what keeps a save effective on a store that already carries duplicates -- which is
+     * precisely the population the P1-PLT-07 defect created.
+     *
+     * It does NOT delete the older duplicates: that is data, and P1-OWN-11 owns it. The other store-scoped writers in app/ still use
+     * updateOrCreate and so still address the oldest row; they are unchanged by this task and carry the same pre-existing mismatch.
+     */
+    public static function putForStore(string $name, $value, $storeId, $createdBy): self
+    {
+        $row = static::where('name', $name)->where('store_id', $storeId)->orderByDesc('id')->first();
+
+        if ($row) {
+            $row->value = $value;
+            $row->save();   // created_by is not dirty, so App\Services\SettingOwnership leaves the row's owner alone
+
+            return $row;
+        }
+
+        return static::create([
+            'name' => $name,
+            'value' => $value,
+            'store_id' => $storeId,
+            'created_by' => $createdBy,
+        ]);
+    }
+
+    public static function paymentList($slug)
     {
         $store = getStore($slug);
         if (!$store) {
@@ -1078,7 +1129,11 @@ $is_paymera_enabled = Utility::GetValueByName('is_Paymera_enabled', $store->id);
 
 
         if (!empty($Setting_array)) {
-            return $Setting_array;
+            // P1-SEC-15 defence in depth. This is the web checkout's twin of ApiController::payment_list and
+            // builds the same gateway array, secrets included. Its one caller (HomeController::checkout) renders
+            // only name/status/detail/image today; nulling the secrets here means a future `@json($payments)`
+            // or `{{ $payment['stripe_secret_key'] }}` cannot put them in a public page.
+            return \App\Services\GatewaySecretRedactor::redactAll($Setting_array);
         } else {
             return [];
         }

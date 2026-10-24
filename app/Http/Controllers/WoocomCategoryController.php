@@ -25,7 +25,7 @@ class WoocomCategoryController extends Controller
             if(isset($setting['woocommerce_setting_enabled']) && $setting['woocommerce_setting_enabled'] == 'on')
             {
                 try{
-                    $woocommerce_store_url =Utility::GetValueByName('woocommerce_store_url',  getCurrentStore());
+                    $woocommerce_store_url =\App\Services\ImportStoreUrl::woocommerceBase(Utility::GetValueByName('woocommerce_store_url',  getCurrentStore()));
                     $woocommerce_consumer_secret =Utility::GetValueByName('woocommerce_consumer_secret', getCurrentStore());
                     $woocommerce_consumer_key =Utility::GetValueByName('woocommerce_consumer_key', getCurrentStore());
 
@@ -98,7 +98,19 @@ class WoocomCategoryController extends Controller
      */
     public function store(Request $request)
     {
-        $woocommerce_store_url =Utility::GetValueByName('woocommerce_store_url', getCurrentStore());
+        // P1-SEC-06. THE ONE FETCH THE AUDIT VERIFIED, and the only one where the whole base address
+        // is the merchant's. `woocommerceBase()` returns null for an address this server may not dial,
+        // and concatenating null would issue `\Http::get('/wp-json/...')` -- a request to nowhere rather
+        // than a refusal, so this limb is explicit rather than relying on fail-closed concatenation.
+        //
+        // Note for the record: this handler assigns $jsonData and returns NOTHING, so it is a BLIND
+        // SSRF, not one that serves the response as the task row states.
+        $woocommerce_store_url =\App\Services\ImportStoreUrl::woocommerceBase(Utility::GetValueByName('woocommerce_store_url', getCurrentStore()));
+
+        if ($woocommerce_store_url === null) {
+            return redirect()->back()->with('error', __('The WooCommerce store URL is not a valid public address.'));
+        }
+
         $response = \Http::get($woocommerce_store_url . '/wp-json/wc/v3/products/categories');
         $jsonData = $response->json();
     }
@@ -114,7 +126,7 @@ class WoocomCategoryController extends Controller
          
         if (auth()->user() && auth()->user()->isAbleTo('Create Woocommerce Category'))
         {
-            $woocommerce_store_url =Utility::GetValueByName('woocommerce_store_url', getCurrentStore());
+            $woocommerce_store_url =\App\Services\ImportStoreUrl::woocommerceBase(Utility::GetValueByName('woocommerce_store_url', getCurrentStore()));
             $woocommerce_consumer_secret =Utility::GetValueByName('woocommerce_consumer_secret', getCurrentStore());
             $woocommerce_consumer_key =Utility::GetValueByName('woocommerce_consumer_key', getCurrentStore());
 
@@ -135,11 +147,11 @@ class WoocomCategoryController extends Controller
                 $file_size = 0;
                 try{
                     $file_url = str_replace("\0", '', $url);
-                    $get_file = \Illuminate\Support\Facades\Http::head($file_url);
+                    $get_file = \App\Services\SafeRemoteFetch::head($file_url);
                     $file_size = $get_file->header('Content-Length');
                 } catch(\Exception $e)
                 {
-                    return redirect()->back()->with('error', $e);
+                    return redirect()->back()->with('error', $e->getMessage());
                 }
                 $result = Utility::updateStorageLimit(\Auth::user()->creatorId(), $file_size);
                 if ($result != 1) {
@@ -200,7 +212,7 @@ class WoocomCategoryController extends Controller
          
         if (auth()->user() && auth()->user()->isAbleTo('Edit Woocommerce Category'))
         {
-            $woocommerce_store_url =Utility::GetValueByName('woocommerce_store_url', getCurrentStore());
+            $woocommerce_store_url =\App\Services\ImportStoreUrl::woocommerceBase(Utility::GetValueByName('woocommerce_store_url', getCurrentStore()));
             $woocommerce_consumer_secret =Utility::GetValueByName('woocommerce_consumer_secret', getCurrentStore());
             $woocommerce_consumer_key =Utility::GetValueByName('woocommerce_consumer_key', getCurrentStore());
 
@@ -212,8 +224,11 @@ class WoocomCategoryController extends Controller
             
             $store_id = getStoreById(getCurrentStore());
             $upddata = WoocommerceConection::where('store_id',getCurrentStore())->where('module','=','category')->where('woocomerce_id' , $id)->first();
-            $original_id = $upddata->original_id;
-            $mainCategory = Category::find($original_id);
+            // P1-INV-13: a missing mapping, or a category of another store, is refused before anything is fetched or written
+            $mainCategory = \App\Services\ImportMappingOwnership::owned($upddata, Category::class, getCurrentStore());
+            if (!$mainCategory) {
+                return redirect()->back()->with('error', __('Category Not Found.'));
+            }
 
             if(!empty($jsonData['image']->src)) {
 
@@ -226,11 +241,11 @@ class WoocomCategoryController extends Controller
                 $file_size = 0;
                 try{
                     $file_url = str_replace("\0", '', $url);
-                    $get_file = \Illuminate\Support\Facades\Http::head($file_url);
+                    $get_file = \App\Services\SafeRemoteFetch::head($file_url);
                     $file_size = $get_file->header('Content-Length');
                 } catch(\Exception $e)
                 {
-                    return redirect()->back()->with('error', $e);
+                    return redirect()->back()->with('error', $e->getMessage());
                 }
                 $result = Utility::updateStorageLimit(\Auth::user()->creatorId(), $file_size);
                 if ($result != 1) {
@@ -250,7 +265,7 @@ class WoocomCategoryController extends Controller
             }
 
             if (!empty($jsonData)) {
-                $mainCategory = new Category();
+                // the resolved category is UPDATED; this used to build `new Category()` and so INSERTED a duplicate on every re-sync
                 $mainCategory->name         = $jsonData['name'];
                 $mainCategory->slug         = 'collections/' . strtolower(preg_replace("/[^\w]+/", "-", $jsonData['name']));
                 $mainCategory->image_url    = $uplaod['full_url'];
@@ -258,7 +273,6 @@ class WoocomCategoryController extends Controller
                 $mainCategory->icon_path    = $uplaod['url'];
                 $mainCategory->trending     = 0;
                 $mainCategory->status       = 1;
-                $mainCategory->store_id     = getCurrentStore();
                 $mainCategory->save();
                 return redirect()->back()->with('success', __('Category update successfully.'));
             } else {

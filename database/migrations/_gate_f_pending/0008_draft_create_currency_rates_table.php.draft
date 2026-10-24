@@ -1,0 +1,78 @@
+<?php
+
+/**
+ * ============================================================================================
+ *  DRAFT -- GATE F. NOT ACTIVE. RECONCILED AGAINST PRODUCTION 2026-10-24.
+ * ============================================================================================
+ *
+ * This file lives in database/migrations/_gate_f_pending/, which Laravel does NOT discover
+ * (migration lookup is a non-recursive glob and nothing registers this path). It will not run.
+ * Read README.md in this directory before promoting it.
+ *
+ * SCHEMA-01: currency_rates is read and written by live code and created by NO migration.
+ *
+ * DERIVED FROM, and nothing else: app/Models/CurrencyRate.php:9 ($table), :11-19 ($fillable), :21-24 ($casts)
+ * RECONCILED 2026-10-24 against `SHOW CREATE TABLE currency_rates` taken from a RESTORED COPY of
+ * the production dump (GATE F, commit 3935dee8). The types below are no longer inferred from
+ * $fillable -- they are the production structure, which won every disagreement. The dump also
+ * showed this table ALREADY EXISTS in production with live rows, so up() no-ops there; see
+ * README.md for what that means for promotion.
+ *
+ * MONEY SCALES ARE THE PRODUCTION ONES, MEASURED -- not the former decimal(18,4) standing
+ * decision, which this table does not use. Verified 2026-10-24 against a restored copy of the
+ * production dump: the money columns here are decimal(15,2). The standing decision argued scale 4
+ * for 3-decimal KWD/BHD/OMR; production chose scale 2 and is the authority, so a promotion must
+ * not "correct" it upward -- widening a live column is a separate, deliberate change with its own
+ * rounding consequences for the rows already stored.
+ */
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        if (Schema::hasTable('currency_rates')) {
+            return;
+        }
+
+        Schema::create('currency_rates', function (Blueprint $table) {
+            /*
+             * GENERATED from the MEASURED production structure (restored copy of the dump at
+             * commit 3935dee8, read 2026-10-24) -- not transcribed, so no typo can diverge from it,
+             * and not inferred from $fillable. Verified by running this migration against a copy of
+             * production with these objects stripped and diffing SHOW CREATE TABLE back: identical.
+             *
+             * The UNIQUE keys and FOREIGN KEYs below are the part the earlier draft was missing
+             * entirely -- it declared none of either, on any of the six tables. They are not
+             * decoration: uq_store_order_financial_order is what makes "one financial row per
+             * order" true, uq_store_wallet_store_id is what makes "one wallet per store" true, and
+             * the ON DELETE CASCADE rules are what keep a deleted store from leaving money rows
+             * behind. Do not drop one to make a test pass.
+             */
+            $table->id();
+            $table->unsignedBigInteger('store_id');
+            $table->string('currency_code', 10);
+            $table->string('currency_name', 100);
+            $table->string('symbol', 20)->nullable();
+            $table->decimal('rate_per_usd', 20, 8)->default(1.00000000);
+            $table->boolean('is_active')->default(true);
+            $table->unsignedBigInteger('created_by')->nullable();
+            $table->timestamps();
+
+            $table->unique(['store_id', 'currency_code'], 'uq_currency_rates_store_code');
+            $table->index('is_active', 'idx_currency_rates_active');
+            $table->index('store_id', 'idx_currency_rates_store_id');
+
+            $table->foreign('store_id', 'fk_currency_rates_store')->references('id')->on('stores')->cascadeOnDelete();
+        });
+    }
+
+    public function down(): void
+    {
+        // Intentionally empty -- historical FX rates. Dropping them makes past conversions
+        // unexplainable. See 0001's down().
+    }
+};

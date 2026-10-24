@@ -11,6 +11,72 @@ use Illuminate\Support\Facades\DB;
 
 class AITemplateController extends Controller
 {
+    /**
+     * Server-side ceilings on what ONE call may spend. Both are above any value the shipped form can
+     * produce (`generate.blade.php` offers a small `<select>` and defaults the length to 10), so these
+     * refuse abuse without changing a legitimate request.
+     */
+    public const MAX_RESULT_TOKENS = 4000;
+
+    public const MAX_RESULTS = 10;
+
+    /**
+     * The OpenAI key this caller may spend: their own tenant's, else the platform's. NEVER another
+     * merchant's, which is what `inRandomOrder()` with no predicate did. P1-SEC-22(e).
+     *
+     * `creatorId()` is the tenant root -- it returns the user's own id for type `admin`/`super admin` and
+     * `created_by` otherwise, so a staff member resolves to the merchant who owns the store, and the
+     * platform operator resolves to themselves. Ordered, not random: the same caller always gets the same
+     * key, which is what makes the charge attributable.
+     */
+    private function resolveApiKeyForActor(): ?string
+    {
+        $actor = auth()->user();
+
+        if ($actor === null) {
+            return null;
+        }
+
+        $own = ApikeySetiings::where('created_by', $actor->creatorId())->orderBy('id')->value('key');
+
+        if (! empty($own)) {
+            return $own;
+        }
+
+        // OWNER DECISION, 2026-10-22: "Merchants must not consume the platform's OpenAI API key. Enforce
+        // this without breaking platform-operator functionality."
+        //
+        // So the platform limb below is reachable by the OPERATOR ONLY. A merchant -- or their staff --
+        // with no key of their own is refused, and gets the handler's existing "no key configured"
+        // message rather than spending the platform's budget. This replaces the interim behaviour, which
+        // deliberately preserved the platform fallback for every caller while the decision was open.
+        //
+        // Judged with the shared operator helper (P1-SEC-11), so this agrees with the engine on case and
+        // trailing space rather than carrying a fifth copy of the comparison.
+        if (! \App\Policies\UserPolicy::isOperator($actor)) {
+            return null;
+        }
+
+        // The platform's own key, for the operator. Scoped to operator accounts by type, so a merchant row
+        // can never be mistaken for the platform's however `created_by` is populated -- the operator may
+        // hold the key under a different operator account than the one signed in.
+        //
+        // `whereRaw`, NOT `whereIn(DB::raw(...))`. `User` is Cachable, and laravel-model-caching's CacheKey
+        // cannot stringify an Expression inside an IN clause -- it throws "Object of class
+        // Illuminate\Database\Query\Expression could not be converted to string" (CacheKey.php:160), so the
+        // first version of this fix turned every call into a 500. Measured: of whereRaw, where, whereIn with
+        // plain values and whereIn with DB::raw, only the last one throws.
+        $platformOwnerIds = \App\Models\User::whereRaw('LOWER(TRIM(type)) = ?', ['super admin'])->pluck('id');
+
+        if ($platformOwnerIds->isEmpty()) {
+            return null;
+        }
+
+        $platform = ApikeySetiings::whereIn('created_by', $platformOwnerIds)->orderBy('id')->value('key');
+
+        return empty($platform) ? null : $platform;
+    }
+
     public function create($moduleName)
     { 
         $templateName = Template::where('module',$moduleName)->get();
@@ -18,8 +84,18 @@ class AITemplateController extends Controller
     }
     public function getKeywords(Request $request, $id)
     {
+        // P1-SEC-22(e). `Template::find()` returns null for any id that does not exist, and the next line
+        // dereferenced it -- a 500 reachable with any bad id. Same shape as aiGenerate's.
         $template = Template::find($id);
+        if ($template === null) {
+            return response()->json(['success' => false, 'template' => '', 'tone' => 0], 404);
+        }
+
         $field_data = json_decode($template->field_json);
+        if (! is_object($field_data) || ! isset($field_data->field) || ! is_iterable($field_data->field)) {
+            return response()->json(['success' => false, 'template' => '', 'tone' => 0], 422);
+        }
+
         $html = "";
         foreach ($field_data->field as  $value) {
             $html .= '<div class="form-group col-md-12">
@@ -44,13 +120,42 @@ class AITemplateController extends Controller
     public function aiGenerate(Request $request)
     {
         if ($request->ajax()) {
+            // P1-SEC-22(e). THE SPEND IS BOUNDED SERVER-SIDE, and before anything else happens.
+            //
+            // `result_length` reached OpenAI as `max_tokens` and `num_of_result` as `n`, both straight from
+            // the request: one call could ask for n=100 at max_tokens=999999. The form's `<select>`
+            // (generate.blade.php:68) and bare `Form::number` (:78) are client-side only.
+            //
+            // Refused rather than silently clamped: a caller asking for a hundred completions should be
+            // told no, not quietly given ten. The maxima are above any value the shipped form can produce,
+            // so no legitimate use changes.
+            $request->validate([
+                'result_length' => 'nullable|integer|min:1|max:' . self::MAX_RESULT_TOKENS,
+                'num_of_result' => 'nullable|integer|min:1|max:' . self::MAX_RESULTS,
+                'ai_creativity' => 'nullable|numeric|min:0|max:2',
+            ]);
+
             $post = $request->all();
 
             unset($post['_token'], $post['template_name'], $post['tone'], $post['ai_creativity'], $post['num_of_result'], $post['result_length']);
             $data = array();
-            $key_data = ApikeySetiings::inRandomOrder()->limit(1)->first();
+
+            // THE KEY IS THE CALLER'S OWN TENANT'S, OR THE PLATFORM'S -- NEVER ANOTHER MERCHANT'S.
+            //
+            // This was `ApikeySetiings::inRandomOrder()->limit(1)->first()`: no predicate at all.
+            // `apikey_setiings` has `created_by` and NO `store_id` (2024_03_13_084315), the model carries no
+            // `BelongsToStore` and is absent from config/tenancy.php's `scoped_models`, so nothing supplied
+            // one. Two tenants who both configured a key cross-charged each other at random, and a merchant
+            // with no key of their own billed whoever did.
+            //
+            // SCOPE OF THIS FIX, deliberately narrow. The acceptance criterion also asks WHO may spend the
+            // platform's key, and that is an owner decision which is still open -- no AI permission is
+            // seeded anywhere, and gating on a permission no row exists for is a permanent 403. So this
+            // closes the cross-tenant charge (the live defect) and PRESERVES today's behaviour where the
+            // platform holds the only key. If the owner decides merchants may not spend it, dropping the
+            // second limb below is the whole change.
+            $key_data = $this->resolveApiKeyForActor();
             $model_data = DB::table('settings')->where('name', 'chat_gpt_model')->first();
-            $key_data = $key_data->key ?? null;
             
             if ($key_data) {
 
@@ -71,10 +176,24 @@ class AITemplateController extends Controller
             $template = Template::where('id', $request->template_name)->first();
 
             if ($request->template_name) {
+                // P1-SEC-22(e). An unknown id left $template null and `$template->field_json` below
+                // dereferenced it -- a 500 for any id that does not exist.
+                if ($template === null) {
+                    $data['status'] = 'error';
+                    $data['message'] = __('Template not found.');
 
+                    return $data;
+                }
 
                 $required_field = array();
                 $data_field = json_decode($template->field_json);
+                if (! is_object($data_field) || ! isset($data_field->field) || ! is_iterable($data_field->field)) {
+                    $data['status'] = 'error';
+                    $data['message'] = __('Template not found.');
+
+                    return $data;
+                }
+
                 foreach ($data_field->field as  $val) {
                     request()->validate([$val->field_name => 'required|string']);
                 }

@@ -188,7 +188,7 @@ class YookassaController extends Controller
                 }
             } catch (\Exception $e) {
 
-                return redirect()->back()->with('error', $e);
+                return \App\Services\PaymentFailure::redirectBack($e, 'yookassa');
             }
 
         } else {

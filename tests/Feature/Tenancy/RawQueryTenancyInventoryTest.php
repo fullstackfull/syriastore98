@@ -54,7 +54,7 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
      * builder, and the surrounding query still carries its scopes, so conflating the two would
      * overstate this inventory.
      */
-    public function test_the_raw_entry_point_totals_are_the_measured_one_hundred_and_fifty_eight(): void
+    public function test_the_raw_entry_point_totals_are_the_measured_one_hundred_and_sixty_eight(): void
     {
         $perDir = [];
 
@@ -62,7 +62,65 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             $perDir[$dir] = count($this->rawEntryPoints($dir));
         }
 
-        // 113, DOWN FROM 114, AND THE DELTA IS ONE DELETED SITE.
+        // 112, DOWN FROM 114, AND THE DELTA IS TWO DELETED SITES -- P01-SEC-14 WORK PACKAGE C.
+        //
+        // Both were in app/Http/Controllers/Api/ApiController.php::notify_user, and both are
+        // GONE rather than rewritten:
+        //
+        //     $NotifyUser = DB::table('notify_users')
+        //         ->where('user_id', $request->user_id)
+        //         ->where('product_id', $request->product_id)
+        //         ->where('store_id', $store->id)
+        //         ->first();                                          // the `aware` one
+        //     $NotifyUser = DB::table('notify_users')->insert($values);  // the unscoped one
+        //
+        // THIS IS A REDUCTION IN RAW EXPOSURE, NOT A RELAXED RATCHET. The handler stored a
+        // caller-supplied `user_id` as the subscriber of a back-in-stock notification, and the
+        // consumer of that row sends an FCM push to the matching `users` row -- so a shopper
+        // could enlist an arbitrary platform user as the recipient. `notify_users.user_id`
+        // carries a foreign key to `users`, so a storefront customer's own id is not storable
+        // there at all: there is no correct value this handler could have written. It now fails
+        // closed (store-scoped product lookup, log, refusal envelope) and the write block was
+        // deleted outright rather than left after a `return`, because dead code reads as a live
+        // fallback. The schema decision that would let the feature work is an owner item --
+        // see S22 in docs/security/P01-SECURITY-WORK-QUEUE.md -- and when it is taken, the
+        // replacement write belongs in this inventory again, with a store predicate.
+        //
+        // The refusal and the absence of the write are asserted by
+        // tests/Feature/Security/ResidualSafetyCorrectionsTest.
+        //
+        // THE PRECEDING DELTA, PRESERVED VERBATIM: 114, UP FROM 113, AND THE DELTA IS ONE ADDED
+        // SITE -- P01-SEC-2.
+        //
+        // app/Http/Middleware/OrderDocumentAccessGuard.php, in handle()
+        //
+        //     $row = DB::table($target['table'])
+        //         ->where('id', $orderId)
+        //         ->first(['store_id', 'customer_id']);
+        //
+        // IT IS DELIBERATELY UNSCOPED, AND THAT IS THE POINT RATHER THAN AN OVERSIGHT. The
+        // statement's job is to FETCH the discriminator so the guard can compare it against the
+        // caller's tenant and refuse; a `where('store_id', getCurrentStore())` predicate here
+        // would turn "another merchant's order" into "no such order" and lose the ability to
+        // distinguish a cross-tenant request from a malformed one at all. The tenant control is
+        // the comparison in OrderDocumentAccessGuard::authorises(), two lines later, and it
+        // fails closed when either side's store is empty.
+        //
+        // It is raw rather than Eloquent for the same reason the BulkDeleteTenantGuard sites
+        // below are: one target table (`auction_product_orders`) belongs to a module class that
+        // does not exist when that module is not loaded, and `Order` carries neither the
+        // tenancy trait nor an entry in config/tenancy.php's scoped_models allowlist, so an
+        // Eloquent read would add no predicate while implying one.
+        //
+        // The PER-TABLE breakdown below is unchanged by it, correctly: it is
+        // `DB::table($target['table'])` with the table resolved at runtime, so LIMIT 2 in this
+        // class's docblock applies -- counted in this total only. It is pinned at file:line,
+        // with its classification and the comparison it depends on asserted, by
+        // tests/Feature/Tenancy/OwnedPathRawQueryInventoryTest, and exercised end to end
+        // against the resolved route and middleware stack by
+        // tests/Feature/Security/OrderDocumentAccessTest.
+        //
+        // THE PRECEDING DELTA, PRESERVED VERBATIM: 113, DOWN FROM 114, ONE DELETED SITE.
         //
         // Commit 1bd56358 ("retire the legacy Chatwoot integration") removed
         // app/Services/ChatwootOrderNotificationService.php, and with it the ONLY raw entry
@@ -104,13 +162,133 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // variable binding justified, by
         // tests/Feature/Tenancy/OwnedPathRawQueryInventoryTest, and exercised end to end by
         // tests/Feature/Tenancy/BulkDeleteAuthorizationTest.
-        $this->assertSame(['app' => 113, 'packages' => 45], $perDir,
+        // app 112 -> 113 with P1-INV-14: App\Http\Middleware\ModuleOrderMutationGuard's
+        // `DB::table($target['table'])->where('id', $rowId)` read. It is deliberately WITHOUT a
+        // store predicate -- the read exists to fetch `store_id` so the guard can compare it and
+        // refuse -- and it is classified and its controls asserted in
+        // tests/Feature/Tenancy/OwnedPathRawQueryInventoryTest, which is where the 'comparison'
+        // category lives.
+        // app 113 -> 115 with P1-INV-18: the shared trait's SET predicate adds two
+        // `DB::table($table)` reads -- both variable-table, so the per-table breakdown below is
+        // correctly unchanged. See OwnedPathRawQueryInventoryTest for why it is two and not one.
+        // app 115 -> 119 with P1-INV-20, FOUR sites, and unlike the two above most of them name
+        // their table literally, so the per-table breakdown below DOES move:
+        //   LotteryRefundOwnershipGuard's `$ownedByCaller` read   -> DB::table(self::TABLE), so
+        //                                                           VARIABLE: not attributed
+        //   LotteryRefundOwnershipGuard's slug lookup             -> stores  (18 -> 19)
+        //   LotteryMailTemplatePrerequisite's existence READ      -> email_templates (NEW)
+        //   LotteryMailTemplatePrerequisite's INSERT              -> email_templates
+        // `email_templates` enters this inventory for the first time, with two sites.
+        //
+        // THE READ IS RAW ON PURPOSE and that is why it is here at all: App\Models\EmailTemplate
+        // is Cachable, the Eloquent builder's pluck() caches even an EMPTY result, and
+        // DB::table()->insert() flushes nothing -- so an Eloquent read behind that raw write served
+        // the pre-write empty set and every draw after the first inserted three more rows,
+        // measured at 3 -> 6 across two draws. One more visible, classified raw site is a better
+        // trade than an invisible stale cache.
+        // app 119 -> 121 with P1-INV-19: the bid guard's product lookup and its current-maximum
+        // read. Both name their table literally, so the per-table breakdown below gains TWO rows.
+        // app 121 -> 122 with P1-INV-21: EnforceLotteryTicketPrice's `lottery_settings` read --
+        // the FIRST raw query this project has put in app/Listeners/, which is also why the
+        // owned-path inventory's glob had to be widened to reach it.
+        // app 122 -> 123 with P1-ORD-07's review fix: AccountProfileController::order_refund_request
+        // re-reads the order's `product_json` FOR UPDATE inside its transaction. It carries
+        // `store_id` AND `customer_id` predicates (the census's remedy for a new site), and it is raw on
+        // purpose, for the reason above: `Order` is Cachable, and a cached copy must never be able to
+        // make a stale row look current at the one place that compares for staleness.
+        // app 123 -> 124 with P1-SEC-27: App\Services\StoreSettingsAccess::storedRows() reads the store's `settings` rows to
+        // compare a posted restricted value with the stored one. It carries a `store_id` predicate (the census's remedy for a new
+        // site), and it is raw on purpose, for the reason above: `Setting` is Cachable and the admin API's writers use a raw
+        // `insert ... on duplicate key update` that flushes nothing, so an Eloquent read here could treat a stale value as the
+        // baseline and call a real change "unchanged" (pinned by SettingsRestrictedWriteTest::test_the_baseline_is_the_table_*).
+        // The per-table row for `settings` moves 15 -> 16 and its no-store_id column does not.
+        // app 124 -> 123 with P1-SEC-29: the host lookups moved into App\Services\HostClaims. FOUR raw `settings` reads without a store
+        // predicate (the `subdomain` and `domains` lookups in StoreRedirectServiceProvider and in ViewServiceProvider) are gone; three
+        // came back in HostClaims -- row() and heldByAnotherStore(), whose statements name the store through the matching flag's
+        // subquery, and assertFree()'s read of the store's own saved host. The per-table row for `settings` moves 16 -> 15 and its
+        // no-store_id column 9 -> 5: a REDUCTION in raw exposure, and the lookup now resolves only a row whose store has the flag on.
+        // 123 -> 130 across P1-SEC-10/11/35/04/12 (each raw read is deliberate and named in its own docblock): DeliverySyriaCredential (users, stores:
+        // the secret -> owner -> stores resolution, no store to predicate on until it is resolved) and the Zid status controller (two statements fewer);
+        // ModuleAdministrativeRouteGuard (campaigns, helpdesk_tickets, email_templates x1, user_email_templates, stores: ownership of the NAMED row,
+        // compared to the caller's tenant); OrderController::shippinglabel (settings, WITH a store_id predicate); OrderDocumentAccessGuard
+        // (order_refunds: refund id -> order id, and the ORDER's store is then what is compared to the caller).
+        // 130 -> 135 with P1-SEC-04's ModuleStorefrontInputGuard, which cdc213bd added to the middleware stack but did NOT record here
+        // (the commit updated this file for ModuleAdministrativeRouteGuard only, so CI went red on the three inventories). Its five reads:
+        // `stores` by slug twice (the comment route and the review route each resolve {storeSlug} -- there is no store to predicate on until
+        // the slug IS resolved, that read being the resolution), `stores` by id once (the thread read, whose id comes from the body and is
+        // then compared, never trusted), `products` once WITH a store_id predicate (the product must belong to the slug's store) and
+        // `customers` once, reading `store_id` as the VALUE so the customer's store can be compared with the caller's.
+        // 135 -> 136 with the P1-SEC-34 FOLLOW-UP: ModuleStorefrontInputGuard::sameShopperInStore(), which resolves the slug store's OWN
+        // customer row for the signed-in shopper (same e-mail, `store_id` = that store) instead of refusing a shopper the storefront has
+        // already told is signed in. It carries its own store_id predicate; widening it to ignore the store re-opens the cross-tenant
+        // write and is caught by two tests (mutant F of the task's removal check).
+        // 136 -> 139 with OWNER DECISION D13 / P1-INV-12: THREE raw `products` counts, one on each path that can
+        // delete a `categories` row and so fire the `products.category_id` ON DELETE CASCADE --
+        // CategoryController::destroy, BulkDeleteTenantGuard::categoriesStillHoldingProducts() and
+        // Api\DashboardController::DeleteCategory. All three are store-less BY DESIGN and that is the opposite of
+        // this census's usual remedy: the foreign key does not read `store_id`
+        // (2023_12_26_092822_create_products_table.php:55 cascades on `category_id` alone), so a predicate would make
+        // the count read zero against a populated category and PERMIT the cascade. Measured -- adding the predicate is
+        // mutant B of the task's removal check and fails exactly the cross-store test. They are also raw rather than
+        // Eloquent on purpose: `Product` is Cachable, and a stale model count would read zero the same way. Each
+        // returns a COUNT used only to refuse, never rows; the refusal bodies carry no ids.
+        // 139 -> 140 with the FOLLOW-UP to the D13 review: the child-category guard the API path was missing. The web
+        // twin has refused a category with child categories since P1-INV-08 (CategoryController:460); this handler had
+        // no such predicate, so the shipped app could delete a parent and ORPHAN its children -- `categories.parent_id`
+        // carries no foreign key, so they survive pointing at nothing and drop out of `buildCategoryTree()`. Unlike the
+        // three product counts, this statement DOES carry a `store_id` predicate (the category's OWN store, as the web
+        // twin does), so the no-store_id column below does not move for `categories`.
+        // 140 -> 141 with OWNER DECISION D3 / P1-ORD-11: the storefront refund request now enforces eligibility
+        // server-side, and the duplicate-refund half of that rule reads `order_refunds` by `order_id` with NO
+        // store predicate -- deliberately. The rule exists because `Order::refund()` is a hasOne
+        // (app/Models/Order.php:881) and a second row makes `$order->refund` resolve by default ordering, so the
+        // check must see exactly what that relation sees: `order_id` alone. The ORDER is already proven to be this
+        // store's and this shopper's by `ownedOrder()` immediately above the check. Raw rather than Eloquent because
+        // `OrderRefund` is Cachable (app/Models/OrderRefund.php:12) and a cached read could miss a row written
+        // moments earlier and admit the duplicate this refuses.
+        // 142 -> 143 with P1-ORD-02 criterion 2: ResolvesPendingPartialPayment reads the one
+        // `order_partial_payments` row that states what a shopper still owes, WITH a store_id
+        // predicate. Raw and not Eloquent for two measured reasons -- the module's own
+        // `OrderPartialPayments` is Cachable, and the same read runs again on the gateway return
+        // AFTER ManagePartialPayment() has written the row, so a cached answer would be the
+        // pre-write one; and the host app should not depend on a vendored class being loaded on a
+        // path where the module may not be. The customer half of the predicate is deliberately NOT
+        // in the statement: `customer_id` is a VARCHAR holding an integer, and MEASURED on MySQL
+        // 8.0.46 a SQL-side `where('customer_id', 7)` also matches '7abc', ' 7' and '07' while
+        // SQLite matches only '7' -- see tests/Support/Security/bin/verify-pending-partial-payment-lookup-on-mysql.php.
+        // 143 -> 145 with the two CodCollectionService sites. The owner's 2026-10-24 decision
+        // withdrew the Delivered-based COD settlement trigger and requires "a separate verified
+        // cash collection event, recording the collector ..., collection amount, time and
+        // supporting evidence". Both sites -- the insert and the read -- carry a store_id
+        // predicate at the call site; the read's FIRST version did not, and this ratchet is what
+        // caught it. Raw and not Eloquent because `cod_collection_events` has no model and no
+        // table yet: it is a GATE F draft, so an Eloquent class would be a model for a table that
+        // does not exist, and the service's isAvailable() gate is what keeps both sites inert.
+        $this->assertSame(['app' => 145, 'packages' => 45], $perDir,
             'The raw query-builder entry-point count moved. Every one of these is invisible to '
             . 'every Eloquent global scope, so a NEW site needs an explicit `store_id` predicate '
             . 'written at the call site -- there is no other remedy. A REMOVED one probably means '
             . 'a raw query became Eloquent, which is an improvement worth recording here.');
 
-        $this->assertSame(158, array_sum($perDir));
+        // 168 -> 175: seven new raw sites (see the per-directory note above)
+        // 175 -> 180: the five ModuleStorefrontInputGuard sites above; 180 -> 181 with sameShopperInStore (the follow-up)
+        // 181 -> 184: the three D13 category-delete product counts (see the note on the per-directory assertion above)
+        // 184 -> 185 with the API path's missing child-category guard, which DOES carry a store_id predicate
+        // 185 -> 186 with the D3 duplicate-refund check (see the note on the per-directory assertion above)
+        // 186 -> 187 with P1-SEC-11 criterion 4's review follow-up: DocumentDirection::ownRow() reads one
+        // `settings` row of the ORDER'S store directly, WITH a store_id predicate. Raw and not Eloquent
+        // for a measured reason -- `Utility::GetValueByName($name, $storeId)` falls through on a miss to
+        // `Utility::Setting()`, which IGNORES its store id argument whenever Auth::check() is true and
+        // reads the VIEWER's store, so an order document took the reader's logo and direction for any
+        // store with no row of its own. The per-table row for `settings` moves 16 -> 17 and its
+        // no-store_id column does NOT.
+        // 187 -> 188 with P1-ORD-02 criterion 2's pending-balance lookup (see the note above the
+        // per-directory assertion). The per-table row for `order_partial_payments` is NEW at [1, 0]
+        // -- the statement carries a store_id predicate -- so the unscoped sum below does not move.
+        // 188 -> 190 with the two CodCollectionService sites above. The per-table row for
+        // `cod_collection_events` is NEW at [2, 0] -- both statements name store_id -- so the
+        // unscoped sum below does not move.
+        $this->assertSame(190, array_sum($perDir));
     }
 
     /**
@@ -130,12 +308,73 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
 
         $this->assertSame([
             // table                         [ total sites, sites with no `store_id` anywhere ]
+            // NEW WITH P1-INV-19, and unscoped BY DESIGN. AuctionBidIdentityGuard:143 reads
+            // `max('bid_amount')` keyed on `product_id` alone, deliberately matching the vendored
+            // display reads at AuctionProductController:1568 and :1635 -- the guard enforces
+            // "higher than the current highest bid" and must ask the question the PAGE asks, or it
+            // would refuse a bid the page invited. `product_id` is globally unique, since `Product`
+            // carries no scope at all, so keying on it does identify one store's product.
+            'auction_product_bids' => [1, 1],
+            'campaigns' => [1, 1],
+            // NEW WITH THE D13 REVIEW FOLLOW-UP, and store-AWARE: the child-category guard added to
+            // Api\DashboardController::DeleteCategory, which the web twin has had since P1-INV-08. Raw because the
+            // question is "does any child exist", scoped to the category's OWN store -- asking the CALLER's store
+            // whether the victim's category has children is the P1-INV-08 bug, and for an own-store category the two
+            // values are the same. Counted as aware, not exposed, which is why its second number is 0.
+            'categories' => [1, 0],
+            // NEW with the owner's 2026-10-24 COD decision, and BOTH SITES SCOPED -- the [2, 0]
+            // is the point. The Delivered-based settlement trigger was withdrawn and replaced by
+            // "a separate verified cash collection event, recording the collector ..., collection
+            // amount, time and supporting evidence"; App\Services\CodCollectionService is that
+            // event, and its insert and read both name store_id at the call site.
+            //
+            // THE READ'S FIRST VERSION DID NOT, and this ratchet is what caught it -- but only
+            // after the service was changed to spell the table as a quoted LITERAL. Written as
+            // `DB::table(self::TABLE)` both statements were invisible here: the per-directory
+            // count moved and this map gained no row, so an unscoped read would have raised
+            // nothing. CodStateMachineTest::test_the_table_constant_and_the_literals_agree keeps
+            // the literal and the constant from drifting apart now that they are duplicated.
+            //
+            // The table itself is a GATE F draft and exists nowhere yet, so both statements are
+            // unreachable behind CodCollectionService::isAvailable(). They are inventoried anyway:
+            // the day the table lands is the day nobody re-reads this file.
+            'cod_collection_events' => [2, 0],
+        // P1-SEC-04: ModuleAdministrativeRouteGuard::ownsCampaign (the row named by `id`; compared to the caller's tenant)
             'coupon_requests' => [3, 3],
             'coupons' => [2, 0],
             'currency' => [3, 3],
-            'customers' => [5, 3],
+            'customers' => [7, 3],   // 5 -> 6 with P1-SEC-04 ModuleStorefrontInputGuard::customerBelongsTo (it READS `store_id` as the value to compare); 6 -> 7 with the follow-up's sameShopperInStore, WITH a store_id predicate -- so the unscoped column does not move either time
+            // NEW WITH P1-INV-20, and the only WRITE in this population.
+            // LotteryMailTemplatePrerequisite inserts the authenticated merchant's own
+            // `Lottery Win` / `Lottery Fail` / `Lottery Remainder` rows before a draw, because
+            // LotteryResultController:157 dereferences a null template and 500s AFTER the draw has
+            // written its order and lottery_customers rows -- measured on an otherwise valid
+            // own-store draw.
+            //
+            // IT COUNTS AS UNSCOPED AND THAT IS CORRECT, NOT AN EXCEPTION BEING CARVED OUT:
+            // `email_templates` HAS NO `store_id` COLUMN. It is keyed on `created_by`, and the
+            // insert sets that from `auth()->user()->id`, never from request input -- so the row
+            // cannot land in another tenant even though no `store_id` predicate is possible here.
+            // This inventory measures `store_id` predicates, so a table without the column reads
+            // as unscoped by construction; the real control is asserted per-site in
+            // tests/Feature/Tenancy/OwnedPathRawQueryInventoryTest, where the file is classified
+            // 'platform' and the owner-id derivation is pinned.
+            'email_templates' => [3, 3],  // 2 -> 3 with P1-SEC-04 ModuleAdministrativeRouteGuard::ownsEmailTemplate (same shape)
+            // NEW WITH P1-INV-21, and unscoped BY DESIGN. EnforceLotteryTicketPrice reads
+            // `ticket_price` for the ticket's own `lottery_id` by PRIMARY KEY, which is already
+            // unique -- and the only `store_id` the listener could add to the predicate is the one
+            // on the model being written, i.e. the untrusted side. The question it asks is "what
+            // does THAT lottery charge", and the primary key answers it exactly.
+            'helpdesk_tickets' => [1, 1], // P1-SEC-04: ModuleAdministrativeRouteGuard::ownsTicket
+            'lottery_settings' => [1, 1],
             'migrations' => [1, 1],
-            'notify_users' => [2, 1],
+            // `notify_users` USED TO BE LISTED HERE AT [2, 1] AND HAS LEFT THIS POPULATION
+            // ALTOGETHER: it now has no literal raw statement at all. P01-SEC-14 Work Package C
+            // deleted both -- the aware read and the unscoped insert -- when
+            // Api/ApiController.php::notify_user was made to fail closed. See the site-by-site
+            // note in the entry-point test above for why there was no correct value that insert
+            // could have written. If a store-scoped replacement write lands after the S22 schema
+            // decision, this row comes back and the ratchet will say so.
             // [1, 0], DOWN FROM [2, 1]. Commit 1bd56358 deleted
             // ChatwootOrderNotificationService, whose `DB::table('order_billing_details')
             // ->where('order_id', ...)->value('telephone')` was the single unscoped statement on
@@ -143,33 +382,144 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // filters orders.store_id against getCurrentStore(), so the unscoped count is now
             // zero. The ratchet this assertion guards is a count going UP; this one went down.
             'order_billing_details' => [1, 0],
+            // NEW WITH P1-ORD-07's review fix, and SCOPED: the FOR UPDATE freshness read in
+            // AccountProfileController::order_refund_request (id + store_id + customer_id).
+            // `order_refunds` 1 -> 2, and its no-store_id column 1 -> 2, WITH OWNER DECISION D3 / P1-ORD-11. The new
+            // site is the duplicate-refund half of the storefront request's eligibility rule. It is store-less for a
+            // stated reason rather than by omission: the rule exists because `Order::refund()` is a hasOne and a second
+            // row makes that relation resolve by default ordering, so the check has to ask the question the relation
+            // asks -- `order_id` alone. Narrowing it to the caller's store would let an anomalous foreign-store refund
+            // row sit on the order, invisible to this check and visible to `$order->refund`.
+            // NEW with P1-ORD-02 criterion 2, and it is AWARE: ResolvesPendingPartialPayment's lookup
+            // carries `->where('store_id', $store)`. The customer predicate is applied in PHP on the
+            // row it returns, for the engine reason recorded on the per-directory assertion above.
+            'order_partial_payments' => [1, 0],
+            'order_refunds' => [2, 2],    // P1-ORD-12: OrderDocumentAccessGuard resolves a refund id to its order id; the ORDER's store is what is compared to the caller
+            'orders' => [1, 0],
             'owner_menu_items' => [1, 1],
             'owner_menu_settings' => [1, 1],
             'owner_menus' => [1, 1],
             'personal_access_tokens' => [2, 2],
-            'settings' => [15, 9],
+            // NEW WITH P1-INV-19, and the [1, 0] is a HEURISTIC ARTIFACT worth naming rather than
+            // reading as reassurance. AuctionBidIdentityGuard:118 is
+            // `DB::table('products')->where('id', $productId)->first(['id', 'store_id'])` -- it
+            // carries NO store_id PREDICATE, and must not: bidding across stores is the module's
+            // own design. It counts as "scoped" only because this inventory looks for the string
+            // `store_id` in the statement, and the statement SELECTS that column in order to
+            // derive the bid's store from the row instead of from the caller. The real control is
+            // asserted per-site in OwnedPathRawQueryInventoryTest, where the file is classified
+            // 'comparison'.
+            // `products` 2 -> 5 and ITS NO-store_id COLUMN 0 -> 3 WITH OWNER DECISION D13 / P1-INV-12, and this is the
+            // one entry in this table where a RISE in the second number is the correct outcome rather than a regression.
+            // The three sites are the product counts in front of each path that can delete a `categories` row:
+            //     app/Http/Controllers/CategoryController.php           (destroy(), above categoryImageDelete())
+            //     app/Http/Middleware/BulkDeleteTenantGuard.php         (categoriesStillHoldingProducts())
+            //     app/Http/Controllers/Api/DashboardController.php      (DeleteCategory(), the endpoint repo B calls)
+            // `products.category_id` is ON DELETE CASCADE against `categories.id`, and the constraint does NOT read
+            // `store_id` -- so a row carrying another store's `store_id` and this `category_id` is destroyed just the
+            // same. A `store_id` predicate on these counts would therefore read zero and PERMIT the cascade: the usual
+            // remedy is, uniquely here, the defect. Verified on MySQL 8.0.46 by
+            // tests/Support/Security/bin/verify-category-product-cascade-on-mysql.php (6 checks, 0 failures) and by
+            // mutant B of the removal check. None of the three returns rows -- each is a COUNT read only to refuse.
+            'products' => [5, 3],    // 1 -> 2 with P1-SEC-04 ModuleStorefrontInputGuard::productOfStoreOrAbsent, WITH a store_id predicate -- the product must be the slug store's own
+            'settings' => [17, 5],   // 16 -> 17 with P1-SEC-11 criterion 4's review follow-up (DocumentDirection::ownRow reads the ORDER store's SITE_RTL and invoice_logo rows, WITH a store_id predicate -- see the entry-point note above for why it cannot go through GetValueByName); 15 -> 16 with P1-SEC-11 (OrderController::shippinglabel reads the order store's five address rows, WITH a store_id predicate); earlier: 15 -> 16 with P1-SEC-27 (StoreSettingsAccess::storedRows, WITH a store_id predicate); 16 -> 15 and 9 -> 5 with P1-SEC-29 (HostClaims)
             'shetabit_visits' => [16, 0],
             'side_menus_option' => [28, 0],
             'store_devices' => [2, 1],
             'store_order_financials' => [7, 3],
-            'stores' => [18, 17],
+            // 18 -> 19 AND 17 -> 18 with P1-INV-20: LotteryRefundOwnershipGuard's slug lookup,
+            // `DB::table('stores')->where('slug', $slug)->value('id')`.
+            //
+            // IT HAS NO `store_id` PREDICATE AND MUST NOT HAVE ONE: `stores` IS the tenant table.
+            // The slug is CALLER-SUPPLIED and this read only NAMES a store; the authorisation is
+            // the comparison of the resolved id against the signed-in customer's own `store_id`
+            // four lines later, which is what makes the slug not a tenant check. That comparison
+            // is pinned in OwnedPathRawQueryInventoryTest, where the file is classified
+            // 'comparison'.
+            //
+            // Note the shape of this row generally: 18 of 19 `stores` sites are 'unscoped' for the
+            // same structural reason, which is why a rising count on THIS table is not by itself a
+            // finding -- the per-site classification is.
+            'stores' => [23, 22],    // P1-SEC-10 (DeliverySyriaCredential: stores created by a matched owner) and P1-SEC-04 (Duo setting rule); the Zid controller's own stores read is gone.
+                                     // 20 -> 23 and 20 -> 22 with ModuleStorefrontInputGuard: two slug resolutions (no store_id to predicate on yet) and the thread read's by-id lookup, whose statement names `store_id` because the id comes from the body and is compared, not trusted
             'theme_customizes' => [2, 0],
+            'user_email_templates' => [1, 1], // P1-SEC-04: ModuleAdministrativeRouteGuard::ownsEmailTemplate (the row named in the body)
             'users' => [5, 5],
             'zid_events' => [2, 2],
-            'zid_orders' => [11, 11],
+            'zid_orders' => [11, 9],   // 11 -> 9 with P1-SEC-10: the lookup and the local status write now carry the authenticated stores
             'zid_stores' => [7, 2],
         ], $actual, 'The per-table raw-query inventory changed. If a `no-store_id` count went UP, '
             . 'a raw cross-tenant query was added where no global scope can reach it.');
 
-        // 135, DOWN FROM 136, AND 66, DOWN FROM 67 -- the same single deletion as above, flowing
-        // through both totals. The removed statement was attributable to a literal table name
-        // (order_billing_details) AND carried no store_id predicate, so it is subtracted from
-        // each sum exactly once. The unattributable count is unchanged at 20, so the
-        // attributable-plus-unattributable figure quoted in the message below moves 156 -> 155.
-        $this->assertSame(135, array_sum(array_map(fn ($r) => $r[0], $actual)),
-            '135 literal-table sites of the 155 entry points; the other 20 build their table name '
+        // 133, DOWN FROM 135, AND 65, DOWN FROM 66 -- the two notify_user deletions above,
+        // flowing through both totals. Both were attributable to a literal table name
+        // (notify_users) so both come off the first sum; only one of them lacked a store_id
+        // predicate, so the second sum moves by one.
+        //
+        // AND THE MESSAGE BELOW IS CORRECTED WHILE IT IS BEING TOUCHED, which is a separate
+        // thing from this delta and is called out so the two are not confused. It read '135
+        // literal-table sites of the 155 entry points; the other 20 build their table name from
+        // a variable'. 155 and 20 were already stale before P01-SEC-14: the four variable-table
+        // sites added since (BulkDeleteTenantGuard.php:431, :454, :469 and
+        // OrderDocumentAccessGuard.php:319) are all `DB::table($variable)`, so they raised the
+        // unattributable count 20 -> 24 and the entry-point total with it, and the prose was
+        // never flowed through. Re-measured rather than arithmetic: 160 entry-point lines, 133
+        // literal-table lines, 27 entry-point lines that are not a literal `DB::table('x')`.
+        //
+        // 24 -> 25 with P1-INV-14: ModuleOrderMutationGuard.php's read is
+        // `DB::table($target['table'])`, the table resolved per uri from the guard's TARGETS map,
+        // so it is a fifth variable-table site and the PER-TABLE breakdown below is correctly
+        // unchanged by it -- LIMIT 2 in this class's docblock. Its own controls are asserted in
+        // tests/Feature/Tenancy/OwnedPathRawQueryInventoryTest.
+        //
+        // The 27 are DashboardController.php:3302, :3374, :3468, :3564, :3665,
+        // StoreFinanceController.php:302, BulkDeleteTenantGuard.php:431, :454, :469,
+        // OrderDocumentAccessGuard.php:319, ComparesRowOwnership.php x3 (readRowStore plus the
+        // two limbs of the set predicate), Customer.php:150,
+        // Product.php:97,
+        // ProductAttribute.php:48, Tag.php:47, User.php:163, Utility.php:3171, :3173, :3196,
+        // :3198, :3212, :3214, OrderFinancialService.php:289, :402 and
+        // packages/workdo/Marketing/src/app/Models/Storefield.php:36.
+        // 133 -> 136 and 65 -> 68 with P1-INV-20: the `stores` slug lookup and the TWO
+        // `email_templates` sites, all naming their table literally. The guard's fourth new site,
+        // `$ownedByCaller`, uses `DB::table(self::TABLE)` and so falls into the variable-table
+        // population -- 27 -> 28 -- which is why these counts move by three and the entry-point
+        // total above moves by four.
+        // 136 -> 138 and 68 -> 69 with P1-INV-19: both new sites name their table literally, and
+        // only one of the two counts as unscoped -- see the `products` note above for why that
+        // asymmetry is an artifact of the heuristic and not a difference in the code.
+        // 138 -> 139 and 69 -> 70 with P1-INV-21: the `lottery_settings` read names its table
+        // literally and carries no store_id predicate, for the reason in its row above.
+        // 139 -> 140 with P1-ORD-07's review fix: the `orders` FOR UPDATE read names its table literally
+        // and carries store_id + customer_id, so the unscoped sum below does not move.
+        // 140 -> 141 with P1-SEC-27: StoreSettingsAccess::storedRows(), a `settings` read WITH a store_id predicate, so the
+        // unscoped sum below does not move.
+        // 141 -> 140 and 70 -> 66 with P1-SEC-29: four unscoped `settings` host lookups out, three store-aware reads in (HostClaims).
+        // 140 -> 147 with the seven sites of P1-SEC-10/11/04/12 (all name their table literally); the unscoped sum below moves by their no-store_id
+        // count: campaigns, helpdesk_tickets, email_templates, user_email_templates, order_refunds, stores x2 added; zid_orders 11 -> 9.
+        // 147 -> 152 with the five ModuleStorefrontInputGuard sites (all name their table literally); 152 -> 153 with sameShopperInStore
+        // 153 -> 156 with the three D13 category-delete product counts, which all name `products` literally
+        // 156 -> 157 with the API child-category guard, which names `categories` literally
+        // 157 -> 158 with the D3 duplicate-refund check, which names `order_refunds` literally
+        // 158 -> 159 with P1-SEC-11 criterion 4's review follow-up (DocumentDirection::ownRow, which names
+        // `settings` literally and carries a store_id predicate, so the unscoped sum below does not move).
+        // 159 -> 160 with P1-ORD-02 criterion 2's pending-balance lookup, which names
+        // `order_partial_payments` literally and carries a store_id predicate, so the unscoped sum
+        // below does not move.
+        // 160 -> 162 with the two CodCollectionService sites (owner decision 2026-10-24). Both name
+        // `cod_collection_events` literally and both carry a store_id predicate, so the unscoped
+        // sum below does not move. They are literals rather than `self::TABLE` precisely so this
+        // assertion and the map above can see them -- see the row's own note.
+        $this->assertSame(162, array_sum(array_map(fn ($r) => $r[0], $actual)),
+            '162 literal-table sites of the 190 entry points; the other 28 build their table name '
             . 'from a variable and so cannot be attributed (see LIMIT 2 in this class docblock).');
-        $this->assertSame(66, array_sum(array_map(fn ($r) => $r[1], $actual)));
+        // 66 -> 71: +9 (campaigns 1, helpdesk_tickets 1, email_templates 1, user_email_templates 1, order_refunds 1, stores 2, plus the Duo/credential reads) and -2 (zid_orders)
+        // 71 -> 73: of the five new sites only the two `stores` slug resolutions carry no `store_id` in their statement
+        // 73 -> 76 with the three D13 category-delete product counts, which carry no `store_id` DELIBERATELY -- see the
+        // `products` note above: the cascading foreign key does not read the column, so a predicate would make each
+        // count read zero against a populated category and permit the very cascade the refusal exists to stop.
+        // 76 -> 77 with the D3 duplicate-refund check, store-less for the reason stated on the `order_refunds` row.
+        $this->assertSame(77, array_sum(array_map(fn ($r) => $r[1], $actual)));
     }
 
     /**
@@ -222,8 +572,12 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // TENANT-DISCRIMINATED TABLES REACHED BY RAW SQL WITH NO store_id IN THE STATEMENT,
             // by table and statement count. Alphabetical, because the list is ksort()ed.
             //
-            // READ THE PER-TABLE NOTES BEFORE TREATING ANY OF THESE AS A LIVE EXPOSURE. Two of
-            // the four are not, and the exact sites are named so nobody has to re-derive it:
+            // READ THE PER-TABLE NOTES BEFORE TREATING ANY OF THESE AS A LIVE EXPOSURE. One of
+            // the three is not, and the exact sites are named so nobody has to re-derive it.
+            // THERE WERE FOUR ENTRIES AND TWO SUCH CAVEATS until P01-SEC-14 Work Package C; the
+            // fourth, `notify_users`, has left the list and its note is kept below rather than
+            // deleted, because the reason it was a false positive is the same reason the handler
+            // that produced it could not be made correct in place:
             //
             // `customers` -- NOT a tenancy finding, and this note is a CORRECTION of what was
             // first written here. The first version of this comment called it "the one that
@@ -239,36 +593,71 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // validators -- both carry `->where('store_id', $storeId)` and are correctly counted
             // as aware, not exposed.
             'customers' => 3,
-            // `notify_users` IS an allowlisted Eloquent model (NotifyUser), so the same caveat
-            // applies to it as to `customers`: the scope governs its Eloquent reads and cannot
-            // touch a raw statement.
+            // `order_refunds` 1 -> 2 with OWNER DECISION D3 / P1-ORD-11, and like the first it is not an exposure.
+            // The new statement is `exists()` on `order_refunds` by `order_id` in the storefront refund request's
+            // eligibility check: it returns a BOOLEAN, never rows, and it is reached only after `ownedOrder()` has
+            // proven the order belongs to this store AND this shopper. It is store-less deliberately -- see the
+            // per-table note -- because `Order::refund()` is a hasOne keyed on `order_id`, and a check narrower than
+            // the relation it protects would miss exactly the row that makes the relation ambiguous.
+            'order_refunds' => 2,
+            // `products` => 3 IS NEW WITH OWNER DECISION D13 / P1-INV-12, and it is the second entry in this list that
+            // is NOT a live exposure -- stated here because the list's own header tells a reader to check the per-table
+            // note before treating any entry as one.
             //
-            // AND IT IS A FALSE POSITIVE, which is why LIMIT 1 in this class docblock cuts both
-            // ways and is worth reading before acting on any number here. The one statement
-            // counted is the INSERT at Api/ApiController.php:6524,
-            // `DB::table('notify_users')->insert($values)`. `$values['store_id']` is assigned
-            // six lines earlier at :6518, outside the statement this inventory reads, so the
-            // write really does carry the discriminator. The paired READ at :6522 does filter on
-            // `store_id` and is correctly counted as aware. Kept in the list rather than
-            // special-cased, because an inventory with hand-carved exceptions stops being
-            // reproducible -- the exception is recorded here instead.
-            'notify_users' => 1,
+            // The three statements are the product counts in front of the three paths that can delete a `categories`
+            // row (named in the per-table row above). They are store-less deliberately and must stay that way: the
+            // `products.category_id` foreign key is ON DELETE CASCADE and does not read `store_id`, so a predicate here
+            // would read zero against a populated category and permit exactly the cross-tenant cascade the refusal
+            // exists to stop. What makes them not an exposure is what they return: COUNT(*), never rows, consumed only
+            // to produce a refusal. The refusal bodies carry no identifiers -- the category ids go to Log::warning
+            // only -- and on the bulk path the tenant-side caller passes the ownership-narrowed `$owned` list, so the
+            // only principal whose raw input reaches an unnarrowed count is the platform operator.
+            'products' => 3,
+            // `notify_users` => 1 WAS HERE AND IS NOT ANY MORE, and it is not reclassified: it
+            // has left the population this list describes, because P01-SEC-14 Work Package C
+            // deleted both of its raw statements outright. The note is preserved because it was
+            // the right reading of the wrong question.
+            //
+            // WHAT IT SAID, AND WHY IT WAS CORRECT AS A TENANCY READING. `notify_users` IS an
+            // allowlisted Eloquent model (NotifyUser), so the same caveat applied to it as to
+            // `customers`: the scope governs its Eloquent reads and cannot touch a raw
+            // statement. The one statement counted was the INSERT at
+            // Api/ApiController.php:6524, `DB::table('notify_users')->insert($values)`.
+            // `$values['store_id']` was assigned six lines earlier at :6518, outside the
+            // statement this inventory reads, so the write really did carry the discriminator --
+            // which is why LIMIT 1 in this class docblock cuts both ways and is worth reading
+            // before acting on any number here. The paired READ at :6522 did filter on
+            // `store_id` and was correctly counted as aware. It was kept in the list rather
+            // than special-cased, because an inventory with hand-carved exceptions stops being
+            // reproducible.
+            //
+            // WHAT THE TENANCY READING COULD NOT SEE. The discriminator was present and the
+            // SUBSCRIBER was not: `$values['user_id']` came from `$request->user_id`, so a
+            // storefront shopper chose whose back-in-stock push to enlist, and
+            // `notify_users.user_id` is a foreign key to `users`, which makes a customer's own
+            // id unstorable there. A store predicate on that insert would have been a correct
+            // predicate on an incorrect row. The handler now refuses; the feature waits on the
+            // S22 schema decision in docs/security/P01-SECURITY-WORK-QUEUE.md. A per-table
+            // count can only ever be a lower bound on the exposure -- this is what that limit
+            // looks like in practice.
             // `settings` IS THE REAL ONE, and it is the widest surface in the codebase: read on
             // every page render through getAdminAllSetting() (app/Helper/helper.php:350-382).
-            // It is also why Setting is NOT allowlisted. The nine sites:
+            // It is also why Setting is NOT allowlisted. The five sites (nine before P1-SEC-29):
             //     app/Models/Utility.php:830                      (Utility::cookies(), filtered
             //                                                      on created_by, not store_id --
             //                                                      the cookie-consent bleed
             //                                                      already detailed in
             //                                                      ResidualTenancyExposureTest)
-            //     app/Providers/StoreRedirectServiceProvider.php:30, :31
-            //     app/Providers/ViewServiceProvider.php:89, :90   (subdomain/domain -> store
-            //                                                      resolution; keyed on the host,
-            //                                                      so arguably correct)
+            //     (app/Providers/StoreRedirectServiceProvider.php:30, :31 and
+            //      app/Providers/ViewServiceProvider.php:89, :90 -- the host lookups -- were here
+            //      until P1-SEC-29 moved them into App\Services\HostClaims, which resolves a row
+            //      only when its own store has the matching flag on; four sites fewer, five left)
             //     app/Http/Controllers/AITemplateController.php:52
             //     packages/workdo/Donation/.../DonationController.php:187
             //     packages/workdo/PartialPayments/.../PartialPaymentsController.php:459, :470
-            'settings' => 9,
+            'settings' => 5,
+            // `order_refunds` => 1 (P1-ORD-12): OrderDocumentAccessGuard::handle() maps a refund id to its order id so that the ORDER's ownership is
+            // what gets judged; it returns no refund data to anyone.
             // `store_devices` -- app/Services/StoreNotificationService.php:195. Push-notification
             // device tokens, read with no store predicate. One statement, genuinely unscoped.
             'store_devices' => 1,
@@ -290,6 +679,29 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // It still has no `store_id` column, so if a new unscoped statement on it ever
             // appears it belongs back here -- and the per-table ratchet will say so first.
             'currency',
+            // NEW WITH P1-INV-20, AND NOT A TENANCY FINDING -- measured, not inferred from the
+            // name. `email_templates` genuinely has no `store_id` column: it discriminates on
+            // `created_by`, which is the OWNER, the same shape as the `owner_menu*` tables below.
+            // So no global scope was ever expected to reach it and nothing about its being
+            // unscoped here is a cross-tenant read surface.
+            //
+            // Its one unscoped statement is LotteryMailTemplatePrerequisite's insert, which sets
+            // `created_by` from `auth()->user()->id` -- never from request input -- so the row
+            // lands under the authenticated merchant and nowhere else. That derivation is the real
+            // control and it is pinned per-site in
+            // tests/Feature/Tenancy/OwnedPathRawQueryInventoryTest.
+            //
+            // WORTH RECORDING AGAINST THIS ENTRY: the module's own read of this table IS a
+            // cross-tenant one. LotteryPrizesController::sendOwnerEmailTemplate:715 is
+            // `EmailTemplate::where('name', 'LIKE', $emailTemplate)->first()` with no
+            // `created_by`, so on a populated install the mail body and the store slug inside it
+            // can come from another tenant's template. It is Eloquent, so it is not in THIS
+            // inventory's population at all -- and it has no host-side seam (a static call from
+            // inside vendored controllers; the only lever, a global scope on the shared
+            // App\Models\EmailTemplate, would reach every module's template reads and the
+            // operator's own management screens). Recorded as an upstream item on #67 rather than
+            // left for the next reader to rediscover from this row.
+            'email_templates',         // owner-discriminated, like owner_menus below
             'migrations',              // platform
             // THE LANDINGPAGE owner_menu* TABLES, MOVED HERE FROM THE UNDECLARED-SCHEMA LIST
             // BELOW because they now EXIST. They were absent only because of
@@ -324,9 +736,10 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             'owner_menus',
             'personal_access_tokens',  // platform; tokens belong to a user, not a store
             'stores',                  // the tenant REGISTRY itself -- ownership, not scoping
+            'user_email_templates',    // no store_id column: per-USER rows; P1-SEC-04's ownership rule compares the row's user to the caller's tenant
             'users',                   // no store_id column at all; see the DO-NOT-SCOPE list
         ], $notDiscriminated, 'A table moved between "has store_id" and "does not". That changes '
-            . 'what the 66 unscoped statements mean, so re-read the classification above.');
+            . 'what the 65 unscoped statements mean, so re-read the classification above.');
 
         $this->assertSame([
             // `coupon_requests` is declared only by a PACKAGE module
@@ -335,7 +748,41 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // `add_on_managers`, which is empty in a fresh database (NEW-ADDON-SCHEMA-03). So the
             // table is absent HERE while existing in production -- its three unscoped statements
             // are unclassified rather than cleared.
+            // NEW WITH P1-INV-19. This table DOES carry a `store_id` column
+            // (2024_09_18_070113_create_auction_product_bids_table.php:20, nullable + indexed) and
+            // the one raw statement on it has no `store_id` predicate -- so it belongs in this
+            // population, and listing it here is the accurate answer rather than an exemption.
+            //
+            // IT IS NOT A TENANCY FINDING, and the reason is the module's design rather than a
+            // judgement call. AuctionBidIdentityGuard:143 reads `max('bid_amount')` keyed on
+            // `product_id` to enforce "higher than the current highest bid", and it must ask the
+            // same question the page asks (AuctionProductController:1568, :1635 use the identical
+            // predicate) or it would refuse a bid the page invited. `product_id` is globally unique
+            // because `Product` carries no effective scope at all, so the key does identify one
+            // store's product; adding `store_id` would narrow the maximum to one store's rows while
+            // the page still showed the global one, and the guard and the page would disagree.
+            //
+            // What makes the WRITE safe is not a predicate on this read: it is that the bid's
+            // `store_id` and `customer_id` are derived from the product row and the authenticated
+            // principal, pinned in OwnedPathRawQueryInventoryTest.
+            'auction_product_bids',
+            // `campaigns` and `helpdesk_tickets` (P1-SEC-04's ModuleAdministrativeRouteGuard reads each row's owner) are declared only by their
+            // PACKAGE module's migrations, like `coupon_requests`: absent from a fresh database until the module is in `add_on_managers`.
+            'campaigns',
             'coupon_requests',
+            'helpdesk_tickets',
+            // NEW WITH P1-INV-21, and it belongs HERE rather than in the no-store_id list above --
+            // which is where I put it first, and the assertion was right to reject that.
+            // `lottery_settings` DOES carry `store_id`
+            // (2024_10_21_070929_create_lottery_settings_table.php:29), so it is tenant-
+            // discriminated, and the one raw statement on it carries no store predicate.
+            //
+            // NOT A TENANCY FINDING. EnforceLotteryTicketPrice reads `ticket_price` for the
+            // ticket's own `lottery_id` BY PRIMARY KEY, which is already unique; the only
+            // `store_id` the listener could add to that predicate is the one on the model it is
+            // correcting, i.e. the untrusted side. Classified per-site as 'derivation' in
+            // tests/Feature/Tenancy/OwnedPathRawQueryInventoryTest, where its controls are pinned.
+            'lottery_settings',
             // `owner_menu_items`, `owner_menu_settings` and `owner_menus` USED TO BE LISTED
             // HERE. They are not absent any more: PackageServiceProvider registers each addon's
             // real on-disk migration directory, which fixes NEW-ADDON-SCHEMA-02, so the six

@@ -282,21 +282,86 @@ class ResidualTenancyExposureTest extends TestCase
         // UNMEASURED here, which is not the same as zero, and is reported as such. composer.json
         // is another workstream's file and packages/ cannot be edited by this one, so this is
         // recorded rather than resolved.
-        $unresolvable = [];
+        //
+        // ====================================================================================
+        //  AND IT IS A PROPERTY OF THE PROCESS, NOT JUST THE WORKTREE -- WHICH COST A GREEN RUN.
+        // ====================================================================================
+        //
+        // `assertCount(23, ...)` was order-dependent and nobody knew until it broke. A test
+        // elsewhere in the same PHPUnit process that enables a module through the production
+        // loader -- `PackageServiceProvider::loadAddons()`, which calls `$loader->addPsr4()` --
+        // registers that module's namespace for the REST OF THE PROCESS. Its models then resolve
+        // here and the count drops. Measured: adding
+        // tests/Feature/Security/ModuleOrderMutationGuardTest, which enables LotteryPrizes and
+        // AuctionProduct, took this from 23 to 21, and the test PASSED in isolation and FAILED in
+        // the full run. (tests/Feature/Security/OrderDocumentRouteResolutionTest had been doing
+        // the same thing for AutomaticOrderPrinting all along without tripping it, only because
+        // that module contributes no model to this map.)
+        //
+        // So the count is replaced by a claim that holds in BOTH orders: every recorded class is
+        // either unresolvable, or its module's service provider has been registered in this
+        // process -- which is the only way it could have become resolvable. That keeps the real
+        // ratchet (a first-party model vanishing from the map, or an addon model quietly
+        // appearing) while surviving the module-enabling tests the security suites need.
+        $recorded = array_values(array_filter(
+            array_unique(array_values($this->bulkDeleteModelMap())),
+            fn ($class) => str_starts_with($class, 'Workdo\\')
+        ));
 
-        foreach (array_unique(array_values($this->bulkDeleteModelMap())) as $class) {
-            if (! class_exists($class)) {
-                $unresolvable[] = $class;
+        $this->assertCount(23, $recorded,
+            "The set of addon model classes IN THE MAP changed -- this is the part that does not "
+            . "depend on what resolved:\n  " . implode("\n  ", $recorded));
+
+        /*
+         * WHICH MODULE NAMESPACES THIS PROCESS HAS HAD REGISTERED -- READ OFF THE COMPOSER
+         * AUTOLOADER, NOT OFF THE APPLICATION.
+         *
+         * The first version of this asked `$this->app->getLoadedProviders()` and was wrong for a
+         * precise reason worth keeping: the Application is rebuilt for every test, so a provider
+         * another test registered is gone by the time this one runs. What PERSISTS is the
+         * autoloader -- `PackageServiceProvider::loadAddons()` calls `$loader->addPsr4()` on the
+         * Composer ClassLoader singleton, which is process-global and survives every app
+         * teardown. That is exactly the scope of the pollution, so it is the right thing to ask.
+         */
+        $loader = require base_path('vendor/autoload.php');
+        $loadedModules = [];
+
+        foreach (array_keys($loader->getPrefixesPsr4()) as $prefix) {
+            if (str_starts_with($prefix, 'Workdo\\')) {
+                $loadedModules[$prefix] = true;
             }
         }
 
-        $this->assertCount(23, $unresolvable, "The set of unresolvable addon models changed:\n  "
-            . implode("\n  ", $unresolvable));
+        $unresolvable = [];
+        $resolvedAnyway = [];
 
-        foreach ($unresolvable as $class) {
-            $this->assertStringStartsWith('Workdo\\', $class, $class . ' is unresolvable but is not '
-                . 'an addon class, which means a first-party model in the map has gone missing.');
+        foreach ($recorded as $class) {
+            if (! class_exists($class)) {
+                $unresolvable[] = $class;
+                continue;
+            }
+
+            $prefix = preg_replace('/^(Workdo\\\\[^\\\\]+\\\\).*$/', '$1', $class);
+            $resolvedAnyway[$class] = isset($loadedModules[$prefix]);
         }
+
+        foreach ($resolvedAnyway as $class => $explained) {
+            $this->assertTrue($explained,
+                $class . ' resolves although no provider for its module was registered in this '
+                . 'process. `Workdo\\` is absent from the psr-4 block of composer.json, so the only '
+                . 'way that happens is someone adding it there -- in which case these entries '
+                . 'join the bulk-delete map for real and their exposure is no longer unmeasured. '
+                . 'Loaded module namespaces: [' . implode(', ', array_keys($loadedModules)) . ']');
+        }
+
+        // The floor: with nothing enabled all 23 are unresolvable, and each enabled module can
+        // only account for the ones it owns. A class that resolves with NO explanation is caught
+        // above; this catches the opposite, a first-party model that has fallen out of the map.
+        $this->assertSame([], array_values(array_filter(
+            $unresolvable,
+            fn ($class) => ! str_starts_with($class, 'Workdo\\')
+        )), 'A non-addon class is unresolvable, which means a first-party model in the map has '
+            . 'gone missing.');
     }
 
     // =====================================================================================
@@ -416,17 +481,17 @@ class ResidualTenancyExposureTest extends TestCase
             // ProductLabel.php:43 declare the same method but implement it with ELOQUENT
             // (`ProductBrand::select()->...`), so they do carry global scopes and are not
             // bypasses. Found by measuring, after a name-based assumption put them on this list.
-            'app/Models/Customer.php:149',
+            'app/Models/Customer.php:150',
             // ^ and this one is UNREACHABLE: Customer.php declares getRelatedSlugs() but contains
             //   no `self::getRelatedSlugs(` caller, unlike the four below. Dead code -- which is
             //   why the one model in this group that IS now scoped has no live bypass.
-            'app/Models/Product.php:97',
+            'app/Models/Product.php:108',
             'app/Models/ProductAttribute.php:48',
             'app/Models/Tag.php:47',
             // :155 -> :160 when B4 added the `mobile_verified_at` cast above it. The SET is
             // unchanged -- same method, same DB::table() call, five lines down -- which is what
             // this census measures; the line is only how a site is named.
-            'app/Models/User.php:160',
+            'app/Models/User.php:163',
 
             // ------------------------------------------------------------------------------
             // Utility::cookies(). `DB::table('settings')` filtered on `created_by`, NOT on
@@ -438,19 +503,26 @@ class ResidualTenancyExposureTest extends TestCase
             // across all of them.
             // DELIBERATELY NOT FIXED here: the correct store id on the anonymous branch has to
             // come from the slug-resolved store, which is plumbing in app/Http/** and themes/**.
-            'app/Models/Utility.php:830',
+            'app/Models/Utility.php:854',
 
             // ------------------------------------------------------------------------------
             // FOREIGN_KEY_CHECKS toggles around the country/state/city reference-data import.
             // Platform-global data with no store_id at all, so tenancy does not apply. Listed so
             // this inventory is exhaustive rather than curated -- a filtered inventory is how a
             // site gets missed.
-            'app/Models/Utility.php:3171',
-            'app/Models/Utility.php:3173',
-            'app/Models/Utility.php:3196',
-            'app/Models/Utility.php:3198',
-            'app/Models/Utility.php:3212',
-            'app/Models/Utility.php:3214',
+            // LINE NUMBERS SHIFTED BY 56 on 2026-10-23 (P1-ORD-01): a docblock was added to
+            // Utility::paymentWebhook() above these sites. The SITES ARE UNCHANGED -- each
+            // entry below was verified to point at the same construct it named before -- and
+            // nothing was added to or removed from this inventory. A census keyed on line
+            // numbers moves whenever a comment does, which is why the D13 store-less
+            // declaration in OwnedPathRawQueryInventoryTest keys on a statement fragment
+            // instead.
+            'app/Models/Utility.php:3254',
+            'app/Models/Utility.php:3256',
+            'app/Models/Utility.php:3279',
+            'app/Models/Utility.php:3281',
+            'app/Models/Utility.php:3295',
+            'app/Models/Utility.php:3297',
 
         ], $sites, 'The raw-query inventory in the owned models changed. A NEW site here is '
             . 'invisible to every global scope and needs an explicit predicate written at the '

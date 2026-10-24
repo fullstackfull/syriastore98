@@ -16,8 +16,48 @@ class CustomerController extends Controller
     /**
      * Display a listing of the resource.
      */
+/**
+ * CLAUDE B FINDING / P01B-SEC-2. THE ADD-CUSTOMER ACTION HAD NO PERMISSION CHECK AT ALL.
+ *
+ * Claude B reported the check as "removed for testing and still absent", and that is what the
+ * code showed: store() went straight from the method signature into $request->validate(), while
+ * its siblings in this same controller all gate -- index() and destroy() on 'Manage Customer',
+ * show() on 'Show Customer'. Any authenticated user could create a customer.
+ *
+ * A HIDDEN BUTTON IS NOT A FIX, and the brief says so explicitly, so the gate is here on the
+ * server action. The Blade visibility is a separate, secondary concern and is not what this
+ * closes.
+ *
+ * GATED ON 'Manage Customer', NOT ON 'Create Customer'. That name does not exist: the only
+ * customer rows Utility::addNewData() creates are 'Manage Customer', 'Show Customer' and
+ * 'Status Customer' -- verified by counting both quote styles, and recorded already in
+ * destroy()'s docblock below. Gating on an invented name would 403 every legitimate user on a
+ * database built from source, which is the exact failure that locked out the finance surface.
+ *
+ * THE STORE FALLBACK IS ALSO CLOSED. The row was created with
+ * `'store_id' => auth()->user()->current_store ?? 1`, so a user with no current_store silently
+ * created the customer in STORE 1 -- another tenant's store. It now resolves through
+ * getCurrentStore(), which returns 1 only for the platform operator (app/Helper/helper.php) and
+ * null for a merchant with no store, and a null store is refused rather than defaulted.
+ */
 public function store(Request $request)
 {
+    $user = auth()->user();
+
+    // Operator first: isAbleTo() has no super-admin bypass in this codebase, so testing the
+    // permission alone would refuse the platform operator. Same order as destroy() below.
+    $isOperator = $user && strtolower(trim((string) $user->type)) === 'super admin';
+
+    if (!$user || (!$isOperator && !$user->isAbleTo('Manage Customer'))) {
+        return redirect()->back()->with('error', __('Permission denied.'));
+    }
+
+    $store = getCurrentStore();
+
+    if (empty($store)) {
+        return redirect()->back()->with('error', __('Permission denied.'));
+    }
+
     try {
         $validated = $request->validate([
             'first_name' => 'required|string|max:255',
@@ -36,7 +76,7 @@ public function store(Request $request)
             'password' => \Hash::make($validated['password']),
             'type' => 'customer',
             'status' => $validated['status'],
-            'store_id' => auth()->user()->current_store ?? 1,
+            'store_id' => $store,
             'regiester_date' => now()->toDateString(),
             'last_active' => now()->toDateString(),
             'created_by' => auth()->id(),
@@ -52,7 +92,7 @@ public function store(Request $request)
         
         return redirect()->back()
             ->withErrors($e->validator)
-            ->withInput()
+            ->withInput($request->except(['password', 'password_confirmation']))
             ->with('error', 'Validation failed: ' . implode(', ', $errorMessages));
             
     } catch (\Exception $e) {
@@ -63,12 +103,19 @@ public function store(Request $request)
         ]);
         return redirect()->back()
             ->with('error', 'Error: ' . $e->getMessage())
-            ->withInput();
+            ->withInput($request->except(['password', 'password_confirmation']));
     }
 }
 
 public function create()
     {
+        $user = auth()->user();
+        $isOperator = $user && strtolower(trim((string) $user->type)) === 'super admin';
+
+        if (!$user || (!$isOperator && !$user->isAbleTo('Manage Customer'))) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
         return view('customer.create');
     }
 

@@ -1,10 +1,9 @@
-@php
-    $invoice_logo = \App\Models\Utility::GetValueByName('invoice_logo');
-    $invoice_logo = get_file($invoice_logo);
-@endphp
-
 <!DOCTYPE html>
-<html lang="en">
+{{-- P1-SEC-11 criteria 1 and 4 -- see order/shippinglabel.blade.php for the full note. The logo and the
+     direction come from the ORDER'S store now; `invoice_logo` used to be fetched here with no store id,
+     which resolves getCurrentStore(), so the platform operator printing a merchant's receipt got the
+     operator's logo on it. --}}
+<html lang="{{ $documentLocale ?? app()->getLocale() }}" dir="{{ ($documentRtl ?? false) ? 'rtl' : 'ltr' }}">
 
 <head>
 <meta charset="UTF-8">
@@ -136,6 +135,35 @@
                 margin-top: 5mm;
             }
 
+            /*
+               P1-SEC-11 criterion 4. THIS DOCUMENT NOW DECLARES A DIRECTION AND HAD NO RULES KEYED ON
+               ONE -- found by the read-only review of the first cut, which is the right finding: giving
+               a template `dir="rtl"` without mirroring its own floats leaves a HALF-FLIPPED document,
+               base text direction reversed while every float and text-align stays left-oriented. That
+               is worse than the LTR-only layout it replaced, not better.
+
+               Each rule below mirrors one authored LTR rule in this same stylesheet and nothing else:
+               `.clientlogo` floats left (:91), `.title` floats right (:104) and `.title p` is
+               right-aligned (:108). `.info` sets `margin-left: 0` (:100), which is already
+               direction-neutral and so is not restated. Table cells are not restated either: this
+               document, unlike the shipping label, sets no `text-align` on them, so they inherit the
+               direction and flip on their own.
+
+               Scoped to `#invoice-POS` like every other rule here, so nothing outside this document
+               can be reached.
+            */
+            html[dir="rtl"] #invoice-POS .clientlogo {
+                float: right;
+            }
+
+            html[dir="rtl"] #invoice-POS .title {
+                float: left;
+            }
+
+            html[dir="rtl"] #invoice-POS .title p {
+                text-align: left;
+            }
+
             @media print {
                 /*#invoice-POS {transform: scale(2);}*/
                 /*@page  {*/
@@ -149,7 +177,14 @@
             <div class="logo">
                 <center>
                     <img class="mt-2 mb-2 ml-2"
-                        src="{{ !empty($invoice_logo) ? $invoice_logo : $profile . '/logo.png' }}" width="120">
+                        {{-- P1-SEC-11 criterion 4, found while driving this document. `$profile` IS DEFINED NOWHERE:
+                             not by the controller, not by a view composer, not by a shared variable -- grepped. So
+                             whenever `$invoice_logo` came back empty this line raised "Undefined variable $profile"
+                             and the document answered 500. It stayed hidden because the old code read
+                             `GetValueByName('invoice_logo')` with NO store id, which resolves the VIEWER's store and
+                             so almost always found a row -- the very defect criterion 1 is about was what kept this
+                             one latent. The handler now guarantees a value, so the fallback is gone. --}}
+                        src="{{ $invoice_logo }}" width="120">
                 </center>
             </div>
             <div class="info">

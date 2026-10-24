@@ -1,0 +1,85 @@
+name: Security attestation (push)
+
+# THE PUSH HALF OF THE SENSITIVE-DIFF CHECKLIST, AND IT DOES NOT BLOCK.
+#
+# .github/SECURITY-DIFF-REVIEW.md requires a human to work a checklist and leave a marker. The
+# enforcing copy of that gate lives in security-attestation.yml and runs on pull requests, where
+# there is a description to leave the marker in and a reviewer to read it.
+#
+# A DIRECT PUSH HAS NEITHER, and until this repository requires pull requests a direct push to a
+# protected branch reaches it with nothing asked of it. Every commit in this repository's history
+# but a handful arrived that way. This workflow exists so that case is VISIBLE rather than silent:
+# the same script, the same pattern, the same checklist, reading the acknowledgement out of the
+# PUSHED COMMIT MESSAGES instead of a pull request body, and reporting a miss as a `::warning::`
+# plus a run-summary entry.
+#
+# REPORTING IS NOT REVIEWING, and this file is careful not to imply otherwise. `report` mode exits
+# 0 on an unacknowledged sensitive diff. What actually enforces the checklist is branch protection
+# requiring pull requests — a repository setting no workflow file can assert. Recorded in the
+# sprint report as an owner action.
+#
+# WHY A SEPARATE WORKFLOW RATHER THAN A STEP IN ci.yml, which runs on push already. P01-A' did put
+# it there, in the `static` job, and it worked. It had to move for a reason that is a property of
+# the PAIR of files rather than of either one:
+# tests/Unit/Ci/SecurityAttestationWiringTest.php asserts ci.yml never names the gate script, so
+# that nobody reinstates an ENFORCING copy in a workflow which cannot be cleared by a description
+# edit. Honouring that invariant means the push-mode caller lives outside ci.yml too. Keeping it
+# here also makes the enforce/report split legible from the workflow list, instead of buried in a
+# shell conditional inside a 1,700-line file.
+#
+# WHY IT CANNOT BECOME THE ENFORCING COPY BY ACCIDENT. The mode is a literal `report` argument on
+# the command line below, not a variable, not an input and not derived from the event. The script
+# treats an unrecognised mode as a usage error and exits 2 rather than falling back to either
+# behaviour, so a typo here fails this workflow loudly instead of silently changing which half of
+# the gate runs. RequiredGateWiringTest pins both facts.
+
+on:
+  push:
+    branches-ignore:
+      # Pull requests from these get the ENFORCING workflow; running the report copy as well
+      # would put two entries for one diff in the checks list, which is the duplication this
+      # split exists to avoid.
+      - 'gh-readonly-queue/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  # Keyed on the ref, and separate from both ci.yml and security-attestation.yml so this can
+  # never cancel a code run or an enforcing attestation.
+  group: security-attestation-push-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  attestation-report:
+    name: "Security-sensitive diff: push report (non-blocking)"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Refuse to run as root
+        run: '[ "$(id -u)" != "0" ] || { echo "refusing to run as root"; exit 1; }'
+
+      # Full history: the pushed range's base may be far from a shallow clone's floor.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Report an unacknowledged security-sensitive diff
+        env:
+          # `github.event.before` is the pushed range's true base, which is what the other
+          # push-scoped guards in ci.yml (php -l, the secret scan, the workdo guard) already use.
+          # The all-zeros value is the new-branch case, where there is no before-commit.
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          base="${BEFORE_SHA:-}"
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
+            base="$(git rev-parse HEAD~1 2>/dev/null || git rev-parse HEAD)"
+          fi
+
+          # The acknowledgement is looked for in the pushed commit messages, because a push has
+          # no description. Still a human action: somebody has to have written the marker.
+          git log --format=%B "${base}..HEAD" > /tmp/sensitive-ack.txt 2>/dev/null \
+            || : > /tmp/sensitive-ack.txt
+
+          # `report` is a literal, never a variable. See the header.
+          .github/scripts/flag-sensitive-diff.sh "$base" /tmp/sensitive-ack.txt report

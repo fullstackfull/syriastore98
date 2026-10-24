@@ -76,7 +76,7 @@ class RazorpayPaymentController extends Controller
                 if ($assignPlan['is_success'] == true && !empty($plan)) {
 
                     $orderID = strtoupper(str_replace('.', '', uniqid('', true)));
-                    Order::create(
+                    PlanOrder::create(
                         [
                             'order_id' => $orderID,
                             'name' => null,
@@ -94,7 +94,7 @@ class RazorpayPaymentController extends Controller
                             'receipt' => null,
                             'user_id' => $authuser->id,
                         ]
-                    );
+                    );   // P1-PLT-02: a plan sale is a plan_orders row; Order::create wrote a blank host order with store_id NULL
                     $res['msg']  = __("Plan successfully upgraded.");
                     $res['flag'] = 2;
 

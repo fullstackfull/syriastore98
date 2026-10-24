@@ -39,9 +39,19 @@
 # Artefacts that should never have been committed.
 /error_log
 composer.phar
+/_active', 1)
 .DS_Store
 
 # PHPUnit's per-run cache. Regenerated on every run and machine-specific; it has no
 # business in version control and shows up as an untracked file after any test run.
 .phpunit.result.cache
 .phpunit.cache
+
+# Personal Claude Code configuration; project configuration is .claude/settings.json
+.claude/settings.local.json
+CLAUDE.local.md
+
+# Written by the vendored paytabscom/laravel_paytabs package (not by this repository) into the
+# application root whenever a PayTabs code path runs, which the Feature suite does. Regenerated on
+# every run, so it shows up as an untracked file and makes the tree look dirty after any test run.
+/debug_paytabs.log

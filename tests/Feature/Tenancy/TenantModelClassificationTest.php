@@ -516,4 +516,112 @@ class TenantModelClassificationTest extends TestCase
             . implode("\n  ", $this->withoutTable)
         );
     }
+
+    // -------------------------------------------------------------------------------------
+    //  P1-PLT-03: EVERY TRAIT-CARRIER THAT IS NOT ENFORCED IS ACCOUNTED FOR
+    // -------------------------------------------------------------------------------------
+
+    /**
+     * Trait-carrying models that are not enforced and are not yet CLASSIFIED either.
+     *
+     * P1-PLT-03 asked for "a documented inventory of which models are scoped and which are
+     * deliberately not", and the audit that answered it found exactly one gap. Seventeen models
+     * carry BelongsToStore; ten are enforced; six of the remaining seven are accounted for by
+     * publicStorefrontModels() (Product, Category, Shipping) or by the GATE F tableless set
+     * (StoreWallet, StoreWalletTransaction, StoreWithdrawal).
+     *
+     * `DeliveryBoy` was the seventh, named in BelongsToStore's docblock as one of the seven and
+     * explained NOWHERE. An unexplained exclusion is a hole in an inventory, so it was measured
+     * rather than left:
+     *
+     *   - `delivery_boys.store_id` EXISTS and is `nullable()->index()`.
+     *   - It is NOT the `Role` nullable trap. Both writers set the column --
+     *     DeliveryBoyApiController:160 (`'store_id' => $store_id`) and DeliveryBoyController:71
+     *     (`= getCurrentStore()`) -- so this codebase creates no driver with a NULL store. LEGACY
+     *     rows are the one precondition an operator must check first, and that is a single count.
+     *   - Enforcing it would NOT break driver login: a driver authenticates on the `deliveryboy`
+     *     guard, which `auth()->user()` on `web` cannot see, so the lookup resolves
+     *     MODE_UNRESOLVED and `null_tenant => 'open'` adds no predicate.
+     *   - It WOULD add protection: of 26 `DeliveryBoy::` query sites in app/, only 4 carry a store
+     *     filter.
+     *
+     * So it is an ENFORCEMENT CANDIDATE rather than a deliberate exclusion. It is not enforced
+     * here, deliberately: that changes the visibility of an AUTHENTICATION PROVIDER, which is the
+     * class of change that has twice broken this codebase, and the evidence it needs is a
+     * full-suite run with the model allowlisted -- a package of its own.
+     *
+     * @return array<class-string, string> class => why it is still a candidate rather than settled
+     */
+    public static function enforcementCandidates(): array
+    {
+        /*
+         * EMPTY, and that is the point of P1-PLT-08.
+         *
+         * `DeliveryBoy` was the one entry: store_id set by both writers, driver login resolving no
+         * web tenant, 22 of 26 read sites unfiltered -- enforcement looked safe and was held back
+         * only because it changes an AUTHENTICATION PROVIDER's visibility, which needed its own
+         * full-suite evidence rather than a reading. That evidence exists now
+         * (tests/Feature/Tenancy/DeliveryBoyScopeTest plus the batch-2 isolation matrix), so the
+         * model is allowlisted in config/tenancy.php and is no longer a candidate.
+         *
+         * The list stays, and the exhaustiveness assertion below still consults it, because the
+         * next trait-carrier added to a model without an allowlist entry has to land somewhere
+         * reasoned rather than pass unnoticed -- which is exactly how DeliveryBoy sat unexplained.
+         */
+        return [];
+    }
+
+    /**
+     * THE EXHAUSTIVENESS ASSERTION. A trait-carrier with no recorded reason fails here.
+     *
+     * This is what stops the P1-PLT-03 hole reopening. Attaching BelongsToStore to a model without
+     * allowlisting it is behaviour-neutral, so it is an easy thing to do and an easy thing to
+     * leave unexplained for months -- which is precisely what happened to `DeliveryBoy`. Every
+     * carrier must now be either enforced or named in one of the four reasoned lists.
+     */
+    public function test_every_trait_carrier_is_either_enforced_or_explained(): void
+    {
+        $carriers = [];
+
+        foreach ($this->eloquentModels() as $class) {
+            if (in_array(BelongsToStore::class, class_uses_recursive($class), true)) {
+                $carriers[] = $class;
+            }
+        }
+
+        $this->assertGreaterThan(10, count($carriers),
+            'Almost no model carries the trait, so the partition below would be vacuous. '
+            . 'Found: ' . count($carriers));
+
+        $explained = array_merge(
+            array_keys(self::publicStorefrontModels()),
+            array_keys(self::doNotScopeDespiteHavingTheColumn()),
+            array_keys(self::enforcementCandidates()),
+            [
+                \App\Models\StoreWallet::class,
+                \App\Models\StoreWalletTransaction::class,
+                \App\Models\StoreWithdrawal::class,
+            ]
+        );
+
+        $unexplained = [];
+
+        foreach ($carriers as $class) {
+            if (StoreScope::isAllowlisted($class)) {
+                continue;
+            }
+
+            if (! in_array($class, $explained, true)) {
+                $unexplained[] = $class;
+            }
+        }
+
+        $this->assertSame([], $unexplained,
+            "These models carry BelongsToStore, are NOT enforced, and no list records WHY. "
+            . "Attaching the trait without allowlisting is behaviour-neutral, so an unexplained "
+            . "carrier can sit here for months -- which is what happened to DeliveryBoy and what "
+            . "P1-PLT-03 closed. Add each to publicStorefrontModels(), "
+            . "doNotScopeDespiteHavingTheColumn(), enforcementCandidates(), or the GATE F "
+            . "tableless set, with its reason:\n  " . implode("\n  ", $unexplained));
+    }
 }

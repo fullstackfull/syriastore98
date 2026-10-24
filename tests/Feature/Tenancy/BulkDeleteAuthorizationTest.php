@@ -107,6 +107,19 @@ class BulkDeleteAuthorizationTest extends SecurityTestCase
         ]);
     }
 
+    private function insertCategory(Store $store, string $name): int
+    {
+        return (int) DB::table('categories')->insertGetId([
+            'name' => $name,
+            'slug' => $name . '-' . uniqid(),
+            'parent_id' => 0,
+            'status' => 1,
+            'store_id' => $store->id,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+    }
+
     /** @param array<int, int> $ids */
     private function survivingIds(string $table, array $ids): array
     {
@@ -250,6 +263,28 @@ class BulkDeleteAuthorizationTest extends SecurityTestCase
      * against Utility::addNewData(), AND against the single-record controller it was copied from,
      * so the bulk path can never require more than the per-record screen already does.
      */
+    /**
+     * `CATEGORY_TYPE` is the key the two D13 blocks switch on, so it has to name a real type in
+     * the map and that type has to be the product-category model. Raised by review: an upstream
+     * rename is already caught by the whole-map comparison above and by the behavioural tests
+     * posting the literal 'main-category', but neither failure says "D13 is unhooked".
+     */
+    public function test_the_d13_category_type_names_the_product_category_model(): void
+    {
+        $this->assertArrayHasKey(
+            BulkDeleteTenantGuard::CATEGORY_TYPE,
+            BulkDeleteTenantGuard::MODEL_MAP,
+            'CATEGORY_TYPE is not a type this guard maps, so both D13 blocks are dead code'
+        );
+
+        $this->assertSame(
+            \App\Models\Category::class,
+            BulkDeleteTenantGuard::MODEL_MAP[BulkDeleteTenantGuard::CATEGORY_TYPE],
+            'CATEGORY_TYPE no longer names the product-category model, so the D13 refusal is '
+                . 'guarding the wrong table'
+        );
+    }
+
     public function test_every_permission_name_this_guard_requires_is_created_by_the_seeder(): void
     {
         $utility = file_get_contents(base_path('app/Models/Utility.php'));
@@ -301,12 +336,53 @@ class BulkDeleteAuthorizationTest extends SecurityTestCase
             $this->assertFileExists($file);
             $body = (string) file_get_contents($file);
             $destroy = substr($body, (int) strpos($body, 'function destroy'));
+            $window = substr($destroy, 0, 1200);
+            $needle = "isAbleTo('{$permission}')";
+
             $this->assertStringContainsString(
-                "isAbleTo('{$permission}')",
-                substr($destroy, 0, 1200),
+                $needle,
+                $window,
                 "{$controller}::destroy no longer requires '{$permission}', so the bulk path would "
                 . 'be demanding a permission the single-record path does not.'
             );
+
+            /*
+             * A COMMENT MUST NOT BE ABLE TO SATISFY THE ASSERTION ABOVE. P1-INV-08.
+             *
+             * MEASURED, not hypothesised: a P1-INV-08 docblock in CategoryController::destroy
+             * quoted `$needle` verbatim inside this window, and with the controller's REAL
+             * permission check deleted this file still passed 23/23 -- the ratchet had become
+             * satisfiable by prose. Exactly the "a ratchet matching a comment that quotes the
+             * defect it scans for" failure CLAUDE.md names.
+             *
+             * Two independent conditions, because either alone can be evaded: the needle must
+             * appear exactly ONCE in the window, and the line carrying it must be code rather
+             * than a comment. A controller that legitimately needs the string twice should hoist
+             * its check instead of relaxing this.
+             */
+            $occurrences = substr_count($window, $needle);
+            $this->assertSame(1, $occurrences,
+                "{$controller}::destroy contains the literal \"{$needle}\" {$occurrences} times "
+                . 'in the first 1200 bytes. A second occurrence -- in a docblock quoting the '
+                . 'permission, typically -- would keep this test green after the real check was '
+                . 'deleted. Reword the comment to name the permission without its call syntax.');
+
+            $codeLines = array_values(array_filter(
+                explode("\n", $window),
+                static function (string $line) use ($needle): bool {
+                    if (!str_contains($line, $needle)) {
+                        return false;
+                    }
+                    $trimmed = ltrim($line);
+
+                    return !str_starts_with($trimmed, '*')
+                        && !str_starts_with($trimmed, '//')
+                        && !str_starts_with($trimmed, '/*');
+                }
+            ));
+            $this->assertNotEmpty($codeLines,
+                "{$controller}::destroy mentions '{$permission}' only inside a comment, so this "
+                . 'guard is measuring prose rather than an authorization check.');
         }
     }
 
@@ -949,5 +1025,156 @@ class BulkDeleteAuthorizationTest extends SecurityTestCase
         $this->actingAs($merchant)
             ->post(route('bulk-delete'), ['type' => 'country', 'ids' => [1, 2, 3]])
             ->assertStatus(403);
+    }
+    // =========================================================================================
+    //  G. OWNER DECISION D13 -- A CATEGORY WITH PRODUCTS IN IT IS NOT DELETABLE HERE EITHER
+    // =========================================================================================
+
+    /**
+     * WHY THIS ROUTE NEEDED ITS OWN GUARD, AND WHY THE CONTROLLER'S WAS NOT ENOUGH.
+     *
+     * `CategoryController::destroy` carries the D13 refusal, but this endpoint never calls it:
+     * BulkDeleteController:116 is `$model::whereIn('id', $request->ids)->delete()` straight onto
+     * `App\Models\Category`. `products.category_id` is `ON DELETE CASCADE` against
+     * `categories.id` (database/migrations/2023_12_26_092822_create_products_table.php:55), so a
+     * single bulk tick removed every product in the category IN THE DATABASE -- no model event, no
+     * log line, and nothing the application can undo.
+     *
+     * Verified on the real engine rather than inferred from SQLite's own FK handling:
+     * tests/Support/Security/bin/verify-category-product-cascade-on-mysql.php, 3 checks, 0 failures
+     * on MySQL 8.0.46, including `information_schema.REFERENTIAL_CONSTRAINTS` reporting
+     * DELETE_RULE = CASCADE.
+     */
+    public function test_a_merchant_cannot_bulk_delete_a_category_that_still_has_products(): void
+    {
+        $this->enableBulkDeleteAddon();
+
+        [$merchant, $store] = $this->merchantWithAddon();
+        $this->grantPermission($merchant, 'Delete Product Category');
+
+        $populated = $this->insertCategory($store, 'bulk-populated');
+        $productId = $this->insertProduct($store, $merchant, 'bulk-kept-product');
+        DB::table('products')->where('id', $productId)->update(['category_id' => $populated]);
+
+        $this->assertSame(
+            1,
+            DB::table('products')->where('category_id', $populated)->count(),
+            'premise: the category really does hold a product'
+        );
+
+        $response = $this->actingAs($merchant)->post(route('bulk-delete'), [
+            'type' => 'main-category',
+            'ids' => [$populated],
+        ]);
+
+        $this->assertSame(409, $response->getStatusCode(),
+            'A populated category was accepted for bulk deletion. Body: '
+            . substr((string) $response->getContent(), 0, 300));
+        $this->assertSame([$populated], $this->survivingIds('categories', [$populated]),
+            'The category was bulk-deleted although it still held a product (owner decision D13).');
+        $this->assertSame([$productId], $this->survivingIds('products', [$productId]),
+            'The FK cascade took the product with the category.');
+    }
+
+    /**
+     * THE POSITIVE CONTROL. Without it the test above is satisfied by a guard that refuses every
+     * category bulk delete, or by an endpoint that never worked for this type at all.
+     */
+    public function test_a_merchant_can_still_bulk_delete_their_own_empty_categories(): void
+    {
+        $this->enableBulkDeleteAddon();
+
+        [$merchant, $store] = $this->merchantWithAddon();
+        $this->grantPermission($merchant, 'Delete Product Category');
+
+        $ids = [
+            $this->insertCategory($store, 'bulk-empty-one'),
+            $this->insertCategory($store, 'bulk-empty-two'),
+        ];
+
+        $this->assertSame(
+            0,
+            DB::table('products')->whereIn('category_id', $ids)->count(),
+            'premise: both categories are empty'
+        );
+
+        $response = $this->actingAs($merchant)->post(route('bulk-delete'), [
+            'type' => 'main-category',
+            'ids' => $ids,
+        ]);
+
+        $response->assertStatus(200);
+        $this->assertSame([], $this->survivingIds('categories', $ids),
+            'An EMPTY category can no longer be bulk-deleted either, so the refusal above proves '
+            . 'nothing. Body: ' . substr((string) $response->getContent(), 0, 300));
+    }
+
+    /**
+     * THE REFUSAL PRECEDES THE OPERATOR BYPASS.
+     *
+     * Every other check in this guard is downstream of `if (super admin) return $next()`, and that
+     * is correct for them: narrowing the operator is what breaks platform administration. D13 is
+     * not a permission rule. An operator cannot un-cascade a merchant's catalogue any more than the
+     * merchant can, so this is the one check placed above the bypass -- and this test is what pins
+     * it there. Moving the D13 block below the bypass leaves every other test in this file green.
+     */
+    public function test_the_operator_cannot_bulk_delete_a_populated_category_either(): void
+    {
+        $this->enableBulkDeleteAddon();
+
+        $admin = $this->makePlatformAdmin();
+        [$merchant, $store] = $this->merchantWithAddon();
+
+        $populated = $this->insertCategory($store, 'operator-bulk-populated');
+        $productId = $this->insertProduct($store, $merchant, 'operator-bulk-kept');
+        DB::table('products')->where('id', $productId)->update(['category_id' => $populated]);
+
+        $response = $this->actingAs($admin)->post(route('bulk-delete'), [
+            'type' => 'main-category',
+            'ids' => [$populated],
+        ]);
+
+        $this->assertSame(409, $response->getStatusCode(),
+            'The operator bypass carried a populated-category bulk delete straight through to the '
+            . 'cascade. Body: ' . substr((string) $response->getContent(), 0, 300));
+        $this->assertSame([$populated], $this->survivingIds('categories', [$populated]),
+            'The operator bulk-deleted a category that still held a merchant\'s product.');
+        $this->assertSame([$productId], $this->survivingIds('products', [$productId]),
+            'A merchant\'s product was cascade-deleted by an operator bulk category delete.');
+    }
+
+    /**
+     * THE TENANT CHECK IS ASKED OF THE NARROWED LIST, NOT OF RAW INPUT.
+     *
+     * A merchant ticking their own empty category alongside another store's populated one must get
+     * their own delete, not a refusal that tells them something about store B's catalogue. Section
+     * D strips the foreign id first and only what survives is asked the D13 question.
+     */
+    public function test_a_foreign_populated_category_does_not_block_the_callers_own_empty_one(): void
+    {
+        $this->enableBulkDeleteAddon();
+
+        [$merchant, $storeA] = $this->merchantWithAddon();
+        $this->grantPermission($merchant, 'Delete Product Category');
+
+        [$other, $storeB] = $this->merchantWithAddon();
+
+        $mineEmpty = $this->insertCategory($storeA, 'mine-empty');
+        $theirsPopulated = $this->insertCategory($storeB, 'theirs-populated');
+        $theirProduct = $this->insertProduct($storeB, $other, 'their-product');
+        DB::table('products')->where('id', $theirProduct)->update(['category_id' => $theirsPopulated]);
+
+        $response = $this->actingAs($merchant)->post(route('bulk-delete'), [
+            'type' => 'main-category',
+            'ids' => [$mineEmpty, $theirsPopulated],
+        ]);
+
+        $response->assertStatus(200);
+        $this->assertSame([], $this->survivingIds('categories', [$mineEmpty]),
+            'The caller\'s own empty category was withheld because of another store\'s data.');
+        $this->assertSame([$theirsPopulated], $this->survivingIds('categories', [$theirsPopulated]),
+            'Another store\'s category was bulk-deleted.');
+        $this->assertSame([$theirProduct], $this->survivingIds('products', [$theirProduct]),
+            'Another store\'s product was cascade-deleted.');
     }
 }

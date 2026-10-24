@@ -317,6 +317,214 @@ class PaymeraCallbackIdempotencyTest extends TestCase
     |--------------------------------------------------------------------------
     */
 
+    // =========================================================================================
+    //  P1-ORD-13 criterion 3: the replay branch must not hand a stranger the buyer's order
+    // =========================================================================================
+
+    /**
+     * THE REFERENCE IS NOT A SECRET AND IT WAS THE ONLY THING THE REPLAY BRANCH ASKED FOR.
+     *
+     * `GET /store/paymera/callback/{orderId}` is anonymous, and the reference is
+     * `uniqid('paymera_')` -- about a million candidates per known second -- so it is guessable;
+     * and it does not need guessing, because the URL sits in the buyer's history, the server's
+     * access log and any Referer. The replayed branch flashed `$pending['product_order_id']` to
+     * whoever presented it, and the thank-you page turns a flashed number into the order and a
+     * minted link to it. So a stranger replaying the URL was shown the buyer's order.
+     *
+     * The number is now flashed only to the session that PLACED the order. A stranger still gets
+     * the same redirect -- the response does not tell them whether the reference was real -- and
+     * nothing is flashed with it.
+     */
+    public function test_a_replayed_callback_flashes_nothing_to_a_session_that_did_not_place_the_order(): void
+    {
+        $this->putPending(['processed' => true, 'order_id' => 4242, 'product_order_id' => '0202501010103']);
+
+        $request = $this->blankRequest();          // a session that placed nothing
+        $response = $this->controller()->handlePaymeraCallback($request, self::REFERENCE);
+
+        $this->assertTrue($response->isRedirect());
+        $this->assertSame(
+            '',
+            $request->session()->get('data'),
+            "The buyer's order number was flashed to a session that never placed it, so the "
+            . 'thank-you page would hand a stranger the order and a minted link to it.'
+        );
+    }
+
+    /** THE POSITIVE CONTROL: the buyer's own replay still completes, or the refusal above is an outage. */
+    public function test_the_buyers_own_replay_still_gets_their_number(): void
+    {
+        $this->putPending(['processed' => true, 'order_id' => 4242, 'product_order_id' => '0202501010104']);
+
+        $request = $this->blankRequest();
+        $request->setLaravelSession(app('session.store'));
+        $request->session()->put(\App\Services\OrderCompleteBinding::SESSION_KEY, [4242]);
+
+        $response = $this->controller()->handlePaymeraCallback($request, self::REFERENCE);
+
+        $this->assertTrue($response->isRedirect());
+        $this->assertSame('0202501010104', $request->session()->get('data'),
+            "The buyer who placed the order was refused their own number: the replay branch is now an outage.");
+    }
+
+    /**
+     * AND THE PENDING RECORD NAMES THE ORDER THE CALLBACK CREATED, not "the latest paymera order in
+     * the store". That lookup was `->where('payment_type','paymera')->latest('id')->first()`, so two
+     * concurrent Paymera payments in one store each recorded the OTHER buyer's number -- and the
+     * record is exactly what the replay branch above hands back.
+     *
+     * Asserted on the SOURCE because reaching the writer needs a full checkout through
+     * getProductStatus() with a live gateway poll, which this suite's own header records as out of
+     * reach here. The behavioural half -- that what the record holds is only ever shown to the
+     * session that placed it -- is driven above, so a wrong record cannot disclose anything either.
+     */
+    public function test_the_pending_record_is_written_from_the_session_binding_not_from_the_latest_order(): void
+    {
+        $source = (string) file_get_contents(app_path('Http/Controllers/PaymentController.php'));
+
+        $code = '';
+
+        foreach (token_get_all($source) as $token) {
+            if (is_array($token) && in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true)) {
+                continue;
+            }
+
+            $code .= is_array($token) ? $token[1] : $token;
+        }
+
+        /*
+         * WHITESPACE-INSENSITIVE, because the first cut of this ratchet was NOT and therefore proved
+         * nothing. It asserted the absence of a two-line literal indented by twelve spaces; the live
+         * construct in the TRIGGER was indented by twenty, so the forbidden code was present at
+         * `handlePaymeraTrigger()` and this assertion passed anyway. Found by the tenant-authz review
+         * of the first cut, not by this test. The pattern below matches the construct at any nesting,
+         * with any spacing, in either handler.
+         */
+        $this->assertDoesNotMatchRegularExpression(
+            "/'payment_type'\\s*,\\s*'paymera'\\s*\\)\\s*->latest\\(\\s*'id'\\s*\\)/", $code,
+            'The pending record is written from "the latest paymera order in the store" again, which '
+            . "records the other buyer's order under concurrency.");
+
+        // The construct the two handlers must use instead: the writer's own before/after difference.
+        $this->assertMatchesRegularExpression(
+            '/private function orderWrittenBy\(callable \$write, bool \$sessionPlacedIt\)/',
+            $code,
+            'The order-writer helper that both Paymera handlers identify their order through is gone.'
+        );
+
+        $this->assertSame(2, preg_match_all('/\$this->orderWrittenBy\(/', $code),
+            'Both Paymera handlers -- the browser callback and the anonymous trigger -- must identify '
+            . 'the order they created through the helper; one of them is back to guessing.');
+    }
+
+    // ---- P1-ORD-13 FOLLOW-UP: a machine caller keeps no binding, and the order is named by difference ----
+
+    /**
+     * B1, FOUND BY THE TENANT-AUTHZ REVIEW OF THE FIRST CUT. `OrderCompleteBinding::remember()` lives
+     * inside the shared order writer and writes through the `session()` helper, which resolves the
+     * CURRENT HTTP REQUEST'S session. `handlePaymeraTrigger` is `POST /store/paymera/trigger/{orderId}`
+     * -- anonymous and CSRF-exempt (bootstrap/app.php) -- and it drives that writer with a synthetic
+     * `Request::create(...)`. So the order the trigger created from the VICTIM'S cached checkout was
+     * bound into the session of whoever POSTed the trigger, and that session could then read the number
+     * and the minted `/order/<encrypted>` link off the thank-you page with no query string at all.
+     *
+     * SCOPE, stated rather than implied. These four drive `orderWrittenBy()` directly, with a closure
+     * standing in for the writer, because reaching the real writer needs a full checkout with a cart,
+     * a plan and a gateway. They prove the helper's contract -- which session keeps the binding, and
+     * which id is returned -- and nothing about Paymera itself.
+     */
+    public function test_a_machine_caller_keeps_no_binding_for_the_order_it_wrote(): void
+    {
+        $this->bindSession();
+        \App\Services\OrderCompleteBinding::remember(11);        // an earlier order of this session
+
+        $created = $this->orderWrittenBy(fn () => \App\Services\OrderCompleteBinding::remember(12), false);
+
+        $this->assertSame(12, $created, 'The helper did not name the order the write created.');
+        $this->assertSame([11], \App\Services\OrderCompleteBinding::bound(),
+            'An anonymous caller came away holding a binding for an order it did not place.');
+    }
+
+    /** The buyer's own browser IS the caller on the callback path, so there the binding must stay. */
+    public function test_the_buyers_own_request_keeps_the_binding(): void
+    {
+        $this->bindSession();
+
+        $created = $this->orderWrittenBy(fn () => \App\Services\OrderCompleteBinding::remember(12), true);
+
+        $this->assertSame(12, $created);
+        $this->assertSame([12], \App\Services\OrderCompleteBinding::bound(),
+            'The buyer lost the binding their own thank-you page resolves through.');
+    }
+
+    /**
+     * N4. `end(bound())` -- what the first cut used -- is "the most recently first-seen id in this
+     * session", which is the new order ONLY when a new order exists. When the writer returns without
+     * creating one, `end()` names an EARLIER order of the same session, both the store and
+     * payment-type checks pass, and the pending record is written naming the wrong order: the buyer's
+     * replay then shows a previous order as this payment's confirmation. The difference cannot.
+     */
+    public function test_a_write_that_creates_nothing_names_no_order_even_with_an_earlier_one_bound(): void
+    {
+        $this->bindSession();
+        \App\Services\OrderCompleteBinding::remember(11);
+
+        $created = $this->orderWrittenBy(fn () => null, true);
+
+        $this->assertNull($created,
+            'A write that created nothing was reported as having created the session\'s earlier order.');
+        $this->assertSame([11], \App\Services\OrderCompleteBinding::bound());
+    }
+
+    /**
+     * The trigger puts the BUYER'S cached checkout into the caller's session for the writer to read
+     * (`Session::put('request_data', ...)`), so a machine caller must not keep that either -- it is the
+     * victim's cart and billing details.
+     */
+    public function test_a_machine_caller_keeps_no_request_data_either(): void
+    {
+        $this->bindSession();
+
+        $created = $this->orderWrittenBy(function () {
+            \Illuminate\Support\Facades\Session::put('request_data', ['telephone' => 'VICTIM-PHONE-FIXTURE']);
+            \App\Services\OrderCompleteBinding::remember(12);
+        }, false);
+
+        $this->assertSame(12, $created);
+        $this->assertFalse(\Illuminate\Support\Facades\Session::exists('request_data'),
+            "The victim's cached checkout stayed in the anonymous caller's session.");
+    }
+
+    /** And a value that was already there is restored, not dropped. */
+    public function test_an_existing_request_data_is_restored_for_a_machine_caller(): void
+    {
+        $this->bindSession();
+        \Illuminate\Support\Facades\Session::put('request_data', ['mine' => 'KEEP-FIXTURE']);
+
+        $this->orderWrittenBy(function () {
+            \Illuminate\Support\Facades\Session::put('request_data', ['telephone' => 'VICTIM-PHONE-FIXTURE']);
+            \App\Services\OrderCompleteBinding::remember(12);
+        }, false);
+
+        $this->assertSame(['mine' => 'KEEP-FIXTURE'], \Illuminate\Support\Facades\Session::get('request_data'));
+    }
+
+    private function bindSession(): void
+    {
+        $request = \Illuminate\Http\Request::create('/store/paymera/trigger/x', 'POST');
+        $request->setLaravelSession(app('session.store'));
+        $this->app->instance('request', $request);
+    }
+
+    /** Private by design; reflection keeps it that way. */
+    private function orderWrittenBy(callable $write, bool $sessionPlacedIt): ?int
+    {
+        $m = new \ReflectionMethod(PaymentController::class, 'orderWrittenBy');
+        $m->setAccessible(true);
+
+        return $m->invoke($this->controller(), $write, $sessionPlacedIt);
+    }
+
     private function putPending(array $overrides = []): void
     {
         Cache::put('paymera_pending_' . self::REFERENCE, array_merge([

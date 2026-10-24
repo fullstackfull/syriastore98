@@ -645,6 +645,24 @@ class="text-start ps-3"><b>{{ order_currency_format_with_sym($order['coupon_pric
                         $(this).parent().append('<h6 class="text-danger">{{ __('Returned') }}</h6>');
                         $(this).parent().find('.order_return').remove();
                     }
+                },
+                error: function (xhr) {
+                    /*
+                     * P1-INV-15 (F). There was NO error: handler, so every non-2xx answer was a
+                     * SILENT no-op: the spinner stayed up and the merchant was told nothing. That
+                     * matters now because the return endpoints legitimately answer 403 (P1-INV-02
+                     * added the ownership and permission check) and 419 on an expired CSRF token,
+                     * and a refusal the user cannot see reads as a broken button.
+                     */
+                    $('#loader').fadeOut();
+                    var message = (xhr.responseJSON && xhr.responseJSON.message)
+                        ? xhr.responseJSON.message
+                        : (xhr.status === 403
+                            ? '{{ __('You are not allowed to do this.') }}'
+                            : (xhr.status === 419
+                                ? '{{ __('Your session has expired. Please reload the page.') }}'
+                                : '{{ __('Something went wrong. Please try again.') }}'));
+                    show_toastr('{{ __('Error') }}', message, 'error')
                 }
             });
         });
@@ -721,6 +739,19 @@ class="text-start ps-3"><b>{{ order_currency_format_with_sym($order['coupon_pric
                     show_toastr('{{ __('Success') }}', data.message, 'success')
 
 
+                },
+                {{-- P1-PLT-08. There was no error callback, so a refusal from this endpoint -- the 403 the
+                     assignment guard returns, or the one authorize('assign') already threw -- showed the
+                     merchant nothing: no toast, and the dropdown left showing a driver that was not saved.
+                     The same gap P1-SEC-34 found in SpamPrevent's widget. --}}
+                error: function(xhr) {
+                    $('#loader').fadeOut();
+
+                    var message = (xhr.responseJSON && xhr.responseJSON.message)
+                        ? xhr.responseJSON.message
+                        : '{{ __('The delivery boy could not be assigned.') }}';
+
+                    show_toastr('{{ __('Error') }}', message, 'error');
                 }
             });
         });

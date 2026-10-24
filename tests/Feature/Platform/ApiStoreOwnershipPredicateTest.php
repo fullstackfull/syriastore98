@@ -710,16 +710,50 @@ class ApiStoreOwnershipPredicateTest extends SecurityTestCase
     {
         $code = $this->dashboardControllerCode();
 
-        // MEASURED, both sides of the change, on comment-stripped source: 74 occurrences before
-        // (1 declaration + 73 calls) and 94 after -- exactly the +20 sites this change rewired.
-        // Comment-stripped is what makes the number trustworthy: the prose in that file mentions
-        // the helper by name several times.
+        /*
+         * MEASURED, both sides of the change, on comment-stripped source: 74 occurrences before
+         * (1 declaration + 73 calls) and 94 after -- exactly the +20 sites that change rewired.
+         * Comment-stripped is what makes the number trustworthy: the prose in that file mentions
+         * the helper by name several times.
+         *
+         * LOWERED 94 -> 92 BY P1-INV-10 (d), and the reason matters more than the number. This
+         * gate FIRED on that change and was right to: a bare count cannot tell "two dead methods
+         * were deleted" from "two endpoints went back to inlining a predicate", which is exactly
+         * what its own failure message says. What was deleted:
+         *
+         *   - ViewOrder_backup      -- passed $request->order_id into Order::order_detail(), which
+         *                              is Order::find() with NO tenant predicate (Order.php:279-281)
+         *   - DeleteProduct_backup  -- keyed ProductImage, Cart, Wishlist and the Product delete
+         *                              itself on a bare $request->product_id
+         *
+         * Both were unrouted and unreferenced (grep: 0 hits in app/, resources/, routes/, tests/),
+         * and both called resolveOwnedStore() while leaving their PER-ROW lookups unscoped -- so
+         * each held one call that satisfied this counter and a cross-tenant hole that did not. The
+         * file docblock claimed all four _backup methods had been "repaired anyway so they cannot
+         * be wired up later and reintroduce the hole"; that was true of OrderList_backup and
+         * DeleteStore_backup and false of these two.
+         *
+         * SO THE FLOOR DROPS BY EXACTLY THE TWO CALLS THOSE METHODS CONTAINED, and the attack
+         * surface drops with it. Keeping the floor at 94 would mean keeping two latent
+         * cross-tenant holes alive to satisfy a proxy measure.
+         *
+         * AND THE COUNT WAS NEVER THE REAL CONTROL. What actually stops an endpoint inlining its
+         * own predicate is this file's sibling assertions -- the spelling-agnostic
+         * `Store::where('id', ...)->where('created_by', <not creatorId()>)` scan above (which
+         * pins the ONE deliberate survivor to DeleteStore by byte offset) and
+         * test_every_api_method_that_reads_a_request_store_id_also_proves_ownership, which keys on
+         * the request read rather than on the call. A method added tomorrow that inlines a
+         * predicate fails those whether or not this number moves. This count is the coarse
+         * tripwire; it earned its keep here by making a dead-code removal explain itself.
+         */
         $this->assertGreaterThanOrEqual(
-            94,
+            92,
             substr_count($code, 'resolveOwnedStore('),
-            'resolveOwnedStore() is called less than the 94 occurrences measured after this '
-            . 'change (74 before it). Either call sites were deleted or some went back to '
-            . 'inlining a predicate.'
+            'resolveOwnedStore() is called less than the 92 occurrences measured after P1-INV-10 '
+            . '(94 before it, 74 before the change that introduced the helper). Either call sites '
+            . 'were deleted or some went back to inlining a predicate. If a method really was '
+            . 'deleted, say WHICH and why its own per-row lookups did not need the helper, the way '
+            . 'the comment above does -- do not just lower the number.'
         );
 
         // The predicate itself, pinned: tenant-scoped via creatorId(), and the platform-operator

@@ -10,6 +10,14 @@ class ProductImage extends Model
 {
     use HasFactory, Cachable;
 
+    /** P1-SEC-28: see App\Services\StoredPathPolicy */
+    protected static function booted(): void
+    {
+        static::saving(function (ProductImage $image) {
+            \App\Services\StoredPathPolicy::productImage($image);
+        });
+    }
+
     protected $fillable = [
         'product_id',
         'image_path',

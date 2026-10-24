@@ -28,19 +28,21 @@ use Illuminate\Database\Eloquent\Builder;
  *
  * ATTACHING IT IS BEHAVIOUR-NEUTRAL; ALLOWLISTING IS NOT. This docblock previously said the
  * scope was "DISABLED by default", which is NO LONGER TRUE and is corrected here rather than left
- * to mislead: enforcement is per-model via `config/tenancy.php` -> `scoped_models`, and TEN models
- * are now really scoped -- Menu, SupportTicket, SupportConversion, FlashSaleCondition,
- * ThemeCustomizeOrder, NotifyUser (batch 1) and OrderRefund, OrderNote, Customer, Cart (batch 2).
+ * to mislead: enforcement is per-model via `config/tenancy.php` -> `scoped_models`, and ELEVEN
+ * models are now really scoped -- Menu, SupportTicket, SupportConversion, FlashSaleCondition,
+ * ThemeCustomizeOrder, NotifyUser (batch 1), OrderRefund, OrderNote, Customer, Cart (batch 2/3) and
+ * DeliveryBoy (batch 4, P1-PLT-08).
  *
  * For a model that is NOT on that list, `apply()` adds no predicate at all, so attaching the trait
  * alone still leaves the emitted queries -- and therefore every `genealabs/laravel-model-caching`
- * cache key on the 78 models using `Cachable` -- byte-identical. SEVEN trait-carrying models are
- * not allowlisted and are in exactly that position: Category, DeliveryBoy, Product, Shipping,
- * StoreWallet, StoreWalletTransaction, StoreWithdrawal. (This sentence read "the 11" while the
- * one above it read "TEN models are now really scoped", which cannot both be true of 17
- * carriers -- it was left stale by the batch-2 revert and is corrected here by counting:
- * 17 carriers minus 10 allowlisted = 7. The count is asserted at runtime, not trusted, by
- * tests/Feature/Tenancy/TenantModelClassificationTest.)
+ * cache key on the 78 models using `Cachable` -- byte-identical. SIX trait-carrying models are
+ * not allowlisted and are in exactly that position: Category, Product, Shipping, StoreWallet,
+ * StoreWalletTransaction, StoreWithdrawal. (This sentence read "the 11" while the one above it read
+ * "TEN models are now really scoped", which cannot both be true of 17 carriers -- it was left stale
+ * by the batch-2 revert, and the lesson taken from it was to stop describing the count and start
+ * asserting it: 17 carriers minus 11 allowlisted = 6, asserted at runtime by
+ * tests/Feature/Tenancy/TenantModelClassificationTest and
+ * StorefrontContextTenantResolutionTest::test_the_enforcement_inventory_is_seventeen_carriers_eleven_enforced_six_not.)
  *
  * ============================================================================================
  *  TWO ELOQUENT METHODS ESCAPE THIS SCOPE ENTIRELY. NEITHER IS FIXED. BOTH ARE UNREACHED.

@@ -455,4 +455,352 @@ final class RequiredGateWiringTest extends TestCase
             "The strict job must install from the committed lock, unaltered."
         );
     }
+
+    // -----------------------------------------------------------------------------------------
+    // P01-A' -- THE GATES THAT RAN ONLY ON A PULL REQUEST.
+    //
+    // REQUIRED_TEST_JOBS deliberately does NOT gain `regression-gate`: that job is conditional
+    // by design and `test_the_job_is_not_conditional` would fail it. What follows asserts the
+    // narrower, true properties instead -- that the controls which were trapped inside that
+    // conditional job now run on every event, and that the job itself has not quietly been
+    // deleted or widened.
+    // -----------------------------------------------------------------------------------------
+
+    /**
+     * Steps whose name matches, across every job.
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    private function stepsMatching(string $pattern, bool $unconditionalJobsOnly = false): array
+    {
+        $found = [];
+
+        foreach (($this->workflow()['jobs'] ?? []) as $jobName => $job) {
+            $job = (array) $job;
+
+            if ($unconditionalJobsOnly && isset($job['if'])) {
+                continue;
+            }
+
+            foreach (($job['steps'] ?? []) as $step) {
+                $step = (array) $step;
+
+                if (isset($step['name']) && preg_match($pattern, (string) $step['name']) === 1) {
+                    $found[$jobName . '::' . $step['name']] = $step;
+                }
+            }
+        }
+
+        return $found;
+    }
+
+    /** Every workflow file in .github/workflows, parsed, keyed by basename. */
+    private function allWorkflows(): array
+    {
+        $out = [];
+
+        foreach (glob(dirname(self::WORKFLOW) . '/*.yml') ?: [] as $path) {
+            $parsed = Yaml::parseFile($path);
+            $this->assertIsArray($parsed, basename($path) . ' does not parse as YAML');
+            $out[basename($path)] = $parsed;
+        }
+
+        $this->assertNotSame([], $out, 'no workflow files found at all');
+
+        return $out;
+    }
+
+    /**
+     * Every `run:` line across every workflow that invokes the gate script, keyed by
+     * "file::job::step", with the mode it asks for.
+     *
+     * The mode is read as the script reads it: the third positional argument, defaulting to
+     * `enforce` when absent. A caller that passes a variable rather than a literal is reported as
+     * `<not-a-literal>` so the tests below can refuse it.
+     *
+     * @return array<string, string>
+     */
+    private function gateScriptCallers(): array
+    {
+        $callers = [];
+
+        foreach ($this->allWorkflows() as $file => $workflow) {
+            foreach ((array) ($workflow['jobs'] ?? []) as $jobName => $job) {
+                foreach ((array) ($job['steps'] ?? []) as $i => $step) {
+                    $run = (string) ($step['run'] ?? '');
+
+                    if (!preg_match('#(\S*flag-sensitive-diff\.sh)\s+(\S+)\s+(\S+)(?:\s+(\S+))?#', $run, $m)) {
+                        continue;
+                    }
+
+                    $mode = $m[4] ?? 'enforce';
+
+                    if ($mode !== 'enforce' && $mode !== 'report') {
+                        // A $VAR, an ${{ }} expression or anything else is not a literal mode.
+                        $mode = '<not-a-literal>';
+                    }
+
+                    $label = (string) ($step['name'] ?? "step {$i}");
+                    $callers["{$file}::{$jobName}::{$label}"] = $mode;
+                }
+            }
+        }
+
+        return $callers;
+    }
+
+    /**
+     * THE SINGLE LARGEST HOLE PHASE 00B FOUND, AND IT IS NOW CLOSED BY TWO FILES RATHER THAN ONE.
+     *
+     * `flag-sensitive-diff.sh` is the only control standing between a change to config/, routes/,
+     * Middleware/, Policies/, Permission, Role, Billing, Token or Secret and `main`. It lived in
+     * exactly one place: the last-but-one step of `regression-gate`, which is
+     * `if: github.event_name == 'pull_request'`. Almost every commit in this repository arrived by
+     * direct push, so in practice the checklist had never run.
+     *
+     * TWO INDEPENDENT FIXES LANDED FOR THAT, each correct about a different half:
+     *
+     *   P01-A' moved the step to ci.yml's `static` job, which runs on every event -- closing the
+     *   PUSH hole.
+     *   main moved it to .github/workflows/security-attestation.yml, whose trigger includes
+     *   `edited` -- closing the hole where a reviewer signs the checklist and the gate stays red
+     *   because ci.yml does not re-run on a description edit.
+     *
+     * Keeping both would have left TWO ENFORCING copies of one gate, which is worse than either:
+     * clearing one still leaves the other red, for a reason the reviewer cannot see from the
+     * checks list. The reconciliation keeps one caller per event class, and this test asserts the
+     * PROPERTY rather than any location -- both event classes covered, by unconditional jobs.
+     *
+     * It deliberately does NOT assert which file does which. If a later change consolidates them
+     * differently and still covers both events unconditionally, that is allowed to pass.
+     */
+    public function test_the_security_sensitive_diff_checklist_runs_on_every_event(): void
+    {
+        $callers = $this->gateScriptCallers();
+
+        $this->assertNotSame(
+            [],
+            $callers,
+            'NOTHING in .github/workflows runs flag-sensitive-diff.sh any more. If the checklist '
+            . 'was deliberately retired, that is an owner decision and this test should be '
+            . 'deleted in the same commit that states it -- not left passing over a removed '
+            . 'control.'
+        );
+
+        $events = [];
+
+        foreach ($this->allWorkflows() as $file => $workflow) {
+            $runsGate = false;
+
+            foreach ((array) ($workflow['jobs'] ?? []) as $jobName => $job) {
+                foreach ((array) ($job['steps'] ?? []) as $step) {
+                    if (str_contains((string) ($step['run'] ?? ''), 'flag-sensitive-diff.sh')) {
+                        $runsGate = true;
+
+                        $this->assertArrayNotHasKey(
+                            'if',
+                            $step,
+                            "{$file}::{$jobName} runs the gate from a CONDITIONAL step, which puts "
+                            . 'the control back behind an event test one level down.'
+                        );
+                        $this->assertArrayNotHasKey(
+                            'if',
+                            $job,
+                            "{$file}::{$jobName} runs the gate inside a CONDITIONAL job, which is "
+                            . 'the hole this whole arrangement exists to close.'
+                        );
+                    }
+                }
+            }
+
+            if (!$runsGate) {
+                continue;
+            }
+
+            // `on:` may be a string, a list or a map; normalise to the event names.
+            $on = $workflow['on'] ?? $workflow[true] ?? [];
+            $events = array_merge($events, is_array($on) ? array_keys($on) : [(string) $on]);
+        }
+
+        $this->assertContains(
+            'pull_request',
+            $events,
+            'No workflow that runs the gate is triggered by `pull_request`, so the one event '
+            . 'where an acknowledgement can actually be GIVEN is ungated. Callers: '
+            . implode(', ', array_keys($callers))
+        );
+
+        $this->assertContains(
+            'push',
+            $events,
+            'No workflow that runs the gate is triggered by `push`, so a direct push to a '
+            . 'protected branch is never asked the questions -- the original hole. Callers: '
+            . implode(', ', array_keys($callers))
+        );
+    }
+
+    /**
+     * EXACTLY ONE ENFORCING CALLER, AND EVERY OTHER ONE EXPLICITLY `report`.
+     *
+     * This is the invariant that stops the two fixes above being re-merged into the duplication
+     * they were untangled from. It is asserted from this side; main's
+     * SecurityAttestationWiringTest asserts the complementary half -- that ci.yml never names the
+     * script at all -- so neither file can be reinstated as a second enforcer without a red test.
+     *
+     * The mode must be a LITERAL. A caller that computes it from a variable, an input or an
+     * `${{ }}` expression is refused here even if the value would be correct today, because the
+     * difference between enforcing and reporting is the difference between a gate and a log line,
+     * and it should not be decidable at run time by anything but the file you are reading.
+     */
+    public function test_the_gate_is_enforced_in_exactly_one_place_and_reported_in_the_rest(): void
+    {
+        $callers = $this->gateScriptCallers();
+        $this->assertNotSame([], $callers, 'no caller runs the gate script');
+
+        foreach ($callers as $where => $mode) {
+            $this->assertNotSame(
+                '<not-a-literal>',
+                $mode,
+                "{$where} decides enforce-vs-report at run time instead of naming it in the file. "
+                . 'A typo or an unset variable then silently chooses which half of the gate runs.'
+            );
+        }
+
+        $enforcing = array_keys(array_filter($callers, static fn (string $m): bool => $m === 'enforce'));
+
+        $this->assertCount(
+            1,
+            $enforcing,
+            'The gate must be ENFORCED in exactly one place. Found ' . count($enforcing) . ': '
+            . implode(', ', $enforcing) . '. Two enforcing copies means clearing one leaves the '
+            . 'other red with no visible reason; none means nothing blocks.'
+        );
+
+        $reporting = array_keys(array_filter($callers, static fn (string $m): bool => $m === 'report'));
+
+        $this->assertNotSame(
+            [],
+            $reporting,
+            'No caller runs in `report` mode, so the push path is either blocked (it has no body '
+            . 'to acknowledge in, so it would block every push) or absent.'
+        );
+    }
+
+    /**
+     * THE GATES THAT MUST SURVIVE A WORKFLOW MERGE, pinned by name.
+     *
+     * A semantic reconciliation of two divergent ci.yml versions is exactly the operation that
+     * drops a check by accident: the conflict is resolved, the file parses, the suites pass, and
+     * nobody notices that one guard went with the losing hunk. Each entry below is a control this
+     * repository already decided it wanted; this test fails if a future merge loses one.
+     *
+     * Deliberately matched against the whole workflow DIRECTORY rather than ci.yml, because the
+     * attestation reconciliation proved a gate can legitimately move between files.
+     */
+    public function test_no_required_gate_was_lost_in_the_workflow_merge(): void
+    {
+        $all = '';
+
+        foreach (glob(dirname(self::WORKFLOW) . '/*.yml') ?: [] as $path) {
+            $all .= (string) file_get_contents($path);
+        }
+
+        $required = [
+            'the diff secret screen' => 'scan-secrets.sh',
+            'the sensitive-diff checklist' => 'flag-sensitive-diff.sh',
+            'the WorkDo vendor-change guard' => 'guard-no-workdo-changes.sh',
+            'the GATE F containment guard' => 'guard-gate-f-containment.sh',
+            'the known-outcome assertion' => 'assert-known-test-outcomes.php',
+            'the merge-base regression gate' => 'regression-gate.php',
+            'the shipped-Flutter API contract' => 'check-contract.php',
+            'the API auth-coverage contract' => 'check-auth-coverage.php',
+            'the Contract (Lynomia cross-repo) suite' => '--testsuite Contract',
+            'the composer audit ratchet' => 'AUDIT_CEILING',
+            'the repo-wide php -l floor' => 'tracked PHP files',
+            'the design-system contrast check' => 'check-contrast.py',
+        ];
+
+        foreach ($required as $why => $needle) {
+            $this->assertStringContainsString(
+                $needle,
+                $all,
+                "{$why} is no longer wired into any workflow (looked for '{$needle}'). If it was "
+                . 'retired deliberately, say so in the commit and update this list; a merge that '
+                . 'drops it silently is the failure this test exists for.'
+            );
+        }
+    }
+
+    /**
+     * THE GUARD THAT SAW ONE COMMIT OF A PUSH. This step read only the pull-request base and
+     * fell straight through to HEAD~1, while its siblings (`php -l`, the secret scan) already
+     * consulted `github.event.before`. A packages/workdo/ edit in commit 1 of a 3-commit push
+     * was therefore never inspected by the guard whose entire job is to catch it.
+     */
+    public function test_the_workdo_guard_sees_the_whole_pushed_range(): void
+    {
+        $steps = $this->stepsMatching('/packages\/workdo\/ is unmodified/i');
+
+        $this->assertNotSame(
+            [],
+            $steps,
+            'The vendored-module guard step is gone. packages/workdo/ is commercial upstream '
+            . 'code; an in-place edit is reverted by the next upstream update and leaves no '
+            . 'patch record.'
+        );
+
+        foreach ($steps as $where => $step) {
+            $env = implode("\n", array_map('strval', (array) ($step['env'] ?? [])));
+            $run = (string) ($step['run'] ?? '');
+
+            $this->assertStringContainsString(
+                'github.event.before',
+                $env,
+                "{$where} does not take `github.event.before`, so on a push it can only fall "
+                . 'back to HEAD~1 and inspect the last commit of the range.'
+            );
+            $this->assertStringContainsString(
+                'BEFORE_SHA',
+                $run,
+                "{$where} receives the push base but never reads it."
+            );
+        }
+    }
+
+    /**
+     * THE CONTRACT SUITE MUST RUN IN WHICHEVER JOB REACHES PHPUNIT. Three cross-repository
+     * artefacts are SHA-pinned on both sides; a drift means Store Syria and Lynomia silently
+     * disagree about the wire format. It ran in the strict job only, so in exactly the situation
+     * `tests-degraded` exists for -- the strict install failing -- contract drift was ungated.
+     */
+    #[DataProvider('requiredTestJobs')]
+    public function test_the_job_runs_the_cross_repository_contract_suite(string $jobName): void
+    {
+        $this->assertStringContainsString(
+            '--testsuite Contract',
+            $this->runScripts($jobName),
+            "'{$jobName}' does not run the Contract suite. If this job is the only one that "
+            . 'reaches PHPUnit, Lynomia contract drift between the two repositories goes '
+            . 'unnoticed.'
+        );
+    }
+
+    /**
+     * The merge-base comparison genuinely needs a pull request -- it resolves
+     * `origin/${{ github.base_ref }}` -- so this job staying conditional is correct. Asserted so
+     * that deleting it, or widening it to push where it cannot work, is a deliberate act.
+     */
+    public function test_the_regression_gate_job_is_still_present_and_pull_request_scoped(): void
+    {
+        $job = $this->job('regression-gate');
+
+        $this->assertArrayHasKey(
+            'if',
+            $job,
+            'regression-gate is no longer conditional. It resolves the merge base from '
+            . '`origin/${{ github.base_ref }}`, which only a pull_request event supplies, so on '
+            . 'a push it would fail resolving a base rather than compare anything.'
+        );
+        $this->assertStringContainsString('pull_request', (string) $job['if']);
+    }
 }

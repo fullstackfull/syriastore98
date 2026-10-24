@@ -31,7 +31,7 @@ class ShopifyProductController extends Controller
             $setting = getAdminAllsetting();
             if (isset($setting['shopify_setting_enabled']) && $setting['shopify_setting_enabled'] == 'on') {
                 try {
-                    $shopify_store_url = \App\Models\Utility::GetValueByName('shopify_store_url', getCurrentStore());
+                    $shopify_store_url = \App\Services\ImportStoreUrl::shopifyLabel(\App\Models\Utility::GetValueByName('shopify_store_url', getCurrentStore()));
                     $shopify_access_token = \App\Models\Utility::GetValueByName('shopify_access_token', getCurrentStore());
 
                     $limit = $request->input('limit', 10);
@@ -44,17 +44,7 @@ class ShopifyProductController extends Controller
                     $next_page_info = $pagination['next_page_info'];
                     $prev_page_info = $pagination['prev_page_info'];
 
-                    $count_curl = curl_init();
-                    curl_setopt_array($count_curl, array(
-                        CURLOPT_URL => "https://$shopify_store_url.myshopify.com/admin/api/2023-07/products/count.json",
-                        CURLOPT_RETURNTRANSFER => true,
-                        CURLOPT_HTTPHEADER => array(
-                            "X-Shopify-Access-Token: $shopify_access_token"
-                        ),
-                    ));
-
-                    $count_response = curl_exec($count_curl);
-                    curl_close($count_curl);
+                    $count_response = \App\Services\ShopifyAdminApi::get($shopify_store_url, "admin/api/2023-07/products/count.json", $shopify_access_token);
 
                     if ($count_response === false) {
                         return redirect()->back()->with('error', 'Failed to fetch product count.');
@@ -86,34 +76,28 @@ class ShopifyProductController extends Controller
         $next_page_info = null;
         $prev_page_info = null;
 
-        $url = "https://$shopify_store_url.myshopify.com/admin/api/2023-07/products.json?limit=$limit&fields=id,title,product_type,variants,image";
+        // P1-SEC-06 acceptance 3. The PATH, not a whole URL: the host is assembled from the validated label
+        // inside ShopifyAdminApi, so no page_info value can reach the host part of the address.
+        $path = "admin/api/2023-07/products.json?limit=$limit&fields=id,title,product_type,variants,image";
 
         if ($page_info) {
-            $url .= "&page_info=$page_info";
+            $path .= "&page_info=$page_info";
         } elseif ($previous_page_info) {
-            $url .= "&page_info=$previous_page_info";
+            $path .= "&page_info=$previous_page_info";
         }
 
-        $curl = curl_init();
-        curl_setopt_array($curl, array(
-            CURLOPT_URL => $url,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_HTTPHEADER => array(
-                "X-Shopify-Access-Token: $shopify_access_token"
-            ),
-            CURLOPT_HEADER => true,
-        ));
+        // getWithHeaders() because Shopify's cursor pagination lives in the `Link` RESPONSE header, which
+        // this handler splits off below; the handle is closed inside the service, so it returns the size.
+        $fetched = \App\Services\ShopifyAdminApi::getWithHeaders($shopify_store_url, $path, $shopify_access_token);
 
-        $response = curl_exec($curl);
-        if ($response === false) {
+        if ($fetched === false) {
             throw new \Exception('Something went wrong while fetching products.');
         }
 
-        $header_size = curl_getinfo($curl, CURLINFO_HEADER_SIZE);
+        $response = $fetched['raw'];
+        $header_size = $fetched['header_size'];
         $header = substr($response, 0, $header_size);
         $body = substr($response, $header_size);
-
-        curl_close($curl);
 
         $page_data = json_decode($body, true);
 
@@ -163,26 +147,10 @@ class ShopifyProductController extends Controller
                     return redirect()->back()->with('error', __('Your Product limit is over, Please upgrade plan'));
                 }
                 $store_id = getStoreById(getCurrentStore());
-                $shopify_store_url = \App\Models\Utility::GetValueByName('shopify_store_url',  getCurrentStore());
+                $shopify_store_url = \App\Services\ImportStoreUrl::shopifyLabel(\App\Models\Utility::GetValueByName('shopify_store_url',  getCurrentStore()));
                 $shopify_access_token = \App\Models\Utility::GetValueByName('shopify_access_token',  getCurrentStore());
 
-                $curl = curl_init();
-                curl_setopt_array($curl, array(
-                    CURLOPT_URL => "https://$shopify_store_url.myshopify.com/admin/api/2023-07/products.json?ids=$id",
-                    CURLOPT_RETURNTRANSFER => true,
-                    CURLOPT_ENCODING => '',
-                    CURLOPT_MAXREDIRS => 10,
-                    CURLOPT_TIMEOUT => 0,
-                    CURLOPT_FOLLOWLOCATION => true,
-                    CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
-                    CURLOPT_CUSTOMREQUEST => 'GET',
-                    CURLOPT_HTTPHEADER => array(
-                        "X-Shopify-Access-Token: $shopify_access_token"
-                    ),
-                ));
-
-                $response = curl_exec($curl);
-                curl_close($curl);
+                $response = \App\Services\ShopifyAdminApi::get($shopify_store_url, "admin/api/2023-07/products.json?ids=$id", $shopify_access_token);
                 if ($response == false) {
                     return redirect()->back()->with('error', 'Something went wrong.');
                 } else {
@@ -215,11 +183,11 @@ class ShopifyProductController extends Controller
                                 $file_size = 0;
                                 try{
                                     $file_url = str_replace("\0", '', $url);
-                                    $get_file = \Illuminate\Support\Facades\Http::head($file_url);
+                                    $get_file = \App\Services\SafeRemoteFetch::head($file_url);
                                     $file_size = $get_file->header('Content-Length');
                                 } catch(\Exception $e)
                                 {
-                                    return redirect()->back()->with('error', $e);
+                                    return redirect()->back()->with('error', $e->getMessage());
                                 }
                                 $result = Utility::updateStorageLimit(\Auth::user()->creatorId(), $file_size);
                                 if ($result != 1) {
@@ -404,11 +372,11 @@ class ShopifyProductController extends Controller
                                     $file_size = 0;
                                     try{
                                         $file_url = str_replace("\0", '', $url);
-                                        $get_file = \Illuminate\Support\Facades\Http::head($file_url);
+                                        $get_file = \App\Services\SafeRemoteFetch::head($file_url);
                                         $file_size = $get_file->header('Content-Length');
                                     } catch(\Exception $e)
                                     {
-                                        return redirect()->back()->with('error', $e);
+                                        return redirect()->back()->with('error', $e->getMessage());
                                     }
                                     $result = Utility::updateStorageLimit(\Auth::user()->creatorId(), $file_size);
                                     if ($result != 1) {
@@ -463,26 +431,10 @@ class ShopifyProductController extends Controller
         if (auth()->user() && auth()->user()->isAbleTo('Edit Shopify Product')) {
             try {
                 $store_id = getStoreById(getCurrentStore());
-                $shopify_store_url = \App\Models\Utility::GetValueByName('shopify_store_url', getCurrentStore());
+                $shopify_store_url = \App\Services\ImportStoreUrl::shopifyLabel(\App\Models\Utility::GetValueByName('shopify_store_url', getCurrentStore()));
                 $shopify_access_token = \App\Models\Utility::GetValueByName('shopify_access_token', getCurrentStore());
 
-                $curl = curl_init();
-                curl_setopt_array($curl, array(
-                    CURLOPT_URL => "https://$shopify_store_url.myshopify.com/admin/api/2023-07/products.json?ids=$id",
-                    CURLOPT_RETURNTRANSFER => true,
-                    CURLOPT_ENCODING => '',
-                    CURLOPT_MAXREDIRS => 10,
-                    CURLOPT_TIMEOUT => 0,
-                    CURLOPT_FOLLOWLOCATION => true,
-                    CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
-                    CURLOPT_CUSTOMREQUEST => 'GET',
-                    CURLOPT_HTTPHEADER => array(
-                        "X-Shopify-Access-Token: $shopify_access_token"
-                    ),
-                ));
-
-                $response = curl_exec($curl);
-                curl_close($curl);
+                $response = \App\Services\ShopifyAdminApi::get($shopify_store_url, "admin/api/2023-07/products.json?ids=$id", $shopify_access_token);
 
                 if ($response == false) {
                     return redirect()->back()->with('error', 'Something went wrong.');
@@ -498,6 +450,14 @@ class ShopifyProductController extends Controller
                         $mainCategory = Category::where('store_id', $storeId)->first();
                         if (isset($products) && !empty($products)) {
 
+                            $upddata = ShopifyConection::where('store_id', $storeId)->where('module', '=', 'product')->where('shopify_id', $id)->first();
+                            // P1-INV-13: no mapping, or a mapping to a product this store does not own, is refused before any fetch, quota charge or write
+                            // (Product is not in scoped_models, so find() reaches every tenant's catalogue).
+                            $product = \App\Services\ImportMappingOwnership::owned($upddata, Product::class, $storeId);
+                            if (!$product) {
+                                return redirect()->back()->with('error', __('Product Not Found.'));
+                            }
+
                             if (!empty($products['products'][0]['image']['src'])) {
                                 $ImageUrl = $products['products'][0]['image']['src'];
                                 $url =  strtok($ImageUrl, '?');
@@ -509,11 +469,11 @@ class ShopifyProductController extends Controller
                                 $file_size = 0;
                                 try{
                                     $file_url = str_replace("\0", '', $url);
-                                    $get_file = \Illuminate\Support\Facades\Http::head($file_url);
+                                    $get_file = \App\Services\SafeRemoteFetch::head($file_url);
                                     $file_size = $get_file->header('Content-Length');
                                 } catch(\Exception $e)
                                 {
-                                    return redirect()->back()->with('error', $e);
+                                    return redirect()->back()->with('error', $e->getMessage());
                                 }
                                 $result = Utility::updateStorageLimit(\Auth::user()->creatorId(), $file_size);
                                 if ($result != 1) {
@@ -530,10 +490,6 @@ class ShopifyProductController extends Controller
                                 $path   = 'uploads/' .getCurrentStore();
                                 $uplaod = Utility::upload_woo_file($url, $file2, $path);
                             }
-                            $upddata = ShopifyConection::where('store_id', $storeId)->where('module', '=', 'product')->where('shopify_id', $id)->first();
-                            $original_id = $upddata->original_id;
-
-                            $product                          = Product::find($original_id);
                             $product->name                    = $products['products'][0]['title'];
                             $product->description             = strip_tags($products['products'][0]['body_html']);
                             $product->cover_image_path        = $uplaod['url'];
@@ -725,11 +681,11 @@ class ShopifyProductController extends Controller
                                     $file_size = 0;
                                     try{
                                         $file_url = str_replace("\0", '', $url);
-                                        $get_file = \Illuminate\Support\Facades\Http::head($file_url);
+                                        $get_file = \App\Services\SafeRemoteFetch::head($file_url);
                                         $file_size = $get_file->header('Content-Length');
                                     } catch(\Exception $e)
                                     {
-                                        return redirect()->back()->with('error', $e);
+                                        return redirect()->back()->with('error', $e->getMessage());
                                     }
                                     $result = Utility::updateStorageLimit(\Auth::user()->creatorId(), $file_size);
                                     if ($result != 1) {

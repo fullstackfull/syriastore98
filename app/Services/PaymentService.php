@@ -63,6 +63,19 @@ class PaymentService
 {
     use ApiResponser;
 
+    /*
+     * THE SHARED BASKET-OWNERSHIP SEAM, P01-COMMERCE-SEC-03 FOLLOW-UP.
+     *
+     * Used for basketHasForeignProduct() only -- the same predicate the seven checkout writers
+     * in app/Http/Controllers/ run, rather than a ninth copy of it here. The trait's members do
+     * not collide with anything in this class (verified member by member: this class's own
+     * payment verifier is paymentVerifier(), the trait's is gatewayReturnVerifier()), and the
+     * gateway-return helpers it also carries are simply unused on this path.
+     */
+    use \App\Http\Controllers\Concerns\GuardsGatewayReturn;
+    /* P1-ORD-02: a pending balance is flipped to paid only for the customer who owes it. */
+    use \App\Http\Controllers\Concerns\ResolvesPendingPartialPayment;
+
     /**
      * Server-authoritative tax resolution. See App\Services\OrderTaxResolver:
      * the tax component of a charged total is derived from the existing cart and
@@ -259,8 +272,58 @@ class PaymentService
         }
     }
 
+    /**
+     * Give this checkout a one-time identifier, before any gateway branch runs.
+     *
+     * P1-PAY-02. The six gateway-return handlers can only refuse a replay if something on the
+     * return identifies the checkout it belongs to. Nothing did: the stored state is a copy of
+     * the shopper's own request, and two checkouts of the same basket are byte-identical, so a
+     * hash of the state would refuse a legitimate second purchase. The identifier has to be
+     * minted, and it has to be minted by the server, at initiation.
+     *
+     * WHY HERE AND NOT AT THE 46 `Session::put('request_data', ...)` SITES. Every one of those
+     * builds its array as `$request->except('attachment','payment_receipt')`, so a key merged into
+     * the request before the switch is carried into all of them for free. process() is the web
+     * checkout's single entry point to the gateways -- PaymentController:1778 is its only caller
+     * -- so one line here covers every arm, and there is no 46-site census to keep in step as
+     * arms are added.
+     *
+     * THERE IS NO ARRAY LIMB, AND THAT IS A MEASURED DECISION RATHER THAN AN OVERSIGHT. Several
+     * arms begin `if (is_array($request)) { $request = Request::create('/', 'POST', $request); }`
+     * (:429 and :4349 among others), which reads as though an array reaches here -- so the first
+     * version of this method stamped the array too. A mutation run then recorded that limb as the
+     * one SURVIVOR of twelve: deleting it failed no test. A census says why. This service's
+     * `process()` has exactly ONE caller, PaymentController:1778, and it passes a typed
+     * `Request`; every arm is private or otherwise uncalled outside the switch, so the `is_array`
+     * guards inside them are themselves legacy. And an arm reached directly WOULD bypass
+     * process(), and therefore this stamp, whatever shape it was given -- so an array limb would
+     * not have covered that case either. Dead defence on a money path is a liability, not a
+     * safeguard, so it was removed rather than excused. (The same-named `process()` methods on
+     * the LotteryPrizes, Donation and Campaigns module services ARE called with arrays; they are
+     * different classes and do not reach this code.)
+     *
+     * The `instanceof` test stays: the parameter is untyped, matching those module services, and
+     * it is what makes this method total rather than a fatal on an unexpected shape.
+     *
+     * See App\Http\Controllers\Concerns\GuardsGatewayReturn::claimGatewayReturn() for what the
+     * return side does with it.
+     *
+     * @param  \Illuminate\Http\Request|mixed  $request
+     * @return \Illuminate\Http\Request|mixed  the same value, stamped when it can be
+     */
+    private function stampCheckoutNonce($request)
+    {
+        if ($request instanceof Request) {
+            $request->merge([self::CHECKOUT_NONCE_KEY => (string) \Illuminate\Support\Str::uuid()]);
+        }
+
+        return $request;
+    }
+
     public function process($request, $paymentMethod, $slug, $cartList)
     {
+        $request = $this->stampCheckoutNonce($request);
+
         switch ($paymentMethod) {
             case 'stripe':
                 return $this->processStripe($request, $slug, $cartList);
@@ -1756,7 +1819,7 @@ private function processPaymera00000($request, $slug)
             curl_close($ch);
             $this->redirect_to_merchant($url_forward);
         } catch (\Exception $e) {
-            return redirect()->back()->with('error', $e);
+            return \App\Services\PaymentFailure::redirectBack($e, 'processAamarPay');
         }
 
     }
@@ -1917,7 +1980,7 @@ private function processPaymera00000($request, $slug)
             }
             return view('payment.pay_tr', compact('token'));
         } catch (\Throwable $e) {
-            return redirect()->back()->with('error', $e);
+            return \App\Services\PaymentFailure::redirectBack($e, 'processPayTr');
         }
 
     }
@@ -2067,7 +2130,8 @@ private function processPaymera00000($request, $slug)
             }
             $data = [
                 'snap_token' => $snapToken,
-                'midtrans_secret' => $midtrans_secret_key,
+                // P1-SEC-17 F2: the SERVER key is no longer handed to the view. It was printed as
+                // `data-client-key` and, through route($fallback_url, $data), into the form action URL.
                 'order_id' => $orderID,
                 'slug' => $slug,
                 'amount' => $cartlist_final_price,
@@ -2076,7 +2140,7 @@ private function processPaymera00000($request, $slug)
             ];
             return view('midtras.order_payment', compact('data'));
         } catch (\Exception $e) {
-            return redirect()->back()->with('error', $e);
+            return \App\Services\PaymentFailure::redirectBack($e, 'processMidtrans');
         }
     }
 
@@ -2123,7 +2187,48 @@ private function processPaymera00000($request, $slug)
         }
         if (module_is_active('PartialPayments')) {
             if ($plan && strpos($plan->modules, 'PartialPayments') !== false && \Auth::guard('customers')->user()) {
-                if ((isset($request->partial_payment_type) || $request->partial_payment_type == 'pending_payment')) {
+                /*
+                 * `&&`, WHERE IT USED TO SAY `||` -- and `isset()` alone is true for ANY value of a
+                 * caller-supplied key, so posting `partial_payment_type=x` on an ORDINARY checkout
+                 * diverted the gateway return into the settle-a-balance branch. That branch answers
+                 * redirect()->back() without writing an order, and its first statement is
+                 * `OrderPartialPayments::find($requests_data['partial_payment_id'])`, which is
+                 * find(NULL) when the state holds no such key -- a fatal on the next line. Either
+                 * way the shopper is charged and no order row exists. P1-ORD-02 criterion 2.
+                 *
+                 * AND THE PREDICATE READS THE STORED STATE, not the live request. `Request::merge()` only
+                 * overwrites keys the state HOLDS (GuardsGatewayReturn:174-176), so an ordinary checkout's
+                 * state -- which carries no `partial_payment_type` -- let a posted one survive the merge and
+                 * divert the return. By then the replay claim is consumed and the state forgotten, so the
+                 * shopper's payment stands with no order and no retry.
+                 *
+                 * AND THE ROW IS CHECKED BEFORE IT IS FLIPPED. ManagePartialPayment() is three
+                 * statements of vendored code with no store_id and no customer_id predicate, on a
+                 * model that is in no scoped_models entry -- so without this, a signed-in shopper
+                 * could mark ANY tenant's pending balance paid by naming its id. The initiation path
+                 * validates the same row (prepareFinalRequestData), and this is the half that holds
+                 * when the store has `enable_partial_payment` off, where that limb never runs.
+                 *
+                 * WHAT THIS GUARD DOES NOT ANSWER, stated so the next reader is not misled: it proves the
+                 * balance is THIS customer's and still owed. It does NOT prove it was PAID. Pre-existing,
+                 * not closed here, and recorded in
+                 * docs/security/P01-ORD-02-PARTIAL-PAYMENT-TOTAL-SOURCE.md section 5.
+                 */
+                if (($requests_data['partial_payment_type'] ?? null) === 'pending_payment') {
+                    if ($this->pendingPartialPaymentRow(
+                        $requests_data['partial_payment_id'] ?? null,
+                        $store->id ?? null,
+                        \Auth::guard('customers')->id()
+                    ) === null) {
+                        \Illuminate\Support\Facades\Log::warning('Pending partial payment refused: the balance named does not belong to this customer.', [
+                            'store_id' => $store->id ?? null,
+                            'customer_id' => \Auth::guard('customers')->id(),
+                            'partial_payment_id' => $requests_data['partial_payment_id'] ?? null,
+                        ]);
+
+                        return redirect()->back()->with('error', __('This payment could not be verified.'));
+                    }
+
                     $return = \Workdo\PartialPayments\app\Models\PartialPayments::ManagePartialPayment($requests_data, $slug);
                     if ($return['status'] == 'success') {
                         return redirect()->back()->with('success', __($return['message']));
@@ -2195,6 +2300,56 @@ private function processPaymera00000($request, $slug)
         );
         $billing = is_string($request->billing_info) ? (array) json_decode($request->billing_info) : $request->billing_info;
         $products = $response['product_list'];
+
+        /*
+         * THIS BASKET MUST BELONG TO THE STORE THIS ORDER IS BEING WRITTEN INTO.
+         * P01-COMMERCE-SEC-03 FOLLOW-UP. This is the `cod` and `bank_transfer` order writer and
+         * it had no ownership check of any kind: its product lookup is
+         * `Product::where('id', $product_id)->first()` (no store predicate), its variant lookup
+         * is built from the caller's own two values, and its plain-product arm decrements
+         * `Product::find($product_id)`. A cart line naming another merchant's product moved that
+         * merchant's `products.product_stock` and wrote the order here.
+         *
+         * `$store` IS THE ONE THIS METHOD WILL ACTUALLY WRITE WITH -- resolved at the top of this
+         * method from the request's own `slug`, not from the route. PaymentController::processOrder
+         * now pins that `slug` to the route's store before calling, and this check is what makes
+         * the pin self-enforcing: if the pin were ever removed, a basket from store A arriving
+         * with `slug` for store B is refused HERE, because the products would not belong to the
+         * store named. That is why this is not redundant with the caller's copy.
+         *
+         * The refusal is written out rather than delegated to
+         * GuardsGatewayReturn::gatewayReturnForeignProductRefusal() because that message tells
+         * the shopper their payment has not been applied to an order -- on a cash-on-delivery or
+         * bank-transfer checkout nothing has been charged, so it would be false.
+         */
+        if ($this->basketHasForeignProduct($products, $store)) {
+            Log::warning('cod/bank_transfer order writer refused: basket names a product from another store', [
+                'store_id' => $store->id ?? null,
+                'customer_id' => $customer_id ?: null,
+                'payment_type' => $requests_data['payment_type'] ?? null,
+            ]);
+
+            return redirect()->back()->with('error', __('Your cart contains an item this store does not sell.'));
+        }
+
+        /*
+         * AND NO LINE QUANTITY IS ABSURD -- the same correction, measured on this writer too.
+         * `PaymentController::processOrder` refuses `qty <= 0` before dispatching here, which is a
+         * FLOOR and not a CEILING: a line of 2147483647 drove a 50-unit product to
+         * -2147483597 and wrote an order for 21474836470.0 marked 'Paid', HTTP 302, no error.
+         * GuardsGatewayReturn::MAX_SANE_LINE_QUANTITY existed and was wired into none of the three
+         * cash-on-delivery writers. The message matches the one processOrder already uses for the
+         * floor, so nothing new reaches the shopper.
+         */
+        if ($this->basketHasUnusableQuantity($products)) {
+            Log::warning('cod/bank_transfer order writer refused: basket holds an unusable quantity', [
+                'store_id' => $store->id ?? null,
+                'customer_id' => $customer_id ?: null,
+            ]);
+
+            return redirect()->back()->with('error', __('Your cart contains an invalid quantity.'));
+        }
+
         $coupon_price = 0;
         // coupon api call
         if (!empty($requests_data['coupon_code'])) {
@@ -2332,7 +2487,7 @@ $products_weight_array[] = [
                 if (isset($settings['stock_management']) && $settings['stock_management'] == 'on') {
                     if (!empty($product_id) && !empty($variant_id) && $product_id != 0 && $variant_id != 0) {
                         $ProductStock = ProductVariant::where('id', $variant_id)->where('product_id', $product_id)->first();
-                        $variationOptions = explode(',', $ProductStock->variation_option);
+                        $variationOptions = explode(',', (string) ($ProductStock->variation_option ?? ''));   // P1-PAY-01: null-safe; a bare deref here throws ErrorException
                         $option = in_array('manage_stock', $variationOptions);
                         if (!empty($ProductStock)) {
                             if ($option == true) {
@@ -2506,8 +2661,12 @@ $products_weight_array[] = [
                  * The predicate is unchanged, including `store_id`, so no row
                  * outside the shopper's own cart in this store is touched.
                  */
+                // P1-SEC-23/24. The AUTHENTICATED customer's id, or the guest's own cart cookie -- not
+                // `$request->customer_id`, which for a guest is the id of the Customer found or created from the
+                // billing e-mail they typed (see PaymentController::clearCartLines()).
                 $cartLinesToClear[] = [
-                    'customer_id' => $request->customer_id,
+                    'customer_id' => auth('customers')->id(),
+                    'cookie_session_id' => Cookie::get('cart'),
                     'product_id' => $product_id,
                     'variant_id' => $variant_id,
                     'store_id' => $store->id,
@@ -2595,7 +2754,13 @@ $products_weight_array[] = [
             $requests_data['payment_type'] ?? null,
             $this->paymentVerifier()->consumeVerification(),
             $order->final_price,
-            __METHOD__
+            __METHOD__,
+            // P1-PAY-03. WHICH CHECKOUT THIS WRITER IS SETTLING. A verification record now names
+            // the checkout that produced it, and this is the shared storefront writer -- the one
+            // a record planted by an aborted capture on another route was measured being redeemed
+            // at. Presenting the nonce is also what keeps a LEGITIMATE record usable here:
+            // without it every bound record would be refused, which is an outage, not a control.
+            $this->checkoutNonceOf($requests_data)
         );
         $order->delivery_id = $requests_data['method_id'] ?? 0;
         $order->delivery_comment = !empty($requests_data['delivery_comment']) ? $requests_data['delivery_comment'] : '';
@@ -2659,35 +2824,21 @@ $products_weight_array[] = [
             }
             // Utility::paymentWebhook($order);
 
-            $billing_city_id = $billing['billing_city'] ?? 0;
-            if (!empty($billing['billing_city'])) {
-                $cityy = City::where('id', $billing['billing_city'])->first();
-                if (!empty($cityy)) {
-                    $billing_city_id = $cityy->id;
-                } else {
-                    $new_billing_city = new City();
-                    $new_billing_city->name = $billing['billing_city'];
-                    $new_billing_city->state_id = $billing['billing_state'];
-                    $new_billing_city->country_id = $billing['billing_country'];
-                    $new_billing_city->save();
-                    $billing_city_id = $new_billing_city->id;
-                }
-            }
+            // P1-ORD-15: the posted values are IDS and this looked the city up by NAME. One resolver,
+            // which also keeps a posted NAME out of cities.state_id / country_id (foreign keys).
+            $billing_city_id = \App\Services\BillingGeography::resolveCityId(
+                $billing['billing_city'] ?? null,
+                $billing['billing_state'] ?? null,
+                $billing['billing_country'] ?? null
+            );
 
-            $delivery_city_id = $billing['delivery_city'] ?? 0;
-            if (!empty($billing['delivery_city'])) {
-                $d_cityy = City::where('id', $billing['delivery_city'])->first();
-                if (!empty($d_cityy)) {
-                    $delivery_city_id = $d_cityy->id;
-                } else {
-                    $new_delivery_city = new City();
-                    $new_delivery_city->name = $billing['delivery_city'];
-                    $new_delivery_city->state_id = $billing['delivery_state'];
-                    $new_delivery_city->country_id = $billing['delivery_country'];
-                    $new_delivery_city->save();
-                    $delivery_city_id = $new_delivery_city->id;
-                }
-            }
+            // P1-ORD-15: the posted values are IDS and this looked the city up by NAME. One resolver,
+            // which also keeps a posted NAME out of cities.state_id / country_id (foreign keys).
+            $delivery_city_id = \App\Services\BillingGeography::resolveCityId(
+                $billing['delivery_city'] ?? null,
+                $billing['delivery_state'] ?? null,
+                $billing['delivery_country'] ?? null
+            );
 
             $OrderBillingDetail = new OrderBillingDetail();
             $OrderBillingDetail->order_id = $order->id;
@@ -2909,7 +3060,7 @@ $products_weight_array[] = [
                     }
                 } else {
                     $variant_data = ProductVariant::find($product->variant_id);
-                    $variationOptions = explode(',', $variant_data->variation_option);
+                    $variationOptions = explode(',', (string) ($variant_data->variation_option ?? ''));   // P1-PAY-01: null-safe; a bare deref here throws ErrorException
                     $option = in_array('manage_stock', $variationOptions);
                     if ($option == true) {
                         OrderNote::order_note_data([
@@ -2948,7 +3099,7 @@ $products_weight_array[] = [
         // add in Order Tax Detail table end
         if (!empty($order) && !empty($OrderBillingDetail)) {
             $cart = Cookie::get('cart');
-            $cart = Cart::where('cookie_session_id', $cart)->delete();
+            $cart = Cart::forGuestCookie($cart)->delete();
             // $order_array['order_id'] = $order->id;
             // $cart_array = [];
             // $cart_json = json_encode($cart_array);
@@ -3025,6 +3176,10 @@ if ($selectedMethodId) {
 
 
 
+            // P1-ORD-13: the thank-you page resolves the PRIMARY KEY this session placed, because
+            // `product_order_id` is a bare timestamp two same-second orders in one store share --
+            // the number alone showed one buyer the other's order, and after P1-ORD-08 refused both.
+            \App\Services\OrderCompleteBinding::remember($order->id);
             return redirect()->route('order.complete', $slug)->with('data', $order->product_order_id);
         } else {
             return $this->error(['message' => 'Somthing went wrong.']);
@@ -3346,7 +3501,45 @@ private function webhook_backup($order, $r, $products_weight = []) {
         $store = getStore($slug);
         
         $other_info = is_string($request->billing_info) ? (array) json_decode($request->billing_info) : $request->billing_info;
-        $admin_payment_setting = getAdminAllSetting();
+        /*
+         * P1-SEC-26: READ THE SETTINGS OF THE STORE BEING PAID, NOT THE CALLER'S.
+         *
+         * {storeSlug}/process-order carries no `auth` and processOrder() treats a web principal as a guest, so a merchant, staff
+         * user or super admin with a `web` session is admitted here. A no-argument getAdminAllSetting() then takes its FIRST
+         * branch -- Setting::where('created_by', $user->id)->where('store_id', $user->current_store) -- and answers with THAT
+         * user's own store. For an anonymous or `customers`-guard shopper it is already correct, via P1-SEC-18 F4's
+         * getRouteStoreId() fallback.
+         *
+         * WHY NOT getAdminAllSetting AT ALL, which took two attempts to get right and is the whole point of this comment:
+         *   - getAdminAllSetting() with no arguments is the defect above.
+         *   - getAdminAllSetting(null, $storeId) returns an EMPTY array, measured: the first branch still filters
+         *     `created_by = $user->id`, so a foreign store id matches no rows.
+         *   - getAdminAllSetting($store->created_by, $storeId) looked right and is ALSO wrong, found by the read-only review of this
+         *     fix. `settings.created_by` is not the store's owner -- it is WHOEVER SAVED LAST: PaymentSettingController::saveSettings
+         *     keys updateOrCreate on ['name','store_id'] only and rewrites `created_by` to auth()->user()->id (:162-173), and
+         *     StoreSettingsAccess admits a STAFF member holding the permission. So for a store whose payment tab was last saved by
+         *     staff, that pair matches no rows either.
+         * The `created_by` limb buys nothing here in any case: every settings writer already scopes `store_id` to its own tenant, so
+         * a row carrying this store's id can only have been written by an insider of this store. Dropping it is exactly the predicate
+         * the canonical per-store reader uses (Utility::GetValueByName, app/Models/Utility.php:181-196) and that Setting::paymentList
+         * and the admin API already use for these same keys -- so the storefront's "SSLCommerz is enabled" and this read now agree.
+         * StorelessCredentialReadTest pins every form side by side.
+         *
+         * Resolved from getRouteStoreId() and not from $store: the line below overwrites this method's own $slug parameter with the
+         * request body's `slug`, which the checkout form does not post, so $store is null on the legitimate flow. With no resolvable
+         * store (a job, a console run) the ternary falls back to the previous behaviour, which is the right answer there.
+         *
+         * SCOPE, stated so the next reader is not misled: because of that same $slug overwrite the method dies at the CURRENCY_NAME
+         * read below for EVERY caller unless the body carries `slug`, so this correction is live only for that request shape -- which
+         * is also the only shape that reaches the gateway, and the shape the original defect needed. Fixing the overwrite is a
+         * separate change (it moves currency resolution) and is recorded on #99, not done here. Note also that credentials now come
+         * from the PATH store while the currency and success_url still come from the BODY store; previously the pair was (caller's
+         * store, body store).
+         */
+        $sec26Store = \App\Models\Store::find(getRouteStoreId());
+        $admin_payment_setting = $sec26Store
+            ? \App\Models\Setting::where('store_id', $sec26Store->id)->pluck('value', 'name')->toArray()
+            : getAdminAllSetting();
 
         $currency = \App\Models\Utility::GetValueByName('CURRENCY_NAME', $store->id);
         $api_key = isset($admin_payment_setting['nepalste_public_key']) ? $admin_payment_setting['nepalste_public_key'] : '';
@@ -3535,7 +3728,45 @@ private function webhook_backup($order, $r, $products_weight = []) {
         $store = getStore($slug);
         
         $other_info = is_string($request->billing_info) ? (array) json_decode($request->billing_info) : $request->billing_info;
-        $admin_payment_setting = getAdminAllSetting();
+        /*
+         * P1-SEC-26: READ THE SETTINGS OF THE STORE BEING PAID, NOT THE CALLER'S.
+         *
+         * {storeSlug}/process-order carries no `auth` and processOrder() treats a web principal as a guest, so a merchant, staff
+         * user or super admin with a `web` session is admitted here. A no-argument getAdminAllSetting() then takes its FIRST
+         * branch -- Setting::where('created_by', $user->id)->where('store_id', $user->current_store) -- and answers with THAT
+         * user's own store. For an anonymous or `customers`-guard shopper it is already correct, via P1-SEC-18 F4's
+         * getRouteStoreId() fallback.
+         *
+         * WHY NOT getAdminAllSetting AT ALL, which took two attempts to get right and is the whole point of this comment:
+         *   - getAdminAllSetting() with no arguments is the defect above.
+         *   - getAdminAllSetting(null, $storeId) returns an EMPTY array, measured: the first branch still filters
+         *     `created_by = $user->id`, so a foreign store id matches no rows.
+         *   - getAdminAllSetting($store->created_by, $storeId) looked right and is ALSO wrong, found by the read-only review of this
+         *     fix. `settings.created_by` is not the store's owner -- it is WHOEVER SAVED LAST: PaymentSettingController::saveSettings
+         *     keys updateOrCreate on ['name','store_id'] only and rewrites `created_by` to auth()->user()->id (:162-173), and
+         *     StoreSettingsAccess admits a STAFF member holding the permission. So for a store whose payment tab was last saved by
+         *     staff, that pair matches no rows either.
+         * The `created_by` limb buys nothing here in any case: every settings writer already scopes `store_id` to its own tenant, so
+         * a row carrying this store's id can only have been written by an insider of this store. Dropping it is exactly the predicate
+         * the canonical per-store reader uses (Utility::GetValueByName, app/Models/Utility.php:181-196) and that Setting::paymentList
+         * and the admin API already use for these same keys -- so the storefront's "SSLCommerz is enabled" and this read now agree.
+         * StorelessCredentialReadTest pins every form side by side.
+         *
+         * Resolved from getRouteStoreId() and not from $store: the line below overwrites this method's own $slug parameter with the
+         * request body's `slug`, which the checkout form does not post, so $store is null on the legitimate flow. With no resolvable
+         * store (a job, a console run) the ternary falls back to the previous behaviour, which is the right answer there.
+         *
+         * SCOPE, stated so the next reader is not misled: because of that same $slug overwrite the method dies at the CURRENCY_NAME
+         * read below for EVERY caller unless the body carries `slug`, so this correction is live only for that request shape -- which
+         * is also the only shape that reaches the gateway, and the shape the original defect needed. Fixing the overwrite is a
+         * separate change (it moves currency resolution) and is recorded on #99, not done here. Note also that credentials now come
+         * from the PATH store while the currency and success_url still come from the BODY store; previously the pair was (caller's
+         * store, body store).
+         */
+        $sec26Store = \App\Models\Store::find(getRouteStoreId());
+        $admin_payment_setting = $sec26Store
+            ? \App\Models\Setting::where('store_id', $sec26Store->id)->pluck('value', 'name')->toArray()
+            : getAdminAllSetting();
 
         $currency = \App\Models\Utility::GetValueByName('CURRENCY_NAME', $store->id);
 
@@ -4082,10 +4313,12 @@ private function webhook_backup($order, $r, $products_weight = []) {
         }
 
         try {
-            $siteCode = \App\Models\Utility::GetValueByName('ozow_pay_Site_key') ? \App\Models\Utility::GetValueByName('ozow_pay_Site_key') : '';
-            $privateKey = \App\Models\Utility::GetValueByName('ozow_pay_private_key') ? \App\Models\Utility::GetValueByName('ozow_pay_private_key') : '';
-            $apiKey = \App\Models\Utility::GetValueByName('ozow_pay_api_key') ? \App\Models\Utility::GetValueByName('ozow_pay_api_key') : '';
-            $isTest = \App\Models\Utility::GetValueByName('ozow_mode') == 'sandbox' ? 'true' : 'false';
+            // The store's own credentials, by id -- like the currency above. A read that names no store has no store_id
+            // predicate and returns the last tenant's row (P1-SEC-18 F4); the route fallback covers it, this does not depend on it.
+            $siteCode = \App\Models\Utility::GetValueByName('ozow_pay_Site_key', $store->id) ?: '';
+            $privateKey = \App\Models\Utility::GetValueByName('ozow_pay_private_key', $store->id) ?: '';
+            $apiKey = \App\Models\Utility::GetValueByName('ozow_pay_api_key', $store->id) ?: '';
+            $isTest = \App\Models\Utility::GetValueByName('ozow_mode', $store->id) == 'sandbox' ? 'true' : 'false';
 
             $countryCode = "ZA";
             $currencyCode = $currency;
@@ -4168,10 +4401,11 @@ private function webhook_backup($order, $r, $products_weight = []) {
         
         $other_info = is_string($request->billing_info) ? (array) json_decode($request->billing_info) : $request->billing_info;
 
-        $currency = \App\Models\Utility::GetValueByName('CURRENCY_NAME');
-        $easebuzz_merchant_key = \App\Models\Utility::GetValueByName('easebuzz_merchant_key');
-        $easebuzz_salt_key = \App\Models\Utility::GetValueByName('easebuzz_salt_key');
-        $easebuzz_enviroment_name = \App\Models\Utility::GetValueByName('easebuzz_enviroment_name');
+        // By the store's id (P1-SEC-18 F4): a read naming no store returns the last tenant's row.
+        $currency = \App\Models\Utility::GetValueByName('CURRENCY_NAME', $store->id);
+        $easebuzz_merchant_key = \App\Models\Utility::GetValueByName('easebuzz_merchant_key', $store->id);
+        $easebuzz_salt_key = \App\Models\Utility::GetValueByName('easebuzz_salt_key', $store->id);
+        $easebuzz_enviroment_name = \App\Models\Utility::GetValueByName('easebuzz_enviroment_name', $store->id);
 
         $orderID = $request->customer_id . date('YmdHis');
 
@@ -4700,7 +4934,47 @@ private function webhook_backup($order, $r, $products_weight = []) {
     }
     public function processSSLCommerz($request, $slug, $response)
     {
-        $payment_setting        = getAdminAllSetting();
+        /*
+         * P1-SEC-26: READ THE SETTINGS OF THE STORE BEING PAID, NOT THE CALLER'S.
+         *
+         * {storeSlug}/process-order carries no `auth` and processOrder() treats a web principal as a guest, so a merchant, staff
+         * user or super admin with a `web` session is admitted here. A no-argument getAdminAllSetting() then takes its FIRST
+         * branch -- Setting::where('created_by', $user->id)->where('store_id', $user->current_store) -- and answers with THAT
+         * user's own store. For an anonymous or `customers`-guard shopper it is already correct, via P1-SEC-18 F4's
+         * getRouteStoreId() fallback.
+         *
+         * WHY NOT getAdminAllSetting AT ALL, which took two attempts to get right and is the whole point of this comment:
+         *   - getAdminAllSetting() with no arguments is the defect above.
+         *   - getAdminAllSetting(null, $storeId) returns an EMPTY array, measured: the first branch still filters
+         *     `created_by = $user->id`, so a foreign store id matches no rows.
+         *   - getAdminAllSetting($store->created_by, $storeId) looked right and is ALSO wrong, found by the read-only review of this
+         *     fix. `settings.created_by` is not the store's owner -- it is WHOEVER SAVED LAST: PaymentSettingController::saveSettings
+         *     keys updateOrCreate on ['name','store_id'] only and rewrites `created_by` to auth()->user()->id (:162-173), and
+         *     StoreSettingsAccess admits a STAFF member holding the permission. So for a store whose payment tab was last saved by
+         *     staff, that pair matches no rows either.
+         * The `created_by` limb buys nothing here in any case: every settings writer already scopes `store_id` to its own tenant, so
+         * a row carrying this store's id can only have been written by an insider of this store. Dropping it is exactly the predicate
+         * the canonical per-store reader uses (Utility::GetValueByName, app/Models/Utility.php:181-196) and that Setting::paymentList
+         * and the admin API already use for these same keys -- so the storefront's "SSLCommerz is enabled" and this read now agree.
+         * StorelessCredentialReadTest pins every form side by side.
+         *
+         * Resolved from getRouteStoreId() and not from $store: the line below overwrites this method's own $slug parameter with the
+         * request body's `slug`, which the checkout form does not post, so $store is null on the legitimate flow. With no resolvable
+         * store (a job, a console run) the ternary falls back to the previous behaviour, which is the right answer there.
+         *
+         * SCOPE, stated so the next reader is not misled: because of that same $slug overwrite the method dies at the CURRENCY_NAME
+         * read below for EVERY caller unless the body carries `slug`, so this correction is live only for that request shape -- which
+         * is also the only shape that reaches the gateway, and the shape the original defect needed. Fixing the overwrite is a
+         * separate change (it moves currency resolution) and is recorded on #99, not done here. Note also that credentials now come
+         * from the PATH store while the currency and success_url still come from the BODY store; previously the pair was (caller's
+         * store, body store).
+         */
+        $sec26Store = \App\Models\Store::find(getRouteStoreId());
+        // This is the money-bearing one of the three: sslcommerz_pay_store_id and sslcommerz_pay_secret_key below are posted to the
+        // gateway as store_id/store_passwd, so the wrong row here creates the payment against the signed-in merchant's OWN account.
+        $payment_setting        = $sec26Store
+            ? \App\Models\Setting::where('store_id', $sec26Store->id)->pluck('value', 'name')->toArray()
+            : getAdminAllSetting();
         $slug = !empty($request->slug) ? $request->slug : '';
         $store = getStore($slug);
         
@@ -4718,8 +4992,10 @@ private function webhook_backup($order, $r, $products_weight = []) {
         }
         $user = \Auth::user();
         
-        $sslcommerz_pay_store_id = $payment_setting['sslcommerz_pay_store_id'];
-        $sslcommerz_pay_secret_key = $payment_setting['sslcommerz_pay_secret_key'];
+        // `?? ''` because these two were the only unguarded dereferences of the array (their siblings all use isset), so an empty
+        // read 500'd here instead of failing the gateway call. Defensive either way; the store-scoped read above is the actual fix.
+        $sslcommerz_pay_store_id = $payment_setting['sslcommerz_pay_store_id'] ?? '';
+        $sslcommerz_pay_secret_key = $payment_setting['sslcommerz_pay_secret_key'] ?? '';
 
         $sslcommerz_data = [
             "store_id"      => $sslcommerz_pay_store_id,
@@ -4795,11 +5071,20 @@ private function webhook_backup($order, $r, $products_weight = []) {
     {
         foreach ($lines as $line) {
             try {
-                Cart::where('customer_id', $line['customer_id'])
-                    ->where('product_id', $line['product_id'])
+                $query = Cart::where('product_id', $line['product_id'])
                     ->where('variant_id', $line['variant_id'])
-                    ->where('store_id', $line['store_id'])
-                    ->delete();
+                    ->where('store_id', $line['store_id']);
+
+                // A customer's lines by id, a guest's by their cart cookie, neither -> nothing (never against 0).
+                if (is_numeric($line['customer_id'] ?? null) && (int) $line['customer_id'] > 0) {
+                    $query->forCustomer((int) $line['customer_id']);
+                } elseif (is_string($line['cookie_session_id'] ?? null) && $line['cookie_session_id'] !== '') {
+                    $query->forGuestCookie($line['cookie_session_id']);
+                } else {
+                    continue;
+                }
+
+                $query->delete();
             } catch (\Throwable $e) {
                 \Log::error('Could not clear a cart line after a committed order', [
                     'product_id' => $line['product_id'] ?? null,

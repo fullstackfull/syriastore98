@@ -267,7 +267,7 @@ class CrossTenantDeletionTest extends SecurityTestCase
 
         $image = ProductImage::forceCreate([
             'product_id' => $product->id,
-            'image_path' => 'storage/uploads/does-not-exist-' . uniqid() . '.png',
+            'image_path' => 'uploads/uploads/' . $victimStore->id . '/does-not-exist-' . uniqid() . '.png',   // the victim's own folder: StoredPathPolicy judges the write
         ]);
 
         $this->actingAs($attacker->fresh())->delete('/product/' . $product->id);

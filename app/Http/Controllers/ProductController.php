@@ -880,6 +880,29 @@ $Product->cost_price = $request->cost_price;
      */
     public function show(Product $product)
     {
+        /*
+         * OWNERSHIP ON THE BINDING. P1-INV-01 / S37-1.
+         *
+         * `show()` is reached with a route-model-bound `Product $product` and had no ownership
+         * check at all, so another store's product rendered into this merchant's form -- name,
+         * prices, cost, stock and variant rows. A read rather than a write, and the same binding
+         * the write used. Same shape as `destroy()` and `update()`: platform operator exempt,
+         * then `getCurrentStore()` against the product's own `store_id`.
+         */
+        $actor = auth()->user();
+
+        if ($actor === null || $actor->type !== \App\Policies\UserPolicy::PLATFORM_ADMIN) {
+            $currentStore = getCurrentStore();
+
+            if (
+                empty($currentStore)
+                || empty($product->store_id)
+                || (int) $product->store_id !== (int) $currentStore
+            ) {
+                return redirect()->back()->with('error', __('Permission denied.'));
+            }
+        }
+
         $store = getStoreById(getCurrentStore());
         $link = env('APP_URL') . ($store->slug ? ('/'.$store->slug) : '').'/product/';
         $Category = Category::where('store_id', getCurrentStore())->pluck('name', 'id')->prepend('Select Category', '');
@@ -910,6 +933,29 @@ $Product->cost_price = $request->cost_price;
      */
     public function edit(Product $product)
     {
+        /*
+         * OWNERSHIP ON THE BINDING. P1-INV-01 / S37-1.
+         *
+         * `edit()` is reached with a route-model-bound `Product $product` and had no ownership
+         * check at all, so another store's product rendered into this merchant's form -- name,
+         * prices, cost, stock and variant rows. A read rather than a write, and the same binding
+         * the write used. Same shape as `destroy()` and `update()`: platform operator exempt,
+         * then `getCurrentStore()` against the product's own `store_id`.
+         */
+        $actor = auth()->user();
+
+        if ($actor === null || $actor->type !== \App\Policies\UserPolicy::PLATFORM_ADMIN) {
+            $currentStore = getCurrentStore();
+
+            if (
+                empty($currentStore)
+                || empty($product->store_id)
+                || (int) $product->store_id !== (int) $currentStore
+            ) {
+                return redirect()->back()->with('error', __('Permission denied.'));
+            }
+        }
+
         $store = getStoreById(getCurrentStore());
         $link = env('APP_URL') . ($store->slug ? ('/'.$store->slug) : '').'/product/';
         $categories = Category::where('store_id', getCurrentStore())->get();
@@ -966,6 +1012,40 @@ $Product->cost_price = $request->cost_price;
     {
        
         if (auth()->user() && auth()->user()->isAbleTo('Edit Products')) {
+            $actor = auth()->user();
+
+            /*
+             * OWNERSHIP, BEFORE ANYTHING IS WRITTEN. P1-INV-01 / S37-1.
+             *
+             * `isAbleTo('Edit Products')` answers "may this user edit products" and never "may
+             * this user edit THIS product". The target is a route-model-bound `Product $product`,
+             * `App\Models\Product` is not in config/tenancy.php's `scoped_models` and registers
+             * no effective global scope (CLAUDE.md), so the binding resolves across every tenant.
+             *
+             * REPRODUCED BY EXECUTION before this guard was written: a store-A merchant with
+             * `Edit Products` on their own store sent `PUT /product/{store B id}` and renamed the
+             * victim's product and set its `product_stock` 50 -> 7.
+             *
+             * The shape is `destroy()`'s, deliberately — same method, same order, same message —
+             * rather than a second idiom for one question: `isAbleTo` first, the platform operator
+             * exempt via UserPolicy::PLATFORM_ADMIN (matching OrderPolicy::allow), then
+             * `getCurrentStore()` against the product's own `store_id`. An empty current store or
+             * an unowned product is refused: `getCurrentStore()` returns null for a user whose
+             * `current_store` is empty and who owns no store, and a null store must never read as
+             * "matches".
+             */
+            if ($actor->type !== \App\Policies\UserPolicy::PLATFORM_ADMIN) {
+                $currentStore = getCurrentStore();
+
+                if (
+                    empty($currentStore)
+                    || empty($product->store_id)
+                    || (int) $product->store_id !== (int) $currentStore
+                ) {
+                    return redirect()->back()->with('error', __('Permission denied.'));
+                }
+            }
+
             $dir        = 'uploads/' .getCurrentStore();
             if ($request->variant_product == 0) {
                 $rules = [
@@ -1039,9 +1119,7 @@ $Product->cost_price = $request->cost_price;
 
                         return $msg;
                     }
-                    if (File::exists(base_path($product->cover_image_path))) {
-                        File::delete(base_path($product->cover_image_path));
-                    }
+                    \App\Services\StoredUpload::delete($product->cover_image_path, \Auth::user()->creatorId());
                 } else {
                     $msg['flag'] = 'error';
                     $msg['msg'] = $result;
@@ -1180,9 +1258,7 @@ $Product->cost_price = $request->cost_price;
 
                         return $msg;
                     }
-                    if (File::exists(base_path($product->downloadable_product))) {
-                        File::delete(base_path($product->downloadable_product));
-                    }
+                    \App\Services\StoredUpload::delete($product->downloadable_product, \Auth::user()->creatorId());
                 } else {
 
                     $msg['flag'] = 'error';
@@ -1689,39 +1765,30 @@ $Product->cost_price = $request->cost_price;
                 }
             }
 
-            $ProductImages = ProductImage::where('product_id', $product->id)->get();
-
-            $Product = Product::find($product->id);
-            $file_path1 = [];
-            foreach ($ProductImages as $key => $ProductImage) {
-                $file_path1[] =  $ProductImage->image_path;
-            }
-            $file_paths2[] = $Product->cover_image_path;
-            if (!empty($Product->downloadable_product)) {
-                $file_paths2[] = $Product->downloadable_product;
-            }
-            if ($Product->preview_type == "Video File" && !empty($Product->preview_content) && \File::exists(base_path($Product->preview_content))) {
-                $file_paths2[] = $Product->preview_content;
-            }
-            $file_path = array_merge($file_path1, $file_paths2);
-            Utility::changeproductStorageLimit(\Auth::user()->creatorId(), $file_path, $file_path1);
-            if (!empty($ProductImages)) {
-                // image remove from product variant image
-                foreach ($ProductImages as $key => $ProductImage) {
-                    if (File::exists(base_path($ProductImage->image_path))) {
-                        File::delete(base_path($ProductImage->image_path));
-                    }
-                }
-            }
-
-            ProductImage::where('product_id', $product->id)->delete();
+            /*
+             * P1-INV-25. MOVED to App\Services\ProductMediaReclaimer, same calls in the same
+             * order, because the two store-wide wipes need this block and may NOT hold the
+             * `Delete Products` permission this method is gated on -- so they were delegating
+             * their media cleanup to a handler that silently refused them. The gate above is
+             * unchanged: this handler keeps it, and the wipes, which have already proved the
+             * caller owns the store, call the service directly.
+             */
+            \App\Services\ProductMediaReclaimer::reclaim($product, \Auth::user()->creatorId());
 
 
 
             if (module_is_active('HubSpot')) {
                 $setting = getAdminAllSetting(auth()->user()->id, getCurrentStore());
                 if (isset($setting['hubspot_is_enable']) && $setting['hubspot_is_enable'] == 'on') {
-                    \Workdo\HubSpot\app\Models\HubSpotProductService::where('product_service_id', $Product->id)->delete();
+                    /*
+                     * `$product`, NOT `$Product`. The extraction above removed the
+                     * `$Product = Product::find($product->id)` this line was reading, so for one
+                     * revision it was an UNDEFINED VARIABLE -- a PHP 8 warning, `->id` on null,
+                     * and a delete that silently matched nothing. Introduced by this package and
+                     * caught by its review; the route-bound `$product` is the same row without
+                     * the redundant re-read.
+                     */
+                    \Workdo\HubSpot\app\Models\HubSpotProductService::where('product_service_id', $product->id)->delete();
                 }
             }
             ProductVariant::where('product_id', $product->id)->delete();
@@ -1736,17 +1803,13 @@ $Product->cost_price = $request->cost_price;
                     $description_json = json_decode($Product->other_description_api, true);
                     foreach ($description_json['product-other-description'] as $key => $value) {
                         if ($value['field_type'] == 'photo upload') {
-                            if (File::exists(base_path($value['value']))) {
-                                File::delete(base_path($value['value']));
-                            }
+                            \App\Services\StoredUpload::delete($value['value'], \Auth::user()->creatorId());
                         }
                     }
                 }
 
                 // image remove from cover image
-                if (File::exists(base_path($Product->cover_image_path))) {
-                    File::delete(base_path($Product->cover_image_path));
-                }
+                \App\Services\StoredUpload::delete($Product->cover_image_path, \Auth::user()->creatorId());
 
                 WoocommerceConection::where('module', 'product')->where('original_id', $product->id)->delete();
 
@@ -1777,6 +1840,28 @@ $Product->cost_price = $request->cost_price;
     public function attribute_combination(Request $request)
     {
 
+        /*
+         * THE TENANT, RESOLVED ONCE. P1-INV-10 (c).
+         *
+         * The option lookup below read `ProductAttributeOption::where('id', $id)->first()` with
+         * no store predicate at all, while its own sibling `attribute_option()` three methods up
+         * (:1841) and `ProductAttributeOptionController::ownedOption()` (:54-61) both carry one --
+         * so a merchant who posted another tenant's option ids got that tenant's `terms` echoed
+         * back into the combination table. `ProductAttributeOption` registers no StoreScope and
+         * is not in config/tenancy.php's `scoped_models`, so nothing else narrowed it.
+         *
+         * Not a privilege escalation and not a write: the leak is the option TERM strings ("Red",
+         * "XL") of another store's attributes. It is recorded as the read it is.
+         *
+         * AN EMPTY CURRENT STORE CONTRIBUTES NOTHING, and the explicit check is not redundant.
+         * Laravel's `where($column, null)` becomes `whereNull`, so `where('store_id', null)`
+         * would match every STORE-LESS option row rather than nothing -- a fail-OPEN edge that
+         * `ProductAttributeOptionController::ownedOption()` already guards against for this same
+         * model, with a docblock that happens to misstate the mechanism ("would match nothing")
+         * while getting the guard right. This copies the guard, not the explanation.
+         */
+        $currentStore = getCurrentStore();
+
         $options = array();
         $unit_price = !empty($request->price) ? $request->price : 0;
         $product_name = !empty($request->sku) ? $request->sku : '';
@@ -1796,14 +1881,42 @@ $Product->cost_price = $request->cost_price;
                         $optionValues = [];
 
                         foreach ($request[$name] as $id) {
-                            $option = ProductAttributeOption::where('id', $id)->first();
+                            $option = empty($currentStore)
+                                ? null
+                                : ProductAttributeOption::where('id', $id)
+                                    ->where('store_id', $currentStore)
+                                    ->first();
 
                             if ($option) {
                                 $optionValues[] = $option->terms;
                             }
                         }
 
-                        array_push($options, $optionValues);
+                        /*
+                         * AN ATTRIBUTE THAT RESOLVED NO OPTIONS CONTRIBUTES NOTHING, rather than
+                         * contributing an empty group. P1-INV-10 (c), found by the (c) negative
+                         * test and PRE-EXISTING -- the store predicate above only made it
+                         * reachable with a foreign id.
+                         *
+                         * `array_push($options, [])` put an empty group into the cartesian
+                         * product, and `combination([[]])` returns `[]`, so
+                         * attribute_combinations.blade.php:1 -- `count($combinations[0]) > 0` --
+                         * raised `Undefined array key 0`: a ViewException, a 500. It fired for
+                         * ANY option id that did not resolve (a deleted option would do it) long
+                         * before this task; narrowing the lookup to the caller's store would have
+                         * turned a cross-tenant leak into a cross-tenant 500, which is not a
+                         * clean refusal.
+                         *
+                         * With the group omitted, `$options` stays empty, `combination([])`
+                         * returns `[[]]`, `$combinations[0]` is `[]` and the view's own guard
+                         * renders nothing -- a 200 with an empty combination table, which is what
+                         * "these options are not yours" should look like. A legitimate post that
+                         * mixes one attribute with options and one without now builds the
+                         * combinations of the first instead of 500ing on both.
+                         */
+                        if ($optionValues !== []) {
+                            array_push($options, $optionValues);
+                        }
                     }
                 }
             }
@@ -1873,14 +1986,213 @@ $Product->cost_price = $request->cost_price;
         return $result;
     }
 
+    /**
+     * Is this product outside the store the signed-in user is working in?
+     *
+     * P1-INV-07. The ownership decision `update()`, `edit()`, `show()` and `destroy()` each make
+     * inline, extracted once for the three sites this task guards rather than copied a fifth,
+     * sixth and seventh time. The four existing copies are left alone deliberately: changing them
+     * would be a refactor of working, removal-checked code, and this task is a security fix.
+     *
+     * A MISSING PRODUCT IS OUTSIDE. `ProductImage` and `ProductVariant` both carry a nullable
+     * `store_id` of their own, and neither is in config/tenancy.php's `scoped_models`, so the
+     * authoritative tie is through the PRODUCT -- the same reasoning as S35/S36: scoping the
+     * product does not scope the variant, and the variant's own column cannot be trusted to carry
+     * the answer. If the product cannot be resolved there is nothing to own, and refusing is the
+     * fail-closed direction.
+     *
+     * THE PLATFORM OPERATOR IS EXEMPT, matching `destroy()` and `OrderPolicy::allow`. Note that in
+     * methods wrapped in `isAbleTo(...)` that exemption cannot fire at all -- Laratrust has no
+     * super-admin bypass (CLAUDE.md), measured in
+     * tests/Support/Security/bin/verify-product-ownership-on-mysql.php. These three methods have
+     * no permission wrapper, so here it is live.
+     */
+    /**
+     * Does the signed-in user hold NONE of these product permissions?
+     *
+     * P1-INV-10 (e). `file_delete()`, `attribute_combination_edit()` and
+     * `product_attribute_delete()` called `isAbleTo` NOWHERE -- zero occurrences in all three
+     * method bodies, recorded by MerchantProductOwnershipTest's own docblock. P1-INV-07 gave
+     * those three OWNERSHIP, which answers *whose row is this*, and never *may this user touch
+     * product media and variants at all*: any authenticated user of any role reached all three.
+     * Extracted once for exactly the three methods `productIsOutsideCurrentStore()` already
+     * serves, rather than copied a fourth, fifth and sixth time.
+     *
+     * THE OPERATOR LIMB COMES FIRST, and that ordering is the whole point. Laratrust runs with
+     * `permissions_as_gates => false` and there is NO super-admin bypass (CLAUDE.md), so
+     * `isAbleTo()` alone REFUSES the platform operator -- an `isAbleTo`-only limb here would be a
+     * lockout, not a tightening. `App\Http\Middleware\FinancePermission` records that happening
+     * once already, for six unseeded finance names. `update()` (:1014) and `destroy()` (:1751)
+     * are wrapped `isAbleTo`-FIRST and therefore do exclude the operator; that is pre-existing
+     * and measured in tests/Support/Security/bin/verify-product-ownership-on-mysql.php, and this
+     * task does not change it.
+     *
+     * The comparison is normalised rather than the bare `===` one method below, matching
+     * `Api\DashboardController::resolveOwnedStore()` and `PlatformOperatorOnly::handle()`: an
+     * operator row whose `type` is `Super Admin` or carries whitespace must not be locked out by
+     * a string-equality accident.
+     *
+     * ANY of the named permissions suffices, and only one caller passes more than one.
+     * `attribute_combination_edit()` RENDERS -- it returns a view and writes nothing -- and it is
+     * reached from the read-only show screen as well as the edit screen
+     * (resources/views/product/show.blade.php:730 calls `update_attribute()`, which PUTs to it).
+     * Neither screen carries a permission wrapper of its own: `show()` (:881) and `edit()` (:934)
+     * call `isAbleTo` nowhere, so there is no screen permission to inherit. Gating that render on
+     * `Edit Products` alone would take the variations panel away from a staff role that holds
+     * `Manage Products` for the catalogue list and nothing more. The destructive endpoints BEHIND
+     * the render are gated on `Edit Products` on their own, so render-on-Manage /
+     * mutate-on-Edit gives up no control.
+     *
+     * Both names are seeded: `Utility::addNewData()` creates `Manage Products` and
+     * `Edit Products` and grants both to the `admin` role (:2679/:2681) and to the `super admin`
+     * role (:3008/:3010), so a DEFAULT merchant is unaffected in either direction. A permission
+     * no row exists for can be held by no role and would make this a permanent 403 -- that is why
+     * the seeding was checked before the limb was written, not after.
+     *
+     * @param list<string> $permissions
+     */
+    private function lacksProductPermission(array $permissions): bool
+    {
+        $actor = auth()->user();
+
+        if ($actor === null) {
+            return true;
+        }
+
+        if (strtolower(trim((string) $actor->type)) === \App\Policies\UserPolicy::PLATFORM_ADMIN) {
+            return false;
+        }
+
+        foreach ($permissions as $permission) {
+            if ($actor->isAbleTo($permission)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function productIsOutsideCurrentStore($product): bool
+    {
+        $actor = auth()->user();
+
+        if ($actor !== null && $actor->type === \App\Policies\UserPolicy::PLATFORM_ADMIN) {
+            return false;
+        }
+
+        $currentStore = getCurrentStore();
+
+        return empty($product)
+            || empty($currentStore)
+            || empty($product->store_id)
+            || (int) $product->store_id !== (int) $currentStore;
+    }
+
     public function file_delete($id)
     {
+        /*
+         * PERMISSION, BEFORE THE ROW IS EVEN LOOKED UP. P1-INV-10 (e).
+         *
+         * `Edit Products` alone: this unlinks media from an EXISTING product, and the only live
+         * caller is the edit screen. create.blade.php:650 binds `.deleteRecord` with a direct
+         * (non-delegated) handler and that template renders no `.deleteRecord` element -- the
+         * thumbnail+delete block lives only in edit.blade.php:351-365 -- so the create-screen
+         * binding matches nothing and a `Create Product`-only role loses nothing here.
+         *
+         * Before the id is resolved, so a caller without the permission cannot learn from a 404
+         * whether an image id exists.
+         */
+        if ($this->lacksProductPermission(['Edit Products'])) {
+            return response()->json([
+                'flag' => 'error',
+                'msg' => __('Permission denied.'),
+            ], 403);
+        }
 
         $product_img_id = ProductImage::find($id);
         if ($product_img_id) {
-            if (File::exists(base_path($product_img_id->image_path))) {
-                File::delete(base_path($product_img_id->image_path));
+            /*
+             * OWNERSHIP BEFORE ANYTHING LEAVES THE DISK. P1-INV-07.
+             *
+             * This method had NO permission check and NO ownership check, and it unlinks a file:
+             * `ProductImage::find($id)` took any id, and `File::delete(base_path(...))` removed
+             * another store's uploaded media IRREVERSIBLY. Reported live by an adversarial review
+             * of P1-INV-01, which asked whether that fix had guarded one door and left another
+             * open. It had.
+             *
+             * The tie is through the product, not through `product_images.store_id`: that column
+             * is nullable and the model is not in `scoped_models`, so it cannot be trusted to
+             * carry the answer.
+             */
+            $owner = Product::find($product_img_id->product_id);
+
+            if ($this->productIsOutsideCurrentStore($owner)) {
+                \Illuminate\Support\Facades\Log::warning(
+                    'product image delete refused: the image belongs to another store',
+                    [
+                        'image_id' => $product_img_id->id,
+                        'product_id' => $product_img_id->product_id,
+                        'product_store_id' => $owner->store_id ?? null,
+                        'current_store' => getCurrentStore(),
+                        'user_id' => optional(auth()->user())->id,
+                    ]
+                );
+
+                /*
+                 * 403, not a 200 with an error body. The caller
+                 * (resources/views/product/edit.blade.php:851-856) hides the thumbnail inside its
+                 * `success` handler REGARDLESS of the payload, so a 200 would tell the user the
+                 * image was deleted when it was not. No 401 is introduced -- that is the code the
+                 * shipped Flutter app force-logs-out on, and this is a web route besides.
+                 */
+                return response()->json([
+                    'flag' => 'error',
+                    'msg' => __('Permission denied.'),
+                ], 403);
             }
+
+            /*
+             * AND THE PATH GOES THROUGH THE ONE SHARED DELETER. `image_path` is a database string
+             * handed to the filesystem; ownership says WHOSE row this is, not WHERE the string
+             * points.
+             *
+             * P1-INV-09 acceptance criterion 1: a single shared containment helper is the only
+             * thing that authorises an unlink of a stored media path. This site used to carry its
+             * OWN containment -- a private `isInsideUploadsRoot()` plus `File::delete(realpath())`
+             * -- and `StoredFilePathSafetyTest`'s census listed it as the one exemption, with the
+             * reason that it is "confined to uploads/ and to a row whose product the caller owns,
+             * but WITHOUT StoredUpload's owner-folder rule". That is the whole of the gap: two
+             * implementations of one control, and the weaker of them leaning on the WRITE-side
+             * policy to supply the property it lacks. One layer standing in for another is what
+             * this project's own rule refuses -- never let one check be the only one -- so the
+             * second implementation is gone and this path now gets rule 3, the owner-folder
+             * check, as well.
+             *
+             * `creatorId()` is the right owner to ask with: the caller has already been proved to
+             * own the product above, `creatorId()` resolves a staff user to their merchant, and
+             * StoredUpload exempts the platform operator by `users.type`. Nothing is CHARGED
+             * here, so this is not the "which user is debited" question P1-INV-25 answered
+             * differently.
+             *
+             * A path that does not resolve, resolves outside uploads/, or names another tenant's
+             * folder is not unlinked -- and the row is still removed, which is the user's actual
+             * intent and what P1-INV-07 established: a bad stored value cannot make an image
+             * undeletable.
+             */
+            if (! \App\Services\StoredUpload::delete((string) $product_img_id->image_path, \Auth::user()->creatorId())
+                && ! empty($product_img_id->image_path)) {
+                \Illuminate\Support\Facades\Log::warning(
+                    'product image row deleted but the file was not unlinked: StoredUpload refused'
+                    . ' the stored path -- it does not resolve, is outside uploads/, or names'
+                    . " another tenant's folder",
+
+                    [
+                        'image_id' => $product_img_id->id,
+                        'image_path' => (string) $product_img_id->image_path,
+                    ]
+                );
+            }
+
             $product_img_id->delete();
         }
 
@@ -1891,7 +2203,43 @@ $Product->cost_price = $request->cost_price;
 
     public function attribute_combination_edit(Request $request)
     {
+        /*
+         * PERMISSION. P1-INV-10 (e). `Manage Products` OR `Edit Products` -- see
+         * lacksProductPermission() for why a render reached from the ungated show screen cannot
+         * be gated on `Edit Products` alone.
+         *
+         * `redirect()->back()->with('error', ...)`, the shape the ownership refusal below already
+         * uses, so a permission denial and an ownership denial are indistinguishable to the
+         * caller and neither confirms that the product id exists.
+         */
+        if ($this->lacksProductPermission(['Manage Products', 'Edit Products'])) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
         $product = Product::find($request->id);
+
+        /*
+         * OWNERSHIP ON A PRODUCT NAMED BY REQUEST INPUT. P1-INV-07.
+         *
+         * `$request->id` -- not a route-model binding -- so P1-INV-01's guard on `update()`,
+         * `edit()` and `show()` does not apply here, and nothing else did: the foreign product was
+         * passed straight into the view. The same read leak those three closed, through a
+         * different parameter.
+         */
+        if ($this->productIsOutsideCurrentStore($product)) {
+            \Illuminate\Support\Facades\Log::warning(
+                'attribute combination edit refused: the product belongs to another store',
+                [
+                    'product_id' => $request->id,
+                    'product_store_id' => $product->store_id ?? null,
+                    'current_store' => getCurrentStore(),
+                    'user_id' => optional(auth()->user())->id,
+                ]
+            );
+
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
         $options = array();
         $product_name = !empty($request->sku) ? $request->sku : '';
         $unit_price = !empty($request->price) ? $request->price : 0;
@@ -1919,7 +2267,62 @@ $Product->cost_price = $request->cost_price;
 
     public function product_attribute_delete($id)
     {
+        /*
+         * PERMISSION, BEFORE findOrFail. P1-INV-10 (e).
+         *
+         * `Edit Products`: this deletes a variant row and the stock it carries. Placed ahead of
+         * `findOrFail($id)` deliberately -- otherwise a caller with no permission at all would
+         * still learn from 404-vs-403 which variant ids exist. A caller who HOLDS the permission
+         * still gets the 404 that `findOrFail` has always produced for a genuinely missing id.
+         */
+        if ($this->lacksProductPermission(['Edit Products'])) {
+            return response()->json([
+                'flag' => 'error',
+                'msg' => __('Permission denied.'),
+            ], 403);
+        }
+
         $attribute = ProductVariant::findOrFail($id);
+
+        /*
+         * OWNERSHIP BEFORE A DESTRUCTIVE WRITE. P1-INV-07.
+         *
+         * This method had no permission check and no ownership check: `findOrFail($id)` took any
+         * variant id and deleted it -- another store's variant row AND the stock it carries.
+         * `ProductVariant` carries no StoreScope and is not in `scoped_models`, so nothing
+         * narrowed it. `findOrFail` is kept so a genuinely missing id still answers 404 rather
+         * than being reported as a permission problem.
+         *
+         * Resolved through the variant's PRODUCT, for the reason S36 recorded: the variant's own
+         * nullable `store_id` is not the authority on who owns it.
+         */
+        $owner = Product::find($attribute->product_id);
+
+        if ($this->productIsOutsideCurrentStore($owner)) {
+            \Illuminate\Support\Facades\Log::warning(
+                'product variant delete refused: the variant belongs to another store',
+                [
+                    'variant_id' => $attribute->id,
+                    'product_id' => $attribute->product_id,
+                    'product_store_id' => $owner->store_id ?? null,
+                    'current_store' => getCurrentStore(),
+                    'user_id' => optional(auth()->user())->id,
+                ]
+            );
+
+            /*
+             * 403 rather than a body. BOTH callers
+             * (resources/views/product/attribute_combinations_edit.blade.php:319-324 and
+             * resources/views/product/attribute_combinations_data.blade.php:389-394) announce
+             * "Variant Deleted Successfully!" and remove the row from the DOM on ANY 2xx, without
+             * reading the response, so returning "false" with a 200 would lie to the user.
+             *
+             * Line numbers and the second caller corrected by an adversarial review of this fix:
+             * the first version cited one caller at the wrong lines.
+             */
+            return response()->json(['message' => __('Permission denied.')], 403);
+        }
+
         $attribute->delete();
 
         return "true";
@@ -2594,7 +2997,23 @@ $Product->cost_price = $request->cost_price;
     {
         $store = $store_id = getStoreById(getCurrentStore());
 
-        $product = Product::find($id);
+        /*
+         * P1-INV-03. `Product::find($id)` HAD NO STORE PREDICATE, and `Product` is not in
+         * config/tenancy.php's `scoped_models`, so `StoreScope` adds nothing: this resolved any
+         * tenant's product. It is the feeder that puts a line into the POS session, and
+         * `PosController::store()` then writes that line's stock -- so an unscoped resolve here is
+         * how another store's product reached a till's sale in the first place.
+         *
+         * Scoped to the caller's own store, the foreign product is simply "not found", which is
+         * the answer this handler already has for an id that does not exist and needs no new
+         * response shape. Guarding only the sale would have left the foreign row in the cart,
+         * priced and displayed to the cashier; guarding only the feeder would have left the sale
+         * trusting whatever a session already held. Both are guarded, and each is pinned by its
+         * own test.
+         */
+        $product = Product::where('id', $id)
+            ->where('store_id', $store->id)
+            ->first();
         $settings = Utility::Setting($store->id);
         if (!$product) {
             return response()->json(
@@ -2931,7 +3350,31 @@ $Product->cost_price = $request->cost_price;
                 $tax_option = TaxOption::where('store_id', $store_id->id)
                             ->pluck('value', 'name')->toArray();
 
-                $product = Product::where('id', $id)->first();
+                /*
+                 * P1-INV-03. STORE-SCOPED, like addToCart's twin above. This resolved any
+                 * tenant's product -- `Product` is not in `scoped_models` -- and it is the second
+                 * feeder of the POS session, so an unscoped resolve here revises a cart line for
+                 * a product the caller does not own.
+                 *
+                 * A product that does not resolve is REFUSED rather than tolerated: the next line
+                 * reads `$product->tax_id`, so a null would be a fatal, and "this is not your
+                 * product" is not a condition to continue past.
+                 */
+                $product = Product::where('id', $id)
+                    ->where('store_id', $store_id->id)
+                    ->first();
+
+                if (empty($product)) {
+                    return response()->json(
+                        [
+                            'code' => 404,
+                            'status' => 'Error',
+                            'error' => __('This product is not found!'),
+                        ],
+                        404
+                    );
+                }
+
                 $Tax = Tax::where('store_id', $store_id->id)->where('id', $product->tax_id)->first();
                 $tax_price = 0;
                 $product_tax = '';
@@ -2961,7 +3404,30 @@ $Product->cost_price = $request->cost_price;
                 $cart[$id]["total_orignal_price"] = $subtotal;
             }
 
-            if (isset($cart[$id]) && isset($cart[$id]["originalquantity"]) < $cart[$id]['quantity'] && $session_key == 'pos_' . getCurrentStore()) {
+            /*
+             * P1-INV-03. THIS GUARD COULD NEVER FIRE, and the reason is one character of
+             * precedence. It read:
+             *
+             *     isset($cart[$id]["originalquantity"]) < $cart[$id]['quantity']
+             *
+             * `isset()` yields a BOOL, and PHP 8 compares bool-to-int by casting the INT to bool
+             * -- so for every positive quantity the test is `true < true`, which is false.
+             * CONFIRMED BY EXECUTION, not by reading: with originalquantity 5 and quantity 999 the
+             * shipped expression returns false and the intended one returns true.
+             *
+             * So the POS cart accepted ANY quantity. That mattered more once the sale became a
+             * real decrement (PosController::store): the posted quantity is what leaves the shelf,
+             * so an update of 999 against a stock of 5 takes recorded stock to -994. The absolute
+             * write it replaced was differently wrong rather than safer -- neither bounded it.
+             *
+             * The comparison now reads the VALUE, which is what was meant. `isset()` is kept as a
+             * separate conjunct so a line without the key is still skipped rather than compared
+             * against null.
+             */
+            if (isset($cart[$id])
+                && isset($cart[$id]["originalquantity"])
+                && $cart[$id]["originalquantity"] < $cart[$id]['quantity']
+                && $session_key == 'pos_' . getCurrentStore()) {
                 return response()->json(
                     [
                         'code' => 404,

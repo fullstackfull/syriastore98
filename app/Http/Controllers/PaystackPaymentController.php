@@ -74,7 +74,7 @@ class PaystackPaymentController extends Controller
 
 
                     $orderID = strtoupper(str_replace('.', '', uniqid('', true)));
-                    Order::create(
+                    PlanOrder::create(
                         [
                             'order_id' => $orderID,
                             'name' => null,
@@ -92,7 +92,7 @@ class PaystackPaymentController extends Controller
                             'receipt' => null,
                             'user_id' => $authuser->id,
                         ]
-                    );
+                    );   // P1-PLT-02: a plan sale is a plan_orders row; Order::create wrote a blank host order with store_id NULL
                     $res['msg']  = __("Plan successfully upgraded.");
                     $res['flag'] = 2;
 

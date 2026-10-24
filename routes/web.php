@@ -903,7 +903,21 @@ Route::get(
     Route::delete('products/{id}/delete', [ProductController::class, 'file_delete'])->name('products.file.detele');
 
     Route::put('products/attribute_combination/edit', [ProductController::class, 'attribute_combination_edit'])->name('products.attribute_combination_edit');
-    Route::put('products/sku_combination/edit', [ProductController::class, 'sku_combination_edit'])->name('products.sku_combination_edit');
+    /*
+     * `PUT products/sku_combination/edit` IS GONE. P1-INV-10 (b).
+     *
+     * It pointed at `ProductController::sku_combination_edit`, which does not exist -- grep over
+     * app/, routes/, resources/ and packages/ found the name in that route declaration and
+     * nowhere else -- so every request to it raised BadMethodCallException, a 500. The twin of
+     * S36's addToCartVariant.
+     *
+     * REMOVED rather than pointed at a method, because nothing calls it: `route(
+     * 'products.sku_combination_edit')` appears in no Blade template and no JavaScript (0 hits in
+     * resources/ and public/). The POST sibling `products.sku_combination` -> `sku_combination()`
+     * is left alone: its method exists, so it does not 500, and it is likewise unreferenced by
+     * any view -- removing a route that works is a contract change this task was not asked to
+     * make.
+     */
     Route::any('products/attribute_combination_data/edit', [ProductController::class, 'attribute_combination_data'])->name('products.attribute_combination_data');
 
     Route::delete('product-attribute-delete/{id}', [ProductController::class, 'product_attribute_delete'])->name('product.attribute.delete');
@@ -1032,7 +1046,11 @@ Route::get(
     // AI tool Route
     Route::get('generate/{template_name}', [AITemplateController::class, 'create'])->name('generate');
     Route::post('generate/keywords/{id}', [AITemplateController::class, 'getKeywords'])->name('generate.keywords');
-    Route::post('generate/response', [AITemplateController::class, 'aiGenerate'])->name('generate.response');
+    // P1-SEC-22(e): throttled -- this endpoint spends an OpenAI key. See RouteServiceProvider's
+    // `ai-generate` limiter; keyed on the authenticated user, since the route is behind `auth`.
+    Route::post('generate/response', [AITemplateController::class, 'aiGenerate'])
+        ->middleware('throttle:ai-generate')
+        ->name('generate.response');
 
     // Customer Route
     Route::resource('customer', CustomerController::class);
@@ -1097,7 +1115,23 @@ Route::get(
     Route::post('empty-cart', [ProductController::class, 'emptyCart'])->name('empty-cart');
     // POS variant Route
     Route::get('pos/product-variant/{id}/{session}', [ProductController::class, 'productVariant'])->name('pos.product.variant');
-    Route::get('pos/add-cart-variant/{id}/{session}/{variation_id?}', [ProductController::class, 'addToCartVariant'])->name('addToCartVariant');
+    /*
+     * `GET pos/add-cart-variant/...` IS GONE TOO. P1-INV-10 (b), the recorded twin.
+     *
+     * S36 found this one first and only wrote it down: "routes/web.php:1100 points at
+     * ProductController::addToCartVariant, which does not exist anywhere in app/ (a dead route
+     * that 500s on call, not a security gap)" -- P01-SECURITY-WORK-QUEUE.md:3369-3371. No task
+     * row was ever opened for it, so it was still live. S38-3b then recorded the sku_combination
+     * twin above and called it "the twin of addToCartVariant recorded in S36", which is how both
+     * ended up in one task. Same one-line removal, same controller, already measured: closing
+     * only the newer of two identical findings is census-failure mode 4.
+     *
+     * Unreferenced: `route('addToCartVariant')` and the literal uri appear in no Blade template,
+     * no JavaScript and no module (0 hits in resources/, public/ and packages/). That check is
+     * the one that matters for a removal -- a view calling `route()` on a name that no longer
+     * exists throws RouteNotFoundException and 500s the whole page, which would be worse than
+     * the dead route.
+     */
     Route::get('get-products-variant-quantity', [ProductController::class, 'getProductsVariantQuantity'])->name('get.products.variant.quantity');
 
     Route::resource('contacts', ContactController::class)->except(['store']);
@@ -1317,13 +1351,18 @@ Route::get(
 
 // Was registered with no middleware at all: an anonymous caller could read any
 // store's Zid orders using that merchant's stored Zid credentials.
+//
+// P1-SEC-18 F7: `auth` alone still let ANY logged-in user -- a merchant, a merchant's staff -- read whichever connected
+// store's orders they named. `zid_stores.store_id` is Zid's own store id and the row links to a Delivery Syria merchant,
+// not to a StoreSyria tenant, so there is no column to write an ownership predicate against: these are operator tooling,
+// referenced by no view, script or the admin app, and are limited to the platform operator (403, never 401).
 Route::get('/zid/{storeId}/orders', function ($storeId) {
     return Zid::store($storeId)->get('/managers/store/orders')->json();
-})->middleware(['auth']);
+})->middleware(['auth', \App\Http\Middleware\PlatformOperatorOnly::class]);
 
 Route::get('/zid/{storeId}/webhooks', function ($storeId) {
     return \App\Services\Zid::store($storeId)->get('/managers/webhooks')->json();
-})->middleware('auth');
+})->middleware(['auth', \App\Http\Middleware\PlatformOperatorOnly::class]);
 
 
 Route::post('/zid/events/{v?}', function (\Illuminate\Http\Request $r) {

@@ -394,17 +394,61 @@ jobs:
         # the lock unnoticed. Measured, not assumed:
         #     composer audit --locked --format=plain  ->  Found 58 security vulnerability
         #     advisories affecting 21 packages        (was 72 / 22 before the update)
+        #
+        # LOWERED AGAIN 58 -> 55 on 2026-10-23, AND THE REASON THIS STEP FIRED FIRST IS
+        # WORTH RECORDING, because it is the case this ratchet is least good at telling
+        # apart from a real one.
+        #
+        # Run 40033599786 on PR #3 failed here with "Advisory count rose from 58 to 59"
+        # on a `composer.lock` BYTE-IDENTICAL to main -- `git diff origin/main...HEAD --
+        # composer.lock composer.json` was empty. No dependency entered the lock; the
+        # packagist ADVISORY DATABASE grew by one. A ratchet keyed on a count cannot
+        # distinguish "a new vulnerable dependency arrived" from "a new advisory was
+        # published against a dependency that was already here", and the second is the
+        # common case on a lock this old. The diff against the base branch is what tells
+        # them apart, and it is the first thing to check when this step goes red.
+        #
+        # THE ANSWER WAS NOT TO RAISE THE CEILING. `symfony/yaml` was locked at v7.2.0
+        # while every other symfony component sat at v7.4.x, and it carried FOUR of the
+        # 59 advisories, all fixed by 7.4.18. `composer update symfony/yaml` moves
+        # exactly one package in the lock -- v7.2.0 => v7.4.21, no major crossed,
+        # laravel/framework untouched -- and it is a `packages-dev` entry, so it does not
+        # ship under `--no-dev` at all. Measured after the update:
+        #     composer audit --locked --format=plain  ->  Found 55 security vulnerability
+        #     advisories affecting 20 packages
+        # So the ceiling falls to 55 and the ratchet is TIGHTER than before the advisory
+        # appeared, with four real CVEs cleared rather than accepted.
+        #
+        # WHAT WAS NOT VERIFIED LOCALLY, stated for the same reason the commonmark note
+        # above states it: this environment's egress policy refuses the GitHub archives
+        # composer fetches, so the lock was updated with `--no-install` and vendor/ still
+        # holds v7.2.0. CI installs from the lock and runs the suite against the result;
+        # that is where the installed half is exercised. symfony/yaml is dev-only, so no
+        # production code path moves either way.
         env:
-          AUDIT_CEILING: '58'
+          AUDIT_CEILING: '55'
         run: |
           set -o pipefail
-          composer audit --locked --format=plain > audit.txt 2>&1 || true
+          composer audit --locked --format=plain > audit.txt 2>&1 && rc=0 || rc=$?
           found=$(sed -n 's/^Found \([0-9]\{1,\}\) security vulnerability advisor.*/\1/p' audit.txt | head -1)
           if [ -z "$found" ]; then
             if grep -qi 'no security vulnerability advisories' audit.txt; then
               found=0
+            elif grep -qiE 'could not resolve host|could not connect|curl error|timed out|timeout|temporary failure in name resolution|network is unreachable|50[0-9] (bad gateway|service unavailable|gateway time)|ssl certificate problem|could not authenticate|failed to open stream' audit.txt; then
+              # A NETWORK FAILURE IS NOT A NEW ADVISORY, and must not read as one. `composer
+              # audit` needs the advisory database; a packagist outage, a proxy hiccup or a
+              # rate limit used to surface here as "Could not parse the advisory count",
+              # which points the reader at the lock file instead of at the network.
+              # Still blocking -- a ratchet that cannot be evaluated has not been satisfied --
+              # but now with the right diagnosis attached.
+              echo "::error::Could not REACH the advisory database (composer audit exited ${rc})."
+              echo "::error::This is a TRANSPORT failure, not a new advisory: the ratchet could not"
+              echo "::error::be evaluated at all. Re-run the job. Do NOT raise AUDIT_CEILING for it."
+              cat audit.txt
+              exit 1
             else
-              echo "::error::Could not parse the advisory count from composer audit."
+              echo "::error::Could not parse the advisory count from a response that DID arrive"
+              echo "::error::(composer audit exited ${rc}). The output format may have changed."
               cat audit.txt
               exit 1
             fi
@@ -460,14 +504,46 @@ jobs:
         run: .github/scripts/guard-gate-f-containment.sh .
 
       - name: Guard - packages/workdo/ is unmodified
+        # BASE RESOLUTION NOW MATCHES `php -l` AND THE SECRET SCAN, AND DID NOT BEFORE.
+        # This step read only the pull-request base and fell straight through to HEAD~1, so a
+        # PUSH of N commits was inspected exactly ONE commit deep: a packages/workdo/ edit in
+        # commit 1 of a 3-commit push was never seen by the guard that exists to catch it.
+        # `github.event.before` is the pushed range's true base. The all-zeros check is the
+        # new-branch case, where there is no before-commit to diff against.
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
         run: |
-          base="${BASE_SHA:-}"
-          if [ -z "$base" ]; then
+          base="${BASE_SHA:-$BEFORE_SHA}"
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
             base="$(git rev-parse HEAD~1 2>/dev/null || true)"
           fi
           .github/scripts/guard-no-workdo-changes.sh "$base" .
+
+      - name: Guard - no NEW user upload is committed to the repository root
+        # P1-OWN-10 (#103), OWNER DECISION 11. The 407 files already tracked under `uploads/` are
+        # ACCEPTED RISK and are not touched: the owner's decision is "Do not delete or rewrite
+        # historical user uploads in Git." This guard stops that set GROWING, which is the half of
+        # D11 that is not accepted risk.
+        #
+        # WHY IT MATTERS MORE THAN "a binary in the repo". A file that EXISTS at the repository root
+        # is served directly by the webserver: the tracked `.htaccess` rewrites `/uploads/...` to
+        # `public/uploads/...` only when the file is NOT there (`!-f` at :33-35), and the
+        # front-controller rule above it is skipped for image extensions (:23). So a new upload
+        # committed to `uploads/` is a new unauthenticated disclosure path, not just repository
+        # weight. See docs/security/P01-OWN-10-ROOT-UPLOADS-EXPOSURE.md.
+        #
+        # Same base resolution as the sibling guard above, and for the same measured reason: a push
+        # of N commits must be inspected over its whole range, not one commit deep.
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          base="${BASE_SHA:-$BEFORE_SHA}"
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
+            base="$(git rev-parse HEAD~1 2>/dev/null || true)"
+          fi
+          BASE_REF="$base" .github/scripts/guard-no-new-root-uploads.sh
 
       - name: php -l on changed PHP files
         # Scoped to the diff so it stays fast on a large legacy codebase and so
@@ -494,6 +570,67 @@ jobs:
           done <<< "$changed"
           exit "$rc"
 
+      - name: php -l on EVERY tracked PHP file
+        # ADDED IN P01-A', AND IT IS AN ADDITION RATHER THAN A REPLACEMENT. The step above is
+        # deliberately diff-scoped so a pre-existing issue in an untouched file cannot block
+        # unrelated work, and that reasoning still holds -- it is the fast, precise signal.
+        # What it cannot see is a file the diff does not list: a bad merge resolution, a
+        # rename that left a broken copy behind, or a module file nobody edited this cycle.
+        #
+        # SAFE TO MAKE BLOCKING BECAUSE IT WAS MEASURED FIRST, not assumed: at
+        # 26b0014e all 3,413 tracked PHP files outside vendor/ parse -- measured with this
+        # step's own file list, not a narrower one. So it starts from a clean baseline and can
+        # only go red on something newly broken.
+        #
+        # `laravel/pint` was the other candidate here and was REJECTED ON MEASUREMENT, not on
+        # principle: run against three files written fresh for this branch in the surrounding
+        # style, the default `laravel` preset reports concat_space, single_quote,
+        # not_operator, unary_operator and binary_operator_spaces on all three. The preset
+        # disagrees with this codebase's established style, so adding it blocking would redden
+        # immediately and adding it report-only produces noise nobody acts on. It needs either
+        # a pint.json that codifies the existing style or an authorised reformatting package --
+        # an owner decision, recorded in the sprint report rather than guessed at here.
+        #
+        # PARALLELISED ON PURPOSE. Serially this is ~3,400 PHP process spawns and it turned the
+        # `static` job from roughly fifteen seconds into eight-plus minutes, which defeats the
+        # point of the job that exists to give the FAST signal. `xargs -P4 -n64` keeps the same
+        # file list and the same verdict; only the wall clock changes. xargs exits non-zero if
+        # any invocation did, which is the whole result we need.
+        run: |
+          set -uo pipefail
+          git ls-files '*.php' | grep -v '^vendor/' > /tmp/php-files.txt
+          count=$(wc -l < /tmp/php-files.txt)
+          echo "linting ${count} tracked PHP files"
+          # A run that linted almost nothing would pass vacuously, the same failure mode the
+          # GATE F guard's own non-vacuity floor exists for.
+          if [ "$count" -lt 2000 ]; then
+            echo "::error::Only ${count} PHP files were listed (expected >2000). The file list is"
+            echo "::error::wrong, so this guard would pass without checking anything. Refusing."
+            exit 1
+          fi
+          # -n1 for the report pass so the failing FILE is named, not just the batch.
+          if ! xargs -P4 -n64 -a /tmp/php-files.txt php -l > /dev/null 2>&1; then
+            echo "::error::A tracked PHP file does not parse. Re-running serially to name it:"
+            xargs -n1 -a /tmp/php-files.txt php -l 2>&1 | grep -v '^No syntax errors' || true
+            exit 1
+          fi
+          echo "all ${count} files parse"
+
+      - name: Design-system token contrast must stay WCAG-conformant
+        # P01B HANDOVER. The imported design system ships two verification tools and NEITHER was
+        # wired into CI, so a token edit that destroyed a contrast ratio would have shipped
+        # silently. This is the half that costs nothing to run: pure Python 3, no pip install, no
+        # browser, ~1s. It resolves every --ss-* var() chain and computes real WCAG 2.1 ratios for
+        # 40 foreground/background pairs across light and dark, and also fails if the `auto` scope
+        # drifts from the `dark` scope.
+        #
+        # THE BROWSER HALF IS DELIBERATELY NOT HERE. docs/design-system/tools/browser-checks.cjs
+        # covers focus rings, tab order, RTL geometry and overflow at 7 widths -- 66 checks that
+        # all passed during the handover -- but it needs Playwright, Chromium and eight rendered
+        # fixtures. Adding that to every run is a dependency and a runtime decision for the owner,
+        # not something to slip into a security sprint. It stays a documented manual run.
+        run: python3 docs/design-system/tools/check-contrast.py public/css/store-syria-ds.css
+
       - name: Cross-repo API contract - the shipped Flutter app must not be broken
         # The Flutter admin app pins its endpoint paths as constants compiled into a
         # binary already on merchants' phones. A server-side route rename silently
@@ -519,6 +656,29 @@ jobs:
         # here. AdminApiSurfaceTest now PINS the manifest's contents, so the file
         # cannot drift from reality again without a test failing.
         run: php tests/Support/ApiContract/bin/check-auth-coverage.php
+
+      # THE SECURITY-SENSITIVE DIFF CHECKLIST IS DELIBERATELY NOT A STEP IN THIS JOB.
+      #
+      # P01-A' put it here, and the reasoning was sound: this job runs on every event, so it
+      # covered the direct push to main that the pull_request-only `regression-gate` never saw,
+      # enforcing on a pull request and reporting on a push. Independently, main moved the same
+      # step out of `regression-gate` into .github/workflows/security-attestation.yml, because
+      # that job could not be cleared by a DESCRIPTION edit -- ci.yml does not run on `edited`,
+      # so a reviewer who signed the checklist watched the gate stay red.
+      #
+      # Both fixes were right about their own hole, and keeping both would have left TWO
+      # enforcing copies of one gate -- the "duplicated incorrectly" failure, where clearing one
+      # copy still leaves the other red for a reason the reviewer cannot see. The reconciliation:
+      #
+      #   pull request  ->  .github/workflows/security-attestation.yml       ENFORCING
+      #                     (runs on `edited` too, so signing the checklist clears it)
+      #   push          ->  .github/workflows/security-attestation-push.yml  REPORT ONLY
+      #                     (no body to acknowledge in; makes the bypass visible, not reviewed)
+      #
+      # tests/Unit/Ci/SecurityAttestationWiringTest.php asserts this file never names
+      # flag-sensitive-diff.sh, which is what stops the step being reinstated here by someone
+      # fixing the push hole a third time. tests/Unit/Ci/RequiredGateWiringTest.php asserts the
+      # split above: exactly one ENFORCING workflow, and every other caller in `report` mode.
 
   # ---------------------------------------------------------------------------
   # Secret scanning. Two layers: a dependency-free screen over the diff that always
@@ -1212,6 +1372,16 @@ jobs:
         # is a regression by definition, and there is no manifest section for it.
         run: vendor/bin/phpunit --testsuite Unit --testdox
 
+      - name: Contract suite -- BLOCKING
+        # ADDED IN P01-A'. The cross-repository contract suite ran in the strict `tests` job
+        # only. This job exists to be the one that still reaches PHPUnit when the strict
+        # install cannot complete -- and in exactly that situation Lynomia contract drift
+        # between the two repositories was UNGATED. That is the gap commit 59a3848a closed
+        # for `tests` and left open here. Three artefacts are SHA-pinned on both sides, so a
+        # drift means the two codebases silently disagree about the wire format. Blocking,
+        # no tolerance, same suite as the strict job.
+        run: vendor/bin/phpunit --testsuite Contract --testdox
+
       - name: Feature suite -- BLOCKING on the known-outcome SET
         # THE REAL FEATURE SUITE. `--testsuite Feature` is the whole tests/Feature directory:
         # Security/, Tenancy/, Commerce/, Auth/, Platform/ and ProfileTest. Nothing here
@@ -1510,18 +1680,32 @@ jobs:
             --base-ref="${{ steps.base.outputs.sha }}" \
             --official-exit="${{ steps.official.outputs.exit }}"
 
-      # THE ATTESTATION USED TO BE THE NEXT STEP HERE, and it moved to its own workflow --
-      # .github/workflows/security-attestation.yml -- because it is the one check a pull request
-      # DESCRIPTION edit can change, and this workflow does not run on an edit. Leaving it here
-      # meant a reviewer who signed the checklist watched the gate stay red until somebody pushed
-      # a cosmetic commit. It is not weakened by moving: the same script, the same marker, run on
-      # every pull request event including `edited`.
+      # THE ATTESTATION USED TO BE THE NEXT STEP HERE. It is now in
+      # .github/workflows/security-attestation.yml, and NOTHING in this file runs
+      # flag-sensitive-diff.sh any more. Both halves of that sentence are load-bearing, and they
+      # come from two separate fixes that landed independently and were reconciled in this merge.
       #
-      # This workflow's trigger is deliberately NOT widened to include `edited`. A check run is
-      # per-commit, so a job that SKIPPED on an edit would publish a "skipped" run for the same
+      # WHY IT LEFT THIS JOB (main). It is the one check a pull request DESCRIPTION edit can
+      # change, and this workflow does not run on an edit. Leaving it here meant a reviewer who
+      # signed the checklist watched the gate stay red until somebody pushed a cosmetic commit.
+      # Moving it weakens nothing: the same script, the same marker, run on every pull request
+      # event including `edited`.
+      #
+      # WHY THIS WORKFLOW'S TRIGGER IS STILL NOT WIDENED TO INCLUDE `edited` (main). A check run
+      # is per-commit, so a job that SKIPPED on an edit would publish a "skipped" run for the same
       # head SHA and replace the "failure" from the code run -- and a skipped required check
-      # counts as satisfied. Red tests plus a description edit would have become a green
-      # required check. The attestation lives in a workflow whose jobs always run instead.
+      # counts as satisfied. Red tests plus a description edit would have become a green required
+      # check. The attestation lives in a workflow whose single job always runs instead.
+      #
+      # WHY IT IS NOT IN THE `static` JOB EITHER (the reconciliation). P01-A' had moved this step
+      # to `static`, to fix a DIFFERENT hole in the same control: `static` runs on every event, so
+      # it covered the direct push to main that this pull_request-only job never saw. Both fixes
+      # were right about their own hole and incompatible as written -- two enforcing copies of one
+      # gate. main's placement wins for the pull-request path because it also clears the `edited`
+      # trap, and SecurityAttestationWiringTest pins that by asserting this file never names the
+      # script. The push coverage P01-A' added is NOT dropped: it moved to
+      # .github/workflows/security-attestation-push.yml, which runs the same script in `report`
+      # mode, where it cannot trap a reviewer because it never blocks.
 
       - uses: actions/upload-artifact@v4
         if: always()

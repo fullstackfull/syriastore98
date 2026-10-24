@@ -184,6 +184,13 @@ $u->save();
 
     public function StorageSettings(Request $request)
     {
+        // P1-SEC-30: a fixed-name credential writer. The menu hides this tab from a user without the Settings permission; the route did not,
+        // so any logged-in user of the store reached it by URL. Operator first, the store owner, then `Manage Setting`
+        // (App\Services\StoreSettingsAccess::permits), and a refusal is a redirect with an error, never a 401.
+        if (! \App\Services\StoreSettingsAccess::permits(auth()->user())) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
         session()->put(['setting_tab' => 'storage_setting']);
         $theme_id = APP_THEME();
         if (isset($request->storage_setting) && $request->storage_setting == 'local') {
@@ -275,6 +282,14 @@ $u->save();
 
     public function BusinessSettings(Request $request)
     {
+
+        // P1-SEC-27. This handler writes EVERY posted name into `settings` for the caller's store, and its form is on the Settings
+        // screen, which settingForm() already refuses to anyone without `Manage Setting`; the route itself was open to every logged-in
+        // user of the store, so the write asks for it too (App\Services\StoreSettingsAccess).
+        if (! \App\Services\StoreSettingsAccess::permits(auth()->user())) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
         session()->put(['setting_tab' => 'brand_setting']);
         // Get the authenticated user
         $user = auth()->user();
@@ -510,6 +525,10 @@ $u->save();
     public function saveEmailSettings(Request $request)
     {
         session()->put(['setting_tab' => 'email_setting']);
+        // P1-SEC-18 F5. Overwrites the SMTP credentials; see settingForm().
+        if (! \App\Services\StoreSettingsAccess::permits(auth()->user())) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
         // Validate the incoming request data
         $validator = \Validator::make(
             $request->all(),
@@ -633,6 +652,14 @@ $u->save();
 
     public function CookieSettings(Request $request)
     {
+
+        // P1-SEC-27. This handler writes EVERY posted name into `settings` for the caller's store, and its form is on the Settings
+        // screen, which settingForm() already refuses to anyone without `Manage Setting`; the route itself was open to every logged-in
+        // user of the store, so the write asks for it too (App\Services\StoreSettingsAccess).
+        if (! \App\Services\StoreSettingsAccess::permits(auth()->user())) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
         session()->put(['setting_tab' => 'cookie_setting']);
         $validator = \Validator::make(
             $request->all(),
@@ -819,6 +846,14 @@ $u->save();
 
     public function CustomizeSetting(Request $request)
     {
+
+        // P1-SEC-27. This handler writes EVERY posted name into `settings` for the caller's store, and its form is on the Settings
+        // screen, which settingForm() already refuses to anyone without `Manage Setting`; the route itself was open to every logged-in
+        // user of the store, so the write asks for it too (App\Services\StoreSettingsAccess).
+        if (! \App\Services\StoreSettingsAccess::permits(auth()->user())) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
         session()->put(['setting_tab' => 'style_setting']);
         $post = $request->all();
         unset($post['_token']);
@@ -844,6 +879,11 @@ $u->save();
 
     public function LoyalityProgramSettings(Request $request)
     {
+        // P1-SEC-27. The web twin of Api\DashboardController::LoyalitySetting, which asks the same question; the reward point decides
+        // what a shopper's points are worth.
+        if (! \App\Services\StoreSettingsAccess::permits(auth()->user())) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
         session()->put(['setting_tab' => 'loyality_pro_setting']);
         $theme_id = !empty(APP_THEME()) ? APP_THEME() : APP_THEME();
 
@@ -878,6 +918,13 @@ $u->save();
 
     public function WoocommerceSettings(Request $request)
     {
+        // P1-SEC-30: a fixed-name credential writer. The menu hides this tab from a user without the Settings permission; the route did not,
+        // so any logged-in user of the store reached it by URL. Operator first, the store owner, then `Manage Setting`
+        // (App\Services\StoreSettingsAccess::permits), and a refusal is a redirect with an error, never a 401.
+        if (! \App\Services\StoreSettingsAccess::permits(auth()->user())) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
         session()->put(['setting_tab' => 'woocom_setting']);
         $theme_id = !empty(APP_THEME()) ? APP_THEME() : '';
 
@@ -886,7 +933,18 @@ $u->save();
             $validator = \Validator::make(
                 $request->all(),
                 [
-                    'woocommerce_store_url' => 'required|string',
+                    // P1-SEC-06. `required|string` accepted anything, and the value is interpolated into
+                    // the importers' outbound base address, so it had to be judged somewhere. It IS judged
+                    // at the read (ImportStoreUrl::woocommerceBase, which fails closed), and this is the
+                    // layer that gives the merchant a readable reason instead of a failed import.
+                    'woocommerce_store_url' => ['required', 'string', 'max:255', function ($attribute, $value, $fail) {
+                        // SYNTAX ONLY, no DNS -- see ImportStoreUrl::isWellFormedWoocommerceBase for why
+                        // a write-time resolution is both an availability regression and a TOCTOU check
+                        // that buys nothing. The address itself is judged immediately before each fetch.
+                        if (! \App\Services\ImportStoreUrl::isWellFormedWoocommerceBase($value)) {
+                            $fail(__('The WooCommerce store URL must be an http or https address with no credentials in it.'));
+                        }
+                    }],
                     'woocommerce_consumer_key' => 'required|string',
                     'woocommerce_consumer_secret' => 'required|string',
                 ]
@@ -927,6 +985,13 @@ $u->save();
 
     public function shopifySettings(Request $request)
     {
+        // P1-SEC-30: a fixed-name credential writer. The menu hides this tab from a user without the Settings permission; the route did not,
+        // so any logged-in user of the store reached it by URL. Operator first, the store owner, then `Manage Setting`
+        // (App\Services\StoreSettingsAccess::permits), and a refusal is a redirect with an error, never a 401.
+        if (! \App\Services\StoreSettingsAccess::permits(auth()->user())) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
         session()->put(['setting_tab' => 'shopify_setting']);
         $theme_id = !empty(APP_THEME()) ? APP_THEME() : '';
 
@@ -935,7 +1000,16 @@ $u->save();
             $validator = \Validator::make(
                 $request->all(),
                 [
-                    'shopify_store_url' => 'required|string',
+                    // P1-SEC-06. This field is a shop NAME -- one DNS label -- and `required|string` let a
+                    // value like `169.254.169.254#` be stored, which ends the host and comments the
+                    // `.myshopify.com` suffix out of the thirteen URLs built from it. Judged at the read
+                    // too (ImportStoreUrl::shopifyLabel, which fails closed); this layer is the readable
+                    // refusal.
+                    'shopify_store_url' => ['required', 'string', 'max:63', function ($attribute, $value, $fail) {
+                        if (! \App\Services\ImportStoreUrl::isValidShopifyLabel($value)) {
+                            $fail(__('The Shopify store name must be the shop name only -- letters, digits and hyphens, with no dots, scheme or slashes.'));
+                        }
+                    }],
                     'shopify_access_token' => 'required|string',
                 ]
             );
@@ -974,6 +1048,14 @@ $u->save();
 
     public function SystemSettings(Request $request)
     {
+
+        // P1-SEC-27. This handler writes EVERY posted name into `settings` for the caller's store, and its form is on the Settings
+        // screen, which settingForm() already refuses to anyone without `Manage Setting`; the route itself was open to every logged-in
+        // user of the store, so the write asks for it too (App\Services\StoreSettingsAccess).
+        if (! \App\Services\StoreSettingsAccess::permits(auth()->user())) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
         session()->put(['setting_tab' => 'system_setting']);
         // Get the authenticated user
         $user = auth()->user();
@@ -1074,6 +1156,11 @@ $u->save();
 
     public function StockSettings(Request $request)
     {
+        // P1-SEC-27 (third review). A tab of the Settings screen, which settingForm() refuses to a user without `Manage Setting`;
+        // its POST target had no check at all.
+        if (! \App\Services\StoreSettingsAccess::permits(auth()->user())) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
         session()->put(['setting_tab' => 'stock_setting']);
         $theme_id = !empty(APP_THEME()) ? APP_THEME() : '';
         $validator = \Validator::make(
@@ -1093,25 +1180,12 @@ $u->save();
         $post['out_of_stock_threshold'] = $request->out_of_stock_threshold;
         $post['stock_management'] = $request->has('stock_management') ? $request->stock_management : 'off';
         $post['notification'] =  json_encode($request->input('notification'));
-        $settingQuery = Setting::query();
         foreach ($post as $key => $data) {
-            $status = (clone $settingQuery)->updateOrCreate(
-                [
-                    'name' => $key,
-                    
-                    'store_id'      => getCurrentStore(),
-                    'created_by' => auth()->user()->id
-                ],
-                [
-                    'value'         => $data,
-                    'name'          => $key,
-                    
-                    'store_id'      => getCurrentStore(),
-                    'created_by'    => auth()->user()->id,
-                    'created_at'    => now(),
-                    'updated_at'    => now(),
-                ]
-            );
+            // P1-PLT-07: addressed by (name, store), not by the saving user -- with `created_by` in the match key a staff save
+            // inserted a second row for the same name in the same store instead of updating the owner's. Ownership is settled by
+            // App\Services\SettingOwnership, and putForStore() lands on the row the readers serve rather than on the oldest one
+            // updateOrCreate would find; its docblock carries the measurement.
+            $status = Setting::putForStore($key, $data, getCurrentStore(), auth()->user()->id);
         }
         if (isset($status)) {
             return redirect()->back()->with('success', __('Stock setting successfully updated.'));
@@ -1122,6 +1196,13 @@ $u->save();
 
     public function WhatsappSettings(Request $request)
     {
+        // P1-SEC-30: a fixed-name credential writer. The menu hides this tab from a user without the Settings permission; the route did not,
+        // so any logged-in user of the store reached it by URL. Operator first, the store owner, then `Manage Setting`
+        // (App\Services\StoreSettingsAccess::permits), and a refusal is a redirect with an error, never a 401.
+        if (! \App\Services\StoreSettingsAccess::permits(auth()->user())) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
         session()->put(['setting_tab' => 'whatsapp_setting']);
         $theme_id = !empty(APP_THEME()) ? APP_THEME() : '';
 
@@ -1183,6 +1264,13 @@ $u->save();
 
     public function whatsapp_notification_setting(Request $request)
     {
+        // P1-SEC-30: a fixed-name credential writer. The menu hides this tab from a user without the Settings permission; the route did not,
+        // so any logged-in user of the store reached it by URL. Operator first, the store owner, then `Manage Setting`
+        // (App\Services\StoreSettingsAccess::permits), and a refusal is a redirect with an error, never a 401.
+        if (! \App\Services\StoreSettingsAccess::permits(auth()->user())) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
         session()->put(['setting_tab' => 'whatsapp_notify_setting']);
         $theme_id = !empty(APP_THEME()) ?  APP_THEME() : '';
 
@@ -1296,6 +1384,13 @@ $u->save();
 
     public function TwilioSettings(Request $request)
     {
+        // P1-SEC-30: a fixed-name credential writer. The menu hides this tab from a user without the Settings permission; the route did not,
+        // so any logged-in user of the store reached it by URL. Operator first, the store owner, then `Manage Setting`
+        // (App\Services\StoreSettingsAccess::permits), and a refusal is a redirect with an error, never a 401.
+        if (! \App\Services\StoreSettingsAccess::permits(auth()->user())) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
         session()->put(['setting_tab' => 'twilio_setting']);
         $theme_id = !empty(App_THEME()) ? APP_THEME() : '';
         $post['twilio_setting_enabled'] = $request->twilio_setting_enabled;
@@ -1349,6 +1444,14 @@ $u->save();
 
    public function currencySettings(Request $request)
 {
+        // P1-SEC-27. The currency tab of the Settings screen. Changing the store currency REWRITES product, variant and wallet
+        // amounts and pending COD orders (convertStoreCurrentValues), so this is not "a setting": it needs the permission the screen
+        // needs, like its admin-API twins (updateCurrencyApi, updateCurrencyRateApi, toggleCurrencyStatusApi). That also covers the
+        // restricted names this handler would write by name: whoever passes this check may write them.
+        if (! \App\Services\StoreSettingsAccess::permits(auth()->user())) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
     session()->put(['setting_tab' => 'currency_setting']);
 
     $storeId = getCurrentStore();
@@ -1499,6 +1602,11 @@ if ($newCurrency !== 'USD' && (float) $currencyRate->rate_per_usd <= 1) {
 
     public function getEmailSettingFields(Request $request)
     {
+        // P1-SEC-18 F5. Renders MAIL_PASSWORD into the form for whoever is logged in; see settingForm().
+        if (! \App\Services\StoreSettingsAccess::permits(auth()->user())) {
+            return response()->json(['is_success' => false, 'message' => __('Permission denied.'), 'html' => ''], 403);
+        }
+
         if (auth()->user()->type == 'super admin') {
             $setting = getSuperAdminAllSetting();
             $folder = 'SuperAdmin';
@@ -1519,6 +1627,13 @@ if ($newCurrency !== 'USD' && (float) $currencyRate->rate_per_usd <= 1) {
     {
         try {
             $user = auth()->user();
+            // P1-SEC-18 F5. This renders EVERY settings tab, the payment tab with every gateway key in it. The Settings menu entry
+            // is hidden unless the user holds `Manage Setting`, but the route was open to anyone logged in -- including the
+            // merchant's staff, whose getAdminAllSetting() resolves to their employer's settings. 403, never 401 (the shipped
+            // app forces a logout on 401); the shape is the one the chat_gpt_setting refusal below already uses.
+            if (! \App\Services\StoreSettingsAccess::permits($user)) {
+                return response()->json(['is_success' => false, 'msg' => __('Permission denied.'), 'data' => ['content' => null]], 403);
+            }
             $timezones = config('timezones');
             $setting = ($user->type == 'super admin') ? getSuperAdminAllSetting() : getAdminAllSetting();
 
@@ -1630,6 +1745,20 @@ $currencyRates = CurrencyRate::where('store_id', getCurrentStore())
                 $webhooks = Webhook::where('store_id', getCurrentStore())->get();
                 $view = view($views[$tabType], compact('setting', 'webhooks'));
             } elseif ($tabType == 'chat_gpt_setting') {
+                // P1-SEC-19. These are the PLATFORM's OpenAI keys: the model has no tenant column, and
+                // AITemplateController hands one to whichever tenant asks. The tab link is shown to a
+                // platform operator only and ChatgptSettings() (the save) refuses everyone else, but
+                // this read had no check, so any logged-in merchant or staff member who POSTed the tab
+                // name was given every key. Operator first, per CLAUDE.md: the type string is the only
+                // operator marker. 403, never 401 (the shipped Flutter app logs out on 401).
+                if (strtolower(trim((string) $user->type)) !== 'super admin') {
+                    return response()->json([
+                        'is_success' => false,
+                        'msg' => __('Permission denied.'),
+                        'data' => ['content' => null],
+                    ], 403);
+                }
+
                 $ai_key_settings = ApikeySetiings::get();
                 $view = view($views[$tabType], compact('setting', 'ai_key_settings'));
             } elseif ($tabType == 'tax_opt_setting') {
@@ -1733,6 +1862,14 @@ elseif ($tabType == 'otp_setting') {
 
     public function SEOSetting(Request $request)
     {
+
+        // P1-SEC-27. This handler writes EVERY posted name into `settings` for the caller's store, and its form is on the Settings
+        // screen, which settingForm() already refuses to anyone without `Manage Setting`; the route itself was open to every logged-in
+        // user of the store, so the write asks for it too (App\Services\StoreSettingsAccess).
+        if (! \App\Services\StoreSettingsAccess::permits(auth()->user())) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
         session()->put(['setting_tab' => 'seo_setting']);
         $post = $request->all();
         unset($post['_token']);

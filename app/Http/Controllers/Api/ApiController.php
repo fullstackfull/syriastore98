@@ -5,12 +5,18 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\CartController;
 use App\Models\AppSetting;
-use App\Models\{ActivityLog, City, State, Country, DeliveryAddress, OrderNote, Product, ProductVariant, Store, ProductImage, Testimonial, Shipping};
+// P1-ORD-01: `OrderCouponDetail` and `UserCoupon` were MISSING from this list while
+// `place_order()` instantiates both (:3755, :3768). Unimported, `new OrderCouponDetail()`
+// resolves to `App\Http\Controllers\Api\OrderCouponDetail`, which does not exist, so the
+// whole coupon branch was a fatal -- twice over, consecutively. See the comment at the
+// coupon block for what that meant in practice.
+use App\Models\{ActivityLog, City, State, Country, DeliveryAddress, OrderCouponDetail, OrderNote, Product, ProductVariant, Store, ProductImage, Testimonial, Shipping, UserCoupon};
 use App\Models\Tax;
 use App\Models\Category;
 use App\Models\{Utility, Wishlist, FlashSale};
 use App\Payments\RetiredGateways;
 use Illuminate\Http\Request;
+use App\Services\Payments\StripeMoney;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use App\Traits\ApiResponser;
@@ -49,6 +55,145 @@ use App\Models\StoreDevice;
 class ApiController extends Controller
 {
     use ApiResponser;
+    use \App\Http\Middleware\Concerns\RedactsApiLogFields;   // P1-SEC-16: user_detail() logged the whole request body
+
+    /**
+     * The coupon types `apply_coupon` prices from the basket SUBTOTAL, as opposed to
+     * `'fixed product discount'`, which prices per product line.
+     *
+     * Named rather than inlined because it is now load-bearing twice: it decides which coupons
+     * fall through to the subtotal discount computed at :4076-4087, and it decides which ones are
+     * refused as unsupported. The migration's own comment on `coupons.coupon_type` documents
+     * exactly these two (`percentage / flat`) and defaults the column to `percentage`.
+     */
+    private const COUPON_TYPES_PRICED_ON_SUBTOTAL = ['flat', 'percentage'];
+
+    private ?\App\Services\OrderTotalReconciler $totalReconciler = null;
+
+    /**
+     * Memoised, matching the accessor PaymentService and PaymentController already use, so all
+     * four order writers reconcile through one instance of one definition rather than three.
+     */
+    private function totalReconciler(): \App\Services\OrderTotalReconciler
+    {
+        return $this->totalReconciler ??= new \App\Services\OrderTotalReconciler();
+    }
+
+    /**
+     * THE SERVER'S OWN PRE-COUPON SUBTOTAL for this basket, or null if it cannot be priced.
+     *
+     * WHY THIS EXISTS. `minimum_spend` and `maximum_spend` were compared against
+     * `$request->final_sub_total` / `$request->sub_total`, which the client posts, so a shopper
+     * could satisfy a threshold by typing a number. MEASURED LIVE on a free-shipping coupon with
+     * `minimum_spend = 5000`: a real 200.00 basket plus `final_sub_total = 9999` was granted the
+     * discount. See the comment at the first gate.
+     *
+     * THE FIGURE IS `total_final_price`, which `cart_list` sets from `$cart_final_price` -- the
+     * PRE-COUPON subtotal, as `OrderTotalCouponTest::test_the_cart_key_named_total_final_price_is_the_pre_coupon_subtotal`
+     * already pins. Using the post-coupon total here would let one coupon's discount decide
+     * whether the next one's threshold is met.
+     *
+     * THE TWO BRANCHES MIRROR WHAT apply_coupon ALREADY DID further down to build its product
+     * list, deliberately: a guest basket lives in the cookie and a signed-in one in `carts`, and
+     * inventing a third way to price a basket here is how two subtotals start to disagree.
+     *
+     * RETURNS NULL RATHER THAN THROWING, and the caller refuses the coupon on null. A money gate
+     * that cannot be evaluated must not be treated as satisfied.
+     */
+    private function couponSpendBaseline(Request $request, $store, $slug): ?float
+    {
+        try {
+            if (Utility::CustomerAuthCheck($store->slug) != true) {
+                $basket = json_decode(json_encode(Cart::cart_list_cookie($request->all(), $store->id)));
+            } else {
+                $request->merge([
+                    'customer_id' => auth('customers')->user()->id,
+                    'store_id' => $store->id,
+                    'slug' => $slug,
+                ]);
+                $basket = (new ApiController())->cart_list($request, $slug)->getData();
+            }
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Coupon refused: the basket could not be priced', [
+                'store_id' => $store->id ?? null,
+                'error' => $e->getMessage(),
+            ]);
+
+            return null;
+        }
+
+        $value = $basket->data->total_final_price ?? null;
+
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        // `cart_list` formats it through SetNumber(), so it arrives as a string and may carry
+        // thousands separators. Parsed rather than cast, because (float) "1,234.00" is 1.0.
+        $parsed = filter_var(
+            str_replace(',', '', (string) $value),
+            FILTER_VALIDATE_FLOAT
+        );
+
+        return $parsed === false ? null : (float) $parsed;
+    }
+
+    /**
+     * THE ONE PLACE A COUPON'S SPEND THRESHOLDS ARE DECIDED. Returns null when the basket
+     * qualifies, or the message to refuse with.
+     *
+     * WHY ONE PREDICATE RATHER THAN THE THREE IT REPLACES. `apply_coupon` carried the
+     * minimum/maximum comparison in THREE places, and they did not agree:
+     *
+     *   1. the non-free-shipping structure -- compared, but its two `else` arms emit EACH OTHER'S
+     *      message, so a basket under the minimum was told about the maximum. Measured: a coupon
+     *      with `minimum_spend = 5000` on a 200.00 basket answered " The maximum spend for this
+     *      coupon is $0,00." -- naming a limit that was never set.
+     *   2. the free-shipping structure, inside the shipping-method loop -- compared.
+     *   3. the free-shipping structure's `$shipping_Methods == null` branch -- **NOT COMPARED AT
+     *      ALL.** `$sub_total_min` is assigned there and then never read: dead code where a gate
+     *      belongs. MEASURED LIVE, and this is the unauthorized discount: a free-shipping coupon
+     *      with `minimum_spend = 5000`, a real 200.00 basket, and a store with no shipping method
+     *      configured (`plans.shipping_method = 'off'`, which the fixture and many stores use) ->
+     *      "Coupon code applied successfully", 50.00 off. No posted value was even needed; the
+     *      threshold was simply never checked.
+     *
+     * Called ONCE, before either structure, so all three sites are covered by construction and a
+     * fourth branch cannot be added without one. The nested comparisons are left in place and now
+     * agree with this one, because ripping them out of a ~700-line method is a far larger change
+     * than closing the hole.
+     *
+     * 0 IS TREATED AS UNSET, deliberately and for compatibility: the original condition was
+     * `$coupon->maximum_spend == null`, and in PHP `0 == null` is TRUE, so a zero threshold has
+     * always meant "no threshold" here. Changing that would start refusing baskets that are
+     * accepted today.
+     */
+    private function couponSpendRefusal($coupon, float $baseline, $store): ?string
+    {
+        $maximum = $coupon->maximum_spend;
+        $minimum = $coupon->minimum_spend;
+
+        if ($maximum !== null && (float) $maximum != 0.0 && $baseline > (float) $maximum) {
+            return ' The maximum spend for this coupon is '
+                . (currency_format_with_sym($maximum, $store->id) ?? SetNumberFormat($maximum)) . '.';
+        }
+
+        if ($minimum !== null && (float) $minimum != 0.0 && $baseline < (float) $minimum) {
+            return ' The minimum spend for this coupon is '
+                . (currency_format_with_sym($minimum, $store->id) ?? SetNumberFormat($minimum)) . '.';
+        }
+
+        return null;
+    }
+
+    /*
+     * THE SHARED BASKET-OWNERSHIP SEAM. Used for basketHasForeignProduct() only -- the same
+     * predicate the seven checkout writers in app/Http/Controllers/ run, rather than an eighth
+     * copy of it here. Verified member by member against this class: no name collides (this
+     * class's payment verifier is paymentVerifier(), the trait's is gatewayReturnVerifier()),
+     * and the gateway-return helpers it also carries are unused on the API paths.
+     */
+    use \App\Http\Controllers\Concerns\GuardsGatewayReturn;
 
     /** @var \App\Services\PaymentVerificationService|null */
     private $paymentVerifierInstance = null;
@@ -175,28 +320,23 @@ public function saveStoreFcmToken(Request $request)
 
     public function cart_list(Request $request, $slug = '')
     {
-        if (!auth('customers')->user()) {
-            $rules = [
-                'customer_id' => 'required',
-            ];
+        // AUTHZ: the guard-class trap. `if (! auth('customers')->user())` reads as a guest
+        // fallback and is not one -- custom.auth admits a merchant's or a driver's token with
+        // auth('customers') null, so precisely those principals took the request-controlled
+        // branch. There are no guests on this route: custom.auth refuses a missing bearer token
+        // before the handler runs. See resolveStoreCustomer().
+        //
+        // This one is called internally by ordersave(), place_order(), cart_check() and
+        // payment_list(), so it is the cart read those four depend on. `$store` is resolved here
+        // rather than further down because the principal check needs it; the original resolved it
+        // a few lines later and the behaviour for an unresolved store is unchanged.
+        $store = getStore($slug);
 
-            $customer_id = $request->customer_id;
-        } else {
-            $rules = [];
-            $customer_id = auth('customers')->user()->id;
-        }
-        $customer = Customer::find($customer_id);
-        if (!isset($customer) || empty($customer)) {
+        $customer = $this->resolveStoreCustomer($store);
+        if ($customer === null) {
             return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
         }
-        $validator = \Validator::make($request->all(), $rules);
-        if ($validator->fails()) {
-            $messages = $validator->getMessageBag();
-            return $this->error([
-                'message' => $messages->first()
-            ], $messages->first());
-        }
-        $store = getStore($slug);
+        $customer_id = $customer->id;
         if ($store) {
             $store_id = $store->id;
             $slug = $store->slug;
@@ -718,7 +858,22 @@ public function saveStoreFcmToken(Request $request)
             $original_price += $total_product_orignal_price;
             $shipping_original_price += $shipping_price;
             if (isset($request['coupon_code'])) {
-                $coupon = Coupon::whereRaw('BINARY `coupon_code` = ?', [$request['coupon_code']])->whereDate('coupon_expiry_date', '>=', date('Y-m-d'))->first();
+                // P01-SEC-14 C4: portable exact-code match. See Coupon::findByExactCode -- the
+                // previous `BINARY` form was MySQL-only and made this whole path 500 on SQLite.
+                //
+                // P01-SEC-14 D2: and store-scoped. `Coupon` has no StoreScope and is not in
+                // config/tenancy.php's scoped_models, so nothing underneath adds the predicate and
+                // this lookup matched a code in ANY store. Measured through api/{slug}/cart-list
+                // before the predicate: store B's 90% coupon on a store A cart returned
+                // total_coupon_price = 90 and total_sub_price = 10.00. The predicate was absent
+                // before P01-SEC-14 and C4 preserved it exactly, so this is a pre-existing
+                // cross-tenant read rather than a regression -- see
+                // docs/security/P01-SECURITY-WORK-QUEUE.md S23.
+                $coupon = Coupon::findByExactCode(
+                    $request['coupon_code'],
+                    fn ($query) => $query->where('store_id', $store->id)
+                        ->whereDate('coupon_expiry_date', '>=', date('Y-m-d'))
+                );
                 if ($coupon) {
                     $coupon_apply_price = Cart::getCouponTotalAmount($coupon, $final_price, $cart_product_data->id, $cart_product_data->category_id);
 
@@ -767,13 +922,20 @@ public function saveStoreFcmToken(Request $request)
         }
 
         if (isset($request['coupon_code'])) {
-            $coupon = Coupon::whereRaw('BINARY `coupon_code` = ?', [$request['coupon_code']])->first();
+            // P01-SEC-14 C4: portable exact-code match. See Coupon::findByExactCode.
+            // P01-SEC-14 D2: store-scoped, same reason as the per-item lookup above. This one
+            // decides the limit and expiry checks and fills `coupon_info` in the response, so an
+            // unscoped match reported another tenant's coupon name and discount to this caller.
+            $coupon = Coupon::findByExactCode(
+                $request['coupon_code'],
+                fn ($query) => $query->where('store_id', $store->id)
+            );
             if (!empty($coupon)) {
                 $coupon_count = $coupon->UsesCouponCount();
                 $couponQuery = Coupon::query();
                 $coupon_expiry_date = (clone $couponQuery)->where('id', $coupon->id)
                     ->whereDate('coupon_expiry_date', '>=', date('Y-m-d'))
-                    ->where('coupon_limit', '>', $coupon_count)
+                    ->tap(fn ($q) => Coupon::applyUsageLimit($q, $coupon_count))
                     ->first();
                 // Usage limit per user
                 $i = 0;
@@ -893,27 +1055,33 @@ public function saveStoreFcmToken(Request $request)
             return $this->error(['message' => __('Store not found.')], __("Store not found."));
         }
         $settings = Utility::Setting($store->id);
-        if (!auth('customers')->user()) {
-            $rules = [
-                'customer_id' => 'required',
-                'product_id' => 'required',
-                'variant_id' => 'nullable',
-                'qty' => 'required',
-            ];
-
-            $customer_id = $request->customer_id;
-        } else {
-            $rules = [
-                'product_id' => 'required',
-                'variant_id' => 'nullable',
-                'qty' => 'required',
-            ];
-            $customer_id = auth('customers')->user()->id;
-        }
-        $customer = Customer::find($customer_id);
-        if (!isset($customer) || empty($customer)) {
+        // AUTHZ: the guard-class trap. `if (! auth('customers')->user())` reads as a guest
+        // fallback and is not one -- custom.auth admits a merchant's or a driver's token with
+        // auth('customers') null, so precisely those principals took the request-controlled
+        // branch. There are no guests on this route: custom.auth refuses a missing bearer token
+        // before the handler runs. See resolveStoreCustomer().
+        $rules = [
+            'product_id' => 'required',
+            'variant_id' => 'nullable',
+            // P01-SEC-14 E5. `required` alone let a shopper post `qty = -5`. MEASURED: the row
+            // was stored at -5 and api/{slug}/cart-list then returned
+            // `total_final_price = -150.00` for a basket holding one 100.00 product and one
+            // 50.00 product at qty -5. That is the amount payment_sheet charges, so a negative
+            // line REDUCES the payable using data the server stored itself -- the one route past
+            // Work Package B's amount authority that does not involve the request at charge time.
+            // The `$payable <= 0` guard there only catches the extreme case; a basket that nets
+            // positive is charged the reduced figure.
+            //
+            // `integer` accepts the numeric strings a JSON client sends ("2"), so no working
+            // client is refused; it rejects `-5`, `0`, `1.5` and `[]`. Found by an adversarial
+            // review of this package.
+            'qty' => 'required|integer|min:1',
+        ];
+        $customer = $this->resolveStoreCustomer($store);
+        if ($customer === null) {
             return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
         }
+        $customer_id = $customer->id;
 
         $validator = \Validator::make($request->all(), $rules);
         if ($validator->fails()) {
@@ -923,7 +1091,59 @@ public function saveStoreFcmToken(Request $request)
             ], $messages->first());
         }
         $final_price = 0;
-        $product = Product::find($request->product_id);
+        // THE PRODUCT MUST BE THIS STORE'S. Product carries StoreScope but is NOT in
+        // config/tenancy.php's scoped_models, so StoreScope::isActiveFor() short-circuits and NO
+        // predicate is added for ANY principal -- not a customer, not a merchant, not the
+        // operator. An unscoped find() therefore reached every tenant's catalogue.
+        //
+        // This is the ENTRY POINT for the cart -> order chain: cart_list prices whatever is in the
+        // cart and place_order/ordersave decrement its stock, neither with a store predicate. A
+        // customer of store A could put store B's product in their store-A cart and make checkout
+        // consume merchant B's inventory. Refusing it here keeps a foreign product out of the cart
+        // in the first place.
+        $product = Product::where('id', $request->product_id)->where('store_id', $store->id)->first();
+
+        /*
+         * AND THE NULL IT RETURNS IS REFUSED. P01-COMMERCE-SEC-03.
+         *
+         * The lookup above has been store-scoped since S19 and the comment above it claims it
+         * "keeps a foreign product out of the cart in the first place". IT DID NOT. Nothing acted
+         * on the null: `if ($product && ...)` guards only the variant-required message, and
+         * control then reached the `attribute_id` branch below (`:1451`), which resolves the
+         * VARIANT from the caller's own two values --
+         * `ProductVariant::where('id', $request->attribute_id)->where('product_id', $request->product_id)`
+         * -- never consults `$product`, prices from that foreign variant, and writes
+         * `$cart->product_id = $request->product_id` verbatim. `ProductVariant` carries no
+         * StoreScope and is not in config/tenancy.php's `scoped_models`, so SCOPING THE PRODUCT
+         * DID NOT SCOPE THE VARIANT.
+         *
+         * MEASURED end to end, before this guard, by an ordinary store-A customer using their own
+         * token -- no module, no forged principal, two requests:
+         *
+         *   POST /api/{slugA}/add-cart   product_id + attribute_id = store B's variant product
+         *     -> carts row {product_id: B's, variant_id: B's, store_id: A's} PERSISTED
+         *   POST /api/{slugA}/place-order
+         *     -> store B's product_variants.stock 50 -> 43, an order written, then HTTP 500
+         *
+         * The 500 is the handler dereferencing this same null further down -- AFTER `$cart->save()`,
+         * with no transaction around the pair, so the refusal and the persistence were independent
+         * and the poisoned row survived the error the caller saw. Refusing here is what makes the
+         * write impossible rather than merely followed by an error.
+         *
+         * WHY A HARD `store_id` MATCH AND NOT THE NULLABLE-TOLERANT RULE used by
+         * GuardsGatewayReturn::basketHasForeignProduct() and 0ad3f7e0: because this is the
+         * predicate THIS HANDLER ALREADY SHIPS. The `else` branch at :1512 has always answered
+         * "Product not found." on `empty($product)`, so a legacy product with a NULL `store_id`
+         * is already refused on that path today. This guard makes the `attribute_id` branch agree
+         * with its neighbour; it introduces no new policy about NULL `store_id`. The asymmetry
+         * between the two rules is real and is recorded as an owner decision in
+         * docs/development/phase-1/11-NEXT-PACKAGE-PRODUCTVARIANT-TENANCY.md rather than settled
+         * unilaterally here.
+         */
+        if (empty($product)) {
+            return $this->error(['message' => __('Product not found.')], __('Product not found.'));
+        }
+
         if ($product && $product->variant_product == 1) {
             if (!module_is_active('SizeGuideline')){
                 if ( empty( $request->variant_id ) || $request->variant_id == 0 ) {
@@ -1415,19 +1635,61 @@ public function saveStoreFcmToken(Request $request)
             }
         } else {
             if ( !empty( $request->attribute_id ) || $request->attribute_id != 0 ) {
+                /*
+                 * The variant must belong to THIS product, which the guard above has already
+                 * established belongs to THIS store.
+                 *
+                 * THIS DOCBLOCK USED TO CLAIM THAT THIS PAIRING "is what makes the chain sound".
+                 * It was the pairing of the values that were CHECKED, and not of the value that
+                 * was STORED -- see the assignment of `$product_stock_datas` below, and the gate
+                 * before `$cart->save()`. Corrected in the P01-COMMERCE-SEC-03 FOLLOW-UP after an
+                 * adversarial review read this comment against the code it describes.
+                 *
+                 * `product_variants.store_id` is nullable, so a hard store predicate here would
+                 * drop legitimate legacy variant rows -- requiring the store-scoped `$product`
+                 * instead reaches the same conclusion without that cost.
+                 */
                 $ProductVariant = ProductVariant::where( 'id', $request->attribute_id )
                 ->where( 'product_id', $request->product_id )
                 ->first();
 
+                /*
+                 * AND THE EMPTINESS CHECK RUNS BEFORE THE DEREFERENCE, which it did not.
+                 * `explode(',', $ProductVariant->variation_option)` was the FIRST statement after
+                 * the lookup and `if (empty($ProductVariant))` came after it, nested inside
+                 * `if ($option == true)` -- so it could only ever be reached when the dereference
+                 * had already succeeded. A variant id that does not belong to this product
+                 * therefore answered HTTP 500 instead of "Product not found.", which is also how
+                 * a mismatched pair presented. Same dead-guard shape as `Cart.php:717`.
+                 */
+                if (empty($ProductVariant)) {
+                    return $this->error(['message' => __('Product not found.')], __('Product not found.'));
+                }
+
+                /*
+                 * THE PAIR THAT IS CHECKED MUST BE THE PAIR THAT IS STORED.
+                 * P01-COMMERCE-SEC-03 FOLLOW-UP, found by an adversarial review of 611357e6.
+                 *
+                 * This branch validated `attribute_id` against the product and then never
+                 * assigned `$product_stock_datas`, so the shared assignment after all the
+                 * branches --
+                 *
+                 *     $variant_id = isset($product_stock_datas->id) ? $product_stock_datas->id
+                 *                                                   : $request->variant_id;
+                 *
+                 * -- fell through to RAW REQUEST INPUT, and `$cart->variant_id` was written from
+                 * it. So the row paired this store's product with whatever variant id the caller
+                 * sent: the guard above checked `attribute_id` and the row stored `variant_id`.
+                 * The docblock above this branch claimed the pairing "is what makes the chain
+                 * sound"; it was the pairing of the checked values, not of the stored ones.
+                 */
+                $product_stock_datas = $ProductVariant;
+
                 $variationOptions = explode(',', $ProductVariant->variation_option);
                 $option = in_array('manage_stock', $variationOptions);
                 if ($option  == true) {
-                    if (empty($ProductVariant)) {
-                        return $this->error(['message' => __('Product not found.')],  __('Product not found.'));
-                    } else {
-                        if ($ProductVariant->stock < $settings['out_of_stock_threshold'] && $ProductVariant->stock_order_status == 'not_allow') {
-                            return $this->error(['message' => __('Product has out of stock.')], __('Product has out of stock.'));
-                        }
+                    if ($ProductVariant->stock < ($settings['out_of_stock_threshold'] ?? '0') && $ProductVariant->stock_order_status == 'not_allow') {
+                        return $this->error(['message' => __('Product has out of stock.')], __('Product has out of stock.'));
                     }
                 }
 
@@ -1439,7 +1701,22 @@ public function saveStoreFcmToken(Request $request)
                         if ($products_data) {
                             $product_stock_datas = ProductVariant::where('variant', $products_data->terms)->where('product_id', $request->product_id)->first();
                         } else {
-                            $product_stock_datas = ProductVariant::find($request->variant_id);
+                            /*
+                             * PAIRED. This was `ProductVariant::find($request->variant_id)` with
+                             * no `product_id` predicate -- and `ProductVariant` carries no
+                             * StoreScope and is not in config/tenancy.php's `scoped_models`, so
+                             * `find()` reaches every tenant's variants. A foreign variant id came
+                             * back non-empty, which SKIPPED the paired re-resolution three lines
+                             * below, became `$variant_id`, and was then set as `variantId` on
+                             * `$product` so that `$product->final_price` priced the cart line
+                             * from ANOTHER tenant's `variation_price`. P01-COMMERCE-SEC-03
+                             * FOLLOW-UP. The paired re-resolution below is now a no-op for this
+                             * path rather than a repair of it, and is left in place because the
+                             * `$products_data` arm above can still return null.
+                             */
+                            $product_stock_datas = ProductVariant::where('id', $request->variant_id)
+                                ->where('product_id', $request->product_id)
+                                ->first();
                         }
                         if (empty($product_stock_datas)) {
                             $product_stock_datas = ProductVariant::where('id', $request->variant_id)->where('product_id', $request->product_id)->first();
@@ -1482,6 +1759,45 @@ public function saveStoreFcmToken(Request $request)
             }
         }
         $variant_id = isset($product_stock_datas->id) ? $product_stock_datas->id : $request->variant_id;
+
+        /*
+         * AND THE PAIR ABOUT TO BE PERSISTED IS VALIDATED ONCE, FOR EVERY BRANCH.
+         * P01-COMMERCE-SEC-03 FOLLOW-UP.
+         *
+         * The assignment above has SEVEN copies in this method -- one per module arm
+         * (WholesaleProduct x3, SizeGuideline x3) plus this shared one -- and every copy ends in
+         * the same `: $request->variant_id` fallback. The two reachable-in-a-test branches are
+         * corrected at source above; the module arms cannot be: no WorkDo module loads in any
+         * test run (CLAUDE.md), so a change inside one could not be proven by removal and is
+         * recorded in docs/security/P01-SECURITY-WORK-QUEUE.md instead.
+         *
+         * This gate makes the written row sound regardless of which branch produced the value:
+         * a non-zero variant id must belong to THIS product, which the store-scoped `$product`
+         * lookup at the top of this method has already established belongs to THIS store. It
+         * also covers the plain-product case, where nothing validated a variant at all and a
+         * stray id was persisted verbatim.
+         *
+         * `product_id`, not `store_id`, for the reason the shared helper gives:
+         * `product_variants.store_id` is nullable, so a hard store predicate would drop
+         * legitimate legacy variant rows. Requiring the variant to belong to a product this
+         * store owns reaches the same conclusion without that cost.
+         *
+         * The message is one this handler already returns on its variant paths, so no client
+         * sees a new response shape -- `ApiResponser::error()` is HTTP 200 with `status: 0`.
+         */
+        if (!empty($variant_id) && (int) $variant_id !== 0) {
+            $variantBelongsToProduct = ProductVariant::where('id', $variant_id)
+                ->where('product_id', $request->product_id)
+                ->exists();
+
+            if (! $variantBelongsToProduct) {
+                return $this->error(
+                    ['message' => __('Please Select a variant in a product.')],
+                    __('Please Select a variant in a product.')
+                );
+            }
+        }
+
         $qty = $request->qty;
         if (module_is_active('SizeGuideline') && isset($request->size_data)) {
             $cart = Cart::where( 'customer_id', $customer_id )
@@ -1562,8 +1878,11 @@ public function saveStoreFcmToken(Request $request)
                 'message' => $messages->first()
             ], $messages->first());
         }
-        $customer = Customer::find($request->customer_id);
-        if (!isset($customer) || empty($customer)) {
+        // AUTHZ: `Customer::find($request->customer_id)` is a liveness check on an id the caller
+        // chose, not an identity check, so any token holder altered or deleted any shopper's cart
+        // row. The 'remove' branch below had a second defect of its own -- see there.
+        $customer = $this->resolveStoreCustomer($store);
+        if ($customer === null) {
             return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
         }
         $final_price = 0;
@@ -1584,13 +1903,13 @@ public function saveStoreFcmToken(Request $request)
             }
         }
         $product = Product::find($request->product_id);
-        $cart = Cart::where('customer_id', $request->customer_id)
+        $cart = Cart::where('customer_id', $customer->id)
             ->where('product_id', $request->product_id)
             ->where('variant_id', $request->variant_id)
             
             ->where('store_id', $store->id)
             ->first();
-        $cart_count = Cart::where('customer_id', $request->customer_id)->where('store_id', $store->id)->count();
+        $cart_count = Cart::where('customer_id', $customer->id)->where('store_id', $store->id)->count();
         $settings = Setting::where('store_id', $store->id)->pluck('value', 'name')->toArray();
         if (empty($cart)) {
             return $this->error(['message' => __('Your cart is empty.')], __('Your cart is empty.'), 200, 0, $cart_count);
@@ -1608,7 +1927,7 @@ public function saveStoreFcmToken(Request $request)
                         }
                     }
 
-                    if ($settings['stock_management'] ?? '' == 'on') {
+                    if (($settings['stock_management'] ?? null) === 'on') {
                         $variationOptions = explode(',', $ProductVariant->variation_option);
                         $option = in_array('manage_stock', $variationOptions);
                         if (!empty($ProductVariant)) {
@@ -1690,16 +2009,14 @@ public function saveStoreFcmToken(Request $request)
             $cart->save();
 
             if ($request->quantity_type == 'remove') {
-                if (auth('customers')->user()) {
-                    $cart->delete();
-                    return $this->success(['message' => __('Cart Product Deleted.')], __('Cart Product Deleted.'), 200, $cart_count);
-                } else {
-                    $cart = Cart::where('product_id', $request->product_id)->where('customer_id', $request->customer_id)->where('variant_id', $request->variant_id)->first();
-                    $cart->delete();
-                    return $this->success(['message' => __('Cart Product Deleted.')], __('Cart Product Deleted.'), 200, $cart_count);
-                }
+                // The else branch here re-queried WITHOUT any store_id filter and deleted that
+                // row, so a merchant's or driver's token removed a named shopper's cart row in
+                // ANY store. `$cart` above is already this customer's row in this store, so the
+                // branch is gone: there is one row to delete and it is theirs.
+                $cart->delete();
+                return $this->success(['message' => __('Cart Product Deleted.')], __('Cart Product Deleted.'), 200, $cart_count);
             }
-            $cart_count = Cart::where('customer_id', $request->customer_id)->where('store_id', $store->id)->count();
+            $cart_count = Cart::where('customer_id', $customer->id)->where('store_id', $store->id)->count();
             return $this->success(['message' => __('Cart successfully updated.')], __('Cart successfully updated.'), 200, $cart_count);
         }
     }
@@ -1727,24 +2044,31 @@ public function saveStoreFcmToken(Request $request)
                 'message' => $messages->first()
             ], $messages->first());
         }
-        $customer = Customer::find($request->customer_id);
-        if (!isset($customer) || empty($customer)) {
+        // AUTHZ: `Customer::find($customer->id)` authorised nothing, so any token holder
+        // added to or cleared any shopper's wishlist and wrote an ActivityLog row attributed to
+        // them. The posted id is ignored from here on.
+        $customer = $this->resolveStoreCustomer($store);
+        if ($customer === null) {
             return $this->error(['message' => __('You must be logged in to add items to your wishlist.')], __('You must be logged in to add items to your wishlist.'), 401);
         }
 
-        $Product = Product::find($request->product_id);
+        // THE PRODUCT MUST BE THIS STORE'S. Product carries StoreScope but is NOT in
+        // config/tenancy.php's scoped_models, so StoreScope::isActiveFor() short-circuits and NO
+        // predicate is added for ANY principal -- not a customer, not a merchant, not the
+        // operator. An unscoped find() therefore reached every tenant's catalogue.
+        $Product = Product::where('id', $request->product_id)->where('store_id', $store->id)->first();
         if (empty($Product)) {
             return $this->error(['message' => __('Product not found.')], __('Product not found.'));
         }
 
         if ($request->wishlist_type == 'add') {
-            $Wishlist = Wishlist::where('customer_id', $request->customer_id)->where('product_id', $request->product_id)->where('store_id', $store->id)->exists();
+            $Wishlist = Wishlist::where('customer_id', $customer->id)->where('product_id', $request->product_id)->where('store_id', $store->id)->exists();
             if ($Wishlist) {
                 return $this->error(['message' => __('Product already added in Wishlist.')], __('Product already added in Wishlist.'));
             }
 
             $Wishlist = new Wishlist();
-            $Wishlist->customer_id = $request->customer_id;
+            $Wishlist->customer_id = $customer->id;
             $Wishlist->product_id = $request->product_id;
             $Wishlist->variant_id = $request->variant_id ?? 0;
             $Wishlist->status = 1;
@@ -1753,7 +2077,7 @@ public function saveStoreFcmToken(Request $request)
 
             // activity log
             $ActivityLog = new ActivityLog();
-            $ActivityLog->customer_id = $request->customer_id;
+            $ActivityLog->customer_id = $customer->id;
             $ActivityLog->log_type = 'add wishlist';
             $ActivityLog->remark = json_encode(
                 ['product' => $request->product_id]
@@ -1761,7 +2085,7 @@ public function saveStoreFcmToken(Request $request)
             $ActivityLog->store_id = $store->id;
             $ActivityLog->save();
 
-            $Wishlist_count = Wishlist::where('customer_id', $request->customer_id)->where('store_id', $store->id)->count();
+            $Wishlist_count = Wishlist::where('customer_id', $customer->id)->where('store_id', $store->id)->count();
             if (auth('customers')->user()) {
 
                 $cart = Cart::where('customer_id', auth('customers')->user()->id)->where('store_id', $store->id)->count();
@@ -1775,11 +2099,11 @@ public function saveStoreFcmToken(Request $request)
             }
             return $this->success(['message' => __('Added successfully to wishlist'), 'count' => 1], __('Added successfully to wishlist'), 200, $cart);
         } elseif ($request->wishlist_type == 'remove') {
-            Wishlist::where('customer_id', $request->customer_id)->where('product_id', $request->product_id)->where('store_id', $store->id)->delete();
+            Wishlist::where('customer_id', $customer->id)->where('product_id', $request->product_id)->where('store_id', $store->id)->delete();
 
             // activity log
             $ActivityLog = new ActivityLog();
-            $ActivityLog->customer_id = $request->customer_id;
+            $ActivityLog->customer_id = $customer->id;
             $ActivityLog->log_type = 'delete wishlist';
             $ActivityLog->remark = json_encode(
                 ['product' => $request->product_id]
@@ -1787,7 +2111,7 @@ public function saveStoreFcmToken(Request $request)
             $ActivityLog->store_id = $store->id;
             $ActivityLog->save();
 
-            $Wishlist_count = Wishlist::where('customer_id', $request->customer_id)->where('store_id', $store->id)->count();
+            $Wishlist_count = Wishlist::where('customer_id', $customer->id)->where('store_id', $store->id)->count();
 
             if (auth('customers')->user()) {
                 $cart = Cart::where('customer_id', auth('customers')->user()->id)->where('store_id', $store->id)->count();
@@ -1818,11 +2142,16 @@ public function saveStoreFcmToken(Request $request)
                 'message' => $messages->first()
             ], $messages->first());
         }
-        $customer = Customer::find($request->customer_id);
-        if (!isset($customer) || empty($customer)) {
+        // AUTHZ: the target is the authenticated shopper, never `$request->customer_id`. See
+        // resolveStoreCustomer(). The posted id is still accepted and validated so a client that
+        // sends it is not rejected; it is simply no longer trusted. The refusal reuses the 401
+        // this branch already returned for an id that did not resolve, so no new status code
+        // appears on a path a client calls.
+        $customer = $this->resolveStoreCustomer($store);
+        if ($customer === null) {
             return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
         }
-        $Wishlist = Wishlist::with('ProductData')->where('customer_id', $request->customer_id)->where('store_id', $store->id)->paginate(10);
+        $Wishlist = Wishlist::with('ProductData')->where('customer_id', $customer->id)->where('store_id', $store->id)->paginate(10);
         if (auth('customers')->user()) {
 
             $cart = Cart::where('customer_id', auth('customers')->user()->id)->where('store_id', $store->id)->count();
@@ -1854,11 +2183,20 @@ public function saveStoreFcmToken(Request $request)
                 'message' => $messages->first()
             ]);
         }
-        $customer = Customer::find($request->customer_id);
-        if (!isset($customer) || empty($customer)) {
+        // AUTHZ: the target is the authenticated shopper, never `$request->customer_id`. See
+        // resolveStoreCustomer(). The posted id is still accepted and validated so a client that
+        // sends it is not rejected; it is simply no longer trusted. The refusal reuses the 401
+        // this branch already returned for an id that did not resolve, so no new status code
+        // appears on a path a client calls.
+        //
+        // This read had NO tenant predicate whatsoever -- the slug was used only for the
+        // "Store not found" gate above -- so it returned up to 1000 rows of full_name, phone,
+        // address, postcode and delivery_instructions for any customer id on the platform.
+        $customer = $this->resolveStoreCustomer($store);
+        if ($customer === null) {
             return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
         }
-        $DeliveryAddress = DeliveryAddress::where('customer_id', $request->customer_id)->paginate(1000);
+        $DeliveryAddress = DeliveryAddress::where('customer_id', $customer->id)->paginate(1000);
 
         if (!empty($DeliveryAddress)) {
             return $this->success($DeliveryAddress);
@@ -2935,7 +3273,11 @@ public function saveStoreFcmToken(Request $request)
             }
         }
         if ( !empty( $Setting_array ) ) {
-            return $this->success( $Setting_array );
+            // P1-SEC-15. The entries above carry each gateway's live SECRET next to its display fields, and
+            // this route answers any Sanctum token for ANY slug (and POST {slug}/register issues one to
+            // anybody). A client lists methods; the server charges. Secrets are nulled here -- after the
+            // PartialPayments module has had its say -- and the keys are kept.
+            return $this->success( \App\Services\GatewaySecretRedactor::redactAll( $Setting_array ) );
         } else {
             return $this->error(['message' => __('Payment not found.')]);
         }
@@ -2978,15 +3320,63 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                 'message' => $messages->first()
             ]);
         }
-        $customer = Customer::find($request->customer_id);
-        if (!isset($customer) || empty($customer)) {
+        // ====================================================================================
+        // AUTHZ: the worst of this family, because it is the only one that never consulted the
+        // session for its subject on ANY branch. `Customer::find($request->customer_id)` is a
+        // liveness check on an id the caller chose, so place_order was exploitable by an ORDINARY
+        // CUSTOMER TOKEN too, not only by a wrong-class principal like its siblings.
+        //
+        // What one request did, with a victim's id and no relationship to them:
+        //
+        //   - read their cart (via cart_list, which took the same posted id);
+        //   - DECREMENTED real Product and ProductVariant stock;
+        //   - DELETED their cart rows;
+        //   - created an Order in their name with the attacker's billing name, email, phone and
+        //     address, which OrderObserver turns into a money row and a wallet touch;
+        //   - sent "Order Created" mail to the attacker's address and to the store owner.
+        //
+        // Every one of those is now bound to the authenticated shopper. `customer_id` is still
+        // required and still validated so a client sending it is not rejected; it is no longer
+        // read. The refusal reuses the 401 this branch already returned for an unresolvable id.
+        //
+        // Note `place-order-guest` (routes/api.php:105) is the same handler and also carries
+        // custom.auth, so there is no guest journey to preserve here: a caller with no token
+        // already got 401 from the middleware. The `-guest` suffix on these routes means "the
+        // handler has an auth('customers') fallback", not "the route is public".
+        // ====================================================================================
+        $customer = $this->resolveStoreCustomer($store);
+        if ($customer === null) {
             return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
         }
+        $customerId = (int) $customer->id;
         $cartlist_final_price = 0;
         $final_price = 0;
 
-        if (!empty($request->customer_id)) {
-            $cart_list['customer_id']   = $request->customer_id;
+        if (!empty($customerId)) {
+            $cart_list['customer_id']   = $customerId;
+            // P01-SEC-14 F5. THE CALLER'S `shipping_final_price` IS NOT ALLOWED INTO THE CART
+            // READ THIS ORDER IS BUILT FROM.
+            //
+            // cart_list reads `$shipping_price = (int)$request['shipping_final_price']` (:203) with
+            // no floor and adds it to `sub_total` and `total_sub_price`. MEASURED through
+            // api/{slug}/place-order on a 100.00 basket: posting `shipping_final_price = -900`
+            // wrote `orders.product_price = -800.0`, and `500` wrote `600.0`, against `100.0` when
+            // nothing was posted. `final_price` -- the amount owed -- was 100.0 throughout, so this
+            // is the merchant's ledger and reporting rather than what the shopper pays; it is the
+            // same class as the posted-discount defect D1 closed on `coupon_price`, and it is
+            // closed the same way: the figure becomes the server's.
+            //
+            // ZERO rather than the real shipping, because the real shipping is not known yet --
+            // get_shipping_method() runs AFTER this read -- and because the order already carries
+            // it in its own column, `delivery_price`, from that server computation. So
+            // `total_sub_price` here is products-plus-tax, which is exactly what it was for every
+            // request that posted nothing.
+            //
+            // The precedent is this project's own: PaymentService.php:2277-2286 already discards a
+            // client-supplied `shipping_final_price` in favour of the server's and logs that it did.
+            // Neither the documented contract for place-order, order-save or confirm-order nor the
+            // admin Flutter app sends this field -- both grepped.
+            $cart_list['shipping_final_price'] = 0;
             $request->request->add($cart_list);
             $cartlist_response = $this->cart_list($request, $slug);
             $cartlist = (array)$cartlist_response->getData()->data;
@@ -3005,6 +3395,42 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
             return $this->error(['message' => 'User not found.']);
         }
 
+        // P01-SEC-14 F1. A NON-POSITIVE LINE QUANTITY IS NOT A PAYABLE BASKET, HERE TOO.
+        //
+        // E5 put this refusal on payment_sheet only, and that was the wrong scope. Its own comment
+        // argued the governing reason -- "a row written before that, or by any other writer, would
+        // still subtract from the total" -- and then did not apply it to the handlers that write
+        // the order's money columns. An adversarial review of that commit caught it, and the
+        // measurement is unambiguous: a basket of one 1000.00 product plus one 50.00 product at
+        // qty -5, driven through order-save AND place-order, recorded product_price 750.0 and
+        // final_price 750.0, and the cheap product's stock went UP from 20 to 25. So for a COD
+        // order the shopper takes 1000.00 of goods for 750.00 and the merchant's inventory is
+        // corrupted in the same request. That is the amount OWED, not a reporting column.
+        //
+        // The source is a different endpoint: CartController::product_cartlist (the storefront web
+        // route `{storeSlug?}/product_cart`) wrote `$request->qty` with no validation at all. That
+        // is fixed there too, but this stays, because a row from any writer -- or one already in
+        // the table -- must not be priced.
+        $nonPositiveLines = Cart::where('customer_id', $customer->id)
+            ->where('store_id', $store->id)
+            ->where('qty', '<=', 0)
+            ->count();
+
+        if ($nonPositiveLines > 0) {
+            \Illuminate\Support\Facades\Log::warning('order: refused, basket holds a non-positive quantity', [
+                'handler' => __FUNCTION__,
+                'store_id' => $store->id,
+                'customer_id' => $customer->id,
+                'lines' => $nonPositiveLines,
+            ]);
+
+            return $this->error(
+                ['message' => __('Your cart contains an invalid quantity.')],
+                __('Your cart contains an invalid quantity.')
+            );
+        }
+
+
         $coupon_price = 0;
         // coupon api call
         if (!empty($request->coupon_info)) {
@@ -3020,7 +3446,49 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
             $order_array['coupon']['message'] = $apply_coupon['message'];
             $order_array['coupon']['status'] = false;
             if (!empty($apply_coupon['final_price'])) {
-                $cartlist_final_price = $apply_coupon['final_price'];
+                // P01-SEC-14 E6. A COUPON MAY ONLY LOWER THE BASKET TOTAL, NEVER ZERO IT.
+                //
+                // MEASURED, through api/{slug}/order-save with one 100.00 product: without a
+                // coupon the order recorded product_price 100.0 and final_price 100.0; WITH an
+                // accepted coupon it recorded 0.0 and 0.0, and a 7.00 discount. An accepted coupon
+                // made the order free. The cause is upstream: apply_coupon() builds its
+                // `final_price` from a nested cart read that is not reached for a coupon whose
+                // `sale_items` is 0, so the figure comes back "0.00", and `!empty("0.00")` is TRUE
+                // in PHP -- a non-empty string -- so the assignment fired on a zero.
+                //
+                // THIS GUARD IS NOT THE COUPON FIX. Correcting apply_coupon's arithmetic is the
+                // order-calculation change this package is not to start, and S24 in
+                // docs/security/P01-SECURITY-WORK-QUEUE.md shows that path is doubly broken: every
+                // coupon type except `fixed product discount` is refused outright by a mispaired
+                // `else`. What this does is refuse a figure that cannot be a discounted basket --
+                // not positive, or larger than the basket itself -- and keep the server's own
+                // total instead. Narrow, fails safe, and it leaves a correct coupon reduction
+                // working: a positive figure below the basket total is still accepted.
+                //
+                // Numeric comparison, not `empty()`: that is what let "0.00" through.
+                // P01-SEC-14 F2. NO COUPON-TOTAL GUARD HERE, AND THAT IS DELIBERATE: THERE IS
+                // NOTHING FOR IT TO GUARD. E6 put one here on the assumption that place_order
+                // works like ordersave. It does not, and an adversarial review of that commit
+                // caught it. `$cartlist_final_price` is assigned at :3078 and then read ONLY as
+                // the `sub_total` handed to apply_coupon() just above; every occurrence in this
+                // method was checked, and nothing reads it again. This handler's money columns come
+                // from different variables, both captured BEFORE this block:
+                //
+                //     $order->product_price = $final_sub_total_price;   <- $cartlist['total_sub_price']
+                //     $order->final_price   = $final_price + $tax_price; <- $cartlist['total_final_price']
+                //
+                // So a guard on `$cartlist_final_price` changes no stored value and no response
+                // field, and a regression test for it would be vacuous -- it would pass with the
+                // guard reverted. Leaving dead code that looks like a control is worse than not
+                // having it: the next reader would trust it.
+                //
+                // AND THE REAL FINDING UNDERNEATH: place_order never applies the coupon to its
+                // stored totals at all. It records `$order->coupon_price = $apply_coupon['amount']`
+                // while `final_price` keeps the PRE-coupon `total_final_price`, so a shopper who
+                // uses a coupon here is charged full price with a discount printed beside it -- the
+                // mirror image of the ordersave defect E6 fixed. That is an order-calculation
+                // change, not an authorization one, so it is S21/S24 in
+                // docs/security/P01-SECURITY-WORK-QUEUE.md and not made here.
                 $coupon_price = $apply_coupon['amount'];
                 $order_array['coupon']['status'] = true;
             }
@@ -3048,6 +3516,55 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
             }
         }
 
+        /*
+         * NO LINE IS DECREMENTED UNTIL EVERY LINE IS OWNED. P01-COMMERCE-SEC-03 FOLLOW-UP.
+         *
+         * The ownership refusal below sits INSIDE the loop, and the decrement is a bare
+         * `->save()` with no transaction around it. So a two-line basket whose first line is
+         * legitimate and whose second names another store's product decremented the first
+         * line's stock, refused on the second, and wrote no order -- an orphan deduction
+         * against this store's own merchant, repeatable. The in-loop refusals are kept as
+         * defence in depth (they also cover a product id that resolves to no row at all, which
+         * this pre-flight deliberately treats as "not a provable mismatch"), but the question is
+         * now answered for the WHOLE basket before anything moves.
+         *
+         * This is the placement GuardsGatewayReturn::basketHasForeignProduct()'s own docblock
+         * argues for, and `place_order` was carrying the shape it rejects.
+         *
+         * `$products ?? null` because the assignment above is inside a conditional and the loop
+         * below guards with `empty()`; the helper treats a null basket as nothing to refuse.
+         */
+        if ($this->basketHasForeignProduct($products ?? null, $store)) {
+            return $this->error(['message' => __('Product not found .')]);
+        }
+
+        /*
+         * AND NO LINE QUANTITY IS ABSURD. P01-COMMERCE-SEC-03 FOLLOW-UP.
+         *
+         * THIS HANDLER HAD A FLOOR AND NO CEILING, and I said otherwise. Answering a sweep that
+         * reported "no quantity pre-flight" here, I pointed at the `qty <= 0` refusal above and
+         * called the finding refuted. It was half right: the floor is real, the CEILING was
+         * missing, and a completeness critic then MEASURED what that costs --
+         *
+         *     qty 2147483647 on a 50-unit product:
+         *         products.product_stock   50 -> -2147483597
+         *         order written, product_price = final_price = 21474836470.0, status 'Paid'
+         *
+         * -- on this route, on `order-save`, and on the web `process-order`. The same shape
+         * P01-COMMERCE-SEC-01 closed on the gateway returns, still open on the three writers that
+         * take cash on delivery. `GuardsGatewayReturn::MAX_SANE_LINE_QUANTITY` existed and was
+         * wired into none of them.
+         *
+         * The shared helper is used rather than a fourth copy of the rule: it refuses
+         * non-positive, fractional, non-numeric and above-ceiling quantities alike. The message is
+         * this handler's own, so no client sees a new response shape.
+         */
+        if ($this->basketHasUnusableQuantity($products ?? null)) {
+            return $this->error(
+                ['message' => __('Your cart contains an invalid quantity.')],
+                __('Your cart contains an invalid quantity.')
+            );
+        }
         // Order stock decrease start
         $prodduct_id_array = [];
         if (!empty($products)) {
@@ -3058,12 +3575,67 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                 $variant_id = $product->variant_id;
                 $qtyy = !empty($product->qty) ? $product->qty : 0;
 
-                $Product = Product::where('id', $product_id)->first();
-                $datas = Product::find($product_id);
+                // SCOPED TO THIS STORE. Closing addtocart is not enough: a cart row can reach
+                // this loop from the web storefront's own CartController, or already exist from
+                // before that gate, and this loop decrements whatever product id the cart holds.
+                // Measured: with only the entry gate in place, a planted cart row still drained
+                // another merchant's stock. Product is not in config/tenancy.php's scoped_models,
+                // so the scope adds no predicate for any principal and this has to be explicit.
+                // A foreign product now resolves to null and the stock block below is skipped,
+                // which is also what an already-deleted product did.
+                $Product = Product::where('id', $product_id)->where('store_id', $store->id)->first();
+                $datas = $Product;
 
-                if ($settings['stock_management'] == 'on') {
+                /*
+                 * THE STORE-OWNERSHIP REFUSAL, OUTSIDE THE STOCK-MANAGEMENT ARM.
+                 * P01-COMMERCE-SEC-03; the twin of the one S34 hoisted in `ordersave`.
+                 *
+                 * S34 deliberately did NOT mirror it here, on the argument that this handler's
+                 * stock-management expression was always correct -- so an unmanaged store had
+                 * never had the refusal -- and that hoisting it would be a NEW refusal over a
+                 * hard `store_id` predicate. That reasoning is now overtaken by measurement.
+                 *
+                 * MEASURED, with a cart row naming another merchant's variant product, through
+                 * this exact route and an ordinary store-A customer's own token:
+                 *
+                 *   POST /api/{slugA}/place-order
+                 *     -> store B's product_variants.stock 50 -> 43  (the cart quantity, 7)
+                 *     -> an order written in store A, then HTTP 500
+                 *
+                 * `ordersave` refused the same request, because of S34's hoist. So this was not a
+                 * theoretical asymmetry between two handlers -- it was the live half. A
+                 * cross-tenant INVENTORY WRITE is not an "unknown legacy behaviour" worth
+                 * preserving, and the brief is explicit that tenant isolation is not weakened to
+                 * retain one.
+                 *
+                 * The NULL-`store_id` consequence is real and is recorded rather than hidden: a
+                 * legacy product whose `store_id` is NULL now fails this predicate and its
+                 * checkout is refused on this route, as it already was on `ordersave` and on
+                 * `add-cart`'s non-variant branch. Whether such rows exist in production is an
+                 * OWNER QUESTION, written up in
+                 * docs/development/phase-1/11-NEXT-PACKAGE-PRODUCTVARIANT-TENANCY.md with the
+                 * one-line query to answer it. Refusing is the fail-closed direction and it is
+                 * consistent with the two paths that already behave this way.
+                 */
+                if (!empty($product_id) && $product_id != 0 && empty($Product)) {
+                    return $this->error(['message' => __('Product not found .')]);
+                }
+
+                if (($settings['stock_management'] ?? null) === 'on') {
                     if (!empty($product_id) && !empty($variant_id) && $product_id != 0 && $variant_id != 0) {
                         $ProductStock = ProductVariant::where('id', $variant_id)->where('product_id', $product_id)->first();
+
+                        /*
+                         * `$ProductStock` is tested before it is dereferenced. `explode()` on
+                         * `variation_option` ran first and `if (!empty($ProductStock))` came
+                         * after, so a line naming a variant that does not belong to its product
+                         * raised a null property read -- a 500 -- instead of this handler's own
+                         * refusal. Same correction as NMIPayController received in S33.
+                         */
+                        if (empty($ProductStock)) {
+                            return $this->error(['message' => __('Product not found .')]);
+                        }
+
                         $variationOptions = explode(',', $ProductStock->variation_option);
                         $option = in_array('manage_stock', $variationOptions);
                         if (!empty($ProductStock)) {
@@ -3195,7 +3767,7 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                     }
                 }
                 // remove from cart
-                Cart::where( 'customer_id', $request->customer_id )->where( 'product_id', $product_id )->where( 'variant_id', $variant_id )->where( 'store_id', $store->id )->delete();
+                Cart::where( 'customer_id', $customerId )->where( 'product_id', $product_id )->where( 'variant_id', $variant_id )->where( 'store_id', $store->id )->delete();
             }
         }
         // Order stock decrease end
@@ -3211,9 +3783,9 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
 
         // add in  Order table  start
         $order = new Order();
-        $order->product_order_id = $request->customer_id . date('YmdHis');
+        $order->product_order_id = $customerId . date('YmdHis');
         $order->order_date = date('Y-m-d H:i:s');
-        $order->customer_id = $request->customer_id;
+        $order->customer_id = $customerId;
         $order->product_id = $prodduct_id_array;
         $order->product_json = json_encode($products);
         $order->product_price = $final_sub_total_price;
@@ -3224,17 +3796,43 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         $order->currency_symbol = $currentCurrencySymbol;
 
 
+        /*
+         * THE COUPON IS SUBTRACTED FROM WHAT THE SHOPPER IS CHARGED.  P1-ORD-01, criteria 1 and 4.
+         *
+         * THE DEFECT, and the comment at :3474-3480 already named it before this package: this
+         * handler recorded `$order->coupon_price = $apply_coupon['amount']` and then built
+         * `final_price` from the PRE-coupon basket, so "a shopper who uses a coupon here is charged
+         * full price with a discount printed beside it".
+         *
+         * It was INVISIBLE until the same package fixed apply_coupon, because every coupon was
+         * refused upstream and `$coupon_price` was therefore always 0. MEASURED the moment it
+         * applied: product_price 200.00, coupon_price 50.00, final_price **200.00** -- and
+         * App\Services\OrderTotalReconciler, which already lists `coupon_price` in its
+         * SUBTRACTIVE_COMPONENTS, reported the row as not adding up (expected 150.0000).
+         *
+         * WHY THE FOUR BASES ARE LEFT ALONE AND ONLY THE COUPON IS SUBTRACTED. The branches do not
+         * share a base -- two read `$final_price` (`$cartlist['total_final_price']`) and two read
+         * `$data['shipping_total_price']`, which already bundles delivery -- so re-deriving the
+         * total from the reconciler's components here would double-count delivery on the
+         * shipping-on paths, which this environment cannot drive end to end. Unifying them is
+         * P1-ORD-02 criterion 1, and it stays open rather than being half-done inside a fix for a
+         * different row.
+         *
+         * FLOORED AT ZERO. A discount larger than the basket must not produce a negative payable,
+         * which would be a credit the merchant never agreed to. `max(0, ...)` rather than a
+         * refusal because apply_coupon has already accepted the coupon by this point.
+         */
         if (!\Auth::guard('customers')->user()) {
             if ($plan->shipping_method == 'on') {
-                $order->final_price = $data['shipping_total_price'];
+                $order->final_price = max(0, $data['shipping_total_price'] - $coupon_price);
             } else {
-                $order->final_price = $final_price + $tax_price;
+                $order->final_price = max(0, $final_price + $tax_price - $coupon_price);
             }
         } else {
             if ($plan->shipping_method == 'on') {
-                $order->final_price = $data['shipping_total_price'] + $tax_price;
+                $order->final_price = max(0, $data['shipping_total_price'] + $tax_price - $coupon_price);
             } else {
-                $order->final_price = $final_price + $tax_price;
+                $order->final_price = max(0, $final_price + $tax_price - $coupon_price);
             }
         }
         event(new AddAdditionalFields($order, $request->all(), $store));
@@ -3247,41 +3845,71 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         $order->reward_points = SetNumber($product_reward_point);
         $order->additional_note = $request->additional_note;
         $order->store_id = $store->id;
+
+        /*
+         * RECONCILE THE STORED TOTAL AGAINST ITS OWN COMPONENTS.  P1-ORD-02 criterion 3.
+         *
+         * THIS WRITER WAS NOT COVERED AT ALL. Three of the four order writers already call
+         * App\Services\OrderTotalReconciler before persisting -- PaymentService:2785,
+         * PaymentController:2846 and :4173 -- and `place_order`, the storefront API's own writer,
+         * carried only a COMMENT referring to the reconciler while calling nothing. So the one
+         * writer every mobile client actually uses was the one with no arithmetic check.
+         *
+         * IT WOULD HAVE CAUGHT THE COUPON DEFECT FIXED IN THE SAME PACKAGE. With the coupon
+         * applying but not subtracted, this handler stored product_price 200.00, coupon_price 50.00
+         * and final_price 200.00 -- a row that does not add up, which the reconciler reports as
+         * `mismatch` with expected 150.0000. It was found by a test that happened to call the
+         * reconciler itself; wired here, the handler reports it on every order.
+         *
+         * WARN-ONLY, for the same reason its three siblings are and no other: the four branches
+         * above do not share a base. Two read `$final_price` and two read
+         * `$data['shipping_total_price']`, which already bundles delivery, so a rejecting
+         * assertion would fail legitimate orders on the shipping-on paths -- which this
+         * environment cannot drive end to end, so promoting it would be a change whose effect I
+         * could not measure. `assertConsistent()` is the rejecting variant and the cutover is a
+         * release decision, not an engineering one: it turns a logged mismatch into a refused
+         * order.
+         */
+        $this->totalReconciler()->warnIfInconsistent(
+            [
+                'product_price' => $order->product_price,
+                'tax_price' => $order->tax_price,
+                'delivery_price' => $order->delivery_price,
+                'coupon_price' => $order->coupon_price,
+            ],
+            $order->final_price,
+            __METHOD__
+        );
+
         $order->save();
 
         Utility::paymentWebhook( $order );
         // add in  Order table end
 
         // add in  Order Billing Detail table start
-        $billing_city_id = 0;
-        if (!empty($billing['billing_city'])) {
-            $cityy = City::where('name', $billing['billing_city'])->first();
-            if (!empty($cityy)) {
-                $billing_city_id = $cityy->id;
-            } else {
-                $new_billing_city = new City();
-                $new_billing_city->name = $billing['billing_city'];
-                $new_billing_city->state_id = $billing['billing_state'];
-                $new_billing_city->country_id = $billing['billing_country'];
-                $new_billing_city->save();
-                $billing_city_id = $new_billing_city->id;
-            }
-        }
+        // P1-ORD-15: the posted values are IDS and this looked the city up by NAME, so every
+        // order inserted a city named after an id. The state and country ids are kept too: the
+        // order_billing_details columns below are joined to cities.id / states.id / countries.id
+        // and the shipped admin app renders them through those relations, so a posted NAME stored
+        // there displays as an empty field.
+        $billingGeography = \App\Services\BillingGeography::resolveBilling(
+            $billing['billing_city'] ?? null,
+            $billing['billing_state'] ?? null,
+            $billing['billing_country'] ?? null
+        );
+        $billing_city_id = $billingGeography['city_id'];
 
-        $delivery_city_id = 0;
-        if (!empty($billing['delivery_city'])) {
-            $d_cityy = City::where('name', $billing['delivery_city'])->first();
-            if (!empty($d_cityy)) {
-                $delivery_city_id = $d_cityy->id;
-            } else {
-                $new_delivery_city = new City();
-                $new_delivery_city->name = $billing['delivery_city'];
-                $new_delivery_city->state_id = $billing['delivery_state'];
-                $new_delivery_city->country_id = $billing['delivery_country'];
-                $new_delivery_city->save();
-                $delivery_city_id = $new_delivery_city->id;
-            }
-        }
+        // P1-ORD-15: the posted values are IDS and this looked the city up by NAME, so every
+        // order inserted a city named after an id. The state and country ids are kept too: the
+        // order_billing_details columns below are joined to cities.id / states.id / countries.id
+        // and the shipped admin app renders them through those relations, so a posted NAME stored
+        // there displays as an empty field.
+        $deliveryGeography = \App\Services\BillingGeography::resolveBilling(
+            $billing['delivery_city'] ?? null,
+            $billing['delivery_state'] ?? null,
+            $billing['delivery_country'] ?? null
+        );
+        $delivery_city_id = $deliveryGeography['city_id'];
         if (is_string($request->billing_info)) {
             $other_info = json_decode($request->billing_info);
         } else {
@@ -3297,14 +3925,19 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         $OrderBillingDetail->telephone = $other_info->billing_user_telephone;
         $OrderBillingDetail->address = $other_info->billing_address;
         $OrderBillingDetail->postcode = $other_info->billing_postecode;
-        $OrderBillingDetail->country = $other_info->billing_country;
-        $OrderBillingDetail->state = $other_info->billing_state;
-        $OrderBillingDetail->city = $other_info->billing_city;
+        // P1-ORD-15: the RESOLVED ids. This handler already resolved the city above and then
+        // DISCARDED it, writing the raw posted value into all six of these columns -- which are
+        // strings joined to countries.id / states.id / cities.id by OrderBillingDetail's relations
+        // and rendered through them by Order::order_detail(), the payload /api/admin/vieworder
+        // serves to the shipped admin app. A posted name therefore displayed as an empty field.
+        $OrderBillingDetail->country = $billingGeography['country_id'];
+        $OrderBillingDetail->state = $billingGeography['state_id'];
+        $OrderBillingDetail->city = $billing_city_id;
         $OrderBillingDetail->delivery_address = $other_info->delivery_address;
-        $OrderBillingDetail->delivery_city = $other_info->delivery_city;
+        $OrderBillingDetail->delivery_city = $delivery_city_id;
         $OrderBillingDetail->delivery_postcode = $other_info->delivery_postcode;
-        $OrderBillingDetail->delivery_country = $other_info->delivery_country;
-        $OrderBillingDetail->delivery_state = $other_info->delivery_state;
+        $OrderBillingDetail->delivery_country = $deliveryGeography['country_id'];
+        $OrderBillingDetail->delivery_state = $deliveryGeography['state_id'];
         $OrderBillingDetail->save();
         // add in Order Billing Detail table end
 
@@ -3328,7 +3961,10 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
 
             // Coupon history
             $UserCoupon = new UserCoupon();
-            $UserCoupon->user_id = $request->user_id;
+            // Was `$request->user_id` -- caller-supplied attribution, and the sibling ordersave
+            // already derives it. Not coupon-limit evasion: Coupon::PerUsesCouponCount() resolves
+            // the user through OrderBillingDetail.email, not through this column. Audit integrity.
+            $UserCoupon->user_id = $customerId;
             $UserCoupon->coupon_id = $Coupon->id;
             $UserCoupon->amount = $coupon_data['coupon_discount_amount'];
             $UserCoupon->order_id = $order->id;
@@ -3397,7 +4033,7 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                 if ($product_data->variant_product == 0) {
                     if ($product_data->track_stock == 1) {
                         OrderNote::order_note_data([
-                            'user_id' => !empty($request->user_id) ? $request->user_id : '0',
+                            'user_id' => $customerId,
                             'order_id' => $order->id,
                             'product_name' => !empty($product_data->name) ? $product_data->name : '',
                             'variant_product' => $product_data->variant_product,
@@ -3413,7 +4049,7 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                     $option = in_array('manage_stock', $variationOptions);
                     if ($option == true) {
                         OrderNote::order_note_data([
-                            'user_id' => !empty($request->user_id) ? $request->user_id : '0',
+                            'user_id' => $customerId,
                             'order_id' => !empty($order->id) ? $order->id : '',
                             'product_name' => !empty($product_data->name) ? $product_data->name : '',
                             'variant_product' => $product_data->variant_product,
@@ -3428,7 +4064,7 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         }
 
         OrderNote::order_note_data([
-            'user_id' => !empty($request->user_id) ? $request->user_id : '0',
+            'user_id' => $customerId,
             'order_id' => $order->id,
             'product_order_id' => $order->product_order_id,
             'delivery_status' => 'Pending',
@@ -3463,53 +4099,24 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         if (empty($store)) {
             return $this->error(['message' => __('Store not found.')], __("Store not found."));
         }
-        if (auth('customers')->user()) {
-
-            $rules = [
-
-                'title' => 'required',
-
-                'address' => 'required',
-
-                'country' => 'required|exists:countries,id',
-
-                'state' => 'required|exists:states,id',
-
-                'city' => 'required',
-
-                'postcode' => 'required',
-
-                'default_address' => 'required',
-
-            ];
-
-
-
-            $customer_id = auth('customers')->user()->id ?? null;
-        } else {
-
-            $rules = [
-
-                'customer_id' => 'required',
-
-                'title' => 'required',
-
-                'address' => 'required',
-
-                'country' => 'required|exists:countries,id',
-
-                'state' => 'required|exists:states,id',
-
-                'city' => 'required',
-
-                'postcode' => 'required',
-
-                'default_address' => 'required',
-
-            ];
-
-            $customer_id = $request->customer_id ?? null;
-        }
+        // AUTHZ: the guard-class trap, and this one WRITES. The else branch took
+        // `$customer_id = $request->customer_id`, so a merchant's or a driver's token -- for which
+        // auth('customers') is null -- created a delivery address on an arbitrary shopper's
+        // account and then demoted their existing defaults, making the planted address the
+        // shipping destination for their next order.
+        //
+        // Note the demotion below keyed on `$request->customer_id` on BOTH branches, so even a
+        // legitimate shopper demoted the addresses of whichever account they named. It is scoped
+        // to the derived id now.
+        $rules = [
+            'title' => 'required',
+            'address' => 'required',
+            'country' => 'required|exists:countries,id',
+            'state' => 'required|exists:states,id',
+            'city' => 'required',
+            'postcode' => 'required',
+            'default_address' => 'required',
+        ];
 
         $validator = \Validator::make($request->all(), $rules);
         if ($validator->fails()) {
@@ -3518,10 +4125,11 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                 'message' => $messages->first()
             ]);
         }
-        $customer = Customer::find($customer_id);
-        if (!isset($customer) || empty($customer)) {
+        $customer = $this->resolveStoreCustomer($store);
+        if ($customer === null) {
             return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
         }
+        $customer_id = $customer->id;
         $user = new DeliveryAddress();
         $default_address = !empty($request->default_address) ? 1 : 0;
         $user->title = $request->title;
@@ -3538,7 +4146,7 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
 
         if ($default_address == 1) {
             $u_a_a['default_address'] = 0;
-            DeliveryAddress::where('customer_id', $request->customer_id)->where('id', '!=', $user->id)->update($u_a_a);
+            DeliveryAddress::where('customer_id', $customer_id)->where('id', '!=', $user->id)->update($u_a_a);
         }
         return $this->success(['message' => __('Address added success.')]);
     }
@@ -3562,23 +4170,43 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         $CURRENCY = Utility::GetValueByName('CURRENCY', $store->id);
         $couponQuery = Coupon::query();
         $code = trim($request->coupon_code);
-        $coupon = (clone $couponQuery)->whereRaw('BINARY `coupon_code` = ?', [$code])->where('store_id', $store->id)->first();
+        // P01-SEC-14 C4: portable exact-code match, store-scoped as before. This is the site the
+        // brief names: `BINARY` is MySQL-only, so apply_coupon returned 500 on SQLite before
+        // reaching any of its own logic, and the endpoint was untestable. See
+        // Coupon::findByExactCode.
+        $coupon = Coupon::findByExactCode($code, fn ($query) => $query->where('store_id', $store->id));
         if (!empty($coupon)) {
             $coupon_count = $coupon->UsesCouponCount();
             $coupon_expiry_date = (clone $couponQuery)->where('id', $coupon->id)
                 ->whereDate('coupon_expiry_date', '>=', date('Y-m-d'))
-                ->where('coupon_limit', '>', $coupon_count)
+                ->tap(fn ($q) => Coupon::applyUsageLimit($q, $coupon_count))
                 ->first();
-            // Usage limit per user
+            /*
+             * USAGE LIMIT PER USER, COUNTED ON THE PRINCIPAL AND NOT ONLY ON A POSTED E-MAIL.
+             * P1-ORD-01, raised by the independent review of this package's own fix.
+             *
+             * THE DEFECT. This counted prior uses by comparing the signed-in customer's e-mail
+             * against Coupon::PerUsesCouponCount(), which resolves each use through
+             * `order_billing_details.email` -- a column written STRAIGHT FROM THE REQUEST
+             * (`$OrderBillingDetail->email = $other_info->email`). A shopper posting a different
+             * `billing_info.email` on each order was therefore never a repeat user, and
+             * `coupon_limit_user` never fired.
+             *
+             * WHY IT IS THIS PACKAGE'S BUSINESS. A previous package looked at exactly this and
+             * recorded "Not coupon-limit evasion" at the UserCoupon writer -- correct at the time,
+             * because every flat and percentage coupon was refused upstream so the evasion bought
+             * nothing. This package made those coupons work, which turns it into money. And since
+             * `coupon_limit = 0` (the schema default) now correctly means "no TOTAL limit", the
+             * per-user cap is the only backstop left: 0 + `coupon_limit_user = 1` would otherwise
+             * be unlimited reuse by one shopper, which is what a merchant gets by leaving the
+             * total limit blank.
+             *
+             * Coupon::usesByCustomer() takes the HIGHER of the server-derived `user_coupons.user_id`
+             * count and the legacy e-mail count, so neither route can lower what the other found.
+             */
             $i = 0;
             if (auth('customers')->user()) {
-                $coupon_email  = $coupon->PerUsesCouponCount();
-                foreach ($coupon_email as $email) {
-
-                    if ($email == auth('customers')->user()->email) {
-                        $i++;
-                    }
-                }
+                $i = Coupon::usesByCustomer($coupon, auth('customers')->user());
             }
             if (!empty($coupon->coupon_limit_user)) {
                 if ($i  >= $coupon->coupon_limit_user) {
@@ -3589,22 +4217,59 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                 return $this->error(['message' => __('This coupon has expired.')]);
             }
 
+            /*
+             * THE SPEND THRESHOLDS ARE DECIDED ON THE SERVER'S OWN SUBTOTAL.  P1-ORD-01.
+             *
+             * THE DEFECT, MEASURED, and it was LIVE rather than theoretical: `$sub_total_min` was
+             * read from `$request->final_sub_total` (or `$request->sub_total`), both of which are
+             * POSTED BY THE CLIENT, and it is the only value `minimum_spend` and `maximum_spend`
+             * are compared against. Driven against a free-shipping coupon carrying
+             * `minimum_spend = 5000` on a REAL 200.00 basket, posting
+             * `final_sub_total = 9999` -> "Coupon code applied successfully", discount 50.00. A
+             * coupon the merchant restricted to large baskets was obtained on a small one, by
+             * typing a number. That is the "unauthorized discounts" half of this task.
+             *
+             * `$price` and the percentage base were NOT affected -- measured separately, posting
+             * 1,000,000 against a 10% coupon still produced a 20.00 discount on the real 200.00
+             * basket -- so this is specifically the GATES, and only the gates are changed here.
+             *
+             * FAIL CLOSED. If the basket cannot be priced the coupon is refused rather than
+             * granted: this decides whether to give money away, so the safe default is "no".
+             */
+            $spendBaseline = $this->couponSpendBaseline($request, $store, $slug);
+
+            if ($spendBaseline === null) {
+                return $this->error(['message' => __('This coupon cannot be applied to your basket right now.')]);
+            }
+
+            // ONE authoritative spend decision, on the server's figure, before either of the two
+            // parallel structures below -- including the one that never checked at all.
+            $spendRefusal = $this->couponSpendRefusal($coupon, $spendBaseline, $store);
+
+            if ($spendRefusal !== null) {
+                return $this->error(['message' => $spendRefusal]);
+            }
+
             if ($coupon->free_shipping_coupon == 0) {
 
-                if ($request->final_sub_total != null) {
-                    $sub_total_min = $request->final_sub_total;
-                } else {
-                    $sub_total_min = $request->sub_total;
-                }
+                $sub_total_min = $spendBaseline;
 
                 if ($sub_total_min <= $coupon->maximum_spend  || $coupon->maximum_spend == null) {
                     if ($sub_total_min >= $coupon->minimum_spend ||  $coupon->minimum_spend == null) {
-                        if ($request->final_sub_total != null) {
-
-                            $price = $request->final_sub_total;
-                        } else {
-                            $price = $request->sub_total;
-                        }
+                        /*
+                         * THE DISCOUNT BASE IS THE SERVER'S SUBTOTAL TOO.  P1-ORD-01.
+                         *
+                         * I FIRST RECORDED THAT THIS WAS ALREADY SAFE, AND THAT WAS WRONG -- the
+                         * correction is kept rather than quietly removed. Reading the probe's
+                         * truncated JSON I took `coupon_discount_amount` (which is the raw
+                         * `$coupon->discount_amount`, i.e. the PERCENT) for the computed discount
+                         * and concluded the base was server-derived. The regression test asserting
+                         * the exact figure says otherwise: a 10% coupon on a real 200.00 basket
+                         * with `final_sub_total = 1000000` posted produced a discount of
+                         * **100,000.00**. An unbounded unauthorized discount, priced from a number
+                         * the shopper types.
+                         */
+                        $price = $spendBaseline;
                         $amount = $coupon->discount_amount;
                         if ($coupon->sale_items != 0) {
                             $currentDate = Carbon::now()->toDateString();
@@ -3624,7 +4289,21 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                         } else {
                             $request->merge(['customer_id' => auth('customers')->user()->id, 'store_id' => $store->id, 'slug' => $slug]);
                             $api = new ApiController();
-                            $data = $api->cart_list($request);
+                            // $slug was omitted, so the nested call resolved no store. Its three
+                            // sibling call sites all pass it, and the merge above shows the intent.
+                            //
+                            // CORRECTED 2026-10-23 (P1-ORD-01). This note used to end: "NOT
+                            // verified end to end: apply_coupon cannot be reached in the test
+                            // environment at all, because the coupon lookup uses the MySQL-only
+                            // `BINARY` keyword, which SQLite rejects outright". THAT IS NO LONGER
+                            // TRUE, and leaving it was costly: P01-SEC-14 C4 replaced the lookup
+                            // with the portable `Coupon::findByExactCode` (see :3979-3982), so
+                            // apply_coupon IS reachable from the suite. A stale note saying a path
+                            // cannot be tested discourages exactly the testing that finds what is
+                            // wrong with it -- driving this endpoint is how the three fatals in
+                            // place_order and the two coupon-refusal causes were measured.
+                            // tests/Feature/Commerce/OrderTotalCouponTest.php now drives it.
+                            $data = $api->cart_list($request, $slug);
                             $response = $data->getData();
                         }
                         $produt_id = [];
@@ -3642,12 +4321,10 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                         }
 
                         if ($coupon->coupon_type == 'percentage') {
-                            if ($request->final_sub_total != null) {
-                                $sub_totals = $request->final_sub_total;
-                            } else {
-                                $sub_totals = $request->sub_total;
-                            }
-                            $amount = $amount * $sub_totals / 100;
+                            // The percentage is taken off the SERVER's subtotal. See the note above
+                            // $price: this is the line that produced a 100,000.00 discount on a
+                            // 200.00 basket.
+                            $amount = $amount * $spendBaseline / 100;
                             $price -= $amount;
                         }
                         if ($coupon->coupon_type == 'fixed product discount') {
@@ -3878,8 +4555,45 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                             if ($coupon->discount_amount != 0 && $discount_amounts == 0) {
                                 return $this->error(['message' => __(' Sorry, this coupon is not applicable to selected products.')]);
                             }
-                        } else {
-                            return $this->error(['message' => ' The minimum spend for this coupon is ' . (currency_format_with_sym($coupon->minimum_spend, $store->id) ?? SetNumberFormat($coupon->minimum_spend)) . '.']);
+                        } elseif (! in_array($coupon->coupon_type, self::COUPON_TYPES_PRICED_ON_SUBTOTAL, true)) {
+                            /*
+                             * THIS `else` USED TO REFUSE EVERY COUPON THAT IS NOT A FIXED-PRODUCT
+                             * DISCOUNT, AND IT REPORTED THE REFUSAL AS A MINIMUM-SPEND FAILURE.
+                             * P1-ORD-01, and it is the whole of "apply_coupon refuses every
+                             * non-fixed-product coupon".
+                             *
+                             * WHAT IT WAS. The branch above is `if ($coupon->coupon_type ==
+                             * 'fixed product discount')`, opened ~230 lines earlier, and its
+                             * `else` returned " The minimum spend for this coupon is $0,00." --
+                             * so a `flat` or `percentage` coupon, the TWO TYPES THE MIGRATION'S
+                             * OWN COMMENT DOCUMENTS (`percentage / flat`, and `percentage` is the
+                             * column default), was refused with a message about a threshold that
+                             * was not set and had nothing to do with it.
+                             *
+                             * MEASURED: flat 50.00 on a 200.00 basket, limit 10, no thresholds ->
+                             * {"status":0,"message":" The minimum spend for this coupon is
+                             * $0,00."}. The spend gates themselves had PASSED (dumped at the
+                             * gate: sub_total_min=200, minimum_spend=NULL, comparison true) --
+                             * which is how the message was traced here rather than to them. The
+                             * ledger recorded this as "a second, non-null-tolerant spend gate";
+                             * that reading was wrong, both pairs are null-tolerant, and it is
+                             * corrected in the row.
+                             *
+                             * WHY FALLING THROUGH IS CORRECT RATHER THAN GENEROUS. `$amount` and
+                             * `$price` for flat and percentage are already computed above
+                             * (:4076-4087), and the response builder below ALREADY has an `else`
+                             * arm for a non-fixed-product coupon (:4323-4346, reading
+                             * `$coupon->discount_amount` and `$amount`). The support was written
+                             * and then made unreachable by this one branch. Nothing new is
+                             * granted here: the discount is the one the merchant configured.
+                             *
+                             * AND IT STILL REFUSES A TYPE IT CANNOT PRICE, which is why this is
+                             * an `elseif` on a named list and not a deletion. An unrecognised
+                             * `coupon_type` reaches a handler that has computed no discount for
+                             * it, and silently charging full price while reporting success is the
+                             * defect this task's criterion 4 names.
+                             */
+                            return $this->error(['message' => __('This coupon type is not supported.')]);
                         }
                     } else {
                         return $this->error(['message' => ' The maximum spend for this coupon is ' . (currency_format_with_sym($coupon->maximum_spend, $store->id) ?? SetNumberFormat($coupon->maximum_spend)) . '.']);
@@ -3898,7 +4612,7 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                     }
 
                     $coupon_array['coupon_end'] = '----------------------';
-                    $coupon_array['original_price'] = SetNumber($request->sub_total);
+                    $coupon_array['original_price'] = SetNumber($spendBaseline);
                     $coupon_array['final_price'] = SetNumber($price);
                     $coupon_array['discount_price'] = SetNumber($price);
                     if ($coupon->coupon_type == 'fixed product discount') {
@@ -3917,14 +4631,13 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
 
                     foreach ($shipping_Methods as $shippingMethod) {
                         if ($shippingMethod->method_name) {
-                            if ($shippingMethod->cost < $request->final_sub_total) {
-                                $price = $request->final_sub_total;
+                            if ($shippingMethod->cost < $spendBaseline) {   // server figure, not the posted one
+                                $price = $spendBaseline;
                                 $amount = $coupon->discount_amount;
-                                if ($request->final_sub_total != null) {
-                                    $sub_total_min = $request->final_sub_total;
-                                } else {
-                                    $sub_total_min = $request->sub_total;
-                                }
+                                // Same change as the non-free-shipping gate above, and THIS is the
+                                // structure the bypass was measured on: the thresholds are decided
+                                // on the server's subtotal, never the posted one.
+                                $sub_total_min = $spendBaseline;
                                 if ($sub_total_min <= $coupon->maximum_spend  || $coupon->maximum_spend == null) {
                                     if ($sub_total_min >= $coupon->minimum_spend || $coupon->minimum_spend == null) {
                                         if ($coupon->sale_items != 0) {
@@ -3960,11 +4673,7 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                                             $price -= $amount;
                                         }
                                         if ($coupon->coupon_type == 'percentage') {
-                                            if ($request->final_sub_total != null) {
-                                                $sub_totals = $request->final_sub_total;
-                                            } else {
-                                                $sub_totals = $request->sub_total;
-                                            }
+                                            $sub_totals = $spendBaseline;   // the percentage is taken off the server subtotal
                                             $amount = $amount * $sub_totals / 100;
                                             $price -= $amount;
                                         }
@@ -4222,7 +4931,7 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                                     $coupon_array['coupon_discount_amount'] = $coupon->discount_amount;
                                 }
                                 $coupon_array['coupon_end'] = '----------------------';
-                                $coupon_array['original_price'] = SetNumber($request->final_sub_total);
+                                $coupon_array['original_price'] = SetNumber($spendBaseline);
                                 $coupon_array['final_price'] = SetNumber($price);
                                 $coupon_array['discount_price'] = SetNumber($price);
                                 if ($coupon->coupon_type == 'fixed product discount') {
@@ -4243,7 +4952,7 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                                 $coupon_array['coupon_discount_type'] = $coupon->coupon_type;
                                 $coupon_array['coupon_discount_amount'] = 0;
                                 $coupon_array['coupon_end'] = '----------------------';
-                                $coupon_array['original_price'] = SetNumber($request->sub_total);
+                                $coupon_array['original_price'] = SetNumber($spendBaseline);
                                 $coupon_array['final_price'] = SetNumber(0);
                                 $coupon_array['discount_price'] = SetNumber(0);
                                 $coupon_array['amount'] = SetNumber(0);
@@ -4260,7 +4969,7 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                             $coupon_array['coupon_discount_type'] = $coupon->coupon_type;
                             $coupon_array['coupon_discount_amount'] = 0;
                             $coupon_array['coupon_end'] = '----------------------';
-                            $coupon_array['original_price'] = SetNumber($request->sub_total);
+                            $coupon_array['original_price'] = SetNumber($spendBaseline);
                             $coupon_array['final_price'] = SetNumber(0);
                             $coupon_array['discount_price'] = SetNumber(0);
                             $coupon_array['amount'] = SetNumber(0);
@@ -4269,16 +4978,10 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                         }
                     }
                 } else {
-                    $price = $request->final_sub_total;
+                    $price = $spendBaseline;
 
                     $amount = $coupon->discount_amount;
-                    if ($request->final_sub_total != null) {
-
-                        $sub_total_min = $request->final_sub_total;
-                    } else {
-
-                        $sub_total_min = $request->sub_total;
-                    }
+                    $sub_total_min = $spendBaseline;   // the threshold this branch never checked at all
                     if ($coupon->sale_items != 0) {
                         $currentDate = Carbon::now()->toDateString();
                         $falsh_sale = FlashSale::where('store_id', $store->id)->where('is_active', 1)->where('start_date', '<=', $currentDate)->where('end_date', '>=', $currentDate)->get();
@@ -4322,7 +5025,7 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                         $coupon_array['coupon_discount_amount'] = $response->data->total_coupon_price ?? 0;
                     }
                     $coupon_array['coupon_end'] = '----------------------';
-                    $coupon_array['original_price'] = SetNumber($request->final_sub_total);
+                    $coupon_array['original_price'] = SetNumber($spendBaseline);
                     $coupon_array['final_price'] = SetNumber(($response->data->final_price - $response->data->total_coupon_price) ?? 0);
                     $coupon_array['discount_price'] = SetNumber($response->data->total_coupon_price ?? 0);
                     if ($coupon->coupon_type == 'fixed product discount') {
@@ -4371,7 +5074,16 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
             $coupon_array['shipping_original_price'] = (float)  $coupon_array['shipping_total_price'] ?? 0;
             $coupon_array['coupon_code'] =  $coupon->coupon_code ?? 'Code';
             if (isset($request->coupon_code)) {
-                $coupon = Coupon::whereRaw('BINARY `coupon_code` = ?', [$request->coupon_code])->first();
+                // P01-SEC-14 C4: portable exact-code match. See Coupon::findByExactCode.
+                // P01-SEC-14 D2: store-scoped. This RE-resolves the coupon purely to fill the
+                // echoed `coupon_info` and `$coupon_array['id']`, after the store-scoped lookup
+                // above has already decided acceptance -- so without the predicate the response
+                // could carry another store's coupon id, name, type and headline discount while
+                // the arithmetic came from this store's row.
+                $coupon = Coupon::findByExactCode(
+                    $request->coupon_code,
+                    fn ($query) => $query->where('store_id', $store->id)
+                );
             }
             $coupon_array['coupon_info'] = [];
             $coupon_array['id'] = $coupon->id;
@@ -4410,19 +5122,32 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                 'message' => $messages->first()
             ], $messages->first());
         }
-        $customer = Customer::find($request->customer_id);
-        if (!isset($customer) || empty($customer)) {
+        // AUTHZ: two independent attacker-chosen ids, never compared -- `customer_id` for the
+        // liveness check and `address_id` for the row. Worse, it then WROTE
+        // `$DeliveryAddress->customer_id = $request->customer_id`, so the row was re-parented: you
+        // could overwrite a victim's address and equally move your own address onto their account,
+        // then demote all their other addresses so yours became the shipping destination.
+        // `$store` was resolved on line 1 of this method and never read -- not even an empty()
+        // gate -- so the endpoint had no store involvement whatsoever.
+        //
+        // Both limbs are needed: derive the customer from the session AND scope the address lookup
+        // to that customer. Either alone leaves the other id free.
+        $customer = $this->resolveStoreCustomer($store);
+        if ($customer === null) {
             return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
         }
         $default_address = !empty($request->default_address) ? 1 : 0;
 
-        $DeliveryAddress = DeliveryAddress::find($request->address_id);
+        $DeliveryAddress = DeliveryAddress::where('id', $request->address_id)
+            ->where('customer_id', $customer->id)
+            ->first();
         if (!empty($DeliveryAddress)) {
             $DeliveryAddress->title = $request->title;
             $DeliveryAddress->country_id = $request->country;
             $DeliveryAddress->state_id = $request->state;
             $DeliveryAddress->city_id = $request->city;
-            $DeliveryAddress->customer_id = $request->customer_id;
+            // customer_id is NOT reassigned. The row already belongs to this customer -- that is
+            // how it was found -- and writing the posted value back is what allowed re-parenting.
             $DeliveryAddress->title = $request->title;
             $DeliveryAddress->address = $request->address;
             $DeliveryAddress->postcode = $request->postcode;
@@ -4431,7 +5156,7 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
 
             if ($default_address == 1) {
                 $u_a_a['default_address'] = 0;
-                DeliveryAddress::where('customer_id', $request->customer_id)->where('id', '!=', $request->address_id)->update($u_a_a);
+                DeliveryAddress::where('customer_id', $customer->id)->where('id', '!=', $DeliveryAddress->id)->update($u_a_a);
             }
 
             return $this->success(['message' => __('Address update successfully.')], __('Address update successfully.'));
@@ -4825,7 +5550,31 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
             ], $messages->first());
         }
 
-        $Product = Product::find($request->id);
+        // AUTHZ: `user_id` came from the request, so a review could be ATTRIBUTED to anyone --
+        // the dedupe below keyed on the same posted value, so an attacker could also exhaust
+        // another account's one-review-per-product allowance. The client must already be sending
+        // the shopper's own id for that dedupe to mean anything, so deriving it from the session
+        // closes the forgery without changing what a correct client achieves.
+        //
+        // Note on the column, left as it is because changing it is a schema decision and not
+        // this package's: `testimonials.user_id` has no foreign key but
+        // Testimonial::UserData() is `hasOne(User::class, 'id', 'user_id')`, i.e. it points at
+        // the ADMIN table, and the admin-side writer (Api/DashboardController) writes a users id
+        // into it. So the column holds ids from two different tables depending on who wrote the
+        // row. That conflation is pre-existing and unchanged here -- the storefront already had
+        // to be sending a customers id.
+        $customer = $this->resolveStoreCustomer($store);
+        if ($customer === null) {
+            return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
+        }
+
+        // The product must belong to the store in the path. Product carries StoreScope but is NOT
+        // in config/tenancy.php's scoped_models, so StoreScope::isActiveFor() short-circuits and
+        // NO predicate is added for ANY principal -- the open-tenant rule does not even come into
+        // it. An unscoped find() therefore reached any tenant's product, and AvregeRating() below
+        // then WRITES to that row (`$Product->average_rating`), so this was a cross-tenant write
+        // and not only a cross-tenant read.
+        $Product = Product::where('id', $request->id)->where('store_id', $store->id)->first();
         if (empty($Product)) {
             return $this->error([
                 'message' => 'Product not found.'
@@ -4833,7 +5582,7 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         }
 
 
-        $is_Review = Testimonial::where('user_id', $request->user_id)->where('product_id', $request->id)->where('store_id', $store->id)->exists();
+        $is_Review = Testimonial::where('user_id', $customer->id)->where('product_id', $request->id)->where('store_id', $store->id)->exists();
 
         if ($is_Review) {
             return $this->error([
@@ -4843,7 +5592,7 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
 
 
         $review = new Testimonial();
-        $review->user_id        = $request->user_id;
+        $review->user_id        = $customer->id;
         $review->category_id    = $Product->category_id;
         $review->product_id     = $request->id;
         $review->rating_no      = $request->rating_no;
@@ -5016,17 +5765,22 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
             ], $messages->first());
         }
 
-        if (!auth('customers')->user()) {
-            $customer_id = $request->customer_id ?? 0;
-            $cart = [];
-        } else {
-            $customer_id = auth('customers')->user()->id;
-            $cart = Cart::where('customer_id', $customer_id)->where('store_id', $store->id)->get();
-        }
-        $customer = Customer::find($customer_id);
-        if (!isset($customer) || empty($customer)) {
+        // AUTHZ: the guard-class trap. `if (! auth('customers')->user())` reads as a guest
+        // fallback and is not one -- custom.auth admits a merchant's or a driver's token with
+        // auth('customers') null, so precisely those principals took the request-controlled
+        // branch. There are no guests on this route: custom.auth refuses a missing bearer token
+        // before the handler runs. See resolveStoreCustomer().
+        //
+        // The request-controlled branch set `$cart = []`, so unlike its siblings this one leaked
+        // nothing -- it computed a charge over an empty cart. It is corrected for consistency, so
+        // the next reader does not have to re-derive that this instance of the pattern happened
+        // to be harmless.
+        $customer = $this->resolveStoreCustomer($store);
+        if ($customer === null) {
             return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
         }
+        $customer_id = $customer->id;
+        $cart = Cart::where('customer_id', $customer_id)->where('store_id', $store->id)->get();
         $ProductVariant_array = [];
         $shipping_method = ShippingMethod::find($request->method_id);
         $price = 0;
@@ -5250,29 +6004,55 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         }
         
 
-        if (!auth('customers')->user()) {
-            $rules = [
-                'customer_id' => 'required',
-            ];
+        // THE FIFTH INSTANCE OF ONE PATTERN, and it writes the E-MAIL -- which makes it a takeover
+        // primitive rather than a privacy defect: own the address and every recovery flow follows.
+        //
+        // The body was:
+        //     if (!auth('customers')->user()) { $customer_id = $request->customer_id; }
+        //     else                            { $customer_id = auth('customers')->user()->id; }
+        //     $user = Customer::find($customer_id);        // no store predicate
+        //     if (!empty($request->email)) { $user->email = $request->email; }
+        //
+        // `custom.auth` logs a token's owner into whichever guard matches its class, so a
+        // MERCHANT's or a DRIVER's token passed the middleware with auth('customers') null and took
+        // the request-supplied branch. The siblings closed the same way are
+        // Api\ApiController::change_password, Api\DeliveryBoyApiController::resetPassword,
+        // AccountProfileController::store and Api\AuthController::logout.
+        //
+        // The $rules juggling was inert: 'customer_id' => 'required' only existed on the branch
+        // that had already read the value.
+        $customer = auth('customers')->user();
 
-            $customer_id = $request->customer_id;
-        } else {
-            $rules = [];
-            $customer_id = auth('customers')->user()->id;
-        }
-
-        $validator = \Validator::make($request->all(), $rules);
-        if ($validator->fails()) {
-            $messages = $validator->getMessageBag();
-            return $this->error([
-                'message' => $messages->first()
-            ], $messages->first());
-        }
-        $customer = Customer::find($customer_id);
-        if (!isset($customer) || empty($customer)) {
+        if (! $customer instanceof Customer) {
             return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
         }
-        $user = Customer::find($customer_id);
+
+        // The slug must be the customer's own store. A customer row with no store passes, since
+        // `customers.store_id` is nullable and imports write that table; this endpoint is
+        // self-scoped by the check above, so which slug was used cannot change whose row it edits.
+        if ($customer->store_id !== null && (int) $customer->store_id !== (int) $store->id) {
+            return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
+        }
+
+        // Store-scoped uniqueness, as registration and the web account form both enforce: without
+        // it a shopper can take over another shopper's address in their store and break both
+        // accounts' login and recovery.
+        if (! empty($request->email)) {
+            $taken = Customer::where('email', $request->email)
+                ->where('store_id', $customer->store_id)
+                ->where('id', '!=', $customer->id)
+                ->exists();
+
+            if ($taken) {
+                return $this->error(
+                    ['message' => __('This Email already exist, please login.')],
+                    __('This Email already exist, please login.')
+                );
+            }
+        }
+
+        // `customer_id` from the request is deliberately ignored.
+        $user = $customer;
 
         if (!empty($user)) {
             if (!empty($request->first_name)) {
@@ -5318,12 +6098,26 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                 'message' => $messages->first()
             ], $messages->first());
         }
-        $customer = Customer::find($request->customer_id);
-        if (!isset($customer) || empty($customer)) {
+        // AUTHZ: the target is the authenticated shopper, never `$request->customer_id`. See
+        // resolveStoreCustomer(). The posted id is still accepted and validated so a client that
+        // sends it is not rejected; it is simply no longer trusted. The refusal reuses the 401
+        // this branch already returned for an id that did not resolve, so no new status code
+        // appears on a path a client calls.
+        //
+        // This returned first_name, last_name, name, email, mobile and the default delivery
+        // address -- country, state, city, address, postcode -- for any customer id on the
+        // platform, with no tenant predicate on either read.
+        //
+        // profile_update() and change_address() call this method internally to build their
+        // response. Both forward the same request object, so a session-derived target makes the
+        // forwarded `customer_id` irrelevant rather than wrong, and both already refuse a
+        // non-Customer principal before they get here.
+        $customer = $this->resolveStoreCustomer($store);
+        if ($customer === null) {
             return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
         }
-        $user_data = Customer::find($request->customer_id);
-        $DeliveryAddress = DeliveryAddress::where('customer_id', $request->customer_id)->where('default_address', 1)->first();
+        $user_data = $customer;
+        $DeliveryAddress = DeliveryAddress::where('customer_id', $customer->id)->where('default_address', 1)->first();
         if (!empty($user_data)) {
             $user_array['id'] = $user_data->id;
             $user_array['first_name'] = $user_data->first_name;
@@ -5339,7 +6133,7 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
             $user_array['address'] = !empty($DeliveryAddress->address) ? $DeliveryAddress->address : '';
             $user_array['postcode'] = !empty($DeliveryAddress->postcode) ? $DeliveryAddress->postcode : '';
 
-            Log::channel('API_log')->info(json_encode($request->all()));
+            Log::channel('API_log')->info(json_encode($this->scrub($request->all())));
             return $this->success($user_array, __('User address updated successfully.'));
         } else {
             Log::channel('API_log')->info('User not found.');
@@ -5382,12 +6176,15 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                 'message' => $messages->first()
             ], $messages->first());
         }
-        $customer = Customer::find($request->customer_id);
-        if (!isset($customer) || empty($customer)) {
+        // AUTHZ: liveness check only, and it then forwarded the request to cart_list() -- so this
+        // read any shopper's cart through the stock-check endpoint.
+        $customer = $this->resolveStoreCustomer($store);
+        if ($customer === null) {
             return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
         }
-        // cart list api call
-        if (!empty($request->customer_id)) {
+        // cart list api call. cart_list() now derives its own target from the session, so what is
+        // forwarded here cannot steer it.
+        if (!empty($customer->id)) {
             $cartlist_response = $this->cart_list($request, $slug);
             $cartlist = $cartlist_response->getData()->data;
 
@@ -5769,24 +6566,66 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         }
     }
 
+    /**
+     * A SIGNED-IN SHOPPER CHANGES THEIR OWN PASSWORD. Nothing else.
+     *
+     * THE DEFECT THIS REPLACES was found by an adversarial review of the password-recovery fix,
+     * which asked the question this endpoint answers badly: can an administrator's or a delivery
+     * driver's token authorise a customer password change? Here it could, for any customer, in
+     * any store. The body was:
+     *
+     *     if (!auth('customers')->user()) {
+     *         $rules = ['customer_id' => 'required'];
+     *         $customer_id = $request->customer_id;      // attacker-supplied
+     *     } else {
+     *         $customer_id = auth('customers')->user()->id;
+     *     }
+     *     ...
+     *     $user = Customer::find($customer_id);          // no store predicate, no ownership check
+     *     $user->password = bcrypt($request->password);
+     *
+     * The route carries `custom.auth`, and App\Http\Middleware\CustomAuth logs a token's owner
+     * into whichever guard matches its tokenable class: a Customer into `customers`, a User into
+     * `web`, a DeliveryBoy into `deliveryboy`. So a MERCHANT's or a DRIVER's token passes the
+     * middleware and leaves auth('customers') null -- taking the first branch, where
+     * `customer_id` was read straight off the request and `Customer::find()` applied no scope.
+     *
+     * Measured, in tests/Feature/Security/CustomerPasswordResetAdversarialTest:
+     *   - a merchant's token set an arbitrary customer's password;
+     *   - a DELIVERY DRIVER's token set the password of a customer belonging to a DIFFERENT
+     *     STORE -- a cross-tenant account takeover from the least privileged principal the
+     *     platform issues tokens to. Nothing resolves a tenant for the `deliveryboy` guard, so
+     *     config/tenancy.php's `null_tenant => 'open'` left Customer unscoped for them.
+     *
+     * The sibling case -- a merchant reaching into another store -- happened to be refused, but
+     * only because a merchant token DOES resolve a tenant and the global scope then narrowed the
+     * lookup. A control that works by accident for one principal and not another is not a
+     * control, so the check below is explicit and does not depend on the scope at all.
+     *
+     * $rules also had three assignment sites, the last unconditional, so the
+     * 'customer_id' => 'required' rule was overwritten before \Validator ever saw it -- the id
+     * was never even validated.
+     *
+     * COMPATIBILITY. The `customer_id` branch was reachable ONLY by a non-customer token, so no
+     * customer-facing client could ever have used it: a customer's token populates
+     * auth('customers') and takes the other branch. Neither Flutter client in this project calls
+     * this endpoint (it is absent from tests/Support/ApiContract/manifests/flutter-endpoints.json
+     * and nothing in the admin app references it), and the self-service journey -- a Bearer token
+     * plus `password`, no `customer_id` -- is unchanged, including its request shape, its success
+     * message and its 401 envelope.
+     */
     public function change_password(Request $request, $slug = '')
     {
-        if (!auth('customers')->user()) {
-            $rules = [
-                'customer_id' => 'required',
-            ];
+        $customer = auth('customers')->user();
 
-            $customer_id = $request->customer_id;
-        } else {
-            $rules = [];
-            $customer_id = auth('customers')->user()->id;
-        }
-        $store = getStore($slug);
-        
-        $customer = Customer::find($customer_id);
-        if (!isset($customer) || empty($customer)) {
+        // AUTHENTICATION IS NOW THE PRINCIPAL, not a hint. A merchant, a platform operator or a
+        // delivery driver holds a valid token and passes `custom.auth`, but is not a shopper and
+        // has no business on this endpoint. Resetting a customer's password administratively is a
+        // separate, session-authenticated surface and was never this one's job.
+        if (! $customer instanceof Customer) {
             return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
         }
+
         $rules = [
             'password' => 'required|string|min:8'
         ];
@@ -5799,15 +6638,32 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
             ], $messages->first());
         }
 
-        $user = Customer::find($customer_id);
-        if (!empty($user)) {
-            $user->password = bcrypt($request->password);
-            $user->save();
+        // THE STORE IN THE PATH MUST BE THE CUSTOMER'S OWN. The slug was resolved here and then
+        // never read, so the endpoint was indifferent to which storefront it was called through.
+        // Checked explicitly rather than left to the global tenant scope, which is open whenever
+        // no tenant resolves.
+        //
+        // A customer whose row carries NO store passes. `customers.store_id` is nullable and
+        // imports write that table (config/tenancy.php names ShopifyCustomerController among the
+        // writers), so such rows are plausible -- and refusing them would deny a real shopper
+        // their own password change to close nothing: this endpoint is self-scoped by the check
+        // above, so where it acts does not depend on which slug was used.
+        $store = getStore($slug);
 
-            return $this->success(['message' => __('Password updated.')], __('Password updated.'));
-        } else {
-            return $this->error(['message' => __('User not found.')], __('User not found.'));
+        if (empty($store)) {
+            return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
         }
+
+        if ($customer->store_id !== null && (int) $customer->store_id !== (int) $store->id) {
+            return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
+        }
+
+        // `customer_id` from the request is deliberately ignored. The only account this endpoint
+        // can change is the one the presented token belongs to.
+        $customer->password = bcrypt($request->password);
+        $customer->save();
+
+        return $this->success(['message' => __('Password updated.')], __('Password updated.'));
     }
 
     public function change_address(Request $request, $slug = '')
@@ -5829,7 +6685,19 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                 'message' => $messages->first()
             ], $messages->first());
         }
-        $user = DeliveryAddress::where('customer_id', $request->customer_id)->where('title', 'main')->first();
+        // AUTHZ: the lookup and the demotion both keyed on `$request->customer_id` with no
+        // predicate, and when no 'main' row existed the handler CREATED one on the named account.
+        // So this wrote, or created, any customer's main address -- and since an order placed
+        // later ships to the default address, that is control of a shipping destination.
+        //
+        // This branch had no 401 today, so one is introduced. It is reachable only by a caller
+        // that is not the shopper whose address this is.
+        $customer = $this->resolveStoreCustomer($store);
+        if ($customer === null) {
+            return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
+        }
+
+        $user = DeliveryAddress::where('customer_id', $customer->id)->where('title', 'main')->first();
         if (empty($user)) {
             $user = new DeliveryAddress();
         }
@@ -5839,7 +6707,7 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
             $user->country_id = $request->country;
             $user->state_id = $request->state;
             $user->city_id = $request->city;
-            $user->customer_id = $request->customer_id;
+            $user->customer_id = $customer->id;
             $user->title = 'main';
             $user->address = $request->address;
             $user->postcode = $request->postcode;
@@ -5849,12 +6717,16 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
 
             if ($default_address == 1) {
                 $u_a_a['default_address'] = 0;
-                DeliveryAddress::where('customer_id', $request->customer_id)->where('id', '!=', $user->id)->update($u_a_a);
+                DeliveryAddress::where('customer_id', $customer->id)->where('id', '!=', $user->id)->update($u_a_a);
             }
 
-            $user_detail_array['customer_id']   = $request->customer_id;
+            $user_detail_array['customer_id']   = $customer->id;
             $request->request->add($user_detail_array);
-            $user_detail_response = $this->user_detail($request);
+            // $slug was omitted here, so the internal call resolved no store and answered its own
+            // error envelope -- the response's `data` was the error payload rather than the
+            // profile. Passing it makes the nested read work as intended; the outer response shape
+            // is unchanged either way, because this method wraps it in its own success().
+            $user_detail_response = $this->user_detail($request, $slug);
             $user_detail = (array)$user_detail_response->getData()->data;
             return $this->success(['message' => __('Address updated successfully.'), 'data' => $user_detail], __('Address updated successfully.'));
         } else {
@@ -5876,7 +6748,23 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
             ], $messages->first());
         }
 
-        $DeliveryAddress = DeliveryAddress::where('id', $request->address_id)->first();
+        // AUTHZ: this handler read NO principal id at all -- no customer_id, no Customer::find,
+        // not even a getStore -- so `address_id` alone deleted any address row on the platform by
+        // incrementing integer. It is the one member of this family with no posted customer id to
+        // ignore, so the fix is an OWNERSHIP PREDICATE rather than a derived target.
+        //
+        // The refusal reuses this handler's own 'Address not found.' message at HTTP 200, the
+        // precedent set by order_detail: "not yours" is then indistinguishable from "no such row",
+        // so the endpoint cannot be used to enumerate which address ids exist. That also means no
+        // new status code appears on a path a client calls.
+        $customer = $this->resolveStoreCustomer(getStore($slug));
+        if ($customer === null) {
+            return $this->error(['message' => __('Address not found.')], __('Address not found.'));
+        }
+
+        $DeliveryAddress = DeliveryAddress::where('id', $request->address_id)
+            ->where('customer_id', $customer->id)
+            ->first();
         if (!empty($DeliveryAddress)) {
             $DeliveryAddress->delete();
             return $this->success(['message' => __('Address deleted successfully.')], __('Address deleted successfully.'));
@@ -5902,19 +6790,24 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                 'message' => $messages->first()
             ], $messages->first());
         }
-        $customer = Customer::find($request->customer_id);
-        if (!isset($customer) || empty($customer)) {
+        // AUTHZ: liveness check only, so any token holder overwrote any shopper's avatar. Three
+        // separate effects, not one: the file was DELETED from disk
+        // (File::delete on the victim's profile_image), the replacement was billed against the
+        // VICTIM's store owner's storage quota because `$store` was re-derived from the target's
+        // store_id rather than the slug, and `customers.profile_image` was rewritten.
+        $customer = $this->resolveStoreCustomer($store);
+        if ($customer === null) {
             return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
         }
         $theme_image = $request->image;
-        
-        $user = Customer::find($request->customer_id);
+
+        $user = $customer;
         if (!empty($user)) {
-            $store = Store::findOrFail($user->store_id);
+            // Was Store::findOrFail($user->store_id), which 404s when the customer's store_id is
+            // null -- and that column is nullable. The slug's store is already confirmed to be
+            // this customer's by the check above, so it is the right one to bill.
             $cover_image = upload_theme_image( $theme_image, 0, $store->created_by);
-            if (File::exists(base_path($user->profile_image))) {
-                File::delete(base_path($user->profile_image));
-            }
+            \App\Services\StoredUpload::delete($user->profile_image, $store->created_by);
             $user->profile_image = $cover_image['image_path'];
             $user->save();
         }
@@ -5934,31 +6827,50 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         }
         
 
-        if (auth('customers')->user()) {
-            $rules = [
-                'payment_type' => 'required',
-                'delivery_id' => 'required',
-            ];
-            $customer_id         = auth('customers')->user()->id;
-        } else {
-            $rules = [
-                'customer_id' => 'required',
-                'payment_type' => 'required',
-                'delivery_id' => 'required',
-            ];
-            $customer_id         = $request->customer_id ?? null;
-        }
+        // AUTHZ: the guard-class trap on an order-creating handler. The else branch took
+        // `$customer_id = $request->customer_id`, so a merchant's or a driver's token -- for which
+        // auth('customers') is null -- placed an order in a named shopper's name, decrementing
+        // real stock, clearing their cart and creating the financial record that OrderObserver
+        // writes. See resolveStoreCustomer().
+        $rules = [
+            'payment_type' => 'required',
+            'delivery_id' => 'required',
+        ];
 
         $cartlist_final_price = 0;
         $final_price = 0;
-        $customer = Customer::find($customer_id);
-        if (!isset($customer) || empty($customer)) {
+        $customer = $this->resolveStoreCustomer($store);
+        if ($customer === null) {
             return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
         }
+        $customer_id         = $customer->id;
         // cart list api call
         if (!empty($customer_id)) {
             $cart_list['customer_id']   = $customer_id;
             $cart_list['slug']   = $slug;
+            // P01-SEC-14 F5. THE CALLER'S `shipping_final_price` IS NOT ALLOWED INTO THE CART
+            // READ THIS ORDER IS BUILT FROM.
+            //
+            // cart_list reads `$shipping_price = (int)$request['shipping_final_price']` (:203) with
+            // no floor and adds it to `sub_total` and `total_sub_price`. MEASURED through
+            // api/{slug}/place-order on a 100.00 basket: posting `shipping_final_price = -900`
+            // wrote `orders.product_price = -800.0`, and `500` wrote `600.0`, against `100.0` when
+            // nothing was posted. `final_price` -- the amount owed -- was 100.0 throughout, so this
+            // is the merchant's ledger and reporting rather than what the shopper pays; it is the
+            // same class as the posted-discount defect D1 closed on `coupon_price`, and it is
+            // closed the same way: the figure becomes the server's.
+            //
+            // ZERO rather than the real shipping, because the real shipping is not known yet --
+            // get_shipping_method() runs AFTER this read -- and because the order already carries
+            // it in its own column, `delivery_price`, from that server computation. So
+            // `total_sub_price` here is products-plus-tax, which is exactly what it was for every
+            // request that posted nothing.
+            //
+            // The precedent is this project's own: PaymentService.php:2277-2286 already discards a
+            // client-supplied `shipping_final_price` in favour of the server's and logs that it did.
+            // Neither the documented contract for place-order, order-save or confirm-order nor the
+            // admin Flutter app sends this field -- both grepped.
+            $cart_list['shipping_final_price'] = 0;
             $request->request->add($cart_list);
             $cartlist_response = $this->cart_list($request, $slug);
             $cartlist = (array)$cartlist_response->getData()->data;
@@ -5978,6 +6890,42 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         } else {
             return $this->error(['message' => __('User not found.')],  __('User not found.'));
         }
+
+        // P01-SEC-14 F1. A NON-POSITIVE LINE QUANTITY IS NOT A PAYABLE BASKET, HERE TOO.
+        //
+        // E5 put this refusal on payment_sheet only, and that was the wrong scope. Its own comment
+        // argued the governing reason -- "a row written before that, or by any other writer, would
+        // still subtract from the total" -- and then did not apply it to the handlers that write
+        // the order's money columns. An adversarial review of that commit caught it, and the
+        // measurement is unambiguous: a basket of one 1000.00 product plus one 50.00 product at
+        // qty -5, driven through order-save AND place-order, recorded product_price 750.0 and
+        // final_price 750.0, and the cheap product's stock went UP from 20 to 25. So for a COD
+        // order the shopper takes 1000.00 of goods for 750.00 and the merchant's inventory is
+        // corrupted in the same request. That is the amount OWED, not a reporting column.
+        //
+        // The source is a different endpoint: CartController::product_cartlist (the storefront web
+        // route `{storeSlug?}/product_cart`) wrote `$request->qty` with no validation at all. That
+        // is fixed there too, but this stays, because a row from any writer -- or one already in
+        // the table -- must not be priced.
+        $nonPositiveLines = Cart::where('customer_id', $customer->id)
+            ->where('store_id', $store->id)
+            ->where('qty', '<=', 0)
+            ->count();
+
+        if ($nonPositiveLines > 0) {
+            \Illuminate\Support\Facades\Log::warning('order: refused, basket holds a non-positive quantity', [
+                'handler' => __FUNCTION__,
+                'store_id' => $store->id,
+                'customer_id' => $customer->id,
+                'lines' => $nonPositiveLines,
+            ]);
+
+            return $this->error(
+                ['message' => __('Your cart contains an invalid quantity.')],
+                __('Your cart contains an invalid quantity.')
+            );
+        }
+
         if (empty($billing['firstname'])) {
             return $this->error(['message' => __('Billing first name not found.')], __('Billing first name not found.'));
         }
@@ -6044,7 +6992,26 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
             $order_array['coupon_info']['message'] = $apply_coupon['message'];
             $order_array['coupon_info']['status'] = false;
             if (!empty($apply_coupon['final_price'])) {
-                $cartlist_final_price = $apply_coupon['final_price'];
+                // P01-SEC-14 F4. The same guard as ordersave's, because unlike place_order this
+                // handler DOES read `$cartlist_final_price` again -- it is returned as the
+                // preview's `final_price`. Without it the confirmation screen showed 0.00 for an
+                // accepted coupon while order-save then recorded the full basket, so the shopper
+                // was shown a total they could never place. Nothing is persisted here, which is
+                // why E6 skipped it; an adversarial review pointed out that a preview the client
+                // renders is still an answer that has to be right.
+                $couponedTotal = (float) $apply_coupon['final_price'];
+
+                if ($couponedTotal > 0 && $couponedTotal <= (float) $cartlist_final_price) {
+                    $cartlist_final_price = $apply_coupon['final_price'];
+                } else {
+                    \Illuminate\Support\Facades\Log::warning('coupon: refused an implausible discounted total', [
+                        'handler' => __FUNCTION__,
+                        'store_id' => $store->id,
+                        'basket_total' => (float) $cartlist_final_price,
+                        'coupon_total' => $couponedTotal,
+                    ]);
+                }
+
                 $order_array['coupon_info']['status'] = true;
             }
         }
@@ -6189,27 +7156,18 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         }
         
 
-        if (!auth('customers')->user()) {
-            $rules = [
-                'customer_id' => 'required'
-            ];
-
-            $validator = \Validator::make($request->all(), $rules);
-            if ($validator->fails()) {
-                $messages = $validator->getMessageBag();
-                return $this->error([
-                    'message' => $messages->first()
-                ], $messages->first());
-            }
-            $customer_id = $request->customer_id;
-        } else {
-            $customer_id = auth('customers')->user()->id;
-        }
-
-        $customer = Customer::find($customer_id);
-        if (!isset($customer) || empty($customer)) {
+        // AUTHZ: this was the guard-class trap verbatim. `if (! auth('customers')->user())` is
+        // not "is this caller anonymous" -- custom.auth admits a merchant's or a driver's token
+        // with auth('customers') null, so precisely those principals took the
+        // `$customer_id = $request->customer_id` branch and read any shopper's order history.
+        // A customer token took the safe branch, which is why reading the code suggests the
+        // fallback is for guests. There are no guests here: custom.auth returns 401 for a missing
+        // bearer token before the handler runs.
+        $customer = $this->resolveStoreCustomer($store);
+        if ($customer === null) {
             return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
         }
+        $customer_id = $customer->id;
         $orders = Order::select('id', 'order_date', 'delivery_date', 'product_order_id as product_order_id', 'order_date as date', \DB::raw('CAST(final_price AS DOUBLE) as amount'), 'delivery_id as delivery_id', 'delivered_status', 'return_status', 'reward_points as reward_points')
             ->where('customer_id', $customer_id)
             
@@ -6230,26 +7188,12 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         }
         
 
-        if (!auth('customers')->user()) {
-            $rules = [
-                'customer_id' => 'required'
-            ];
-
-            $validator = \Validator::make($request->all(), $rules);
-            if ($validator->fails()) {
-                $messages = $validator->getMessageBag();
-                return $this->error([
-                    'message' => $messages->first()
-                ], $messages->first());
-            }
-            $customer_id = $request->customer_id;
-        } else {
-            $customer_id = auth('customers')->user()->id;
-        }
-        $customer = Customer::find($customer_id);
-        if (!isset($customer) || empty($customer)) {
+        // AUTHZ: the guard-class trap, same shape as order_list above.
+        $customer = $this->resolveStoreCustomer($store);
+        if ($customer === null) {
             return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
         }
+        $customer_id = $customer->id;
         $orders = Order::select('id', 'order_date', 'delivery_date', 'product_order_id as product_order_id', 'order_date as date', 'final_price as amount', 'delivery_id as delivery_id', 'delivered_status as delivered_status', 'reward_points as reward_points')
             ->where('customer_id', $customer_id)
             
@@ -6280,6 +7224,21 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
             ], $messages->first());
         }
 
+        // S12(a). THIS ENDPOINT RESOLVED $store FROM THE SLUG AND THEN NEVER USED IT. It called
+        // Order::order_detail($request->order_id) -- `Order::find()` with the store id read off
+        // the order itself -- with no customer predicate and no store predicate, so ANY holder of
+        // ANY valid token read any order on the platform. Reproduced before this change: a
+        // customer token belonging to store B returned store A's full order document, HTTP 200.
+        // `Order` carries neither the tenancy trait nor an entry in config/tenancy.php's
+        // scoped_models allowlist, so no global scope supplied the missing predicate either.
+        if (!$this->resolveViewableOrder($request->order_id, $store)) {
+            // The endpoint's OWN not-found envelope, verbatim, for two reasons: the Flutter app
+            // already handles this path, and "not yours" must be indistinguishable from "no such
+            // order" so the endpoint cannot enumerate order ids. Never 401 -- repo B's
+            // lib/network/network.dart forces a logout on any 401.
+            return $this->error(__('Order not found.'), __('Order not found.'));
+        }
+
         $order = Order::order_detail($request->order_id);
         if (!empty($order['message'])) {
             return $this->error($order['message'], $order['message']);
@@ -6288,12 +7247,202 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         }
     }
 
+    /**
+     * The one definition of "the shopper this request is for".
+     *
+     * Eleven storefront handlers read `customer_id` out of the request, passed it to
+     * `Customer::find()`, and treated a row coming back as proof of identity. It is not: it is a
+     * liveness check on an id the CALLER chose. Three facts make that fatal rather than untidy:
+     *
+     *   - `custom.auth` (App\Http\Middleware\CustomAuth) logs a token's owner into whichever of
+     *     the three guards matches its tokenable class, so a merchant's or a driver's token
+     *     satisfies the middleware with `auth('customers')` null. Any handler shaped
+     *     `if (! auth('customers')->user()) { $id = $request->customer_id; }` therefore hands the
+     *     attacker-controlled branch to exactly the principals who should not have it.
+     *   - The global tenant scope is no backstop. StoreScope reads the `storeSlug` route
+     *     parameter; these routes use `{slug}` and carry no ActiveTheme middleware, so no tenant
+     *     resolves, and `null_tenant => 'open'` (config/tenancy.php) means the scope adds no
+     *     predicate at all. DeliveryAddress, Wishlist and Order are not in `scoped_models`
+     *     anyway.
+     *   - A `where('store_id', $store->id)` built from the slug is not a tenant check. The slug is
+     *     caller input, so that predicate only compares the caller's own two values.
+     *
+     * So the handler is the only control, and this is what it checks: the principal is a Customer,
+     * a store resolved, and that store is the customer's own.
+     *
+     * A customer whose row carries NO store passes. `customers.store_id` is nullable and importers
+     * write that table, so such rows are plausible, and the same branch is in change_password and
+     * user_delete, so it is a consistent decision rather than an oversight here.
+     *
+     * BUT BE CLEAR WHAT IT COSTS, because an earlier version of this docblock was wrong about it.
+     * It is NOT true that every caller derives its target solely from the return value: several
+     * also act on `$store`, which came from the slug. payment_sheet reads the slug store's Stripe
+     * secret; update_user_image bills the slug store owner's quota; add_address, change_address
+     * and wishlist write `store_id = $store->id`; product_rating and add_review gate the product
+     * on the slug store; the cart and order rows land in the slug store. So a NULL-`store_id`
+     * customer is a cross-tenant actor through any of those, not merely a shopper reading their
+     * own data.
+     *
+     * It is left permissive because refusing such a row would lock a real shopper out of their own
+     * account, and because no first-party insert path produces one -- config/tenancy.php
+     * enumerates all sixteen writers of `customers` and every one sets `store_id`. It is therefore
+     * reachable only via legacy or imported rows. One query settles whether to tighten it:
+     *
+     *     SELECT COUNT(*) FROM customers WHERE store_id IS NULL;
+     *
+     * If that is zero, drop the null branch and compare the ids outright. Recorded in
+     * docs/security/P01-SECURITY-WORK-QUEUE.md S19 as a measurement owed, not a closed question.
+     *
+     * Returns null for anything else, including an unauthenticated caller. Fails closed.
+     */
+    private function resolveStoreCustomer($store): ?Customer
+    {
+        $customer = auth('customers')->user();
+
+        if (! $customer instanceof Customer) {
+            return null;
+        }
+
+        if (empty($store)) {
+            return null;
+        }
+
+        if ($customer->store_id !== null && (int) $customer->store_id !== (int) $store->id) {
+            return null;
+        }
+
+        return $customer;
+    }
+
+    /**
+     * The order a storefront-API caller is entitled to read, or null.
+     *
+     * S12(a). Deliberately shaped like DashboardController::resolveChangeableOrder() -- the
+     * admin API's equivalent helper -- so the two surfaces cannot drift into different ideas of
+     * who owns an order. `custom.auth` (App\Http\Middleware\CustomAuth) logs a token's owner
+     * into whichever of the three guards matches its tokenable class, so all three principals can
+     * legitimately arrive here and each needs its own relationship to the order:
+     *
+     *   Customer      -> they placed it. orders.customer_id must equal their id and be non-zero;
+     *                    a guest order carries customer_id = 0, so 0 can never match.
+     *   DeliveryBoy   -> it is assigned to them. orders.deliveryboy_id, NOT orders.delivery_id --
+     *                    the latter is a Shipping id (app/Models/Order.php:122-123) and both
+     *                    columns exist, so confusing them would silently admit nobody or
+     *                    everybody.
+     *   User          -> the platform operator, or an actor whose own tenant owns the order's
+     *                    store. `created_by = creatorId()` is the predicate used by
+     *                    DashboardController::resolveOwnedStore() and StoreController, so staff
+     *                    keep working rather than being locked out alongside attackers.
+     *
+     * Anything else, including an unauthenticated caller, returns null and the endpoint answers
+     * its ordinary not-found. Fails closed on every branch.
+     *
+     * The slug's store is checked too when one resolved, as defence in depth: a customer of store
+     * A asking store B's endpoint for their own order gets nothing, so the slug cannot be used to
+     * pivot. It is NOT the primary control -- the ownership comparisons above are -- because
+     * getStore() resolves from a URL segment the caller chooses.
+     */
+    private function resolveViewableOrder($orderId, $store = null)
+    {
+        if (empty($orderId)) {
+            return null;
+        }
+
+        $order = Order::find($orderId);
+
+        if (!$order) {
+            return null;
+        }
+
+        if (!empty($store) && (int) $order->store_id !== (int) $store->id) {
+            return null;
+        }
+
+        $customer = auth('customers')->user();
+
+        if ($customer) {
+            $orderCustomerId = (int) ($order->customer_id ?? 0);
+
+            return ($orderCustomerId > 0 && $orderCustomerId === (int) $customer->id) ? $order : null;
+        }
+
+        $boy = auth('deliveryboy')->user();
+
+        if ($boy) {
+            return ((int) ($order->deliveryboy_id ?? 0) === (int) $boy->id && !empty($order->deliveryboy_id))
+                ? $order
+                : null;
+        }
+
+        $actor = auth()->user();
+
+        if ($actor instanceof User) {
+            if (strtolower(trim((string) $actor->type)) === 'super admin') {
+                return $order;
+            }
+
+            $ownedStoreIds = Store::where('created_by', $actor->creatorId())->pluck('id')->all();
+
+            return in_array((int) $order->store_id, array_map('intval', $ownedStoreIds), true) ? $order : null;
+        }
+
+        return null;
+    }
+
+    /**
+     * AUTHZ-3. Change the status of an order THE CALLER OWNS.
+     *
+     * THE DEFECT. The body was:
+     *
+     *     $store = getStore($slug);            // resolved, never read
+     *     $data['order_id'] = $request->order_id;
+     *     $data['order_status'] = $request->order_status;
+     *     Order::order_status_change($data);   // Order::find($order_id), bare id
+     *
+     * No ownership check of any kind, and `Order` carries neither the tenancy trait nor an entry
+     * in config/tenancy.php's `scoped_models` (verified), so no global scope narrowed it either.
+     * The route carries ['custom.auth','APILog'], and custom.auth admits a Customer, a User or a
+     * DeliveryBoy token -- so ANY holder of ANY valid token could set the status of ANY order on
+     * the platform by iterating integers.
+     *
+     * AND IT MOVES MONEY. The cancel branch at app/Models/Order.php:539-554 sets
+     * `delivered_status = 2` AND `payment_status = 'Unpaid'`, then saves -- and the comment beside
+     * it says plainly that the observer then calls the wallet service. So the hole was not a
+     * status field: it was an attacker-triggered refund against any order in any store.
+     *
+     * THE FIX REUSES THE HELPER THAT ALREADY EXISTS. resolveViewableOrder() was written for S12
+     * and already encodes what it means for an order to be yours, separately for each of the three
+     * principals custom.auth can produce: a Customer who placed it, a DeliveryBoy it is assigned
+     * to, a User whose tenant owns its store (operator always). Writing a second predicate here
+     * would be how the two surfaces drift apart, which is the hazard that helper's own docblock
+     * warns about.
+     *
+     * The resolved order's id is what goes to the model, not the request's -- so the value that
+     * passed the check is the value that is acted on.
+     *
+     * WHAT IS STILL OPEN, and is reported rather than guessed at: ownership is now required, but
+     * WHICH status each principal may set is not constrained. A customer can still mark their own
+     * order 'pickedup'. Closing that needs a decision about the status machine (who may confirm,
+     * who may mark delivered), which is a product question, not a security one. Self-service
+     * cancellation of one's own order is a legitimate journey and is deliberately preserved -- the
+     * model already refuses it once delivered_status != 0.
+     *
+     * COMPATIBILITY. Path, method and request body are unchanged. A refusal returns the model's
+     * own 'Order not found.' string through ApiResponser::error(), which is HTTP 200 with
+     * status: 0 -- the same shape this endpoint already returned for an unknown id, and NOT a 401,
+     * which the shipped Flutter client turns into a forced logout.
+     */
     public function order_status_change(Request $request, $slug = '')
     {
         $store = getStore($slug);
-        
 
-        $data['order_id'] = $request->order_id;
+        $order = $this->resolveViewableOrder($request->order_id, $store);
+
+        if (!$order) {
+            return $this->error(['message' => __('Order not found.')], __('Order not found.'));
+        }
+
+        $data['order_id'] = $order->id;
         $data['order_status'] = $request->order_status;
 
         $date = Order::order_status_change($data);
@@ -6304,14 +7453,36 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         }
     }
 
+    /**
+     * AUTHZ-4. Mark a product returned on an order THE CALLER OWNS.
+     *
+     * The same defect and the same fix as order_status_change above: `$store` was resolved and
+     * never read, and `$request->order_id` went straight to Order::product_return(), which does a
+     * bare Order::find(). Any token holder could mark lines returned on any order in any store.
+     *
+     * This one also writes INVENTORY: app/Models/Order.php:657-669 increments
+     * `products.product_stock` or `product_variants.stock` by the returned quantity, so the hole
+     * was a cross-tenant stock write as well as an order write.
+     *
+     * Note that Order::product_return() dereferences its find() with no null guard
+     * (app/Models/Order.php:643-644), so a nonexistent id was a 500 rather than a refusal. That
+     * no longer reaches the model from here, because ownership is resolved first -- which also
+     * means a regression test for "an unknown order is refused" measures a denial and not a crash.
+     */
     public function product_return(Request $request, $slug = '')
     {
         $store = getStore($slug);
-        
+
+        $order = $this->resolveViewableOrder($request->order_id, $store);
+
+        if (!$order) {
+            return $this->error(['message' => __('Order not found.')], __('Order not found.'));
+        }
+
         $data['product_id'] = $request->product_id;
         $data['variant_id'] = $request->variant_id;
-        $data['order_id']   = $request->order_id;
-        
+        $data['order_id']   = $order->id;
+
         $responce = Order::product_return($data);
         if ($responce['status'] == 'success') {
             return $this->success(['message' => $responce['message']], $responce['message']);
@@ -6447,43 +7618,302 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
     public function loyality_reward(Request $request, $slug = '')
     {
         $store = getStore($slug);
-        
 
-        $user_id = $request->user_id;
-        $Order = Order::select('reward_points')->where('customer_id', $user_id)->sum('reward_points');
+        // AUTHZ: `$user_id = $request->user_id` with no validation, no principal and no tenant
+        // predicate -- it summed an arbitrary customer's lifetime reward points across every store
+        // on the platform, and `$store` was resolved and never read. The correct shape is
+        // loyality_program_json() a few lines above, which derives from the session and scopes to
+        // the store; this now matches it.
+        //
+        // This branch has no 401 today, so one is introduced here. It is reachable only by a
+        // caller that is not a shopper: no client in either repository calls this path, and the
+        // storefront client that might would be holding a customer token.
+        $customer = $this->resolveStoreCustomer($store);
+        if ($customer === null) {
+            return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
+        }
+
+        $Order = Order::select('reward_points')
+            ->where('customer_id', $customer->id)
+            ->where('store_id', $store->id)
+            ->sum('reward_points');
+
         return $this->success(['point' => number_format($Order, 2)], __('Reward points get succssfully.'));
     }
 
     public function payment_sheet(Request $request, $slug = '')
     {
         $store = getStore($slug);
-        
 
-        $pk_key = Utility::GetValueByName('publishable_key', $store->id);
+        // ====================================================================================
+        // P01-SEC-14 WORK PACKAGE B. THE AMOUNT AND THE CURRENCY ARE NOW THE SERVER'S.
+        //
+        // THE DEFECT. This handler built the PaymentIntent from the request body:
+        //
+        //     'amount'   => $request['price'],
+        //     'currency' => $request['currency'],
+        //
+        // so the customer decided what they owed. Measured, not argued: a shopper with a basket
+        // worth 107.70 asked to pay one cent and the merchant's Stripe account was given one cent
+        // (PaymentSheetAmountAuthorityTest's baseline test recorded exactly that before this
+        // change). P01-SEC-11 closed WHO may call this endpoint -- it requires a Customer of the
+        // store in the path -- and recorded the amount as explicitly not fixed.
+        //
+        // WHERE THE AUTHORITATIVE AMOUNT COMES FROM. The server already computes what this
+        // customer owes, in cart_list(), which the previous package made session-derived: it reads
+        // the authenticated customer's cart, prices every line through the same product, variant,
+        // wholesale and tax code the order writers use, and returns the result. So the amount is
+        // taken from there rather than from a new calculation. That is deliberate -- a second
+        // implementation of a basket total is a second answer to "what do I owe", and the two
+        // would drift.
+        //
+        // WHICH KEY, and this was settled by MEASURING the two candidates against the order the
+        // checkout actually writes, not by reading their names. For a basket of one 100.00 product
+        // under a 10% store tax:
+        //
+        //     cart_list total_final_price   110.00     <- line prices, which already include tax
+        //     cart_list total_sub_price     121.00     <- the above PLUS tax computed again, on 110
+        //     orders.final_price            110.00     <- what the order records as owed
+        //     orders.product_price          121.00
+        //     orders.tax_price                0.00
+        //
+        // So `total_final_price` is the figure that matches the order, and `total_sub_price`
+        // double-counts the tax: the per-line price is already tax-inclusive, and `$final_total`
+        // (built at 757-762) adds `$tax_price` -- itself computed on the already-taxed line total --
+        // on top. Charging `total_sub_price` would take 121.00 for an order that records 110.00 as
+        // owed, which is worse than undercharging: it is money the order has no record of.
+        //
+        // CORRECTION, from an adversarial review of this very change. The first version of this
+        // comment said `total_final_price` is "also post-coupon -- the coupon reduces
+        // `$final_price` before it accumulates into `$cart_final_price`". THAT IS BACKWARDS, and
+        // reading the accumulation order settles it: `$cart_final_price += $final_price` runs
+        // BEFORE the coupon block assigns `$final_price = $coupon_apply_price`, so the discount
+        // reaches `$tax_price`, `$coupon_price` and `total_sub_price` and never reaches the key
+        // charged here. Measured through api/{slug}/cart-list on one 100.00 product with a 50%
+        // coupon: total_final_price 100.00, total_sub_price 50.00.
+        //
+        // So this amount is PRE-coupon, and a coupon-bearing checkout through this endpoint is
+        // charged the undiscounted total. That is a real cost and it is NOT why the key was
+        // chosen. The reason it is still the right key is the opposite property, also measured:
+        // `shipping_final_price = -999` drives total_sub_price to -899.00 and leaves
+        // total_final_price at 100.00. `total_sub_price` is settable by the caller to any value;
+        // this one is not settable at all. An amount that is wrong by a known, bounded,
+        // server-side figure beats an amount the payer writes.
+        //
+        // Both the omitted discount and the omitted shipping are S21 owner items with the full
+        // measurement table.
+        //
+        // WHAT IT STILL DOES NOT COVER, recorded rather than smoothed over: SHIPPING. Neither cart
+        // key includes it, while `orders.final_price` uses `$data['shipping_total_price']` when a
+        // shipping method applies (3283-3291). So for a basket that ships, this amount can be lower
+        // than the order's. That gap, the tax double-count above, and the fact that
+        // `orders.tax_price` is written as 0 while the tax sits inside `product_price`, are all
+        // pre-existing order-calculation defects. Reconciling them is the order-calculation change
+        // this package is explicitly not to start; they are written up as owner items in
+        // docs/security/P01-SECURITY-WORK-QUEUE.md S21.
+        //
+        // The security property delivered here does not depend on resolving them: the amount is no
+        // longer the caller's to choose, and it is now derived from the same computation the order
+        // writer uses.
+        //
+        // UNITS. Stripe's `amount` is an integer in the currency's minor unit. The documented
+        // client contract (packages/workdo/Api/src/documentation/theme.json,
+        // general-detail/payment-sheet) shows `"price": "10770"` for a $107.70 basket, so the
+        // client was already sending minor units and the handler passed them through. The cart
+        // total is in MAJOR units, so it has to be converted -- see
+        // App\Services\Payments\StripeMoney, which carries the project's own zero-decimal
+        // currency list.
+        //
+        // NO ORDER EXISTS YET. The documented request carries no order id, and the flow is
+        // compute-total -> payment-sheet -> confirm on device -> place-order, so there is no
+        // orders row to bind to. A discrepancy between this cart total and the total place_order
+        // later writes is therefore possible and is an owner item, not something to paper over
+        // here; see the security queue. Reconciling the two is an order-calculation change, which
+        // this package is explicitly not to start.
+        //
+        // COMPATIBILITY. Path, method and the success shape are unchanged -- still a bare
+        // {"clientSecret": ...}. `price` and `currency` are still accepted so a client sending
+        // them is not rejected; they are simply no longer read, exactly as `customer_id` is
+        // treated across the storefront API.
+        // ====================================================================================
+        if (empty($store)) {
+            return $this->error(['message' => __('Store not found.')], __("Store not found."));
+        }
+
+        $customer = $this->resolveStoreCustomer($store);
+        if ($customer === null) {
+            return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
+        }
+
+        // THE CURRENCY IS THE STORE'S, not the caller's. Taking it from the request let a caller
+        // pair a store's amount with another currency's minor-unit scale -- 10770 is $107.70 but
+        // also ¥10,770 -- and it is the same value the Stripe Checkout arm already uses
+        // (PaymentService::processStripe reads CURRENCY_NAME for the same purpose).
+        $currency = trim((string) Utility::GetValueByName('CURRENCY_NAME', $store->id));
+        if ($currency === '') {
+            return $this->error(
+                ['message' => __('This store has no payment currency configured.')],
+                __('This store has no payment currency configured.')
+            );
+        }
+
+        $cartResponse = $this->cart_list($request, $slug);
+        $cartData = (array) ($cartResponse->getData()->data ?? []);
+
+        if (empty($cartData['product_list'])) {
+            return $this->error(['message' => __('Your cart is empty.')], __('Your cart is empty.'));
+        }
+
+        /*
+         * AND THE BASKET MUST BE THIS STORE'S, BEFORE A PAYMENT INTENT EXISTS.
+         * P01-COMMERCE-SEC-03 FOLLOW-UP, found by an adversarial authz review of this package
+         * which noticed the asymmetry rather than the hole: this handler was given the QUANTITY
+         * guard by an earlier package and never the OWNERSHIP one.
+         *
+         * It does not mutate stock -- it creates a Stripe PaymentIntent and the order is written
+         * later, by `place_order`. That is exactly why it matters now: `place_order` REFUSES a
+         * basket naming another store's product since 611357e6, so leaving this unguarded makes
+         * the charge-then-refuse outcome MORE likely than before, not less. The shopper would be
+         * asked to pay for a basket no order writer will accept.
+         *
+         * Placed before `StripeMoney::toMinorUnits()` and before any Stripe call, so a refused
+         * basket never reaches the gateway at all.
+         */
+        if ($this->basketHasForeignProduct($cartData['product_list'], $store)) {
+            \Illuminate\Support\Facades\Log::warning('payment_sheet refused: basket names a product from another store', [
+                'store_id' => $store->id,
+                'customer_id' => $customer->id ?? null,
+            ]);
+
+            return $this->error(
+                ['message' => __('Your cart contains an item this store does not sell.')],
+                __('Your cart contains an item this store does not sell.')
+            );
+        }
+
+        // An empty basket is not a payable amount, and neither is a cart_list refusal: its error
+        // envelope carries no `total_final_price`, so a refusal there lands on the zero check below
+        // rather than producing a zero-amount intent.
+
+        // P01-SEC-14 E5. A NON-POSITIVE LINE QUANTITY IS NOT A PAYABLE BASKET. addtocart now
+        // refuses one at the boundary, but a row written before that -- or by any other writer --
+        // would still subtract from the total computed above, and the `$payable <= 0` check below
+        // only catches a basket that nets to nothing. Refusing here protects the amount whatever
+        // let the row in, and it fails closed: a shopper sees a refusal rather than a cheap charge.
+        $nonPositiveLines = Cart::where('customer_id', $customer->id)
+            ->where('store_id', $store->id)
+            ->where('qty', '<=', 0)
+            ->count();
+
+        if ($nonPositiveLines > 0) {
+            \Illuminate\Support\Facades\Log::warning('payment_sheet: refused, basket holds a non-positive quantity', [
+                'store_id' => $store->id,
+                'customer_id' => $customer->id,
+                'lines' => $nonPositiveLines,
+            ]);
+
+            return $this->error(
+                ['message' => __('Your cart contains an invalid quantity.')],
+                __('Your cart contains an invalid quantity.')
+            );
+        }
+
+        $payable = StripeMoney::toMinorUnits($cartData['total_final_price'] ?? 0, $currency);
+
+        if ($payable <= 0) {
+            return $this->error(['message' => __('Invalid amount.')], __('Invalid amount.'));
+        }
+
         $sk_key = Utility::GetValueByName('stripe_secret', $store->id);
 
+        // Left as written: the duplicated `empty($sk_key)` means this errors exactly when the
+        // SECRET is missing, which is the condition that matters, and the publishable key is not
+        // needed server-side. Changing it to test both would refuse configurations that work today.
         if (empty($sk_key) && empty($sk_key)) {
             return $this->error(['message' => 'publishable key or stripe secret not found.']);
         }
 
         \Stripe\Stripe::setApiKey($sk_key);
         try {
-            // Create a PaymentIntent with amount and currency
-            $paymentIntent = \Stripe\PaymentIntent::create([
-                'amount' => $request['price'],
-                'currency' => $request['currency'],
-                'automatic_payment_methods' => [
-                    'enabled' => true,
+            $paymentIntent = \Stripe\PaymentIntent::create(
+                [
+                    'amount' => $payable,
+                    'currency' => strtolower($currency),
+                    'automatic_payment_methods' => [
+                        'enabled' => true,
+                    ],
+                    // Reconciliation. Money arriving in a merchant's Stripe account should say
+                    // which store and which shopper it belongs to without a lookup through a
+                    // clientSecret nobody keeps. Two fields, no PII.
+                    'metadata' => [
+                        'store_id' => (string) $store->id,
+                        'customer_id' => (string) $customer->id,
+                    ],
                 ],
-            ]);
+                [
+                    // SPAM AND DUPLICATE-INTENT MITIGATION, with no new infrastructure. Without a
+                    // key, a caller could sit in a loop and fill a merchant's Stripe dashboard with
+                    // intents. Stripe returns the SAME intent for a repeated key, so a client that
+                    // retries -- or a shopper who taps twice -- gets one intent rather than
+                    // several.
+                    //
+                    // THE BASKET'S ROW IDENTITY IS IN THE KEY, and that is a correction to the
+                    // first version of this change rather than a refinement. That version hashed
+                    // only store, customer, amount and currency, which contains nothing that
+                    // distinguishes one checkout from the next: a shopper who buys the same product
+                    // twice in a day produced a byte-identical key inside Stripe's 24-hour
+                    // idempotency window, so Stripe replayed the FIRST, already-succeeded intent
+                    // and the second purchase either could not be confirmed or was recorded paid
+                    // against a charge that never happened. Found by an adversarial review of this
+                    // package and reproduced from the code; pinned by
+                    // PaymentSheetAmountAuthorityTest::
+                    // test_a_second_purchase_of_the_same_basket_is_not_replayed.
+                    //
+                    // `cart.id` is what makes it work: place_order and ordersave DELETE the cart
+                    // rows, so a re-added basket carries new ids and hashes differently, while a
+                    // double-tap on the same rows still collapses. qty and variant are included so
+                    // an edited basket is a new attempt too. Read with the same predicate
+                    // cart_list uses, so the two cannot disagree about which rows are the basket.
+                    'idempotency_key' => hash('sha256', implode('|', [
+                        'payment_sheet',
+                        $store->id,
+                        $customer->id,
+                        $payable,
+                        strtolower($currency),
+                        Cart::where('customer_id', $customer->id)
+                            ->where('store_id', $store->id)
+                            ->orderBy('id')
+                            ->get(['id', 'product_id', 'variant_id', 'qty'])
+                            ->map(fn ($row) => $row->id . ':' . $row->product_id . ':'
+                                . $row->variant_id . ':' . $row->qty)
+                            ->implode(','),
+                    ])),
+                ]
+            );
+
             $output = [
                 'clientSecret' => $paymentIntent->client_secret,
             ];
-            return json_encode($output);
-        } catch (Error $e) {
 
-            http_response_code(500);
-            echo json_encode(['error' => $e->getMessage()]);
+            return json_encode($output);
+        } catch (\Throwable $e) {
+            // Was `catch (Error $e)`, unqualified inside namespace App\Http\Controllers\Api, so
+            // it resolved to a non-existent App\Http\Controllers\Api\Error and could never
+            // match: a Stripe failure became an unhandled 500 with a stack trace. \Throwable
+            // catches both Stripe's exceptions and PHP errors. The gateway contract is unchanged
+            // for the success path; a failure now returns this endpoint's own error envelope
+            // instead of a framework error page, and the reason goes to the log rather than to the
+            // caller.
+            \Illuminate\Support\Facades\Log::error('payment_sheet: stripe payment intent failed', [
+                'store_id' => $store->id,
+                'customer_id' => $customer->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return $this->error(
+                ['message' => __('Payment could not be started.')],
+                __('Payment could not be started.')
+            );
         }
     }
 
@@ -6508,32 +7938,71 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
             ], $messages->first());
         }
         
-        $Product = Product::find($request->product_id);
+        // ====================================================================================
+        // P01-SEC-14 C2. THIS ENDPOINT CANNOT RECORD THE THING IT APPEARS TO OFFER, and what it
+        // could record was an unauthorized write. Both established by reading the schema and the
+        // consumer, not by inference.
+        //
+        // WHAT IT WROTE. `notify_users.user_id` carries a foreign key to `users`
+        // (2024_03_21_084240_create_notify_users_table.php:23) -- the ADMIN table -- and the
+        // handler took that id from the request. So any token holder could enrol an arbitrary
+        // platform user, up to and including the operator.
+        //
+        // WHY THAT IS NOT MERELY AN UNTIDY ROW. The consumer is ProductController:1609-1618: when a
+        // product returns to stock it reads these rows, resolves `User::find($value->user_id)`, and
+        // sends an FCM PUSH NOTIFICATION to that user's `firebase_token`. So the write bought a
+        // caller the ability to direct unsolicited push notifications at a merchant's or the
+        // operator's device, triggered by a restock of a product the caller chose. The product was
+        // not store-scoped either, so the chosen product could belong to any tenant.
+        //
+        // WHY THE SHOPPER JOURNEY IT LOOKS LIKE ("notify me when this is back in stock") CANNOT
+        // WORK AT ALL. A storefront caller is a `customers` row. Writing a customers id into a
+        // column with an FK to `users` is a constraint violation, so it cannot be stored; and where
+        // it did not violate the constraint it would point at whichever MERCHANT happens to share
+        // that integer, which is the same id-space conflation P01-SEC-11 closed in user_delete and
+        // product_rating. Either way the notification goes to the wrong person.
+        //
+        // SO THIS FAILS CLOSED. The principal and product checks below are real gates and are kept
+        // -- they are what a corrected implementation needs -- but the write is refused, because
+        // every row this endpoint can produce is either unauthorized or misdirected. Nothing is
+        // lost: no client in either repository calls this path, the shopper journey never worked,
+        // and ProductController continues to serve rows that already exist.
+        //
+        // THE OWNER'S DECISION, recorded in docs/security/P01-SECURITY-WORK-QUEUE.md S22: this
+        // needs a `customer_id` column on `notify_users` (or the FK dropped and the column's
+        // meaning settled), which is a schema change and GATE-F work. That decision is what
+        // reopens this endpoint.
+        // ====================================================================================
+        $customer = $this->resolveStoreCustomer($store);
+        if ($customer === null) {
+            return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
+        }
+
+        // Store-scoped, like every other Product lookup P01-SEC-11 corrected: Product registers
+        // StoreScope but is not in config/tenancy.php's scoped_models, so the scope adds no
+        // predicate for any principal and an unscoped find() reaches every tenant's catalogue.
+        $Product = Product::where('id', $request->product_id)
+            ->where('store_id', $store->id)
+            ->first();
         if (empty($Product)) {
             return $this->error(['message' => __('Product not found.')], __('Product not found.'));
         }
-        
-        $user = User::find($request->user_id);
-        if (empty($user)) {
-            return $this->error(['message' => __('User not found.')], __('User not found.'));
-        }
-        
-        $values['user_id'] = $request->user_id;
-        $values['product_id'] = $request->product_id;
-        $values['store_id'] = $store->id;
-        $values['created_at'] = now();
-        $values['updated_at'] = now();
-        
-        $NotifyUser = DB::table('notify_users')->where('user_id', $request->user_id)->where('product_id', $request->product_id)->where('store_id', $store->id)->first();
-        if (empty($NotifyUser)) {
-            $NotifyUser = DB::table('notify_users')->insert($values);
-        }
 
-        if (!empty($NotifyUser)) {
-            return $this->success(['point' => __('User notify successfully.')], __('User notify successfully.'));
-        } else {
-            return $this->error(['message' => __('Somthing went wong.')], __('Somthing went wong.'));
-        }
+        \Illuminate\Support\Facades\Log::info('notify_user: refused, awaiting schema decision', [
+            'store_id' => $store->id,
+            'customer_id' => $customer->id,
+            'product_id' => $Product->id,
+        ]);
+
+        return $this->error(
+            ['message' => __('Stock notifications are not available.')],
+            __('Stock notifications are not available.')
+        );
+
+        // The write this method used to perform is removed rather than left unreachable after the
+        // return above: dead code reads as a live fallback and invites being switched back on
+        // without the schema change that would make it correct. Its shape is in the history, at
+        // the commit that introduced this refusal.
     }
 
     public function recent_product(Request $request, $slug = '')
@@ -6597,6 +8066,49 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         }
         
 
+        // ====================================================================================
+        // AUTHZ-2. A SHOPPER DELETES THEIR OWN ACCOUNT. That is the only thing this endpoint is
+        // for, and it is now the only thing it can do.
+        //
+        // THE DEFECT, and it was the most destructive row in this package. The body was:
+        //
+        //     $user = User::find($request->user_id);            // the ADMIN model, bare id
+        //     DeliveryAddress::where('customer_id', $request->user_id)->delete();
+        //     Order::where('customer_id', $request->user_id)->delete();
+        //     Wishlist::where('customer_id', $request->user_id)->delete();
+        //     Testimonial::where('user_id', $request->user_id)->delete();
+        //     $user->delete();
+        //
+        // Four separate failures:
+        //
+        //   1. NO AUTHORIZATION. The route carries ['custom.auth','APILog'] and custom.auth admits
+        //      a Customer, a User or a DeliveryBoy token. `user_id` was read straight off the
+        //      request and never compared to the caller. Any token holder could delete any row.
+        //   2. IT OPERATED ON THE ADMIN MODEL. `User::find()` -- so the row deleted was a
+        //      MERCHANT or the PLATFORM OPERATOR, on a storefront endpoint whose only plausible
+        //      caller is a shopper.
+        //   3. NO TENANT PREDICATE, AND NO SCOPE TO FALL BACK ON. None of User, Order, Wishlist,
+        //      DeliveryAddress or Testimonial carries the tenancy trait or appears in
+        //      config/tenancy.php's scoped_models (verified), so nothing narrowed any of the five
+        //      deletes.
+        //   4. IT CONFLATED TWO ID SPACES. The four cascade deletes filter `customer_id` by a
+        //      value taken from `users.id`. `users` and `customers` are different tables with
+        //      independent sequences, so the rows destroyed belonged to whichever CUSTOMER happened
+        //      to share that integer -- an unrelated shopper's entire order history, addresses and
+        //      wishlist, deleted as a side effect of naming a merchant.
+        //
+        // WHAT IT DOES NOW. It deletes the authenticated CUSTOMER -- the principal this storefront
+        // endpoint actually serves -- and only ever that one account, with the cascade filtered by
+        // that customer's own id so the two id spaces can no longer be crossed. It cannot touch
+        // `users` at all; deleting a merchant or an operator is an administrative action on a
+        // different, session-authenticated surface and was never this endpoint's job.
+        //
+        // COMPATIBILITY. Path, method and response shape are unchanged, and `user_id` is still
+        // accepted and validated so a client that sends it is not rejected -- it is simply no
+        // longer trusted. A caller that is not a shopper gets this endpoint's existing
+        // 'User not found.' error (HTTP 200 with status 0), which is also what it already answered
+        // for an id that did not resolve, so no new 401 is introduced on a path a client calls.
+        // ====================================================================================
         $rules = [
             'user_id' => 'required'
         ];
@@ -6609,23 +8121,55 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
             ], $messages->first());
         }
 
-        $user = User::find($request->user_id);
-        if (!empty($user)) {
-            $delivery_address = DeliveryAddress::where('customer_id', $request->user_id);
-            $orders = Order::where('customer_id', $request->user_id);
-            $wishlist = Wishlist::where('customer_id', $request->user_id);
-            $review = Testimonial::where('user_id', $request->user_id);
+        $customer = auth('customers')->user();
 
-            $wishlist->delete();
-            $orders->delete();
-            $delivery_address->delete();
-            $review->delete();
-            $user->delete();
-
-            return $this->success(['message' => __('User Deleted successfully.')], __('User Deleted successfully.'));
-        } else {
+        // A merchant's or a driver's token satisfies custom.auth with auth('customers') null, so
+        // the principal class is checked rather than merely "is anyone authenticated".
+        if (! $customer instanceof Customer) {
             return $this->error(['message' => __('User not found.')], __('User not found.'));
         }
+
+        // The slug must be the customer's own store. A customer row with no store passes, because
+        // `customers.store_id` is nullable and imports write that table; the account deleted is
+        // the session's either way, so the slug cannot redirect this to another account.
+        if ($customer->store_id !== null && (int) $customer->store_id !== (int) $store->id) {
+            return $this->error(['message' => __('User not found.')], __('User not found.'));
+        }
+
+        // `$request->user_id` is deliberately ignored from here on.
+        $customerId = (int) $customer->id;
+
+        Wishlist::where('customer_id', $customerId)->delete();
+
+        /*
+         * ORDERS ARE NOT DELETED.  P1-ORD-03 (#22), OWNER DECISION D14: order and accounting
+         * records are preserved when a customer is deleted.
+         *
+         * This line was `Order::where('customer_id', $customerId)->delete()` -- a HARD delete, on a
+         * model that does not use SoftDeletes, run from an endpoint the shopper calls themselves.
+         * A customer closing their account destroyed the merchant's sales history with it: the
+         * order rows, and with them every figure any report, reconciliation or tax return is built
+         * from. `Customer` DOES soft-delete (app/Models/Customer.php:21), so the account row
+         * survives and the orders go on resolving their owner -- the asymmetry is the whole defect.
+         *
+         * The three deletes around this one stay. A wishlist, a saved delivery address and a
+         * testimonial are the customer's own content, not the merchant's financial record.
+         */
+
+        DeliveryAddress::where('customer_id', $customerId)->delete();
+        // Scoped to this store, unlike the three above. `testimonials.user_id` holds ids from TWO
+        // tables -- the storefront writers put a customers.id there while the admin writer puts a
+        // users.id there (see product_rating's note) -- and Testimonial carries no tenant scope.
+        // Without the predicate, deleting a customer destroys every testimonial on the platform
+        // whose user_id happens to equal that integer, including admin-authored ones in other
+        // tenants. Not attacker-steerable, since the id is the caller's own: collateral damage
+        // rather than an authorization hole, but damage all the same.
+        Testimonial::where('user_id', $customerId)->where('store_id', $store->id)->delete();
+
+        $customer->tokens()->delete();
+        $customer->delete();
+
+        return $this->success(['message' => __('User Deleted successfully.')], __('User Deleted successfully.'));
     }
 
     public function subscribe(Request $request, $slug = '')
@@ -6718,13 +8262,48 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
             ], $messages->first());
         }
 
+        // AUTHZ: this handler read NO principal of any kind, so it was a content-publishing
+        // primitive on any tenant's catalogue for any token holder. Three separate problems:
+        //
+        //   - No principal and no attribution. `testimonials.user_id` was never set, so it took
+        //     its column default of 1 -- every review written here claimed to be from user id 1.
+        //   - `product_id` was neither checked for existence nor for store membership, so a
+        //     review could be attached to another tenant's product, or to no product at all.
+        //   - `category_id` came from the caller too, and carries an FK to `categories`, so a
+        //     review could be filed under another tenant's category -- and a nonexistent one
+        //     produced a 500 instead of a validation error.
+        //   - `status` came from the CALLER, so the review was self-publishing. product_rating,
+        //     the other endpoint writing this same table, sets status itself; this one now
+        //     matches it. The field is still accepted and still validated so a client sending it
+        //     is not rejected -- it is simply no longer trusted.
+        //
+        // Not changed: this endpoint has no one-review-per-product dedupe where product_rating
+        // does. Adding one would deny a journey that works today, and bounding review volume is
+        // a product decision rather than an authorization one. Recorded, not fixed.
+        $customer = $this->resolveStoreCustomer($store);
+        if ($customer === null) {
+            return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
+        }
+
+        $Product = Product::where('id', $request->product_id)->where('store_id', $store->id)->first();
+        if (empty($Product)) {
+            return $this->error(['message' => __('Product not found.')], __('Product not found.'));
+        }
+
         $Testimonial = new Testimonial();
-        $Testimonial->category_id = $request->category_id;
-        $Testimonial->product_id = $request->product_id;
+        $Testimonial->user_id = $customer->id;
+        // Was `$request->category_id`. That is a fourth caller-supplied identifier -- it carries a
+        // real foreign key to `categories` (2023_12_26_095726_create_testimonials_table.php:27),
+        // so a caller could file a review under ANOTHER tenant's category, and a category id that
+        // does not exist produced a constraint violation and a 500 rather than a validation
+        // error. Derived from the product, which is what product_rating already does. The field is
+        // still accepted and validated so a client sending it is not rejected.
+        $Testimonial->category_id = $Product->category_id;
+        $Testimonial->product_id = $Product->id;
         $Testimonial->rating_no = $request->rating_no;
         $Testimonial->title = $request->title;
         $Testimonial->description = $request->description;
-        $Testimonial->status = $request->status;
+        $Testimonial->status = 1;
         $Testimonial->store_id = $store->id;
         $Testimonial->save();
 
@@ -6743,24 +8322,28 @@ $currentCurrencyCode = \App\Models\Utility::GetValueByName('CURRENCY', $storeId)
 $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', $storeId) ?: '$';
         $settings = Setting::where('store_id', $store->id)->pluck('value', 'name')->toArray();
 
-        if (auth('customers')->user()) {
-            $rules = [
-                'payment_type' => 'required',
-                'delivery_id' => 'required',
-            ];
-            $customer_id         = auth('customers')->user()->id;
-        } else {
-            $rules = [
-                'customer_id' => 'required',
-                'payment_type' => 'required',
-                'delivery_id' => 'required',
-            ];
-            $customer_id         = $request->customer_id ?? null;
-        }
-        $customer = Customer::find($customer_id);
-        if (!isset($customer) || empty($customer)) {
+        // AUTHZ: the guard-class trap, inverted. The else branch took
+        // `$customer_id = $request->customer_id`, so a merchant's or driver's token placed an
+        // order in a shopper's name -- real stock decrements, their cart cleared, and the money
+        // row OrderObserver writes.
+        //
+        // Unlike place_order, a genuine customer token could not be made to act on someone else
+        // here, because `$request->request->add($cart_list)` a few lines below OVERWROTE the
+        // request's own customer_id with the derived value, so the later reads of
+        // `$request->customer_id` happened to see it. That is correctness by side effect: anything
+        // that reordered this method, or any later read added above the mutation, would silently
+        // go back to trusting caller input. The four later reads -- the cart delete, the
+        // product_order_id, the order's customer_id and the UserCoupon attribution -- now use
+        // `$customer_id` directly, so they do not depend on the mutation at all.
+        $rules = [
+            'payment_type' => 'required',
+            'delivery_id' => 'required',
+        ];
+        $customer = $this->resolveStoreCustomer($store);
+        if ($customer === null) {
             return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
         }
+        $customer_id         = $customer->id;
         $cartlist_final_price = 0;
         $final_price = 0;
         // cart list api call
@@ -6768,6 +8351,29 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         if (!empty($customer_id)) {
             $cart_list['customer_id']   = $customer_id;
             $cart_list['slug']   = $slug;
+            // P01-SEC-14 F5. THE CALLER'S `shipping_final_price` IS NOT ALLOWED INTO THE CART
+            // READ THIS ORDER IS BUILT FROM.
+            //
+            // cart_list reads `$shipping_price = (int)$request['shipping_final_price']` (:203) with
+            // no floor and adds it to `sub_total` and `total_sub_price`. MEASURED through
+            // api/{slug}/place-order on a 100.00 basket: posting `shipping_final_price = -900`
+            // wrote `orders.product_price = -800.0`, and `500` wrote `600.0`, against `100.0` when
+            // nothing was posted. `final_price` -- the amount owed -- was 100.0 throughout, so this
+            // is the merchant's ledger and reporting rather than what the shopper pays; it is the
+            // same class as the posted-discount defect D1 closed on `coupon_price`, and it is
+            // closed the same way: the figure becomes the server's.
+            //
+            // ZERO rather than the real shipping, because the real shipping is not known yet --
+            // get_shipping_method() runs AFTER this read -- and because the order already carries
+            // it in its own column, `delivery_price`, from that server computation. So
+            // `total_sub_price` here is products-plus-tax, which is exactly what it was for every
+            // request that posted nothing.
+            //
+            // The precedent is this project's own: PaymentService.php:2277-2286 already discards a
+            // client-supplied `shipping_final_price` in favour of the server's and logs that it did.
+            // Neither the documented contract for place-order, order-save or confirm-order nor the
+            // admin Flutter app sends this field -- both grepped.
+            $cart_list['shipping_final_price'] = 0;
             $request->request->add($cart_list);
             $cartlist_response = $this->cart_list($request, $slug);
             $cartlist = (array)$cartlist_response->getData()->data;
@@ -6787,6 +8393,42 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         } else {
             return $this->error(['message' => __('User not found.')],  __('User not found.'));
         }
+
+        // P01-SEC-14 F1. A NON-POSITIVE LINE QUANTITY IS NOT A PAYABLE BASKET, HERE TOO.
+        //
+        // E5 put this refusal on payment_sheet only, and that was the wrong scope. Its own comment
+        // argued the governing reason -- "a row written before that, or by any other writer, would
+        // still subtract from the total" -- and then did not apply it to the handlers that write
+        // the order's money columns. An adversarial review of that commit caught it, and the
+        // measurement is unambiguous: a basket of one 1000.00 product plus one 50.00 product at
+        // qty -5, driven through order-save AND place-order, recorded product_price 750.0 and
+        // final_price 750.0, and the cheap product's stock went UP from 20 to 25. So for a COD
+        // order the shopper takes 1000.00 of goods for 750.00 and the merchant's inventory is
+        // corrupted in the same request. That is the amount OWED, not a reporting column.
+        //
+        // The source is a different endpoint: CartController::product_cartlist (the storefront web
+        // route `{storeSlug?}/product_cart`) wrote `$request->qty` with no validation at all. That
+        // is fixed there too, but this stays, because a row from any writer -- or one already in
+        // the table -- must not be priced.
+        $nonPositiveLines = Cart::where('customer_id', $customer->id)
+            ->where('store_id', $store->id)
+            ->where('qty', '<=', 0)
+            ->count();
+
+        if ($nonPositiveLines > 0) {
+            \Illuminate\Support\Facades\Log::warning('order: refused, basket holds a non-positive quantity', [
+                'handler' => __FUNCTION__,
+                'store_id' => $store->id,
+                'customer_id' => $customer->id,
+                'lines' => $nonPositiveLines,
+            ]);
+
+            return $this->error(
+                ['message' => __('Your cart contains an invalid quantity.')],
+                __('Your cart contains an invalid quantity.')
+            );
+        }
+
         if (empty($billing['firstname'])) {
             return $this->error(['message' => __('Billing first name not found.')], __('Billing first name not found.'));
         }
@@ -6840,21 +8482,74 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
 
         // coupon api call
         $order_array['coupon_info'] = null;
+
+        // P01-SEC-14 D1. `$verified_coupon` is this method's OWN verdict on the coupon, taken from
+        // the apply_coupon() call just below, and it is what the money column is written from ~200
+        // lines further down. Empty means "no coupon was accepted" -- the state an order with no
+        // coupon, an invalid code and another store's code must all land in.
+        //
+        // WHY IT EXISTS. apply_coupon() already ran here and already decided: its lookup is
+        // store-scoped (`->where('store_id', $store->id)`) and it recomputes the discount from the
+        // coupon ROW, and its answer was already used to reduce `$cartlist_final_price`. But the
+        // SECOND coupon block below then rebuilt `$order_array['coupon_info']` from
+        // `$request->coupon_info`, and `$order->coupon_price` was written from that -- so the
+        // shopper posted the discount and the order recorded it. Measured, not read: posting
+        // `coupon_info[coupon_discount_amount] = 95` against a coupon that does not exist put 95.0
+        // in `orders.coupon_price`. See tests/Feature/Security/ResidualSafetyCorrectionsTest::
+        // test_a_shopper_cannot_post_their_own_discount_onto_an_order.
+        //
+        // The CODE stays caller-supplied, because a code is a claim and apply_coupon() is what
+        // tests it. Only the NUMBERS move to the server's side. The sibling place_order already
+        // worked this way (`$coupon_price = $apply_coupon['amount']` at :3077), so this aligns
+        // ordersave with it rather than inventing a policy.
+        $verified_coupon = [];
         if (!empty($request->coupon_info)) {
             $coupon_data = $request->coupon_info;
             $apply_coupon = [
-                'coupon_code' => $coupon_data['coupon_code'],
+                'coupon_code' => $coupon_data['coupon_code'] ?? null,
                 'sub_total' => $cartlist_final_price
             ];
             $request->request->add($apply_coupon);
             $apply_coupon_response = $this->apply_coupon($request, $slug);
             $apply_coupon = (array)$apply_coupon_response->getData()->data;
 
-            $order_array['coupon_info']['message'] = $apply_coupon['message'];
+            $order_array['coupon_info']['message'] = $apply_coupon['message'] ?? null;
             $order_array['coupon_info']['status'] = false;
             if (!empty($apply_coupon['final_price'])) {
-                $cartlist_final_price = $apply_coupon['final_price'];
+                // P01-SEC-14 E6. A COUPON MAY ONLY LOWER THE BASKET TOTAL, NEVER ZERO IT.
+                //
+                // MEASURED, through api/{slug}/order-save with one 100.00 product: without a
+                // coupon the order recorded product_price 100.0 and final_price 100.0; WITH an
+                // accepted coupon it recorded 0.0 and 0.0, and a 7.00 discount. An accepted coupon
+                // made the order free. The cause is upstream: apply_coupon() builds its
+                // `final_price` from a nested cart read that is not reached for a coupon whose
+                // `sale_items` is 0, so the figure comes back "0.00", and `!empty("0.00")` is TRUE
+                // in PHP -- a non-empty string -- so the assignment fired on a zero.
+                //
+                // THIS GUARD IS NOT THE COUPON FIX. Correcting apply_coupon's arithmetic is the
+                // order-calculation change this package is not to start, and S24 in
+                // docs/security/P01-SECURITY-WORK-QUEUE.md shows that path is doubly broken: every
+                // coupon type except `fixed product discount` is refused outright by a mispaired
+                // `else`. What this does is refuse a figure that cannot be a discounted basket --
+                // not positive, or larger than the basket itself -- and keep the server's own
+                // total instead. Narrow, fails safe, and it leaves a correct coupon reduction
+                // working: a positive figure below the basket total is still accepted.
+                //
+                // Numeric comparison, not `empty()`: that is what let "0.00" through.
+                $couponedTotal = (float) $apply_coupon['final_price'];
+
+                if ($couponedTotal > 0 && $couponedTotal <= (float) $cartlist_final_price) {
+                    $cartlist_final_price = $apply_coupon['final_price'];
+                } else {
+                    \Illuminate\Support\Facades\Log::warning('coupon: refused an implausible discounted total', [
+                        'handler' => __FUNCTION__,
+                        'store_id' => $store->id,
+                        'basket_total' => (float) $cartlist_final_price,
+                        'coupon_total' => $couponedTotal,
+                    ]);
+                }
                 $order_array['coupon_info']['status'] = true;
+                $verified_coupon = $apply_coupon;
             }
         }
 
@@ -6884,6 +8579,55 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
             }
         }
 
+        /*
+         * NO LINE IS DECREMENTED UNTIL EVERY LINE IS OWNED. P01-COMMERCE-SEC-03 FOLLOW-UP.
+         *
+         * The ownership refusal below sits INSIDE the loop, and the decrement is a bare
+         * `->save()` with no transaction around it. So a two-line basket whose first line is
+         * legitimate and whose second names another store's product decremented the first
+         * line's stock, refused on the second, and wrote no order -- an orphan deduction
+         * against this store's own merchant, repeatable. The in-loop refusals are kept as
+         * defence in depth (they also cover a product id that resolves to no row at all, which
+         * this pre-flight deliberately treats as "not a provable mismatch"), but the question is
+         * now answered for the WHOLE basket before anything moves.
+         *
+         * This is the placement GuardsGatewayReturn::basketHasForeignProduct()'s own docblock
+         * argues for, and `ordersave` was carrying the shape it rejects.
+         *
+         * `$products ?? null` because the assignment above is inside a conditional and the loop
+         * below guards with `empty()`; the helper treats a null basket as nothing to refuse.
+         */
+        if ($this->basketHasForeignProduct($products ?? null, $store)) {
+            return $this->error(['message' => 'Product not found .']);
+        }
+
+        /*
+         * AND NO LINE QUANTITY IS ABSURD. P01-COMMERCE-SEC-03 FOLLOW-UP.
+         *
+         * THIS HANDLER HAD A FLOOR AND NO CEILING, and I said otherwise. Answering a sweep that
+         * reported "no quantity pre-flight" here, I pointed at the `qty <= 0` refusal above and
+         * called the finding refuted. It was half right: the floor is real, the CEILING was
+         * missing, and a completeness critic then MEASURED what that costs --
+         *
+         *     qty 2147483647 on a 50-unit product:
+         *         products.product_stock   50 -> -2147483597
+         *         order written, product_price = final_price = 21474836470.0, status 'Paid'
+         *
+         * -- on this route, on `order-save`, and on the web `process-order`. The same shape
+         * P01-COMMERCE-SEC-01 closed on the gateway returns, still open on the three writers that
+         * take cash on delivery. `GuardsGatewayReturn::MAX_SANE_LINE_QUANTITY` existed and was
+         * wired into none of them.
+         *
+         * The shared helper is used rather than a fourth copy of the rule: it refuses
+         * non-positive, fractional, non-numeric and above-ceiling quantities alike. The message is
+         * this handler's own, so no client sees a new response shape.
+         */
+        if ($this->basketHasUnusableQuantity($products ?? null)) {
+            return $this->error(
+                ['message' => __('Your cart contains an invalid quantity.')],
+                __('Your cart contains an invalid quantity.')
+            );
+        }
         // Order stock decrease start
         $prodduct_id_array = [];
         if (!empty($products)) {
@@ -6894,11 +8638,78 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                 $variant_id = $product->variant_id;
                 $qtyy = !empty($product->qty) ? $product->qty : 0;
 
-                $Product = Product::where('id', $product_id)->first();
-                $datas = Product::find($product_id);
-                if ($settings['stock_management'] ?? '' == 'on') {
+                // SCOPED TO THIS STORE. Closing addtocart is not enough: a cart row can reach
+                // this loop from the web storefront's own CartController, or already exist from
+                // before that gate, and this loop decrements whatever product id the cart holds.
+                // Measured: with only the entry gate in place, a planted cart row still drained
+                // another merchant's stock. Product is not in config/tenancy.php's scoped_models,
+                // so the scope adds no predicate for any principal and this has to be explicit.
+                // A foreign product now resolves to null and the stock block below is skipped,
+                // which is also what an already-deleted product did.
+                $Product = Product::where('id', $product_id)->where('store_id', $store->id)->first();
+                $datas = $Product;
+
+                /*
+                 * THE STORE-OWNERSHIP REFUSAL IS OUTSIDE THE STOCK-MANAGEMENT ARM, because
+                 * correcting that arm's precedence took it out of reach for an unmanaged store.
+                 *
+                 * The refusal for a product this store does not own is the `else` of
+                 * `if (!empty($ProductStock))` / `if (!empty($Product))` INSIDE the arm below.
+                 * While the precedence bug was live, a store with `stock_management = 'off'`
+                 * entered the arm anyway and therefore got that refusal. Fixing the precedence
+                 * made the arm skip for those stores -- and took the ownership check with it, so
+                 * the order would have been written recording ANOTHER MERCHANT'S product, priced
+                 * from their catalogue, with the shopper's cart cleared. No foreign stock moves
+                 * (the deduction is skipped too), so it is a cross-tenant REFERENCE rather than a
+                 * cross-tenant write -- but it is a protection this package removed as a side
+                 * effect, which the brief explicitly forbids. Found by the project's own
+                 * tenant-authz-reviewer on exactly that question.
+                 *
+                 * Hoisting it restores the status quo rather than tightening: an unmanaged store
+                 * was refused before this package, and is refused again now, with the same
+                 * message from the same condition. A managed store reaches the identical refusal
+                 * either way.
+                 *
+                 * IT WAS SUBSEQUENTLY MIRRORED ONTO `place_order` -- this paragraph used to say
+                 * it deliberately was not, and that is no longer true. The reasoning it gave was
+                 * sound at the time (that handler's expression was already correct, so hoisting
+                 * the refusal there would be a NEW refusal rather than a restoration, and the
+                 * predicate is a HARD `store_id` match that would start refusing a legitimate
+                 * legacy product with a NULL `store_id`). P01-COMMERCE-SEC-03 took the
+                 * fail-closed direction anyway, consistently on both handlers, and the NULL
+                 * `store_id` question is recorded as an OWNER DECISION in
+                 * docs/development/phase-1/11-NEXT-PACKAGE-PRODUCTVARIANT-TENANCY.md with the one
+                 * query that answers it.
+                 */
+                if (!empty($product_id) && $product_id != 0 && empty($Product)) {
+                    return $this->error(['message' => 'Product not found .']);
+                }
+
+                if (($settings['stock_management'] ?? null) === 'on') {
                     if (!empty($product_id) && !empty($variant_id) && $product_id != 0 && $variant_id != 0) {
                         $ProductStock = ProductVariant::where('id', $variant_id)->where('product_id', $product_id)->first();
+
+                        /*
+                         * `$ProductStock` IS TESTED BEFORE IT IS DEREFERENCED, which it was not.
+                         * `explode(',', $ProductStock->variation_option)` was the first statement
+                         * after the lookup and `if (!empty($ProductStock))` came after it, so a
+                         * line naming a variant that does not belong to its product raised a null
+                         * property read -- which Laravel's HandleExceptions promotes to an
+                         * ErrorException, i.e. HTTP 500 -- instead of this handler's own refusal,
+                         * and the `else` refusal below (:8267) could never be reached at all.
+                         *
+                         * This is the correction `place_order` received in P01-COMMERCE-SEC-03 and
+                         * this twin did not; found by an adversarial review of that commit, which
+                         * went looking for the sites the sweep had claimed and missed. Same
+                         * dead-guard shape as `Cart.php:717` and the six module arms of
+                         * `addtocart`, which are recorded in the queue rather than changed here:
+                         * no WorkDo module loads in a test run, so a change there could not be
+                         * proven by removal.
+                         */
+                        if (empty($ProductStock)) {
+                            return $this->error(['message' => 'Product not found .']);
+                        }
+
                         $variationOptions = explode(',', $ProductStock->variation_option);
                         $option = in_array('manage_stock', $variationOptions);
                         if (!empty($ProductStock)) {
@@ -6908,14 +8719,14 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                                 $ProductStock->save();
 
                                 if ($ProductStock->stock <= $ProductStock->low_stock_threshold) {
-                                    if (!empty(json_decode($settings['notification'])) && in_array("enable_low_stock", json_decode($settings['notification']))) {
+                                    if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_low_stock", json_decode($settings['notification'] ?? '[]'))) {
                                         if (isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] == "on") {
                                             Utility::variant_low_stock_threshold($product, $ProductStock, $settings);
                                         }
                                     }
                                 }
-                                if ($ProductStock->stock <= $settings['out_of_stock_threshold']) {
-                                    if (!empty(json_decode($settings['notification'])) && in_array("enable_out_of_stock", json_decode($settings['notification']))) {
+                                if ($ProductStock->stock <= ($settings['out_of_stock_threshold'] ?? '0')) {
+                                    if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_out_of_stock", json_decode($settings['notification'] ?? '[]'))) {
                                         if (isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] == "on") {
                                             Utility::variant_out_of_stock($product, $ProductStock, $settings);
                                         }
@@ -6926,20 +8737,20 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                                 $datas->product_stock = $remain_stock;
                                 $datas->save();
                                 if ($datas->product_stock <= $datas->low_stock_threshold) {
-                                    if (!empty(json_decode($settings['notification'])) && in_array("enable_low_stock", json_decode($settings['notification']))) {
+                                    if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_low_stock", json_decode($settings['notification'] ?? '[]'))) {
                                         if (isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] == "on") {
                                             Utility::variant_low_stock_threshold($product, $datas, $settings);
                                         }
                                     }
                                 }
-                                if ($datas->product_stock <= $settings['out_of_stock_threshold']) {
-                                    if (!empty(json_decode($settings['notification'])) && in_array("enable_out_of_stock", json_decode($settings['notification']))) {
+                                if ($datas->product_stock <= ($settings['out_of_stock_threshold'] ?? '0')) {
+                                    if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_out_of_stock", json_decode($settings['notification'] ?? '[]'))) {
                                         if (isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] == "on") {
                                             Utility::variant_out_of_stock($product, $datas, $settings);
                                         }
                                     }
                                 }
-                                if ($datas->product_stock <= $settings['out_of_stock_threshold'] && $datas->stock_order_status == 'notify_customer') {
+                                if ($datas->product_stock <= ($settings['out_of_stock_threshold'] ?? '0') && $datas->stock_order_status == 'notify_customer') {
                                     //Stock Mail
                                     $order_email = $billing['email'];
                                     $owner = User::find($store->created_by);
@@ -6977,22 +8788,22 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                             $Product->product_stock = $remain_stock;
                             $Product->save();
                             if ($Product->product_stock <= $Product->low_stock_threshold) {
-                                if (!empty(json_decode($settings['notification'])) && in_array("enable_low_stock", json_decode($settings['notification']))) {
+                                if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_low_stock", json_decode($settings['notification'] ?? '[]'))) {
                                     if (isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] == "on") {
                                         Utility::low_stock_threshold($Product, $settings);
                                     }
                                 }
                             }
 
-                            if ($Product->product_stock <= $settings['out_of_stock_threshold']) {
-                                if (!empty(json_decode($settings['notification'])) && in_array("enable_out_of_stock", json_decode($settings['notification']))) {
+                            if ($Product->product_stock <= ($settings['out_of_stock_threshold'] ?? '0')) {
+                                if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_out_of_stock", json_decode($settings['notification'] ?? '[]'))) {
                                     if (isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] == "on") {
                                         Utility::out_of_stock($Product, $settings);
                                     }
                                 }
                             }
 
-                            if ($Product->product_stock <= $settings['out_of_stock_threshold'] && $Product->stock_order_status == 'notify_customer') {
+                            if ($Product->product_stock <= ($settings['out_of_stock_threshold'] ?? '0') && $Product->stock_order_status == 'notify_customer') {
                                 //Stock Mail
                                 $order_email = $billing['email'];
                                 $owner = User::find($store->created_by);
@@ -7027,33 +8838,49 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                     }
                 }
                 // remove from cart
-                Cart::where('customer_id', $request->customer_id)->where('product_id', $product_id)->where('variant_id', $variant_id)->where('store_id', $store->id)->delete();
+                Cart::where('customer_id', $customer_id)->where('product_id', $product_id)->where('variant_id', $variant_id)->where('store_id', $store->id)->delete();
             }
             // Order stock decrease end
 
             // add in Order Coupon Detail table start
         }
-        if (!empty($request->coupon_info)) {
-            $coupon_data = $request->coupon_info;
+        // P01-SEC-14 D1. EVERY FIGURE HERE IS THE SERVER'S. `$verified_coupon` is apply_coupon()'s
+        // own answer, set above, and empty unless THIS store's coupon was accepted; the request's
+        // `coupon_info` numbers are not read any more. The display strings are rebuilt from the
+        // coupon row for the same reason -- a posted `coupon_discount_number: 95` against a 10%
+        // coupon printed "-95% for all products" on the order. The gate is the VERDICT, not the
+        // presence of a request field, so an invalid code and another store's code both leave
+        // `coupon_info` as the null set above.
+        //
+        // `Utility::GetValueByName` is now passed `$store->id`: without it the currency label on
+        // this order came from whatever store the helper happened to resolve, which for an API
+        // request with no web session is not this one.
+        if (!empty($verified_coupon)) {
+            $verified_info = (array) ($verified_coupon['coupon_info'] ?? []);
 
-            $discount_string = '-' . $coupon_data['coupon_discount_number'];
-            $CURRENCY = Utility::GetValueByName('CURRENCY');
-            $CURRENCY_NAME = Utility::GetValueByName('CURRENCY_NAME');
-            if ($coupon_data['coupon_discount_type'] == 'flat') {
+            $discount_number = $verified_info['coupon_discount_number'] ?? 0;
+            $discount_type = $verified_info['coupon_discount_type'] ?? 'percentage';
+            $discount_amount = $verified_coupon['coupon_discount_amount']
+                ?? ($verified_info['coupon_discount_amount'] ?? 0);
+
+            $discount_string = '-' . $discount_number;
+            $CURRENCY = Utility::GetValueByName('CURRENCY', $store->id);
+            $CURRENCY_NAME = Utility::GetValueByName('CURRENCY_NAME', $store->id);
+            if ($discount_type == 'flat') {
                 $discount_string .= $CURRENCY;
             } else {
                 $discount_string .= '%';
             }
             $discount_string .= ' ' . __('for all products');
-            $discount = '-' . $coupon_data['coupon_discount_amount'];
+            $discount = '-' . $discount_amount;
             $discount_string2 = '(' . $discount . ' ' . $CURRENCY_NAME . ')';
 
-            $order_array['coupon_info']['code'] = $coupon_data['coupon_code'];
+            $order_array['coupon_info']['code'] = $verified_info['coupon_code'] ?? null;
             $order_array['coupon_info']['discount'] = $discount;
             $order_array['coupon_info']['discount_string'] = $discount_string;
             $order_array['coupon_info']['discount_string2'] = $discount_string2;
-            $order_array['coupon_info']['price'] = SetNumber($coupon_data['coupon_final_amount']);
-            $order_array['coupon_info']['discount_amount'] = SetNumber($coupon_data['coupon_discount_amount']);
+            $order_array['coupon_info']['price'] = SetNumber($verified_coupon['final_price'] ?? 0);
+            $order_array['coupon_info']['discount_amount'] = SetNumber($discount_amount);
         }
 
         $tax = Tax::find($tax_id);
@@ -7114,7 +8941,7 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         }
         $is_guest = 1;
         if (auth('customers')->check()) {
-            $product_order_id  = $request->customer_id . date('YmdHis');
+            $product_order_id  = $customer_id . date('YmdHis');
             $is_guest = 0;
         }
         $product_reward_point = 1;
@@ -7124,12 +8951,47 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         $order = new Order();
         $order->product_order_id = $product_order_id;
         $order->order_date = date('Y-m-d H:i:s');
-        $order->customer_id = !empty($request->customer_id) ? $request->customer_id : 0;
+        $order->customer_id = !empty($customer_id) ? $customer_id : 0;
         $order->is_guest = $is_guest;
         $order->product_id = isset($prodduct_id_array) ? $prodduct_id_array : '';
         $order->product_json = json_encode($order_array['product']);
         $order->product_price = (float)$order_array['final_price'];
-        $order->coupon_price = $order_array['coupon_info']['discount_amount'];
+        // P01-SEC-14 C3, SECOND DEFECT ON THE SAME PATH, found by re-running ordersave after the
+        // coupon_info fix and watching it still return 500.
+        //
+        // This method reads its settings with `Setting::where('store_id', ...)->pluck('value',
+        // 'name')` (line 7427), which returns ONLY the rows a store has actually written. Its
+        // sibling place_order reads the same settings through `Utility::Setting($storeId)`, which
+        // merges a defaults map first. So two keys that place_order always finds --
+        // `out_of_stock_threshold` and `notification` -- are simply absent here for any store that
+        // has not written them, and nothing seeds them. Reading an absent key is a PHP 8 warning,
+        // which Laravel's handler converts to an ErrorException, so the request became a 500 inside
+        // the stock-decrement loop.
+        //
+        // The defaults supplied below are the platform's OWN, copied from Utility::Setting():
+        // 'out_of_stock_threshold' => '0' (Utility.php:113) and 'notification' => '[]'
+        // (Utility.php:110). They are applied per read rather than by switching this method to
+        // Utility::Setting(), because that accessor would also start supplying defaults for every
+        // OTHER key this long method reads -- `stock_management` among them -- which would change
+        // stock behaviour for stores that have configured none. That is a bigger change than a
+        // residual-corrections package should make; the accessor asymmetry is recorded as an owner
+        // item instead.
+        // P01-SEC-14 C3. `$order_array['coupon_info']` is initialised to null at the top of this
+        // method and populated ONLY inside the coupon branch, but this line read it
+        // unconditionally -- so every order placed WITHOUT a coupon raised "Trying to access array
+        // offset on null" and returned 500 before $order->save(). Measured: ordersave could not
+        // complete for any caller, legitimate or otherwise, unless a coupon was applied.
+        //
+        // That 500 landed AFTER the stock decrement and the cart delete, so a shopper's basket was
+        // emptied and a merchant's stock moved with no order to show for it. It is therefore a
+        // destructive failure, not merely a broken endpoint.
+        //
+        // 0 is the correct default rather than a placeholder: `coupon_price` is the discount
+        // APPLIED, and an order with no coupon has no discount. It is also exactly what the sibling
+        // place_order writes -- that method initialises `$coupon_price = 0` and assigns it
+        // unconditionally -- so the two order writers now agree. Getting this wrong would be a
+        // money defect, which is why it is 0 and not null or ''.
+        $order->coupon_price = $order_array['coupon_info']['discount_amount'] ?? 0;
         $order->delivery_price = $order_array['delivery_charge'];
         $order->tax_price = $order_array['tax']['tax_price'];
         
@@ -7176,36 +9038,29 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         $order->additional_note = !empty($request->additional_note) ? $request->additional_note : '-';
         $order->store_id = $store->id;
         $order->save();
-        $billing_city_id = 0;
-        if (!empty($billing['billing_city'])) {
-            $cityy = City::where('name', $billing['billing_city'])->first();
+        // P1-ORD-15: the posted values are IDS and this looked the city up by NAME, so every
+        // order inserted a city named after an id. The state and country ids are kept too: the
+        // order_billing_details columns below are joined to cities.id / states.id / countries.id
+        // and the shipped admin app renders them through those relations, so a posted NAME stored
+        // there displays as an empty field.
+        $billingGeography = \App\Services\BillingGeography::resolveBilling(
+            $billing['billing_city'] ?? null,
+            $billing['billing_state'] ?? null,
+            $billing['billing_country'] ?? null
+        );
+        $billing_city_id = $billingGeography['city_id'];
 
-            if (!empty($cityy)) {
-                $billing_city_id = $cityy->id;
-            } else {
-                $new_billing_city = new City();
-                $new_billing_city->name = $billing['billing_city'];
-                $new_billing_city->state_id = $billing['billing_state'];
-                $new_billing_city->country_id = $billing['billing_country'];
-                $new_billing_city->save();
-                $billing_city_id = $new_billing_city->id;
-            }
-        }
-
-        $delivery_city_id = 0;
-        if (!empty($billing['delivery_city'])) {
-            $d_cityy = City::where('name', $billing['delivery_city'])->first();
-            if (!empty($d_cityy)) {
-                $delivery_city_id = $d_cityy->id;
-            } else {
-                $new_delivery_city = new City();
-                $new_delivery_city->name = $billing['delivery_city'];
-                $new_delivery_city->state_id = $billing['delivery_state'];
-                $new_delivery_city->country_id = $billing['delivery_country'];
-                $new_delivery_city->save();
-                $delivery_city_id = $new_delivery_city->id;
-            }
-        }
+        // P1-ORD-15: the posted values are IDS and this looked the city up by NAME, so every
+        // order inserted a city named after an id. The state and country ids are kept too: the
+        // order_billing_details columns below are joined to cities.id / states.id / countries.id
+        // and the shipped admin app renders them through those relations, so a posted NAME stored
+        // there displays as an empty field.
+        $deliveryGeography = \App\Services\BillingGeography::resolveBilling(
+            $billing['delivery_city'] ?? null,
+            $billing['delivery_state'] ?? null,
+            $billing['delivery_country'] ?? null
+        );
+        $delivery_city_id = $deliveryGeography['city_id'];
 
         $OrderBillingDetail = new OrderBillingDetail();
         $OrderBillingDetail->order_id = $order->id;
@@ -7216,15 +9071,16 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         $OrderBillingDetail->telephone = !empty($billing['billing_user_telephone']) ? $billing['billing_user_telephone'] : '';
         $OrderBillingDetail->address = !empty($billing['billing_address']) ? $billing['billing_address'] : '';
         $OrderBillingDetail->postcode = !empty($billing['billing_postecode']) ? $billing['billing_postecode'] : '';
-        $OrderBillingDetail->country = !empty($billing['billing_country']) ? $billing['billing_country'] : '';
-        $OrderBillingDetail->state = !empty($billing['billing_state']) ? $billing['billing_state'] : '';
+        // P1-ORD-15: the resolved ids, for the reason given at the resolver call above.
+        $OrderBillingDetail->country = $billingGeography['country_id'];
+        $OrderBillingDetail->state = $billingGeography['state_id'];
         $OrderBillingDetail->city = $billing_city_id;
         
         $OrderBillingDetail->delivery_address = !empty($billing['delivery_address']) ? $billing['delivery_address'] : '';
         $OrderBillingDetail->delivery_city = $delivery_city_id;
         $OrderBillingDetail->delivery_postcode = !empty($billing['delivery_postcode']) ? $billing['delivery_postcode'] : '';
-        $OrderBillingDetail->delivery_country = !empty($billing['delivery_country']) ? $billing['delivery_country'] : '';
-        $OrderBillingDetail->delivery_state = !empty($billing['delivery_state']) ? $billing['delivery_state'] : '';
+        $OrderBillingDetail->delivery_country = $deliveryGeography['country_id'];
+        $OrderBillingDetail->delivery_state = $deliveryGeography['state_id'];
         $OrderBillingDetail->save();
 
         // add in Order Coupon Detail table start
@@ -7250,7 +9106,7 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
 
                 // Coupon history
                 $UserCoupon = new UserCoupon();
-                $UserCoupon->user_id = !empty($request->customer_id) ? $request->customer_id : null;
+                $UserCoupon->user_id = !empty($customer_id) ? $customer_id : null;
                 $UserCoupon->coupon_id = $Coupon->id;
                 $UserCoupon->amount = $coupon_data['coupon_discount_amount'];
                 $UserCoupon->order_id = $order->id;
@@ -7299,26 +9155,21 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         
         $settings = Setting::where('store_id', $store->id)->pluck('value', 'name')->toArray();
 
-        if (auth('customers')->user()) {
-            $rules = [
-                'product_id' => 'required',
-                'variant' => 'required',
-                'quantity' => 'required',
-            ];
-            $customer_id         = auth('customers')->user()->id;
-        } else {
-            $rules = [
-                'customer_id' => 'required',
-                'product_id' => 'required',
-                'variant' => 'required',
-                'quantity' => 'required',
-            ];
-            $customer_id         = $request->customer_id ?? null;
-        }
-        $customer = Customer::find($customer_id);
-        if (!isset($customer) || empty($customer)) {
+        // AUTHZ: the guard-class trap. `if (! auth('customers')->user())` reads as a guest
+        // fallback and is not one -- custom.auth admits a merchant's or a driver's token with
+        // auth('customers') null, so precisely those principals took the request-controlled
+        // branch. There are no guests on this route: custom.auth refuses a missing bearer token
+        // before the handler runs. See resolveStoreCustomer().
+        $rules = [
+            'product_id' => 'required',
+            'variant' => 'required',
+            'quantity' => 'required',
+        ];
+        $customer = $this->resolveStoreCustomer($store);
+        if ($customer === null) {
             return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
         }
+        $customer_id         = $customer->id;
         $variantString = $request->variant;
         if (is_array($variantString)) {
             $variantString = implode(',', $variantString);
@@ -7339,7 +9190,11 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
 
         $qty = $request->quantity;
         $product_id = $request->product_id;
-        $product = Product::find($product_id);
+        // THE PRODUCT MUST BE THIS STORE'S. Product carries StoreScope but is NOT in
+        // config/tenancy.php's scoped_models, so the scope short-circuits and adds no predicate
+        // for any principal. Unscoped, this returned another tenant's price, sale price, tax and
+        // stock state to any shopper who named the id.
+        $product = Product::where('id', $product_id)->where('store_id', $store->id)->first();
 
         if (!empty($product)) {
             if ($product->variant_product == 0) {

@@ -154,7 +154,12 @@ return [
     |
     */
     'cod' => [
-        'settlement' => env('COD_SETTLEMENT', 'order'),
+        // Owner decision D-06, 2026-10-22: settle on delivery, and settle-at-order is NO LONGER a
+        // permitted value -- a COD order recorded Paid before collection is uncollected money reported
+        // as paid. The key is retained so that a deployment still carrying COD_SETTLEMENT=order gets a
+        // loud warning from PaymentVerificationService::codSettlementPolicy() instead of silently
+        // getting behaviour it did not ask for.
+        'settlement' => env('COD_SETTLEMENT', 'delivery'),
     ],
 
     /*

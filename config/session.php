@@ -190,8 +190,27 @@ return [
     |--------------------------------------------------------------------------
     |
     | This option determines how your cookies behave when cross-site requests
-    | take place, and can be used to mitigate CSRF attacks. By default, we
-    | will set this value to "lax" to permit secure cross-site requests.
+    | take place, and can be used to mitigate CSRF attacks.
+    |
+    | P1-SEC-01 item C. THE STOCK LARAVEL SENTENCE THAT USED TO SIT HERE -- "By default, we
+    | will set this value to 'lax'" -- WAS FALSE OF THIS APPLICATION AND IS REMOVED. The
+    | default below is `null`, not `'lax'`, and that is DELIBERATE AND LOAD-BEARING. Do not
+    | "restore the framework default" without reading the next paragraph.
+    |
+    | `null` omits the attribute, so browsers apply their own Lax-by-default -- but ONLY for
+    | the top-level navigations they treat that way, and NOT identically across browsers or
+    | across the redirect shapes a payment gateway uses. Setting `'lax'` explicitly is the
+    | obvious hardening and it is NOT SAFE HERE: a top-level cross-site POST does not carry a
+    | Lax cookie, and this application has CSRF-exempt routes that are POSTed to BY THIRD-PARTY
+    | PAYMENT GATEWAYS and then read their state back out of the session. Nine such routes were
+    | measured -- six of them take money before activating a plan and one writes a paid
+    | storefront order -- and `'lax'` converts those into a login redirect or a "payment has
+    | not been applied to an order" refusal. The list is in
+    | docs/security/P01-SESSION-HYGIENE.md.
+    |
+    | So the value is an OWNER DECISION, not a one-line hardening, and
+    | tests/Feature/Security/SessionHygieneTest.php pins it so a future change has to be
+    | deliberate. `SESSION_SAME_SITE` in the environment still overrides it.
     |
     | See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Set-Cookie#samesitesamesite-value
     |

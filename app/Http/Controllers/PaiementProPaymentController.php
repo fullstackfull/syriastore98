@@ -35,10 +35,15 @@ use App\Facades\ModuleFacade as Module;
 use Illuminate\Support\Facades\Cache;
 use App\Traits\ApiResponser;
 use App\Http\Controllers\Concerns\GuardsPlanActivation;
+use App\Http\Controllers\Concerns\GuardsGatewayReturn;
 
 class PaiementProPaymentController extends Controller
 {
     use GuardsPlanActivation;
+    use GuardsGatewayReturn;
+    use \App\Http\Controllers\Concerns\ResolvesPartialPaymentDeposit;
+    /* P1-ORD-02: a pending balance is flipped to paid only for the customer who owes it. */
+    use \App\Http\Controllers\Concerns\ResolvesPendingPartialPayment;
 
     use ApiResponser;//
 
@@ -219,22 +224,153 @@ class PaiementProPaymentController extends Controller
 
     public function getProductStatus(Request $request, $slug)
     {
-        // if ($request->responsecode == 0) {
-            $requests_data = (Session::get('request_data'));
-            // Merge $requests_data into the request
+        /*
+         * =========================================================================================
+         *  THIS HANDLER'S ONLY GATEWAY CHECK WAS COMMENTED OUT, SO IT WROTE AN ORDER FOR ANY RETURN.
+         * =========================================================================================
+         *
+         * The line below this block reads `// if ($request->responsecode == 0) {` -- commented out,
+         * and `git blame` puts it at the boundary commit, so it arrived that way rather than being
+         * disabled by this project. The handler therefore wrote a Paid order whatever PaiementPro
+         * said, including for a declined payment and for a bare GET to the callback.
+         *
+         * OWNER DECISION, Phase 01 final execution directive: "Any unverified gateway payment must
+         * remain Pending, never Paid. Do not create a falsely paid order, and preserve a safe
+         * reconciliation path for customers who may have been charged."
+         *
+         * WHY THE COMMENT IS NOT SIMPLY RESTORED, and this is the part that matters. Two reasons,
+         * both measured rather than assumed:
+         *
+         *   1. THAT GATE NEVER WORKED. `$request->responsecode == 0` is a LOOSE comparison against
+         *      integer 0, and in PHP 8 `null == 0` is TRUE -- so an ABSENT responsecode satisfied
+         *      it. A prior cycle recorded exactly this on the sibling plan path in this same file
+         *      (:149-151): "The gate was therefore satisfied by a bare GET to the callback with no
+         *      responsecode at all." Restoring it would install a check that passes the attack it
+         *      is supposed to stop.
+         *
+         *   2. RESTORING IT WOULD REFUSE RATHER THAN RECONCILE. If PaiementPro's real return does
+         *      not carry `responsecode` under that name -- which this repository cannot establish,
+         *      and which docs/security/P01-ORD-13-GATEWAY-TEST-REQUIREMENTS.md lists as an item to
+         *      obtain from the provider -- then an `if` around the whole handler stops every
+         *      legitimate order being written while the customer has already been charged. That is
+         *      the exact failure the directive's second sentence forbids.
+         *
+         * ============================================================================================
+         *  WHAT WAS DONE FIRST, AND WHY IT WAS WRONG. CORRECTED, NOT DELETED.
+         * ============================================================================================
+         *
+         * The first version of this block RECORDED the gateway's success code as a verification, on
+         * a strict `=== '0'` comparison, reasoning that a strict test an absent value cannot satisfy
+         * was enough. It is not, and an independent verification pass over that very commit found
+         * two ways to get a Paid order without paying. BOTH WERE REPRODUCED on the real route
+         * before this correction:
+         *
+         *   SHAPE 1, the plant. recordVerification() ran BEFORE the stored-checkout-state read
+         *       below, and the `=== null` refusal returns without clearing it. So a POST carrying
+         *       `responsecode=0` and no stored state wrote no order and left
+         *       ['payment_type' => 'paiementpro', ...] in the SESSION; a later, genuine return in
+         *       the same session carrying no responsecode at all then redeemed it and the order was
+         *       written PAID.
+         *
+         *   SHAPE 2, the forgery, and this is the deeper one. `responsecode` is the CALLER'S OWN
+         *       FIELD. This handler makes no provider call -- no Http:: request, no transaction
+         *       lookup, no signature check -- and the route is a `Route::any`
+         *       (routes/customer.php:195) that accepts GET as readily as POST. So any caller who
+         *       could reach the return URL could mint a Paid order for a basket they never paid
+         *       for, and recording it told PaymentVerificationService that something had been
+         *       verified when nothing had.
+         *
+         * OWNER DECISION D2 SETTLES IT, and the first version did not weigh it:
+         *
+         *     "Gateways: a return URL, redirect or client flag proves nothing; require
+         *      provider-side verification of ownership, reference, amount, currency and status;
+         *      ... an unverifiable gateway stays Pending and writes no paid ledger entry"
+         *
+         * A client flag proves nothing. PaiementPro is therefore an UNVERIFIABLE gateway in D2's
+         * sense until its own status endpoint and a credential exist, so NOTHING IS RECORDED HERE.
+         *
+         * WHAT HAPPENS NOW. The order is still always written -- the reconciliation half of the
+         * directive, and a refusal would be the worse failure it names -- and
+         * PaymentVerificationService::resolveOrderPaymentStatus() finds no verification record and
+         * returns PENDING. Every PaiementPro order is Pending until a human confirms it, no wallet
+         * is credited for one, and the warning below is the reconciliation queue rather than just a
+         * trace.
+         *
+         * WHAT THIS COSTS, stated rather than discovered in production: PaiementPro no longer
+         * settles automatically at all. That is the price D2 sets for a gateway that cannot be
+         * asked whether money moved. Restoring automatic settlement needs PaiementPro's own status
+         * endpoint, its response field names and an authenticated credential -- per-gateway work
+         * recorded on #25 and in docs/security/P01-ORD-13-GATEWAY-TEST-REQUIREMENTS.md.
+         *
+         * AND THE SHAPE-1 HAZARD IS CLOSED BY CONSTRUCTION rather than by moving the call below the
+         * refusal: with nothing recorded there is nothing to plant. A gateway that genuinely
+         * verifies must still record AFTER the stored-state refusal, which is where the NMI and
+         * AuthorizeNet arms already do it.
+         */
+        \Illuminate\Support\Facades\Log::warning('PaiementPro return recorded PENDING: this gateway is not provider-verified', [
+            'slug' => $slug,
+            'responsecode' => $request->input('responsecode'),
+            'reason' => 'D2: a client flag proves nothing; no provider call exists on this path',
+        ]);
+
+            /*
+             * P01-COMMERCE-SEC-01. THE CHECKOUT STATE IS THE SERVER'S, OR THERE IS NO ORDER.
+             *
+             * Three things were wrong here and all three are closed by reading the stored state
+             * and refusing when it is absent:
+             *
+             *   1. the `$request->all()` fallback handed the caller the prices, the shipping, the
+             *      coupon, the cart, the STORE and the CUSTOMER -- by not sending a session cookie;
+             *   2. `$request->merge($requests_data)` ran BEFORE that null check, so on the
+             *      fallback path the merge had already pushed a null through the request bag;
+             *   3. the `coupon_info` fix-up below read `$request->cartlist`, i.e. the caller's own
+             *      cart, into the state the order is written from. It now reads the state's own
+             *      cartlist, which PaymentController::processOrder computed.
+             *
+             * See App\Http\Controllers\Concerns\GuardsGatewayReturn for why the stored state is
+             * sufficient: it is the request as it stood after processOrder priced the cart,
+             * computed the shipping server-side and refused a non-positive quantity.
+             */
+            $requests_data = $this->storedCheckoutState($request, 'paiementpro');
+
+            if ($requests_data === null) {
+                return $this->gatewayReturnRefusal();
+            }
+
+            /*
+             * P1-PAY-02. ONE CHECKOUT, AND ONE PAYMENT, PRODUCE AT MOST ONE ORDER -- and the control is
+             * NOT the session. `Session::forget()` below makes the stored state single-use, which stops a
+             * SEQUENTIAL replay; it cannot stop two returns that OVERLAP, because Laravel holds no session
+             * lock for the life of these requests and both read the state before either writes the forget.
+             * That is the same read-check-use straddle already fixed on the Paymera path, where it was
+             * measured to produce a second order, a second stock decrement and a second wallet credit.
+             *
+             * Taken HERE, above every write and above the forget, so a refusal costs nothing. See
+             * GuardsGatewayReturn::claimGatewayReturn() for the two keys and for which gateways supply a
+             * transaction reference and which do not.
+             */
+            if (! $this->claimGatewayReturn($request, 'paiementpro', $requests_data)) {
+                return $this->gatewayReturnReplayRefusal();
+            }
+
+            if (! isset($requests_data['coupon_info']) && isset($requests_data['cartlist']['coupon_info'])) {
+                $requests_data['coupon_info'] = is_object($requests_data['cartlist']['coupon_info'])
+                    ? (array) $requests_data['cartlist']['coupon_info']
+                    : $requests_data['cartlist']['coupon_info'];
+            }
+
             $request->merge($requests_data);
-            if (!isset($requests_data['coupon_info']) && isset($request->cartlist['coupon_info'])) {
-                $requests_data['coupon_info'] = is_object($request->cartlist['coupon_info']) ? (array) $request->cartlist['coupon_info'] : $request->cartlist['coupon_info'];
-            }
-            if($requests_data == null)
-            {
-                $requests_data = $request->all();
-            }
             $slug = !empty($requests_data['slug']) ? $requests_data['slug'] : '';
             $store = getStore($slug);
 
             Session::forget('request_data');
             $customer_id = $requests_data['customer_id'] ?? '';
+            // P01-COMMERCE-SEC-01. The stored state is now the request for the REST of this handler,
+            // not only on the authenticated arm below. See
+            // GuardsGatewayReturn::adoptStoredCheckoutState(): on the GUEST arm the pre-existing
+            // `$request->merge($requests_data)` never ran, so every later `$request->customer_id` was
+            // the posted value -- the order's owner, and the subject of the cart delete.
+            $this->adoptStoredCheckoutState($request, $requests_data);
 
             if(!empty($requests_data['method_id'])){
 
@@ -249,12 +385,53 @@ class PaiementProPaymentController extends Controller
             if (module_is_active('PartialPayments')) {
                 if($plan && strpos($plan->modules, 'PartialPayments') !== false && \Auth::guard('customers')->user())
                 {
-                    if((isset($request->partial_payment_type) || $request->partial_payment_type == 'pending_payment'))
-                    {
+                    /*
+                     * `&&`, WHERE IT USED TO SAY `||`.  P1-ORD-02 criterion 2.
+                     *
+                     * `isset()` alone is true for ANY value of a caller-supplied key, so posting
+                     * `partial_payment_type=x` on an ORDINARY checkout diverted this return into the
+                     * settle-a-balance branch. That branch answers redirect()->back() without writing an
+                     * order, and its first statement is
+                     * `OrderPartialPayments::find($requests_data['partial_payment_id'])`, which is find(NULL)
+                     * when the stored state holds no such key -- a fatal on the next line. Either way the
+                     * shopper has been charged and no order row exists.
+                     *
+                     * AND THE PREDICATE READS THE STORED STATE, not the live request. `Request::merge()`
+                     * only overwrites keys the state HOLDS (GuardsGatewayReturn:174-176), so an ordinary
+                     * checkout's state -- which carries no `partial_payment_type` -- let a posted one survive
+                     * the merge and divert the return. By then the replay claim is consumed and the state
+                     * forgotten, so the shopper's payment stands with no order and no retry.
+                     *
+                     * AND THE ROW IS CHECKED BEFORE IT IS FLIPPED. ManagePartialPayment() is three statements
+                     * of vendored code with no store_id and no customer_id predicate, on a model that is in no
+                     * `scoped_models` entry -- so without this a signed-in shopper could mark ANY tenant's
+                     * pending balance paid by naming its id. See
+                     * App\Http\Controllers\Concerns\ResolvesPendingPartialPayment.
+                     *
+                     * WHAT THIS GUARD DOES NOT ANSWER, stated so the next reader is not misled: it proves the
+                     * balance is THIS customer's and still owed. It does NOT prove it was PAID. The settle
+                     * branch returns before any provider verification on this handler, so a customer can still
+                     * mark their OWN balance settled without a charge. Pre-existing, not closed here, and
+                     * recorded in docs/security/P01-ORD-02-PARTIAL-PAYMENT-TOTAL-SOURCE.md section 5.
+                     */
+                    if (($requests_data['partial_payment_type'] ?? null) === 'pending_payment') {
+                        if ($this->pendingPartialPaymentRow(
+                            $requests_data['partial_payment_id'] ?? null,
+                            $store->id ?? null,
+                            \Auth::guard('customers')->id()
+                        ) === null) {
+                            \Illuminate\Support\Facades\Log::warning('Pending partial payment refused: the balance named does not belong to this customer.', [
+                                'store_id' => $store->id ?? null,
+                                'customer_id' => \Auth::guard('customers')->id(),
+                                'partial_payment_id' => $requests_data['partial_payment_id'] ?? null,
+                            ]);
+
+                            return redirect()->back()->with('error', __('This payment could not be verified.'));
+                        }
+
                         $return = \Workdo\PartialPayments\app\Models\PartialPayments::ManagePartialPayment($requests_data, $slug);
-                        if($return['status'] == 'success')
-                        {
-                            return redirect()->back()->with('success',__($return['message']));
+                        if ($return['status'] == 'success') {
+                            return redirect()->back()->with('success', __($return['message']));
                         }
                     }
                 }
@@ -408,7 +585,80 @@ class PaiementProPaymentController extends Controller
             $settings = Setting::where('store_id', $store->id)->pluck('value', 'name')->toArray();
 
             // Order stock decrease start
+            
+            /*
+             * P01-COMMERCE-SEC-01. A BASKET WITH A NON-POSITIVE LINE IS NOT PRICED AND NOT SHIPPED.
+             *
+             * Placed here because here it is free: the loop below is the first thing that touches stock,
+             * and the order row is not written until ~200 lines further on, so a refusal leaves nothing
+             * behind. It is the same position assertCartAvailable() occupies in
+             * PaymentController::processOrder, and the same reasoning.
+             *
+             * The decrement below is `$remain_stock = $Product->product_stock - $qtyy`, so a negative
+             * quantity ADDS stock while the same line reduces every total it is summed into. See
+             * App\Http\Controllers\Concerns\GuardsGatewayReturn::basketHasUnusableQuantity() for why
+             * the initiation-time guard is not enough on its own: the cart stays mutable across the
+             * gateway round trip, and two vendored module routes can still write such a row.
+             */
+            if ($this->basketHasUnusableQuantity($products)) {
+                return $this->gatewayReturnQuantityRefusal($request, 'paiementpro');
+            }
+
+            /*
+             * AND THE BASKET MUST BE THIS STORE'S -- product AND variant. P01-COMMERCE-SEC-03.
+             *
+             * Wired here, immediately after the quantity guard, because both questions belong in
+             * the same place: before any stock row moves and before any order is priced from the
+             * basket. See GuardsGatewayReturn::basketHasForeignProduct(); the variant half exists
+             * because this handler's own stock loop resolves its variant as
+             * `ProductVariant::where('id', $variant_id)->where('product_id', $product_id)` -- the
+             * caller's own two values, with `ProductVariant` scoped by nothing -- so scoping the
+             * product would not have scoped the variant.
+             *
+             * MEASURED on the sibling API route before this guard existed: a store-A cart row
+             * naming store B's variant product took store B's `product_variants.stock` from 50 to
+             * 43 on an ordinary checkout. The row reaches `carts` from any writer that is not
+             * `add-cart` -- two vendored module routes write `product_id` straight from the
+             * request (S30/S32) -- so closing the cart entry does not retire this guard.
+             */
+            if ($this->basketHasForeignProduct($products, $store)) {
+                return $this->gatewayReturnForeignProductRefusal($request, 'paiementpro');
+            }
             $prodduct_id_array = [];
+            /*
+             * P1-ORD-02 criterion 2 -- THE DEPOSIT IS PRICED HERE, WHILE THE CART STILL EXISTS.
+             *
+             * The order's write site is where the total is SET and the wrong place to ASK for it. The module's
+             * `ManageDeposit()` re-reads the basket through `ApiController::cart_list()`, and the loop below
+             * DELETES the cart rows before `new Order()` is reached -- so called down there it finds an empty
+             * basket, falls off the end of its own `if (! empty($products))` and returns NULL.
+             *
+             * MEASURED on EasebuzzController, and this is the part worth keeping: the first cut called the
+             * resolver at the write site, exactly as the already-repaired `PaymentService` does, and it SILENTLY
+             * fell back to the subtotal -- no exception, nothing logged, the order charged 100.00 where the
+             * module prices 10.00. The same call made here returns `deposite_amount = "10.00"`. `PaymentService`
+             * gets away with it only because a previous package DEFERRED its cart delete to after the order
+             * commits (PaymentService.php:2592-2615); these controllers still delete first.
+             *
+             * See App\Http\Controllers\Concerns\ResolvesPartialPaymentDeposit for what was wrong with reading
+             * the total out of the posted checkout state.
+             */
+            $partialPaymentDeposit = null;
+
+            if (module_is_active('PartialPayments') && \Auth::guard('customers')->user() && (isset($settings['enable_partial_payment']) && $settings['enable_partial_payment'] == 'on')) {
+                $partialPaymentDeposit = $this->partialPaymentDeposit(
+                    $request,
+                    $slug,
+                    [
+                        'tax_price' => $tax_price,
+                        'shipping_price' => $delivery_price,
+                        'coupon_price' => $coupon_price,
+                        'total_sub_price' => $final_sub_total_price,
+                    ],
+                    $final_sub_total_price
+                );
+            }
+
             if (!empty($products)) {
                 foreach ($products as $key => $product) {
                     $prodduct_id_array[] = $product->product_id;
@@ -419,11 +669,11 @@ class PaiementProPaymentController extends Controller
 
                     $Product = Product::where('id', $product_id)->first();
                     $datas = Product::find($product_id);
-                    if($settings['stock_management'] ?? '' == 'on')
+                    if (($settings['stock_management'] ?? null) === 'on')
                     {
                         if (!empty($product_id) && !empty($variant_id) && $product_id != 0 && $variant_id != 0) {
                             $ProductStock = ProductVariant::where('id', $variant_id)->where('product_id', $product_id)->first();
-                            $variationOptions = explode(',', $ProductStock->variation_option);
+                            $variationOptions = explode(',', (string) ($ProductStock->variation_option ?? ''));   // P1-PAY-01: null-safe; a bare deref here throws ErrorException
                             $option = in_array('manage_stock', $variationOptions);
                             if (!empty($ProductStock)) {
                                 if($option == true)
@@ -434,7 +684,7 @@ class PaiementProPaymentController extends Controller
 
                                     if($ProductStock->stock <= $ProductStock->low_stock_threshold)
                                     {
-                                        if (!empty(json_decode($settings['notification'])) && in_array("enable_low_stock",json_decode($settings['notification'])))
+                                        if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_low_stock",json_decode($settings['notification'] ?? '[]')))
                                         {
                                             if(isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] =="on")
                                             {
@@ -443,9 +693,9 @@ class PaiementProPaymentController extends Controller
 
                                         }
                                     }
-                                    if($ProductStock->stock <= $settings['out_of_stock_threshold'])
+                                    if($ProductStock->stock <= ($settings['out_of_stock_threshold'] ?? '0'))
                                     {
-                                        if (!empty(json_decode($settings['notification'])) && in_array("enable_out_of_stock",json_decode($settings['notification'])))
+                                        if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_out_of_stock",json_decode($settings['notification'] ?? '[]')))
                                         {
                                             if(isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] =="on")
                                             {
@@ -461,7 +711,7 @@ class PaiementProPaymentController extends Controller
                                     $datas->save();
                                     if($datas->product_stock <= $datas->low_stock_threshold)
                                     {
-                                        if (!empty(json_decode($settings['notification'])) && in_array("enable_low_stock",json_decode($settings['notification'])))
+                                        if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_low_stock",json_decode($settings['notification'] ?? '[]')))
                                         {
                                             if(isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] =="on")
                                             {
@@ -470,9 +720,9 @@ class PaiementProPaymentController extends Controller
 
                                         }
                                     }
-                                    if($datas->product_stock <= $settings['out_of_stock_threshold'])
+                                    if($datas->product_stock <= ($settings['out_of_stock_threshold'] ?? '0'))
                                     {
-                                        if (!empty(json_decode($settings['notification'])) && in_array("enable_out_of_stock",json_decode($settings['notification'])))
+                                        if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_out_of_stock",json_decode($settings['notification'] ?? '[]')))
                                         {
                                             if(isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] =="on")
                                             {
@@ -480,7 +730,7 @@ class PaiementProPaymentController extends Controller
                                             }
                                         }
                                     }
-                                    if($datas->product_stock <= $settings['out_of_stock_threshold'] && $datas->stock_order_status == 'notify_customer')
+                                    if($datas->product_stock <= ($settings['out_of_stock_threshold'] ?? '0') && $datas->stock_order_status == 'notify_customer')
                                     {
                                         //Stock Mail
                                         $order_email = $billing['email'];
@@ -526,7 +776,7 @@ class PaiementProPaymentController extends Controller
                                 $Product->save();
                                 if($Product->product_stock <= $Product->low_stock_threshold)
                                 {
-                                    if (!empty(json_decode($settings['notification'])) && in_array("enable_low_stock",json_decode($settings['notification'])))
+                                    if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_low_stock",json_decode($settings['notification'] ?? '[]')))
                                     {
                                         if(isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] =="on")
                                         {
@@ -535,9 +785,9 @@ class PaiementProPaymentController extends Controller
                                     }
                                 }
 
-                                if($Product->product_stock <= $settings['out_of_stock_threshold'])
+                                if($Product->product_stock <= ($settings['out_of_stock_threshold'] ?? '0'))
                                 {
-                                    if (!empty(json_decode($settings['notification'])) && in_array("enable_out_of_stock",json_decode($settings['notification'])))
+                                    if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_out_of_stock",json_decode($settings['notification'] ?? '[]')))
                                     {
                                         if(isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] =="on")
                                         {
@@ -546,7 +796,7 @@ class PaiementProPaymentController extends Controller
                                     }
                                 }
 
-                                if($Product->product_stock <= $settings['out_of_stock_threshold'] && $Product->stock_order_status == 'notify_customer')
+                                if($Product->product_stock <= ($settings['out_of_stock_threshold'] ?? '0') && $Product->stock_order_status == 'notify_customer')
                                 {
                                     //Stock Mail
                                     $order_email = $billing['email'];
@@ -589,11 +839,18 @@ class PaiementProPaymentController extends Controller
                         }
                     }
                     // remove from cart
-                    Cart::where('customer_id', $request->customer_id)->where('product_id', $product_id)->where('variant_id', $variant_id)->where('store_id',$store->id)->delete();
+                    // P1-SEC-24: the buyer's basket is the AUTHENTICATED customer's. `$request->customer_id` here is the stored checkout
+                    // state -- '' for a guest (MySQL reads '' = 0) or the id of whoever's e-mail was typed -- and is not an owner.
+                    Cart::forCustomer(auth('customers')->id())->where('product_id', $product_id)->where('variant_id', $variant_id)->where('store_id',$store->id)->delete();
                 }
             }
             if (isset($request->customer_id) && !empty($request->customer_id)) {
-                Cart::where('customer_id', $request->customer_id)->delete();
+                // P1-SEC-24. The id is the AUTHENTICATED buyer's (it was the stored checkout state's), and a Customer belongs to one
+                // store (customers.store_id), so this reaches that buyer's own basket. The earlier note here said StoreScope adds a
+                // store predicate for every principal that reaches this line; that was measured with actingAs($customer, 'customers'),
+                // which also makes `customers` the DEFAULT guard and so resolves a tenant. In production the default guard is `web`, a
+                // storefront request resolves none, and with null_tenant 'open' the scope adds nothing -- do not rely on it.
+                Cart::forCustomer(auth('customers')->id())->delete();
             }
             // Order stock decrease end
             if (!empty($prodduct_id_array)) {
@@ -631,7 +888,39 @@ class PaiementProPaymentController extends Controller
                     $order->final_price = $final_price + $tax_price - $coupon_price;
                 }
             }elseif (module_is_active('PartialPayments') && \Auth::guard('customers')->user() && (isset($settings['enable_partial_payment']) && $settings['enable_partial_payment'] == 'on')) {
-                $order->final_price = $requests_data['cartlist_final_price'] ?? $total_sub_price;
+                /*
+                 * P1-ORD-02 criterion 2. THIS WAS
+                 *
+                 *     $order->final_price = $requests_data['cartlist_final_price'] ?? $total_sub_price;
+                 *
+                 * and `$requests_data` is the stored checkout state, which `PaymentService` stores as
+                 * `$request->except('attachment','payment_receipt')` -- the whole POST BODY of the
+                 * checkout request. SERVER-STORED IS NOT SERVER-DERIVED: a key the shopper posts at
+                 * initiation is in the array this return reads back.
+                 *
+                 * WHICH INITIATION PATHS LET A CALLER CHOOSE IT -- measured on the REAL route, because the
+                 * first write-up of this package overclaimed it and a read-only review called that. `POST
+                 * {slug}/process-order`, signed in as a customer, posting `cartlist_final_price = 1.00`,
+                 * stores:
+                 *     partial payments off, plain              100.00  (the SERVER's figure)
+                 *     partial payments on,  plain               10.00  (the MODULE's deposit)
+                 *     partial payments on,  pending_payment      1.00  (THE CALLER'S OWN FIGURE)
+                 * The first two are prepareFinalRequestData() overwriting the key before the session store
+                 * (PaymentController:1802, :1826), so on those paths this repair is DEFENCE IN DEPTH rather
+                 * than a live fix. The third IS live: that method's own `else` limb (:1831) writes
+                 * `$request->payment_amount` with nothing checking it against the amount outstanding.
+                 * Pinned by tests/Feature/Commerce/PartialPaymentDepositSourceTest.php.
+                 *
+                 * `$total_sub_price` was ALSO never assigned in this file, so the `??` limb was an
+                 * undefined variable -- an ErrorException, not a safe fallback.
+                 *
+                 * Recomputed through the module's own server-side ManageDeposit(), with the
+                 * server-derived components merged in first so neither the deposit nor its inputs can
+                 * come from the caller. The same repair 569494d2 made at PaymentService and
+                 * PaymentController, which this file was missed out of. See
+                 * App\Http\Controllers\Concerns\ResolvesPartialPaymentDeposit.
+                 */
+                $order->final_price = $partialPaymentDeposit ?? $final_sub_total_price;
                 \Workdo\PartialPayments\app\Models\OrderPartialPayments::OrderPartialPayments($order, $slug , $request);
             }else{
                 if (module_is_active('RewardClubPoint') && isset($requests_data['club_point_is_active']) && $requests_data['club_point_is_active'] == 'on') {
@@ -654,7 +943,24 @@ class PaiementProPaymentController extends Controller
             event(new AddAdditionalFields($order,$request->all(),$store));
             $order->payment_comment = !empty($requests_data['payment_comment']) ? $requests_data['payment_comment'] : '';
             $order->payment_type = $requests_data['payment_type'];
-            $order->payment_status = 'Paid';
+            /*
+             * P01-COMMERCE-SEC-01. DERIVED, NOT ASSERTED -- the same wiring PaymentController (:2436)
+             * and PaymentService (:2594) already use. This was the literal `'Paid'`, with nothing
+             * between the shopper's browser and this line having asked a gateway whether money moved.
+             *
+             * NO BEHAVIOUR CHANGES TODAY: this payment type is not in
+             * PaymentVerificationService::ENFORCED_PAYMENT_TYPES, so the call returns exactly the 'Paid'
+             * the literal did. What it buys is that the unverified write is LOGGED -- the exposure
+             * becomes measurable -- and that enforcing this gateway later is a one-line change in that
+             * service instead of another edit here. Flipping the posture is the owner's call, because
+             * recording every gateway order as Pending stops merchant wallets being credited; see the
+             * blocker in docs/security/P01-SECURITY-WORK-QUEUE.md.
+             */
+            $order->payment_status = $this->gatewayReturnPaymentStatus(
+                $requests_data['payment_type'] ?? null,
+                $order->final_price,
+                __METHOD__
+            );
             $order->delivery_id = $requests_data['method_id'] ?? 0;
             $order->delivery_comment = !empty($requests_data['delivery_comment']) ? $requests_data['delivery_comment'] : '';
             if (module_is_active('PreOrder') && \Auth::guard('customers')->user() && isset($requests_data['order_type']) && $requests_data['order_type'] == 'pre_order') {
@@ -672,35 +978,21 @@ class PaiementProPaymentController extends Controller
             }
             // Utility::paymentWebhook($order);
 
-            $billing_city_id = 0;
-            if (!empty($billing['billing_city'])) {
-                $cityy = City::where('name', $billing['billing_city'])->first();
-                if (!empty($cityy)) {
-                    $billing_city_id = $cityy->id;
-                } else {
-                    $new_billing_city = new City();
-                    $new_billing_city->name = $billing['billing_city'];
-                    $new_billing_city->state_id = $billing['billing_state'];
-                    $new_billing_city->country_id = $billing['billing_country'];
-                    $new_billing_city->save();
-                    $billing_city_id = $new_billing_city->id;
-                }
-            }
+            // P1-ORD-15: the posted values are IDS and this looked the city up by NAME. One resolver,
+            // which also keeps a posted NAME out of cities.state_id / country_id (foreign keys).
+            $billing_city_id = \App\Services\BillingGeography::resolveCityId(
+                $billing['billing_city'] ?? null,
+                $billing['billing_state'] ?? null,
+                $billing['billing_country'] ?? null
+            );
 
-            $delivery_city_id = 0;
-            if (!empty($billing['delivery_city'])) {
-                $d_cityy = City::where('name', $billing['delivery_city'])->first();
-                if (!empty($d_cityy)) {
-                    $delivery_city_id = $d_cityy->id;
-                } else {
-                    $new_delivery_city = new City();
-                    $new_delivery_city->name = $billing['delivery_city'];
-                    $new_delivery_city->state_id = $billing['delivery_state'];
-                    $new_delivery_city->country_id = $billing['delivery_country'];
-                    $new_delivery_city->save();
-                    $delivery_city_id = $new_delivery_city->id;
-                }
-            }
+            // P1-ORD-15: the posted values are IDS and this looked the city up by NAME. One resolver,
+            // which also keeps a posted NAME out of cities.state_id / country_id (foreign keys).
+            $delivery_city_id = \App\Services\BillingGeography::resolveCityId(
+                $billing['delivery_city'] ?? null,
+                $billing['delivery_state'] ?? null,
+                $billing['delivery_country'] ?? null
+            );
 
             $OrderBillingDetail = new OrderBillingDetail();
             $OrderBillingDetail->order_id = $order->id;
@@ -847,7 +1139,7 @@ class PaiementProPaymentController extends Controller
                         }
                     } else {
                         $variant_data = ProductVariant::find($product->variant_id);
-                        $variationOptions = explode(',', $variant_data->variation_option);
+                        $variationOptions = explode(',', (string) ($variant_data->variation_option ?? ''));   // P1-PAY-01: null-safe; a bare deref here throws ErrorException
                         $option = in_array('manage_stock', $variationOptions);
                         if ($option == true) {
                             OrderNote::order_note_data([
@@ -894,10 +1186,14 @@ class PaiementProPaymentController extends Controller
                 // $cart_json = json_encode($cart_array);
                 // \Cookie::queue('cart', $cart_json, 1440);
                 $cart = Cookie::get('cart');
-                $cart = Cart::where('cookie_session_id', $cart)->delete();
+                $cart = Cart::forGuestCookie($cart)->delete();
                 if (auth('customers')->user()) {
                     event(new AddRewardClubPoint($requests_data,$order,$slug));
                 }
+                // P1-ORD-13: the thank-you page resolves the PRIMARY KEY this session placed, because
+                // `product_order_id` is a bare timestamp two same-second orders in one store share --
+                // the number alone showed one buyer the other's order, and after P1-ORD-08 refused both.
+                \App\Services\OrderCompleteBinding::remember($order->id);
                 return redirect()->route('order.complete', $slug)->with('data', $order->product_order_id);
             } else {
                 return $this->error(['message' => 'Somthing went wrong.']);

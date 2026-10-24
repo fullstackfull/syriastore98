@@ -1,0 +1,1137 @@
+/* ==========================================================================
+   Store Syria — Web Design System (Phase 01 / Sprint 01 foundation)
+   ==========================================================================
+
+   WHAT THIS IS
+   A single, additive, opt-in stylesheet. It defines the Store Syria design
+   tokens and a small set of reusable components for the merchant and Super
+   Admin administration.
+
+   HOW IT IS LOADED
+   Nothing loads it globally. A page opts in from its own Blade view:
+
+       @push('css')
+           <link rel="stylesheet" href="{{ asset('css/store-syria-ds.css') }}">
+       @endpush
+
+   `layouts/app.blade.php:176` already renders @stack('css'), so no shared
+   layout file has to be edited and no screen that does not opt in is affected
+   in any way. That is deliberate: this is a production multi-tenant system and
+   a foundation sprint must not be able to regress a screen it never touched.
+
+   NAMING
+   Every custom property is `--ss-*` and every class is `.ss-*`. Nothing here
+   can collide with Bootstrap, custom.css, rtl-custom.css or custom-color.css.
+   This stylesheet never styles a bare element selector, so adding the <link>
+   to a page cannot restyle existing markup — only elements that explicitly
+   carry an `ss-` class are affected.
+
+   RTL
+   There is no `-rtl` counterpart to this file and there must never be one.
+   Every directional rule uses CSS logical properties (margin-inline-*,
+   padding-inline-*, border-inline-*, inset-inline-*, text-align: start/end),
+   so the same bytes lay out correctly under `dir="rtl"` and `dir="ltr"`.
+   The existing 84 KB custom.css / rtl-custom.css mirrored pair is the pattern
+   this replaces going forward; it is left untouched.
+
+   COLOR
+   The brand ramp is built on the merchant's own logo (the bag/cart "S" mark,
+   a 168-197° teal-green gradient whose median hue is 177°): the ramp sits at
+   172°, inside that gradient. No new brand identity is introduced here.
+   Every foreground/background pair used by these components is verified
+   against WCAG 2.1 AA by tooling; see the acceptance report.
+
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   LAYER 1 — PRIMITIVES
+   Raw ramps. Components never reference these directly; they go through the
+   semantic layer below so that theming happens in exactly one place.
+   -------------------------------------------------------------------------- */
+
+:root {
+    /* Brand — hue 172°, inside the Store Syria logo's 168-197° gradient. */
+    --ss-teal-50:  #f3faf9;
+    --ss-teal-100: #e2f5f3;
+    --ss-teal-200: #c6eee9;
+    --ss-teal-300: #9ce5db;
+    --ss-teal-400: #62daca;
+    --ss-teal-500: #1ad5bc;
+    --ss-teal-600: #0bb19b;  /* closest step to the logo itself */
+    --ss-teal-700: #08917f;  /* 3.91:1 on white — borders, focus ring */
+    --ss-teal-800: #097465;  /* 5.68:1 on white — primary fill */
+    --ss-teal-900: #0a5a4f;
+    --ss-teal-950: #073b34;
+
+    /* Neutrals — very slightly teal-biased so greys sit with the brand
+       instead of looking like a separate, colder palette. */
+    --ss-grey-0:   #ffffff;
+    --ss-grey-25:  #fbfcfc;
+    --ss-grey-50:  #f6f8f8;
+    --ss-grey-100: #eef1f1;
+    --ss-grey-200: #dde3e2;
+    --ss-grey-300: #cdd5d4;
+    /* grey-400 and grey-500 are pinned by contrast, not by taste: 400 is the
+       lightest neutral that still clears 3:1 on white (WCAG 1.4.11, input
+       borders) and 500 the lightest that clears 4.5:1 (1.4.3, meta text). */
+    --ss-grey-400: #889392;
+    --ss-grey-500: #6b7675;
+    --ss-grey-600: #5b6665;
+    --ss-grey-700: #434d4c;
+    --ss-grey-800: #2b3433;
+    --ss-grey-900: #1a2322;
+    --ss-grey-950: #0b1f1c;
+
+    /* Status hues. Each has a tinted background and a text colour chosen to
+       clear 4.5:1 against that background, not against white. */
+    --ss-green-50:  #eaf7ef;
+    --ss-green-700: #1d7a43;
+    --ss-green-800: #165e34;
+    --ss-amber-50:  #fdf4e3;
+    --ss-amber-800: #7a5205;
+    --ss-amber-900: #5d3f04;
+    --ss-red-50:    #fdeeee;
+    --ss-red-700:   #b3261e;
+    --ss-red-800:   #8c1d17;
+    --ss-blue-50:   #eaf2fb;
+    --ss-blue-800:  #15558f;
+}
+
+/* --------------------------------------------------------------------------
+   LAYER 2 — SEMANTIC TOKENS
+   What components actually consume. Rename a primitive freely; rename one of
+   these and you have changed the design system's contract.
+   -------------------------------------------------------------------------- */
+
+:root {
+    /* Surfaces */
+    --ss-bg:            var(--ss-grey-50);
+    --ss-surface:       var(--ss-grey-0);
+    --ss-surface-sunken: var(--ss-grey-100);
+    --ss-surface-hover: var(--ss-grey-50);
+
+    /* Foreground */
+    --ss-fg:        var(--ss-grey-900);
+    --ss-fg-muted:  var(--ss-grey-600);
+    --ss-fg-subtle: var(--ss-grey-500);
+    --ss-fg-onfill: var(--ss-grey-0);
+
+    /* Brand */
+    --ss-brand:        var(--ss-teal-800);
+    --ss-brand-hover:  var(--ss-teal-900);
+    --ss-brand-active: var(--ss-teal-950);
+    --ss-brand-subtle: var(--ss-teal-50);
+    --ss-brand-accent: var(--ss-teal-600);
+    --ss-on-brand:     #ffffff;
+    --ss-link:         var(--ss-teal-800);
+
+    /* Borders */
+    --ss-border:        var(--ss-grey-200);
+    --ss-border-strong: var(--ss-grey-400);
+    --ss-border-brand:  var(--ss-teal-700);
+
+    /* Status — `-bg` is the fill, `-fg` the text/icon on that fill. */
+    --ss-success-bg: var(--ss-green-50);
+    --ss-success-fg: var(--ss-green-800);
+    --ss-warning-bg: var(--ss-amber-50);
+    --ss-warning-fg: var(--ss-amber-900);
+    --ss-danger-bg:  var(--ss-red-50);
+    --ss-danger-fg:  var(--ss-red-800);
+    --ss-info-bg:    var(--ss-blue-50);
+    --ss-info-fg:    var(--ss-blue-800);
+    --ss-neutral-bg: var(--ss-grey-100);
+    --ss-neutral-fg: var(--ss-grey-700);
+    --ss-danger:     var(--ss-red-700);
+    /* Label colour for a SOLID danger fill. It is a token of its own because
+       --ss-danger inverts between themes: dark mode needs a light red that
+       reads as text on a dark surface, and white type on that light red is
+       illegible. */
+    --ss-on-danger:  #ffffff;
+
+    /* Focus — a 2px ring plus a 1px offset halo, so it stays visible on both
+       tinted and white surfaces. WCAG 2.4.11/2.4.13. */
+    --ss-focus-ring:   var(--ss-teal-700);
+    --ss-focus-width:  2px;
+    --ss-focus-offset: 2px;
+
+    /* Typography. Inherits the host's own family (Open Sans, bound to
+       --bs-body-font-family in assets/css/style.css) so no second webfont is
+       downloaded and admin pages stay typographically consistent. Arabic
+       families follow immediately, before any Latin fallback, so an Arabic
+       glyph is never served out of a Latin font's substitution table. */
+    --ss-font-sans: var(--bs-body-font-family, "Open Sans"),
+                    "Noto Sans Arabic", "Cairo", "Tajawal",
+                    "Segoe UI", "DejaVu Sans", system-ui, -apple-system, sans-serif;
+    --ss-font-mono: "JetBrains Mono", "SFMono-Regular", Menlo, Consolas,
+                    "DejaVu Sans Mono", monospace;
+
+    --ss-text-xs:   0.75rem;    /* 12px — meta, table captions            */
+    --ss-text-sm:   0.8125rem;  /* 13px — dense table cells, helper text  */
+    --ss-text-base: 0.875rem;   /* 14px — admin body default              */
+    --ss-text-md:   1rem;       /* 16px — form inputs (never below 16px   */
+                                /*        or iOS zooms the viewport)      */
+    --ss-text-lg:   1.125rem;   /* 18px */
+    --ss-text-xl:   1.375rem;   /* 22px — page title                      */
+    --ss-text-2xl:  1.75rem;    /* 28px — stat figures                    */
+
+    --ss-leading-tight:  1.25;
+    --ss-leading-normal: 1.5;
+    --ss-leading-loose:  1.7;   /* Arabic needs more room than Latin      */
+
+    --ss-weight-normal:   400;
+    --ss-weight-medium:   500;
+    --ss-weight-semibold: 600;
+    --ss-weight-bold:     700;
+
+    /* Spacing — 4px grid. */
+    --ss-space-0:  0;
+    --ss-space-1:  0.25rem;  /*  4px */
+    --ss-space-2:  0.5rem;   /*  8px */
+    --ss-space-3:  0.75rem;  /* 12px */
+    --ss-space-4:  1rem;     /* 16px */
+    --ss-space-5:  1.25rem;  /* 20px */
+    --ss-space-6:  1.5rem;   /* 24px */
+    --ss-space-8:  2rem;     /* 32px */
+    --ss-space-10: 2.5rem;   /* 40px */
+    --ss-space-12: 3rem;     /* 48px */
+    --ss-space-16: 4rem;     /* 64px */
+
+    /* Radii */
+    --ss-radius-sm:   6px;
+    --ss-radius-md:   8px;
+    --ss-radius-lg:   12px;
+    --ss-radius-xl:   16px;
+    --ss-radius-pill: 999px;
+
+    /* Elevation. Two-part shadows (tight contact + broad ambient) read as
+       real depth; a single large blur reads as a grey smear. */
+    --ss-shadow-xs: 0 1px 2px rgba(11, 31, 28, 0.06);
+    --ss-shadow-sm: 0 1px 2px rgba(11, 31, 28, 0.06),
+                    0 2px 6px rgba(11, 31, 28, 0.05);
+    --ss-shadow-md: 0 2px 4px rgba(11, 31, 28, 0.06),
+                    0 6px 16px rgba(11, 31, 28, 0.08);
+    --ss-shadow-lg: 0 4px 8px rgba(11, 31, 28, 0.07),
+                    0 16px 32px rgba(11, 31, 28, 0.10);
+
+    /* Motion. Everything is suppressed under prefers-reduced-motion below. */
+    --ss-duration-fast: 120ms;
+    --ss-duration-base: 180ms;
+    --ss-ease: cubic-bezier(0.2, 0, 0.2, 1);
+
+    --ss-z-dropdown: 1000;
+    --ss-z-sticky:   1020;
+    --ss-z-backdrop: 1040;
+    --ss-z-dialog:   1050;
+}
+
+/* --------------------------------------------------------------------------
+   DARK MODE
+   Driven by `data-ss-theme="dark"` on <html> or on any container; only the
+   subtree carrying it re-themes. An opted-in admin page gets it set for it:
+   layouts/includes/store-syria-ds.blade.php reads the host's own dark-layout
+   signal (the stylesheet in #main-style-link) and mirrors it, including when
+   it changes at runtime. `data-ss-theme="auto"` follows `prefers-color-scheme`
+   instead, but only where a page asks for it, so a merchant on a dark OS
+   never gets a surprise dark admin.
+   -------------------------------------------------------------------------- */
+
+[data-ss-theme="dark"] {
+    /* Surfaces are tuned to the HOST's dark page (#22242c, assets/css/style-dark.css)
+       rather than to --ss-bg: a card must sit above that page, a touch lighter, or it
+       reads as a hole. Text, subtle text and borders were re-solved against them. */
+    --ss-bg:            #1b2523;
+    --ss-surface:       #263331;
+    --ss-surface-sunken: #1f2a28;
+    --ss-surface-hover: #2d3b39;
+
+    --ss-fg:        #e8eded;
+    --ss-fg-muted:  #a7b2b1;
+    --ss-fg-subtle: #95a09e;
+    --ss-fg-onfill: var(--ss-grey-950);
+
+    --ss-brand:        var(--ss-teal-500);
+    --ss-brand-hover:  var(--ss-teal-400);
+    --ss-brand-active: var(--ss-teal-300);
+    --ss-brand-subtle: #0d2b27;
+    --ss-brand-accent: var(--ss-teal-400);
+    --ss-on-brand:     #04231f;
+    --ss-link:         var(--ss-teal-400);
+
+    --ss-border:        #364442;
+    --ss-border-strong: #7d8a88;  /* 3.66:1 on the dark card surface */
+    --ss-border-brand:  var(--ss-teal-500);
+
+    --ss-success-bg: #102a1b; --ss-success-fg: #7fd6a0;
+    --ss-warning-bg: #2c2109; --ss-warning-fg: #f0c674;
+    --ss-danger-bg:  #2c1413; --ss-danger-fg:  #f3a9a4;
+    --ss-info-bg:    #10233a; --ss-info-fg:    #9cc6ef;
+    --ss-neutral-bg: #212c2a; --ss-neutral-fg: #c3cccb;
+    --ss-danger:     #f3a9a4;
+    --ss-on-danger:  #3b0d0a;
+
+    --ss-focus-ring: var(--ss-teal-400);
+
+    --ss-shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.45);
+    --ss-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.35);
+    --ss-shadow-md: 0 2px 4px rgba(0, 0, 0, 0.45), 0 6px 16px rgba(0, 0, 0, 0.40);
+    --ss-shadow-lg: 0 4px 8px rgba(0, 0, 0, 0.50), 0 16px 32px rgba(0, 0, 0, 0.45);
+}
+
+@media (prefers-color-scheme: dark) {
+    [data-ss-theme="auto"] {
+        --ss-bg: #1b2523;
+        --ss-surface: #263331;
+        --ss-surface-sunken: #1f2a28;
+        --ss-surface-hover: #2d3b39;
+        --ss-fg: #e8eded;
+        --ss-fg-muted: #a7b2b1;
+        --ss-fg-subtle: #95a09e;
+        --ss-fg-onfill: var(--ss-grey-950);
+        --ss-brand: var(--ss-teal-500);
+        --ss-brand-hover: var(--ss-teal-400);
+        --ss-brand-active: var(--ss-teal-300);
+        --ss-brand-subtle: #0d2b27;
+        --ss-brand-accent: var(--ss-teal-400);
+        --ss-on-brand: #04231f;
+        --ss-link: var(--ss-teal-400);
+        --ss-border: #364442;
+        --ss-border-strong: #7d8a88;
+        --ss-border-brand: var(--ss-teal-500);
+        --ss-success-bg: #102a1b; --ss-success-fg: #7fd6a0;
+        --ss-warning-bg: #2c2109; --ss-warning-fg: #f0c674;
+        --ss-danger-bg: #2c1413;  --ss-danger-fg: #f3a9a4;
+        --ss-info-bg: #10233a;    --ss-info-fg: #9cc6ef;
+        --ss-neutral-bg: #212c2a; --ss-neutral-fg: #c3cccb;
+        --ss-danger: #f3a9a4;
+        --ss-on-danger: #3b0d0a;
+        --ss-focus-ring: var(--ss-teal-400);
+        --ss-shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.45);
+        --ss-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.35);
+        --ss-shadow-md: 0 2px 4px rgba(0, 0, 0, 0.45), 0 6px 16px rgba(0, 0, 0, 0.40);
+        --ss-shadow-lg: 0 4px 8px rgba(0, 0, 0, 0.50), 0 16px 32px rgba(0, 0, 0, 0.45);
+    }
+}
+
+/* --------------------------------------------------------------------------
+   LAYER 3 — COMPONENTS
+   Scoped to `ss-` classes only. No bare element selectors anywhere.
+   -------------------------------------------------------------------------- */
+
+/* Shared focus treatment. Applied to every interactive component via
+   :focus-visible so a pointer user never sees a ring they did not ask for,
+   but a keyboard user always does. */
+.ss-btn:focus-visible,
+.ss-input:focus-visible,
+.ss-select:focus-visible,
+.ss-textarea:focus-visible,
+.ss-tab:focus-visible,
+.ss-table__sort:focus-visible,
+.ss-breadcrumb__link:focus-visible,
+.ss-dialog__close:focus-visible,
+.ss-checkbox:focus-visible {
+    outline: var(--ss-focus-width) solid var(--ss-focus-ring);
+    outline-offset: var(--ss-focus-offset);
+    border-radius: var(--ss-radius-sm);
+}
+
+/* ---- Page scaffold ---- */
+
+.ss-scope {
+    font-family: var(--ss-font-sans);
+    font-size: var(--ss-text-base);
+    line-height: var(--ss-leading-normal);
+    color: var(--ss-fg);
+}
+
+/* The host sets box-sizing: border-box globally (assets/css/style.css:160), so
+   inside the application this is a no-op. It is stated here so the stylesheet
+   is self-sufficient: without it, a `width: 100%` field plus its padding and
+   border overflows its container wherever this file is used on its own —
+   which is exactly what docs/design-system/gallery.html exposed. */
+.ss-scope, .ss-scope *, .ss-scope *::before, .ss-scope *::after { box-sizing: border-box; }
+
+/* Arabic copy gets a touch more leading and slightly larger base size; the
+   script's ascenders/descenders need it to stay legible at admin density. */
+.ss-scope:lang(ar),
+[dir="rtl"] .ss-scope {
+    line-height: var(--ss-leading-loose);
+    letter-spacing: 0;
+}
+
+.ss-page { display: flex; flex-direction: column; gap: var(--ss-space-5); }
+
+/* ---- Page header ---- */
+
+.ss-page-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--ss-space-4);
+}
+
+.ss-page-header__text { min-width: 0; }
+
+.ss-page-header__title {
+    margin: 0;
+    font-size: var(--ss-text-xl);
+    font-weight: var(--ss-weight-semibold);
+    line-height: var(--ss-leading-tight);
+    color: var(--ss-fg);
+    letter-spacing: -0.01em;
+}
+
+.ss-page-header__subtitle {
+    margin: var(--ss-space-1) 0 0;
+    font-size: var(--ss-text-sm);
+    color: var(--ss-fg-muted);
+}
+
+.ss-page-header__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--ss-space-2);
+}
+
+/* ---- Breadcrumbs ---- */
+
+.ss-breadcrumb {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--ss-space-2);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-size: var(--ss-text-sm);
+}
+
+.ss-breadcrumb__item { display: flex; align-items: center; gap: var(--ss-space-2); }
+
+.ss-breadcrumb__link {
+    color: var(--ss-fg-muted);
+    text-decoration: none;
+}
+.ss-breadcrumb__link:hover { color: var(--ss-link); text-decoration: underline; }
+
+.ss-breadcrumb__item[aria-current="page"] {
+    color: var(--ss-fg);
+    font-weight: var(--ss-weight-medium);
+}
+
+/* The separator is a pseudo-element so it is never read aloud, and it is
+   mirrored by `dir` rather than hard-coded to "/" pointing one way. */
+.ss-breadcrumb__item + .ss-breadcrumb__item::before {
+    content: "";
+    width: 5px;
+    height: 5px;
+    border-block-start: 1.5px solid var(--ss-border-strong);
+    border-inline-end: 1.5px solid var(--ss-border-strong);
+    transform: rotate(45deg);
+    flex: none;
+}
+[dir="rtl"] .ss-breadcrumb__item + .ss-breadcrumb__item::before {
+    transform: rotate(225deg);
+}
+
+/* ---- Buttons ---- */
+
+.ss-btn {
+    /* Explicit reset: these components must not inherit Bootstrap's or
+       custom.css's button metrics, because both are loaded on admin pages. */
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--ss-space-2);
+    margin: 0;
+    padding-block: 0.5rem;
+    padding-inline: var(--ss-space-4);
+    min-height: 38px;
+    border: 1px solid transparent;
+    border-radius: var(--ss-radius-md);
+    background: transparent;
+    font-family: inherit;
+    font-size: var(--ss-text-base);
+    font-weight: var(--ss-weight-medium);
+    line-height: 1.2;
+    text-align: center;
+    text-decoration: none;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background-color var(--ss-duration-fast) var(--ss-ease),
+                border-color var(--ss-duration-fast) var(--ss-ease),
+                color var(--ss-duration-fast) var(--ss-ease);
+    -webkit-appearance: none;
+    appearance: none;
+}
+
+.ss-btn--primary {
+    background: var(--ss-brand);
+    border-color: var(--ss-brand);
+    color: var(--ss-on-brand);
+}
+.ss-btn--primary:hover { background: var(--ss-brand-hover); border-color: var(--ss-brand-hover); color: var(--ss-on-brand); }
+.ss-btn--primary:active { background: var(--ss-brand-active); border-color: var(--ss-brand-active); }
+
+.ss-btn--secondary {
+    background: var(--ss-surface);
+    border-color: var(--ss-border-strong);
+    color: var(--ss-fg);
+}
+.ss-btn--secondary:hover { background: var(--ss-surface-hover); border-color: var(--ss-fg-subtle); color: var(--ss-fg); }
+
+.ss-btn--ghost { background: transparent; border-color: transparent; color: var(--ss-fg-muted); }
+.ss-btn--ghost:hover { background: var(--ss-surface-sunken); color: var(--ss-fg); }
+
+/* Solid danger is reserved for the confirming action inside a dialog — the
+   point where the user has already chosen to destroy something. */
+.ss-btn--danger { background: var(--ss-danger); border-color: var(--ss-danger); color: var(--ss-on-danger); }
+.ss-btn--danger:hover { filter: brightness(0.92); }
+
+/* Row-level destructive actions use the quiet variant. A solid red button
+   repeated down every row of a table out-shouts the records themselves and
+   makes delete the most prominent thing on the screen. */
+.ss-btn--danger-quiet {
+    background: transparent;
+    border-color: transparent;
+    color: var(--ss-danger);
+}
+.ss-btn--danger-quiet:hover {
+    background: var(--ss-danger-bg);
+    border-color: var(--ss-danger-bg);
+    color: var(--ss-danger-fg);
+}
+
+.ss-btn--sm { min-height: 32px; padding-block: 0.3125rem; padding-inline: var(--ss-space-3); font-size: var(--ss-text-sm); }
+.ss-btn--lg { min-height: 44px; padding-inline: var(--ss-space-5); font-size: var(--ss-text-md); }
+
+/* Icon-only buttons must still meet the 24×24 minimum target size. */
+.ss-btn--icon { padding-inline: var(--ss-space-2); min-width: 38px; }
+.ss-btn--icon.ss-btn--sm { min-width: 32px; }
+
+.ss-btn[disabled], .ss-btn[aria-disabled="true"] {
+    opacity: 0.55;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+/* Busy state: the spinner replaces the label's leading icon slot, and
+   aria-busy is what assistive tech reads. */
+.ss-btn[aria-busy="true"] { position: relative; color: transparent; }
+.ss-btn[aria-busy="true"]::after {
+    content: "";
+    position: absolute;
+    inset-block-start: 50%;
+    inset-inline-start: 50%;
+    width: 16px; height: 16px;
+    margin-block-start: -8px;
+    margin-inline-start: -8px;
+    border: 2px solid currentColor;
+    border-block-start-color: transparent;
+    border-radius: 50%;
+    color: var(--ss-on-brand);
+    animation: ss-spin 0.6s linear infinite;
+}
+.ss-btn--secondary[aria-busy="true"]::after,
+.ss-btn--ghost[aria-busy="true"]::after { color: var(--ss-fg); }
+
+@keyframes ss-spin { to { transform: rotate(360deg); } }
+
+/* ---- Form fields ---- */
+
+.ss-field { display: flex; flex-direction: column; gap: var(--ss-space-2); }
+
+.ss-label {
+    font-size: var(--ss-text-sm);
+    font-weight: var(--ss-weight-medium);
+    color: var(--ss-fg);
+}
+.ss-label__required { color: var(--ss-danger); margin-inline-start: 2px; }
+
+/* Optional-marking is better than required-marking when most fields are
+   required, but the host's forms mark required, so we match the host. */
+
+.ss-input, .ss-select, .ss-textarea {
+    display: block;
+    width: 100%;
+    margin: 0;
+    padding-block: 0.5rem;
+    padding-inline: var(--ss-space-3);
+    min-height: 40px;
+    border: 1px solid var(--ss-border-strong);
+    border-radius: var(--ss-radius-md);
+    background: var(--ss-surface);
+    color: var(--ss-fg);
+    font-family: inherit;
+    font-size: var(--ss-text-md);  /* 16px — prevents iOS zoom-on-focus */
+    line-height: 1.4;
+    text-align: start;
+    transition: border-color var(--ss-duration-fast) var(--ss-ease),
+                box-shadow var(--ss-duration-fast) var(--ss-ease);
+    -webkit-appearance: none;
+    appearance: none;
+}
+
+.ss-input::placeholder, .ss-textarea::placeholder { color: var(--ss-fg-subtle); opacity: 1; }
+
+.ss-input:hover, .ss-select:hover, .ss-textarea:hover { border-color: var(--ss-fg-subtle); }
+
+.ss-input:focus, .ss-select:focus, .ss-textarea:focus {
+    border-color: var(--ss-border-brand);
+    box-shadow: 0 0 0 3px var(--ss-brand-subtle);
+}
+
+.ss-textarea { min-height: 96px; resize: vertical; }
+
+.ss-input[disabled], .ss-select[disabled], .ss-textarea[disabled],
+.ss-input[readonly] {
+    background: var(--ss-surface-sunken);
+    color: var(--ss-fg-muted);
+    cursor: not-allowed;
+}
+
+/* Invalid is driven by aria-invalid, not a presentational class, so the
+   visual state and the accessible state can never drift apart. */
+.ss-input[aria-invalid="true"],
+.ss-select[aria-invalid="true"],
+.ss-textarea[aria-invalid="true"] { border-color: var(--ss-danger); }
+.ss-input[aria-invalid="true"]:focus,
+.ss-select[aria-invalid="true"]:focus,
+.ss-textarea[aria-invalid="true"]:focus {
+    box-shadow: 0 0 0 3px var(--ss-danger-bg);
+}
+
+.ss-field__hint { font-size: var(--ss-text-sm); color: var(--ss-fg-muted); }
+.ss-field__error {
+    display: flex;
+    align-items: center;
+    gap: var(--ss-space-1);
+    font-size: var(--ss-text-sm);
+    color: var(--ss-danger);
+}
+
+/* Native select: custom chevron, positioned on the inline-end edge so it
+   flips side automatically in RTL. */
+.ss-select {
+    padding-inline-end: var(--ss-space-8);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8' fill='none'%3E%3Cpath d='M1 1.5 6 6.5l5-5' stroke='%235b6665' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right var(--ss-space-3) center;
+    background-size: 12px 8px;
+}
+[dir="rtl"] .ss-select { background-position: left var(--ss-space-3) center; }
+
+/* ---- Card ---- */
+
+.ss-card {
+    background: var(--ss-surface);
+    border: 1px solid var(--ss-border);
+    border-radius: var(--ss-radius-lg);
+    box-shadow: var(--ss-shadow-xs);
+    /* Clips square-cornered children (table headers, list rows) to the card's
+       radius; without it their backgrounds paint over the rounded corner. */
+    overflow: hidden;
+}
+
+/* Escape hatch for a card that must let a child escape its bounds — a
+   popover, a dropdown menu rendered in place rather than appended to body. */
+.ss-card--overflow { overflow: visible; }
+
+.ss-card__header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--ss-space-3);
+    padding: var(--ss-space-4) var(--ss-space-5);
+    border-block-end: 1px solid var(--ss-border);
+}
+
+.ss-card__title {
+    margin: 0;
+    font-size: var(--ss-text-lg);
+    font-weight: var(--ss-weight-semibold);
+    color: var(--ss-fg);
+}
+
+.ss-card__body { padding: var(--ss-space-5); }
+.ss-card__body--flush { padding: 0; }
+.ss-card__footer {
+    padding: var(--ss-space-4) var(--ss-space-5);
+    border-block-start: 1px solid var(--ss-border);
+    background: var(--ss-surface-sunken);
+    border-end-end-radius: var(--ss-radius-lg);
+    border-end-start-radius: var(--ss-radius-lg);
+}
+
+/* ---- Badges ---- */
+
+.ss-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--ss-space-1);
+    padding-block: 2px;
+    padding-inline: var(--ss-space-2);
+    border-radius: var(--ss-radius-pill);
+    font-size: var(--ss-text-xs);
+    font-weight: var(--ss-weight-medium);
+    line-height: 1.5;
+    white-space: nowrap;
+    background: var(--ss-neutral-bg);
+    color: var(--ss-neutral-fg);
+}
+
+.ss-badge--success { background: var(--ss-success-bg); color: var(--ss-success-fg); }
+.ss-badge--warning { background: var(--ss-warning-bg); color: var(--ss-warning-fg); }
+.ss-badge--danger  { background: var(--ss-danger-bg);  color: var(--ss-danger-fg); }
+.ss-badge--info    { background: var(--ss-info-bg);    color: var(--ss-info-fg); }
+.ss-badge--brand   { background: var(--ss-brand-subtle); color: var(--ss-brand); }
+
+/* Status dot. Colour alone never carries the meaning — the text label beside
+   it does — but the dot makes a long status column scannable. */
+.ss-badge__dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    flex: none;
+}
+
+/* ---- Table ---- */
+
+.ss-table-wrap {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.ss-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--ss-text-sm);
+}
+
+.ss-table th, .ss-table td {
+    padding-block: var(--ss-space-3);
+    padding-inline: var(--ss-space-4);
+    text-align: start;             /* flips with dir, no RTL override needed */
+    vertical-align: middle;
+}
+
+.ss-table thead th {
+    position: sticky;
+    inset-block-start: 0;
+    z-index: 1;
+    background: var(--ss-surface-sunken);
+    color: var(--ss-fg-muted);
+    font-size: var(--ss-text-xs);
+    font-weight: var(--ss-weight-semibold);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+    border-block-end: 1px solid var(--ss-border);
+}
+
+/* Arabic has no case, so uppercasing is meaningless and slightly harms
+   legibility. Turn it off for Arabic headers. */
+[dir="rtl"] .ss-table thead th { text-transform: none; letter-spacing: 0; }
+
+.ss-table tbody tr { border-block-end: 1px solid var(--ss-border); }
+.ss-table tbody tr:last-child { border-block-end: 0; }
+.ss-table tbody tr:hover { background: var(--ss-surface-hover); }
+
+.ss-table__num { font-variant-numeric: tabular-nums; }
+
+/* A sortable header is a real <button> so it is keyboard reachable. */
+.ss-table__sort {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--ss-space-1);
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
+    color: inherit;
+    text-transform: inherit;
+    letter-spacing: inherit;
+    cursor: pointer;
+}
+.ss-table__sort::after {
+    content: "";
+    width: 0; height: 0;
+    border-inline-start: 4px solid transparent;
+    border-inline-end: 4px solid transparent;
+    border-block-start: 5px solid currentColor;
+    opacity: 0.35;
+}
+.ss-table__sort[aria-sort="ascending"]::after { transform: rotate(180deg); opacity: 1; }
+.ss-table__sort[aria-sort="descending"]::after { opacity: 1; }
+
+.ss-table__actions { display: flex; gap: var(--ss-space-1); justify-content: flex-end; }
+
+/* ---- Sortable list ----
+   A reorderable list of records (the pilot screen's attribute options). The
+   whole row is the drag target, as it was before the redesign; the handle is
+   the visual cue that a row can be dragged. */
+
+.ss-sort-list { margin: 0; padding: 0; list-style: none; }
+
+.ss-sort-item {
+    display: flex;
+    align-items: center;
+    gap: var(--ss-space-3);
+    padding-block: var(--ss-space-3);
+    padding-inline: var(--ss-space-5);
+    border-block-end: 1px solid var(--ss-border);
+    background: var(--ss-surface);
+}
+.ss-sort-item:last-child { border-block-end: 0; }
+.ss-sort-item:hover { background: var(--ss-surface-hover); }
+
+.ss-sort-item__handle {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 28px; height: 28px;
+    border-radius: var(--ss-radius-sm);
+    color: var(--ss-fg-subtle);
+    cursor: grab;
+}
+.ss-sort-item__handle:active { cursor: grabbing; }
+.ss-sort-item:hover .ss-sort-item__handle { color: var(--ss-fg-muted); background: var(--ss-surface-sunken); }
+
+.ss-sort-item__label {
+    min-width: 0;
+    font-size: var(--ss-text-base);
+    font-weight: var(--ss-weight-medium);
+    color: var(--ss-fg);
+    overflow-wrap: anywhere;
+}
+
+/* jQuery UI marks the dragged row with .ui-sortable-helper; the page's own
+   start/stop handlers add this class as well, so the lifted look belongs to
+   the design system rather than to a jQuery UI class name. */
+.ss-sort-item--dragging {
+    box-shadow: var(--ss-shadow-md);
+    border-radius: var(--ss-radius-md);
+    border-block-end-color: transparent;
+    background: var(--ss-surface);
+}
+
+/* jQuery UI always inserts a placeholder where the row will land and hides
+   it with an inline visibility:hidden. Showing it marks the drop position —
+   a deliberate visible change from the original screen, where the gap was
+   blank. This is the stylesheet's one selector that is not an .ss-* class,
+   and it only applies inside .ss-sort-list. */
+.ss-sort-list .ui-sortable-placeholder {
+    visibility: visible !important;
+    background: var(--ss-brand-subtle);
+    border: 1px dashed var(--ss-border-brand);
+    border-radius: var(--ss-radius-md);
+}
+
+/* ---- Toolbar / search + filter ---- */
+
+.ss-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--ss-space-3);
+    padding: var(--ss-space-4) var(--ss-space-5);
+    border-block-end: 1px solid var(--ss-border);
+}
+
+.ss-toolbar__search { position: relative; flex: 1 1 240px; min-width: 0; }
+
+/* Magnifier sits on the inline-start edge and the input is padded on that
+   same logical side, so both move together under RTL. */
+.ss-toolbar__search .ss-input { padding-inline-start: var(--ss-space-10); }
+.ss-toolbar__search-icon {
+    position: absolute;
+    inset-block-start: 50%;
+    inset-inline-start: var(--ss-space-3);
+    transform: translateY(-50%);
+    width: 16px; height: 16px;
+    color: var(--ss-fg-subtle);
+    pointer-events: none;
+}
+
+.ss-toolbar__filters { display: flex; flex-wrap: wrap; gap: var(--ss-space-2); }
+
+/* ---- Empty state ---- */
+
+.ss-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: var(--ss-space-3);
+    padding: var(--ss-space-12) var(--ss-space-5);
+}
+
+.ss-empty__icon {
+    display: grid;
+    place-items: center;
+    width: 56px; height: 56px;
+    border-radius: 50%;
+    background: var(--ss-brand-subtle);
+    color: var(--ss-brand);
+    font-size: 24px;              /* sizes an icon-font glyph inside */
+}
+
+.ss-empty__title { margin: 0; font-size: var(--ss-text-lg); font-weight: var(--ss-weight-semibold); color: var(--ss-fg); }
+.ss-empty__body  { margin: 0; max-width: 46ch; font-size: var(--ss-text-sm); color: var(--ss-fg-muted); }
+
+/* ---- Loading / skeleton ---- */
+
+.ss-skeleton {
+    background: linear-gradient(90deg,
+        var(--ss-surface-sunken) 25%,
+        var(--ss-border) 37%,
+        var(--ss-surface-sunken) 63%);
+    background-size: 400% 100%;
+    animation: ss-shimmer 1.4s ease-in-out infinite;
+    border-radius: var(--ss-radius-sm);
+}
+.ss-skeleton--text { height: 0.75rem; }
+.ss-skeleton--line { height: 1rem; margin-block: var(--ss-space-1); }
+
+@keyframes ss-shimmer { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
+
+/* The shimmer sweeps inline-start→inline-end; reverse it under RTL so it
+   travels with the reading direction. */
+[dir="rtl"] .ss-skeleton { animation-direction: reverse; }
+
+/* ---- Alerts ---- */
+
+.ss-alert {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--ss-space-3);
+    padding: var(--ss-space-4);
+    border-radius: var(--ss-radius-md);
+    border: 1px solid transparent;
+    font-size: var(--ss-text-sm);
+    background: var(--ss-neutral-bg);
+    color: var(--ss-neutral-fg);
+    /* Accent bar on the reading-start edge. */
+    border-inline-start: 3px solid currentColor;
+}
+
+.ss-alert--success { background: var(--ss-success-bg); color: var(--ss-success-fg); }
+.ss-alert--warning { background: var(--ss-warning-bg); color: var(--ss-warning-fg); }
+.ss-alert--danger  { background: var(--ss-danger-bg);  color: var(--ss-danger-fg); }
+.ss-alert--info    { background: var(--ss-info-bg);    color: var(--ss-info-fg); }
+
+.ss-alert__icon { flex: none; width: 18px; height: 18px; margin-block-start: 1px; }
+.ss-alert__content { min-width: 0; }
+.ss-alert__title { margin: 0 0 2px; font-weight: var(--ss-weight-semibold); }
+.ss-alert__body  { margin: 0; }
+
+/* ---- Tabs ---- */
+
+.ss-tabs {
+    display: flex;
+    gap: var(--ss-space-1);
+    border-block-end: 1px solid var(--ss-border);
+    overflow-x: auto;
+}
+
+.ss-tab {
+    padding-block: var(--ss-space-3);
+    padding-inline: var(--ss-space-4);
+    border: 0;
+    border-block-end: 2px solid transparent;
+    background: none;
+    font: inherit;
+    font-size: var(--ss-text-base);
+    font-weight: var(--ss-weight-medium);
+    color: var(--ss-fg-muted);
+    white-space: nowrap;
+    cursor: pointer;
+    margin-block-end: -1px;
+}
+.ss-tab:hover { color: var(--ss-fg); }
+.ss-tab[aria-selected="true"] { color: var(--ss-brand); border-block-end-color: var(--ss-brand); }
+
+/* ---- Dialog ---- */
+
+.ss-dialog-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: var(--ss-z-backdrop);
+    background: rgba(11, 31, 28, 0.5);
+}
+
+.ss-dialog {
+    position: fixed;
+    inset-block-start: 50%;
+    inset-inline-start: 50%;
+    transform: translate(-50%, -50%);
+    z-index: var(--ss-z-dialog);
+    width: min(520px, calc(100vw - 2 * var(--ss-space-4)));
+    max-height: calc(100vh - 2 * var(--ss-space-8));
+    overflow: auto;
+    background: var(--ss-surface);
+    border-radius: var(--ss-radius-lg);
+    box-shadow: var(--ss-shadow-lg);
+}
+/* translate(-50%) moves the box left in both directions, which is correct
+   for centring regardless of dir — but under RTL the inline-start origin is
+   the right edge, so the sign must flip. */
+[dir="rtl"] .ss-dialog { transform: translate(50%, -50%); }
+
+.ss-dialog__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--ss-space-3);
+    padding: var(--ss-space-5) var(--ss-space-5) var(--ss-space-3);
+}
+.ss-dialog__title { margin: 0; font-size: var(--ss-text-lg); font-weight: var(--ss-weight-semibold); }
+.ss-dialog__body { padding: 0 var(--ss-space-5) var(--ss-space-5); font-size: var(--ss-text-sm); color: var(--ss-fg-muted); }
+.ss-dialog__footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--ss-space-2);
+    padding: var(--ss-space-4) var(--ss-space-5);
+    border-block-start: 1px solid var(--ss-border);
+    background: var(--ss-surface-sunken);
+    border-end-end-radius: var(--ss-radius-lg);
+    border-end-start-radius: var(--ss-radius-lg);
+}
+.ss-dialog__close {
+    flex: none;
+    display: grid; place-items: center;
+    width: 32px; height: 32px;
+    border: 0; border-radius: var(--ss-radius-sm);
+    background: none; color: var(--ss-fg-muted); cursor: pointer;
+}
+.ss-dialog__close:hover { background: var(--ss-surface-sunken); color: var(--ss-fg); }
+
+/* ---- Host override defence ----
+   The host's dark stylesheets force every paragraph grey with !important:
+       .dataTable-info, p { color: #808191 !important; }
+   (assets/css/style-dark.css:29442, rtl-style-dark.css:29398). On the dark
+   card that is 3.42:1, below the 4.5:1 body text needs, and it would override
+   any colour set below. So the text classes that may sit on a <p> restate
+   their colour with !important. A class plus !important outranks the host's
+   bare element plus !important; nothing here is stronger than it must be. */
+.ss-page-header__subtitle,
+.ss-field__hint,
+.ss-empty__body,
+.ss-dialog__body       { color: var(--ss-fg-muted) !important; }
+.ss-page-header__title,
+.ss-card__title,
+.ss-empty__title,
+.ss-label              { color: var(--ss-fg) !important; }
+.ss-field__error       { color: var(--ss-danger) !important; }
+.ss-alert__title,
+.ss-alert__body        { color: inherit !important; }
+
+/* ---- Utilities ---- */
+
+/* Visually hidden but available to screen readers — used for table captions,
+   live-region status text and icon-only button labels. */
+.ss-visually-hidden {
+    position: absolute !important;
+    width: 1px; height: 1px;
+    padding: 0; margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* Skip link — first focusable element on a page, invisible until focused. */
+.ss-skip-link {
+    position: absolute;
+    inset-inline-start: var(--ss-space-4);
+    inset-block-start: -100px;
+    z-index: var(--ss-z-sticky);
+    padding: var(--ss-space-3) var(--ss-space-4);
+    background: var(--ss-surface);
+    color: var(--ss-link);
+    border-radius: var(--ss-radius-md);
+    box-shadow: var(--ss-shadow-md);
+    transition: inset-block-start var(--ss-duration-base) var(--ss-ease);
+}
+.ss-skip-link:focus { inset-block-start: var(--ss-space-4); }
+
+.ss-stack  { display: flex; flex-direction: column; gap: var(--ss-space-4); }
+.ss-row    { display: flex; flex-wrap: wrap; gap: var(--ss-space-3); }
+.ss-grow   { flex: 1 1 auto; min-width: 0; }
+.ss-truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* --------------------------------------------------------------------------
+   RESPONSIVE
+   Breakpoints match Bootstrap 5's so this system and the host chrome break at
+   the same widths instead of fighting each other a few pixels apart.
+   -------------------------------------------------------------------------- */
+
+/* < 576px — phone */
+@media (max-width: 575.98px) {
+    .ss-page-header { flex-direction: column; align-items: stretch; }
+    .ss-page-header__actions .ss-btn { flex: 1 1 auto; }
+    .ss-toolbar { flex-direction: column; align-items: stretch; }
+    .ss-toolbar__filters > * { flex: 1 1 auto; }
+    .ss-card__body { padding: var(--ss-space-4); }
+    .ss-table th, .ss-table td { padding-inline: var(--ss-space-3); }
+    .ss-dialog__footer { flex-direction: column-reverse; }
+    .ss-dialog__footer .ss-btn { width: 100%; }
+}
+
+/* A table that cannot fit becomes a stacked list rather than a horizontal
+   scroll trap. Each cell carries its header in a data attribute. */
+@media (max-width: 767.98px) {
+    .ss-table--stack thead { display: none; }
+    .ss-table--stack tbody tr {
+        display: block;
+        padding: var(--ss-space-3) var(--ss-space-4);
+        border-block-end: 1px solid var(--ss-border);
+    }
+    .ss-table--stack tbody td {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--ss-space-4);
+        padding: var(--ss-space-1) 0;
+    }
+    .ss-table--stack tbody td::before {
+        content: attr(data-label);
+        flex: none;
+        font-size: var(--ss-text-xs);
+        font-weight: var(--ss-weight-semibold);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--ss-fg-muted);
+    }
+    [dir="rtl"] .ss-table--stack tbody td::before { text-transform: none; letter-spacing: 0; }
+    .ss-table--stack .ss-table__actions { justify-content: flex-start; }
+}
+
+/* --------------------------------------------------------------------------
+   PREFERENCES
+   -------------------------------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+    .ss-skeleton,
+    .ss-btn[aria-busy="true"]::after {
+        animation: none;
+    }
+    .ss-skeleton { background: var(--ss-surface-sunken); }
+    .ss-btn, .ss-input, .ss-select, .ss-textarea, .ss-skip-link { transition: none; }
+}
+
+/* Windows High Contrast / forced colours: let the OS palette win, but keep
+   the focus ring visible, which forced-colours mode otherwise flattens. */
+@media (forced-colors: active) {
+    .ss-btn, .ss-input, .ss-select, .ss-textarea, .ss-card { border: 1px solid ButtonBorder; }
+    .ss-btn:focus-visible, .ss-input:focus-visible,
+    .ss-select:focus-visible, .ss-textarea:focus-visible { outline: 2px solid Highlight; }
+    .ss-badge { border: 1px solid ButtonBorder; }
+}
+
+@media print {
+    .ss-page-header__actions, .ss-toolbar, .ss-table__actions { display: none !important; }
+    .ss-card { border: 1px solid #999; box-shadow: none; }
+}

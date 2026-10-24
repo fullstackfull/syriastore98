@@ -1,0 +1,92 @@
+<?php
+
+/**
+ * ============================================================================================
+ *  DRAFT -- GATE F. NOT ACTIVE. RECONCILED AGAINST PRODUCTION 2026-10-24.
+ * ============================================================================================
+ *
+ * This file lives in database/migrations/_gate_f_pending/, which Laravel does NOT discover
+ * (migration lookup is a non-recursive glob and nothing registers this path). It will not run.
+ * Read README.md in this directory before promoting it.
+ *
+ * SCHEMA-01: store_order_financials is read and written by live code and created by NO migration.
+ *
+ * DERIVED FROM, and nothing else: app/Services/OrderFinancialService.php:90-118 (an 18-column DB::table()->insert())
+ * RECONCILED 2026-10-24 against `SHOW CREATE TABLE store_order_financials` taken from a RESTORED COPY of
+ * the production dump (GATE F, commit 3935dee8). The types below are no longer inferred from
+ * $fillable -- they are the production structure, which won every disagreement. The dump also
+ * showed this table ALREADY EXISTS in production with live rows, so up() no-ops there; see
+ * README.md for what that means for promotion.
+ *
+ * MONEY SCALES ARE THE PRODUCTION ONES, MEASURED -- not the former decimal(18,4) standing
+ * decision, which this table does not use. Verified 2026-10-24 against a restored copy of the
+ * production dump: the money columns here are decimal(15,2). The standing decision argued scale 4
+ * for 3-decimal KWD/BHD/OMR; production chose scale 2 and is the authority, so a promotion must
+ * not "correct" it upward -- widening a live column is a separate, deliberate change with its own
+ * rounding consequences for the rows already stored.
+ */
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        if (Schema::hasTable('store_order_financials')) {
+            return;
+        }
+
+        // NOTE: this is the ONE table in this directory whose column list is strong evidence
+        // rather than inference -- it comes from an explicit 18-column insert, not from
+        // $fillable. The TYPES are still inferred.
+        Schema::create('store_order_financials', function (Blueprint $table) {
+            /*
+             * GENERATED from the MEASURED production structure (restored copy of the dump at
+             * commit 3935dee8, read 2026-10-24) -- not transcribed, so no typo can diverge from it,
+             * and not inferred from $fillable. Verified by running this migration against a copy of
+             * production with these objects stripped and diffing SHOW CREATE TABLE back: identical.
+             *
+             * The UNIQUE keys and FOREIGN KEYs below are the part the earlier draft was missing
+             * entirely -- it declared none of either, on any of the six tables. They are not
+             * decoration: uq_store_order_financial_order is what makes "one financial row per
+             * order" true, uq_store_wallet_store_id is what makes "one wallet per store" true, and
+             * the ON DELETE CASCADE rules are what keep a deleted store from leaving money rows
+             * behind. Do not drop one to make a test pass.
+             */
+            $table->id();
+            $table->unsignedBigInteger('store_id');
+            $table->unsignedBigInteger('wallet_id');
+            $table->unsignedBigInteger('order_id');
+            $table->string('currency_code', 10)->nullable();
+            $table->string('currency_symbol', 20)->nullable();
+            $table->decimal('product_amount', 15, 2)->default(0.00);
+            $table->decimal('discount_amount', 15, 2)->default(0.00);
+            $table->decimal('tax_amount', 15, 2)->default(0.00);
+            $table->decimal('shipping_amount', 15, 2)->default(0.00);
+            $table->decimal('customer_total', 15, 2)->default(0.00);
+            $table->decimal('product_cost', 15, 2)->default(0.00);
+            $table->decimal('gross_profit', 15, 2)->default(0.00);
+            $table->enum('payment_status', ['unpaid', 'pending', 'paid', 'partially_paid', 'refunded', 'cancelled'])->default('unpaid');
+            $table->decimal('paid_amount', 15, 2)->default(0.00);
+            $table->decimal('remaining_amount', 15, 2)->default(0.00);
+            $table->timestamp('paid_at')->nullable();
+            $table->timestamps();
+
+            $table->unique('order_id', 'uq_store_order_financial_order');
+            $table->index('payment_status', 'idx_order_financial_payment_status');
+            $table->index('store_id', 'idx_order_financial_store');
+            $table->index('wallet_id', 'idx_order_financial_wallet');
+
+            $table->foreign('order_id', 'fk_order_financial_order')->references('id')->on('orders')->cascadeOnDelete();
+            $table->foreign('store_id', 'fk_order_financial_store')->references('id')->on('stores')->cascadeOnDelete();
+            $table->foreign('wallet_id', 'fk_order_financial_wallet')->references('id')->on('store_wallets')->cascadeOnDelete();
+        });
+    }
+
+    public function down(): void
+    {
+        // Intentionally empty -- per-order P&L history. See 0001's down().
+    }
+};

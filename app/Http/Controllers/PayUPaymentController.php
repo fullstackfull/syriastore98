@@ -20,10 +20,15 @@ use Illuminate\Support\Facades\Cache;
 use App\Traits\ApiResponser;
 use Illuminate\Support\Facades\Cookie;
 use App\Http\Controllers\Concerns\GuardsPlanActivation;
+use App\Http\Controllers\Concerns\GuardsGatewayReturn;
 
 class PayUPaymentController extends Controller
 {
     use GuardsPlanActivation;
+    use GuardsGatewayReturn;
+    use \App\Http\Controllers\Concerns\ResolvesPartialPaymentDeposit;
+    /* P1-ORD-02: a pending balance is flipped to paid only for the customer who owes it. */
+    use \App\Http\Controllers\Concerns\ResolvesPendingPartialPayment;
     use ApiResponser;
 
     public function planPayWithPayU(Request $request)
@@ -230,12 +235,54 @@ class PayUPaymentController extends Controller
         if (module_is_active('PartialPayments')) {
             if($plan && strpos($plan->modules, 'PartialPayments') !== false && \Auth::guard('customers')->user())
             {
-                if((isset($request->partial_payment_type) || $request->partial_payment_type == 'pending_payment'))
-                {
+                /*
+                 * `&&`, WHERE IT USED TO SAY `||`.  P1-ORD-02 criterion 2.
+                 *
+                 * `isset()` alone is true for ANY value of a caller-supplied key, so posting
+                 * `partial_payment_type=x` on an ORDINARY checkout diverted this return into the
+                 * settle-a-balance branch. That branch answers redirect()->back() without writing an
+                 * order, and its first statement is
+                 * `OrderPartialPayments::find($requests_data['partial_payment_id'])`, which is find(NULL)
+                 * when the stored state holds no such key -- a fatal on the next line. Either way the
+                 * shopper has been charged and no order row exists.
+                 *
+                 * AND THE PREDICATE READS THE STORED STATE, not the live request. `Request::merge()`
+                 * only overwrites keys the state HOLDS (GuardsGatewayReturn:174-176), so an ordinary
+                 * checkout's state -- which carries no `partial_payment_type` -- let a posted one
+                 * survive the merge and divert the return. By then the replay claim is consumed and
+                 * the state forgotten, so the shopper's payment stands with no order and no retry.
+                 *
+                 * AND THE ROW IS CHECKED BEFORE IT IS FLIPPED. ManagePartialPayment() is three statements
+                 * of vendored code with no store_id and no customer_id predicate, on a model that is in no
+                 * `scoped_models` entry -- so without this a signed-in shopper could mark ANY tenant's
+                 * pending balance paid by naming its id. See
+                 * App\Http\Controllers\Concerns\ResolvesPendingPartialPayment.
+                 *
+                 * WHAT THIS GUARD DOES NOT ANSWER, stated so the next reader is not misled: it proves the
+                 * balance is THIS customer's and still owed. It does NOT prove it was PAID. On this
+                 * handler the settle branch returns before any provider verification, so a customer can
+                 * still mark their OWN balance settled without a charge. That is pre-existing and is
+                 * recorded as its own item -- see docs/security/P01-ORD-02-PARTIAL-PAYMENT-TOTAL-SOURCE.md
+                 * section 5.
+                 */
+                if (($requests_data['partial_payment_type'] ?? null) === 'pending_payment') {
+                    if ($this->pendingPartialPaymentRow(
+                        $requests_data['partial_payment_id'] ?? null,
+                        $store->id ?? null,
+                        \Auth::guard('customers')->id()
+                    ) === null) {
+                        \Illuminate\Support\Facades\Log::warning('Pending partial payment refused: the balance named does not belong to this customer.', [
+                            'store_id' => $store->id ?? null,
+                            'customer_id' => \Auth::guard('customers')->id(),
+                            'partial_payment_id' => $requests_data['partial_payment_id'] ?? null,
+                        ]);
+
+                        return redirect()->back()->with('error', __('This payment could not be verified.'));
+                    }
+
                     $return = \Workdo\PartialPayments\app\Models\PartialPayments::ManagePartialPayment($requests_data, $slug);
-                    if($return['status'] == 'success')
-                    {
-                        return redirect()->back()->with('success',__($return['message']));
+                    if ($return['status'] == 'success') {
+                        return redirect()->back()->with('success', __($return['message']));
                     }
                 }
             }
@@ -389,6 +436,40 @@ class PayUPaymentController extends Controller
 
         // Order stock decrease start
         $prodduct_id_array = [];
+        /*
+         * P1-ORD-02 criterion 2 -- THE DEPOSIT IS PRICED HERE, WHILE THE CART STILL EXISTS.
+         *
+         * The order's write site is where the total is SET and the wrong place to ASK for it. The module's
+         * `ManageDeposit()` re-reads the basket through `ApiController::cart_list()`, and the loop below
+         * DELETES the cart rows before `new Order()` is reached -- so called down there it finds an empty
+         * basket, falls off the end of its own `if (! empty($products))` and returns NULL.
+         *
+         * MEASURED on EasebuzzController, and this is the part worth keeping: the first cut called the
+         * resolver at the write site, exactly as the already-repaired `PaymentService` does, and it SILENTLY
+         * fell back to the subtotal -- no exception, nothing logged, the order charged 100.00 where the
+         * module prices 10.00. The same call made here returns `deposite_amount = "10.00"`. `PaymentService`
+         * gets away with it only because a previous package DEFERRED its cart delete to after the order
+         * commits (PaymentService.php:2592-2615); these controllers still delete first.
+         *
+         * See App\Http\Controllers\Concerns\ResolvesPartialPaymentDeposit for what was wrong with reading
+         * the total out of the posted checkout state.
+         */
+        $partialPaymentDeposit = null;
+
+        if (module_is_active('PartialPayments') && \Auth::guard('customers')->user() && (isset($settings['enable_partial_payment']) && $settings['enable_partial_payment'] == 'on')) {
+            $partialPaymentDeposit = $this->partialPaymentDeposit(
+                $request,
+                $slug,
+                [
+                    'tax_price' => $tax_price,
+                    'shipping_price' => $delivery_price,
+                    'coupon_price' => $coupon_price,
+                    'total_sub_price' => $final_sub_total_price,
+                ],
+                $final_sub_total_price
+            );
+        }
+
         if (!empty($products)) {
             foreach ($products as $key => $product) {
                 $prodduct_id_array[] = $product->product_id;
@@ -399,7 +480,7 @@ class PayUPaymentController extends Controller
 
                 $Product = Product::where('id', $product_id)->first();
                 $datas = Product::find($product_id);
-                if($settings['stock_management'] ?? '' == 'on')
+                if (($settings['stock_management'] ?? null) === 'on')
                 {
                     if (!empty($product_id) && !empty($variant_id) && $product_id != 0 && $variant_id != 0) {
                         $ProductStock = ProductVariant::where('id', $variant_id)->where('product_id', $product_id)->first();
@@ -569,11 +650,13 @@ class PayUPaymentController extends Controller
                     }
                 }
                 // remove from cart
-                Cart::where('customer_id', $request->customer_id)->where('product_id', $product_id)->where('variant_id', $variant_id)->where('store_id',$store->id)->delete();
+                // P1-SEC-24: the buyer's basket is the AUTHENTICATED customer's. `$request->customer_id` here is the stored checkout
+                // state -- '' for a guest (MySQL reads '' = 0) or the id of whoever's e-mail was typed -- and is not an owner.
+                Cart::forCustomer(auth('customers')->id())->where('product_id', $product_id)->where('variant_id', $variant_id)->where('store_id',$store->id)->delete();
             }
         }
         if (isset($request->customer_id) && !empty($request->customer_id)) {
-            Cart::where('customer_id', $request->customer_id)->delete();
+            Cart::forCustomer(auth('customers')->id())->delete();
         }
         // Order stock decrease end
         if (!empty($prodduct_id_array)) {
@@ -611,7 +694,39 @@ class PayUPaymentController extends Controller
                 $order->final_price = $final_price + $tax_price - $coupon_price;
             }
         }elseif (module_is_active('PartialPayments') && \Auth::guard('customers')->user() && (isset($settings['enable_partial_payment']) && $settings['enable_partial_payment'] == 'on')) {
-            $order->final_price = $requests_data['cartlist_final_price'] ?? $total_sub_price;
+            /*
+             * P1-ORD-02 criterion 2. THIS WAS
+             *
+             *     $order->final_price = $requests_data['cartlist_final_price'] ?? $total_sub_price;
+             *
+             * and `$requests_data` is the stored checkout state, which `PaymentService` stores as
+             * `$request->except('attachment','payment_receipt')` -- the whole POST BODY of the
+             * checkout request. SERVER-STORED IS NOT SERVER-DERIVED: a key the shopper posts at
+             * initiation is in the array this return reads back.
+             *
+             * WHICH INITIATION PATHS LET A CALLER CHOOSE IT -- measured on the REAL route, because the
+             * first write-up of this package overclaimed it and a read-only review called that. `POST
+             * {slug}/process-order`, signed in as a customer, posting `cartlist_final_price = 1.00`,
+             * stores:
+             *     partial payments off, plain              100.00  (the SERVER's figure)
+             *     partial payments on,  plain               10.00  (the MODULE's deposit)
+             *     partial payments on,  pending_payment      1.00  (THE CALLER'S OWN FIGURE)
+             * The first two are prepareFinalRequestData() overwriting the key before the session store
+             * (PaymentController:1802, :1826), so on those paths this repair is DEFENCE IN DEPTH rather
+             * than a live fix. The third IS live: that method's own `else` limb (:1831) writes
+             * `$request->payment_amount` with nothing checking it against the amount outstanding.
+             * Pinned by tests/Feature/Commerce/PartialPaymentDepositSourceTest.php.
+             *
+             * `$total_sub_price` was ALSO never assigned in this file, so the `??` limb was an
+             * undefined variable -- an ErrorException, not a safe fallback.
+             *
+             * Recomputed through the module's own server-side ManageDeposit(), with the
+             * server-derived components merged in first so neither the deposit nor its inputs can
+             * come from the caller. The same repair 569494d2 made at PaymentService and
+             * PaymentController, which this file was missed out of. See
+             * App\Http\Controllers\Concerns\ResolvesPartialPaymentDeposit.
+             */
+            $order->final_price = $partialPaymentDeposit ?? $final_sub_total_price;
             \Workdo\PartialPayments\app\Models\OrderPartialPayments::OrderPartialPayments($order, $slug , $request);
         }else{
             if (module_is_active('RewardClubPoint') && isset($requests_data['club_point_is_active']) && $requests_data['club_point_is_active'] == 'on') {
@@ -634,7 +749,24 @@ class PayUPaymentController extends Controller
         event(new AddAdditionalFields($order,$request->all(),$store));
         $order->payment_comment = !empty($requests_data['payment_comment']) ? $requests_data['payment_comment'] : '';
         $order->payment_type = $requests_data['payment_type'];
-        $order->payment_status = 'Paid';
+        /*
+         * P01-COMMERCE-SEC-01. DERIVED, NOT ASSERTED -- the same wiring PaymentController (:2436)
+         * and PaymentService (:2594) already use. This was the literal `'Paid'`, with nothing
+         * between the shopper's browser and this line having asked a gateway whether money moved.
+         *
+         * NO BEHAVIOUR CHANGES TODAY: this payment type is not in
+         * PaymentVerificationService::ENFORCED_PAYMENT_TYPES, so the call returns exactly the 'Paid'
+         * the literal did. What it buys is that the unverified write is LOGGED -- the exposure
+         * becomes measurable -- and that enforcing this gateway later is a one-line change in that
+         * service instead of another edit here. Flipping the posture is the owner's call, because
+         * recording every gateway order as Pending stops merchant wallets being credited; see the
+         * blocker in docs/security/P01-SECURITY-WORK-QUEUE.md.
+         */
+        $order->payment_status = $this->gatewayReturnPaymentStatus(
+            $requests_data['payment_type'] ?? null,
+            $order->final_price,
+            __METHOD__
+        );
         $order->delivery_id = $requests_data['method_id'] ?? 0;
         $order->delivery_comment = !empty($requests_data['delivery_comment']) ? $requests_data['delivery_comment'] : '';
         if (module_is_active('PreOrder') && \Auth::guard('customers')->user() && isset($requests_data['order_type']) && $requests_data['order_type'] == 'pre_order') {
@@ -652,35 +784,21 @@ class PayUPaymentController extends Controller
         }
         // Utility::paymentWebhook($order);
 
-        $billing_city_id = 0;
-        if (!empty($billing['billing_city'])) {
-            $cityy = City::where('name', $billing['billing_city'])->first();
-            if (!empty($cityy)) {
-                $billing_city_id = $cityy->id;
-            } else {
-                $new_billing_city = new City();
-                $new_billing_city->name = $billing['billing_city'];
-                $new_billing_city->state_id = $billing['billing_state'];
-                $new_billing_city->country_id = $billing['billing_country'];
-                $new_billing_city->save();
-                $billing_city_id = $new_billing_city->id;
-            }
-        }
+        // P1-ORD-15: the posted values are IDS and this looked the city up by NAME. One resolver,
+        // which also keeps a posted NAME out of cities.state_id / country_id (foreign keys).
+        $billing_city_id = \App\Services\BillingGeography::resolveCityId(
+            $billing['billing_city'] ?? null,
+            $billing['billing_state'] ?? null,
+            $billing['billing_country'] ?? null
+        );
 
-        $delivery_city_id = 0;
-        if (!empty($billing['delivery_city'])) {
-            $d_cityy = City::where('name', $billing['delivery_city'])->first();
-            if (!empty($d_cityy)) {
-                $delivery_city_id = $d_cityy->id;
-            } else {
-                $new_delivery_city = new City();
-                $new_delivery_city->name = $billing['delivery_city'];
-                $new_delivery_city->state_id = $billing['delivery_state'];
-                $new_delivery_city->country_id = $billing['delivery_country'];
-                $new_delivery_city->save();
-                $delivery_city_id = $new_delivery_city->id;
-            }
-        }
+        // P1-ORD-15: the posted values are IDS and this looked the city up by NAME. One resolver,
+        // which also keeps a posted NAME out of cities.state_id / country_id (foreign keys).
+        $delivery_city_id = \App\Services\BillingGeography::resolveCityId(
+            $billing['delivery_city'] ?? null,
+            $billing['delivery_state'] ?? null,
+            $billing['delivery_country'] ?? null
+        );
 
         $OrderBillingDetail = new OrderBillingDetail();
         $OrderBillingDetail->order_id = $order->id;
@@ -871,10 +989,14 @@ class PayUPaymentController extends Controller
             // $cart_json = json_encode($cart_array);
             // Cookie::queue('cart', $cart_json, 1440);
             $cart = Cookie::get('cart');
-            $cart = Cart::where('cookie_session_id', $cart)->delete();
+            $cart = Cart::forGuestCookie($cart)->delete();
             if (auth('customers')->user()) {
                 event(new AddRewardClubPoint($requests_data,$order,$slug));
             }
+            // P1-ORD-13: the thank-you page resolves the PRIMARY KEY this session placed, because
+            // `product_order_id` is a bare timestamp two same-second orders in one store share --
+            // the number alone showed one buyer the other's order, and after P1-ORD-08 refused both.
+            \App\Services\OrderCompleteBinding::remember($order->id);
             return redirect()->route('order.complete', $slug)->with('data', $order->product_order_id);
         } else {
             return $this->error(['message' => 'Somthing went wrong.']);

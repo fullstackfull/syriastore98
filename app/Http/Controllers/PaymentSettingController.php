@@ -20,6 +20,11 @@ class PaymentSettingController extends Controller
     public function update(Request $request)
     {
         session()->put(['setting_tab' => 'payment_setting']);
+        // P1-SEC-18 F5. Overwrites every gateway credential of the caller's store, and the route carried no permission check at
+        // all: the Settings menu entry is the only thing that hid it from staff. See App\Services\StoreSettingsAccess.
+        if (! \App\Services\StoreSettingsAccess::permits(auth()->user())) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
         $this->store_id = !empty(getCurrentStore()) ? getCurrentStore() : '1';
 
         // Handle currency settings

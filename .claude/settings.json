@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+
+  "permissions": {
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.testing)",
+      "Read(./.env.local)",
+      "Read(./.env.production)",
+      "Read(./.env.backup)",
+      "Read(./storage/logs/api-*.log)",
+      "Read(./auth.json)",
+      "Read(./**/*.pem)",
+      "Read(./**/*.p12)",
+      "Read(./**/*.pfx)"
+    ]
+  },
+
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Read|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "php",
+            "args": [
+              "${CLAUDE_PROJECT_DIR}/.claude/hooks/guard-protected-paths.php"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

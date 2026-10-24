@@ -24,7 +24,16 @@ class ActiveTheme
            // return abort('403', 'The store is not active.');
        // }
         if($store && $store->theme_id) {
-            visitor()->visit($store);
+            // P1-SEC-13. A page-view counter must never be able to fail the page: the visit row needs a table
+            // that may be unavailable and JSON-encodes request-derived strings.
+            try {
+                visitor()->visit($store);
+            } catch (\Throwable $e) {
+                // The CLASS and a short message, never the exception object: the default log stack includes the
+                // error tracker, whose handler acts on `context['exception']` and would ship this request's
+                // cookies, session and input off the box -- on every request that trips this.
+                \Log::warning('Storefront visit log failed', ['class' => get_class($e), 'message' => mb_substr($e->getMessage(), 0, 200)]);
+            }
             $themeName = $store->theme_id;
         } else {
             $themeName = $this->getThemeNameFromUrl($request);

@@ -12,6 +12,30 @@ return [
     |
     */
 
+    /*
+    |--------------------------------------------------------------------------
+    | Outbound reporting -- OFF unless deliberately enabled
+    |--------------------------------------------------------------------------
+    |
+    | OWNER DECISION, P1-SEC-14: outbound LaraBug reporting is DISABLED until the
+    | sensitive-data protection has been verified against a real payload. Local
+    | error logging is unaffected -- the `single` channel still records everything,
+    | so nothing is lost; only the transmission to the third party stops.
+    |
+    | DEFAULT FALSE, AND IT HAS TO BE A SEPARATE SWITCH rather than "unset the key".
+    | `LaraBug\Http\Client::report()` POSTs whether or not a key is set (it checks
+    | neither, and sends `Authorization: Bearer ` with an empty token), so an unset
+    | key is not an off switch -- it is an unauthenticated send. And once the keys
+    | ARE restored for a verified deployment, "keyed" must not silently mean "send":
+    | this flag is the thing an operator turns on, once, on purpose.
+    |
+    | Turning it on is a deliberate act with a precondition. See
+    | docs/security/P01-SEC-14-ERROR-TRACKER-EXPOSURE.md for what must be verified
+    | first, and for the historical-exposure question only server access can settle.
+    */
+
+    'outbound_enabled' => (bool) env('LARABUG_OUTBOUND_ENABLED', false),
+
     'login_key' => env('LB_KEY', ''),
 
     /*
@@ -107,7 +131,29 @@ return [
         '*cvv*',
         '*iban*',
         '*name*',
-        '*email*'
+        '*email*',
+        // P1-SEC-14: what the first list missed -- cookies and sessions (the session id, `remember_web_*`, the raw `cookie` header), every
+        // gateway secret and key (`stripe_secret_key`, `google2fa_secret`, `*_api_key`), card numbers and expiries under every spelling the
+        // payment forms use (`nmi_card_number`, `cardNumber`, `PowerTranz_card_number`, `cc_number`, `exp_month`, `expiry`), one-time codes
+        // and pins, signatures and CSRF values.
+        '*cookie*',
+        '*session*',
+        '*remember*',
+        '*secret*',
+        '*key*',
+        '*card*',
+        '*cc_*',
+        '*number*',
+        '*expir*',
+        '*exp_month*',
+        '*exp_year*',
+        '*otp*',
+        'pin',
+        '*_pin',
+        '*signature*',
+        '*csrf*',
+        '*bearer*',
+        '*login*',
     ],
 
     /*

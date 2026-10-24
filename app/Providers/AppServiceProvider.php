@@ -4,7 +4,9 @@ namespace App\Providers;
 
 use Illuminate\Support\ServiceProvider;
 use App\Classes\Module;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\File;
+use App\Listeners\EnforceLotteryTicketPrice;
 use App\Models\Order;
 use App\Observers\OrderObserver;
 
@@ -19,6 +21,21 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton('module', function ($app) {
             return new Module();
         });
+
+        // P1-SEC-13. Replaces the package's own binding (package providers register before app providers)
+        // with a subclass that does not persist the request body or credential headers. See the class.
+        // P1-SEC-14. The error tracker's payload carried cookies, the session, the request body and the user model; this subclass scrubs it
+        // (package providers register first, so this replaces the package's own 'larabug' binding, as the visitor binding below does).
+        $this->app->singleton('larabug', function () {
+            return new \App\Services\ScrubbedLaraBug(new \LaraBug\Http\Client(
+                config('larabug.login_key', 'login_key'),
+                config('larabug.project_key', 'project_key')
+            ));
+        });
+
+        $this->app->singleton('shetabit-visitor', function () {
+            return new \App\Services\SanitisedVisitor(app(\Illuminate\Http\Request::class), config('visitor'));
+        });
        
     }
 
@@ -28,6 +45,21 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         Order::observe(OrderObserver::class);
+
+        /*
+         * P1-INV-21 / #68 item 1 -- the lottery ticket's recorded price comes from a client-posted
+         * hidden input while the CHARGE comes from the database. This rewrites the recorded value
+         * from the authoritative `lottery_settings.ticket_price`.
+         *
+         * REGISTERED BY EVENT-NAME STRING rather than `PurchaseTicket::observe()`, because the
+         * model lives in a vendored module that may not be loaded. `Event::listen` on a string key
+         * needs no class, so this cannot fatal when LotteryPrizes is absent and cannot race the
+         * module loader when it is present -- module providers boot from `app->booted()`, after
+         * this one. The listener's docblock records how it was verified that `Cachable` does not
+         * suppress the `creating` event, and why it rewrites the amount and nothing else.
+         */
+        Event::listen(EnforceLotteryTicketPrice::EVENT, EnforceLotteryTicketPrice::class);
+
         $cachePath = storage_path('framework/cache/data');
 
         if (! File::exists($cachePath)) {

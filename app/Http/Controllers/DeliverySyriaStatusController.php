@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\DeliverySyriaCredential;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Crypt;
@@ -80,6 +81,28 @@ class DeliverySyriaStatusController extends Controller
             ], 403);
         }
 
+        /*
+         * P1-SEC-10. The credential is resolved BEFORE the order is looked up. This endpoint used to find the zid_orders row first and
+         * compare the owner's secret second, so a wrong token got 404 (which also echoed the caller's id back) for an id that exists nowhere
+         * and 403 for one that exists in some tenant: an existence oracle over every store's Zid order ids. Now an unauthenticated caller
+         * gets one answer whatever it asks about, and an authenticated one is confined to the stores its own secret owns -- so a VALID
+         * secret of store B cannot probe store A's ids either.
+         */
+        $storeIds = DeliverySyriaCredential::storeIdsFor($secret);
+
+        if ($storeIds === []) {
+            // Never log the secret or the supplied token -- length only, which is enough to tell "sent nothing" from "sent the wrong thing".
+            Log::warning('Delivery Syria status webhook: invalid credentials.', [
+                'platform' => $platform,
+                'provided_token_length' => strlen($secret),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid credentials.',
+            ], 403);
+        }
+
         $productOrderId = $request->input('product_order_id');
         $status = $request->input('status');
 
@@ -104,6 +127,7 @@ class DeliverySyriaStatusController extends Controller
          */
         $order = DB::table('zid_orders')
             ->where('zid_order_id', $zidOrderId)
+            ->whereIn('store_id', $storeIds)
             ->first();
 
         if (!$order) {
@@ -112,45 +136,6 @@ class DeliverySyriaStatusController extends Controller
                 'message' => 'Zid order not found.',
                 'zid_order_id' => $zidOrderId,
             ], 404);
-        }
-
-        /*
-         * 2. Per-store credential check, now that the order tells us which
-         *    tenant this callback claims to be about.
-         *
-         * Resolved the same way as Api\DeliverySyriaOrderController:
-         *     zid_orders.store_id -> stores.created_by -> users.deliverysyria_secret
-         *
-         * hash_equals, not ===, because this compares a caller-supplied value
-         * against a stored secret and must not leak its length or prefix through
-         * timing. An empty stored secret is a refusal, never a match: otherwise
-         * a store with no configured secret would accept ANY token, which is the
-         * state every store is in on a database built from source.
-         */
-        $store = DB::table('stores')->where('id', $order->store_id)->first();
-
-        $owner = $store
-            ? DB::table('users')->where('id', $store->created_by)->first()
-            : null;
-
-        $storedSecret = trim((string) ($owner->deliverysyria_secret ?? ''));
-
-        if ($storedSecret === '' || !hash_equals($storedSecret, $secret)) {
-            // Never log the secret or the supplied token -- length only, which is
-            // enough to tell "sent nothing" from "sent the wrong thing".
-            Log::warning('Delivery Syria status webhook: invalid credentials.', [
-                'zid_order_id' => $zidOrderId,
-                'store_id' => $order->store_id,
-                'owner_id' => $owner->id ?? null,
-                'platform' => $platform,
-                'provided_token_length' => strlen($secret),
-                'stored_token_exists' => $storedSecret !== '',
-            ]);
-
-            return response()->json([
-                'success' => false,
-                'message' => 'Invalid credentials.',
-            ], 403);
         }
 
         /*
@@ -254,6 +239,7 @@ class DeliverySyriaStatusController extends Controller
              */
             DB::table('zid_orders')
                 ->where('zid_order_id', $zidOrderId)
+                ->where('store_id', $order->store_id)
                 ->update([
                     'status_code' => $zidStatus,
                     'updated_at' => now(),

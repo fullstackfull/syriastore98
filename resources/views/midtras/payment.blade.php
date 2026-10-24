@@ -2,10 +2,11 @@
   <head>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link href="https://fonts.googleapis.com/css?family=Roboto:300,400,500,700" rel="stylesheet">
-    <!-- @TODO: replace SET_YOUR_CLIENT_KEY_HERE with your client key -->
+    {{-- P1-SEC-17 F2: no `data-client-key`. This used to print the merchant's SERVER key there. Midtrans'
+         snap.js reads the attribute only for custom-UI configuration and runs without it; snap.pay(token) below
+         does not need it. A real client key needs its own setting, which does not exist yet. --}}
     <script type="text/javascript"
-      src="https://app.sandbox.midtrans.com/snap/snap.js"
-      data-client-key="{{ $data['midtrans_secret'] }}"></script>
+      src="https://app.sandbox.midtrans.com/snap/snap.js"></script>
     <!-- Note: replace with src="https://app.midtrans.com/snap/snap.js" for Production environment -->
     <script src="https://code.jquery.com/jquery-3.6.0.min.js" integrity="sha256-/xUj+3OJU5yExlq6GSYGSHk7tPXikynS7ogEvDej/m4=" crossorigin="anonymous"></script>
   </head>

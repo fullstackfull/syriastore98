@@ -21,6 +21,7 @@ use Session;
 use Illuminate\Support\Facades\Crypt;
 use App\DataTables\AbandonCartDataTable;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 
 class CartController extends Controller
 {
@@ -92,10 +93,13 @@ class CartController extends Controller
         $store = getStore($slug);
         if (auth('customers')->guest()) {
             $Carts = Cookie::get('cart');
-            $cart = Cart::where('cookie_session_id', $Carts)->where('product_id',$request->product_id)->where('variant_id',$request->variant_id)->delete();
+            $cart = Cart::forGuestCookie($Carts)->where('product_id',$request->product_id)->where('variant_id',$request->variant_id)->delete();
             Cookie::queue('cart', $Carts, 1440);
         } else {
-            $cart = Cart::where('id', $request->cart_id)->first();
+            // P1-SEC-24. The row is looked up THROUGH the caller's own basket: the id is the request's, cart ids are
+            // sequential, and Cart is store-scoped, so without the customer predicate any logged-in customer could
+            // delete any other customer's basket line in the store.
+            $cart = Cart::forCustomer(auth('customers')->id())->where('id', $request->cart_id)->first();
 
             // activity log
             if ($cart && $store) {
@@ -124,7 +128,7 @@ class CartController extends Controller
         
         if (auth('customers')->guest()) {
             $cartId = Cookie::get('cart');
-            $cart = Cart::where('cookie_session_id', $cartId)->delete();
+            $cart = Cart::forGuestCookie($cartId)->delete();
             Cookie::queue('cart', $cartId, 1440);
         } else {
             $carts = Cart::where('customer_id', auth('customers')->id())->delete();
@@ -156,7 +160,14 @@ class CartController extends Controller
             $response = Cart::cart_qty_cookie($request);
             return response()->json($response);
         } else {
-            $Cart = Cart::find($cart_id);
+            // P1-SEC-24. Looked up through the caller's own basket: the id is the request's, so an unknown or foreign id
+            // was a null dereference (HTTP 500) and an existence oracle for cart ids in every store. (No cross-customer
+            // WRITE: cart_qty re-resolves the principal and touches the caller's own row -- probed.)
+            $Cart = Cart::forCustomer(auth('customers')->id())->where('id', $cart_id)->first();
+
+            if (empty($Cart)) {
+                return response()->json(['status' => 0, 'message' => __('Product not found.'), 'data' => ['message' => __('Product not found.')]]);
+            }
 
             $param = [
                 'customer_id' => $Cart->customer_id,
@@ -186,7 +197,38 @@ class CartController extends Controller
 
         $product_id = $request->product_id;
         $variant_id = $request->variant_id ?? 0;
+
+        // P01-SEC-14 F1. THE SOURCE OF THE NEGATIVE CART LINE, and the one writer with no
+        // validation at all. `$request->qty ?? 0` took whatever was posted to the storefront web
+        // route `{storeSlug?}/product_cart` (routes/customer.php) and wrote it to `carts.qty`
+        // under the session customer's own id and this store -- exactly the rows the API order
+        // writers price. MEASURED through those writers with a -5 row present: a basket worth
+        // 1000.00 recorded `product_price` and `final_price` of 750.0, and the discounted
+        // product's stock went UP from 20 to 25.
+        //
+        // The three order handlers and payment_sheet now refuse such a basket, but closing it
+        // where it is written is what stops the row existing. An adversarial review of
+        // P01-SEC-14 E traced this path; the API's own entry point (addtocart) was validated in
+        // that commit and this one was missed.
+        //
+        // REFUSES rather than clamps, and nothing legitimate is refused: the storefront's own JS
+        // already clamps to 1 before posting (public/assets/js/front-theme.js:275-278, and the
+        // ProductQuickView module's view does the same), "remove" is a different endpoint with a
+        // `quantity_type` of its own, and there is no weighed/decimal quantity anywhere in the
+        // platform. So a non-positive value reaching here is not a client doing its job.
         $qty = $request->qty ?? 0;
+
+        if (! is_numeric($qty) || (int) $qty < 1 || (float) $qty != (int) $qty) {
+            Log::warning('product_cart: refused a non-positive or non-integer quantity', [
+                'store_id' => $store->id ?? null,
+                'customer_id' => $customer_id,
+                'qty' => is_scalar($qty) ? (string) $qty : gettype($qty),
+            ]);
+
+            return Utility::error(['message' => __('Please choose a quantity of at least 1.')]);
+        }
+
+        $qty = (int) $qty;
         $size_data = '';
         $final_price = 0;
         $cart_count = 0;
@@ -198,6 +240,45 @@ class CartController extends Controller
 
         $product = Product::find($product_id);
         if (empty($product)) {
+            return Utility::error(['message' => __('Product not found.')]);
+        }
+
+        /*
+         * P01-COMMERCE-SEC-01. THE PRODUCT MUST BELONG TO THIS STORE.
+         *
+         * `Product::find()` adds NO predicate for anybody. Product is not in
+         * config/tenancy.php's `scoped_models`, so StoreScope::isActiveFor() short-circuits for it
+         * -- not for a customer, not for a guest, not for the operator. So this route accepted ANY
+         * tenant's product id and wrote it into THIS store's cart.
+         *
+         * MEASURED end to end, through these routes alone and with no account:
+         *   POST /{storeA}/product_cart  with product_id = <a store-B product>, qty 7
+         *     -> HTTP 200, "added successfully", carts row product_id=<B's>, store_id=<A's>
+         *   POST /{storeA}/get-payment-paiementpro   (a legitimate return)
+         *     -> store B's products.product_stock 90 -> 83
+         *
+         * Two anonymous requests drain another merchant's inventory, and on CinetPay, Easebuzz and
+         * PaiementPro -- which verify no payment at all -- without paying for anything. The
+         * gateway-return loops cannot catch it: they decrement whatever product_id the cart row
+         * holds, and the row looks entirely ordinary by then.
+         *
+         * This is the same defect family as the S19 cross-tenant stock drain, and the same lesson:
+         * a `customer_id` sweep cannot find it, because the attacker-controlled identifier is the
+         * PRODUCT id. See the P01-SEC-14 F1 note above -- closing it where the row is WRITTEN is
+         * what stops the row existing, and it is the only place one change covers every reader.
+         *
+         * Only a PROVABLE mismatch is refused. A product whose own `store_id` is null is left
+         * alone: the column is nullable, and refusing those would break a storefront rather than
+         * fix one, which is a defect of its own.
+         */
+        if (!empty($product->store_id) && !empty($store->id) && (int) $product->store_id !== (int) $store->id) {
+            Log::warning('product_cart: refused a product belonging to another store', [
+                'store_id' => $store->id,
+                'product_store_id' => $product->store_id,
+                'product_id' => $product_id,
+                'customer_id' => $customer_id,
+            ]);
+
             return Utility::error(['message' => __('Product not found.')]);
         }
 
@@ -279,7 +360,7 @@ class CartController extends Controller
             }
 
             $session_id = session()->getId();
-            $cart = Cart::where('cookie_session_id', $session_id)
+            $cart = Cart::forGuestCookie($session_id)
                 ->where('product_id', $request->product_id)
                 ->where('variant_id', $variant_id)
                 ->where('store_id', $store->id)
@@ -288,7 +369,24 @@ class CartController extends Controller
         } else{
 
             if ($product->variant_product == 1) {
-                $ProductVariant = ProductVariant::find($request->variant_id);
+                /*
+                 * PAIRED TO THIS PRODUCT. P01-COMMERCE-SEC-03 FOLLOW-UP.
+                 *
+                 * This was `ProductVariant::find($request->variant_id)`. The product above IS
+                 * store-scoped (P01-COMMERCE-SEC-01) -- but `ProductVariant` carries no StoreScope
+                 * and is not in config/tenancy.php's `scoped_models`, so SCOPING THE PRODUCT DOES
+                 * NOT SCOPE THE VARIANT: `find()` reached any tenant's variant row, it came back
+                 * non-empty, and `$cart->variant_id` was written from it. The guest arm at :277 has
+                 * been paired since P01-COMMERCE-SEC-01; this authenticated twin was not, which is
+                 * the web counterpart of the `addtocart` defect recorded as S36-1.
+                 *
+                 * It also mattered for AVAILABILITY once the checkout writers began refusing such
+                 * baskets: a shopper could poison their own cart here and then be unable to check
+                 * out at all.
+                 */
+                $ProductVariant = ProductVariant::where('id', $request->variant_id)
+                    ->where('product_id', $request->product_id)
+                    ->first();
                 if (empty($ProductVariant)) {
                     return Utility::error(['message' => __('Please Select a variant in a product.')], __('Please Select a variant in a product.'));
                 }
@@ -344,7 +442,43 @@ class CartController extends Controller
                     ->first();
             }
 
-            // activity log
+            /*
+         * PLACED ABOVE THE ACTIVITY LOG, not beside the cart write. An adversarial authz review
+         * pointed out that the first version of this gate sat after `$ActivityLog->save()`, so a
+         * refused add still left a row claiming "add to cart" with the variant that was rejected --
+         * and that the API twin has the opposite order. Not money, not stock, not cross-tenant;
+         * corrected because an audit trail of refused actions is worse than no row at all.
+         *
+         * (And the first attempt at this move put the block in `cart_remove()` instead, because
+         * "the first // activity log in the file" is not the same thing as "this method's". Caught
+         * by reading the result rather than trusting the edit.)
+         */
+        /*
+         * AND THE PAIR ABOUT TO BE PERSISTED IS VALIDATED ONCE, FOR EVERY ARM.
+         * P01-COMMERCE-SEC-03 FOLLOW-UP -- the same gate ApiController::addtocart received, for
+         * the same reason: this method resolves `$variant_id` in three places (:277 paired, :306
+         * unpaired inside the SizeGuideline module arm, :362 paired by the change above) and the
+         * plain-product arm validates no variant at all, so a stray id reached the row verbatim.
+         * One gate before the write makes the stored row sound regardless of which arm produced
+         * the value, including the module arm no test in this repository can exercise.
+         *
+         * `product_id`, not `store_id`: `product_variants.store_id` is nullable, and the
+         * store-scoped `$product` lookup above has already settled the tenancy.
+         */
+        if (!empty($variant_id) && (int) $variant_id !== 0) {
+            $variantBelongsToProduct = ProductVariant::where('id', $variant_id)
+                ->where('product_id', $request->product_id)
+                ->exists();
+
+            if (! $variantBelongsToProduct) {
+                return Utility::error(
+                    ['message' => __('Please Select a variant in a product.')],
+                    __('Please Select a variant in a product.')
+                );
+            }
+        }
+
+        // activity log
             $ActivityLog = new ActivityLog();
             $ActivityLog->customer_id = $customer_id;
             $ActivityLog->log_type = 'add to cart';
@@ -383,7 +517,7 @@ class CartController extends Controller
         $cart->save();
 
         if (!$customer) {
-            $cart_count = Cart::where('cookie_session_id', $session_id)->count();
+            $cart_count = Cart::forGuestCookie($session_id)->count();
             Cookie::queue('cart', $session_id, 1440);
         } else {
             $cart_count = Cart::where('customer_id', $customer_id)->where('store_id', $store->id)->count();
@@ -398,7 +532,34 @@ class CartController extends Controller
     public function get_shipping_method(Request $request, $slug)
     {
         $store = getStore($slug);
-        $shippingMethods = ShippingMethod::find($request->method_id);
+        /*
+         * P01-COMMERCE-SEC-01. STORE-SCOPED. This was `ShippingMethod::find($request->method_id)`
+         * -- no store predicate, and ShippingMethod is NOT in config/tenancy.php's scoped_models,
+         * so the global scope adds none either. `method_id` is caller-supplied at BOTH legs of a
+         * checkout, so any shopper could apply ANY tenant's shipping method, at that tenant's
+         * cost, to their own order.
+         *
+         * `cost` is a merchant-controlled string column written with no validation by
+         * ShippingMethodController::update(), so a merchant can publish a NEGATIVE one. MEASURED,
+         * before this change: posting only `method_id=<store B's 'Local pickup', cost '-50'>` to
+         * {slug}/process-order produced a SERVER-COMPUTED checkout state carrying
+         * shipping_final_price '-50' and cartlist_final_price 50.0 -- the payable -- and the
+         * following gateway return, posting no money fields at all, wrote an order with
+         * product_price 100.0 and final_price 50.0. For AuthorizeNet the same figure is the amount
+         * captured from the card (GuardsGatewayReturn::serverPayableAmount()).
+         *
+         * This is why the gateway-return guards could not see it: the state really was the
+         * server's. The server had computed a poisoned figure one leg earlier.
+         *
+         * A NULL store_id is still accepted. The column is nullable and legacy rows may not carry
+         * it; refusing those would hide a merchant's own shipping method, which is a broken
+         * storefront rather than a fix. What is refused is a method belonging to a DIFFERENT store.
+         */
+        $shippingMethods = ShippingMethod::where('id', $request->method_id)
+            ->where(function ($q) use ($store) {
+                $q->where('store_id', $store->id ?? 0)->orWhereNull('store_id');
+            })
+            ->first();
         if (auth('customers')->guest()) {
             $response = Cart::cart_list_cookie($request->all(), $store->id);
             $response = json_decode(json_encode($response));
@@ -458,6 +619,28 @@ foreach ($response->data->product_list as $item) {
 
                 $total_shipping_price = $shipping_final_price;
             }
+
+            /*
+             * P01-COMMERCE-SEC-01. A SHIPPING CHARGE IS NEVER NEGATIVE.
+             *
+             * Every branch above multiplies or copies `$shippingMethods->cost`, which is a
+             * merchant-controlled string column written with no validation. A negative one does
+             * not merely zero the shipping -- it is SUBTRACTED from the payable, because
+             * PaymentController::prepareFinalRequestData() folds the delivery price into
+             * `cartlist_final_price` and Cart::cart_list_cookie() adds it into `total_sub_price`.
+             * So a negative charge is a discount on the goods, and on the card capture.
+             *
+             * The floor is applied here rather than at the six call sites because this method is
+             * the single chokepoint they all share: PaymentController::processShipping() at
+             * initiation, the five gateway returns, and PaymentController::getProductStatus().
+             * It cannot refuse a legitimate charge, since no legitimate charge is below zero.
+             */
+            foreach (['cost_totle', 'shipping_final_price', 'total_shipping_price'] as $moneyVar) {
+                if (isset($$moneyVar) && is_numeric($$moneyVar) && $$moneyVar < 0) {
+                    $$moneyVar = 0;
+                }
+            }
+
             $product_digital_id = $product_digital_not_id = [];
             foreach ($response->data->product_list as $item) {
                 $products_datas = Product::find($item->product_id);
@@ -564,7 +747,8 @@ foreach ($response->data->product_list as $item) {
         $store = getStore($slug);
         $CURRENCY = \App\Models\Utility::GetValueByName('defult_currancy_symbol', $store->id);
         $code = trim($request->coupon_code);
-        $coupon = Coupon::whereRaw('BINARY `coupon_code` = ?', [$code])->where('store_id', $store->id)->first();
+        // P01-SEC-14 C4: portable exact-code match. See Coupon::findByExactCode.
+        $coupon = Coupon::findByExactCode($code, fn ($query) => $query->where('store_id', $store->id));
         $user = User::where('id', $store->created_by)->first();
         if ($user) {
             $plan = Plan::find($user->plan_id);
@@ -784,7 +968,8 @@ foreach ($response->data->product_list as $item) {
         }
 
         $code = trim($request->coupon_code);
-        $coupon = Coupon::whereRaw('BINARY `coupon_code` = ?', [$code])->where('store_id', $store->id)->first();
+        // P01-SEC-14 C4: portable exact-code match. See Coupon::findByExactCode.
+        $coupon = Coupon::findByExactCode($code, fn ($query) => $query->where('store_id', $store->id));
         $CURRENCY = \App\Models\Utility::GetValueByName('defult_currancy_symbol', $store->id);
         $tax_option = TaxOption::where('store_id', $store->id)
             ->pluck('value', 'name')->toArray();
@@ -967,6 +1152,18 @@ foreach ($response->data->product_list as $item) {
 
         if (auth()->user()->isAbleTo('Abandon Cart')) {
             $cart  = Cart::find($request->cart_id);
+
+            /*
+             * P1-SEC-22 (f). `Cart` is allowlisted in config/tenancy.php, so this bare-id read returns
+             * null for another tenant's row rather than that row -- which is the containment the task
+             * row asked for, and it is P1-PLT-03's doing rather than this handler's. What was left is
+             * the null: `$cart->customer_id` on a miss is a 500 where a refusal belongs, and a 500 is
+             * also the shape that lets a regression test pass for the wrong reason.
+             */
+            if (! $cart) {
+                return response()->json(['is_success' => false, 'message' => __('Cart not found.')], 404);
+            }
+
             $user_id = $cart->customer_id;
             $cart_product = Cart::where('customer_id', $user_id)->get();
             $email = $cart->UserData->email;
@@ -1017,51 +1214,63 @@ foreach ($response->data->product_list as $item) {
 
     public function abandon_carts_messsend(Request $request)
     {
-        $cart  = Cart::find($request->cart_id);
+        /*
+         * P1-SEC-22 (f). THE PERMISSION CHECK USED TO COME THIRD. `Cart::find()`, `$cart->customer_id`
+         * and `$cart->UserData` all ran before `isAbleTo('Abandon Cart')`, so a merchant's staff member
+         * without that permission still drove the lookup and the relation load -- and a missing row made
+         * the handler 500 before it ever reached the refusal. The tenant scope contained the READ (Cart is
+         * allowlisted), so this was not a cross-tenant disclosure; it was authorization running after the
+         * work it is supposed to gate. Order fixed, and a missing row now refuses.
+         */
+        if (! auth()->user() || ! auth()->user()->isAbleTo('Abandon Cart')) {
+            return response()->json(['is_success' => false, 'message' => __('Permission denied.')], 403);
+        }
+
+        $cart = Cart::find($request->cart_id);
+
+        if (! $cart) {
+            return response()->json(['is_success' => false, 'message' => __('Cart not found.')], 404);
+        }
+
         $customer_id = $cart->customer_id;
         $mobile = $cart->UserData;
-        if (auth()->user()->isAbleTo('Abandon Cart')) {
 
-            try {
-                $dArr = Cart::where('customer_id', $customer_id)->pluck('product_id')->toArray();
+        try {
+            $dArr = Cart::where('customer_id', $customer_id)->pluck('product_id')->toArray();
 
-                $product = [];
-                foreach ($dArr as $item) {
-                    $product[] = Product::where('id', $item)->pluck('name')->first();
-                }
-                $product_name = implode(',', $product);
-                $store = getStoreById(getCurrentStore());
-                $msg = __("We noticed that you recently visited our $store->name site and added some fantastic items to your shopping cart. We are thrilled that you found products you love! However, it seems like you did not finish your purchase.You finish your order process as soon as possible, Added Product name : $product_name");
-                $resp  = Utility::SendMsgs('Abandon Cart', $mobile, $msg);
+            $product = [];
+            foreach ($dArr as $item) {
+                $product[] = Product::where('id', $item)->pluck('name')->first();
+            }
+            $product_name = implode(',', $product);
+            $store = getStoreById(getCurrentStore());
+            $msg = __("We noticed that you recently visited our $store->name site and added some fantastic items to your shopping cart. We are thrilled that you found products you love! However, it seems like you did not finish your purchase.You finish your order process as soon as possible, Added Product name : $product_name");
+            $resp  = Utility::SendMsgs('Abandon Cart', $mobile, $msg);
 
-                // $return = 'Mail send successfully';
-                if ($resp  == false) {
-                    return response()->json(
-                        [
-                            'is_success' => false,
-                            'message' => __("Invalid Auth access token - Cannot parse access token"),
-                        ]
-                    );
-                } else {
-                    return response()->json(
-                        [
-                            'is_success' => true,
-                            'message' => __('Message send successfully'),
-                        ]
-                    );
-                }
-            } catch (\Exception $e) {
-
-                $smtp_error = __('Invalid Auth access token - Cannot parse access token');
+            if ($resp == false) {
                 return response()->json(
                     [
                         'is_success' => false,
-                        'message' => $smtp_error,
+                        'message' => __("Invalid Auth access token - Cannot parse access token"),
                     ]
                 );
             }
-        } else {
-            return redirect()->back()->with('error', __('Permission denied.'));
+
+            return response()->json(
+                [
+                    'is_success' => true,
+                    'message' => __('Message send successfully'),
+                ]
+            );
+        } catch (\Exception $e) {
+            $smtp_error = __('Invalid Auth access token - Cannot parse access token');
+
+            return response()->json(
+                [
+                    'is_success' => false,
+                    'message' => $smtp_error,
+                ]
+            );
         }
     }
 }

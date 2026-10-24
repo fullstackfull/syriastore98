@@ -133,7 +133,7 @@ class BenefitPaymentController extends Controller
                 return redirect($res->transaction->url);
             } catch (Exception $e) {
         
-                return redirect()->back()->with('error', $e);
+                return \App\Services\PaymentFailure::redirectBack($e, 'benefit');
             }
         } else {
             return redirect()->route('plan.index')->with('error', __('Plan is deleted.'));

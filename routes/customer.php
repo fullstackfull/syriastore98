@@ -82,7 +82,12 @@ Route::middleware([ActiveTheme::class, 'themelanguage'])->group(function () {
     Route::get('{storeSlug?}/cart', [HomeController::class, 'cart_page'])->name('page.cart');
     Route::any('{storeSlug?}/checkout', [HomeController::class, 'checkout'])->name('checkout');
     Route::post('{storeSlug?}/checkout/address/form', [HomeController::class, 'addressForm'])->name('order.address.form');
-    Route::post('{storeSlug?}/order-track', [HomeController::class, 'order_track'])->name('order.track');
+    // The number is a timestamp, so the email is the only secret. Two limiters, one per axis (P1-ORD-08):
+    // `auth` = one address swept across numbers (IP + the posted email), `order-track` = one number tried
+    // against many addresses (IP + slug + number).
+    Route::post('{storeSlug?}/order-track', [HomeController::class, 'order_track'])
+        ->middleware(['throttle:auth', 'throttle:order-track'])
+        ->name('order.track');
     Route::get('{storeSlug?}/wishlist', [HomeController::class, 'wishlist'])->name('wishlist');
     Route::get('{storeSlug?}/search-product', [HomeController::class, 'search_products'])->name('search.product');
     Route::get('{storeSlug?}/home', [HomeController::class, 'landing_page'])->name('landing_page');
@@ -115,10 +120,15 @@ Route::post('{storeSlug?}/login/{cart?}', [CustomerLoginController::class, 'logi
 
 
 
+// THROTTLED like the sibling login route at :102-104. Neither of the two OTP POSTs carried a
+// limiter: `send` could be driven to mint codes without bound -- SMS and e-mail cost real money
+// per message on this platform -- and `verify` could be driven to guess them. The in-handler
+// attempt limit (CustomerLoginController::MAX_OTP_ATTEMPTS) bounds guesses per CODE; this bounds
+// requests per caller, which is the half an attempt counter cannot do.
 Route::post(
     '{storeSlug?}/forgot-password/otp/send',
     [CustomerLoginController::class, 'sendPasswordOtp']
-)->name('customer.password.otp.send');
+)->middleware('throttle:auth')->name('customer.password.otp.send');
 
 Route::get(
     '{storeSlug?}/forgot-password/otp/verify',
@@ -128,7 +138,7 @@ Route::get(
 Route::post(
     '{storeSlug?}/forgot-password/otp/verify',
     [CustomerLoginController::class, 'verifyPasswordOtp']
-)->name('customer.password.otp.verify');
+)->middleware('throttle:auth')->name('customer.password.otp.verify');
 
 Route::get(
     '{storeSlug?}/reset-password/otp',
@@ -170,7 +180,7 @@ Route::post(
     Route::post('{storeSlug?}/wish-list', [WishlistController::class, 'wishlist'])->name('wish.list');
 
     Route::any('{storeSlug?}/process-order', [PaymentController::class, 'processOrder'])->name('payment.process');
-    Route::post('{storeSlug?}/get-massage', [PaymentController::class, 'getWhatsappUrl'])->name('get.whatsappurl');
+    Route::post('{storeSlug?}/get-massage', [PaymentController::class, 'getWhatsappUrl'])->middleware('throttle:storefront-relay')->name('get.whatsappurl');
     Route::post('{storeSlug?}/telegram', [PaymentController::class, 'whatsapp'])->name('user.telegram');
     Route::post('{storeSlug?}/whatsapp', [PaymentController::class, 'whatsapp'])->name('user.whatsapp');
     Route::any('{storeSlug?}/get-payment-status', [PaymentController::class, 'getProductStatus'])->name('store.payment.status');

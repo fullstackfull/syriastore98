@@ -164,6 +164,13 @@ class PaymentStatusDerivationTest extends TestCase
      */
     public function test_offline_and_unseamed_payment_types_keep_their_behaviour(): void
     {
+        // COD IS DELIBERATELY NOT IN THIS LIST ANY MORE (owner decision D-06): it has its own state
+        // machine and is Pending until collection, so it is not an "offline settles-immediately" type.
+        // This assertion is what caught the constant still listing it -- the COD branch runs first in
+        // resolveOrderPaymentStatus(), so the stale entry changed no behaviour and only misled readers.
+        $this->assertNotContains('cod', PaymentVerificationService::OFFLINE_PAYMENT_TYPES,
+            'COD must not be listed as an offline type that records Paid at once');
+
         foreach (PaymentVerificationService::OFFLINE_PAYMENT_TYPES as $type) {
             $this->assertSame(
                 PaymentVerificationService::STATUS_PAID,
@@ -172,16 +179,42 @@ class PaymentStatusDerivationTest extends TestCase
             );
         }
 
+        /*
+         * REVERSED BY OWNER DECISION, Phase 01 final execution directive: "Any unverified gateway
+         * payment must remain Pending, never Paid."
+         *
+         * This assertion used to read STATUS_PAID, and the docblock above still records why: an
+         * unseamed gateway kept its Paid status because recording 51 live methods Pending would
+         * stop merchant wallets being credited, which is a business change and not an engineering
+         * one. The owner has now made that change, so the expectation inverts. The rest of this
+         * test is unchanged, and the off-platform loop above is what keeps the decision from
+         * over-reaching into types no gateway ever confirms.
+         */
         $this->assertSame(
-            PaymentVerificationService::STATUS_PAID,
-            $this->verifier->resolveOrderPaymentStatus('stripe', null, '1250.50', self::class)
+            PaymentVerificationService::STATUS_PENDING,
+            $this->verifier->resolveOrderPaymentStatus('stripe', null, '1250.50', self::class),
+            'stripe with no verification record must be PENDING. An unverified gateway payment is '
+            . 'never recorded Paid.'
         );
     }
 
-    /** Paymera is the only enforced type today, and the list is explicit. */
-    public function test_paymera_is_the_enforced_gateway(): void
+    /**
+     * The amount-enforced types, and the list is explicit.
+     *
+     * 'nmi' JOINED paymera under the same decision: its arm makes the capture itself and records
+     * the provider's own `response == 1` through recordVerification(), so its captured amount can
+     * be reconciled against the order total rather than merely existing. Lowercase because
+     * resolveOrderPaymentStatus() compares against `strtolower(trim($paymentType))` with a strict
+     * in_array -- an entry spelled 'NMI' would be silently inert.
+     */
+    public function test_the_amount_enforced_gateways_are_explicit(): void
     {
-        $this->assertSame(['paymera'], PaymentVerificationService::ENFORCED_PAYMENT_TYPES);
+        // 'khalti' joined 2026-10-24 (P1-PAY-03). Unlike the other two it was enrolled to CORRECT
+        // a gap rather than to tighten a working path: Khalti verifies the stored
+        // cartlist_final_price while the handler writes an order priced from a fresh cart read,
+        // and the basket is mutable across the round trip. EnforcedPaymentTypesIntegrityTest
+        // carries the full reasoning; this is the second pin on the same list.
+        $this->assertSame(['paymera', 'nmi', 'khalti'], PaymentVerificationService::ENFORCED_PAYMENT_TYPES);
     }
 
     /**

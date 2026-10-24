@@ -149,7 +149,7 @@ class AamarpayController extends Controller
 
                 $this->redirect_to_merchant($url_forward);
             } catch (\Exception $e) {
-                return redirect()->back()->with('error', $e);
+                return \App\Services\PaymentFailure::redirectBack($e, 'aamarpay');
             }
         } else {
             return redirect()->route('plan.index')->with('error', __('Plan is deleted.'));

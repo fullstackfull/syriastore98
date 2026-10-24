@@ -24,11 +24,25 @@ class NMIPayController extends Controller
 {
     protected $nmiService;
     use ApiResponser;
-    
+
+    /*
+     * P01-COMMERCE-SEC-02. The same concern the seven storefront return handlers already use.
+     * Nothing new is invented here: this handler was simply never wired to any of it. See
+     * App\Http\Controllers\Concerns\GuardsGatewayReturn.
+     */
+    use \App\Http\Controllers\Concerns\GuardsGatewayReturn;
+    use \App\Http\Controllers\Concerns\ResolvesPartialPaymentDeposit;
+    /* P1-ORD-02: a pending balance is flipped to paid only for the customer who owes it. */
+    use \App\Http\Controllers\Concerns\ResolvesPendingPartialPayment;
+
+    /* Atomic stock decrement and give-back, shared with PaymentController's three writers. */
+    use \App\Http\Controllers\Concerns\AppliesCartStockChanges;
+
     public function __construct(NMIService $nmiService)
     {
         $this->nmiService = $nmiService;
     }
+
 
     public function planPayWithNMIView(Request $request,$plan_id)
     {
@@ -159,43 +173,197 @@ class NMIPayController extends Controller
 
     }
 
+    /**
+     * THE NINTH ORDER WRITER, AND THE SECOND CARD CHARGE. P01-COMMERCE-SEC-02.
+     * =========================================================================================
+     *
+     * WHAT THIS HANDLER IS. `Route::any {storeSlug?}/get-payment-NMI` (routes/customer.php:355),
+     * in the group whose only middleware is [web, ActiveTheme, themelanguage] -- no
+     * authentication, no authorization, no throttle, and `any`, so it answers GET without a CSRF
+     * token. It is not a gateway RETURN: the card number, expiry and CVV arrive in THIS request
+     * and this method posts the `sale` to NMI itself. Like AuthorizeNet, what the caller could
+     * choose here was not only what the ledger recorded but what the card was CHARGED.
+     *
+     * WHAT IT TRUSTED, BEFORE. Every item the P01-COMMERCE-SEC-01 package removed from the other
+     * seven was still present here, plus one shape none of them had:
+     *
+     *   1. `Session::get('request_data')` with a caller fallback. See storedCheckoutState().
+     *      The fallback was `json_encode($request->response_data)`, i.e. a STRING, so the
+     *      `['slug']` read below it did not obey the caller so much as break -- the handler then
+     *      ran with `$slug = ''`, `getStore('')` and a null store, and died on `$store->id`. That
+     *      made it inert rather than safe, and it is removed rather than relied upon.
+     *   2. THE BASKET AND EVERY TOTAL CAME BACK THROUGH THE BROWSER. Further down the method:
+     *      `$response = json_decode($request->input('response_data'), true)` -- the hidden field
+     *      the payment view prints at resources/views/front_end/payment/nmi-payment.blade.php:98
+     *      -- supplied `product_list` (the product ids and the line quantities that drive every
+     *      stock decrement), `total_final_price` and `total_sub_price` (the order's recorded
+     *      money). That path needs no expired session and no missing cookie: it is the SUCCESS
+     *      path, with a perfectly valid state sitting unread in the session. See
+     *      GuardsGatewayReturn::storedCheckoutCartList().
+     *   3. The amount charged to the card was `$requests_data['cartlist_final_price']` taken raw.
+     *      It is now serverPayableAmount(), the same control AuthorizeNet got in 81db1700.
+     *   4. No quantity guard anywhere, so a cart line of -5 ADDED stock and one of 2147483647
+     *      took it as far negative as the column goes. Both are refused before the card is
+     *      charged, not merely before the stock loop: refusing after a capture would leave a
+     *      shopper paid-for and orderless.
+     *   5. The state was never consumed, so the same return could be replayed -- each replay a
+     *      FRESH CHARGE on the card plus another order. `Session::forget()` makes it single-use,
+     *      which is what the other six do and the only replay control this platform has (there is
+     *      still no idempotency key; see S32).
+     *
+     * WHAT IS STILL NOT CLAIMED. NMI itself is not reachable from this environment and no test
+     * here sends a card number anywhere. The charge is routed through the injected
+     * App\Services\NMIService so a test can substitute the gateway's ANSWER and drive the order
+     * writer; that is a seam for the writer's guards, NOT evidence that any payment was verified.
+     * What IS new is that the answer is recorded through PaymentVerificationService, so this
+     * becomes the first of the nine whose Paid is backed by a recorded gateway verification
+     * rather than asserted -- the status it produces today is identical.
+     */
     public function getNMIProductStatus(Request $request)
     {
-        $requests_data = (\Session::get('request_data'));
-        if($requests_data == null)
-        {
-            $requests_data = json_encode($request->response_data);
+        $requests_data = $this->storedCheckoutState($request, 'nmi');
+
+        if ($requests_data === null) {
+            return $this->gatewayReturnRefusal();
         }
+
         $slug = !empty($requests_data['slug']) ? $requests_data['slug'] : '';
         $store = getStore($slug);
 
-        $cartlist_final_price = $requests_data['cartlist_final_price'];
+        if (empty($store)) {
+            return $this->gatewayReturnRefusal();
+        }
+
+        $this->adoptStoredCheckoutState($request, $requests_data);
+
+        $storedCartList = $this->storedCheckoutCartList($requests_data);
+        $storedProducts = $storedCartList['product_list'] ?? [];
+
+        if (empty($storedProducts)) {
+            return $this->gatewayReturnRefusal();
+        }
+
+        if ($this->basketHasUnusableQuantity($storedProducts)) {
+            return $this->gatewayReturnQuantityRefusal($request, 'nmi');
+        }
+
+        /*
+         * AND THE BASKET MUST BE THIS STORE'S, decided BEFORE the capture rather than inside
+         * the stock loop. See GuardsGatewayReturn::basketHasForeignProduct() for why the
+         * per-line check this replaced was in the wrong place on both counts: it could only
+         * refuse after the card had been charged, and it covered one of the loop's two branches
+         * -- the variant branch resolves its row through a predicate built from the caller's own
+         * `variant_id` and `product_id`, and `ProductVariant` is scoped by nothing at all.
+         */
+        if ($this->basketHasForeignProduct($storedProducts, $store)) {
+            return $this->gatewayReturnForeignProductRefusal($request, 'nmi');
+        }
+
+        $cartlist_final_price = $this->serverPayableAmount($requests_data);
+
+        if ($cartlist_final_price === null) {
+            return $this->gatewayReturnRefusal();
+        }
+
+        /*
+         * The charged figure, kept under its own name because `$cartlist_final_price` is
+         * REASSIGNED further down (to the basket subtotal, and again by the coupon branch) and
+         * the order row needs the amount the card was actually charged.
+         */
+        $serverPayableAmount = $cartlist_final_price;
+
         $nmi_api_private_key = \App\Models\Utility::GetValueByName('nmi_api_private_key', $store->id);
 
-        list($year, $month) = explode('-', $request->nmi_expiration_date);
+        /*
+         * The expiry arrives as `YYYY-MM` from a month input. `list()` on a short explode()
+         * raised "Undefined array key 1" and 500d, which is a crash on a card form rather than a
+         * message -- and it ran BEFORE any of the guards above when it was the first statement.
+         */
+        $expirationParts = explode('-', (string) $request->nmi_expiration_date);
+
+        if (count($expirationParts) < 2) {
+            return redirect()->back()->with('error', __('Please enter a valid card expiration date.'));
+        }
+
+        [$year, $month] = $expirationParts;
         $expiration_date = $month . substr($year, 2);
-        $orderID = $requests_data['customer_id'] . date('YmdHis');
+        $orderID = ($requests_data['customer_id'] ?? '') . date('YmdHis');
 
-        $client = new Client();
-        $NMIresponse = $client->post('https://secure.networkmerchants.com/api/transact.php', [
-            'form_params' => [
-                'security_key' => $nmi_api_private_key,
-                'amount' => $cartlist_final_price,
-                'ccnumber' => $request->nmi_card_number,
-                'ccexp' => $expiration_date,
-                'cvv' => $request->nmi_cvv_code,
-                'firstname' => $request->nmi_cardholder_name,
-                'lastname' => $request->nmi_cardholder_name,
-                'type' => 'sale',
-                'orderid' => $orderID,
-            ],
+        /*
+         * SINGLE USE, AND NOT ONE STEP EARLIER. Consuming the state is what stops a replayed
+         * return reaching the gateway twice, so it has to happen before the charge -- but it
+         * used to happen before the GUARDS, which made every refusal above, and every decline
+         * below, destroy the checkout. A shopper who mistyped a CVV got
+         * "We could not confirm your checkout details" on their next attempt instead of
+         * another try. Declines are a routine few percent of card traffic, not an edge case.
+         *
+         * So: consumed here, and PUT BACK on every path that did not take money. A failed
+         * charge re-opens nothing, because nothing was captured.
+         */
+        /*
+         * P1-PAY-02. ONE CHECKOUT, AND ONE PAYMENT, PRODUCE AT MOST ONE ORDER -- and the control
+         * is NOT the session. The forget below makes the stored state single-use, which stops a
+         * SEQUENTIAL replay; it cannot stop two returns that OVERLAP, because Laravel holds no
+         * session lock for the life of these requests and both read the state before either
+         * writes the forget. That is the read-check-use straddle already fixed on the Paymera
+         * path, where it produced a second order, a second stock decrement and a second wallet
+         * credit.
+         *
+         * TAKEN HERE AND NOT WITH THE OTHER GUARDS, for the same reason the forget is here and
+         * not with them: everything above this line can refuse WITHOUT taking money, and this
+         * handler is one of the two that let the shopper come back to the same stored state
+         * afterwards. The first version of this change claimed above the card-expiry check, so a
+         * bare GET to this route -- `Route::any`, so GET is routed, and the expiry check returns
+         * before the forget -- burned a live checkout's claim while leaving its state intact, and
+         * the shopper's real attempt was then refused as a replay. An independent review caught
+         * it. The claim belongs exactly where the money does.
+         */
+        if (! $this->claimGatewayReturn($request, 'nmi', $requests_data)) {
+            return $this->gatewayReturnReplayRefusal();
+        }
+
+        \Session::forget(self::CHECKOUT_STATE_KEY);
+
+        $parsedResponse = $this->nmiService->chargeSale([
+            'security_key' => $nmi_api_private_key,
+            'amount' => $cartlist_final_price,
+            'ccnumber' => $request->nmi_card_number,
+            'ccexp' => $expiration_date,
+            'cvv' => $request->nmi_cvv_code,
+            'firstname' => $request->nmi_cardholder_name,
+            'lastname' => $request->nmi_cardholder_name,
+            'type' => 'sale',
+            'orderid' => $orderID,
         ]);
-        $responseBody = $NMIresponse->getBody()->getContents();
-        parse_str($responseBody, $parsedResponse);
 
-        if ($parsedResponse['response'] == 1) {
+        if (($parsedResponse['response'] ?? null) == 1) {
+            /*
+             * THE GATEWAY'S OWN ANSWER, RECORDED. `response == 1` is NMI's success code and this
+             * handler made the capture itself, so unlike the five pure returns there really is a
+             * server-side verification to record. Recording it through the platform's existing
+             * service rather than writing the literal 'Paid' is what makes the posture
+             * measurable; resolveOrderPaymentStatus() returns the same 'Paid' today.
+             */
+            $this->gatewayReturnVerifier()->recordVerification(
+                'nmi',
+                \App\Services\PaymentVerificationResult::verified(
+                    'NMI sale response=1 (transactionid ' . ($parsedResponse['transactionid'] ?? 'unknown') . ')',
+                    isset($parsedResponse['amount']) ? (string) $parsedResponse['amount'] : null,
+                    (string) $cartlist_final_price
+                ),
+                $cartlist_final_price,
+                /*
+                 * BOUND TO THIS CHECKOUT, 2026-10-24. NMI has the same record-to-consume distance
+                 * the AuthorizeNet plant exploited -- the record is taken here, the order is
+                 * written ~730 lines below, and several refusals sit in between. It was blunted
+                 * only because 'nmi' is amount-enforced, which is a weaker control than naming
+                 * the checkout. Producer and consumer are wired together deliberately: wiring one
+                 * without the other would make every NMI order Pending.
+                 */
+                $this->checkoutNonceOf($requests_data)
+            );
 
-            $customer_id = $requests_data['customer_id'];
+            $customer_id = $requests_data['customer_id'] ?? '';
 
             if(!empty($requests_data['method_id'])){
 
@@ -204,19 +372,71 @@ class NMIPayController extends Controller
             $user = Cache::remember('admin_details', 3600, function () {
                 return User::where('type','admin')->first();
             });
-            if ($user->type == 'admin') {
+            $plan = null;
+            if ($user && $user->type == 'admin') {
                 $plan = Plan::find($user->plan_id);
             }
-            
+
+            /*
+             * `$plan->shipping_method` is read four times below and `$plan` was only ever
+             * assigned inside the `type == 'admin'` test above -- so on a platform whose admin
+             * row is missing, is `super admin`, or whose `plan_id` no longer resolves, this
+             * method died on a null property read. On THIS handler that 500 lands after the
+             * card has been charged, which is why it is fixed here and not only in the sibling
+             * `whatsapp()` that the same package guarded.
+             */
+            $planShippingMethod = $plan->shipping_method ?? 'off';
+
             if (module_is_active('PartialPayments')) {
                 if($plan && strpos($plan->modules, 'PartialPayments') !== false && \Auth::guard('customers')->user())
                 {
-                    if((isset($request->partial_payment_type) || $request->partial_payment_type == 'pending_payment'))
-                    {
+                    /*
+                     * `&&`, WHERE IT USED TO SAY `||`.  P1-ORD-02 criterion 2.
+                     *
+                     * `isset()` alone is true for ANY value of a caller-supplied key, so posting
+                     * `partial_payment_type=x` on an ORDINARY checkout diverted this return into the
+                     * settle-a-balance branch. That branch answers redirect()->back() without writing an
+                     * order, and its first statement is
+                     * `OrderPartialPayments::find($requests_data['partial_payment_id'])`, which is find(NULL)
+                     * when the stored state holds no such key -- a fatal on the next line. Either way the
+                     * shopper has been charged and no order row exists.
+                     *
+                     * AND THE PREDICATE READS THE STORED STATE, not the live request. `Request::merge()`
+                     * only overwrites keys the state HOLDS (GuardsGatewayReturn:174-176), so an ordinary
+                     * checkout's state -- which carries no `partial_payment_type` -- let a posted one survive
+                     * the merge and divert the return. By then the replay claim is consumed and the state
+                     * forgotten, so the shopper's payment stands with no order and no retry.
+                     *
+                     * AND THE ROW IS CHECKED BEFORE IT IS FLIPPED. ManagePartialPayment() is three statements
+                     * of vendored code with no store_id and no customer_id predicate, on a model that is in no
+                     * `scoped_models` entry -- so without this a signed-in shopper could mark ANY tenant's
+                     * pending balance paid by naming its id. See
+                     * App\Http\Controllers\Concerns\ResolvesPendingPartialPayment.
+                     *
+                     * WHAT THIS GUARD DOES NOT ANSWER, stated so the next reader is not misled: it proves the
+                     * balance is THIS customer's and still owed. It does NOT prove it was PAID. The settle
+                     * branch returns before any provider verification on this handler, so a customer can still
+                     * mark their OWN balance settled without a charge. Pre-existing, not closed here, and
+                     * recorded in docs/security/P01-ORD-02-PARTIAL-PAYMENT-TOTAL-SOURCE.md section 5.
+                     */
+                    if (($requests_data['partial_payment_type'] ?? null) === 'pending_payment') {
+                        if ($this->pendingPartialPaymentRow(
+                            $requests_data['partial_payment_id'] ?? null,
+                            $store->id ?? null,
+                            \Auth::guard('customers')->id()
+                        ) === null) {
+                            \Illuminate\Support\Facades\Log::warning('Pending partial payment refused: the balance named does not belong to this customer.', [
+                                'store_id' => $store->id ?? null,
+                                'customer_id' => \Auth::guard('customers')->id(),
+                                'partial_payment_id' => $requests_data['partial_payment_id'] ?? null,
+                            ]);
+
+                            return redirect()->back()->with('error', __('This payment could not be verified.'));
+                        }
+
                         $return = \Workdo\PartialPayments\app\Models\PartialPayments::ManagePartialPayment($requests_data, $slug);
-                        if($return['status'] == 'success')
-                        {
-                            return redirect()->back()->with('success',__($return['message']));
+                        if ($return['status'] == 'success') {
+                            return redirect()->back()->with('success', __($return['message']));
                         }
                     }
                 }
@@ -266,15 +486,44 @@ class NMIPayController extends Controller
             $cartlist_final_price = 0;
             $final_price = 0;
             $tax_price = 0;
-            // cart list api call
-            $response = json_decode($request->input('response_data'), true);
+            /*
+             * THE BASKET AND ITS TOTALS ARE THE SERVER'S, NOT THE HIDDEN FIELD'S.
+             *
+             * This was `json_decode($request->input('response_data'), true)` -- the cart the
+             * server printed into the payment form and took back from the browser. Every figure
+             * below came from it: the line quantities that drive the stock decrements, the
+             * `product_id`s they are applied to, and `total_final_price` / `total_sub_price`,
+             * which become `orders.product_price` and the order's own total.
+             *
+             * `$storedCartList` is the SAME array at initiation -- PaymentService's NMI arm hands
+             * one `$cartList` to both the session and the view (PaymentService.php:4228-4236) --
+             * so a genuine checkout is priced identically and nothing in the contract changes.
+             * What changes is that a caller editing the hidden field now edits nothing.
+             *
+             * The guards above have already refused an empty basket and an unusable line
+             * quantity, before the card was charged.
+             */
+            $response = $storedCartList;
+            $products = $storedProducts;
             $cartlist_final_price = !empty($response['final_price']) ? $response['final_price'] : 0;
             $product_price = !empty($response['total_final_price']) ? $response['total_final_price'] : 0;
-            $final_price = $response['total_final_price'];
-            $total_sub_price = $response['total_sub_price'];
+            $final_price = $response['total_final_price'] ?? 0;
+            $total_sub_price = $response['total_sub_price'] ?? 0;
             $tax_price = !empty($requests_data['tax_price']) ? $requests_data['tax_price'] : ($response['tax_price'] ?? 0);
             $billing = is_string($request->billing_info) ? (array) json_decode($request->billing_info) : $request->billing_info;
-            $products = $response['product_list'];
+
+            /*
+             * THE PAYABLE THE CARD WAS ACTUALLY CHARGED, kept for the order row.
+             *
+             * `$order->final_price` read `$final_sub_total_price` on the shipping-enabled branch
+             * -- A VARIABLE THIS METHOD NEVER ASSIGNS. PHP 8 raises a warning and evaluates it as
+             * null, so every such order recorded `final_price` 0.00 while the card was charged
+             * the real amount. It is the state's `cartlist_final_price`: products + server
+             * shipping + server tax, which prepareFinalRequestData() composes
+             * (PaymentController.php:1721) and which serverPayableAmount() has already validated
+             * as the figure handed to the gateway.
+             */
+            $final_sub_total_price = $serverPayableAmount;
 
             $coupon_price = 0;
             // coupon api call
@@ -329,7 +578,7 @@ class NMIPayController extends Controller
                 }
             }
             $delivery_price = 0;
-            if ($plan->shipping_method == 'on') {
+            if ($planShippingMethod == 'on') {
                 if (isset($requests_data['shipping_final_price'])) {
                     $delivery_price = $requests_data['shipping_final_price'];
                 } else {
@@ -357,6 +606,72 @@ class NMIPayController extends Controller
             $settings = Setting::where('store_id', $store->id)->pluck('value', 'name')->toArray();
             // Order stock decrease start
             $prodduct_id_array = [];
+            /*
+             * Decrements applied by this loop, so they can be GIVEN BACK when a later line
+             * cannot be fulfilled and no order is therefore written. Before this, the three
+             * `return $this->error(...)` exits below left every line already processed
+             * decremented, with the card charged and no order row -- and the store-scoped product
+             * lookup added in this package makes that exit reachable for the first time, on a
+             * cart line naming another merchant's product.
+             */
+            $appliedStockChanges = [];
+            /*
+             * P1-ORD-02 criterion 2 -- THE DEPOSIT IS PRICED HERE, WHILE THE CART STILL EXISTS.
+             *
+             * The order's write site is where the total is SET and the wrong place to ASK for it. The module's
+             * `ManageDeposit()` re-reads the basket through `ApiController::cart_list()`, and the loop below
+             * DELETES the cart rows before `new Order()` is reached -- so called down there it finds an empty
+             * basket, falls off the end of its own `if (! empty($products))` and returns NULL.
+             *
+             * MEASURED on EasebuzzController, and this is the part worth keeping: the first cut called the
+             * resolver at the write site, exactly as the already-repaired `PaymentService` does, and it SILENTLY
+             * fell back to the subtotal -- no exception, nothing logged, the order charged 100.00 where the
+             * module prices 10.00. The same call made here returns `deposite_amount = "10.00"`. `PaymentService`
+             * gets away with it only because a previous package DEFERRED its cart delete to after the order
+             * commits (PaymentService.php:2592-2615); these controllers still delete first.
+             *
+             * See App\Http\Controllers\Concerns\ResolvesPartialPaymentDeposit for what was wrong with reading
+             * the total out of the posted checkout state.
+             */
+            $partialPaymentDeposit = null;
+
+            /*
+             * THE CONDITION IS THE WRITE SITE'S INTENT, NOT ITS LITERAL TEXT, and the difference was a money
+             * regression this package introduced and a read-only review caught.
+             *
+             * The write site below gates on a BARE `module_is_active('PartialPayments')`. On a route that
+             * carries a slug that helper means "the STORE OWNER'S PLAN BUNDLES THE MODULE"
+             * (app/Helper/helper.php:1359-1381) -- NOT "this store turned partial payments on". For a store in
+             * that state the module does not refuse: its per-product body is skipped
+             * (PartialPaymentsController.php:562), control reaches the `else` at :660, and it returns
+             * `deposite_amount = "0.00"`. MEASURED exactly that. `is_numeric("0.00")` is true, so the resolver
+             * accepts it, `$partialPaymentDeposit` is non-null, the `??` below never fires and the order
+             * persists a total of ZERO while the card is charged the real amount.
+             *
+             * So the deposit is computed only when partial payments are actually ON for this store and a
+             * customer is signed in -- the two limbs the other four controllers already carry at both their
+             * early block and their write site. For every other store `$partialPaymentDeposit` stays null and
+             * the `??` restores the server figure, which is what the line did before this package.
+             *
+             * The guest limb matters for a second reason: `ManageDeposit()` re-reads the basket through
+             * `ApiController::cart_list()`, which refuses an unauthenticated caller, so without it every guest
+             * checkout logged "deposit recomputation failed" -- poisoning the one signal that is supposed to
+             * mean a money path could not be priced.
+             */
+            if (module_is_active('PartialPayments') && \Auth::guard('customers')->user() && (isset($settings['enable_partial_payment']) && $settings['enable_partial_payment'] == 'on')) {
+                $partialPaymentDeposit = $this->partialPaymentDeposit(
+                    $request,
+                    $slug,
+                    [
+                        'tax_price' => $tax_price,
+                        'shipping_price' => $delivery_price,
+                        'coupon_price' => $coupon_price,
+                        'total_sub_price' => $total_sub_price,
+                    ],
+                    $total_sub_price
+                );
+            }
+
             if (!empty($products)) {
                 foreach ($products as $key => $product) {
                     $prodduct_id_array[] = $product['product_id'];
@@ -365,24 +680,101 @@ class NMIPayController extends Controller
                     $variant_id = $product['variant_id'];
                     $qtyy = !empty($product['qty']) ? $product['qty'] : 0;
 
-                    $Product = Product::where('id', $product_id)->first();
-                    $datas = Product::find($product_id);
+                    /*
+                     * STORE-SCOPED, because `Product` is NOT in config/tenancy.php's
+                     * `scoped_models` -- StoreScope::isActiveFor() short-circuits for it, so
+                     * `Product::find($id)` reaches EVERY tenant's catalogue for every principal.
+                     * That is the S19/S32 cross-tenant stock drain: a cart line naming another
+                     * merchant's product id decrements THAT merchant's stock from this store's
+                     * checkout.
+                     *
+                     * A NULL `store_id` is still accepted. The column is nullable and legacy rows
+                     * may not carry one; refusing those would hide a merchant's own product and
+                     * break a live catalogue. What is refused is a PROVABLE mismatch -- the same
+                     * rule and the same reasoning as 0ad3f7e0 applied to ShippingMethod.
+                     *
+                     * SUBSUMED, AND RECORDED AS UNPROVEN RATHER THAN CLAIMED AS A GUARD.
+                     * basketHasForeignProduct() now refuses the same basket BEFORE the card is
+                     * charged, which is strictly better placed, and a removal check confirms
+                     * this predicate now fails no test: 34 of 34 still pass with it reverted to
+                     * a bare `Product::where('id', $product_id)`. It is kept as defence in depth
+                     * at zero cost -- the only protection left if the pre-flight is ever bypassed
+                     * or a new caller reaches this loop directly. Same honesty S32 applied to the
+                     * `method_id` pin once 0ad3f7e0 subsumed it: a later fix can stop an earlier
+                     * guard from biting, and nothing re-checks it unless someone looks.
+                     */
+                    $Product = Product::where('id', $product_id)
+                        ->where(function ($q) use ($store) {
+                            $q->where('store_id', $store->id)->orWhereNull('store_id');
+                        })
+                        ->first();
+                    $datas = $Product;
                     if(isset($settings['stock_management']) && $settings['stock_management'] == 'on')
                     {
                         if (!empty($product_id) && !empty($variant_id) && $product_id != 0 && $variant_id != 0) {
+                            /*
+                             * DEFENCE IN DEPTH BEHIND basketHasForeignProduct(). The pre-flight
+                             * refuses a foreign product before the card is charged, so `$Product`
+                             * should never be null here. If it ever is, this branch must not
+                             * proceed: `ProductVariant`'s only predicate is the caller's own
+                             * `variant_id` and `product_id` -- the model carries no StoreScope and
+                             * is not in config/tenancy.php's `scoped_models` -- so it would
+                             * decrement whatever that pair resolves to, and `$datas` (= `$Product`)
+                             * is dereferenced below on the no-manage-stock leg. The sibling
+                             * `elseif` branch has always had this guard; this one never did.
+                             *
+                             * SUBSUMED LIKE THE PREDICATE ABOVE, and recorded the same way: with
+                             * basketHasForeignProduct() running before the charge, a removal
+                             * check shows this `empty($Product)` test fails nothing (34 of 34
+                             * pass without it). The `empty($ProductStock)` test below is a
+                             * DIFFERENT guard and does bite -- see the 'missing variant row'
+                             * case of test_a_charged_card_does_not_end_in_a_crash.
+                             */
+                            if (empty($Product)) {
+                                $this->restoreStockDecrements($appliedStockChanges);
+
+                                return $this->error(['message' => __('Product not found .')]);
+                            }
+
                             $ProductStock = ProductVariant::where('id', $variant_id)->where('product_id', $product_id)->first();
+
+                            /*
+                             * And `$ProductStock` is tested BEFORE it is dereferenced. `explode()`
+                             * on `$ProductStock->variation_option` ran first and
+                             * `if (!empty($ProductStock))` came after it, so a line naming a
+                             * variant id that does not exist for its product raised a null
+                             * property read instead of reaching the handler's own "Product not
+                             * found" path. Pre-existing and shared with the five sibling gateway
+                             * handlers; fixed here because this one has already taken the money by
+                             * the time it throws.
+                             */
+                            if (empty($ProductStock)) {
+                                $this->restoreStockDecrements($appliedStockChanges);
+
+                                return $this->error(['message' => __('Product not found .')]);
+                            }
+
                             $variationOptions = explode(',', $ProductStock->variation_option);
                             $option = in_array('manage_stock', $variationOptions);
                             if (!empty($ProductStock)) {
                                 if($option == true)
                                 {
-                                    $remain_stock = $ProductStock->stock - $qtyy;
-                                    $ProductStock->stock = $remain_stock;
-                                    $ProductStock->save();
+                                    /*
+                                     * ATOMIC, and recorded so it can be given back. This was a
+                                     * read-modify-write -- two concurrent checkouts both wrote
+                                     * `stock - qty` and the second overwrote the first -- and
+                                     * nothing anywhere in this handler could undo a decrement
+                                     * once a later line failed, which on a CARD CHARGE means the
+                                     * money is already taken. $rejectOnShortfall is false for the
+                                     * same reason it is false in PaymentController's return
+                                     * paths: past the capture, overselling and reporting it beats
+                                     * discarding a paid basket.
+                                     */
+                                    $this->decrementStockOrFail($appliedStockChanges, 'variant', $ProductStock, $qtyy, false);
 
                                     if($ProductStock->stock <= $ProductStock->low_stock_threshold)
                                     {
-                                        if (!empty(json_decode($settings['notification'])) && in_array("enable_low_stock",json_decode($settings['notification'])))
+                                        if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_low_stock",json_decode($settings['notification'] ?? '[]')))
                                         {
                                             if(isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] =="on")
                                             {
@@ -391,9 +783,9 @@ class NMIPayController extends Controller
 
                                         }
                                     }
-                                    if($ProductStock->stock <= $settings['out_of_stock_threshold'])
+                                    if($ProductStock->stock <= ($settings['out_of_stock_threshold'] ?? '0'))
                                     {
-                                        if (!empty(json_decode($settings['notification'])) && in_array("enable_out_of_stock",json_decode($settings['notification'])))
+                                        if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_out_of_stock",json_decode($settings['notification'] ?? '[]')))
                                         {
                                             if(isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] =="on")
                                             {
@@ -404,12 +796,21 @@ class NMIPayController extends Controller
                                 }
                                 else
                                 {
-                                    $remain_stock = $datas->product_stock - $qtyy;
-                                    $datas->product_stock = $remain_stock;
-                                    $datas->save();
+                                    /*
+                                     * ATOMIC, and recorded so it can be given back. This was a
+                                     * read-modify-write -- two concurrent checkouts both wrote
+                                     * `stock - qty` and the second overwrote the first -- and
+                                     * nothing anywhere in this handler could undo a decrement
+                                     * once a later line failed, which on a CARD CHARGE means the
+                                     * money is already taken. $rejectOnShortfall is false for the
+                                     * same reason it is false in PaymentController's return
+                                     * paths: past the capture, overselling and reporting it beats
+                                     * discarding a paid basket.
+                                     */
+                                    $this->decrementStockOrFail($appliedStockChanges, 'product', $datas, $qtyy, false);
                                     if($datas->product_stock <= $datas->low_stock_threshold)
                                     {
-                                        if (!empty(json_decode($settings['notification'])) && in_array("enable_low_stock",json_decode($settings['notification'])))
+                                        if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_low_stock",json_decode($settings['notification'] ?? '[]')))
                                         {
                                             if(isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] =="on")
                                             {
@@ -418,9 +819,9 @@ class NMIPayController extends Controller
 
                                         }
                                     }
-                                    if($datas->product_stock <= $settings['out_of_stock_threshold'])
+                                    if($datas->product_stock <= ($settings['out_of_stock_threshold'] ?? '0'))
                                     {
-                                        if (!empty(json_decode($settings['notification'])) && in_array("enable_out_of_stock",json_decode($settings['notification'])))
+                                        if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_out_of_stock",json_decode($settings['notification'] ?? '[]')))
                                         {
                                             if(isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] =="on")
                                             {
@@ -428,7 +829,7 @@ class NMIPayController extends Controller
                                             }
                                         }
                                     }
-                                    if($datas->product_stock <= $settings['out_of_stock_threshold'] && $datas->stock_order_status == 'notify_customer')
+                                    if($datas->product_stock <= ($settings['out_of_stock_threshold'] ?? '0') && $datas->stock_order_status == 'notify_customer')
                                     {
                                         //Stock Mail
                                         $order_email = $billing['email'];
@@ -464,17 +865,18 @@ class NMIPayController extends Controller
                                     }
                                 }
                             } else {
+                                $this->restoreStockDecrements($appliedStockChanges);
+
                                 return $this->error(['message' => __('Product not found .')]);
                             }
                         } elseif (!empty($product_id) && $product_id != 0) {
 
                             if (!empty($Product)) {
-                                $remain_stock = $Product['product_stock'] - $qtyy;
-                                $Product['product_stock'] = $remain_stock;
-                                $Product->save();
+                                /* ATOMIC and recorded -- see the note on the variant branch above. */
+                                $this->decrementStockOrFail($appliedStockChanges, 'product', $Product, $qtyy, false);
                                 if($Product['product_stock'] <= $Product['low_stock_threshold'])
                                 {
-                                    if (!empty(json_decode($settings['notification'])) && in_array("enable_low_stock",json_decode($settings['notification'])))
+                                    if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_low_stock",json_decode($settings['notification'] ?? '[]')))
                                     {
                                         if(isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] =="on")
                                         {
@@ -483,9 +885,9 @@ class NMIPayController extends Controller
                                     }
                                 }
 
-                                if($Product['product_stock'] <= $settings['out_of_stock_threshold'])
+                                if($Product['product_stock'] <= ($settings['out_of_stock_threshold'] ?? '0'))
                                 {
-                                    if (!empty(json_decode($settings['notification'])) && in_array("enable_out_of_stock",json_decode($settings['notification'])))
+                                    if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_out_of_stock",json_decode($settings['notification'] ?? '[]')))
                                     {
                                         if(isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] =="on")
                                         {
@@ -494,7 +896,7 @@ class NMIPayController extends Controller
                                     }
                                 }
 
-                                if($Product['product_stock'] <= $settings['out_of_stock_threshold'] && $Product['stock_order_status'] == 'notify_customer')
+                                if($Product['product_stock'] <= ($settings['out_of_stock_threshold'] ?? '0') && $Product['stock_order_status'] == 'notify_customer')
                                 {
                                     //Stock Mail
                                     $order_email = $billing['email'];
@@ -530,18 +932,33 @@ class NMIPayController extends Controller
                                 }
 
                             } else {
+                                $this->restoreStockDecrements($appliedStockChanges);
+
                                 return $this->error(['message' => __('Product not found .')]);
                             }
                         } else {
+                            $this->restoreStockDecrements($appliedStockChanges);
+
                             return $this->error(['message' => __('Please fill proper product json field .')]);
                         }
                     }
                     // remove from cart
-                    Cart::where('customer_id', $customer_id)->where('product_id', $product_id)->where('variant_id', $variant_id)->where('store_id',$store->id)->delete();
+                    // P1-SEC-24: the buyer's basket is the AUTHENTICATED customer's. `$request->customer_id` here is the stored checkout
+                    // state -- '' for a guest (MySQL reads '' = 0) or the id of whoever's e-mail was typed -- and is not an owner.
+                    Cart::forCustomer(auth('customers')->id())->where('product_id', $product_id)->where('variant_id', $variant_id)->where('store_id',$store->id)->delete();
                 }
             }
             if (isset($request->customer_id) && !empty($request->customer_id)) {
-                Cart::where('customer_id', $request->customer_id)->delete();
+                /*
+                 * `store_id`, which the per-line delete four lines above already carries and this
+                 * one did not. `customer_id` is pinned from the stored state by
+                 * adoptStoredCheckoutState(), so it is no longer the caller's -- but a bare
+                 * `customer_id` predicate still empties that customer's basket in EVERY store,
+                 * and `Cart`'s own StoreScope cannot be relied on to supply the missing half:
+                 * config/tenancy.php sets `null_tenant => 'open'`, so a principal that resolves
+                 * no tenant gets no predicate from the scope either.
+                 */
+                Cart::forCustomer(auth('customers')->id())->where('store_id', $store->id)->delete();
             }
             // Order stock decrease end
             if (!empty($prodduct_id_array)) {
@@ -572,27 +989,84 @@ class NMIPayController extends Controller
             $order->delivery_price = $delivery_price;
             $order->tax_price = $tax_price;
             if (!auth('customers')->user()) {
-                if ($plan->shipping_method == "on") {
+                if ($planShippingMethod == "on") {
                     $order->final_price = $final_sub_total_price;
                 } else {
                     $order->final_price = $final_price + $tax_price - $coupon_price;
                 }
 
             }elseif (module_is_active('PartialPayments')) {
-                $order->final_price = $requests_data['cartlist_final_price'] ?? $total_sub_price;
+                /*
+                 * P1-ORD-02 criterion 2. THIS WAS
+                 *
+                 *     $order->final_price = $requests_data['cartlist_final_price'] ?? $total_sub_price;
+                 *
+                 * and `$requests_data` is the stored checkout state, which `PaymentService` stores as
+                 * `$request->except('attachment','payment_receipt')` -- the whole POST BODY of the
+                 * checkout request. SERVER-STORED IS NOT SERVER-DERIVED: a key the shopper posts at
+                 * initiation is in the array this return reads back.
+                 *
+                 * WHICH INITIATION PATHS LET A CALLER CHOOSE IT -- measured on the REAL route, because the
+                 * first write-up of this package overclaimed it and a read-only review called that. `POST
+                 * {slug}/process-order`, signed in as a customer, posting `cartlist_final_price = 1.00`,
+                 * stores:
+                 *     partial payments off, plain              100.00  (the SERVER's figure)
+                 *     partial payments on,  plain               10.00  (the MODULE's deposit)
+                 *     partial payments on,  pending_payment      1.00  (THE CALLER'S OWN FIGURE)
+                 * The first two are prepareFinalRequestData() overwriting the key before the session store
+                 * (PaymentController:1802, :1826), so on those paths this repair is DEFENCE IN DEPTH rather
+                 * than a live fix. The third IS live: that method's own `else` limb (:1831) writes
+                 * `$request->payment_amount` with nothing checking it against the amount outstanding.
+                 * Pinned by tests/Feature/Commerce/PartialPaymentDepositSourceTest.php.
+                 *
+                 * UNLIKE ITS FIVE SIBLINGS this file DOES assign `$total_sub_price` (:459), so the old
+                 * `??` limb here was not an undefined variable. The defect was the posted total alone.
+                 *
+                 * Recomputed through the module's own server-side ManageDeposit(), with the
+                 * server-derived components merged in first so neither the deposit nor its inputs can
+                 * come from the caller. The same repair 569494d2 made at PaymentService and
+                 * PaymentController, which this file was missed out of. See
+                 * App\Http\Controllers\Concerns\ResolvesPartialPaymentDeposit.
+                 */
+                // `$final_sub_total_price` (:474) and NOT `$total_sub_price` (:459): the former is
+                // `$serverPayableAmount`, documented there as the payable the card was actually charged,
+                // and therefore the figure the pre-change `$requests_data['cartlist_final_price']` carried
+                // on this path. Using the bare cart subtotal here would quietly change the amount for every
+                // store that takes the fallback.
+                $order->final_price = $partialPaymentDeposit ?? $final_sub_total_price;
                 \Workdo\PartialPayments\app\Models\OrderPartialPayments::OrderPartialPayments($order, $slug , $request);
             }else{
                 if (module_is_active('RewardClubPoint') && isset($requests_data['club_point_is_active']) && $requests_data['club_point_is_active'] == 'on') {
                     $customerDetail = Customer::find($customer_id);
                     $rewardSetting = getAdminAllSetting($store->created_by,$store->id) ?? null;
                     $saveRewardPrice = ($customerDetail->total_club_point * $rewardSetting['reward_point_price'] ?? 0) / ($rewardSetting['reward_points'] ?? 0);
-                    if ($plan->shipping_method == "on") {
-                        $order->final_price = $final_sub_total_price - $saveRewardPrice;
+                    if ($planShippingMethod == "on") {
+                        /*
+                         * NOT `- $saveRewardPrice`. The reward discount is ALREADY inside this
+                         * figure: PaymentController::processRewardPoints() (:1520-1530)
+                         * subtracts it from the cart's `final_price` at initiation, and
+                         * prepareFinalRequestData() then composes `cartlist_final_price` from
+                         * that -- which is what serverPayableAmount() returns and what the card
+                         * was charged. Subtracting it again recorded an order total BELOW the
+                         * amount captured.
+                         *
+                         * This was introduced by assigning `$final_sub_total_price` at all:
+                         * before that the variable was unassigned, so the line evaluated to
+                         * `0 - $saveRewardPrice` -- a negative total, broken differently. The
+                         * order now records the amount the card was charged, as the
+                         * non-reward branch below it does.
+                         *
+                         * The shipping-OFF branches are deliberately untouched: they build from
+                         * `total_final_price`, which processRewardPoints() does not adjust, and
+                         * their dropping of `$coupon_price` is the pre-existing item S32
+                         * records for all six gateway handlers, gated on S24.
+                         */
+                        $order->final_price = $final_sub_total_price;
                     } else {
                         $order->final_price = $final_price + $tax_price - $saveRewardPrice;
                     }
                 } else {
-                    if ($plan->shipping_method == "on") {
+                    if ($planShippingMethod == "on") {
                         $order->final_price = $final_sub_total_price;
                     } else {
                         $order->final_price = $final_price + $tax_price - $coupon_price;
@@ -602,7 +1076,20 @@ class NMIPayController extends Controller
             event(new AddAdditionalFields($order,$request->all(),$store));
             $order->payment_comment = !empty($requests_data['payment_comment']) ? $requests_data['payment_comment'] : '';
             $order->payment_type = $requests_data['payment_type'];
-            $order->payment_status = 'Paid';
+            /*
+             * DERIVED, not asserted. This was the literal `'Paid'`. Unlike the five pure returns
+             * there IS a gateway answer behind it here -- this handler made the capture -- and
+             * that answer was recorded through PaymentVerificationService immediately after the
+             * sale, so this call consumes a real verification rather than inventing one. The
+             * status it yields today is the same 'Paid'; what changes is that it is now
+             * attributable, and that enforcing NMI later is a one-line change in that service.
+             */
+            $order->payment_status = $this->gatewayReturnPaymentStatus(
+                $requests_data['payment_type'] ?? 'nmi',
+                $order->final_price,
+                __METHOD__,
+                $this->checkoutNonceOf($requests_data)
+            );
             $order->delivery_id = $requests_data['method_id'] ?? 0;
             $order->delivery_comment = !empty($requests_data['delivery_comment']) ? $requests_data['delivery_comment'] : '';
             if (module_is_active('PreOrder') && \Auth::guard('customers')->user() && isset($requests_data['order_type']) && $requests_data['order_type'] == 'pre_order') {
@@ -620,35 +1107,21 @@ class NMIPayController extends Controller
             }
             // Utility::paymentWebhook($order);
 
-            $billing_city_id = 0;
-            if (!empty($billing['billing_city'])) {
-                $cityy = City::where('name', $billing['billing_city'])->first();
-                if (!empty($cityy)) {
-                    $billing_city_id = $cityy->id;
-                } else {
-                    $new_billing_city = new City();
-                    $new_billing_city->name = $billing['billing_city'];
-                    $new_billing_city->state_id = $billing['billing_state'];
-                    $new_billing_city->country_id = $billing['billing_country'];
-                    $new_billing_city->save();
-                    $billing_city_id = $new_billing_city->id;
-                }
-            }
+            // P1-ORD-15: the posted values are IDS and this looked the city up by NAME. One resolver,
+            // which also keeps a posted NAME out of cities.state_id / country_id (foreign keys).
+            $billing_city_id = \App\Services\BillingGeography::resolveCityId(
+                $billing['billing_city'] ?? null,
+                $billing['billing_state'] ?? null,
+                $billing['billing_country'] ?? null
+            );
 
-            $delivery_city_id = 0;
-            if (!empty($billing['delivery_city'])) {
-                $d_cityy = City::where('name', $billing['delivery_city'])->first();
-                if (!empty($d_cityy)) {
-                    $delivery_city_id = $d_cityy->id;
-                } else {
-                    $new_delivery_city = new City();
-                    $new_delivery_city->name = $billing['delivery_city'];
-                    $new_delivery_city->state_id = $billing['delivery_state'];
-                    $new_delivery_city->country_id = $billing['delivery_country'];
-                    $new_delivery_city->save();
-                    $delivery_city_id = $new_delivery_city->id;
-                }
-            }
+            // P1-ORD-15: the posted values are IDS and this looked the city up by NAME. One resolver,
+            // which also keeps a posted NAME out of cities.state_id / country_id (foreign keys).
+            $delivery_city_id = \App\Services\BillingGeography::resolveCityId(
+                $billing['delivery_city'] ?? null,
+                $billing['delivery_state'] ?? null,
+                $billing['delivery_country'] ?? null
+            );
 
             $OrderBillingDetail = new OrderBillingDetail();
             $OrderBillingDetail->order_id = $order->id;
@@ -762,7 +1235,14 @@ class NMIPayController extends Controller
                 $order_array['coupon']['price'] = SetNumber($coupon_data['coupon_final_amount'] ?? 0.00);
             }
             // add in Order Coupon Detail table end
-            if($response['tax_id']){
+            /*
+             * `!empty()` rather than a bare read. Same family as the `out_of_stock_threshold` /
+             * `notification` sweep: a raw array index with no default, where a state that does
+             * not carry the key raises "Undefined array key" -- which Laravel promotes to an
+             * ErrorException -- AFTER `$order->save()` has committed. Behaviour is identical for
+             * every value the cart reader actually produces (it writes `$tax_id ?? null`).
+             */
+            if(!empty($response['tax_id'])){
                 $taxes = TaxMethod::where('tax_id',$response['tax_id'])->where('store_id', $store->id)->orderBy('priority', 'asc')->get();
                 $other_info = is_string($requests_data['billing_info']) ? (array) json_decode($requests_data['billing_info']) : $requests_data['billing_info'];
                 $country = !empty($other_info->delivery_country) ? $other_info->delivery_country :$other_info['delivery_country'];
@@ -886,17 +1366,44 @@ class NMIPayController extends Controller
                 // $cart_json = json_encode($cart_array);
                 // Cookie::queue('cart', $cart_json, 1440);
                 $cart = Cookie::get('cart');
-                $cart = Cart::where('cookie_session_id', $cart)->delete();
+                $cart = Cart::forGuestCookie($cart)->delete();
                 if (auth('customers')->user()) {
                     event(new AddRewardClubPoint($requests_data,$order,$slug));
                 }
+                // P1-ORD-13: the thank-you page resolves the PRIMARY KEY this session placed, because
+                // `product_order_id` is a bare timestamp two same-second orders in one store share --
+                // the number alone showed one buyer the other's order, and after P1-ORD-08 refused both.
+                \App\Services\OrderCompleteBinding::remember($order->id);
                 return redirect()->route('order.complete', $slug)->with('data', $order->product_order_id);
             } else {
                 return $this->error(['message' => __('Somthing went wrong.')]);
             }
         } else {
-            // Payment failed
-            return redirect()->back()->with('error',__($parsedResponse['responsetext']));
+            /*
+             * THE CARD WAS DECLINED, OR THE REQUEST NEVER GOT AN ANSWER -- so no money moved and
+             * the checkout must survive. The state was consumed before the charge to stop a
+             * replay reaching the gateway twice; it goes back here, because a shopper who
+             * mistyped a CVV or hit an NMI outage has to be able to try again. Without this they
+             * met "We could not confirm your checkout details. ... please contact the store" on
+             * their second attempt, which is a dead checkout for an entirely ordinary event.
+             *
+             * `chargeSale()` returns [] when the request itself failed, so that case lands here
+             * too and is restored the same way.
+             */
+            \Session::put(self::CHECKOUT_STATE_KEY, $requests_data);
+            /*
+             * P1-PAY-02. The claim goes back with the state, and it HAS to: the state carries the
+             * same checkout_nonce, so without this the restored checkout meets "This payment has
+             * already been recorded against an order" on the retry -- for an order that was never
+             * written and money that never moved. Safe on this branch and only on this branch:
+             * chargeSale returned a decline or nothing at all, so there is no capture to replay.
+             */
+            $this->releaseGatewayReturnClaim($request, 'nmi', $requests_data);
+
+            return redirect()->back()->with(
+                'error',
+                __($parsedResponse['responsetext'] ?? 'The payment could not be completed. Please try again.')
+            );
         }
     }
 }

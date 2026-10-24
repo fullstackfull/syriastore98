@@ -296,6 +296,11 @@ class OrderRefundController extends Controller
 
     public function updateStatus(Request $request)
     {
+        // P1-SEC-27 (third review). The refund-policy tab of the Settings screen, which settingForm() refuses to a user without
+        // `Manage Setting`; the route (`refund.settings`) wrote one row per posted name for any logged-in user of the store.
+        if (! \App\Services\StoreSettingsAccess::permits(Auth::user())) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
         session()->put(['setting_tab' => 'refund_setting']);
         $post = $request->all();
         unset($post['_token']);
@@ -400,6 +405,19 @@ class OrderRefundController extends Controller
             return $this->refundDenied('This refund request has no restorable product data.', 422);
         }
 
+        // WHICH LINE EACH RECORDED ENTRY GOES BACK ONTO (P1-ORD-14). The record lists the TICKED lines only, so it is NOT parallel to
+        // the order's lines: reading `$productRefunds[$key]` with `$key` the line's position gave the first entry to the first line
+        // whatever product it named (order A qty 3 + B qty 2, one unit of B returned, request rejected -> A grew, B did not come back).
+        // Entries are matched to lines by PRODUCT ID; where a product sits on several lines (variants) the line that actually lost
+        // units takes it (`refunded_qty`, kept by the storefront request); and what is given back is bounded by what the line lost.
+        $plan = $this->restorationPlan($productJson, $productRefunds);
+
+        if ($plan === null) {
+            \Log::warning('Refund cancellation refused: the record does not match the order', ['refund_id' => $order_refund->id, 'order_id' => $order->id]);
+
+            return $this->refundDenied('This refund request does not match the order\'s lines, so nothing was restored.', 422);
+        }
+
         // ATOMIC with the status write. Previously the order's totals were saved
         // and the refund status was updated as two separate statements: a
         // failure between them left the order's quantities and final_price
@@ -407,17 +425,35 @@ class OrderRefundController extends Controller
         // 'Accept' -- so the next POST restored them a second time. Making the
         // pair atomic is what lets the state guard above actually hold.
         try {
-            \DB::transaction(function () use ($order, $order_refund, $productJson, $productRefunds, $request) {
+            \DB::transaction(function () use ($order, $order_refund, $productJson, $plan, $request) {
                 $total_product_price = 0.0;
 
                 foreach ($productJson as $key => &$product) {
-                    $quantitie = $productRefunds[$key]['quantity'] ?? ($productRefunds[$key]['qty'] ?? 0);
+                    $quantitie = $plan[$key] ?? 0;
                     $old_qty = $product['qty'];
 
                     $product['qty'] = $product['qty'] + $quantitie;
 
+                    // the value this line lost when it was refunded, given back in proportion to the units that come back (new data only)
+                    $lostValue = null;
+
+                    if ($quantitie > 0 && isset($product['refunded_qty'])) {
+                        $lostQty = (int) $product['refunded_qty'];
+                        $lostValue = isset($product['refunded_value']) && $lostQty > 0 ? (float) $product['refunded_value'] * $quantitie / $lostQty : null;
+                        $product['refunded_qty'] = max(0, $lostQty - $quantitie);
+
+                        if ($lostValue !== null) {
+                            $product['refunded_value'] = max(0.0, (float) $product['refunded_value'] - $lostValue);
+                        }
+                    }
+
                     if ($old_qty != 0) {
                         $product['final_price'] = ($product['final_price'] * $product['qty']) / $old_qty;
+                    } elseif ($lostValue !== null) {
+                        // A line refunded down to nothing has no price left to scale. The value it lost was recorded when it lost it, so the
+                        // restored price no longer depends on a figure posted with this request (the cancel button sends the SHOPPER's
+                        // display subtotal).
+                        $product['final_price'] = $lostValue;
                     } else {
                         $product['final_price'] = $request->subtotal;
                     }
@@ -448,6 +484,133 @@ class OrderRefundController extends Controller
             'status' => $order_refund->refund_status,
             'message' => 'Request cancel successfully!'
         ]);
+    }
+
+    /**
+     * Which order line each recorded refund entry is given back to, and how many units: line index => units; null when the record cannot be
+     * applied to this order without guessing or inflating it.
+     *
+     * An entry is {product_refund_id, return_price, quantity}. It goes to the first line (in order) of that product that has not been
+     * given an entry yet and that LOST at least that many units -- `refunded_qty`, written by the storefront request. A line that predates
+     * the counter (no such key) takes it unbounded, as before (recorded residual: nothing says how many units it lost). An entry for a
+     * product that is on no line, an entry larger than every candidate line lost, or a quantity that is not a positive whole number makes the
+     * whole plan unusable: a half-applied cancellation would leave the order and the request disagreeing.
+     *
+     * @param  array<int, array<string, mixed>>  $lines
+     * @param  array<int, mixed>  $entries
+     * @return array<int, int>|null
+     */
+    private function restorationPlan(array $lines, array $entries): ?array
+    {
+        $plan = [];
+
+        foreach ($entries as $entry) {
+            if (! is_array($entry)) {
+                return null;
+            }
+
+            $productId = $entry['product_refund_id'] ?? null;
+            $units = $entry['quantity'] ?? ($entry['qty'] ?? null);
+
+            if ($productId === null || ! is_scalar($productId) || ! is_numeric($units) || (float) $units != (int) $units || (int) $units <= 0) {
+                return null;
+            }
+
+            $units = (int) $units;
+            $placed = false;
+
+            // IS THERE A COUNTER FOR THIS PRODUCT AT ALL? (P1-ORD-14, second pass.) The legacy limb below is
+            // deliberately unbounded, for records that predate the counter -- but `refunded_qty` is written
+            // PER LINE by the refund, so a product on two lines where only one has ever been refunded has one
+            // counted line and one legacy line. That is the normal state of any order whose variants were
+            // partly returned, and it let an entry larger than the counted line's counter skip the bound and
+            // land on the legacy sibling instead of being refused: the product HAD a counter and the bound was
+            // still escaped (measured; the order grew from 3 units to 52).
+            //
+            // So the legacy limb is allowed only when NO line of this product carries a counter. Where one
+            // does, that counter is authoritative and an entry exceeding every counted line is refused.
+            $hasCounter = false;
+
+            foreach ($lines as $line) {
+                if (is_array($line) && (string) ($line['product_id'] ?? '') === (string) $productId && array_key_exists('refunded_qty', $line)) {
+                    $hasCounter = true;
+
+                    break;
+                }
+            }
+
+            // a line that KEEPS the counter and lost at least this many units is the right one; only then a line that predates it
+            foreach ($hasCounter ? [true] : [true, false] as $counted) {
+                foreach ($lines as $key => $line) {
+                    if (isset($plan[$key]) || ! is_array($line) || (string) ($line['product_id'] ?? '') !== (string) $productId
+                        || array_key_exists('refunded_qty', $line) !== $counted) {
+                        continue;
+                    }
+
+                    if ($counted && $units > (int) $line['refunded_qty']) {
+                        continue;
+                    }
+
+                    $plan[$key] = $units;
+                    $placed = true;
+
+                    break 2;
+                }
+            }
+
+            if (! $placed) {
+                return null;
+            }
+        }
+
+        return $plan;
+    }
+
+    /**
+     * Product id => the units its order lines have lost to refunds (`refunded_qty`), or null ONLY when no line
+     * of that product carries the counter. A product on no line is absent from the map.
+     *
+     * P1-ORD-14, second pass. This used to return null as soon as ANY line of a product predated the counter,
+     * and `RefundStock` skips its clamp on null -- so one legacy sibling made the counter unreadable and an
+     * oversized record restocked unbounded. `refunded_qty` is written PER LINE by the refund, so a product on
+     * two lines where only one has ever been refunded hits that every time: the normal state of an order whose
+     * variants were partly returned. Measured: a record claiming 500 units restocked 500 against a counter of 1.
+     *
+     * A counter that EXISTS is now authoritative -- the sum over the counted lines bounds the product, and the
+     * legacy lines contribute nothing rather than erasing the bound. Only a product whose lines are ALL legacy
+     * is unknown, which is the residual criterion 5 permits ("they may be wrong; they must not be able to
+     * inflate"). Same rule as `restorationPlan()`, so the cancel path and the restock path agree.
+     *
+     * @return array<string, int|null>
+     */
+    private function unitsLostByProduct(Order $order): array
+    {
+        $lines = json_decode((string) $order->product_json, true);
+        $counted = [];
+        $seen = [];
+
+        foreach (is_array($lines) ? $lines : [] as $line) {
+            if (! is_array($line) || ! isset($line['product_id'])) {
+                continue;
+            }
+
+            $key = (string) $line['product_id'];
+            $seen[$key] = true;
+
+            if (array_key_exists('refunded_qty', $line)) {
+                $counted[$key] = ($counted[$key] ?? 0) + max(0, (int) $line['refunded_qty']);
+            }
+        }
+
+        $lost = [];
+
+        foreach (array_keys($seen) as $key) {
+            // a counted line anywhere on the product makes the sum of the counters the bound; no counted line at
+            // all leaves it unknown
+            $lost[$key] = array_key_exists($key, $counted) ? $counted[$key] : null;
+        }
+
+        return $lost;
     }
 
     /**
@@ -556,6 +719,9 @@ class OrderRefundController extends Controller
 
             $variantIds = $this->resolveVariantIdsFromOrder($order);
 
+            // P1-ORD-14: the units each product's order lines lost -- the most that can honestly come back (null = unknown, a legacy line)
+            $lostLeft = $this->unitsLostByProduct($order);
+
             $restored = 0;
 
             \DB::transaction(function () use (
@@ -564,7 +730,8 @@ class OrderRefundController extends Controller
                 $order,
                 $storeId,
                 $variantIds,
-                &$restored
+                &$restored,
+                &$lostLeft
             ) {
                 foreach ($product_refund_id_array as $product_refund) {
                     $product_id = $product_refund['product_refund_id'] ?? null;
@@ -588,6 +755,28 @@ class OrderRefundController extends Controller
                     }
 
                     $quantity = (int) $quantity;
+
+                    // A record is a claim; the order's lines say how many units were actually taken off them. Two entries for one product
+                    // draw on the same allowance, so listing a unit twice does not restock it twice.
+                    if (array_key_exists((string) $product_id, $lostLeft) && $lostLeft[(string) $product_id] !== null) {
+                        $allowed = min($quantity, $lostLeft[(string) $product_id]);
+
+                        if ($allowed < $quantity) {
+                            \Log::warning('Refund restock clamped to the units the order lines lost', [
+                                'refund_id' => $order_refund->id,
+                                'product_id' => $product_id,
+                                'recorded' => $quantity,
+                                'allowed' => $allowed,
+                            ]);
+                        }
+
+                        $lostLeft[(string) $product_id] -= $allowed;
+                        $quantity = $allowed;
+
+                        if ($quantity <= 0) {
+                            continue;
+                        }
+                    }
 
                     // product_refund_id comes out of a JSON blob on the refund
                     // row, so it is attacker-influenced input, not a validated
@@ -914,6 +1103,72 @@ class OrderRefundController extends Controller
                     // is credited, which is an owner decision, not a fix.
                     $order['delivery_price'] = 0.0;
                     $order->save();
+                }
+
+                /*
+                 * OWNER DECISION D3 -- THE FINANCIAL ADJUSTMENT HAPPENS HERE, AND ONLY HERE.
+                 * P1-ORD-11.
+                 *
+                 * "Track approval, execution and financial adjustment separately. Adjust only on
+                 * reliable execution." The storefront request used to write `final_price` and
+                 * `product_price` the moment a shopper submitted -- refund still `Processing`, no
+                 * merchant having acted, recorded revenue already reduced. It no longer does
+                 * (AccountProfileController::order_refund_request), so the adjustment lands here.
+                 *
+                 * ONLY ON `Refunded`, WHICH IS WHAT MAKES THIS "RELIABLE EXECUTION". `$targetStatus`
+                 * comes from `RefundIntegrityService::resolveRefundStatus()`, which returns
+                 * `Accept` -- approved, NOT settled -- for an online gateway payment, because no
+                 * gateway refund driver exists anywhere in this platform. So an unsettled refund
+                 * leaves the order's totals whole, and only an offline type (the merchant hands the
+                 * cash back themselves, out of band) reaches this branch. That is the same
+                 * principle D2 states for gateways: no verified settlement, no paid ledger entry.
+                 *
+                 * COMPUTED FROM THE ORDER'S OWN LINES, not from anything the request posted. The
+                 * lines already carry what was returned -- the storefront request reduced `qty` and
+                 * wrote the `refunded_qty` counter, which it must keep doing because
+                 * `RefundStock`'s clamp is null-permissive without it (P1-ORD-14). So the
+                 * adjustment is a recomputation of a figure the order already implies, which is why
+                 * it needs no new stored state and is safe to apply once.
+                 *
+                 * FLOORED AT ZERO. A FIXED coupon is not prorated when lines are refunded, so a
+                 * coupon larger than the remaining line total drove `final_price` NEGATIVE
+                 * (measured on this task: coupon 450, lines 500, every unit refunded ->
+                 * final_price -410). The floor stops a negative total being recorded; PRORATING the
+                 * coupon is a revenue-reporting decision and is recorded as remaining, not guessed
+                 * at here.
+                 *
+                 * IDEMPOTENT BY THE GUARD ABOVE. `Refunded` is terminal in LEGAL_TRANSITIONS, and
+                 * the terminal-state check at the top of this method refuses a second payout, so
+                 * this cannot run twice for one refund.
+                 */
+                if ($targetStatus === self::STATE_REFUNDED) {
+                    $lines = json_decode((string) $order->product_json, true);
+
+                    if (is_array($lines)) {
+                        $lineTotal = 0.0;
+
+                        foreach ($lines as $line) {
+                            if (is_array($line) && isset($line['final_price']) && is_numeric($line['final_price'])) {
+                                $lineTotal += (float) $line['final_price'];
+                            }
+                        }
+
+                        $grandTotal = ($lineTotal + (float) $order->delivery_price + (float) $order->tax_price)
+                            - (float) $order->coupon_price;
+
+                        $order->product_price = $lineTotal;
+                        $order->final_price = max(0.0, $grandTotal);
+                        $order->save();
+                    } else {
+                        // The column is free text and can be unparseable. Refusing to guess is the
+                        // only safe move for a money column: the payout is still recorded below, and
+                        // the order's totals stay as they are rather than becoming a number derived
+                        // from nothing.
+                        \Log::warning('Refund settled but the order totals were left unchanged: product_json is unparseable', [
+                            'refund_id' => $order_refund->id,
+                            'order_id' => $order->id,
+                        ]);
+                    }
                 }
 
                 $order_refund->update([

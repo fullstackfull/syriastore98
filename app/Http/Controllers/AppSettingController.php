@@ -252,6 +252,16 @@ class AppSettingController extends Controller
 
     public function seoSettings(Request $request)
     {
+
+        // P1-SEC-27. This handler writes EVERY posted name into `settings` for the caller's store. Its form is the Store Setting screen
+        // (AppSettingController::index() asks for `Manage Store Setting`), so the write does too; and a payment-, mail-, storage-,
+        // integration- or domain-configuration name needs the Settings permission whoever posts it (App\Services\StoreSettingsAccess).
+        // A restricted value that is merely resubmitted unchanged is removed from the request rather than written again.
+        if (! \App\Services\StoreSettingsAccess::permitsStoreScreen(auth()->user())
+            || \App\Services\StoreSettingsAccess::refusesRestrictedPost($request, auth()->user(), getCurrentStore())) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
         session()->put('app_setting_tab', $request->app_setting_tab);
         $validator = \Validator::make(
             $request->all(),
@@ -279,12 +289,13 @@ class AppSettingController extends Controller
                 return redirect()->back()->with('error', $path['msg']);
             } else {
                 $where = ['name' => 'metaimage'];
-                $Setting = Setting::where($where)->first();
+                // P1-SEC-18 F6 (web twin of the admin API fix): THIS store's row. Unscoped, ->first() was the lowest-id row on the
+                // platform -- some other tenant's -- so saving your own file deleted theirs and charged their size to your plan. The
+                // value is data a tenant can write, so the unlink goes through StoredUpload (refuses a path outside uploads/).
+                $Setting = Setting::where($where)->where('store_id', getCurrentStore())->first();
 
                 if (!empty($Setting)) {
-                    if (File::exists(base_path($Setting->value))) {
-                        File::delete(base_path($Setting->value));
-                    }
+                    \App\Services\StoredUpload::delete($Setting->value, \Auth::user()->creatorId());
                 }
 
                 $post['metaimage'] = $path['url'];
@@ -311,6 +322,16 @@ class AppSettingController extends Controller
 
     public function shippingLabelSettings(Request $request)
     {
+
+        // P1-SEC-27. This handler writes EVERY posted name into `settings` for the caller's store. Its form is the Store Setting screen
+        // (AppSettingController::index() asks for `Manage Store Setting`), so the write does too; and a payment-, mail-, storage-,
+        // integration- or domain-configuration name needs the Settings permission whoever posts it (App\Services\StoreSettingsAccess).
+        // A restricted value that is merely resubmitted unchanged is removed from the request rather than written again.
+        if (! \App\Services\StoreSettingsAccess::permitsStoreScreen(auth()->user())
+            || \App\Services\StoreSettingsAccess::refusesRestrictedPost($request, auth()->user(), getCurrentStore())) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
         session()->put('app_setting_tab', $request->app_setting_tab);
         $validator = \Validator::make(
             $request->all(),
@@ -488,6 +509,38 @@ class AppSettingController extends Controller
 
     public function ThemeSettings(Request $request)
     {
+
+        // P1-SEC-27. This handler writes EVERY posted name into `settings` for the caller's store. Its form is the Store Setting screen
+        // (AppSettingController::index() asks for `Manage Store Setting`), so the write does too; and a payment-, mail-, storage-,
+        // integration- or domain-configuration name needs the Settings permission whoever posts it (App\Services\StoreSettingsAccess).
+        //
+        // The domain tab is the exception to "compare what was posted with what is stored": its radio posts a TOKEN under the name
+        // `enable_domain` that this handler turns into three on/off flags and into hosting-panel calls (Webuzo add/delete), including
+        // a DELETE of the stored custom domain whenever the token is anything but `enable_domain` -- which includes the Home and
+        // Checkout tabs, whose forms post no routing field at all. So for a user who may not change routing the five routing inputs are
+        // replaced by the ones that reproduce the stored state, the five names are dropped from what is written below, and the request
+        // is refused outright if it tried to change them.
+        $routingUser = auth()->user();
+        $mayChangeRouting = \App\Services\StoreSettingsAccess::permits($routingUser);
+        if (! \App\Services\StoreSettingsAccess::permitsStoreScreen($routingUser)) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+        if (! $mayChangeRouting) {
+            $neutral = \App\Services\StoreSettingsAccess::domainRoutingNeutralised($request->all(), getCurrentStore());
+            if ($neutral === null) {
+                return redirect()->back()->with('error', __('Permission denied.'));
+            }
+            // Two independent controls keep this user away from the hosting panel: these merged inputs (the handler then derives the
+            // stored state and a "switch" never happens) and the `$mayChangeRouting` condition on its three panel blocks below. Either
+            // alone is enough -- which is why a mutation harness can only show them in combination -- and each covers what the other
+            // could miss (a stored domain that is not in canonical form defeats the first; a future edit that changes the token
+            // handling defeats the second).
+            $request->merge($neutral);
+        }
+        if (\App\Services\StoreSettingsAccess::refusesRestrictedPost($request, $routingUser, getCurrentStore(), \App\Services\StoreSettingsAccess::DOMAIN_ROUTING)) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
         session()->put('app_setting_tab', $request->app_setting_tab);
         $store = Store::find(getCurrentStore());
         $settings = Setting::where('store_id', $store->id)->pluck('value', 'name')->toArray();
@@ -598,13 +651,14 @@ $oldCustomDomainEnabled = ($settings['enable_domain'] ?? 'off') === 'on';
                 return redirect()->back()->with('error', $path['msg']);
             } else {
                 $where = ['name' => 'theme_logo'];
-                $Setting = Setting::where($where)->first();
+                // P1-SEC-18 F6 (web twin of the admin API fix): THIS store's row. Unscoped, ->first() was the lowest-id row on the
+                // platform -- some other tenant's -- so saving your own file deleted theirs and charged their size to your plan. The
+                // value is data a tenant can write, so the unlink goes through StoredUpload (refuses a path outside uploads/).
+                $Setting = Setting::where($where)->where('store_id', getCurrentStore())->first();
 
                 if (!empty($Setting)) {
                     Utility::changeStorageLimit(\Auth::user()->creatorId(), $Setting->value);
-                    if (File::exists(base_path($Setting->value))) {
-                        File::delete(base_path($Setting->value));
-                    }
+                    \App\Services\StoredUpload::delete($Setting->value, \Auth::user()->creatorId());
                 }
 
                 $post['theme_logo'] = $path['url'] ?? null;
@@ -619,13 +673,14 @@ $oldCustomDomainEnabled = ($settings['enable_domain'] ?? 'off') === 'on';
                 return redirect()->back()->with('error', $path['msg']);
             } else {
                 $where = ['name' => 'invoice_logo'];
-                $Setting = Setting::where($where)->first();
+                // P1-SEC-18 F6 (web twin of the admin API fix): THIS store's row. Unscoped, ->first() was the lowest-id row on the
+                // platform -- some other tenant's -- so saving your own file deleted theirs and charged their size to your plan. The
+                // value is data a tenant can write, so the unlink goes through StoredUpload (refuses a path outside uploads/).
+                $Setting = Setting::where($where)->where('store_id', getCurrentStore())->first();
 
                 if (!empty($Setting)) {
                     Utility::changeStorageLimit(\Auth::user()->creatorId(), $Setting->value);
-                    if (File::exists(base_path($Setting->value))) {
-                        File::delete(base_path($Setting->value));
-                    }
+                    \App\Services\StoredUpload::delete($Setting->value, \Auth::user()->creatorId());
                 }
                 $post['invoice_logo'] = $path['url'] ?? null;
             }
@@ -640,13 +695,14 @@ $oldCustomDomainEnabled = ($settings['enable_domain'] ?? 'off') === 'on';
                 return redirect()->back()->with('error', $path['msg']);
             } else {
                 $where = ['name' => 'theme_favicon'];
-                $Setting = Setting::where($where)->first();
+                // P1-SEC-18 F6 (web twin of the admin API fix): THIS store's row. Unscoped, ->first() was the lowest-id row on the
+                // platform -- some other tenant's -- so saving your own file deleted theirs and charged their size to your plan. The
+                // value is data a tenant can write, so the unlink goes through StoredUpload (refuses a path outside uploads/).
+                $Setting = Setting::where($where)->where('store_id', getCurrentStore())->first();
 
                 if (!empty($Setting)) {
                     Utility::changeStorageLimit(\Auth::user()->creatorId(), $Setting->value);
-                    if (File::exists(base_path($Setting->value))) {
-                        File::delete(base_path($Setting->value));
-                    }
+                    \App\Services\StoredUpload::delete($Setting->value, \Auth::user()->creatorId());
                 }
 
                 $post['theme_favicon'] = $path['url'] ?? null;
@@ -663,13 +719,14 @@ $oldCustomDomainEnabled = ($settings['enable_domain'] ?? 'off') === 'on';
                 return redirect()->back()->with('error', $path['msg']);
             } else {
                 $where = ['name' => 'theme_image'];
-                $Setting = Setting::where($where)->first();
+                // P1-SEC-18 F6 (web twin of the admin API fix): THIS store's row. Unscoped, ->first() was the lowest-id row on the
+                // platform -- some other tenant's -- so saving your own file deleted theirs and charged their size to your plan. The
+                // value is data a tenant can write, so the unlink goes through StoredUpload (refuses a path outside uploads/).
+                $Setting = Setting::where($where)->where('store_id', getCurrentStore())->first();
 
                 if (!empty($Setting)) {
                     Utility::changeStorageLimit(\Auth::user()->creatorId(), $Setting->value);
-                    if (File::exists(base_path($Setting->value))) {
-                        File::delete(base_path($Setting->value));
-                    }
+                    \App\Services\StoredUpload::delete($Setting->value, \Auth::user()->creatorId());
                 }
 
                 $post['theme_image'] = $path['url'] ?? null;
@@ -685,7 +742,30 @@ $oldCustomDomainEnabled = ($settings['enable_domain'] ?? 'off') === 'on';
 | Custom Domain
 |--------------------------------------------------------------------------
 */
-if ($request->enable_domain === 'enable_domain') {
+// P1-SEC-29: a host another store holds is refused BEFORE anything reaches the hosting panel -- including the removal of this
+// store's own old custom domain, which the second block below does FIRST when the mode is switched, and which a refusal after it
+// would leave done at the panel and not saved.
+if ($mayChangeRouting) {
+    $claimedHost = null;
+    if ($request->enable_domain === 'enable_domain') {
+        $claimedHost = (string) $request->domains;   // heldByAnotherStore() normalises it, as the lookups do
+    } elseif ($request->enable_domain === 'enable_subdomain') {
+        $appHost = parse_url('http://' . preg_replace('#^https?://#', '', trim((string) env('APP_URL'), '/')), PHP_URL_HOST);
+        $claimedHost = $appHost ? strtolower(trim((string) $request->subdomain)) . '.' . preg_replace('/^www\./', '', $appHost) : null;
+    }
+    // A host the store ALREADY has switched on and is merely re-saving is not a claim (the model hook lets it through for the same
+    // reason): without this a store that is in a duplicate from before the fix could not save the Custom tab at all.
+    $alreadyServing = ($request->enable_domain === 'enable_domain' && $oldCustomDomainEnabled
+            && \App\Services\HostClaims::normalise((string) $oldDomain) === \App\Services\HostClaims::normalise((string) $claimedHost))
+        || ($request->enable_domain === 'enable_subdomain' && ($settings['enable_subdomain'] ?? 'off') === 'on'
+            && \App\Services\HostClaims::normalise((string) ($settings['subdomain'] ?? '')) === \App\Services\HostClaims::normalise((string) $claimedHost));
+    if ($claimedHost && ! $alreadyServing && \App\Services\HostClaims::heldByAnotherStore($claimedHost, $store->id)) {
+        return redirect()->back()->with('error', __('This domain is already used by another store.'));
+    }
+}
+
+// P1-SEC-27: the hosting panel is for a user who may change routing; for everyone else NOTHING below reaches it, whatever is posted.
+if ($mayChangeRouting && $request->enable_domain === 'enable_domain') {
 
     $webuzo = app(WebuzoDomainService::class);
 
@@ -698,7 +778,7 @@ if ($request->enable_domain === 'enable_domain') {
     */
     if ($input === '') {
 
-        if (!empty($oldDomain)) {
+        if (!empty($oldDomain) && !\App\Services\HostClaims::heldByAnotherStore($oldDomain, $store->id)) {
 
             $deleteResult = $webuzo->deleteDomain($oldDomain);
 
@@ -764,8 +844,9 @@ if ($request->enable_domain === 'enable_domain') {
 
             /*
              * 2. بعد نجاح الجديد، احذف القديم
+             *    (P1-SEC-29: not one another store holds now -- the hosting-panel account is shared, so that would take its site down)
              */
-            if (!empty($oldDomain)) {
+            if (!empty($oldDomain) && !\App\Services\HostClaims::heldByAnotherStore($oldDomain, $store->id)) {
 
                 $deleteResult = $webuzo->deleteDomain($oldDomain);
 
@@ -787,10 +868,18 @@ if ($request->enable_domain === 'enable_domain') {
 | المستخدم ألغى Custom Domain واختار Store Link أو Subdomain
 |--------------------------------------------------------------------------
 */
+// P1-PLT-06. ONLY WHEN THE POST NAMES ANOTHER MODE. The Home and Checkout tabs post no routing field at all (and the Custom tab posts none on a
+// plan that allows neither domain nor sub-domain), so `enable_domain` is ABSENT there, and absent is not "the user cancelled the custom domain":
+// it used to delete the store's own domain at the hosting panel and blank `domains` on a rename or a checkout toggle. `is_string` is the
+// whole test: absent and an empty string are both null by the time they get here (ConvertEmptyStringsToNull), and the mode flags a few lines
+// down are only rewritten `if ($request->enable_domain)`, so this branch now agrees with that.
 if (
-    $oldCustomDomainEnabled
+    $mayChangeRouting
+    && $oldCustomDomainEnabled
+    && is_string($request->enable_domain)
     && $request->enable_domain !== 'enable_domain'
     && !empty($oldDomain)
+    && !\App\Services\HostClaims::heldByAnotherStore($oldDomain, $store->id)   // P1-SEC-29: the panel account is shared
 ) {
 
     $webuzo = app(WebuzoDomainService::class);
@@ -818,7 +907,7 @@ if (
 
 
 
-if ($request->enable_domain === 'enable_subdomain') {
+if ($mayChangeRouting && $request->enable_domain === 'enable_subdomain') {
 
     $input = env('APP_URL');
     $input = trim($input, '/');
@@ -1044,21 +1133,34 @@ if ($request->enable_domain === 'enable_subdomain') {
             $post['product_image_zoom_is_enable'] = $request->product_image_zoom_is_enable ?? 'off';
         }
 
-        $settingQuery = Setting::query();
-        foreach ($post as $key => $data) {
-            (clone $settingQuery)->updateOrCreate(
-                [
-                    'name' => $key,
-                    'store_id'      => getCurrentStore(),
-                    'created_by' => auth()->user()->id
-                ],
-                [
-                    'value'         => $data,
-                    'name'          => $key,
-                    'store_id'      => getCurrentStore(),
-                    'created_by'    => auth()->user()->id,
-                ]
-            );
+        // P1-SEC-27: a user who may not change routing never writes the five routing names, whatever the handler derived for them above.
+        if (! $mayChangeRouting) {
+            $post = array_diff_key($post, array_flip(\App\Services\StoreSettingsAccess::DOMAIN_ROUTING));
+        }
+
+        // P1-SEC-29: the custom domain is written BEFORE the flag that switches it on, so the flag is judged against the host this request
+        // saves and not against the stale one it replaces (the model hook checks every host the store has saved when a flag goes on). The
+        // radio posts its token under `enable_domain`, which is the first key of the form; `enable_storelink` and `enable_subdomain` are
+        // derived above and so already come last.
+        $post = array_merge(array_intersect_key($post, ['domains' => true]), $post);
+
+        // P1-SEC-29: all or nothing. The Setting model refuses a host another store holds (App\Services\HostClaims); without a transaction
+        // the keys written before the refused one stay saved, and the merchant is left half-applied with no message (this page prints
+        // session('error'), not $errors).
+        try {
+            \Illuminate\Support\Facades\DB::transaction(function () use ($post) {
+                foreach ($post as $key => $data) {
+                    // P1-PLT-07: addressed by (name, store) -- NOT by the saving user. With `created_by` in the match key a staff
+                    // member's save never found the owner's row and INSERTED a second one for the same name in the same store;
+                    // `settings` has no unique index, so both survived and every pluck() reader took whichever came last. Who the row
+                    // belongs to is settled by App\Services\SettingOwnership on the way through the model. putForStore() rather than
+                    // updateOrCreate() because on a store that ALREADY carries duplicates the two disagree about which row is live --
+                    // see its docblock, where the measurement is.
+                    Setting::putForStore($key, $data, getCurrentStore(), auth()->user()->id);
+                }
+            });
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return redirect()->back()->with('error', (string) collect($e->errors())->flatten()->first());
         }
 
         return redirect()->back()->with('success', __('Settings successfully updated.'));
@@ -1066,6 +1168,13 @@ if ($request->enable_domain === 'enable_subdomain') {
 
     public function FirebaseSettings(Request $request)
     {
+        // P1-SEC-30: a fixed-name credential writer. The menu hides this tab from a user without the Settings permission; the route did not,
+        // so any logged-in user of the store reached it by URL. Operator first, the store owner, then `Manage Setting`
+        // (App\Services\StoreSettingsAccess::permits), and a refusal is a redirect with an error, never a 401.
+        if (! \App\Services\StoreSettingsAccess::permits(auth()->user())) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
         session()->put('app_setting_tab', $request->app_setting_tab);
         
         $firebase_enabled = !empty($request->firebase_enabled) ? $request->firebase_enabled : 'off';
@@ -1073,17 +1182,12 @@ if ($request->enable_domain === 'enable_subdomain') {
 
         $post['firebase_enabled'] = $firebase_enabled;
         $post['fcm_Key'] = $fcm_Key;
-        $settingQuery = Setting::query();
         foreach ($post as $key => $data) {
-            (clone $settingQuery)->updateOrCreate(
-                ['name' => $key, 'created_by' => auth()->user()->id],
-                [
-                    'value'         => $data,
-                    'name'          => $key,
-                    'store_id'      => getCurrentStore(),
-                    'created_by'    => auth()->user()->id,
-                ]
-            );
+            // P1-PLT-07: this write was addressed by (name, saving user) with NO `store_id` AT ALL. For a merchant who runs more than
+            // one store that found the row they had written in ANOTHER of their stores, and the payload's `store_id` then MOVED it here
+            // -- so saving Firebase settings in one store blanked them in the other. Addressed by (name, store) now, like every other
+            // writer, with ownership settled by App\Services\SettingOwnership.
+            Setting::putForStore($key, $data, getCurrentStore(), auth()->user()->id);
         }
 
         return redirect()->back()->with('success', __('Setting successfully updated.'));

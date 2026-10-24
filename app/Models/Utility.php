@@ -148,9 +148,34 @@ class Utility extends Model
             // Fetch settings data from the database
             $data = Setting::where($conditions)->get();
 
-            // If no settings are found, fallback to default settings for non-admin users
+            /*
+             * P1-SEC-11 criterion 1. THIS FALLBACK USED TO BORROW ANOTHER STORE'S ROWS:
+             * `Setting::where('created_by', 1)->get()` with NO store predicate is every row owned
+             * by user id 1 across EVERY store, folded into one array in row order, so the last row
+             * of each name won. MEASURED (ShippingLabelStoreSettingsTest): a label for merchant A's
+             * own order printed store B's address. MEASURED AGAIN here, and it is worse than the
+             * row recorded: store A also resolved store B's MAIL_PASSWORD, so this was a credential
+             * crossing tenants and not only a wrong address.
+             *
+             * THE STORE PREDICATE IS KEPT. A store with no rows of its own now gets the defaults
+             * this method already built above, which is deterministic and its own; the old answer
+             * depended on the order of other tenants' rows.
+             *
+             * WHY HERE RATHER THAN AT THE HANDLER, and this is the reason the shipping-label fix
+             * was not enough: the same array reaches the VENDORED order documents --
+             * AuctionProduct's shipping label, LotteryPrizes' order views and
+             * AutomaticOrderPrinting's ten templates all call Utility::Setting() and all render
+             * `store_address` and its siblings. packages/workdo/ must never be edited, so no
+             * per-handler override can reach them; this host helper they share can.
+             *
+             * IT IS A CONTRACT CHANGE and is stated as one. Every store created through
+             * StoreController is seeded by defaultSetting() (:148, :305), so the branch is reached
+             * only by a store created outside that path, one whose rows were deleted, or one whose
+             * rows carry a different `created_by` than the viewer resolves -- the shape the label
+             * defect was measured in.
+             */
             if (count($data) == 0) {
-                $data =  Setting::where('created_by', 1)->get();
+                $data = Setting::where('created_by', 1)->where('store_id', $storeId)->get();
             }
 
             // Populate $array with retrieved settings
@@ -180,8 +205,8 @@ class Utility extends Model
 
     public static function GetValueByName($name = '', $store_id = '')
     {
-        // Set the store_id if not provided
-        $store_id = !empty($store_id) ? $store_id : getCurrentStore();
+        // Set the store_id if not provided: the web-guard store, else the one the request is addressed to (P1-SEC-18 F4, see getRouteStoreId())
+        $store_id = !empty($store_id) ? $store_id : (getCurrentStore() ?: getRouteStoreId());
         $return = null;
         if (!empty($name)) {
             // Initialize the query
@@ -505,9 +530,8 @@ class Utility extends Model
     public static function remove_file($value)
     {
         try {
-            if (File::exists(base_path($value))) {
-                File::delete(base_path($value));
-            }
+            // P1-SEC-28: a stored value is a literal path inside uploads/, never a pattern or a path elsewhere
+            \App\Services\StoredUpload::delete(is_string($value) ? $value : null, \Auth::check() ? \Auth::user()->creatorId() : null);
             $res = [
                 'flag' => 1,
                 'msg' => __('File removed successfully'),
@@ -801,7 +825,7 @@ class Utility extends Model
 
     public static function  changeStorageLimit($createdId, $file_path)
     {
-        $files =  \File::glob(base_path($file_path));
+        $files = \App\Services\StoredUpload::resolveAll($file_path, $createdId); // P1-SEC-18 F6: one literal file inside this tenant's uploads/ -- never a glob of a stored value
         $fileSize = 0;
         foreach ($files as $file) {
             $fileSize += \File::size($file);
@@ -858,8 +882,8 @@ class Utility extends Model
     {
         $files = [];
         foreach ($file_path as $key => $file_p) {
-            $pattern = base_path($file_p);
-            $files1 = \File::glob($pattern);
+            $files1 = \App\Services\StoredUpload::resolveAll($file_p, $company_id); // P1-SEC-18 F6: the same defect as changeStorageLimit() --
+            // a stored product path (ImportExport writes it straight from a CSV column) was a glob; it is now one literal file in this tenant's uploads/.
             if (!empty($files1)) {
                 $files = array_merge($files, $files1);
             }
@@ -2090,17 +2114,13 @@ class Utility extends Model
     {
         if (!empty($url) && !empty($parameter)) {
             try {
-                $curlHandle = curl_init($url);
-                curl_setopt($curlHandle, CURLOPT_POSTFIELDS, $parameter);
-                curl_setopt($curlHandle, CURLOPT_RETURNTRANSFER, true);
-                curl_setopt($curlHandle, CURLOPT_CUSTOMREQUEST, $method);
-                $curlResponse = curl_exec($curlHandle);
-                curl_close($curlHandle);
-                if (empty($curlResponse)) {
-                    return true;
-                } else {
-                    return false;
+                // P1-SEC-33: the URL and method come from the merchant's `webhooks` row. SafeWebhook judges the address like the image
+                // importers' fetch (http/https only, no private/loopback/metadata address), pins it, allows GET/POST only and bounds the time.
+                $curlResponse = \App\Services\SafeWebhook::send((string) $url, $parameter, (string) $method);
+                if ($curlResponse === null) {
+                    return false;               // refused: nothing was sent
                 }
+                return empty($curlResponse);
             } catch (\Throwable $th) {
                 return false;
             }
@@ -2109,10 +2129,66 @@ class Utility extends Model
         }
     }
 
+    /**
+     * Fire the New Order webhook for the store the ORDER belongs to.
+     *
+     * P1-ORD-01, found while building a test for place_order's totals: every assertion about the
+     * stored total was unreachable because the request never returned 200.
+     *
+     * THIS METHOD WAS A GUARANTEED FATAL ON THE ONE PATH THAT STILL CALLS IT. The first act was
+     * `Store::find(getCurrentStore())->id` with no null check, and `getCurrentStore()` resolves
+     * through `auth()->user()` -- the **web** guard (app/Helper/helper.php:398). On a storefront
+     * API request the shopper is authenticated by a Sanctum token that `custom.auth` logs into the
+     * **customers** guard, so `auth()->user()` is null, `getCurrentStore()` falls off the end
+     * returning null, and `Store::find(null)` is null. Reading `->id` on it threw
+     * "Attempt to read property \"id\" on null". There is no storefront request on which
+     * `getCurrentStore()` CAN resolve, so this was not an edge case.
+     *
+     * AND THE ORDER IS ALREADY WRITTEN WHEN IT FIRES (ApiController::place_order:3690), which is
+     * what made it worse than a 500: the row exists, the caller is told the request failed, and a
+     * client that retries on error places the order twice -- for COD, two deliveries. Measured.
+     *
+     * THE EVIDENCE THAT THIS WAS KNOWN: `grep -rn paymentWebhook app/` finds TEN call sites and
+     * NINE are commented out -- PaymentService, PaymentController x2, AuthorizeNet, PayU, NMI,
+     * Khalti, Easebuzz, PaiementPro, CinetPay. Only place_order's is live. The crash was worked
+     * around by disabling the callers, and this one was missed.
+     *
+     * THE STORE NOW COMES FROM THE ORDER, which is the right answer independently of the crash: it
+     * is the order's own store whose webhook should fire, and an ambient merchant session is not
+     * what decides that -- the same "derive the target from the subject, not from context"
+     * rule the tenancy work applies everywhere else. `getCurrentStore()` is kept only as a
+     * fallback for a caller whose order carries no `store_id`, and when neither resolves the
+     * method returns without calling anything, because there is no webhook to look up.
+     */
     public static function paymentWebhook($order)
     {
         $module = 'New Order';
-        $store = Store::find(getCurrentStore());
+
+        $storeId = is_object($order) ? ($order->store_id ?? null) : null;
+
+        if (empty($storeId)) {
+            $storeId = getCurrentStore();
+        }
+
+        if (empty($storeId)) {
+            \Log::warning('New Order webhook skipped: no store could be resolved for the order', [
+                'order_id' => is_object($order) ? ($order->id ?? null) : null,
+            ]);
+
+            return;
+        }
+
+        $store = Store::find($storeId);
+
+        if (empty($store)) {
+            \Log::warning('New Order webhook skipped: the resolved store does not exist', [
+                'order_id' => is_object($order) ? ($order->id ?? null) : null,
+                'store_id' => $storeId,
+            ]);
+
+            return;
+        }
+
         $webhook =  Utility::webhook($module, $store->id);
         if ($webhook) {
             $parameter = json_encode($order);
@@ -2164,8 +2240,15 @@ class Utility extends Model
                 }
 
 
-                $request = str_replace("\0", '', $request);
-                $file = file_get_contents($request);
+                // P1-SEC-06: the address comes from a remote payload the caller controls; nothing is written unless it passes
+                // App\Services\SafeRemoteFetch (http/https only, no private or metadata address, pinned, redirects re-checked, size-capped).
+                $file = \App\Services\SafeRemoteFetch::contents($request);
+                // and what is stored is an image under a name built here, never the name or extension the remote chose (ImportedImage)
+                $name = \App\Services\ImportedImage::storedName($file, (string) $name);
+                if ($name === null) {
+                    // empty keys, not absent ones: every caller reads $result['url'] / ['full_url'] next, and an absent key is a 500 mid-import
+                    return ['flag' => 0, 'msg' => __('The remote file is not a supported image.'), 'url' => '', 'image_path' => '', 'full_url' => ''];
+                }
                 if ($settings['storage_setting'] == 'local') {
                     $path = Str::finish($path, '/');
                     $save = Storage::disk('theme')->put($path . '/' . $name, $file);
@@ -3288,13 +3371,31 @@ class Utility extends Model
         }
     }
 
+    /**
+     * A NUMERIC ONE-TIME CODE, FROM A CRYPTOGRAPHIC SOURCE.
+     *
+     * This drew each digit with `rand() % 10`. PHP aliases rand() to mt_rand(), a Mersenne
+     * Twister seeded once per process: its state is recoverable from a short run of outputs, so
+     * an attacker who could observe a few codes -- by asking for codes on accounts they own at
+     * the same store, served by the same php-fpm worker -- could predict the next one and reset
+     * a stranger's password without ever reaching their mailbox. Password recovery is the only
+     * caller (Api\AuthController::forgot_password_send_otp), which is exactly the case where
+     * predictability is account takeover.
+     *
+     * random_int() draws from the system CSPRNG and throws rather than falling back to a weak
+     * source, so a failure cannot silently degrade into a guessable code. The return shape is
+     * unchanged -- a string of exactly $n digits, leading zeros preserved, which the old
+     * alphabet ("1357902468", all ten digits in an odd order) also produced.
+     *
+     * tests/Feature/Security/CustomerPasswordResetAdversarialTest pins the shape, the full
+     * ten-digit alphabet, and the fact that a seeded generator no longer reproduces the sequence.
+     */
     public static function generateNumericOTP($n)
     {
-        $generator = "1357902468";
         $result = "";
 
         for ($i = 1; $i <= $n; $i++) {
-            $result .= substr($generator, (rand() % (strlen($generator))), 1);
+            $result .= (string) random_int(0, 9);
         }
 
         return $result;

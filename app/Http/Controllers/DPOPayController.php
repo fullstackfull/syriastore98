@@ -18,7 +18,32 @@ class DPOPayController extends Controller
         $action = $request->action;
         $data = $request->all();
 
-        $admin_payment_setting = getAdminAllSetting();
+        /*
+         * P1-SEC-26. ONE METHOD, TWO ROUTES, AND ONLY ONE OF THEM HAS A CORRECT ANSWER HERE.
+         *
+         *   plan.dpo.view   (routes/web.php:738, plan-pay-with/DPO/create)      -- the MERCHANT buying a platform plan. A PLATFORM
+         *       context, which its own sibling planPayWithDPOPay() already reads as one (getSuperAdminAllSetting()). A no-argument
+         *       getAdminAllSetting() answered with the signed-in merchant's OWN store settings instead. Fixed.
+         *   store.dpo.view  (routes/customer.php:375, store-pay-with/DPO/create) -- a SHOPPER paying a store. NOT fixed, deliberately:
+         *       that route carries no `auth` and no {storeSlug} (it sits in the [ActiveTheme, themelanguage] group, outside the
+         *       EnsureCustomerAuthenticated group that closes at :343), so there is NO trustworthy store source on it at all --
+         *       getRouteStoreId() is null and the only other candidate is the posted body, which is not a tenant check. Giving it the
+         *       PLATFORM's settings would be a different wrong answer, not a fix. Closing it needs a route-shape change (add
+         *       {storeSlug}, or move it behind customer auth), which alters a gateway-facing URL and is recorded for the owner on #99
+         *       rather than slipped in here. The only key the view reads is CURRENCY_NAME (DPO/pay.blade.php:285), a display label.
+         *
+         * Branched on the ROUTE NAME, never on input: the two routes are distinguishable without trusting the caller.
+         */
+        $admin_payment_setting = $request->route()?->getName() === 'plan.dpo.view'
+            ? getSuperAdminAllSetting()
+            : getAdminAllSetting();
+
+        // DPO/pay.blade.php:285 tests this key for TRUTHINESS, not isset, so a missing key is an "Undefined array key" warning and a
+        // 500. Every store is force-seeded with CURRENCY_NAME (StoreController:153-174) so the old merchant-scoped read could not miss
+        // it, but getSuperAdminAllSetting() pairs created_by with THAT user's current_store and legitimately can -- so the platform
+        // branch above would have introduced a new way for this page to fail. Guaranteed here rather than in the view, which keeps the
+        // one expression the view owns unchanged.
+        $admin_payment_setting['CURRENCY_NAME'] ??= '';
 
         return view('DPO.pay', compact('data', 'admin_payment_setting', 'action'));
     }

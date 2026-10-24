@@ -64,8 +64,34 @@ class RoleController extends Controller
         $user = \Auth::user();
         $permissions = Permission::all()->pluck('name', 'id')->toArray();
         $modules = array_merge(['General'], getshowModuleList());
-        return view('roles.create', ['permissions' => $permissions, 'modules' => $modules]);
+
+        return view('roles.create', [
+            'permissions' => $permissions,
+            'modules' => $modules,
+            'grantable' => $this->grantablePermissionNames(),
+        ]);
     }
+
+    /**
+     * The permission NAMES the signed-in actor may grant, computed once per request.
+     *
+     * P1-SEC-02. The role editor needs this per permission per module tab, and asking the Gate
+     * each time measured 601 GateEvaluated events and 1,742 queries for one `GET /roles/create`
+     * on a 200-permission table, against 1 and 14 before the change. `RolePolicy::grantableNames`
+     * answers the same question with the tenant owner resolved once, and both it and
+     * `grantPermission()` end in the same private per-name rule, so the form and the write path
+     * cannot drift -- which was the point of routing the view through the policy at all.
+     *
+     * @return list<string>
+     */
+    protected function grantablePermissionNames(): array
+    {
+        return (new RolePolicy())->grantableNames(
+            auth()->user(),
+            Permission::pluck('name')->all()
+        );
+    }
+
 
     /**
      * Store a newly created resource in storage.
@@ -87,6 +113,24 @@ class RoleController extends Controller
                 [
                     'name' => [
                         'required',
+                        'max:100',
+                        // S13-b. THE SIBLING update():216 ALREADY HAD THIS AND store() DID NOT,
+                        // which is how the escalation got its role: a staff member with
+                        // 'Create Role' created a tenant-scoped role named `admin` here, then
+                        // assigned it to themselves through UserController::update(), whose own
+                        // reserved-name refusal could not help because RESERVED_NAMES omitted
+                        // 'admin'. Closing the list was necessary; closing this validator stops
+                        // the role existing in the first place.
+                        //
+                        // WAS `Rule::notIn(RolePolicy::RESERVED_NAMES)`, which is CASE-SENSITIVE
+                        // against a hand-written spelling list and let through 'Super admin',
+                        // 'sUper admin', 'SUPER Admin', 'Super ADMIN' and 'aDmin' -- measured. The
+                        // gate that actually decides the users.type write (UserController:147,
+                        // :302) lowercases, so the two halves of one invariant disagreed about
+                        // case. No escalation followed (see RolePolicy::reservedNameRule for the
+                        // two independent reasons, both measured), but a defence that only looks
+                        // like one is worse than none.
+                        RolePolicy::reservedNameRule(),
                         Rule::unique('roles')->where(function ($query) {
                         return $query->where('store_id', getCurrentStore())->where('created_by', \Auth::user()->id);
                         })
@@ -182,7 +226,10 @@ class RoleController extends Controller
             $rolePermissions = $rolePermissions->merge($role1->permissions);
         }
         $rolePermissions = $rolePermissions->pluck('name', 'id')->toArray();
-        return view('roles.edit', compact('role', 'modules', 'permissions', 'rolePermissions'));
+        $grantable = $this->grantablePermissionNames();
+
+        return view('roles.edit',
+            compact('role', 'modules', 'permissions', 'rolePermissions', 'grantable'));
     }
 
     /**
@@ -212,8 +259,11 @@ class RoleController extends Controller
                     'required',
                     'max:100',
                     // Reserved because the application decides platform-operator
-                    // status by comparing users.type against these literals.
-                    \Illuminate\Validation\Rule::notIn(RolePolicy::RESERVED_NAMES),
+                    // status by comparing users.type against these literals. Same correction as
+                    // store():124 -- this was the case-SENSITIVE Rule::notIn, and THIS site is the
+                    // more interesting of the two: a role created under a safe name can be RENAMED
+                    // here, which is a create-time-only check's blind spot.
+                    RolePolicy::reservedNameRule(),
                     'unique:roles,name,' . $role['id'] . ',id,created_by,' . \Auth::user()->creatorId().',store_id,' . getCurrentStore(),
                 ],
                 'permissions' => 'required',

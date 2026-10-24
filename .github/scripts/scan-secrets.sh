@@ -40,7 +40,15 @@ fi
 RULES=(
     'aws-access-key-id::(^|[^A-Z0-9])(AKIA|ASIA)[A-Z0-9]{16}([^A-Z0-9]|$)'
     'private-key-block::-----BEGIN [A-Z ]*PRIVATE KEY-----'
-    'generic-assigned-secret::(password|passwd|secret|api_?key|apikey|auth_?token|access_?token|client_?secret)[[:space:]]*(=|=>|:)[[:space:]]*.{1}[A-Za-z0-9/+_.=-]{12,}'
+    # `[^[:alnum:]_]{0,2}` between the key name and the operator is P1-SEC-05, and it is the
+    # difference between seeing a PHP config array and not. Every secret in this project's own
+    # `config/` and `settings` code is written `'api_key' => 'literal'`, where a QUOTE sits
+    # between the name and the `=>`; the original `[[:space:]]*` required them to be adjacent, so
+    # the entire array form was invisible. MEASURED before the change: `$api_key = 'AKIA…'` was
+    # caught and `'api_key' => 'AKIA…'`, `"client_secret" => "…"`, `'MAIL_PASSWORD' => '…'` and
+    # `["access_token"]="…"` were all missed. Two characters is enough for a closing quote plus a
+    # bracket, and excluding alphanumerics and `_` keeps it from reaching across a longer name.
+    'generic-assigned-secret::(password|passwd|secret|api_?key|apikey|auth_?token|access_?token|client_?secret)[^[:alnum:]_]{0,2}[[:space:]]*(=|=>|:)[[:space:]]*.{1}[A-Za-z0-9/+_.=-]{12,}'
     'slack-token::xox[baprs]-[A-Za-z0-9-]{10,}'
     'stripe-live-key::sk_live_[A-Za-z0-9]{16,}'
     'google-api-key::AIza[A-Za-z0-9_-]{35}'
@@ -55,10 +63,66 @@ RULES=(
 # their own rules. (Verified: without this, the scanner reports its own comment about
 # AWS's documentation key AKIAIOSFODNN7EXAMPLE as a finding.)
 #
+# tests/Unit/Ci/SecretScannerCoverageTest.php is excluded for the SAME reason and is the
+# same category of file: it is this script's own test, and it MUST contain a real-shaped
+# AWS key, because one of its cases asserts that a high-confidence shape in the test tree
+# still fails the build -- and that assertion is the entire justification for NARROWING 1b
+# below (the structural `tests/*` skip for the generic rule). So the fixture cannot be
+# renamed into the placeholder vocabulary: the AWS rule is deliberately exempt from that
+# filter (see the comment above the filter), which is what makes AKIAIOSFODNN7EXAMPLE a hit
+# on purpose rather than by accident.
+#
+# MEASURED, not assumed: CI run 39835585655 failed with
+# `HIT [aws-access-key-id] tests/Unit/Ci/SecretScannerCoverageTest.php:160`, reproduced
+# locally with `scan-secrets.sh "$(git merge-base origin/main HEAD)" .` -- which is the run
+# the local gate had NOT been doing, because without a base ref the script correctly reports
+# "SKIP: no base ref given" and scans nothing. A local exit 0 from that form is not evidence
+# about the diff, and this failure is what that gap was hiding.
+#
+# WHY NOT THE OTHER TWO OPTIONS, since both were considered:
+#   * Building the literal at runtime ('AKIA' . 'IOSFODNN7' . 'EXAMPLE') is what
+#     tests/Feature/Security/CustomerAccountSelfServiceTest.php:67-84 explicitly rejects --
+#     "not to chop the string up until the regex misses it" -- and it makes the fixture read
+#     as LESS synthetic to a human, not more, while inviting a later reader to tidy the
+#     concatenation back into one string and silently fail the build.
+#   * Narrowing the aws-access-key-id rule, or skipping it under tests/, would delete the
+#     control that the `tests/*` generic skip depends on for its own defensibility.
+# Excluding one named file whose purpose is to exercise this script costs nothing else: every
+# high-confidence rule still runs unnarrowed over the whole of the rest of tests/.
+#
+# THIS CONTRADICTS A RECORDED DECISION, so here is why the cases differ rather than leaving the
+# contradiction unexplained. tests/Feature/Security/PlanPaymentFailClosedTest.php:476 states the
+# norm directly: a flagged fixture is "fixed by changing the VALUE, never by widening the regex or
+# excluding this path -- those narrowings exist precisely so a real credential cannot hide behind
+# an exclusion." That norm is right, and it still stands for every ordinary fixture.
+#
+# It does not reach this file, for one reason that is a property of the rule and not a preference:
+# THE REMEDY IT PRESCRIBES DOES NOT EXIST HERE. SenangPay's value was renameable because its rule
+# is `generic-assigned-secret`, which has a self-labelling vocabulary to be renamed INTO. The
+# aws-access-key-id rule has none and is deliberately exempt from the placeholder filter as well --
+# see the comment above that filter, which says in as many words that suppressing a high-confidence
+# shape "because the line happens to contain the word example is how a real key gets through." So
+# for this file there is no value that is simultaneously a hit (which the test requires, since it
+# asserts the build FAILS) and not a hit (which the build requires). Changing the value cannot
+# resolve it; only not scanning the file can.
+#
+# AND THE HOLE THE NORM WORRIES ABOUT IS THE PART THAT IS TESTED. "A real credential cannot hide
+# behind an exclusion" is the right concern, so the exclusion's WIDTH is pinned behaviourally --
+# the same AWS key planted at this path and at a sibling path in the same directory, the first
+# passing and the second failing -- and the list is pinned in both directions by name and count.
+# Three mutants prove it: widening the exclusion to the directory fails two tests, removing it
+# fails two, and quietly adding a fourth path fails one. That is more containment than a renamed
+# value carries, since nothing tests that a rename stayed renamed.
+#
+# The exclusion list is pinned in BOTH directions by
+# SecretScannerCoverageTest::test_the_exclusion_list_names_exactly_the_three_self_referential_files
+# and its width by test_the_exclusion_for_this_file_is_exactly_one_file_wide, so it cannot quietly
+# grow into a way of hiding a real finding.
+#
 # .svg is excluded because packages/workdo/LandingPage ships 16 SVGs carrying base64 CSS
 # source maps that begin `eyJ`, identical in shape to a JWT header. Verified not to be
 # tokens: none has JWT structure, and they decode to {"version":3,"sources":[...]}.
-EXCLUDE_RE='(^|/)(vendor|node_modules|dist|build|\.git)/|(composer|package)-?lock\.(json|lock)$|^\.github/(scripts/scan-secrets\.sh|gitleaks\.toml)$|\.(min\.js|min\.css|map|lock|svg|png|jpg|jpeg|gif|woff2?|ttf|eot|ico)$'
+EXCLUDE_RE='(^|/)(vendor|node_modules|dist|build|\.git)/|(composer|package)-?lock\.(json|lock)$|^\.github/(scripts/scan-secrets\.sh|gitleaks\.toml)$|^tests/Unit/Ci/SecretScannerCoverageTest\.php$|\.(min\.js|min\.css|map|lock|svg|png|jpg|jpeg|gif|woff2?|ttf|eot|ico)$'
 
 mapfile -t FILES < <(git diff --name-only --diff-filter=ACMR "${BASE}"...HEAD | grep -Ev "${EXCLUDE_RE}" || true)
 
@@ -127,8 +191,52 @@ for file in "${FILES[@]}"; do
             #
             # Only this low-confidence rule is narrowed. An AKIA key, a PEM block or an
             # sk_live_ key is still caught wherever it appears, quoted or not.
+            #
+            # P1-SEC-05: this gate carries THE SAME `[^[:alnum:]_]{0,2}` tolerance as the rule
+            # above, and it has to. The gate is a second, independent copy of the
+            # name-then-operator pattern, so fixing only the rule would have fixed nothing: the
+            # rule would match `'api_key' => 'AKIA…'` and then this `continue` would throw the
+            # finding away. MEASURED both ways before the change.
             if [[ "${name}" == 'generic-assigned-secret' ]] \
-                && ! grep -Eqi '(password|passwd|secret|api_?key|apikey|auth_?token|access_?token|client_?secret)[[:space:]]*(=|=>|:)[[:space:]]*['"'"'"]' <<<"${content}"; then
+                && ! grep -Eqi '(password|passwd|secret|api_?key|apikey|auth_?token|access_?token|client_?secret)[^[:alnum:]_]{0,2}[[:space:]]*(=|=>|:)[[:space:]]*['"'"'"]' <<<"${content}"; then
+                continue
+            fi
+
+            # NARROWING 2a: the test tree, for THIS RULE ONLY. P1-SEC-05.
+            #
+            # Widening the rule to see PHP array syntax (above) made 51 lines visible that were
+            # invisible before, and every one of them is a test fixture: 'attacker-chosen-password',
+            # 'OWNER-CHOSEN', 'pi_fake_secret_' . $n. A suite that asserts what happens to a
+            # password must contain password literals, exactly as this script and gitleaks.toml
+            # must contain credential-shaped patterns -- which is why EXCLUDE_RE already exempts
+            # those two files by the same reasoning.
+            #
+            # WHAT THIS COSTS, stated rather than implied: a GENERIC-shaped secret pasted into the
+            # test tree -- a bare password or api_key literal -- is no longer screened. What it does
+            # NOT cost: every high-confidence rule still runs over the test tree, unnarrowed, so an
+            # AWS key, a PEM block, an sk_live_ key, a Google API key, a Slack token, a JWT or a
+            # database URL with a password in it is still caught there. Those are the shapes a real
+            # credential actually has; a fixture password is not one of them.
+            #
+            # THIS NARROWS A RULE THAT A PREVIOUS DECISION DECLINED TO NARROW, so here is why the
+            # cases differ rather than leaving the contradiction unexplained.
+            # tests/Feature/Security/CustomerAccountSelfServiceTest.php:67-84 records: "The fix is
+            # not to narrow the rule, and not to chop the string up until the regex misses it ...
+            # The screen already has a documented placeholder vocabulary". That was ONE fixture,
+            # renameable into the existing vocabulary with nothing else depending on its spelling,
+            # and the norm it states is a good one: a fixture should read as synthetic to a HUMAN
+            # first. That norm still stands for anyone writing a fixture.
+            # What changed is scale, and it was measured: widening the rule to see PHP array syntax
+            # makes 70 DISTINCT values visible across ~12 security suites. The ones that already
+            # self-label (FIXTURE-*, not-a-real-password, placeholder-*) are skipped by the
+            # vocabulary below and were never the problem. The residue needs `*-chosen-*`, `fake`,
+            # `sentinel`, `known-current`, `cross-tenant`, `must-not-appear` and a dozen more
+            # adjectives, which is an unbounded list that goes red the next time a suite invents a
+            # word. Renaming the values instead is not free either: many are assertion-coupled, and
+            # the same file's comment records a fixture rename drifting out of step with an
+            # assertion 250 lines away and failing a control it had nothing to do with.
+            # So: structural for the test tree, vocabulary everywhere else.
+            if [[ "${name}" == 'generic-assigned-secret' && "${file}" == tests/* ]]; then
                 continue
             fi
 

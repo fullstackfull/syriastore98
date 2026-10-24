@@ -90,8 +90,23 @@ use App\Models\StoreNotification;
  * 62 occurrences; 3 are inside explanatory comments, leaving 59 live code sites
  * in 59 distinct methods. 55 are routed in routes/api.php; the other 4
  * (OrderList_backup, ViewOrder_backup, DeleteProduct_backup, DeleteStore_backup)
- * are unrouted dead code and were repaired anyway so they cannot be wired up
- * later and reintroduce the hole.
+ * were unrouted dead code and were repaired anyway so they could not be wired
+ * up later and reintroduce the hole.
+ *
+ * THAT LAST CLAIM WAS HALF TRUE, and P1-INV-10 (d) measured which half. The
+ * repair reached the STORE resolution in all four, and the per-ROW predicate in
+ * only two: OrderList_backup (`Order::where('store_id', $store->id)`) and
+ * DeleteStore_backup (every delete scoped to `$store->id`) really were safe to
+ * wire up. ViewOrder_backup passed `$request->order_id` straight into
+ * `Order::order_detail()`, which is `Order::find($order_id)` with no tenant
+ * predicate (app/Models/Order.php:279-281), and DeleteProduct_backup keyed
+ * `ProductImage`, `Cart`, `Wishlist` and the `Product` delete itself on a bare
+ * `$request->product_id` -- so both would have reintroduced exactly the hole
+ * they were kept to be safe from. Dead code cannot be relied on to stay
+ * repaired, so those two are DELETED rather than fixed a second time; the two
+ * that are genuinely tenant-scoped are left in place, which is what this
+ * paragraph now records. Neither removed method was routed in routes/api.php or
+ * referenced anywhere in app/, resources/ or tests/ (grep: 0 hits each).
  *
  * The brief named 17 sites. The real number is 59. That is reported as measured
  * rather than quoted.
@@ -1329,12 +1344,81 @@ public function OrderList(Request $request)
             ->first();
 
         if (!empty($Category)) {
-            if (File::exists(base_path($Category->image_path))) {
-                File::delete(base_path($Category->image_path));
+            /*
+             * OWNER DECISION D13 -- THE THIRD CATEGORY-DELETE PATH, AND THE ONE A CLIENT CALLS.
+             * P1-INV-12.
+             *
+             * `products.category_id` is `ON DELETE CASCADE` against `categories.id`
+             * (database/migrations/2023_12_26_092822_create_products_table.php:55), so
+             * `$Category->delete()` below removes every product in the category IN THE DATABASE.
+             * This endpoint, `DELETE api/admin/deletecategory`, is the one the shipped admin
+             * Flutter app calls -- so of the three paths that can fire that cascade
+             * (CategoryController::destroy, the BulkDelete addon route, and this) it is the one a
+             * merchant is most likely to reach, and it had no refusal at all.
+             *
+             * SHAPE DELIBERATELY UNCHANGED. `ApiResponser::error()` answers HTTP 200 with
+             * `{status: 0, message}`, which is the envelope the app already renders for
+             * "Maincategory data not found." two lines down. No new status code, and specifically
+             * NOT a 401: repo B's lib/network/network.dart forces a logout that clears
+             * preferences on any 401.
+             *
+             * RAW COUNT, no store predicate: the foreign key does not read `store_id`, and
+             * `Product` is `Cachable`, so a stale Eloquent read could report zero against a
+             * populated category. Same reasoning as the guard in CategoryController::destroy.
+             */
+            /*
+             * AND THE CHILD GUARD THE WEB TWIN HAS AND THIS PATH DID NOT. Raised by the
+             * independent authorization review of the D13 change and verified separately.
+             *
+             * `CategoryController::destroy` refuses a category that has child categories
+             * (CategoryController.php:460-463). This handler had no such predicate, so a merchant
+             * could delete a parent through the shipped app and leave its children behind.
+             *
+             * ORPHANED, NOT CASCADED, and the difference is why this is integrity rather than
+             * loss: `categories.parent_id` carries NO foreign key
+             * (2023_12_25_093024_create_categories_table.php:21 is a plain `unsignedBigInteger`
+             * defaulting to 0), so the children survive holding a `parent_id` that resolves to
+             * nothing. `buildCategoryTree()` (app/Helper/helper.php) walks by `parent_id`, so such
+             * a child drops out of the tree while remaining a real row with real products under
+             * it -- invisible in the UI and impossible to reach.
+             *
+             * Scoped to the category's OWN store, like the web twin: for an own-store category the
+             * two values are the same, and asking the attacker's store whether the victim's
+             * category has children is the bug P1-INV-08 fixed there.
+             */
+            $hasChildCategory = \Illuminate\Support\Facades\DB::table('categories')
+                ->where('parent_id', $Category->id)
+                ->where('store_id', $Category->store_id)
+                ->exists();
+
+            if ($hasChildCategory) {
+                return $this->error([
+                    'message' => __('This category has child categories and cannot be deleted.'),
+                ]);
             }
-            if (File::exists(base_path($Category->icon_path))) {
-                File::delete(base_path($Category->icon_path));
+
+            $productsInCategory = \Illuminate\Support\Facades\DB::table('products')
+                ->where('category_id', $Category->id)
+                ->count();
+
+            if ($productsInCategory > 0) {
+                \Illuminate\Support\Facades\Log::warning(
+                    'api category delete refused: products would be cascade-deleted with it',
+                    [
+                        'category_id' => $Category->id,
+                        'store_id' => $store->id,
+                        'products_in_category' => $productsInCategory,
+                        'user_id' => optional(auth()->user())->id,
+                    ]
+                );
+
+                return $this->error([
+                    'message' => __('This category still contains :count product(s) and cannot be deleted. Move those products to another category first.', ['count' => $productsInCategory]),
+                ]);
             }
+
+            \App\Services\StoredUpload::delete($Category->image_path, auth()->user()?->creatorId());
+            \App\Services\StoredUpload::delete($Category->icon_path, auth()->user()?->creatorId());
 
             $Category->delete();
             return $this->success(['message' => __('Maincategory deleted successfully!.')]);
@@ -1714,13 +1798,47 @@ public function UpdateCoupon(Request $request)
             ]);
         }
 
-        $ProductVariant             = new ProductVariant();
-        $ProductVariant->name       = $request->name;
-        $ProductVariant->type       = $request->type;
-        $ProductVariant->store_id   = $request->store_id;
-        $ProductVariant->save();
-
-        return $this->success(['message' => __('Product Variant added successfully!')]);
+        /*
+         * THIS ENDPOINT CANNOT CREATE A VARIANT, AND NEVER COULD. P1-INV-10 (a).
+         *
+         * It used to run:
+         *
+         *     $ProductVariant = new ProductVariant();
+         *     $ProductVariant->name = $request->name;   // no such column
+         *     $ProductVariant->type = $request->type;   // no such column
+         *     $ProductVariant->store_id = $request->store_id;
+         *     $ProductVariant->save();
+         *
+         * `product_variants` has NEITHER `name` NOR `type`
+         * (database/migrations/2024_01_01_104858_create_product_variants_table.php; no later
+         * migration alters the table, and grep finds no reader of either attribute anywhere in
+         * app/ -- the real label column is `variant`, which is what
+         * SalesDownloadableProductDataTable.php:40 reads). Direct property assignment bypasses
+         * `$fillable`, so both landed in the INSERT and MySQL answered
+         * `Unknown column 'name' in 'field list'` -- an unhandled QueryException, i.e. a 500 for
+         * every caller including the store's own owner. The same class as CLAUDE.md's
+         * `delivery_boys.commission_percentage` note.
+         *
+         * AND THE CONTRACT CANNOT BE REPAIRED FROM HERE. `product_id`, `variant`, `sku` and
+         * `price` are all NOT NULL with no default, and `product_id` carries a foreign key to
+         * `products`. The validator above asks for `name` and `type` only: there is no product to
+         * attach the variant to, no sku and no price anywhere in the request. Writing "columns
+         * that exist" would mean inventing a request contract -- which product? which sku? which
+         * price? -- and securing a new cross-tenant write path for it. That is a feature, and
+         * this is a remediation task, so the endpoint is refused instead.
+         *
+         * WHAT CHANGES FOR CLIENTS: nothing that worked stops working, because nothing worked.
+         * `api/admin/addvariant` is called by no client in either repository (grep over
+         * StoreSyria_app98/lib for `addvariant`, `variantlist`, `updatevariant` and
+         * `deletevariant`: 0 hits -- the Flutter app creates variants through the product
+         * endpoints' `variant_attribute`/`variant_id` fields). A caller that did reach it saw a
+         * 500 and now sees this file's ordinary `error()` envelope, which is HTTP 200 with
+         * `status: 0` -- deliberately NOT a 401, the code repo-B's lib/network/network.dart turns
+         * into a forced logout.
+         */
+        return $this->error([
+            'message' => __('This endpoint is not available: a product variant cannot be created without a product.'),
+        ]);
     }
 
     public function UpdateVariant(Request $request)
@@ -1763,9 +1881,25 @@ public function UpdateCoupon(Request $request)
         if (!empty($request->name)) {
             $ProductVariant->variant       = $request->name;
         }
-        if (!empty($request->type)) {
-            $ProductVariant->type       = $request->type;
-        }
+
+        /*
+         * THE `type` WRITE IS GONE, FOR THE SAME REASON AS AddVariant's. P1-INV-10 (a).
+         *
+         * This method is not in the task row -- the row named AddVariant -- and it carried half
+         * the same defect: `$ProductVariant->type = $request->type` on a table with no `type`
+         * column. Because it sat behind `if (!empty($request->type))` the endpoint worked when
+         * the caller sent `name` alone and threw `Unknown column 'type'` the moment `type` was
+         * sent, which is the harder failure to notice. The `name` -> `variant` mapping above is
+         * also what settles AddVariant's intent: the API's `name` parameter means
+         * `product_variants.variant`.
+         *
+         * Dropping the write rather than refusing the parameter: `name` alone already succeeded,
+         * so refusing would break a call that works today, while a caller that sent `type` got a
+         * 500 and no update at all and now gets its `variant` update applied. `type` is accepted
+         * and has nowhere to be stored; if it ever needs to be, it needs a migration, not an
+         * assignment.
+         */
+
         $ProductVariant->save();
 
         return $this->success(['message' => __('Product Variant Updated successfully!')]);
@@ -1969,36 +2103,6 @@ public function ViewOrder(Request $request)
 
 
 
-    public function ViewOrder_backup(Request $request)
-    {
-        $store = $this->resolveOwnedStore($request->store_id);
-
-        if (empty($store)) {
-            return $this->error(['message' => __('Store not found!')]);
-        }
-
-        $validator = \Validator::make(
-            $request->all(),
-            [
-                'order_id' => 'required',
-            ]
-        );
-
-        if ($validator->fails()) {
-            $messages = $validator->getMessageBag();
-            return $this->error([
-                'message' => $messages->first()
-            ]);
-        }
-        $order = Order::order_detail($request->order_id);
-
-        if (!empty($order['message'])) {
-            return $this->error($order);
-        } else {
-            return $this->success($order);
-        }
-    }
-
 
 
 
@@ -2024,11 +2128,8 @@ private function deleteProductFile(?string $path): void
      * uploads/products/image.jpg
      * فغالبًا تحتاج public_path بدل base_path.
      */
-    $fullPath = base_path(ltrim($path, '/'));
-
-    if (File::isFile($fullPath)) {
-        File::delete($fullPath);
-    }
+    // P1-SEC-28: a database string goes to the filesystem only through StoredUpload (literal path, inside uploads/, the owner's folder)
+    \App\Services\StoredUpload::delete($path, auth()->user()?->creatorId());
 }
 
 
@@ -2139,71 +2240,6 @@ public function DeleteProduct(Request $request)
 
 
 
-
-    public function DeleteProduct_backup(Request $request)
-    {
-        $store = $this->resolveOwnedStore($request->store_id);
-        if (empty($store)) {
-            return $this->error(['message' => __('Store not found!')]);
-        }
-
-        $rules = [
-            'product_id' => 'required'
-        ];
-
-        $validator = \Validator::make($request->all(), $rules);
-        if ($validator->fails()) {
-            $messages = $validator->getMessageBag();
-            return $this->error([
-                'message' => $messages->first()
-            ]);
-        }
-
-        $ProductImages = ProductImage::where('product_id', $request->product_id)->get();
-
-        if (!empty($ProductImages)) {
-            // image remove from product variant image
-            foreach ($ProductImages as $key => $ProductImage) {
-                if (File::exists(base_path($ProductImage->image_path))) {
-                    File::delete(base_path($ProductImage->image_path));
-                }
-            }
-        }
-
-        ProductImage::where('product_id', $request->product_id)->delete();
-
-
-
-        $Product = Product::find($request->product_id);
-        if (!empty($Product)) {
-            // image remove from description json
-            $description_json = $Product->other_description_api;
-            if (!empty($description_json)) {
-                $description_json = json_decode($Product->other_description_api, true);
-                foreach ($description_json['product-other-description'] as $key => $value) {
-                    if ($value['field_type'] == 'photo upload') {
-                        if (File::exists(base_path($value['value']))) {
-                            File::delete(base_path($value['value']));
-                        }
-                    }
-                }
-            }
-
-            // image remove from cover image
-            if (File::exists(base_path($Product->cover_image_path))) {
-                File::delete(base_path($Product->cover_image_path));
-            }
-
-            Cart::where('product_id', $request->product_id)->delete();
-            Wishlist::where('product_id', $request->product_id)->delete();
-
-            Product::where('id', $request->product_id)->delete();
-        } else {
-            return $this->error(['message' => __('Product not found.')]);
-        }
-
-        return $this->success(['message' => __('Product deleted successfully!.')]);
-    }
 
 public function AddProduct(Request $request)
 {
@@ -2417,9 +2453,7 @@ public function UpdateProduct(Request $request)
 
                 if (gettype($theme_image) == 'object') {
                     $image_path = (!empty($old_data[$slug['section_slug']][$slug_key]['value'])) ? $old_data[$slug['section_slug']][$slug_key]['value'] : '';
-                    if (File::exists(base_path($image_path))) {
-                        File::delete(base_path($image_path));
-                    }
+                    \App\Services\StoredUpload::delete($image_path, auth()->user()?->creatorId());
 
                     $fileName = rand(10, 100) . '_' . time() . "_" . basename($theme_image->getClientOriginalName());
                     $upload = Utility::jsonUpload_file($request, 'value', $theme_image, $fileName, $dir, []);
@@ -2473,9 +2507,7 @@ public function UpdateProduct(Request $request)
     $product->save();
 
     if ($request->hasFile('cover_image')) {
-        if (!empty($product->cover_image_path) && File::exists(base_path($product->cover_image_path))) {
-            File::delete(base_path($product->cover_image_path));
-        }
+        \App\Services\StoredUpload::delete($product->cover_image_path, auth()->user()?->creatorId());
 
         $fileName = rand(10, 100) . '_' . time() . "_" . basename($request->cover_image->getClientOriginalName());
         $path = Utility::upload_file($request, 'cover_image', $fileName, $dir, []);
@@ -3261,6 +3293,10 @@ public function DeleteReview($id)
             return $this->error(['message' => __('Store not found!')]);
         }
 
+        if ($refusal = $this->refuseUnlessMayAdministerStoreSettings()) {
+            return $refusal;
+        }
+
         $user = Auth::user();
         if ($user) {
 
@@ -3318,6 +3354,10 @@ public function DeleteReview($id)
             return $this->error(['message' => __('Store not found!')]);
         }
 
+        if ($refusal = $this->refuseUnlessMayAdministerStoreSettings()) {
+            return $refusal;
+        }
+
         $emaildata = [];
         $settings = Setting::where('store_id', $request->store_id)->pluck('value', 'name')->toArray();
 
@@ -3341,6 +3381,10 @@ public function DeleteReview($id)
         $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
+        }
+
+        if ($refusal = $this->refuseUnlessMayAdministerStoreSettings()) {
+            return $refusal;
         }
 
         $user = Auth::user();
@@ -3410,6 +3454,10 @@ public function DeleteReview($id)
             return $this->error(['message' => __('Store not found!')]);
         }
 
+        if ($refusal = $this->refuseUnlessMayAdministerStoreSettings()) {
+            return $refusal;
+        }
+
         $user = Auth::user();
         if ($user) {
             $rules = [
@@ -3438,12 +3486,14 @@ public function DeleteReview($id)
                     return $this->error($image['message']);
                 } else {
                     $where = ['name' => 'cod_image'];
-                    $Setting = Setting::where($where)->first();
+                    // P1-SEC-18 F6: this store's row. Unscoped, ->first() was the LOWEST-ID row on the platform -- some other
+                    // tenant's -- and the delete removed their file. (`Setting` is not in scoped_models.) And the stored value is
+                    // data a tenant can write, so the unlink goes through StoredUpload, which refuses a path that does not resolve
+                    // inside uploads/.
+                    $Setting = Setting::where($where)->where('store_id', $store->id)->first();
 
                     if (!empty($Setting)) {
-                        if (File::exists(base_path($Setting->value))) {
-                            File::delete(base_path($Setting->value));
-                        }
+                        \App\Services\StoredUpload::delete($Setting->value, $user->creatorId());
                     }
                     $post['cod_image'] = $image['image_path'];
                 }
@@ -3506,6 +3556,10 @@ public function DeleteReview($id)
             return $this->error(['message' => __('Store not found!')]);
         }
 
+        if ($refusal = $this->refuseUnlessMayAdministerStoreSettings()) {
+            return $refusal;
+        }
+
         $user = Auth::user();
         if ($user) {
             $rules = [
@@ -3534,12 +3588,14 @@ public function DeleteReview($id)
                     return $this->error($image['message']);
                 } else {
                     $where = ['name' => 'bank_transfer_image'];
-                    $Setting = Setting::where($where)->first();
+                    // P1-SEC-18 F6: this store's row. Unscoped, ->first() was the LOWEST-ID row on the platform -- some other
+                    // tenant's -- and the delete removed their file. (`Setting` is not in scoped_models.) And the stored value is
+                    // data a tenant can write, so the unlink goes through StoredUpload, which refuses a path that does not resolve
+                    // inside uploads/.
+                    $Setting = Setting::where($where)->where('store_id', $store->id)->first();
 
                     if (!empty($Setting)) {
-                        if (File::exists(base_path($Setting->value))) {
-                            File::delete(base_path($Setting->value));
-                        }
+                        \App\Services\StoredUpload::delete($Setting->value, $user->creatorId());
                     }
                     $post['bank_transfer_image'] = $image['image_path'];
                 }
@@ -3602,6 +3658,10 @@ public function DeleteReview($id)
             return $this->error(['message' => __('Store not found!')]);
         }
 
+        if ($refusal = $this->refuseUnlessMayAdministerStoreSettings()) {
+            return $refusal;
+        }
+
         $user = Auth::user();
         if ($user) {
             $rules = [
@@ -3630,12 +3690,14 @@ public function DeleteReview($id)
                     return $this->error($image['message']);
                 } else {
                     $where = ['name' => 'stripe_image'];
-                    $Setting = Setting::where($where)->first();
+                    // P1-SEC-18 F6: this store's row. Unscoped, ->first() was the LOWEST-ID row on the platform -- some other
+                    // tenant's -- and the delete removed their file. (`Setting` is not in scoped_models.) And the stored value is
+                    // data a tenant can write, so the unlink goes through StoredUpload, which refuses a path that does not resolve
+                    // inside uploads/.
+                    $Setting = Setting::where($where)->where('store_id', $store->id)->first();
 
                     if (!empty($Setting)) {
-                        if (File::exists(base_path($Setting->value))) {
-                            File::delete(base_path($Setting->value));
-                        }
+                        \App\Services\StoredUpload::delete($Setting->value, $user->creatorId());
                     }
                     $post['stripe_image'] = $image['image_path'];
                 }
@@ -3680,6 +3742,10 @@ public function DeleteReview($id)
             return $this->error(['message' => __('Store not found!')]);
         }
 
+        if ($refusal = $this->refuseUnlessMayAdministerStoreSettings()) {
+            return $refusal;
+        }
+
         $stripedata = [];
         $settings = Setting::where('store_id', $request->store_id)->pluck('value', 'name')->toArray();
 
@@ -3703,6 +3769,10 @@ public function DeleteReview($id)
         $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
+        }
+
+        if ($refusal = $this->refuseUnlessMayAdministerStoreSettings()) {
+            return $refusal;
         }
 
         $rules = [
@@ -3743,6 +3813,50 @@ public function DeleteReview($id)
             return $this->error(['message' => $smtp_error]);
         }
         return $this->success(['message' => __('Email send Successfully.')]);
+    }
+
+    /**
+     * P1-SEC-18 F5 -- the gate for the handlers that read, write or USE a store's gateway and SMTP credentials
+     * (EmailSetting, GetEmailSetting, StripePayment, GetStripePayment, TestMail).
+     *
+     * resolveOwnedStore() is an OWNERSHIP check, and creatorId() resolves a staff member to their employer, so it admits
+     * every staff user of the merchant whatever role the merchant gave them. The decision (operator, then tenant owner, then
+     * `Manage Setting` -- the permission behind the web "Settings" menu entry) is App\Services\StoreSettingsAccess, shared
+     * with the web twins of these handlers so the two doors cannot drift apart.
+     *
+     * A refusal is HTTP 403 and never 401: the shipped Flutter app forces a logout on any 401 (network.dart:285-288). Note
+     * the arguments -- ApiResponser::error($data, $message, $code); the code is the THIRD one.
+     *
+     * @return \Illuminate\Http\JsonResponse|null  a refusal, or null when the caller may proceed
+     */
+    private function refuseUnlessMayAdministerStoreSettings()
+    {
+        if (\App\Services\StoreSettingsAccess::permits(\Auth::user())) {
+            return null;
+        }
+
+        return $this->error(['message' => __('Permission denied.')], 'fail', 403);
+    }
+
+    /**
+     * May this caller write the store OWNER's name, login email or mobile?  The owner themselves and the platform operator may;
+     * anyone else (staff, whom resolveOwnedStore() admits as their employer) may only resubmit what is already stored.
+     */
+    private function mayChangeOwnerIdentity($caller, $store, Request $request): bool
+    {
+        if (strtolower(trim((string) $caller->type)) === 'super admin' || (int) $caller->id === (int) $store->created_by) {
+            return true;
+        }
+
+        $owner = \App\Models\User::find($store->created_by);
+
+        foreach (['owner_name' => 'name', 'owner_email' => 'email', 'owner_mobile' => 'mobile'] as $field => $column) {
+            if ($request->has($field) && (string) $request->input($field) !== (string) ($owner->{$column} ?? '')) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**
@@ -4150,6 +4264,50 @@ public function DeleteStore(Request $request)
         Blog::where('store_id', $store->id)->delete();
         Contact::where('store_id', $store->id)->delete();
         Coupon::where('store_id', $store->id)->delete();
+        /*
+         * P1-INV-25. THE PRODUCT LOOP RUNS BEFORE THE CATEGORY DELETE, AND THE ORDER IS THE WHOLE
+         * FIX. `products.category_id` is ON DELETE CASCADE against `categories.id`
+         * (2023_12_26_092822_create_products_table.php:55 -- the same FK P1-INV-12/D13 was built
+         * around), so deleting the categories first takes the products with it. The loop below
+         * then read an EMPTY collection and `ProductController::destroy()` -- the only thing that
+         * unlinks the image files and corrects the merchant's used-storage figure -- never ran.
+         * The rows went and the FILES STAYED.
+         *
+         * `users.storage_limit` is USED storage despite the name: incremented on upload and
+         * compared against `plans.storage_limit` as the ceiling (Utility.php:786-787), decremented
+         * on delete, and rendered as a percentage of the plan (HomeController:273). So the old
+         * order left a merchant charged for ever for storage whose rows no longer exist, and
+         * refusable for new uploads against space they are not using. That is the half of this
+         * defect that costs money rather than disk.
+         *
+         * MEASURED before and after, by StoreWipeMediaOrderingTest, on both live wipes.
+         */
+        /*
+         * CAUSE 2: the destroy() loop below is gated on `Delete Products`, which a store owner
+         * need not hold, and it refuses SILENTLY. The media freeing therefore happens here, where
+         * the caller's ownership of the store has already been established, and the loop is kept
+         * for everything else destroy() does (variants, carts, module rows). Calling both is safe:
+         * the reclaimer is idempotent, because a path whose file is already gone sizes as 0 bytes.
+         *
+         * `$store->created_by` RATHER THAN `$user->creatorId()`, AND ON THIS HANDLER THE TWO ARE
+         * THE SAME VALUE. That is why a mutant swapping them here SURVIVES, and the reason is a
+         * guard rather than luck: this handler's own predicate is `created_by == $user->id`
+         * (:4238), so the caller IS the store's owner on every reachable call. The expression is
+         * still the owner's and not the caller's, for two reasons -- it matches the web twin,
+         * where `resolveOwnedStore()` drops that predicate for a `super admin` and the two
+         * genuinely differ, and it does not silently become wrong if this handler's predicate is
+         * ever relaxed. Recorded as an equivalent mutant with its cause, not excused.
+         */
+        \App\Services\ProductMediaReclaimer::reclaimStore($store->id, $store->created_by);
+
+        $products = Product::where('store_id', $store->id)->get();
+
+        $productController = new ProductController();
+
+        foreach ($products as $product) {
+            $productController->destroy($product);
+        }
+
         Category::where('store_id', $store->id)->delete();
         Newsletter::where('store_id', $store->id)->delete();
         PlanOrder::where('store_id', $store->id)->delete();
@@ -4159,16 +4317,6 @@ public function DeleteStore(Request $request)
         Tax::where('store_id', $store->id)->delete();
         ProductVariant::where('store_id', $store->id)->delete();
 
-        /*
-         * حذف المنتجات وصورها باستخدام الدالة الموجودة.
-         */
-        $products = Product::where('store_id', $store->id)->get();
-
-        $productController = new ProductController();
-
-        foreach ($products as $product) {
-            $productController->destroy($product);
-        }
 
         /*
          * حذف المتجر.
@@ -4379,6 +4527,32 @@ public function DeleteStore(Request $request)
             return $this->error([
                 'message' => $messages->first()
             ]);
+        }
+
+        // S12(b). THIS ENDPOINT HAD NO OWNERSHIP CHECK AT ALL -- not a store predicate, not a
+        // permission, nothing. It validated that `order_id` was present and then called
+        // Order::order_detail(), which is `Order::find($order_id)` with the store id read off the
+        // order itself (app/Models/Order.php), so ANY holder of ANY valid token -- a merchant
+        // from another tenant, a shopper, a delivery driver -- read any order on the platform.
+        // Reproduced before this change: a merchant token for tenant B returned tenant A's full
+        // order document with HTTP 200.
+        //
+        // THE PREDICATE IS NOT NEW CODE. resolveChangeableOrder() already exists in this
+        // controller and already encodes exactly the right rule -- the assigned delivery boy, the
+        // platform operator, or an actor whose tenant owns the order's store. The sibling
+        // ViewOrder() (:1861) already uses the same shape. This endpoint simply never called it.
+        //
+        // WHY THE DENIAL IS THE EXISTING 'Order not found!' ENVELOPE rather than a 403:
+        //   - the contract must not change. $this->error() answers HTTP 200 with
+        //     {status: 0, message, data}, which is what this endpoint ALREADY returns when
+        //     Order::order_detail() reports a problem, so the Flutter app's existing handling of
+        //     that path is unchanged and no app release is needed;
+        //   - repo B's lib/network/network.dart maps any 401 onto a forced logout, so a denial
+        //     must never be 401;
+        //   - "not found" and "not yours" are deliberately indistinguishable, so the endpoint
+        //     cannot be used to enumerate which order ids exist on the platform.
+        if (!$this->resolveChangeableOrder($request->order_id)) {
+            return $this->error(['message' => __('Order not found!')]);
         }
 
         $order = Order::order_detail($request->order_id);
@@ -5441,9 +5615,18 @@ public function store(Request $request)
             'last_name' => $validated['last_name'],
             'email' => $validated['email'],
             'mobile' => $validated['mobile'] ?? null,
+            // A FIXED, PUBLIC DEFAULT IS NOT A PASSWORD. This fell back to Hash::make('default123')
+            // -- a literal committed to this repository -- whenever an administrator created a
+            // customer without supplying one, so anyone who read the source could sign in as every
+            // such account. Same defect as the 'hello@1234' the recovery emergency removed and the
+            // '1234' in PaymentController::createCustomer.
+            //
+            // A long random value leaves the account recoverable through the password-reset flow
+            // but not signable-into with a known value. Nothing attempts a login with the old
+            // literal (checked across app/).
             'password' => !empty($validated['password'])
                 ? \Hash::make($validated['password'])
-                : \Hash::make('default123'),
+                : \Hash::make(\Illuminate\Support\Str::random(64)),
             'type' => 'customer',
             'status' => $validated['status'],
             'store_id' => $storeId, 
@@ -5532,14 +5715,83 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('defult_currancy_sy
         $store = $this->resolveOwnedStore($storeId);
 
         if (!$store) {
+            /*
+             * ROLL BACK BEFORE RETURNING. These early returns sit inside the
+             * `\DB::beginTransaction()` opened above and left it open: nothing
+             * rolls it back, so the request ends holding a transaction (harmless
+             * under FPM, where the connection closes, and a leaked lock on a
+             * long-lived worker). Reported here because the store-ownership
+             * predicate added in P01-COMMERCE-SEC-03 FOLLOW-UP makes the variant
+             * refusal below REACHABLE where `find()` previously always resolved a
+             * row -- the leak was pre-existing and unreachable on that path, and
+             * closing it is part of making that refusal safe.
+             */
+            \DB::rollBack();
+
             return response()->json([
                 'status' => 'error',
                 'message' => 'Unauthorized: You do not have permission to create orders for this store.'
             ], 403);
         }
 
+        /*
+         * AND THE CUSTOMER MUST BE THIS STORE'S. P01-COMMERCE-SEC-03 FOLLOW-UP, found by an
+         * adversarial authz review of the commit that added the product predicate above.
+         *
+         * `'customer_id' => 'required|exists:customers,id,status,1'` proves the customer EXISTS
+         * and nothing more. `exists:` is a raw query-builder rule, so it bypasses Eloquent
+         * entirely -- and `Customer` is the one model on this platform whose StoreScope actually
+         * filters (CLAUDE.md), which makes that bypass easy to miss. The id then went verbatim
+         * into `Order::create` and both `OrderNote::create` calls, so a merchant could write an
+         * order, under their own store, naming ANOTHER STORE'S CUSTOMER.
+         *
+         * Lower severity than the stock drain this handler also had -- the wallet row follows the
+         * order's store rather than the customer, and the victim's own order list is store-scoped,
+         * so it is cross-tenant data LINKAGE rather than disclosure or money. Closed anyway,
+         * because it is three lines and the ownership question is the same one.
+         *
+         * `withoutGlobalScopes()` because an assertion about another tenant's row must not be
+         * answered by whichever tenant happens to be resolved -- the false-reading trap CLAUDE.md
+         * records. The store predicate is HARD here: `customers.store_id` is how the storefront
+         * identifies its own shoppers, and a customer with no store is not a customer this
+         * merchant may bill.
+         */
+        $customerBelongsToStore = \App\Models\Customer::withoutGlobalScopes()
+            ->where('id', $validated['customer_id'])
+            ->where('store_id', $store->id)
+            ->exists();
+
+        if (! $customerBelongsToStore) {
+            \DB::rollBack();
+
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Customer not found for this store.'
+            ], 404);
+        }
+
         foreach ($validated['products'] as $item) {
-            $product = \App\Models\Product::find($item['product_id']);
+            /*
+             * THE PRODUCT MUST BELONG TO THE STORE THIS ORDER IS BEING WRITTEN FOR.
+             * P01-COMMERCE-SEC-03 FOLLOW-UP, found by a completeness sweep of the order writers
+             * after the storefront chain was closed.
+             *
+             * This was `Product::find($item['product_id'])`. `resolveOwnedStore()` above proves
+             * the caller owns the STORE, and the validator proves the product id EXISTS -- but
+             * `Product` carries no StoreScope and is not in config/tenancy.php's `scoped_models`
+             * (CLAUDE.md), so `find()` reaches every tenant's catalogue and nothing tied the two
+             * together. A merchant who owns store A could post their own `store_id` with another
+             * merchant's `product_id` and the loop below decremented THAT merchant's
+             * `products.product_stock`, or their variant's `stock`, while the order was written
+             * under store A. The same cross-tenant stock drain as S19, on the prefix the shipped
+             * admin app calls (`api/admin/...`).
+             *
+             * The sibling merchant-web writer OrderController::store already carries this
+             * predicate; this API twin did not.
+             */
+            $product = \App\Models\Product::where('id', $item['product_id'])
+                ->where('store_id', $store->id)
+                ->first();
 
             if (!$product || $product->status != 1) {
                 throw new \Exception("Product not found or inactive: ID {$item['product_id']}");
@@ -5551,8 +5803,19 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('defult_currancy_sy
             $totalProductPrice += $lineTotal;
 
             if (!empty($item['variant_id']) && $item['variant_id'] > 0) {
-                $variant = \App\Models\ProductVariant::find($item['variant_id']);
+                /*
+                 * AND THE VARIANT MUST BELONG TO THAT PRODUCT. Scoping the product does not
+                 * scope the variant: `ProductVariant` is scoped by nothing either, so
+                 * `find()` reached any tenant's variant row and the decrement below landed on
+                 * it. `product_id`, not `store_id`, because `product_variants.store_id` is
+                 * nullable -- the product predicate above already settled the tenancy.
+                 */
+                $variant = \App\Models\ProductVariant::where('id', $item['variant_id'])
+                    ->where('product_id', $product->id)
+                    ->first();
                 if (!$variant) {
+                    \DB::rollBack();
+
                     return response()->json([
                         'status' => 'error',
                         'message' => "Product variant not found: ID {$item['variant_id']}"
@@ -5561,6 +5824,8 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('defult_currancy_sy
 
                 if ($product->track_stock == 1) {
                     if ($variant->stock < $qty) {
+                        \DB::rollBack();
+
                         return response()->json([
                             'status' => 'error',
                             'message' => "Insufficient stock for variant: {$variant->name}. Available: {$variant->stock}, Requested: {$qty}"
@@ -5585,6 +5850,8 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('defult_currancy_sy
             } else {
                 if ($product->track_stock == 1) {
                     if ($product->product_stock < $qty) {
+                        \DB::rollBack();
+
                         return response()->json([
                             'status' => 'error',
                             'message' => "Insufficient stock for product: {$product->name}. Available: {$product->product_stock}, Requested: {$qty}"
@@ -6559,6 +6826,10 @@ public function updateCurrencyRateApi(Request $request)
             ], 403);
         }
 
+        if ($refusal = $this->refuseUnlessMayAdministerStoreSettings()) {
+            return $refusal;
+        }
+
         $currencyRate = \App\Models\CurrencyRate::where('store_id', $validated['store_id'])
             ->where('currency_code', $validated['currency_code'])
             ->first();
@@ -6635,6 +6906,10 @@ public function toggleCurrencyStatusApi(Request $request)
                 'message' => 'fail',
                 'data' => ['message' => 'You do not have permission to update this store settings.']
             ], 403);
+        }
+
+        if ($refusal = $this->refuseUnlessMayAdministerStoreSettings()) {
+            return $refusal;
         }
 
         $currencyRate = \App\Models\CurrencyRate::where('store_id', $validated['store_id'])
@@ -6883,6 +7158,10 @@ public function updateCurrencyApi(Request $request)
                 'message' => 'fail',
                 'data' => ['message' => 'You do not have permission to update this store settings.']
             ], 403);
+        }
+
+        if ($refusal = $this->refuseUnlessMayAdministerStoreSettings()) {
+            return $refusal;
         }
 
         $validated = $request->validate([
@@ -7513,6 +7792,23 @@ public function updateStoreOwnerInfo(Request $request)
             return response()->json(['status' => 'error', 'message' => 'Permission denied.', 'data' => null], 403);
         }
 
+        // P1-SEC-18 (found by the F5 review). resolveOwnedStore() admits the owner's STAFF, and everything below writes
+        // `owner_name`, `owner_email` and `owner_mobile` onto the OWNER's user row -- the owner's login email is where a password
+        // reset goes, so a staff member could take the account over in two requests. The owner's identity is the owner's (and the
+        // platform operator's). Staff may still resubmit the values already stored (a prefilled form) and may still change every
+        // store-level field; only a CHANGE to the owner is refused.
+        if (! $this->mayChangeOwnerIdentity($adminUser, $store, $request)) {
+            return response()->json(['status' => 'error', 'message' => 'Permission denied.', 'data' => null], 403);
+        }
+
+        // P1-SEC-27 (third review). `currency_name` decides what a shopper is charged in -- on MySQL the writer below addresses the
+        // CURRENCY_NAME row -- so a CHANGE to it needs the Settings permission like every other currency door. Staff may still
+        // resubmit the stored value (a prefilled form) and change every other store-level field.
+        if ($request->filled('currency_name')
+            && \App\Services\StoreSettingsAccess::deniesRestrictedWrite(['CURRENCY_NAME' => $request->input('currency_name')], $adminUser, $store->id)) {
+            return response()->json(['status' => 'error', 'message' => 'Permission denied.', 'data' => null], 403);
+        }
+
         $validated = $request->validate([
             'store_name' => 'nullable|string|max:255',
             'store_email' => 'nullable|email|max:255',
@@ -7601,6 +7897,11 @@ public function updateStoreOwnerInfo(Request $request)
                 $settingsToUpdate['custom_store_url'] = rtrim($validated['custom_store_url'], '/');
             }
 
+            // P1-SEC-18 (second review). `$storeId` is the raw request string: resolveOwnedStore() matched it with
+            // `Store::where('id', $storeId)`, and on MySQL an integer column compared with '5/../../x' coerces to 5 and matches --
+            // so the DESTINATION DIRECTORY below could be walked out of public/uploads. The path and the rows use the store the
+            // lookup returned. (SQLite compares the string unconverted and never matches, so the suite cannot show the coercion.)
+            $storeId = $store->id;
             $uploadPath = public_path('uploads/' . $storeId);
 
             if ($request->hasFile('invoice_logo')) {

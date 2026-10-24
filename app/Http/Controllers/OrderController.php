@@ -480,7 +480,7 @@ public function store(Request $request)
 
     public function index(Request $request, OrderDataTable $dataTable)
     {
-        if (auth()->user() && auth()->user()->isAbleTo('Manage Order')) {
+        if ($this->mayUseOrderScreen('Manage Order')) {
             return $dataTable->render('order.index');
         } else {
             return redirect()->back()->with('error', __('Permission denied.'));
@@ -496,9 +496,37 @@ public function store(Request $request)
         return view('order.order_show', compact('order', 'orders'));
     }
 
+    /**
+     * P1-ORD-05 (B): the platform operator first. Laratrust has no super-admin bypass and the operator holds no merchant role, so a bare
+     * `isAbleTo()` answered "Permission denied" to the one principal who legitimately reads every store's orders (OrderPolicy::allow
+     * orders its checks operator-first for the same reason). Row ownership is not decided here: OrderDocumentAccessGuard does that for
+     * these URIs.
+     */
+    private function mayUseOrderScreen(string $permission): bool
+    {
+        $user = auth()->user();
+
+        /*
+         * THROUGH THE ONE HELPER, not a fourth spelling of the same decision. P1-SEC-11
+         * criterion 3 asks for the operator to be defined ONCE, and this line was normalising
+         * with `trim()` where `UserPolicy::isOperator()` uses `rtrim(' ')` -- deliberately, to
+         * agree with MySQL's PAD SPACE, which ignores a TRAILING space and not a leading one.
+         *
+         * MEASURED: for `users.type` = ' super admin' (leading space) `isOperator()` answers
+         * false and this line answered TRUE, so the order SCREEN admitted a principal the
+         * document guard refuses -- the two gates disagreeing about who the operator is, which
+         * is the defect this criterion exists to end rather than a new one. Not an escalation
+         * (OrderDocumentAccessGuard still decides rows) and latent besides: no writer of
+         * users.type produces that value. Narrowing to the engine's own rule is the correct
+         * direction, since such a row is not the operator to MySQL either.
+         */
+        return $user !== null
+            && (\App\Policies\UserPolicy::isOperator($user) || $user->isAbleTo($permission));
+    }
+
     public function order_view(Request $request, $id)
     {
-        if (auth()->user() && auth()->user()->isAbleTo('Show Order')) {
+        if ($this->mayUseOrderScreen('Show Order')) {
             try {
                 $id = Crypt::decrypt($id);
                 $order = Order::order_detail($id);
@@ -522,7 +550,11 @@ public function store(Request $request)
     public function applycoupon(Request $request, $slug)
     {
         $store = getStore($slug);
-        $coupon = Coupon::whereRaw('BINARY `coupon_code` = ?', [$request->coupon_code])->where('store_id', $store->id)->first();
+        // P01-SEC-14 C4: portable exact-code match. See Coupon::findByExactCode.
+        $coupon = Coupon::findByExactCode(
+            $request->coupon_code,
+            fn ($query) => $query->where('store_id', $store->id)
+        );
         $param = [
             'slug' => $slug,
             'store_id' => $store->id,
@@ -560,6 +592,45 @@ public function store(Request $request)
         return response()->json($return);
     }
 
+    /**
+     * The order ids this SESSION placed through the WhatsApp/Telegram checkout, as a clean list of
+     * positive integers. The session value is attacker-influenced only through their own session,
+     * but it is still parsed defensively: a non-array, a nested array, `true`, `'*'` and `null`
+     * entries are all dropped rather than trusted.
+     *
+     * @return list<int>
+     */
+    /**
+     * P1-ORD-13: one definition of "this session placed that order", in
+     * App\Services\OrderCompleteBinding. This method was that definition's only copy while the
+     * mechanism served one handler; ten gateway returns use it now.
+     */
+    private function orderCompleteBoundIds(): array
+    {
+        return \App\Services\OrderCompleteBinding::bound();
+    }
+
+    /**
+     * The ONE order in this store that carries this number -- null when there is none, and null when
+     * there is MORE THAN ONE.
+     *
+     * `product_order_id` is not unique: a guest order is `'0' . date('YmdHis')`, a dozen writers do
+     * the same, and the column has no index. Two orders placed in one store in one second therefore
+     * share it, and `first()` returned the lowest id -- so a visitor who placed their own order a
+     * second after a victim's was shown the VICTIM'S order and a minted link to it (review lens B,
+     * F1). An ambiguous number is refused rather than guessed between two people's orders. The real
+     * fix is to carry the primary key in the flash (P1-ORD-13).
+     */
+    private function soleStoreOrderByNumber($store, $number): ?Order
+    {
+        $matches = Order::where('product_order_id', $number)
+            ->where('store_id', $store->id)
+            ->limit(2)
+            ->get();
+
+        return $matches->count() === 1 ? $matches->first() : null;
+    }
+
     public function orderComplete(Request $request)
     {
         $store = getStore($request->route('storeSlug'));
@@ -567,23 +638,97 @@ public function store(Request $request)
             abort(404);
         }
         
-        $order_id = (Session::get('khalti_order_id'));
+        // P1-ORD-08. WHO MAY SEE WHICH ORDER ON THE ANONYMOUS THANK-YOU PAGE.
+        //
+        // This route is anonymous by design -- it is where a guest lands after paying -- so the
+        // proof of ownership has to be something a guest can hold. There are exactly three, and the
+        // fourth way this handler used to find an order was an unauthenticated enumerator:
+        //
+        //   1. `data`            flashed by every gateway return handler (->with('data', $poid)).
+        //   2. `khalti_order_id` set by the Khalti flow.
+        //      Both are set SERVER-SIDE for the buyer's own session. Both now carry the store
+        //      predicate: `product_order_id` is a bare timestamp, so two stores can hold the same
+        //      value in the same second and the lookup returned whichever row came first.
+        //   3. `data[order_id]`  the WhatsApp/Telegram redirect, whose blade forwards the success
+        //      payload's PRIMARY KEY as a query string. That is request input, and a sequential
+        //      integer typed into a URL disclosed any order to a visitor who never placed it --
+        //      MEASURED, P1-SEC-03 round 2, including its number and a minted link to the full
+        //      order. It is honoured ONLY for an id this session placed: PaymentController::
+        //      whatsapp() records it under `order_complete_ids`. A session id is random and held on
+        //      the server, so unlike a Crypt::encrypt() token it is not forgeable with the leaked
+        //      APP_KEY.
+        //   4. `responce[data][order_id]` -- REMOVED. It has no producer anywhere in resources/,
+        //      themes/ or public/ (the grep hits are server-side `$responce` variables), so it was
+        //      dead for legitimate use and live only for an attacker.
+        //
+        // A store predicate on its own would not have been a fix: the slug is public, so an
+        // attacker simply addresses the victim's own store, where the order's store matches.
+        //
+        // PRECEDENCE IS THE ORIGINAL'S: the flashed `data` first, then a request id, then Khalti. The
+        // request id outranked Khalti before, and it must still -- a buyer with a stale
+        // `khalti_order_id` who then checks out through WhatsApp has to be shown the order they just
+        // placed, not the one from last week.
+        $order = null;
+        $flashed = session('data');
+        $requested = $request->input('data.order_id');
+        $khalti = Session::get('khalti_order_id');
 
-        if (session('data')) {
-            $order_id = session('data');
-            $order = Order::where('product_order_id', $order_id)->first();
-        } elseif ((isset($request['data']['order_id']) && !empty($request['data']['order_id'])) || (isset($request->responce['data']['order_id']) && ($request->responce['data']['order_id'])) || (isset($order_id) && !empty($order_id))) {
-            if (!empty($request['data']['order_id'])) {
-                $order_id = $request['data']['order_id'];
-                $order = Order::find($order_id);
-            } elseif (!empty($request->responce['data']['order_id'])) {
-                $order_id = $request->responce['data']['order_id'];
-                $order = Order::find($order_id);
-            } else {
-                $order = Order::where('product_order_id', $order_id)->first();
-            }
-        } 
-        
+        /*
+         * P1-ORD-13. THE SESSION'S OWN ORDER IDS COME FIRST, AHEAD OF THE FLASHED NUMBER.
+         *
+         * `product_order_id` is not an identifier: it is `'0' . date('YmdHis')` for a guest, with no
+         * index and no uniqueness, so two orders placed in one store in one second share it.
+         * Resolving the flashed NUMBER therefore had two possible answers and both were wrong --
+         * `first()` showed one buyer the other's order (measured, P8), and P1-ORD-08's refusal sent
+         * BOTH buyers back to the landing page having just paid.
+         *
+         * Every gateway return now records the order's PRIMARY KEY against the session that placed
+         * it (OrderCompleteBinding::remember, ten sites), so the collision resolves correctly for
+         * each buyer instead of being guessed or refused. The ids are matched against the flashed
+         * number's own store, so a bound id from another store cannot be shown here.
+         *
+         * The number lookup is KEPT as the fallback, for a session whose binding is missing -- an
+         * older session, a cookie-less client, or a handler not yet reached. It still refuses an
+         * ambiguous number rather than guessing.
+         */
+        $boundHere = Order::whereIn('id', $this->orderCompleteBoundIds() ?: [0])
+            ->where('store_id', $store->id)
+            ->orderByDesc('id')
+            ->get();
+
+        if ($flashed && is_scalar($flashed)) {
+            $order = $boundHere->firstWhere('product_order_id', (string) $flashed)
+                ?? $this->soleStoreOrderByNumber($store, $flashed);
+        } elseif ($boundHere->isNotEmpty() && ! $request->has('data.order_id') && ! ($khalti && is_scalar($khalti))) {
+            /*
+             * Nothing flashed and nothing ASKED FOR: the most recent order this session placed in
+             * this store is the one it just paid for.
+             *
+             * `$request->has(...)` and not `! is_scalar($requested)`, which is what the first draft
+             * of this branch tested and what
+             * test_odd_shapes_of_the_request_id_are_not_coerced_into_a_match caught: an ARRAY
+             * `data[order_id]` is not scalar either, so a malformed request id fell into this limb
+             * and was answered with the session's most recent order instead of being refused. No
+             * disclosure -- the session really did place it -- but a malformed identifier must be
+             * refused rather than reinterpreted, which is the whole point of that test.
+             */
+            $order = $boundHere->first();
+        } elseif (is_scalar($requested) && in_array(filter_var($requested, FILTER_VALIDATE_INT), $this->orderCompleteBoundIds(), true)) {
+            $order = Order::where('id', (int) $requested)
+                ->where('store_id', $store->id)
+                ->first();
+        } elseif ($khalti && is_scalar($khalti)) {
+            /*
+             * Same precedence as the flashed limb above, for the same reason: `khalti_order_id` is a
+             * NUMBER two same-second orders in one store share. Khalti now binds the primary key as
+             * well (KhaltiPaymnetController), so the collision resolves per buyer; the number lookup
+             * stays as the fallback for a session placed before that, and still refuses an ambiguous
+             * number rather than guessing.
+             */
+            $order = $boundHere->firstWhere('product_order_id', (string) $khalti)
+                ?? $this->soleStoreOrderByNumber($store, $khalti);
+        }
+
         if (isset($order) && !empty($order)) {
             $storeUrl = getFrontThemeUrl($store);
             $url = $storeUrl.'/' . $store->slug . '/order/' . \Illuminate\Support\Facades\Crypt::encrypt($order->id ?? '');
@@ -599,6 +744,22 @@ public function store(Request $request)
             $id = crypt::decrypt($id);
             $order = Order::order_detail($id);
             $settings = Utility::Setting();
+
+            // P1-SEC-11. The "FROM" block is THE ORDER'S STORE's address. Utility::Setting() resolves the viewer's tenant and CURRENT store and,
+            // when that store has no rows of its own, falls back to every row of user id 1 across ALL stores (last row wins) -- so a label for
+            // merchant A's order printed the address of whichever store the platform user configured last (EXECUTED:
+            // ShippingLabelStoreSettingsTest). Read the five address names for the order's own store; a store with none prints an empty block,
+            // never another store's.
+            // Read the rows directly: Utility::GetValueByName() falls back to the same Utility::Setting() when the store has no row.
+            $orderStore = (int) Order::where('id', $id)->value('store_id');
+            $addressNames = ['store_address', 'store_city', 'store_state', 'store_zipcode', 'store_country'];
+            $ownRows = $orderStore > 0
+                ? \Illuminate\Support\Facades\DB::table('settings')->where('store_id', $orderStore)->whereIn('name', $addressNames)->orderBy('id')->pluck('value', 'name')->all()
+                : [];
+            foreach ($addressNames as $addressName) {
+                $settings[$addressName] = (string) ($ownRows[$addressName] ?? '');
+            }
+
             $product = [];
             $products = [];
             foreach ($order['product'] as $product_item) {
@@ -621,7 +782,26 @@ public function store(Request $request)
             if (!empty($order['message'])) {
                 return redirect()->back()->with('error', __('Order Not Found.'));
             }
-            return view('order.shippinglabel', compact('order', 'product_sum', 'settings'));
+            /*
+             * P1-SEC-11 criterion 4, and criterion 1's remainder. The document is printed FOR AN ORDER, so
+             * every setting it renders belongs to that order's store -- which criterion 1 established for
+             * the five address names above and not for the other two things this view reads:
+             *
+             *   * `invoice_logo`, which the view fetched as `GetValueByName('invoice_logo')` with NO store
+             *     id. That resolves `getCurrentStore()`, the VIEWER's store, so the platform operator
+             *     printing a merchant's label got the OPERATOR's logo on it.
+             *   * `SITE_RTL`, which the view did not read at all: its `<html>` was a hardcoded
+             *     `lang="en"` with no `dir`, so the block of `html[dir="rtl"]` rules at the bottom of its
+             *     stylesheet could never match and an Arabic store's label was always laid out
+             *     left-to-right. That is criterion 4.
+             *
+             * Both are resolved HERE, from the order's own store, rather than in the view.
+             */
+            $documentLocale = \App\Services\DocumentDirection::localeFor($orderStore);
+            $documentRtl = \App\Services\DocumentDirection::isRtl($orderStore);
+            $invoice_logo = \App\Services\DocumentDirection::invoiceLogoFor($orderStore);
+
+            return view('order.shippinglabel', compact('order', 'product_sum', 'settings', 'documentLocale', 'documentRtl', 'invoice_logo'));
         } catch (DecryptException $e) {
             return redirect()->back()->with('error', __('Something was wrong.'));
         }
@@ -636,7 +816,15 @@ public function store(Request $request)
             if (!empty($order['message'])) {
                 return redirect()->back()->with('error', __('Order Not Found.'));
             }
-            return view('order.receipt', compact('order'));
+
+            // P1-SEC-11 criteria 1 and 4 -- see the shipping label above for the full argument. Same two
+            // reads, same two defects, resolved from the order's own store.
+            $orderStore = (int) Order::where('id', $id)->value('store_id');
+            $documentLocale = \App\Services\DocumentDirection::localeFor($orderStore);
+            $documentRtl = \App\Services\DocumentDirection::isRtl($orderStore);
+            $invoice_logo = \App\Services\DocumentDirection::invoiceLogoFor($orderStore);
+
+            return view('order.receipt', compact('order', 'documentLocale', 'documentRtl', 'invoice_logo'));
         } catch (DecryptException $e) {
             return redirect()->back()->with('error', __('Something was wrong.'));
         } catch (\Exception $e) {
@@ -646,6 +834,41 @@ public function store(Request $request)
 
     public function order_return(Request $request)
     {
+        /*
+         * OWNERSHIP AND PERMISSION, WHICH THIS END OF THE WORKFLOW NEVER HAD. P1-INV-02 / S37-2.
+         *
+         * This method sat in the `auth` group and nothing else: three request fields went
+         * straight into Order::product_return(), which resolves `Order::find($order_id)` on a
+         * model that is NOT in config/tenancy.php's `scoped_models` and so reaches every tenant.
+         * MEASURED by a prior session: a store-A merchant posting store B's order_id moved B's
+         * variant stock 50 -> 59 and marked B's order returned, then 500'd AFTER the writes
+         * landed.
+         *
+         * Its own sibling eighteen lines below, order_return_request(), already carries exactly
+         * this check from GATE C. The two ends of one workflow diverged, and that divergence is
+         * the whole defect.
+         *
+         * `updateStatus` is reused rather than inventing a permission name: OrderPolicy::allow
+         * checks isPlatformAdmin BEFORE isAbleTo (so the operator is not locked out, since on a
+         * from-source database no role holds 'Manage Order'), then requires the seeded
+         * 'Manage Order', then sameStore. That is all three of this task's acceptance criteria in
+         * one call.
+         *
+         * The null guard comes first because `authorize()` needs a model, and because
+         * product_return() itself read `$Order->delivered_status` on the result of find() with no
+         * check -- an absent id was a 500.
+         */
+        $order = Order::find($request->order_id);
+
+        if (empty($order)) {
+            return response()->json([
+                'status' => 'error',
+                'message' => __('Something was wrong.'),
+            ]);
+        }
+
+        $this->authorize('updateStatus', $order);
+
         $data['product_id'] = $request->product_id;
         $data['variant_id'] = $request->variant_id;
         $data['order_id'] = $request->order_id;
@@ -780,8 +1003,38 @@ public function store(Request $request)
          */
         $storeId = $order->store_id;
 
-        foreach ($lines as $line) {
+        /*
+         * ONE RETURN, ONE STOCK CREDIT -- the half of P1-INV-15 (E) that lives on this side.
+         * OWNER DECISION 5: "Restock only when a return is actually accepted. Prevent duplicate
+         * stock credits and duplicate refunds."
+         *
+         * THE DOUBLE CREDIT. This loop walks EVERY line with no reference to what the other
+         * endpoint has already done. `Order::product_return()` lets a merchant mark ONE LINE
+         * returned and puts that line's goods back immediately; approving the return request then
+         * put the same goods back AGAIN. Each endpoint's own replay guard was correct about its
+         * own endpoint and blind to the other, which is why the two-step merchant workflow --
+         * mark the line, then approve -- inflated inventory by the returned quantity.
+         *
+         * The marker is written into the line inside `product_json` by whichever endpoint credits
+         * it first, and both now consult it. See Order::LINE_STOCK_RESTORED for why the marker is
+         * per-LINE rather than per-order.
+         *
+         * $restored collects the indexes credited by THIS pass so they can be stamped in the same
+         * transaction as the status write. The caller owns that transaction (:950).
+         */
+        $restored = [];
+
+        foreach ($lines as $index => $line) {
             if (!is_array($line)) {
+                continue;
+            }
+
+            if (Order::lineStockAlreadyRestored($line)) {
+                Log::warning('Return approval skipped a line whose stock was already credited', [
+                    'order_id' => $order->id,
+                    'product_id' => $line['product_id'] ?? null,
+                ]);
+
                 continue;
             }
 
@@ -829,6 +1082,7 @@ public function store(Request $request)
 
             if ($variantId == 0 || empty($variantId)) {
                 $this->stockService()->restoreProductStock($product->id, $qty);
+                $restored[] = $index;
 
                 continue;
             }
@@ -854,71 +1108,122 @@ public function store(Request $request)
             }
 
             $this->stockService()->restoreVariantStock($variant->id, $qty);
+            $restored[] = $index;
+        }
+
+        /*
+         * PERSIST THE MARKERS, in the caller's transaction, so a later call to either endpoint
+         * can see that these goods are already back in. Written only when something actually
+         * moved, so an approval that restocked nothing does not rewrite the column.
+         *
+         * `$order->save()` is NOT called here: the caller writes `return_status` and
+         * `return_price` on the same instance immediately afterwards, inside the same
+         * transaction, and that save persists this too. Saving twice would be two statements for
+         * one state change.
+         */
+        if ($restored !== []) {
+            foreach ($restored as $index) {
+                $lines[$index][Order::LINE_STOCK_RESTORED] = 1;
+            }
+
+            $order->product_json = json_encode($lines);
         }
     }
 
     public function order_status_change(Request $request)
     {
+        /*
+         * OWNERSHIP AND PERMISSION. P1-ORD-04.
+         *
+         * This method had NO permission check of any kind -- the route (routes/web.php:1179)
+         * carries only the `auth` group, and `index()`'s isAbleTo('Manage Order') guards the
+         * LISTING, not this -- and no ownership predicate: `$request->id` went straight into
+         * Order::order_status_change(), which does a bare `Order::find()` (Order.php:537) on a
+         * model with no global scope and no `scoped_models` entry.
+         *
+         * AND THE CANCEL LIMB IS A MONEY WRITE, which is why this outranks a status tweak. It
+         * sets `payment_status = 'Unpaid'` and saves (Order.php:546-554), and
+         * OrderObserver::updated fires OrderFinancialService::syncFromOrder on exactly that
+         * column changing (OrderObserver.php:32-38) -- so cancelling walks back the order's
+         * wallet record. The finance half is invisible to the test suite because
+         * `store_order_financials` is a GATE F table created by no migration, so the regression
+         * test pins the order columns that trigger it and says so.
+         *
+         * Same three lines as order_return, and the same reasoning: `updateStatus` via
+         * OrderPolicy::allow checks isPlatformAdmin BEFORE isAbleTo (so the operator keeps the
+         * support workflow on a database where no role holds 'Manage Order'), then requires the
+         * seeded 'Manage Order', then sameStore.
+         *
+         * THE ID COMES FROM THE ROUTE, NOT THE BODY. `Request::__get` reads `all()` before the
+         * route parameters, so a posted `id` previously WON over the URL segment -- measured: a
+         * POST to /order-status-change/<own id> carrying `id=<victim id>` acted on the victim.
+         * The route declares `{id}`, so the segment is always present, and the shipped caller
+         * (resources/views/order/view.blade.php:655-662) sends both with the same value. Reading
+         * the segment removes the ambiguity rather than leaving the authorization and the write
+         * free to disagree about which order they mean.
+         */
+        $orderId = $request->route('id');
 
-        $data['order_id'] = $request->id;
+        $order = Order::find($orderId);
+
+        if (empty($order)) {
+            return response()->json([
+                'status' => false,
+                'message' => __('Something was wrong.'),
+            ]);
+        }
+
+        $this->authorize('updateStatus', $order);
+
+        $data['order_id'] = $orderId;
         $data['order_status'] = $request->delivered;
         $responce = Order::order_status_change($data);
         $order = Order::order_detail($data['order_id']);
         $d_order = Order::find($data['order_id']);
 
         /*
-         * COD SETTLES HERE -- the other half of the cash-on-delivery state
-         * machine. See App\Services\PaymentVerificationService
-         * COD_SETTLEMENT_ON_DELIVERY for the full argument.
+         * ========================================================================================
+         *  DELIVERED IS NOT PAID. THE COD SETTLEMENT BLOCK THAT STOOD HERE IS WITHDRAWN.
+         *  Owner decision, 2026-10-24, FINAL.
+         * ========================================================================================
          *
-         * THE DEFECT. PaymentService::process() routes 'cod' straight to
-         * getProductStatus() (:315) and the order writer recorded it 'Paid'
-         * immediately, so a cash-on-delivery order counted as paid before the
-         * courier had collected anything. An order placed and never delivered
-         * stayed Paid forever, and a CANCELLATION then had to UNDO a payment
-         * that never happened -- which is literally what
-         * Order::order_status_change() does, writing payment_status = 'Unpaid'
-         * on cancel (app/Models/Order.php:550) with a comment calling it the
-         * missing line needed to refund the amount. There is nothing to refund.
-         * An Observer reacts to that write by adjusting the wallet, so the
-         * premature Paid reaches the financial records and is then walked back.
+         *     "Withdraw the Delivered-based COD payment/settlement trigger now. Delivered must
+         *      never, by itself, mark COD as Paid or credit a merchant wallet. Require a separate
+         *      verified cash collection event, recording the collector (merchant, courier or
+         *      delivery company), collection amount, time and supporting evidence. Keep order
+         *      delivery reporting separate from cash collection and financial settlement
+         *      reporting."
          *
-         * THE MISSING HALF. Nothing ever moved a COD order from unpaid to paid
-         * on delivery, because nothing had to: it was born Paid. With the
-         * correct machine the transition has to exist, and this is the one place
-         * a merchant declares an order delivered.
+         * WHAT USED TO BE HERE, so the removal is legible rather than a gap. On a successful
+         * 'delivered' status change this block wrote `payment_status = Paid` and fired
+         * OrderPaymentStatus, whose listeners reach OrderFinancialService and credit the merchant
+         * wallet. It arrived with D-06, which made COD Pending at creation and needed SOMETHING to
+         * move it to Paid; marking delivered was the only signal the product had.
          *
-         * INERT BY DEFAULT. codShouldSettleOnDelivery() returns false unless the
-         * owner has opted in to `services.cod.settlement = 'delivery'`, so for
-         * every existing deployment this block does nothing at all and COD
-         * behaviour is byte-for-byte what it was. That is deliberate: when an
-         * order counts as paid decides when a wallet is credited, which is the
-         * owner's business decision and not a fix to impose.
+         * WHY IT IS GONE. A merchant clicking 'delivered' on their own order, through their own
+         * web guard, is a PROXY for collection and not evidence of it -- the courier may not have
+         * handed the cash over, and the click may be early, mistaken, or made to clear a
+         * dashboard. D1 said so ("no wallet credit for creation *or* for 'Delivered'") and the
+         * 2026-10-24 decision withdrew the trigger outright.
          *
-         * IDEMPOTENT. The guard requires the order not to be Paid already, so a
-         * replayed 'delivered' status change settles once, not twice.
+         * SO THIS METHOD NOW CHANGES ONE THING: the order's DELIVERY status. It does not touch
+         * payment_status, it fires no payment event, and it credits nothing. That separation --
+         * delivery reporting apart from cash collection apart from financial settlement -- is
+         * itself part of the decision, not a side effect of removing code.
          *
-         * The save is kept narrow -- only payment_status -- and the same
-         * OrderPaymentStatus event the model's own transitions fire is fired
-         * here too, so the wallet and notification listeners see this change the
-         * way they see every other payment-status change rather than being
-         * bypassed.
+         * WHAT SETTLES A COD ORDER NOW. `App\Services\CodCollectionService` records a verified
+         * cash collection event naming the collector, amount, time and evidence, and
+         * `PaymentVerificationService::codMayBeSettled()` consults it. Until GATE F provides
+         * `cod_collection_events` no event can exist, so a COD order stays Pending until a human
+         * asserts payment through `order_payment_status()` -- a deliberate separate act, which is
+         * the point.
+         *
+         * HISTORICAL ROWS ARE UNTOUCHED, per the same decision: COD orders already marked Paid by
+         * the withdrawn trigger keep that status. Nothing is reversed or back-filled.
+         *
+         * CodStateMachineTest pins every sentence above, including that a 'delivered' change
+         * leaves payment_status alone and fires no OrderPaymentStatus event.
          */
-        if (($responce['status'] ?? null) === 'success'
-            && strtolower(trim((string) $data['order_status'])) === 'delivered'
-            && $this->paymentVerifier()->codShouldSettleOnDelivery($d_order)
-        ) {
-            $d_order->payment_status = \App\Services\PaymentVerificationService::STATUS_PAID;
-            $d_order->save();
-
-            event(new \App\Events\OrderPaymentStatus($d_order));
-
-            \Log::info('COD order settled on delivery', [
-                'order_id' => $d_order->id,
-                'store_id' => $d_order->store_id,
-                'payment_type' => $d_order->payment_type,
-            ]);
-        }
         $store = getStoreById($d_order->store_id);
         $dArr = [
             'order_id' => $data['order_id'],
@@ -939,7 +1244,12 @@ public function store(Request $request)
 
         OrderNote::order_note_data([
             'customer_id' => $d_order->customer_id,
-            'order_id' => $request->id,
+            // P1-ORD-04: the ROUTE order, not the posted one. `order_notes.order_id` is a
+            // NULLABLE FK, so the body's value attached a note row to ANY order id on the
+            // platform while carrying the attacker's store_id. Litter in another tenant's id
+            // space rather than a disclosure -- order-note reads are store-filtered -- but it is
+            // the same one-token mistake as the webhook sink below.
+            'order_id' => $orderId,
             'status' => 'Order status change',
             'changeble_status' => $request->delivered,
             'store_id' => $d_order->store_id
@@ -958,7 +1268,26 @@ public function store(Request $request)
             $store = Store::find(getCurrentStore());
             $webhook = Utility::webhook($module, $store->id);
             if ($webhook) {
-                $order = Order::order_detail($request->id);
+                /*
+                 * THE WEBHOOK PAYLOAD READS THE ROUTE ORDER. P1-ORD-04, and this sink was a LIVE
+                 * CROSS-TENANT PII EXFILTRATION THAT THE FIRST VERSION OF THIS FIX DID NOT STOP.
+                 *
+                 * Pinning the id for the authorization and the write left this read on the POSTED
+                 * value, and `Order::order_detail()` is a bare `Order::find()` on a model with no
+                 * global scope. So: a merchant creates a `Status Change` webhook pointing at
+                 * their own URL (WebhookController::store has no permission check and forces
+                 * store_id to the caller's own), then POSTs
+                 * /order-status-change/<their own order> with the victim's id in the body. The
+                 * authorization passes on their own order, the status change succeeds -- and then
+                 * the VICTIM's order detail is JSON-encoded and POSTed to the attacker's
+                 * endpoint: customer name, street, city, country, postcode, EMAIL, PHONE, every
+                 * line item and total. One request per id enumerates the platform's order book.
+                 *
+                 * Found by an adversarial review of this fix, which observed that the comment
+                 * above claimed the pinning "removes the ambiguity" when it had removed it for
+                 * the authorize and the write only. The fix did not survive its own promise.
+                 */
+                $order = Order::order_detail($orderId);
                 $parameter = json_encode($order);
 
                 // 1 parameter is  URL , 2 parameter is data , 3 parameter is method
@@ -1227,8 +1556,49 @@ public function store(Request $request)
         ]);
     }
 
+    /**
+     * S14 / order export. THIS CHECKED NO PERMISSION AT ALL -- any authenticated web principal
+     * could download the whole order book as a spreadsheet, including a staff member whose role
+     * grants no order permission whatsoever, while the order LIST they are refused sits behind
+     * 'Manage Order' (index():483).
+     *
+     * IT IS NOT, HOWEVER, A CROSS-TENANT LEAK, and the finding that reached me said it was.
+     * App\Exports\OrderExport::collection() does `Order::where('store_id', $store->id)` with
+     * `$store = getStoreById(getCurrentStore())`, so the rows are already the caller's own
+     * store's. Reporting it as cross-tenant would have overstated it; the real defect is that
+     * the permission boundary around the order book had a file-shaped hole in it.
+     *
+     * Gated on 'Manage Order' -- the permission the order list already uses, seeded by
+     * Utility::addNewData() and granted to the merchant role. No new name is introduced.
+     * Operator-first because isAbleTo() has no super-admin bypass here.
+     *
+     * The empty-store guard also closes a 500: with no store context `getStoreById(null)` returns
+     * null and OrderExport dereferences `$store->id`.
+     */
     public function fileExport()
     {
+        $user = auth()->user();
+        // P1-SEC-11 criterion 3: this was already normalised but against a HARDCODED LITERAL rather
+        // than the constant -- correct behaviour via a fourth copy of the decision.
+        $isOperator = \App\Policies\UserPolicy::isOperator($user);
+
+        if (!$user || (!$isOperator && !$user->isAbleTo('Manage Order'))) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
+        /*
+         * P1-SEC-11 criterion 2: `empty(getCurrentStore())` is NOT the whole question, because the
+         * helper hardcodes 1 for an operator with no `current_store` -- so this guard passes and
+         * the export then resolved a store that may not exist. Ask whether the store RESOLVES, not
+         * merely whether the helper returned something: a deployment whose stores do not start at
+         * 1 (a deleted first store is enough) gave a 500 from OrderExport dereferencing null, and
+         * where store 1 DOES exist and is not the operator's, `Order.xlsx` quietly held that
+         * store's orders with nothing in the response naming it.
+         */
+        if (empty(getCurrentStore()) || getStoreById(getCurrentStore()) === null) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
         $fileName = 'Order.xlsx';
         return Excel::download(new OrderExport, $fileName);
     }
@@ -1264,11 +1634,68 @@ public function store(Request $request)
 
         $deliveryBoy = \App\Models\DeliveryBoy::find($request->delivery_boy);
 
+        /*
+         * P1-PLT-08. THE SCOPE IS NOT THE CONTROL OF RECORD HERE, and driving this route is how that
+         * turned up. `DeliveryBoy` is allowlisted now, so the `find()` above returns null for another
+         * merchant's driver -- but the write three lines down took `$request->delivery_boy` VERBATIM,
+         * not `$deliveryBoy->id`, so the order was still stamped with the foreign driver's id. The
+         * validator does not stop it either: `exists:delivery_boys,id` runs on the query BUILDER, which
+         * global scopes do not touch, so a cross-store id passes validation. Only the commission block
+         * below depended on the lookup, and it simply went quiet.
+         *
+         * So the refusal has to be explicit. For the platform operator the scope is bypassed, so this
+         * resolves any driver and the limb is inert for them.
+         */
+        if ($deliveryBoy === null) {
+            \Log::warning('Order assignment refused: the delivery boy is not in a store this caller owns', [
+                'order_id' => $order->id,
+                'delivery_boy' => $request->delivery_boy,
+                'user_id' => \Auth::id(),
+            ]);
+
+            /*
+             * 403 AND JSON, matching the shape this route already produces: `authorize('assign', ...)`
+             * four lines up throws an AuthorizationException, and the success arm returns JSON, so a
+             * redirect would be the odd one out on an AJAX endpoint.
+             *
+             * AND THE MERCHANT IS SHOWN IT, which the first cut got wrong twice over. That cut said the
+             * refusal was unreachable without tampering "because the dropdown is built from the order's
+             * own store (OrderController:535)". It is not: :533-535 reads `getStoreById(getCurrentStore())`
+             * -- the caller's CURRENT store, not the order's. Both are the caller's, so there is no
+             * isolation defect, but a multi-store merchant viewing an order in a non-current owned store
+             * is offered the CURRENT store's drivers, so the refusal is reachable by ordinary use. The
+             * AJAX caller had a `success` callback and no `error` one (the same gap P1-SEC-34 found in
+             * SpamPrevent's widget), so the merchant would have seen nothing at all; the callback is
+             * added in resources/views/order/view.blade.php.
+             */
+            return response()->json([
+                'status' => 'error',
+                // "not one of your stores'" rather than "not in this store": the predicate the scope
+                // applies is the caller's OWNED stores, which is wider than OrderPolicy::sameStore()'s
+                // current-store test. Saying "this store" overstated what was checked (review N4).
+                'message' => __('That delivery boy is not one of your stores\' drivers.'),
+            ], 403);
+        }
+
         if ($order->deliveryboy_id != $request->delivery_boy) {
             \App\Models\DeliveryEarning::where('order_id', $order->id)->delete();
         }
 
-        $order->deliveryboy_id = $request->delivery_boy;
+        /*
+         * The RESOLVED driver, not the request value (review N3).
+         *
+         * MEASURED AS AN EQUIVALENT MUTANT, and recorded as that rather than claimed as a fix: putting
+         * `$request->delivery_boy` back here fails no test, and it should not, because the two cannot
+         * differ. The row was fetched BY that id, so they agree numerically; and the shape that would
+         * separate them on MySQL -- a junk-suffixed `'7abc'`, which `WHERE id = ?` coerces to row 7 while
+         * the write stores the string -- is rejected by this handler's own `'delivery_boy' =>
+         * 'required|integer|exists:delivery_boys,id'` before any of this runs.
+         *
+         * It is changed anyway because the guard above exists precisely because this line used to read
+         * request input, and leaving it reading request input makes the next person re-derive that
+         * equivalence argument from scratch.
+         */
+        $order->deliveryboy_id = $deliveryBoy->id;
         $order->save();
 
         $shippingMethod = \App\Models\ShippingMethod::find($order->delivery_id);

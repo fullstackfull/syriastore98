@@ -22,6 +22,15 @@ use App\DataTables\SalesDownloadableProductDataTable;
 class ReportController extends Controller
 {
     /**
+     * P1-SEC-09: every report handler is gated by the permission of the menu entry that links to it (App\Http\Middleware\ReportPermission),
+     * one mechanism for the whole controller rather than a copy per handler. Declared here and not as HasMiddleware: see PlanCouponController.
+     */
+    public function __construct()
+    {
+        $this->middleware(\App\Http\Middleware\ReportPermission::class);
+    }
+
+    /**
      * Display a listing of the resource.
      *
      * @return \Illuminate\Http\Response
@@ -3037,7 +3046,10 @@ class ReportController extends Controller
         $products = Product::where('store_id', getCurrentStore())
             ->get();
         $out_of_stock_products = [];
-        $settings = getAdminAllSetting();
+        // P1-SEC-26: the THRESHOLD must come from the same store as the PRODUCTS above. A no-argument getAdminAllSetting() resolves it
+        // from the caller instead, and for a STAFF member it walks up to created_by and then reads the OWNER's current_store -- so a
+        // staff member whose owner is currently in another store judged this store's stock by that other store's threshold.
+        $settings = getAdminAllSetting(null, getCurrentStore());
 
         foreach ($products as $product) {
             if ($product->variant_product == 0) {

@@ -46,19 +46,56 @@ class PaymentVerificationService
     public const SESSION_KEY = 'payment_verification';
 
     /**
-     * Payment types whose settlement this platform can actually establish
-     * server-side today, and for which an unverified order is therefore NOT
-     * recorded as Paid.
+     * Payment types whose settlement this platform can establish server-side, and whose recorded
+     * amount is therefore COMPARED against the captured amount as well.
      *
-     * Only Paymera is listed because Paymera is the only arm with a
-     * server-to-server status call (`PaymentController::pollPaymentStatus`).
-     * Adding a gateway here is a one-line change once its arm records a
-     * verification; until then its behaviour is preserved exactly and every
-     * unverified Paid write is logged, so the backlog is measurable instead of
-     * invisible. See the owner action in the Phase 1B report.
+     * THIS LIST IS NO LONGER WHAT DECIDES PAID-WITHOUT-VERIFICATION. It used to be: a type absent
+     * from it was recorded Paid whether or not anything had confirmed a capture. Owner decision,
+     * Phase 01 final execution directive: *"Any unverified gateway payment must remain Pending,
+     * never Paid. Do not create a falsely paid order, and preserve a safe reconciliation path for
+     * customers who may have been charged."*
+     *
+     * So the DEFAULT is now Pending for every gateway type, and membership here means one extra
+     * thing on top: the captured AMOUNT is reconciled against the order's expected total, not just
+     * the existence of a verification record. Paymera is listed because it has a server-to-server
+     * status call that reports an amount (`PaymentController::pollPaymentStatus`); NMI is listed
+     * because its arm makes the capture itself and records the provider's own `response == 1`
+     * through `recordVerification()` (`NMIPayController::getNMIProductStatus`).
      */
     public const ENFORCED_PAYMENT_TYPES = [
         'paymera',
+        // LOWERCASE, and that is not cosmetic: resolveOrderPaymentStatus() compares against
+        // `strtolower(trim($paymentType))` with a STRICT in_array, and recordVerification() stores
+        // `strtolower($paymentType)`. The payment type the checkout posts is 'NMI'
+        // (PaymentController::getValidPaymentTypes), so an entry spelled 'NMI' here would never
+        // match and the enrolment would be silently inert. Caught before it shipped.
+        'nmi',
+        /*
+         * 'khalti' JOINS 2026-10-24, and it is a CORRECTION rather than a tightening.
+         *
+         * Khalti's verify call is now bound to the server's own figure, so a record means the
+         * provider confirmed a capture of serverPayableAmount() -- the stored state's
+         * `cartlist_final_price`. THE ORDER IS NOT WRITTEN FOR THAT FIGURE. KhaltiPaymnetController
+         * recomputes `$order->final_price` from a FRESH cart read at return time, and the basket is
+         * mutable across the round trip: pay for a small basket, withhold the automatic return
+         * (the token is in the browser), add an expensive line, then post the return yourself. The
+         * verification is genuine and covers the wrong order. Without this entry the record alone
+         * writes Paid and nothing compares the two numbers.
+         *
+         * The same gap has a second, quieter instance: with PartialPayments active,
+         * prepareFinalRequestData() sets cartlist_final_price to the DEPOSIT, and this handler --
+         * unlike AuthorizeNet, which carries $partialPaymentDeposit into the write -- has no
+         * partial-payments branch at all, so a deposit capture would mark a full-price order Paid.
+         *
+         * MEASURED BEFORE ENROLLING, because enrolling a gateway whose two figures legitimately
+         * differ would make every Khalti order Pending: on a plain authenticated checkout the
+         * order's final_price is 100.0 against a verified 100 -- they agree, so the happy path is
+         * unaffected. KhaltiAmountBindingTest pins both the agreement and the mismatch refusal.
+         *
+         * Lowercase, for the reason the 'nmi' comment above gives: the comparison is against
+         * strtolower(trim($paymentType)) with a strict in_array, and the checkout posts 'khalti'.
+         */
+        'khalti',
     ];
 
     /**
@@ -72,9 +109,38 @@ class PaymentVerificationService
      * courier collected the cash yet".
      */
     public const OFFLINE_PAYMENT_TYPES = [
-        'cod',
+        // 'cod' WAS HERE AND IS DELIBERATELY GONE (owner decision D-06, 2026-10-22). This list means
+        // "settles off-platform by arrangement, so record Paid at once", and COD no longer does: it has
+        // its own state machine and is Pending until collection. The COD branch in
+        // resolveOrderPaymentStatus() runs FIRST, so leaving 'cod' here changed no behaviour -- which is
+        // exactly why it had to go. A constant that lists a type whose behaviour contradicts the
+        // constant's own meaning is a trap for the next reader, and it was already misleading one test
+        // into asserting COD is Paid.
         'bank_transfer',
         'whatsapp',
+        /*
+         * 'pos' AND 'lottery product' ARE NEW HERE, and they are a correction forced by the owner's
+         * no-unverified-Paid decision rather than a widening of it.
+         *
+         * Both settle OFF-GATEWAY and both write a literal 'Paid' at their own unwired sites --
+         * PosController for money taken at the counter, and the vendored LotteryResultController
+         * for a lottery settlement. While every unenforced type resolved to Paid the derivation
+         * happened to agree with those literals, and PaymentStatusDerivationTest
+         * ::test_the_pos_and_lottery_literals_are_equivalent_to_the_derivation_today existed
+         * precisely to keep that equivalence falsifiable.
+         *
+         * Flipping the default to Pending broke it, and the test caught it: POS orders would have
+         * been recorded Pending while the cash was already in the drawer, and the derivation would
+         * have disagreed with the literal the write site uses. Neither site can be edited from here
+         * (one is vendored), so the constant is where the two are reconciled.
+         *
+         * This is not a hole in the decision. The decision governs GATEWAY payments -- "any
+         * unverified GATEWAY payment must remain Pending" -- and a counter sale is not one: no
+         * gateway ever confirms it, which is exactly what this list means. Lowercase, because the
+         * comparison is against `strtolower(trim($paymentType))`.
+         */
+        'pos',
+        'lottery product',
     ];
 
     /**
@@ -88,13 +154,14 @@ class PaymentVerificationService
     public const COD_PAYMENT_TYPES = ['cod', 'cash_on_delivery', 'cash'];
 
     /**
-     * COD settles AT ORDER TIME: the order is recorded Paid the moment it is
-     * placed, before the courier has collected anything.
+     * RETIRED VALUE, kept only to recognise and reject it. Owner decision D-06, 2026-10-22.
      *
-     * This is the pre-existing behaviour and it stays the DEFAULT, because when
-     * an order counts as paid decides when a merchant's wallet is credited and
-     * which orders appear in a revenue report. That is a business change for the
-     * owner to choose, not a defect fix to impose.
+     * This used to mean "record a COD order Paid the moment it is placed", and it used to be the
+     * DEFAULT, because when an order counts as paid decides when a merchant's wallet is credited -- a
+     * business change for the owner to choose rather than a defect to impose. The owner chose: COD
+     * starts unpaid, and uncollected money may never be reported as paid. So this value is no longer
+     * honoured anywhere; `codSettlementPolicy()` recognises it solely in order to log loudly that a
+     * deployment still configuring it is being ignored.
      */
     public const COD_SETTLEMENT_AT_ORDER = 'order';
 
@@ -130,7 +197,8 @@ class PaymentVerificationService
     public function recordVerification(
         string $paymentType,
         PaymentVerificationResult $result,
-        $expectedTotal
+        $expectedTotal,
+        ?string $checkoutNonce = null
     ): void {
         if (!$result->isVerified()) {
             return;
@@ -142,6 +210,23 @@ class PaymentVerificationService
             'captured_amount' => $result->capturedAmount,
             'expected_amount' => (string) $expectedTotal,
             'verified_at' => now()->toIso8601String(),
+            /*
+             * WHICH CHECKOUT THIS VERIFICATION IS FOR. Added 2026-10-24.
+             *
+             * Until this field the record was bound to nothing but a lowercase type string, and
+             * the consequence was measured rather than argued: a record left in the session by
+             * one request was redeemed by a DIFFERENT order writer on the shared
+             * `{slug}/get-payment-status` route, writing a Paid order for a basket the capture
+             * never covered. consumeVerification() being single-use does not help -- it does not
+             * care WHICH checkout produced the record.
+             *
+             * The nonce is GuardsGatewayReturn::CHECKOUT_NONCE_KEY from the server-stored state,
+             * the same value claimGatewayReturn() keys its replay claim on. Null when the caller
+             * does not supply one, and resolveOrderPaymentStatus() then behaves exactly as it did
+             * before -- so wiring a producer is an improvement and missing one is not a
+             * regression.
+             */
+            'checkout_nonce' => $checkoutNonce,
         ]);
     }
 
@@ -172,28 +257,47 @@ class PaymentVerificationService
         ?string $paymentType,
         ?array $verification,
         $expectedTotal,
-        string $site
+        string $site,
+        ?string $checkoutNonce = null
     ): string {
         $type = strtolower(trim((string) $paymentType));
 
         if ($this->isCashOnDelivery($type)) {
             /*
-             * COD has its own state machine. See COD_SETTLEMENT_ON_DELIVERY for
-             * why settling on delivery is the correct one, and why settling at
-             * order time nonetheless remains the default.
+             * OWNER DECISION D-06, 2026-10-22: "COD orders start as Unpaid. Payment becomes Paid only
+             * after actual cash collection is verified. Do not credit a merchant wallet at order
+             * creation. Make collection and settlement workflows configurable per store WITHOUT
+             * ALLOWING UNCOLLECTED MONEY TO BE REPORTED AS PAID."
+             *
+             * That last clause is why this is no longer a policy BRANCH. Settle-at-order was previously
+             * the default and remained selectable, because when an order counts as paid decides when a
+             * merchant's wallet is credited -- a business decision the owner had not yet made. It is made
+             * now, and it forecloses the option: a COD order recorded Paid before collection IS
+             * uncollected money reported as paid, so no per-store setting may produce it.
+             *
+             * What stays configurable per store is the collection and settlement WORKFLOW -- who collects,
+             * and when the merchant is settled -- which needs the courier-collection and settlement
+             * records GATE F has not released yet. The state at creation is not part of that.
+             *
+             * `Pending`, not a new `Unpaid` state: 'Pending' is this codebase's existing state for money
+             * that has not arrived (BankTransferController uses it for exactly that), while 'Unpaid' is
+             * what `Order::order_status_change` writes on CANCELLATION (app/Models/Order.php:550). Both
+             * satisfy "not paid"; reusing the arrival state keeps cancellation semantics distinct.
+             *
+             * THIS ALSO SATISFIES "no wallet credit at order creation" WITH NO SEPARATE GUARD, and that is
+             * worth recording because it is not obvious: `OrderObserver::created()` credits the wallet
+             * only when the order is already Paid at creation ("إذا كان الطلب Paid تضيفه للمحفظة فوراً").
+             * An order created Pending credits nothing; `OrderObserver::updated()` then syncs the wallet
+             * when `payment_status` changes, so settlement credits it at delivery instead.
              */
-            if ($this->codSettlementPolicy() === self::COD_SETTLEMENT_ON_DELIVERY) {
-                Log::info('COD order recorded as pending collection', [
-                    'site' => $site,
-                    'payment_type' => $type,
-                    'expected_total' => (string) $expectedTotal,
-                    'note' => 'Becomes Paid when the order is marked delivered.',
-                ]);
+            Log::info('COD order recorded as pending collection', [
+                'site' => $site,
+                'payment_type' => $type,
+                'expected_total' => (string) $expectedTotal,
+                'note' => 'Becomes Paid when collection is recorded. Owner decision D-06.',
+            ]);
 
-                return self::STATUS_PENDING;
-            }
-
-            return self::STATUS_PAID;
+            return self::STATUS_PENDING;
         }
 
         if (in_array($type, self::OFFLINE_PAYMENT_TYPES, true)) {
@@ -202,44 +306,115 @@ class PaymentVerificationService
             return self::STATUS_PAID;
         }
 
-        if (!in_array($type, self::ENFORCED_PAYMENT_TYPES, true)) {
-            // No verification seam for this gateway yet. Behaviour is preserved
-            // rather than changed, because recording every gateway order as
-            // Pending would stop merchant wallets being credited for 51 live
-            // payment methods — a business change, not a security fix. The write
-            // is logged so the residual exposure is measurable.
-            Log::warning('Order recorded as Paid without gateway verification', [
+        /*
+         * NO GATEWAY ORDER IS RECORDED PAID WITHOUT A VERIFICATION RECORD.
+         *
+         * OWNER DECISION, Phase 01 final execution directive: "Any unverified gateway payment must
+         * remain Pending, never Paid. Do not create a falsely paid order, and preserve a safe
+         * reconciliation path for customers who may have been charged."
+         *
+         * WHAT THIS REPLACES, AND WHY THE OLD REASONING WAS RIGHT UNTIL NOW. This branch used to
+         * return Paid for any type absent from ENFORCED_PAYMENT_TYPES, with the comment "behaviour
+         * is preserved rather than changed, because recording every gateway order as Pending would
+         * stop merchant wallets being credited for 51 live payment methods -- a business change,
+         * not a security fix." That was the correct call while the business change was unmade: when
+         * an order counts as paid decides when a merchant is credited, which is the owner's to
+         * choose. It is chosen now, and it forecloses the old default.
+         *
+         * THE ORDER IS STILL WRITTEN. This returns a STATUS, not a refusal, and that is the
+         * "reconciliation path" the decision asks for: the customer's order exists with its lines,
+         * its total and its billing record, and a merchant who confirms the capture with the
+         * provider marks it Paid through the existing status workflow. A refusal here would be the
+         * worse failure the directive names -- the customer charged with nothing recorded.
+         *
+         * AND NO WALLET IS CREDITED FOR AN UNCONFIRMED CAPTURE, with no separate guard, for the
+         * same reason recorded on the COD branch above: `OrderObserver::created()` credits the
+         * wallet only for an order already Paid at creation, and `OrderObserver::updated()` syncs
+         * it when `payment_status` later changes. So settlement follows confirmation.
+         *
+         * THE LOG IS THE RECONCILIATION QUEUE. Every order that lands here is one a human may need
+         * to confirm, so the line carries what that takes: the type, the expected total, and
+         * whether a record existed at all.
+         */
+        if ($verification === null) {
+            Log::warning('Order recorded as PENDING: no gateway verification for this payment', [
                 'site' => $site,
                 'payment_type' => $type,
                 'expected_total' => (string) $expectedTotal,
-                'note' => 'No server-side verification seam exists for this payment type.',
+                'note' => 'Owner decision: an unverified gateway payment is never Paid. The order '
+                    . 'is written so the customer has a record and the merchant can reconcile it '
+                    . 'against the provider.',
             ]);
 
-            return self::STATUS_PAID;
+            return self::STATUS_PENDING;
         }
 
-        if ($verification === null) {
-            Log::error('Order NOT marked Paid: no verification record for an enforced gateway', [
+        /*
+         * A VERIFICATION IS FOR ONE CHECKOUT. Added 2026-10-24 after a planted record was
+         * measured being redeemed by an unrelated order write.
+         *
+         * Only enforced when the RECORD carries a nonce: a record written before this field
+         * existed, or by a producer not yet wired, carries null and is handled exactly as it was
+         * before. That keeps this a strict improvement rather than a silent Pending for any
+         * gateway whose producer was missed -- the failure mode that would otherwise turn a
+         * payment-integrity fix into an outage.
+         */
+        $recordedNonce = $verification['checkout_nonce'] ?? null;
+
+        if ($recordedNonce !== null && $recordedNonce !== '' && $recordedNonce !== $checkoutNonce) {
+            Log::warning('Order recorded as PENDING: the verification belongs to a different checkout', [
                 'site' => $site,
                 'payment_type' => $type,
                 'expected_total' => (string) $expectedTotal,
+                'note' => 'A capture verified for one checkout cannot pay for another. This is '
+                    . 'either a replay of a stale record or an order written outside the '
+                    . 'checkout that was paid for.',
             ]);
 
             return self::STATUS_PENDING;
         }
 
         if (($verification['payment_type'] ?? null) !== $type) {
-            Log::error('Order NOT marked Paid: verification record is for a different payment type', [
+            Log::warning('Order recorded as PENDING: the verification record is for another payment type', [
                 'site' => $site,
                 'payment_type' => $type,
                 'verified_payment_type' => $verification['payment_type'] ?? null,
+                'expected_total' => (string) $expectedTotal,
             ]);
 
             return self::STATUS_PENDING;
         }
 
-        // The verification was taken against a total; if the order being written
-        // is for a different total, the verification does not cover it.
+        /*
+         * A RECORD EXISTS AND NAMES THIS TYPE. For a type that is NOT amount-enforced that is as
+         * far as this platform can establish settlement today, so the order is Paid and the log
+         * says exactly which of the two grounds it rests on -- the distinction an adversarial
+         * review already caught this method getting backwards once.
+         */
+        if (!in_array($type, self::ENFORCED_PAYMENT_TYPES, true)) {
+            Log::info('Order recorded as Paid, backed by a recorded gateway verification', [
+                'site' => $site,
+                'payment_type' => $type,
+                'expected_total' => (string) $expectedTotal,
+                'captured_amount' => $verification['captured_amount'] ?? null,
+                'verified_at' => $verification['verified_at'] ?? null,
+                'reason' => $verification['reason'] ?? null,
+                'note' => 'Not in ENFORCED_PAYMENT_TYPES, so the captured AMOUNT is not compared. '
+                    . 'The existence of the record is what was checked.',
+            ]);
+
+            return self::STATUS_PAID;
+        }
+
+        /*
+         * AMOUNT-ENFORCED FROM HERE. The two preconditions this branch used to re-test -- a missing
+         * record, and a record naming another payment type -- are now refused ABOVE for every
+         * gateway type rather than only for the enforced ones, so re-testing them here would be
+         * dead code. What remains is the one check that is particular to this list.
+         *
+         * The verification was taken against a total; if the order being written is for a different
+         * total, the verification does not cover it.
+         */
         if (!OrderTotalReconciler::amountsMatch(
             (string) ($verification['expected_amount'] ?? ''),
             (string) $expectedTotal
@@ -255,6 +430,115 @@ class PaymentVerificationService
         }
 
         return self::STATUS_PAID;
+    }
+
+    /**
+     * Verify a Khalti capture.
+     *
+     * TWO CONTROLS, AND ONLY ONE OF THEM IS KNOWABLE FROM THIS REPOSITORY. Say which is which,
+     * because the difference decides what this method may fail closed on.
+     *
+     * THE PRIMARY CONTROL IS NOT HERE AT ALL -- it is at the call site. Khalti's
+     * `payment/verify/` endpoint takes `token` AND `amount` together and confirms the PAIR
+     * (App\Khalti\Khalti::verifyPayment posts both). So a 200 is already amount-bound, PROVIDED
+     * the caller posted the SERVER's amount. KhaltiPaymnetController used to post
+     * `$payload['amount']` -- the shopper's own field -- so a buyer who paid 1 unit for a
+     * thousand-unit basket could present the token for the small payment with a matching small
+     * amount, collect a 200, and have the order written at the server's full price. The call
+     * site now posts `serverPayableAmount() * 100` and nothing else; THAT is the fix, and this
+     * method cannot substitute for it.
+     *
+     * THE SECONDARY CONTROL IS OPPORTUNISTIC, deliberately. Khalti's verify response is
+     * documented to echo the transaction `amount` in paisa, but this repository holds no
+     * contract, no fixture and no recorded response for that endpoint -- exactly the position
+     * verifyPaymeraCapture() is in with its field name. So when `amount` IS present it must
+     * equal the expected paisa exactly and a mismatch is REJECTED; when it is ABSENT the 200 is
+     * accepted on the strength of the primary control. Failing closed on an absent field would
+     * instead make every Khalti order Pending the moment the response shape differed from a
+     * guess -- a commercial regression justified by nothing measured.
+     *
+     * UNREACHABLE IS NOT REJECTED. App\Khalti\Khalti reads its status from CURLINFO_HTTP_CODE,
+     * which is 0 when the request never completed. A transport failure says nothing about
+     * whether money moved, so it is UNVERIFIABLE -- and the caller writes a Pending order for
+     * reconciliation rather than refusing, because a charged customer with no order row is the
+     * worse failure (owner decision D2's reconciliation half).
+     *
+     * @param  array<string, mixed>  $response  the decoded Khalti verify response
+     * @param  int  $expectedPaisa  the server-priced payable, in paisa
+     */
+    public function verifyKhaltiCapture(array $response, int $expectedPaisa): PaymentVerificationResult
+    {
+        $expectedDecimal = number_format($expectedPaisa / 100, 2, '.', '');
+
+        if ($expectedPaisa <= 0) {
+            return PaymentVerificationResult::unverifiable(
+                'No server-priced payable to verify against.',
+                null,
+                $expectedDecimal
+            );
+        }
+
+        $status = (int) ($response['status_code'] ?? 0);
+
+        if ($status === 0) {
+            return PaymentVerificationResult::unverifiable(
+                'Khalti could not be reached (no HTTP status). Whether money moved is unknown.',
+                null,
+                $expectedDecimal
+            );
+        }
+
+        if ($status !== 200) {
+            return PaymentVerificationResult::rejected(
+                'Khalti answered HTTP ' . $status . ' for this token and amount.',
+                null,
+                $expectedDecimal
+            );
+        }
+
+        $data = $response['data'] ?? null;
+        $captured = null;
+
+        if (is_array($data) && array_key_exists('amount', $data)) {
+            $captured = $data['amount'];
+        } elseif (is_object($data) && isset($data->amount)) {
+            $captured = $data->amount;
+        }
+
+        if ($captured === null || $captured === '') {
+            // The field is absent. The 200 is still amount-bound by the request -- see above.
+            return PaymentVerificationResult::verified(
+                'Khalti confirmed the token for the server-priced amount (HTTP 200; the response '
+                . 'carried no amount field to re-check).',
+                null,
+                $expectedDecimal
+            );
+        }
+
+        if (! is_numeric($captured)) {
+            return PaymentVerificationResult::unverifiable(
+                'Khalti returned an unparseable amount.',
+                (string) $captured,
+                $expectedDecimal
+            );
+        }
+
+        $capturedPaisa = (int) round((float) $captured);
+        $capturedDecimal = number_format($capturedPaisa / 100, 2, '.', '');
+
+        if ($capturedPaisa !== $expectedPaisa) {
+            return PaymentVerificationResult::rejected(
+                'Khalti reported a different amount than this order is for.',
+                $capturedDecimal,
+                $expectedDecimal
+            );
+        }
+
+        return PaymentVerificationResult::verified(
+            'Khalti confirmed the token for the server-priced amount, and the amount it reported matches.',
+            $capturedDecimal,
+            $expectedDecimal
+        );
     }
 
     /**
@@ -506,49 +790,131 @@ class PaymentVerificationService
     public function codSettlementPolicy(): string
     {
         $policy = strtolower(trim(
-            (string) config('services.cod.settlement', self::COD_SETTLEMENT_AT_ORDER)
+            (string) config('services.cod.settlement', self::COD_SETTLEMENT_ON_DELIVERY)
         ));
 
-        if ($policy === self::COD_SETTLEMENT_ON_DELIVERY) {
-            return self::COD_SETTLEMENT_ON_DELIVERY;
-        }
-
-        if ($policy !== self::COD_SETTLEMENT_AT_ORDER && $policy !== '') {
-            Log::warning('Unrecognised COD settlement policy; falling back to settle-at-order', [
+        // NO LONGER A SWITCH (owner decision D-06). Settle-on-delivery is the only COD behaviour, and
+        // this method is retained for one reason: a deployment whose .env still carries
+        // COD_SETTLEMENT=order must find out LOUDLY that the value is no longer honoured, rather than
+        // believing it still settles at order time. Silently ignoring a configured value is how an
+        // operator ends up with a wrong mental model of when their merchants get paid.
+        if ($policy === self::COD_SETTLEMENT_AT_ORDER) {
+            Log::warning('COD_SETTLEMENT=order is NO LONGER HONOURED and is ignored', [
+                'config_key' => 'services.cod.settlement',
+                'configured' => $policy,
+                'effective' => self::COD_SETTLEMENT_ON_DELIVERY,
+                'reason' => 'Owner decision D-06, 2026-10-22: uncollected money may not be reported as paid.',
+                'action' => 'Remove COD_SETTLEMENT from the environment.',
+            ]);
+        } elseif ($policy !== self::COD_SETTLEMENT_ON_DELIVERY && $policy !== '') {
+            Log::warning('Unrecognised COD settlement policy; settle-on-delivery is in force regardless', [
                 'configured' => $policy,
                 'config_key' => 'services.cod.settlement',
-                'recognised' => [self::COD_SETTLEMENT_AT_ORDER, self::COD_SETTLEMENT_ON_DELIVERY],
             ]);
         }
 
-        return self::COD_SETTLEMENT_AT_ORDER;
+        return self::COD_SETTLEMENT_ON_DELIVERY;
     }
 
     /**
-     * Should this order be settled now that it has been marked delivered?
+     * ============================================================================================
+     *  DELIVERED IS NOT PAID. OWNER DECISION, 2026-10-24, FINAL.
+     * ============================================================================================
      *
-     * The caller is OrderController::order_status_change(), which is the one
-     * place a merchant declares an order delivered. Returns false unless ALL of:
+     * This method REPLACES `codShouldSettleOnDelivery()`, which returned true for any non-Paid COD
+     * order the moment a merchant marked it delivered. The owner withdrew that trigger:
      *
-     *   - the settle-on-delivery policy is in force, so the default behaviour is
-     *     untouched and this method is inert until the owner opts in;
-     *   - the order really is cash on delivery;
-     *   - it is not ALREADY Paid, which makes a replayed status change a no-op
-     *     rather than a second settlement.
+     *     "Withdraw the Delivered-based COD payment/settlement trigger now. Delivered must never,
+     *      by itself, mark COD as Paid or credit a merchant wallet. Require a separate verified
+     *      cash collection event, recording the collector (merchant, courier or delivery company),
+     *      collection amount, time and supporting evidence. Keep order delivery reporting separate
+     *      from cash collection and financial settlement reporting."
+     *
+     * WHY THE OLD TRIGGER WAS WRONG, and it is worth stating because it was not obviously so.
+     * D-06 made COD Pending at creation, which was right, and then needed SOMETHING to move it to
+     * Paid; marking delivered was the only signal the product already had. But a merchant clicking
+     * 'delivered' on their own order, through their own web guard, is a PROXY for collection and
+     * not evidence of it. The courier may not have handed the cash over. The order may have been
+     * marked delivered in error, or early, or to clear a dashboard. D1 then said so in terms --
+     * "no wallet credit for creation *or* for 'Delivered'" -- and this method is that sentence.
+     *
+     * WHAT SETTLES A COD ORDER NOW. A verified cash collection event, and nothing else. The event
+     * must name WHO collected (merchant, courier or delivery company, and which one), HOW MUCH,
+     * WHEN, and carry its supporting evidence. Those four are the owner's words and they are what
+     * `App\Services\CodCollectionService` records.
+     *
+     * THIS METHOD CANNOT RETURN TRUE TODAY, and that is correct rather than a stub. The event has
+     * nowhere to live: `cod_collection_events` is declared by no migration, so
+     * `CodCollectionService::verifiedCollectionFor()` always answers null and this always refuses.
+     * A COD order therefore stays Pending until a human asserts payment through
+     * `OrderController::order_payment_status`, which is a deliberate separate act rather than a
+     * side effect of a delivery click. When GATE F lands and the table exists, the event becomes
+     * the proper path and that manual assertion becomes the exception rather than the only route.
+     *
+     * The draft schema is `database/migrations/_gate_f_pending/0009_draft_create_cod_collection_events_table.php.draft`.
      *
      * @param \App\Models\Order $order
+     * @param object|null $collectionEvent a verified event, or null -- callers pass what
+     *                                     CodCollectionService::verifiedCollectionFor() returned
      */
-    public function codShouldSettleOnDelivery($order): bool
+    public function codMayBeSettled($order, $collectionEvent = null): bool
     {
-        if ($this->codSettlementPolicy() !== self::COD_SETTLEMENT_ON_DELIVERY) {
-            return false;
-        }
-
         if ($order === null || !$this->isCashOnDelivery($order->payment_type ?? null)) {
             return false;
         }
 
-        return strtolower(trim((string) ($order->payment_status ?? '')))
-            !== strtolower(self::STATUS_PAID);
+        // Already Paid: a replay settles once, not twice. Kept from the withdrawn method because
+        // the idempotency requirement did not change -- only the trigger did.
+        if (strtolower(trim((string) ($order->payment_status ?? ''))) === strtolower(self::STATUS_PAID)) {
+            return false;
+        }
+
+        // NO EVENT, NO SETTLEMENT. This is the whole decision in one line.
+        if ($collectionEvent === null) {
+            return false;
+        }
+
+        // The event must be for THIS order. A caller handing over somebody else's event settles
+        // nothing -- the same class of mistake as a guard that authorises one row while the
+        // handler mutates another.
+        if ((int) ($collectionEvent->order_id ?? 0) !== (int) ($order->id ?? -1)) {
+            return false;
+        }
+
+        // AND THE AMOUNT MUST MATCH WHAT IS OWED. A collection of less than the order total is a
+        // partial collection, which is a different thing and is not settlement; a collection of
+        // more is a data error. Compared with a tolerance because both sides are money held in
+        // columns this project does not control the types of.
+        $collected = (float) ($collectionEvent->amount ?? 0);
+        $owed = (float) ($order->final_price ?? 0);
+
+        if ($collected <= 0.0 || abs($collected - $owed) > 0.005) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * RETIRED, and deliberately left as a method that throws rather than deleted outright.
+     *
+     * Deleting it would make every stale caller a fatal "undefined method" at the point of use,
+     * which in a vendored-module codebase can surface anywhere and says nothing about why. This
+     * says why. There is no caller in app/ as of the withdrawal -- the only one,
+     * OrderController::order_status_change(), was removed in the same change -- and
+     * CodStateMachineTest asserts that none returns.
+     *
+     * @deprecated The Delivered trigger was withdrawn by owner decision on 2026-10-24.
+     *             Use codMayBeSettled() with a verified collection event.
+     */
+    public function codShouldSettleOnDelivery($order): bool
+    {
+        throw new \LogicException(
+            'codShouldSettleOnDelivery() was withdrawn by owner decision on 2026-10-24: "Delivered '
+            . 'must never, by itself, mark COD as Paid or credit a merchant wallet." Settlement now '
+            . 'requires a verified cash collection event naming the collector, amount, time and '
+            . 'evidence. Use codMayBeSettled($order, $collectionEvent) with an event from '
+            . 'App\Services\CodCollectionService::verifiedCollectionFor().'
+        );
     }
 }

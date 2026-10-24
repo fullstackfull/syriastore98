@@ -22,26 +22,10 @@ class ShopifyCategoryController extends Controller
             if(isset($setting['shopify_setting_enabled']) && $setting['shopify_setting_enabled'] == 'on')
             {
                 try {
-                    $shopify_store_url = \App\Models\Utility::GetValueByName('shopify_store_url', getCurrentStore());
+                    $shopify_store_url = \App\Services\ImportStoreUrl::shopifyLabel(\App\Models\Utility::GetValueByName('shopify_store_url', getCurrentStore()));
                     $shopify_access_token = \App\Models\Utility::GetValueByName('shopify_access_token', getCurrentStore());
                    
-                    $curl = curl_init();
-                    curl_setopt_array($curl, array(
-                        CURLOPT_URL => "https://$shopify_store_url.myshopify.com/admin/api/2023-07/custom_collections.json",
-                        CURLOPT_RETURNTRANSFER => true,
-                        CURLOPT_ENCODING => '',
-                        CURLOPT_MAXREDIRS => 10,
-                        CURLOPT_TIMEOUT => 0,
-                        CURLOPT_FOLLOWLOCATION => true,
-                        CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
-                        CURLOPT_CUSTOMREQUEST => 'GET',
-                        CURLOPT_HTTPHEADER => array(
-                            "X-Shopify-Access-Token: $shopify_access_token"
-                        ),
-                    ));
-
-                    $response = curl_exec($curl);
-                    curl_close($curl);
+                    $response = \App\Services\ShopifyAdminApi::get($shopify_store_url, "admin/api/2023-07/custom_collections.json", $shopify_access_token);
                     if ($response == false) {
                         return redirect()->back()->with('error', 'Something went wrong.');
                     } else {
@@ -78,26 +62,10 @@ class ShopifyCategoryController extends Controller
         
         if (auth()->user() && auth()->user()->isAbleTo('Create Shopify Category')) {
             try {
-                $shopify_store_url = \App\Models\Utility::GetValueByName('shopify_store_url', getCurrentStore());
+                $shopify_store_url = \App\Services\ImportStoreUrl::shopifyLabel(\App\Models\Utility::GetValueByName('shopify_store_url', getCurrentStore()));
                 $shopify_access_token = \App\Models\Utility::GetValueByName('shopify_access_token', getCurrentStore());
                 
-                $curl = curl_init();
-                curl_setopt_array($curl, array(
-                    CURLOPT_URL => "https://$shopify_store_url.myshopify.com/admin/api/2023-07/custom_collections.json?ids=$id",
-                    CURLOPT_RETURNTRANSFER => true,
-                    CURLOPT_ENCODING => '',
-                    CURLOPT_MAXREDIRS => 10,
-                    CURLOPT_TIMEOUT => 0,
-                    CURLOPT_FOLLOWLOCATION => true,
-                    CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
-                    CURLOPT_CUSTOMREQUEST => 'GET',
-                    CURLOPT_HTTPHEADER => array(
-                        "X-Shopify-Access-Token: $shopify_access_token"
-                    ),
-                ));
-
-                $response = curl_exec($curl);
-                curl_close($curl);
+                $response = \App\Services\ShopifyAdminApi::get($shopify_store_url, "admin/api/2023-07/custom_collections.json?ids=$id", $shopify_access_token);
                 if ($response == false) {
                     return redirect()->back()->with('error', 'Something went wrong.');
                 } else {
@@ -122,11 +90,11 @@ class ShopifyCategoryController extends Controller
                                 $file_size = 0;
                                 try{
                                     $file_url = str_replace("\0", '', $url);
-                                    $get_file = \Illuminate\Support\Facades\Http::head($file_url);
+                                    $get_file = \App\Services\SafeRemoteFetch::head($file_url);
                                     $file_size = $get_file->header('Content-Length');
                                 } catch(\Exception $e)
                                 {
-                                    return redirect()->back()->with('error', $e);
+                                    return redirect()->back()->with('error', $e->getMessage());
                                 }
                                 $result = Utility::updateStorageLimit(\Auth::user()->creatorId(), $file_size);
                                 if ($result != 1) {
@@ -188,26 +156,10 @@ class ShopifyCategoryController extends Controller
         
         if (auth()->user() && auth()->user()->isAbleTo('Edit Shopify Category')) {
             try {
-                $shopify_store_url = \App\Models\Utility::GetValueByName('shopify_store_url', getCurrentStore());
+                $shopify_store_url = \App\Services\ImportStoreUrl::shopifyLabel(\App\Models\Utility::GetValueByName('shopify_store_url', getCurrentStore()));
                 $shopify_access_token = \App\Models\Utility::GetValueByName('shopify_access_token', getCurrentStore());
                
-                $curl = curl_init();
-                curl_setopt_array($curl, array(
-                    CURLOPT_URL => "https://$shopify_store_url.myshopify.com/admin/api/2023-07/custom_collections.json?ids=$id",
-                    CURLOPT_RETURNTRANSFER => true,
-                    CURLOPT_ENCODING => '',
-                    CURLOPT_MAXREDIRS => 10,
-                    CURLOPT_TIMEOUT => 0,
-                    CURLOPT_FOLLOWLOCATION => true,
-                    CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
-                    CURLOPT_CUSTOMREQUEST => 'GET',
-                    CURLOPT_HTTPHEADER => array(
-                        "X-Shopify-Access-Token: $shopify_access_token"
-                    ),
-                ));
-
-                $response = curl_exec($curl);
-                curl_close($curl);
+                $response = \App\Services\ShopifyAdminApi::get($shopify_store_url, "admin/api/2023-07/custom_collections.json?ids=$id", $shopify_access_token);
                 if ($response == false) {
                     return redirect()->back()->with('error', 'Something went wrong.');
                 } else {
@@ -234,11 +186,11 @@ class ShopifyCategoryController extends Controller
                             $file_size = 0;
                             try{
                                 $file_url = str_replace("\0", '', $url);
-                                $get_file = \Illuminate\Support\Facades\Http::head($file_url);
+                                $get_file = \App\Services\SafeRemoteFetch::head($file_url);
                                 $file_size = $get_file->header('Content-Length');
                             } catch(\Exception $e)
                             {
-                                return redirect()->back()->with('error', $e);
+                                return redirect()->back()->with('error', $e->getMessage());
                             }
                             $result = Utility::updateStorageLimit(\Auth::user()->creatorId(), $file_size);
                             if ($result != 1) {

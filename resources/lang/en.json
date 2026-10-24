@@ -2815,5 +2815,14 @@
     "Menu Setting updated successfully.": "Menu Setting updated successfully.",
     "Dedicated Card added successfully": "Dedicated Card added successfully",
     "Dedicated Card Updated successfully": "Dedicated Card Updated successfully",
-    "Dedicated Card delete successfully": "Dedicated Card delete successfully"
+    "Dedicated Card delete successfully": "Dedicated Card delete successfully",
+    "Options": "Options",
+    "No options yet": "No options yet",
+    "Drag an option to change the order customers see it in.": "Drag an option to change the order customers see it in.",
+    "Options are the values a customer picks from, such as Small, Medium and Large.": "Options are the values a customer picks from, such as Small, Medium and Large.",
+    "Add the first one to get started.": "Add the first one to get started.",
+    "Drag to reorder": "Drag to reorder",
+    "Order saved.": "Order saved.",
+    "Order could not be saved.": "Order could not be saved.",
+    "This domain is already used by another store.": "This domain is already used by another store."
 }

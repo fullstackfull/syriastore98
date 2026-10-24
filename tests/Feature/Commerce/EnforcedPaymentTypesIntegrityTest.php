@@ -125,10 +125,30 @@ class EnforcedPaymentTypesIntegrityTest extends TestCase
      * later phase wires another gateway it should update this list and this
      * assertion together, having read the invariant above.
      */
-    public function test_paymera_is_the_only_enforced_gateway_today(): void
+    public function test_the_amount_enforced_gateways_are_exactly_these(): void
     {
+        /*
+         * 'nmi' JOINED paymera under the owner's Phase 01 final execution directive. Its arm makes
+         * the capture itself and records the provider's own `response == 1` through
+         * recordVerification() (NMIPayController::getNMIProductStatus), so it satisfies the
+         * recorder invariant asserted above this method -- which is the condition this test's
+         * message has always demanded of a new entry.
+         *
+         * AND THIS LIST NO LONGER DECIDES PAID-WITHOUT-VERIFICATION. Under the same decision every
+         * gateway type is Pending without a record; membership here means the captured AMOUNT is
+         * additionally reconciled against the order total.
+         */
+        /*
+         * 'khalti' JOINED 2026-10-24, and it is the first entry added to CORRECT a gap rather
+         * than to tighten a working path. Khalti's verify call is bound to the server's
+         * cartlist_final_price, but the handler recomputes the order's final_price from a fresh
+         * cart read at return time -- and the basket is mutable across the round trip. So a
+         * genuine verification can cover a different order than the one being written, and
+         * membership here is what makes the two figures be compared. Measured before enrolling:
+         * on a plain checkout they agree (100.0 against 100), so the happy path is unaffected.
+         */
         $this->assertSame(
-            ['paymera'],
+            ['paymera', 'nmi', 'khalti'],
             PaymentVerificationService::ENFORCED_PAYMENT_TYPES,
             'if this list changed, the recorder invariant above must hold for the new '
                 . 'entry, and the gateway must genuinely have been verified against its '
@@ -154,28 +174,49 @@ class EnforcedPaymentTypesIntegrityTest extends TestCase
     }
 
     /**
-     * A gateway that is NOT enforced keeps its pre-existing behaviour exactly.
+     * A GATEWAY WITH NO VERIFICATION RECORD IS PENDING, enforced or not.
      *
-     * This is the preservation half: 50-odd live payment methods must go on
-     * working while their verification seams do not exist.
+     * REVERSED BY OWNER DECISION, Phase 01 final execution directive: "Any unverified gateway
+     * payment must remain Pending, never Paid. Do not create a falsely paid order, and preserve a
+     * safe reconciliation path for customers who may have been charged."
+     *
+     * This method used to assert the opposite, and its old message recorded why: "recording it
+     * Pending would stop merchant wallets being credited for a live payment method." That was the
+     * right call while the business change was unmade -- when an order counts as paid decides when
+     * a merchant is credited -- and the owner has now made it.
+     *
+     * NMI IS DROPPED FROM THE FIXTURE because it is now enforced; its own behaviour is asserted by
+     * test_an_enforced_gateway_without_a_record_is_not_paid above, which covers every entry in the
+     * list rather than a hand-written sample.
+     *
+     * THE RECONCILIATION PATH IS NOT ASSERTED HERE. This method measures the STATUS; that the
+     * order is still written is the end-to-end question and lives in
+     * UnverifiedGatewayStaysPendingTest alongside the off-platform and COD carve-outs.
      */
-    public function test_an_unenforced_gateway_keeps_its_existing_behaviour(): void
+    public function test_a_gateway_with_no_verification_record_is_not_paid(): void
     {
         $verifier = new PaymentVerificationService();
 
-        foreach (['stripe', 'paypal', 'khalti', 'CinetPay', 'payu', 'NMI', 'easebuzz'] as $type) {
+        /*
+         * 'khalti' WAS IN THIS SAMPLE AND IS NOT ANY MORE: it joined ENFORCED_PAYMENT_TYPES on
+         * 2026-10-24, and this method's own fixture assertion below is what caught that -- which
+         * is what a fixture assertion is for. 'authorizenet' replaces it: same batch, also records
+         * a real provider result, and deliberately NOT amount-enforced, because its captured
+         * figure and the order's final_price have not been measured against each other the way
+         * Khalti's were.
+         */
+        foreach (['stripe', 'paypal', 'authorizenet', 'CinetPay', 'payu', 'easebuzz'] as $type) {
             $this->assertNotContains(
                 strtolower($type),
                 PaymentVerificationService::ENFORCED_PAYMENT_TYPES,
-                'fixture assumption: this gateway must not be enforced'
+                'fixture assumption: this gateway must not be amount-enforced, so that what is '
+                    . 'measured below is the no-record rule and not the amount comparison'
             );
 
             $this->assertSame(
-                PaymentVerificationService::STATUS_PAID,
+                PaymentVerificationService::STATUS_PENDING,
                 $verifier->resolveOrderPaymentStatus($type, null, '100.00', __METHOD__),
-                $type . ' has no verification seam, so its behaviour must be preserved '
-                    . 'rather than changed -- recording it Pending would stop merchant '
-                    . 'wallets being credited for a live payment method'
+                $type . ' was recorded Paid with nothing having confirmed a capture'
             );
         }
     }
@@ -204,21 +245,67 @@ class EnforcedPaymentTypesIntegrityTest extends TestCase
     {
         $base = base_path();
 
+        /*
+         * NINE -> THREE. SIX OF THE SURVEYED LITERALS ARE GONE, and this is the reduction the
+         * survey existed to make visible rather than a weakening of it.
+         *
+         * P01-COMMERCE-SEC-01 wired the six storefront gateway-return handlers --
+         * AuthorizeNetPaymnet, CinetPay, Easebuzz, KhaltiPaymnet, PaiementProPayment and
+         * PayUPayment -- to resolveOrderPaymentStatus() through
+         * App\Http\Controllers\Concerns\GuardsGatewayReturn::gatewayReturnPaymentStatus(). The
+         * survey above anticipated exactly this and said why it had not been done: "Their files
+         * belong to another agent in this phase, so none was changed." That agent is the one who
+         * made this change.
+         *
+         * NO BEHAVIOUR CHANGED when they were wired: none of those payment types is in
+         * ENFORCED_PAYMENT_TYPES, so the resolver returns the same 'Paid' the literal did. What
+         * changed is that each write is now LOGGED as unverified, and that enforcing one of them
+         * becomes a one-line change in the service instead of another edit to six controllers.
+         *
+         * THE THREE THAT REMAIN are untouched because they are still another workstream's:
+         * NMIPayController and PosController are not gateway-return handlers in this package's
+         * scope, and the LotteryPrizes one is vendored module code under the modification guard.
+         *
+         * The per-file counting is kept exactly as the original docblock argues for -- it is
+         * strictly stronger than a line pin, and it still fails if a tenth literal appears in any
+         * surveyed file.
+         */
+        /*
+         * THREE -> TWO. P01-COMMERCE-SEC-02 wired the NMI literal to the resolver, and this row
+         * moves from $sites to $wired rather than being deleted -- which is what the failure
+         * message this assertion prints asks the next agent to do.
+         *
+         * NMI IS THE FIRST OF THE NINE WITH A REAL VERIFICATION BEHIND IT. The docblock above
+         * records "no verification call of any kind in the file. ... No seam to extend." That was
+         * true of the FILE and not of the HANDLER: getNMIProductStatus() makes the capture itself
+         * and its order write was already nested inside NMI's own `response == 1`. So the seam
+         * was the success test, and the fix was to RECORD that answer through
+         * PaymentVerificationService::recordVerification() before deriving the status from it.
+         * The derived status is still 'Paid' today -- 'nmi' is not in ENFORCED_PAYMENT_TYPES --
+         * but it is the first one that is attributable to a gateway rather than asserted.
+         *
+         * PosController and the vendored LotteryPrizes one are unchanged and still out of scope:
+         * neither is a gateway path at all, and the second is under the WorkDo modification guard.
+         */
         // file => how many literal `payment_status = 'Paid'` writes it is surveyed to hold.
         $sites = [
-            'app/Http/Controllers/AuthorizeNetPaymnetController.php' => 1,
-            'app/Http/Controllers/PayUPaymentController.php' => 1,
-            'app/Http/Controllers/NMIPayController.php' => 1,
-            'app/Http/Controllers/KhaltiPaymnetController.php' => 1,
-            'app/Http/Controllers/EasebuzzController.php' => 1,
             'app/Http/Controllers/PosController.php' => 1,
-            'app/Http/Controllers/PaiementProPaymentController.php' => 1,
-            'app/Http/Controllers/CinetPayController.php' => 1,
             'packages/workdo/LotteryPrizes/src/app/Http/Controllers/LotteryResultController.php' => 1,
         ];
 
-        $this->assertCount(9, $sites, 'the survey covers nine sites');
-        $this->assertSame(9, array_sum($sites), 'the survey covers nine literal Paid writes');
+        // The ones now wired to the resolver must hold NO literal write at all.
+        $wired = [
+            'app/Http/Controllers/AuthorizeNetPaymnetController.php',
+            'app/Http/Controllers/PayUPaymentController.php',
+            'app/Http/Controllers/KhaltiPaymnetController.php',
+            'app/Http/Controllers/EasebuzzController.php',
+            'app/Http/Controllers/PaiementProPaymentController.php',
+            'app/Http/Controllers/CinetPayController.php',
+            'app/Http/Controllers/NMIPayController.php',
+        ];
+
+        $this->assertCount(2, $sites, 'two surveyed sites remain outside this package');
+        $this->assertSame(2, array_sum($sites), 'two literal Paid writes remain');
 
         $pattern = "/payment_status['\"]?\s*(=>|=)\s*['\"]Paid['\"]/";
 
@@ -243,6 +330,35 @@ class EnforcedPaymentTypesIntegrityTest extends TestCase
                 . 'this list; do not just delete the row. If one was ADDED, that is a new '
                 . 'hardcoded Paid write and it needs the derivation helper instead.'
             );
+        }
+
+        /*
+         * AND THE SIX ARE WIRED, asserted both ways: no literal write left, and the shared seam
+         * actually called. Either half alone would be satisfiable without the other -- a file can
+         * lose its literal by having the whole branch deleted, and it can gain the call while
+         * keeping a second literal elsewhere.
+         */
+        foreach ($wired as $relative) {
+            $path = $base . '/' . $relative;
+            $this->assertFileExists($path);
+
+            $contents = file_get_contents($path);
+
+            $literals = [];
+            foreach (file($path) as $i => $line) {
+                if (preg_match($pattern, $line) === 1) {
+                    $literals[] = $i + 1;
+                }
+            }
+
+            $this->assertSame([], $literals,
+                $relative . ' still writes payment_status = \'Paid\' as a literal, at line(s) '
+                . implode(', ', $literals) . '. It is wired to the resolver, so a literal beside '
+                . 'that call is a second, unverified path to Paid.');
+
+            $this->assertStringContainsString('gatewayReturnPaymentStatus(', $contents,
+                $relative . ' does not call the shared payment-status seam, so its order writer '
+                . 'derives nothing and an ENFORCED_PAYMENT_TYPES entry could not affect it.');
         }
     }
 
@@ -270,7 +386,30 @@ class EnforcedPaymentTypesIntegrityTest extends TestCase
                 continue;
             }
 
-            $source = file_get_contents($file->getPathname());
+            /*
+             * COMMENTS ARE STRIPPED BEFORE ANYTHING IS MATCHED, and this is load-bearing rather
+             * than tidy.
+             *
+             * This scan is a source-grep ratchet, and CLAUDE.md's standing rule for one is "strip
+             * comment lines ... a docblock quoting the string a ratchet greps for makes the ratchet
+             * satisfiable by prose". It bit HERE in the mirror-image form: a docblock in
+             * PaiementProPaymentController explaining why that handler no longer records a
+             * verification contains the words `recordVerification() ran BEFORE ...`, and the
+             * non-literal probe below -- `recordVerification\(\s*(?![\'"])\S` -- matched the
+             * ` ran` after the empty parentheses and reported the file as an unresolvable CALL.
+             * There is no call in that file at all any more.
+             *
+             * So prose could FAIL this ratchet as easily as satisfy it, and in both directions the
+             * fix is the same: look only at code. Stripping comments cannot weaken the guard --
+             * `recordVerification(` inside a comment was never a call -- and it stops a payment
+             * type that is merely NAMED in a docblock from counting as enrolled.
+             */
+            $source = implode('', array_map(
+                static fn ($token) => is_array($token)
+                    ? (in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true) ? '' : $token[1])
+                    : $token,
+                token_get_all(file_get_contents($file->getPathname()))
+            ));
 
             if (!str_contains($source, 'recordVerification(')) {
                 continue;

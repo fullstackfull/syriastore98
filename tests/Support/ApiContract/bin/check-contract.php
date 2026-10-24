@@ -100,7 +100,23 @@ $serverUris = array_values(array_unique(array_map(
 // Module route files register further API routes (for example the LandingPage addon
 // registers /api/landingpage). They are added so a module-served endpoint is not
 // reported as missing.
-foreach (glob($root . '/packages/workdo/*/src/Routes/api.php') ?: [] as $moduleRoutes) {
+//
+// BOTH CASINGS, AND THE LOWERCASE ONE IS THE COMMON CASE. This glob matched only
+// `src/Routes/api.php` -- capital R -- which on a case-sensitive filesystem is exactly
+// ONE module (LandingPage). The other 68 module route files are at `src/routes/api.php`
+// and were invisible to this check, so a module-served endpoint the app calls would have
+// been reported as missing from the server. Harmless while they are all vendor stubs;
+// wrong the moment one is not. Same class of defect as the mis-cased
+// `loadMigrationsFrom()` path that stranded six migrations and 500'd /login (register
+// row C23): a path that resolves on a developer's macOS checkout and resolves to nothing
+// on Linux. array_unique() because on a case-INSENSITIVE filesystem both globs return
+// the same files.
+$moduleRouteFiles = array_unique(array_merge(
+    glob($root . '/packages/workdo/*/src/routes/api.php') ?: [],
+    glob($root . '/packages/workdo/*/src/Routes/api.php') ?: []
+));
+
+foreach ($moduleRouteFiles as $moduleRoutes) {
     $moduleParsed = RouteFileParser::parse((string) file_get_contents($moduleRoutes));
 
     foreach ($moduleParsed['routes'] as $r) {

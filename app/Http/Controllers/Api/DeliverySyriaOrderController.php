@@ -5,8 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Events\OrderPaymentStatus;
 use App\Http\Controllers\Controller;
 use App\Models\Order;
-use App\Models\Store;
-use App\Models\User;
+use App\Services\DeliverySyriaCredential;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -69,6 +68,30 @@ class DeliverySyriaOrderController extends Controller
 
         /*
         |--------------------------------------------------------------------------
+        | 2b. P1-SEC-10: the credential is resolved BEFORE anything else is learned
+        |--------------------------------------------------------------------------
+        |
+        | This used to look the order up first and compare the secret of that order's store owner second, so a wrong token got 404 for an id
+        | that exists nowhere and 403 for one that exists in some tenant -- an existence oracle over every store's product_order_id, with
+        | no throttle. The token is now matched against the stored secrets first (constant time, see DeliverySyriaCredential); a caller
+        | that matches none gets one answer whatever it asked about, and one that matches is confined to the stores its secret owns.
+        */
+        $storeIds = DeliverySyriaCredential::storeIdsFor($secret);
+
+        if ($storeIds === []) {
+            Log::warning('Delivery Syria invalid credentials', [
+                'platform' => $platform,
+                'provided_token_length' => strlen($secret),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid credentials.',
+            ], 403);
+        }
+
+        /*
+        |--------------------------------------------------------------------------
         | 3. التحقق من البيانات
         |--------------------------------------------------------------------------
         |
@@ -116,11 +139,12 @@ class DeliverySyriaOrderController extends Controller
 
         /*
         |--------------------------------------------------------------------------
-        | 4. البحث عن الطلب
+        | 4. البحث عن الطلب -- only among the stores the authenticated secret owns
         |--------------------------------------------------------------------------
         */
         $order = Order::query()
             ->where('product_order_id', $productOrderId)
+            ->whereIn('store_id', $storeIds)
             ->first();
 
         if (!$order) {
@@ -128,76 +152,6 @@ class DeliverySyriaOrderController extends Controller
                 'success' => false,
                 'message' => 'Order not found.',
             ], 404);
-        }
-
-        /*
-        |--------------------------------------------------------------------------
-        | 5. جلب المتجر الخاص بالطلب
-        |--------------------------------------------------------------------------
-        */
-        $store = Store::query()->find($order->store_id);
-
-        if (!$store) {
-            Log::error('Delivery Syria status update: store not found', [
-                'order_id' => $order->id,
-                'product_order_id' => $order->product_order_id,
-                'store_id' => $order->store_id,
-            ]);
-
-            return response()->json([
-                'success' => false,
-                'message' => 'Store not found.',
-            ], 404);
-        }
-
-        /*
-        |--------------------------------------------------------------------------
-        | 6. جلب صاحب المتجر
-        |--------------------------------------------------------------------------
-        */
-        $owner = User::query()->find($store->created_by);
-
-        if (!$owner) {
-            Log::error('Delivery Syria status update: owner not found', [
-                'order_id' => $order->id,
-                'product_order_id' => $order->product_order_id,
-                'store_id' => $store->id,
-                'created_by' => $store->created_by,
-            ]);
-
-            return response()->json([
-                'success' => false,
-                'message' => 'Invalid credentials.',
-            ], 403);
-        }
-
-        /*
-        |--------------------------------------------------------------------------
-        | 7. مقارنة التوكن مع deliverysyria_secret
-        |--------------------------------------------------------------------------
-        */
-        $storedSecret = trim(
-            (string) ($owner->deliverysyria_secret ?? '')
-        );
-
-        if (
-            $storedSecret === '' ||
-            !hash_equals($storedSecret, $secret)
-        ) {
-            Log::warning('Delivery Syria invalid credentials', [
-                'order_id' => $order->id,
-                'product_order_id' => $order->product_order_id,
-                'store_id' => $store->id,
-                'owner_id' => $owner->id,
-                'platform' => $platform,
-                'provided_token_length' => strlen($secret),
-                'stored_token_exists' => $storedSecret !== '',
-            ]);
-
-            return response()->json([
-                'success' => false,
-                'message' => 'Invalid credentials.',
-            ], 403);
         }
 
         $oldStatus = (int) $order->delivered_status;
@@ -304,7 +258,6 @@ class DeliverySyriaOrderController extends Controller
                 'order_id' => $order->id,
                 'product_order_id' => $order->product_order_id,
                 'store_id' => $order->store_id,
-                'owner_id' => $owner->id,
                 'old_status' => $oldStatus,
                 'old_status_name' => $this->statusName($oldStatus),
                 'new_status' => $newStatus,

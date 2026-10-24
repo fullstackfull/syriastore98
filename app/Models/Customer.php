@@ -66,6 +66,7 @@ class Customer extends Authenticatable implements CanResetPasswordContract
     protected $hidden = [
         'password',
         'remember_token',
+        'password_otp',   // P1-SEC-16: the reset one-time code / hash rode toArray()/JSON
     ];
 
     /**
@@ -178,6 +179,60 @@ class Customer extends Authenticatable implements CanResetPasswordContract
 
         }
         return $orders;
+    }
+
+    /**
+     * THE KEY THIS ACCOUNT'S PASSWORD-RESET TOKENS ARE STORED UNDER, and it is deliberately NOT
+     * an email address.
+     *
+     * THE DEFECT THIS CLOSES. config/auth.php declares two password brokers over the SAME table:
+     *
+     *     'users'     => ['provider' => 'users',     'table' => 'password_reset_tokens', ...]
+     *     'customers' => ['provider' => 'customers', 'table' => 'password_reset_tokens', ...]
+     *
+     * Laravel's DatabaseTokenRepository keys every row on the value this method returns, and
+     * exists() matches on that value plus the token hash alone -- nothing records which broker
+     * minted the row. While this returned $this->email, a row minted for a CUSTOMER with address E
+     * was therefore accepted, verbatim, by the `users` broker for the USER with address E:
+     *
+     *   mint   Customer\Auth\CustomerLoginController:845-853  Password::broker('customers')->sendResetLink()
+     *   accept Auth\NewPasswordController:41                   Password::reset()  -- the DEFAULT broker,
+     *                                                          config/auth.php:18 'passwords' => 'users'
+     *                                                          on the guest route routes/auth.php:36
+     *
+     * And the customer reset mail leaves through PER-STORE SMTP that a merchant sets themselves
+     * (CustomerLoginController:826-837 reads MAIL_HOST/USERNAME/PASSWORD from that store's Settings,
+     * which SettingController writes). Customer registration only rejects a duplicate email WITHIN
+     * one store and never consults `users` (CustomerLoginController:728-737). So a merchant could:
+     * register a customer in their own store carrying the platform operator's address, request a
+     * customer password reset for it, read the token off their own relay, and POST it to
+     * /reset-password -- which resets the OPERATOR. A full platform takeover from a merchant
+     * account.
+     *
+     * Three things are closed by namespacing the key rather than by a schema change:
+     *   1. a customers-broker token can no longer be found by the users broker -- the dangerous
+     *      direction, and the takeover above;
+     *   2. nor the reverse, a users-broker token spending itself on a customer account;
+     *   3. DatabaseTokenRepository::create() deletes by this same key, so a customer-side request
+     *      no longer silently invalidates an operator's in-flight reset (and vice versa), and two
+     *      customers who share an address across stores no longer share one token row.
+     *
+     * WHY IT IS SAFE FOR THE EXISTING FLOW. retrieveByCredentials() resolves the account from the
+     * plain `email` in the request, so the reset form is unchanged; only the token LOOKUP uses this
+     * key. The reset URL is built from $this->email below, not from here, so the link a customer
+     * receives is byte-identical. App\Notifications\CustomResetPasswordNotification does call
+     * getEmailForPasswordReset() when building its URL, but it is only ever sent to a User
+     * (Auth\PasswordResetLinkController:87), which is untouched.
+     *
+     * ONE-TIME COST AT DEPLOY: customer reset links already in flight stop validating, because
+     * their rows are stored under the old key. The window is the brokers' 60-minute expiry, and
+     * the customer simply requests another link.
+     */
+    public function getEmailForPasswordReset()
+    {
+        // Never a parsable address, so it cannot collide with a `users` row. Keyed on the id so
+        // the token is bound to this one account rather than to an address two accounts may share.
+        return 'customer:' . ($this->getKey() ?? 'unsaved:' . $this->email);
     }
 
     public function sendPasswordResetNotification($token)

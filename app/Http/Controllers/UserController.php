@@ -106,7 +106,47 @@ class UserController extends Controller
             {
 
                 $objUser    = \Auth::user();
-                $role_r = Role::find($request->role);
+
+                // S13 -- PRIVILEGE ESCALATION. This was `Role::find($request->role)`: unscoped,
+                // on request input, and its result was written to BOTH `$user->type` (below) and
+                // `$user->addRole()`. The seeded global `super admin` role
+                // (database/seeders/PermissionTableSeeder.php) carries store_id NULL, so it was
+                // findable by id from any tenant, and `Create User` is granted to the merchant
+                // `admin` role (app/Models/Utility.php) -- so EVERY self-registered merchant
+                // could mint a platform operator.
+                //
+                // WHY THAT WAS THE WORST DEFECT IN THIS PROJECT, not a local one. Nothing here
+                // trusts Laratrust for operator identity: permissions_as_gates is disabled and
+                // Laratrust has no super-admin bypass, so authorization code compares
+                // `users.type === 'super admin'` directly -- App\Policies\OrderPolicy,
+                // App\Http\Middleware\OrderDocumentAccessGuard,
+                // Api\DashboardController::resolveOwnedStore() and the rest. Writing that string
+                // defeated every store_id predicate in the codebase at once.
+                //
+                // THE FIX IS NOT NEW CODE. The sibling update():240-266 was already hardened and
+                // carries exactly these two controls; store() was missed, and nothing noticed
+                // because the pair was never asserted to agree. Both halves are mirrored here
+                // verbatim -- a role lookup scoped to the actor's own tenant, then a
+                // RolePolicy::RESERVED_NAMES refusal as defence in depth -- and
+                // tests/Feature/Security/PrivilegeEscalationTest now pins the two methods
+                // together so they cannot drift apart again.
+                //
+                // NO OPERATOR SPECIAL CASE, deliberately, because update() has none either:
+                // consistency between the pair is the whole point of the fix. A platform operator
+                // keeps every capability they had except minting another operator through the
+                // merchant user form, which was never this form's job.
+                $role_r = Role::where('id', $request->role)
+                    ->where('created_by', '=', $objUser->creatorId())
+                    ->where('store_id', getCurrentStore())
+                    ->first();
+
+                if (!$role_r) {
+                    return redirect()->back()->with('error', __('The selected role is not available in this store.'));
+                }
+
+                if (in_array(strtolower(trim((string) $role_r->name)), RolePolicy::RESERVED_NAMES, true)) {
+                    return redirect()->back()->with('error', __('That role cannot be assigned.'));
+                }
 
                 $user =  new User();
                 $user->name =  $request['name'];
@@ -122,10 +162,9 @@ class UserController extends Controller
                 $user->plan_id = $objUser->plan;
                 $user->is_active = 1;
 
-                if (module_is_active('GoogleAuthentication')) {
-                    $user->google2fa_enable = $objUser->google2fa_enable ;
-                    $user->google2fa_secret = $objUser->google2fa_secret;
-                }
+                // P1-SEC-16. This block COPIED the creator's TOTP seed and enable flag onto the new sub-user, so two accounts shared one
+                // authenticator secret: the creator's phone generated the sub-user's codes. A new user starts without two-factor and enrols their
+                // own seed (behaviour change, recorded on the task).
 
                 $user->save();
 
@@ -259,7 +298,7 @@ AuditLog::record('user_created', $user, [], [
         if ($role) {
             // Deriving type server-side from a SCOPED role is correct and is
             // preserved. Reserved names are refused as defence in depth.
-            if (in_array(strtolower($role->name), RolePolicy::RESERVED_NAMES, true)) {
+            if (in_array(strtolower(trim((string) $role->name)), RolePolicy::RESERVED_NAMES, true)) {
                 return redirect()->back()->with('error', __('That role cannot be assigned.'));
             }
             $input['type'] = $role->name;
@@ -523,54 +562,122 @@ AuditLog::record(
 		];
     }
 
+    /**
+     * S13-c. THIS HAD NO AUTHORIZATION OF ANY KIND -- no permission, no ownership, no tenancy --
+     * and it is one of only three methods in this controller without any. Every sibling write is
+     * gated, and update():220 already carries exactly the authorize() call this needed.
+     *
+     * WHAT IT WROTE FROM UNVALIDATED REQUEST FIELDS:
+     *   users.is_enable_login on $request->id -- the LOGIN GATE. AuthenticatedSessionController:72
+     *       refuses sign-in when it is 0, and also when the target's OWNER has it at 0, so one
+     *       write reaches a merchant plus every staff member beneath them. Setting it to 1
+     *       re-grants the ability to authenticate to an account an operator deliberately locked
+     *       out; setting it to 0 locks out an arbitrary tenant.
+     *   stores.is_active on $request->id -- re-activating a store an operator locked.
+     *   users.current_store on $request->owner_id -- ANOTHER USER'S TENANT DISCRIMINATOR, which
+     *       getCurrentStore() resolves and every store_id predicate in the application depends on.
+     *
+     * REPRODUCED before this change: a staff member in an UNRELATED tenant, holding zero
+     * permissions, posted to /user-unable and re-enabled sign-in for a locked-out merchant. The
+     * endpoint answered 200 with a success payload.
+     *
+     * THE FIX RESOLVES THE TARGET FIRST AND AUTHORIZES IT, which is what update():219-220 does:
+     * UserPolicy::update requires 'Edit User', refuses anyone below platform-admin editing a
+     * platform admin, and otherwise demands the same tenant. The owner id is DERIVED from the
+     * resolved target rather than trusted from the body, because it is itself a write target.
+     * is_active is normalised to a strict 0|1 before it reaches an update() array.
+     */
     public function UserUnable(Request $request)
     {
 		if(!empty($request->id) && !empty($request->owner_id))
 		{
+		    $isActive = (int) ((bool) $request->is_active);
+
 		    if($request->name == 'user')
 		    {
-		        User::where('id', $request->id)->update(['is_enable_login' => $request->is_active]);
-		        $data = $this->storeUserCounter($request->owner_id);
+		        $target = User::find($request->id);
+
+		        if (!$target) {
+		            return response()->json(['error' => __('Something went wrong'),'users_data' => null, 'store_data' => null]);
+		        }
+
+		        if (! auth()->user() || ! auth()->user()->can('update', $target)) {
+		            return response()->json(['error' => __('Permission denied.'),'users_data' => null, 'store_data' => null], 403);
+		        }
+
+		        // Derived from the resolved target, never taken from the request: the owner id is
+		        // itself a write target in the `store` branch below.
+		        $ownerId = $target->creatorId();
+
+		        User::where('id', $target->id)->update(['is_enable_login' => $isActive]);
+		        $data = $this->storeUserCounter($ownerId);
 
 
-
-$auditUser = User::find($request->id);
 
 AuditLog::record(
-    $request->is_active ? 'user_login_enabled' : 'user_login_disabled',
-    $auditUser
+    $isActive ? 'user_login_enabled' : 'user_login_disabled',
+    $target
 );
 
 
 		    }
 		    elseif($request->name == 'store')
 		    {
-                $enabled_stores = Store::where('created_by', $request->owner_id)
+                // The store must belong to the caller's own tenant, resolved the way
+                // Api\DashboardController::resolveOwnedStore() and StoreController do it, with
+                // the platform operator exempt. Without this the branch re-activated any store on
+                // the platform and rewrote its users' login gate and the owner's current_store.
+                $actor = auth()->user();
+
+                if (!$actor) {
+                    return response()->json(['error' => __('Permission denied.'),'users_data' => null, 'store_data' => null], 403);
+                }
+
+                $storeQuery = Store::where('id', $request->id);
+
+                if (strtolower(trim((string) $actor->type)) !== 'super admin') {
+                    $storeQuery->where('created_by', $actor->creatorId());
+                }
+
+                $targetStore = $storeQuery->first();
+
+                if (!$targetStore) {
+                    return response()->json(['error' => __('Permission denied.'),'users_data' => null, 'store_data' => null], 403);
+                }
+
+                // Derived from the store, not from the request body.
+                $ownerId = $targetStore->created_by;
+
+                $enabled_stores = Store::where('created_by', $ownerId)
                     ->where('is_active', 1)
                     ->count();
-                if($request->is_active == 0){
+                if($isActive === 0){
                     if($enabled_stores != 1){
 
-                        Store::where('id',$request->id)->update(['is_active' => $request->is_active]);
+                        Store::where('id',$targetStore->id)->update(['is_active' => $isActive]);
 
-                        User::where('current_store',$request->id)->where('type','!=','admin')->update(['is_enable_login' => $request->is_active]);
-                        
-                        $stores_enabled = Store::where('created_by', $request->owner_id)->where('is_active', 1)->first();
-                        User::where('id', $request->owner_id)->update(['current_store' => $stores_enabled->id]);
+                        User::where('current_store',$targetStore->id)->where('type','!=','admin')->update(['is_enable_login' => $isActive]);
+
+                        $stores_enabled = Store::where('created_by', $ownerId)->where('is_active', 1)->first();
+
+                        // Null guard: with no remaining enabled store this dereferenced null.
+                        if ($stores_enabled) {
+                            User::where('id', $ownerId)->update(['current_store' => $stores_enabled->id]);
+                        }
                     }else{
                         return response()->json(['error' => __('All Store can not disable. At least One store must be enabled.')]);
                     }
                 }else{
-                    Store::where('id',$request->id)->update(['is_active' => $request->is_active]);
+                    Store::where('id',$targetStore->id)->update(['is_active' => $isActive]);
                 }
-                $data = $this->storeUserCounter($request->owner_id);
+                $data = $this->storeUserCounter($ownerId);
 		    }
 		    if($data['is_success'])
 		    {
 		        $users_data = $data['response']['users_data'];
 		        $store_data = $data['response']['store_data'];
 		    }
-		    if($request->is_active == 1){
+		    if($isActive === 1){
 
 		        return response()->json(['success' => __('Successfully Unable.'),'users_data' => $users_data, 'store_data' => $store_data]);
 		    }else
@@ -581,10 +688,39 @@ AuditLog::record(
         return response()->json(['error' => __('Something went wrong'),'users_data' => null, 'store_data' => null]);
     }
 
+    /**
+     * S13-d. SAME DEFECT AS UserUnable() AND STRICTLY WORSE IN ONE RESPECT: it is a TOGGLE, so a
+     * single GET both grants sign-in to a locked-out account and revokes it from a live one,
+     * depending on the target's current state. No permission, no ownership, no null guard.
+     *
+     * THE ENCRYPTED PARAMETER IS NOT A CONTROL, and this repository has already established and
+     * acted on that position three times for the identical shape (UserController::reset():315,
+     * StoreController::storeResetPassword():723, and UserPolicy::impersonate's docblock):
+     * APP_KEY is in this repository's git history and unrotated, so an encrypted id is an
+     * ENCODING anyone with a clone can mint for any user id.
+     *
+     * Reproduced before this change with a zero-permission staff member in an unrelated tenant.
+     */
     public function userLoginManage($id)
     {
-        $eId = \Crypt::decrypt($id);
+        try {
+            $eId = \Crypt::decrypt($id);
+        } catch (\Throwable $e) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
         $user = User::find($eId);
+
+        // Null guard: find() on a forged or stale id returned null and the next line
+        // dereferenced it.
+        if (!$user) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
+        if (! auth()->user() || ! auth()->user()->can('update', $user)) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
         if ($user->is_enable_login == 1) {
             $user->is_enable_login = 0;
             $message = __('User login disable successfully.');

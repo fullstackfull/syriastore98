@@ -14,6 +14,17 @@ use App\Models\Concerns\BelongsToStore;
 class Product extends Model
 {
     use HasFactory, Cachable, BelongsToStore;
+
+    /**
+     * P1-SEC-28: the path columns the vendored module deleters unlink are kept inside the roots uploads live in
+     * (App\Services\StoredPathPolicy). The ImportExport CSV importer writes them from a spreadsheet cell.
+     */
+    protected static function booted(): void
+    {
+        static::saving(function (Product $product) {
+            \App\Services\StoredPathPolicy::product($product);
+        });
+    }
     protected $fillable = [
         'name',
         'slug',
@@ -643,12 +654,34 @@ protected $appends = ["in_cart", "in_whishlist", "final_price", "category_name"]
         }
         $file_path = array_merge($file_path1, $file_paths2);
         Utility::changeproductStorageLimit(\Auth::user()->creatorId(), $file_path, $file_path1);
+        /*
+         * THIS LOOP IS REDUNDANT, AND IT IS KEPT -- which is the opposite of the answer P1-INV-25
+         * gave to the same shape, so the difference is recorded here rather than left to look like
+         * an inconsistency.
+         *
+         * `changeproductStorageLimit()` above already deletes every file it resolved
+         * (Utility.php:877-882), and `$file_path` includes `$file_path1`, so these gallery files
+         * are gone before this loop runs. A P1-INV-09 mutant removing the loop SURVIVED all 148
+         * tests across the four media suites.
+         *
+         * IN P1-INV-25 the identical loop WAS removed, from `ProductController::destroy()`. The
+         * difference is reachability: `destroy()` is a live route, so a surviving mutant there
+         * proved the code dead. `productImageDelete()`'s ONLY caller is
+         * `CategoryController:585-590`, which that file's own comment records as
+         * "UNREACHABLE-BY-DESIGN" since the D13 guard refuses a category delete while any product
+         * carries the category -- and it is kept deliberately, as the last line of defence for an
+         * irreversible disk operation. A mutant cannot distinguish dead code from code no test can
+         * reach, so removing anything here would be deleting a defence on the strength of the
+         * unreachability that defence exists to survive.
+         *
+         * (The third argument to changeproductStorageLimit() above is also surplus -- the method
+         * takes two -- and is left for the same reason: this path is not live, and editing it buys
+         * nothing while risking the one thing it is kept for.)
+         */
         if (!empty($ProductImages)) {
             // image remove from product variant image
             foreach ($ProductImages as $key => $ProductImage) {
-                if (\File::exists(base_path($ProductImage->image_path))) {
-                    \File::delete(base_path($ProductImage->image_path));
-                }
+                \App\Services\StoredUpload::delete($ProductImage->image_path, \Auth::user()->creatorId());
             }
         }
 
@@ -666,9 +699,7 @@ protected $appends = ["in_cart", "in_whishlist", "final_price", "category_name"]
                 $description_json = json_decode($Product->other_description_api, true);
                 foreach ($description_json['product-other-description'] as $key => $value) {
                     if ($value['field_type'] == 'photo upload') {
-                        if (\File::exists(base_path($value['value']))) {
-                            \File::delete(base_path($value['value']));
-                        }
+                        \App\Services\StoredUpload::delete($value['value'], \Auth::user()->creatorId());
                     }
                 }
             }

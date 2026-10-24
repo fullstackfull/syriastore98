@@ -27,8 +27,9 @@ class StoreRedirectServiceProvider extends ServiceProvider
             // remove WWW
             $remote = str_replace('www.', '', $remote);
          
-            $subdomain = DB::table('settings')->where('name','subdomain')->where('value',$remote)->first();
-            $domain = DB::table('settings')->where('name','domains')->where('value',$remote)->first();
+            // P1-SEC-29: only a row whose own store has the matching flag on counts (App\Services\HostClaims).
+            $subdomain = \App\Services\HostClaims::row('subdomain', $remote);
+            $domain = \App\Services\HostClaims::row('domains', $remote);
             if($subdomain || $domain ){
                 if($subdomain){
                     $enable_subdomain = DB::table('settings')->where('name','enable_subdomain')->where('value','on')->where('store_id',$subdomain->store_id)->first();

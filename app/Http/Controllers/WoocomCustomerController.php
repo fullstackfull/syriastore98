@@ -32,7 +32,7 @@ class WoocomCustomerController extends Controller
             {
                 try{
                     $theme_name = !empty(APP_THEME()) ? APP_THEME() : env('DATA_INSERT_APP_THEME');
-                    $woocommerce_store_url = Utility::GetValueByName('woocommerce_store_url',$theme_name, getCurrentStore());
+                    $woocommerce_store_url = \App\Services\ImportStoreUrl::woocommerceBase(Utility::GetValueByName('woocommerce_store_url',$theme_name, getCurrentStore()));
                     $woocommerce_consumer_secret = Utility::GetValueByName('woocommerce_consumer_secret',$theme_name, getCurrentStore());
                     $woocommerce_consumer_key = Utility::GetValueByName('woocommerce_consumer_key',$theme_name, getCurrentStore());
 
@@ -117,7 +117,7 @@ class WoocomCustomerController extends Controller
         if(auth()->user() && auth()->user()->isAbleTo('Create Woocommerce Customer'))
         {
             $theme_name = !empty(APP_THEME()) ? APP_THEME() : env('DATA_INSERT_APP_THEME');
-            $woocommerce_store_url =Utility::GetValueByName('woocommerce_store_url',$theme_name, getCurrentStore());
+            $woocommerce_store_url =\App\Services\ImportStoreUrl::woocommerceBase(Utility::GetValueByName('woocommerce_store_url',$theme_name, getCurrentStore()));
             $woocommerce_consumer_secret =Utility::GetValueByName('woocommerce_consumer_secret',$theme_name, getCurrentStore());
             $woocommerce_consumer_key =Utility::GetValueByName('woocommerce_consumer_key',$theme_name, getCurrentStore());
 
@@ -134,11 +134,11 @@ class WoocomCustomerController extends Controller
                 $file_size = 0;
                 try{
                     $file_url = str_replace("\0", '', $url);
-                    $get_file = \Illuminate\Support\Facades\Http::head($file_url);
+                    $get_file = \App\Services\SafeRemoteFetch::head($file_url);
                     $file_size = $get_file->header('Content-Length');
                 } catch(\Exception $e)
                 {
-                    return redirect()->back()->with('error', $e);
+                    return redirect()->back()->with('error', $e->getMessage());
                 }
                 $result = Utility::updateStorageLimit(\Auth::user()->creatorId(), $file_size);
                 if ($result != 1) {
@@ -154,10 +154,13 @@ class WoocomCustomerController extends Controller
                 $cutomer                = new NewCustomer();
                 $cutomer->first_name    = $jsonData['first_name'];
                 $cutomer->last_name     = $jsonData['last_name'];
-                $cutomer->profile_image = $uplaod['url'];
+                $cutomer->profile_image = $uplaod['url'] ?? null;   // the payload may carry no avatar (then $uplaod is never set)
                 $cutomer->email         =$jsonData['email'];
                 $cutomer->type          ='customer';
-                $cutomer->password      = Hash::make('1234');
+                // A FIXED, PUBLIC PASSWORD IS NOT A PASSWORD -- see PaymentController::createCustomer.
+                                // An imported customer never chose one, so a long random value leaves the
+                                // account recoverable but not signable-into with a value from this repository.
+                                $cutomer->password      = Hash::make(\Illuminate\Support\Str::random(64));
                 $cutomer->register_type = 'email';
                 $cutomer->mobile        = !empty($jsonData['billing']) ? $jsonData['billing']->phone : $jsonData['shipping']->phone;
                 $cutomer->store_id      = getCurrentStore();
@@ -171,10 +174,21 @@ class WoocomCustomerController extends Controller
                 $Cutomer->original_id       = $cutomer->id;
                 $Cutomer->save();
                 
-                return redirect()->back()->with('success', __('Customer successfully Add , We set customer password 1234'));
+                return redirect()->back()->with('success', __('Customer successfully Add.'));
             }
             catch(\Exception $e){
-                    return redirect()->back()->with('success', __('This email alredy use.'));
+                    // P1-INV-13. TWO defects in one line. (a) a FAILURE was flashed as `success`, so the
+                    // merchant was told the import worked; (b) every failure was labelled "This email alredy
+                    // use.", and that cause is never the real one -- `customers.email` carries NO unique index
+                    // (no migration declares one), so a duplicate e-mail does not throw, it inserts a second
+                    // row. What reaches here is a QueryException from save() or a null payload field. Flashed
+                    // as an error and logged instead of guessed at.
+                    \Log::error('WooCommerce customer import failed', [
+                        'store_id' => getCurrentStore(),
+                        'error' => $e->getMessage(),
+                    ]);
+
+                    return redirect()->back()->with('error', __('The customer could not be imported. The failure has been logged.'));
             }
             return redirect()->back()->with('success', __('Customer successfully Add.'));
 
@@ -198,7 +212,7 @@ class WoocomCustomerController extends Controller
         if(auth()->user() && auth()->user()->isAbleTo('Edit Woocommerce Customer'))
         {
             $theme_name = !empty(APP_THEME()) ? APP_THEME() : env('DATA_INSERT_APP_THEME');
-            $woocommerce_store_url =Utility::GetValueByName('woocommerce_store_url',$theme_name, getCurrentStore());
+            $woocommerce_store_url =\App\Services\ImportStoreUrl::woocommerceBase(Utility::GetValueByName('woocommerce_store_url',$theme_name, getCurrentStore()));
             $woocommerce_consumer_secret =Utility::GetValueByName('woocommerce_consumer_secret',$theme_name, getCurrentStore());
             $woocommerce_consumer_key =Utility::GetValueByName('woocommerce_consumer_key',$theme_name, getCurrentStore());
 
@@ -212,8 +226,13 @@ class WoocomCustomerController extends Controller
 
                 $store_id = getStoreById(getCurrentStore());
                 $upddata = WoocommerceConection::where('store_id',getCurrentStore())->where('module','=','customer')->where('woocomerce_id' , $id)->first();
-                $original_id = $upddata->original_id;
-                $cutomer = NewCustomer::find($original_id);
+                // P1-INV-13: the handler checks, it does not lean on the Customer global scope (which adds no predicate where no tenant resolves,
+                // and which is a one-line allowlist away from being removed). A missing mapping or a customer of another store is refused with its
+                // own message -- not the 'email already used' this try/catch used to turn every failure into.
+                $cutomer = \App\Services\ImportMappingOwnership::owned($upddata, NewCustomer::class, getCurrentStore());
+                if (!$cutomer) {
+                    return redirect()->back()->with('error', __('Customer Not Found.'));
+                }
 
                 if(!empty($jsonData['avatar_url'])) {
                     $url = $jsonData['avatar_url'];
@@ -221,11 +240,11 @@ class WoocomCustomerController extends Controller
                     $file_size = 0;
                     try{
                         $file_url = str_replace("\0", '', $url);
-                        $get_file = \Illuminate\Support\Facades\Http::head($file_url);
+                        $get_file = \App\Services\SafeRemoteFetch::head($file_url);
                         $file_size = $get_file->header('Content-Length');
                     } catch(\Exception $e)
                     {
-                        return redirect()->back()->with('error', $e);
+                        return redirect()->back()->with('error', $e->getMessage());
                     }
                     $result = Utility::updateStorageLimit(\Auth::user()->creatorId(), $file_size);
                     if ($result != 1) {
@@ -239,13 +258,12 @@ class WoocomCustomerController extends Controller
                 if (!empty($jsonData)) {
                     $cutomer->first_name    = $jsonData['first_name'];
                     $cutomer->last_name     = $jsonData['last_name'];
-                    $cutomer->profile_image = $uplaod['url'];
+                    $cutomer->profile_image = $uplaod['url'] ?? $cutomer->profile_image;   // no avatar in the payload: keep the one there is
                     $cutomer->email         =$jsonData['email'];
                     $cutomer->type          ='customer';
                     $cutomer->register_type = 'email';
                     $cutomer->mobile        = !empty($jsonData['billing']) ? $jsonData['billing']->phone : $jsonData['shipping']->phone;
-                    $cutomer->store_id      = getCurrentStore();
-                    $cutomer->created_by    = auth()->user()->id;
+                    // no `store_id` / `created_by` write: an UPDATE must not re-own or re-attribute the customer
                     $cutomer->save();
 
                     return redirect()->back()->with('success', __('Customer successfully updated.'));
@@ -255,8 +273,16 @@ class WoocomCustomerController extends Controller
                 }
             }
             catch(\Exception $e){
-                return redirect()->back()->with('error', __('This email already used.'));
+                // P1-INV-13, the UPDATE path. Same mislabel as the create path: a duplicate e-mail cannot be
+                // the cause, because `customers.email` carries no unique index. Found by the ratchet in
+                // ImportCustomerFailureReportingTest after my own census of these arms missed this one --
+                // I had keyed it on the create-path's catch shape and this one is spelled differently.
+                \Log::error('WooCommerce customer update failed', [
+                    'store_id' => getCurrentStore(),
+                    'error' => $e->getMessage(),
+                ]);
 
+                return redirect()->back()->with('error', __('The customer could not be updated. The failure has been logged.'));
             }
         }
         else

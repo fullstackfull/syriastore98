@@ -167,7 +167,26 @@ if (!function_exists('get_file')) {
         }
 
         try {
-            if (isset($settings) && (count($settings) > 0) && $settings['storage_setting'] == 'wasabi') {
+            // UNDEFINED-KEY GUARD -- NEW-get-file-blanks-every-url-without-storage-setting, the third
+            // sibling of the two null guards above and MEASURED, not inferred
+            // (tests/Feature/Security/StoredFileUrlResolutionTest.php).
+            //
+            // This read was `$settings['storage_setting']`, unguarded, behind nothing but
+            // `count($settings) > 0`. Those are different questions: `$settings` is EVERY settings row of
+            // the super admin's current store, so one row of any name satisfies the count while
+            // `storage_setting` is absent. PHP 8 raises "Undefined array key", Laravel's error handler
+            // promotes a warning to ErrorException, and this function's own `catch (\Throwable)` swallows
+            // it and returns ''. So `get_file()` answers an EMPTY STRING for every path -- every logo,
+            // avatar, product image and invoice mark in the panel at once -- instead of the local URL the
+            // `else` limb below is there to produce. `storage_setting` is not NOT NULL anywhere and the
+            // settings screen writes it only when storage is configured, so a store that never visited
+            // that screen is in exactly this state.
+            //
+            // Byte-identical whenever the key exists; the fallback is local storage, which is what an
+            // unset `storage_setting` means.
+            $storageSetting = (string) ($settings['storage_setting'] ?? '');
+
+            if ($storageSetting === 'wasabi') {
                 config(
                     [
                         'filesystems.disks.wasabi.key' => $settings['wasabi_key'],
@@ -185,7 +204,7 @@ if (!function_exists('get_file')) {
                 // Construct the correct URL manually
                 return "{$endpoint}/{$bucket}/{$path}";
                 // return \Storage::disk($settings['storage_setting'])->url($path);
-            } elseif (isset($settings) && (count($settings) > 0) && $settings['storage_setting'] == 's3') {
+            } elseif ($storageSetting === 's3') {
                 config(
                     [
                         'filesystems.disks.s3.key' => $settings['s3_key'],
@@ -209,9 +228,9 @@ if (!function_exists('get_file')) {
 if (!function_exists('getEnableSetting')) {
     function getEnableSetting($remote)
     {
-        $settingQuery = Setting::query();
-        $subdomain = (clone $settingQuery)->where('name', 'subdomain')->where('value', $remote)->first();
-        $domain = (clone $settingQuery)->where('name', 'domains')->where('value', $remote)->first();
+        // P1-SEC-29: only a row whose own store has the matching flag on counts (App\Services\HostClaims).
+        $subdomain = \App\Services\HostClaims::row('subdomain', $remote);
+        $domain = \App\Services\HostClaims::row('domains', $remote);
 
         return $subdomain ? $subdomain : $domain;
     }
@@ -348,6 +367,54 @@ if (!function_exists('getSuperAdminAllSetting')) {
     }
 }
 
+if (!function_exists('withoutPageExposedCredentials')) {
+    /**
+     * A settings bag without the one key that a vendored view prints into a public page.  P1-SEC-22 (c).
+     *
+     * TRACED, which is what that criterion asked for, and the answer is NOT "public, no change".
+     *
+     *   WHAT THE VALUE IS. `Workdo\Marketing`'s business-card screen has a "page password" field
+     *   (store/index.blade.php:2014) whose write VALIDATES IT WITH `Rules\Password::defaults()`
+     *   (StoreController.php:1726-1735) and stores it in `settings` under the name `password`. So it is a
+     *   real, strength-checked password that a merchant chose -- and therefore one they may well reuse.
+     *
+     *   WHERE IT WENT. Two vendored views print it into a JavaScript variable:
+     *   layouts/theme_script.blade.php:108 (`Appoinment::Marketing("password")`, which is
+     *   `getAdminAllSetting()[$var]`) and card/theme2/index.blade.php:1374 (`$company_setting["password"]`,
+     *   from StoreController:40). The browser then compares the typed value to that variable
+     *   (theme_script.blade.php:127), so the "protection" was always readable in View Source.
+     *
+     *   WHO COULD SEE IT. `GET /cards/{slug}` is declared in a `Route::middleware(['web'])` group with NO
+     *   `auth` and NO `PlanModuleCheck` (Marketing/src/routes/web.php:62-66) -- anonymous. And the print is
+     *   inside `@if (!Auth::check())`, so it was shown to ANONYMOUS VISITORS ONLY and never to the merchant
+     *   looking at their own card, which is why it went unnoticed.
+     *
+     * WHY THE FIX IS HERE AND IS THIS NARROW. The views are vendored and cannot be edited; this helper is
+     * the host-side chokepoint both read sites pass through. The key is dropped BY EXACT NAME rather than by
+     * the project's credential-name predicate, because `getAdminAllSetting()` is how `PaymentService` reads
+     * gateway credentials at thirty call sites and guest checkout is anonymous -- a predicate here would
+     * empty those and break the storefront, which this phase is told not to do. Measured: the only consumers
+     * of a SETTINGS key named `password` are the six Marketing view lines above.
+     *
+     * WHAT CHANGES FOR A MERCHANT, disclosed: the card's password modal now compares against an empty
+     * string, so an empty input passes it. No real protection is lost -- the value was in the page source,
+     * so the modal was bypassable by anyone who looked -- but the modal is now bypassable without looking.
+     * Whether that feature should exist at all, or be checked server-side, is a question about a vendored
+     * module's behaviour and belongs with the owner. The merchant's own settings FORM renders an empty field
+     * behind its `****` placeholder, and saving without retyping PRESERVES the stored value, because the
+     * writer is guarded on `if ($request->password && $request->is_password_enabled)`.
+     *
+     * @param  array<string, mixed>  $settings
+     * @return array<string, mixed>
+     */
+    function withoutPageExposedCredentials(array $settings): array
+    {
+        unset($settings['password']);
+
+        return $settings;
+    }
+}
+
 if (!function_exists('getAdminAllSetting')) {
     function getAdminAllSetting($user_id = null, $store_id = null)
     {
@@ -362,22 +429,27 @@ if (!function_exists('getAdminAllSetting')) {
         if (isset($user->type) && !in_array($user->type, ['admin', 'super admin'])) {
             $user = User::find($user->created_by);
         }
+        // P1-SEC-18 F4: with no user and no store named, the last branch below serves the LOWEST-ID MERCHANT ON THE PLATFORM
+        // to whoever asked. A shopper's request is addressed to a store -- use it; null keeps the old behaviour.
+        if (empty($user) && empty($store_id)) {
+            $store_id = getRouteStoreId();
+        }
         if (!empty($user)) {
             $store_id = $store_id ?? $user->current_store;
             $store = Store::find($store_id);
             $settings = [];
             $settings = Setting::where('created_by', $user->id)->where('store_id', $store_id)->pluck('value', 'name')->toArray();
 
-            return $settings;
+            return withoutPageExposedCredentials($settings);
         } elseif (!empty($store_id)) {
             $settings = [];
             $settings = Setting::where('store_id', $store_id)->pluck('value', 'name')->toArray();
-            return $settings;
+            return withoutPageExposedCredentials($settings);
         } else {
             $settings = [];
             $user = User::where('type', 'admin')->first();
             $settings = Setting::where('created_by', $user->id)->pluck('value', 'name')->toArray();
-            return $settings;
+            return withoutPageExposedCredentials($settings);
         }
         return [];
     }
@@ -489,8 +561,9 @@ if (!function_exists('GetCurrenctTheme')) {
             // remove WWW
             $remote = str_replace('www.', '', $remote);
             $settingQuery = Setting::query();
-            $subdomain = (clone $settingQuery)->where('name', 'subdomain')->where('value', $remote)->first();
-            $domain = (clone $settingQuery)->where('name', 'domains')->where('value', $remote)->first();
+            // P1-SEC-29: only a row whose own store has the matching flag on counts (App\Services\HostClaims).
+            $subdomain = \App\Services\HostClaims::row('subdomain', $remote);
+            $domain = \App\Services\HostClaims::row('domains', $remote);
 
             $enable_subdomain = "";
             $enable_domain = "";
@@ -1705,7 +1778,7 @@ if (!function_exists('delete_file')) {
             $storage_settings = getAdminAllSetting();
             if (isset($storage_settings['storage_setting'])) {
                 if ($storage_settings['storage_setting'] == 'local') {
-                    return File::delete($path);
+                    return \App\Services\StoredUpload::delete(is_string($path) ? $path : null);   // P1-SEC-28
                 } else {
                     if ($storage_settings['storage_setting'] == 's3') {
                         config(
@@ -2409,6 +2482,60 @@ if (! function_exists('getStore')) {
     }
 }
 
+if (! function_exists('getRouteStoreId')) {
+    /**
+     * The id of the store the CURRENT REQUEST is addressed to, taken from its route -- or null.
+     *
+     * P1-SEC-18 F4. A shopper (guest, or on the `customers` guard) is not the `web` guard's user, so `getCurrentStore()` is
+     * null for them, and a settings read that names no store then ran with NO `store_id` predicate: every tenant's rows,
+     * last one wins -- a shopper at store A was handed store C's gateway key. The storefront's own route already says which
+     * store the request is for; this is the same source `getStore()` uses.
+     *
+     * `storeSlug` always names a store. `slug` names one ONLY as the first path segment (`{slug}/...`, `api/{slug}/...` --
+     * the storefront API): `marketplace/{slug}`, `landing-pages/{slug}`, `add-on/details/{slug}` and
+     * `{storeSlug}/article/{slug}` reuse the parameter name for a page, an add-on or an article, and a page slug that
+     * happens to equal a store's slug must not select that store's credentials.
+     *
+     * An unknown slug, a route with neither parameter, and a request with no route (console, queue) all return null, and
+     * the caller keeps its previous behaviour -- which for an unknown slug is still the all-tenant read; every storefront
+     * handler refuses an unknown slug through getStore() before it uses a credential (P1-SEC-18 review, not fail-closed here
+     * on purpose: a sentinel id would turn "wrong slug" into a 500 wherever a handler reads a setting without isset()).
+     *
+     * Memoised on the request, KEYED BY THE SLUG: HomeController re-points `storeSlug` with route()->setParameter() after the
+     * route has matched (custom-domain and subdomain landing), so a memo that ignored the slug would keep the first answer.
+     */
+    function getRouteStoreId(): ?int
+    {
+        $request = request();
+        $route = $request?->route();
+        if (! $route instanceof \Illuminate\Routing\Route) {
+            return null;
+        }
+
+        $slug = $route->parameter('storeSlug');
+        if (! is_string($slug) || $slug === '') {
+            $segments = explode('/', ltrim($route->uri(), '/'));
+            if (($segments[0] ?? '') === 'api') {
+                array_shift($segments);
+            }
+            $slug = in_array($segments[0] ?? '', ['{slug}', '{slug?}'], true) ? $route->parameter('slug') : null;
+        }
+
+        if (! is_string($slug) || $slug === '') {
+            return null;
+        }
+
+        $memo = $request->attributes->get('_route_store_ids', []);
+        if (! array_key_exists($slug, $memo)) {
+            $storeId = Store::where('slug', $slug)->value('id');
+            $memo[$slug] = $storeId ? (int) $storeId : null;
+            $request->attributes->set('_route_store_ids', $memo);
+        }
+
+        return $memo[$slug];
+    }
+}
+
 if (! function_exists('getStoreById')) {
     function getStoreById($id)
     {
@@ -2535,16 +2662,18 @@ if (! function_exists('buildMenuTree')) {
 }
 
 if (! function_exists('buildCategoryTree')) {
-    function buildCategoryTree($categories, $parentId = null, $prefix = '')
+    // $seen is the chain of ids already on the path from the root (P1-INV-11): a parent_id loop written by any writer ends the walk instead of
+    // recursing until the process runs out of memory.
+    function buildCategoryTree($categories, $parentId = null, $prefix = '', array $seen = [])
     {
         $tree = [];
         foreach ($categories as $category) {
-            if ($category->parent_id == $parentId) {
+            if ($category->parent_id == $parentId && ! isset($seen[$category->id])) {
                 $tree[] = [
                     'id' => $category->id,
                     'name' => $prefix.$category->name,
                 ];
-                $tree = array_merge($tree, buildCategoryTree($categories, $category->id, $prefix.'&nbsp;&nbsp;&nbsp;'));
+                $tree = array_merge($tree, buildCategoryTree($categories, $category->id, $prefix.'&nbsp;&nbsp;&nbsp;', $seen + [$category->id => true]));
             }
         }
         return $tree;

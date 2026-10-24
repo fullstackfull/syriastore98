@@ -19,6 +19,13 @@ $currencies = CurrencyRate::where('store_id', $storeId)
 
     public function update(Request $request, $id)
     {
+        // P1-SEC-27 (third review). The web twin of Api\DashboardController::updateCurrencyRateApi / toggleCurrencyStatusApi, which
+        // answer 403 to a user without `Manage Setting`: a rate or an inactive flag changes what the owner's next currency change
+        // converts to, and an inactive USD row makes the Settings screen's own currency form fail.
+        if (! \App\Services\StoreSettingsAccess::permits(auth()->user())) {
+            return back()->with('error', __('Permission denied.'));
+        }
+
 $currency = CurrencyRate::where('id', $id)
     ->where('store_id', getCurrentStore())
     ->firstOrFail();

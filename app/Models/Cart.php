@@ -20,6 +20,50 @@ class Cart extends Model
         'customer_id', 'product_id', 'variant_id', 'qty', 'price', 'cookie_session_id','store_id'
     ];
 
+    /**
+     * The rows of ONE guest basket, named by the `cart` cookie (a session id). P1-SEC-24.
+     *
+     * A LOGGED-IN customer's basket rows carry `cookie_session_id` NULL, and Laravel turns
+     * `where('cookie_session_id', null)` into `whereNull` -- so every query that read the cookie with
+     * `Cookie::get('cart')` and used it unchecked selected EVERY logged-in customer's rows the moment the
+     * cookie was absent, which for a logged-in customer is the normal case. Deleted, reassigned or altered
+     * depending on the caller: an order's cart clear, the login-time merge, a guest's cart-clear / remove /
+     * quantity change (see NullCookieCartTest). A missing, empty or non-string cookie names NO basket, so
+     * it matches nothing.
+     *
+     * The only place in app/ that may name `cookie_session_id` in a where() -- a census test pins that.
+     */
+    public function scopeForGuestCookie($query, $cookie)
+    {
+        if (! is_string($cookie) || $cookie === '') {
+            return $query->whereRaw('1 = 0');
+        }
+
+        return $query->where('cookie_session_id', $cookie);
+    }
+
+    /**
+     * The rows of ONE logged-in customer's basket. P1-SEC-24 / P1-SEC-23.
+     *
+     * `customer_id` is `integer default 0`, and a guest's rows carry 0. Two inputs reach a `where('customer_id', $x)`
+     * that a basket-clearing path must never honour: the empty string a guest checkout pins (MySQL in production's
+     * non-strict mode reads `'' = 0` as true, so every guest's row for the product matched and was deleted), and a
+     * positive id that was merely TYPED (a guest's billing e-mail resolves to a registered Customer, and keying the
+     * clear on that id deleted that customer's basket). Pass the AUTHENTICATED principal's id; anything that is not
+     * a positive integer names no basket and matches nothing.
+     */
+    public function scopeForCustomer($query, $customerId)
+    {
+        $positive = (is_int($customerId) && $customerId > 0)
+            || (is_string($customerId) && ctype_digit($customerId) && (int) $customerId > 0);
+
+        if (! $positive) {
+            return $query->whereRaw('1 = 0');
+        }
+
+        return $query->where('customer_id', (int) $customerId);
+    }
+
     public function product_data()
     {
         return $this->hasOne(Product::class, 'id', 'product_id');
@@ -163,23 +207,23 @@ class Cart extends Model
             'cookie_session_id' => $session_id, 
             'created_at' => now(),
         ];
-        $cart_Cookie = Cart::where('cookie_session_id', $session_id)->where('store_id',$store_id)->get();
+        $cart_Cookie = Cart::forGuestCookie($session_id)->where('store_id',$store_id)->get();
         if (!empty($cart_Cookie)) {
             foreach ($cart_Cookie as $cart_data) {
                 if ($cart_data->product_id == $product_id && $cart_data->variant_id == $variant_id) {
                     $new_qty = $cart_data->qty + $qty;
     
                     Cart::where('id', $cart_data->id)->update(['qty' => $new_qty]);
-                    $cart_count = Cart::where('cookie_session_id', $cart_item['cookie_session_id'])->count();
+                    $cart_count = Cart::forGuestCookie($cart_item['cookie_session_id'])->count();
                     Cookie::queue('cart', $cart_item['cookie_session_id'], 1440); 
                     return Utility::success(['message' => $product->name . ' quantity updated successfully.', 'count' => $cart_count]);
                 }
             }
             Cart::create($cart_item);
-            $cart_count = Cart::where('cookie_session_id', $cart_item['cookie_session_id'])->count(); 
+            $cart_count = Cart::forGuestCookie($cart_item['cookie_session_id'])->count(); 
             Cookie::queue('cart', $cart_item['cookie_session_id'], 1440);
         } else {
-            $cart_count = Cart::where('cookie_session_id', $session_id)->count();
+            $cart_count = Cart::forGuestCookie($session_id)->count();
             Cart::create($cart_item);
             Cookie::queue('cart', $session_id, 1440);
         }
@@ -205,7 +249,7 @@ class Cart extends Model
             $na = [];
             $Carts = json_encode($na);
         }
-        $Carts = Cart::where('cookie_session_id', $Carts)->where('store_id',$store_id)->get();
+        $Carts = Cart::forGuestCookie($Carts)->where('store_id',$store_id)->get();
         if (!empty($Carts)) {
             foreach ($Carts as $key => $cart_value) {
                 if ($cart_value->store_id != $store_id) {
@@ -573,7 +617,16 @@ class Cart extends Model
                 $shipping_original_price += $shipping_price;
 
                 if (isset($data['coupon_code'])) {
-                    $coupon = Coupon::whereRaw('BINARY `coupon_code` = ?', [$data['coupon_code']]) ->whereDate('coupon_expiry_date', '>=', now()->toDateString())->first();
+                    // P01-SEC-14 C4: portable exact-code match. See Coupon::findByExactCode.
+                    // P01-SEC-14 D2: store-scoped. This is the GUEST (cookie) cart, and the
+                    // predicate was absent here too. `$store_id` rather than `$store->id` because
+                    // `Store::find($storeid)` above can return null, and a predicate on a null
+                    // store matches nothing -- which refuses the coupon rather than widening it.
+                    $coupon = Coupon::findByExactCode(
+                        $data['coupon_code'],
+                        fn ($query) => $query->where('store_id', $store_id)
+                            ->whereDate('coupon_expiry_date', '>=', now()->toDateString())
+                    );
                     if ($coupon) {
                         $coupon_apply_price = self::getCouponTotalAmount($coupon, $final_price, $cart_product_data->id, $cart_product_data->category_id);
                         $coupon_price += $final_price - $coupon_apply_price;
@@ -702,13 +755,16 @@ class Cart extends Model
 
         // $cart_array = json_decode($cart);
         $Carts = Cookie::get('cart');
-        $cart_array = Cart::where('cookie_session_id', $Carts)->where('product_id',$request->product_id)->where('variant_id',$request->variant_id)->first();
+        $cart_array = Cart::forGuestCookie($Carts)->where('product_id',$request->product_id)->where('variant_id',$request->variant_id)->first();
         $cart_count = 1;
-        
-        $settings = Setting::where('store_id', $cart_array->store_id)->pluck('value', 'name')->toArray();
+
         if (empty($cart_array)) {
             return Utility::error(['message' => 'Product not found.'], 'fail', 200, 0, $cart_count);
         } else {
+            // P1-SEC-24. Read AFTER the check above: the row was dereferenced (`$cart_array->store_id`) before
+            // it, so a missing basket was a null-property 500 instead of the "Product not found." written for it.
+            $settings = Setting::where('store_id', $cart_array->store_id)->pluck('value', 'name')->toArray();
+
             if ($request->quantity_type == 'increase') {
                 if (!empty($request->variant_id) || $request->variant_id != 0) {
 
@@ -723,7 +779,7 @@ class Cart extends Model
                         }
                     }
 
-                    if ($settings['stock_management'] ?? '' == 'on') {
+                    if (($settings['stock_management'] ?? null) === 'on') {
                         $variationOptions = explode(',', $ProductVariant->variation_option);
                         $option = in_array('manage_stock', $variationOptions);
                         if (!empty($ProductVariant)) {
@@ -814,7 +870,9 @@ class Cart extends Model
             }
             $cart_array->save();
 
-            $cart_count = Cart::where('customer_id', $request->user_id)->count();
+            // P1-SEC-24. The count of THIS guest's basket. It was `Cart::where('customer_id', $request->user_id)`: a
+            // request-chosen customer's line count (an oracle for any customer id), or, with no user_id, the NULL-customer rows.
+            $cart_count = Cart::forGuestCookie($Carts)->count();
             return Utility::success(['message' => 'Cart successfully updated.'], "successfull", 200, $cart_count);
         }
     }
@@ -954,35 +1012,89 @@ class Cart extends Model
         return $tax_price;
     }
 
+    /**
+     * The line price AFTER the coupon, or the line price UNCHANGED when the coupon does not apply.
+     *
+     * =============================================================================================
+     *  A REFUSED COUPON MADE THE LINE FREE.  OWNER DIRECTIVE: "do not defer any confirmed
+     *  payment-total integrity defect, unauthorized discount, or incorrect gateway charge."
+     * =============================================================================================
+     *
+     * THE DEFECT. This method answered **0** on three refusal paths -- per-user limit exceeded
+     * (:1049), expiry or usage limit not satisfied (:1053), and a `fixed product discount` whose
+     * applied/excluded arms match nothing, which simply fell through to the `$coupon_price = 0`
+     * initialiser. Both callers read the answer as the DISCOUNTED LINE PRICE:
+     *
+     *     $coupon_apply_price = Cart::getCouponTotalAmount($coupon, $final_price, ...);
+     *     $coupon_price += $final_price - $coupon_apply_price;   // the WHOLE line becomes the discount
+     *     $final_price   = $coupon_apply_price;                  // ... and the line becomes FREE
+     *
+     * (`Api\ApiController::cart_list` :749-752 for a signed-in shopper, `Cart::cart_list_cookie`
+     * :631-633 for a guest.) So a coupon the store had ALREADY EXHAUSTED, or one the shopper had
+     * already used to their limit, or one restricted to products that are not in the basket, did
+     * not refuse -- it zeroed the line.
+     *
+     * WHY IT IS MONEY AND NOT A DISPLAY BUG. `$final_price` feeds `total_sub_price`, which
+     * `PaymentService::getProductStatus()` writes into `orders.final_price` for `cod` and
+     * `bank_transfer`. For a `cod` order that column is THE CASH THE DRIVER COLLECTS. A crafted
+     * checkout carrying an exhausted coupon code therefore reduced the cash collected, in the limit
+     * to tax and delivery alone.
+     *
+     * THE FIX IS THE RETURN VALUE'S MEANING. "This coupon does not apply" and "this coupon makes
+     * the line free" were the same answer, and they must not be: a legitimate 100%-off percentage
+     * coupon computes 0 here, so the CALLER cannot tell the two apart and the correction has to be
+     * made where the refusal is known. A refusal now returns `$subTotal` -- the line, undiscounted
+     * -- so `$final_price - $coupon_apply_price` is zero and nothing is taken off.
+     *
+     * AND THE RESULT IS FLOORED AT ZERO. `flat` computes `$subTotal - $coupon->discount_amount`
+     * with no floor, so a flat coupon larger than the line produced a NEGATIVE line price, which
+     * the caller then added into the basket total as a credit. A coupon may reduce a line to
+     * nothing; it may not pay the shopper.
+     *
+     * @param  mixed  $coupon    The resolved Coupon, already store-scoped by the caller.
+     * @param  float|int|string  $subTotal  The line price before the coupon.
+     * @return float|int  The line price after the coupon, never negative, never less than the
+     *                    caller asked for when the coupon does not apply.
+     */
     public static function getCouponTotalAmount($coupon, $subTotal, $productId, $categoryId)
     {
-        $coupon_price = 0;
+        // NOT 0. The initialiser is also the `fixed product discount` fall-through answer, and
+        // "no arm matched" means no discount, not a free line.
+        $coupon_price = $subTotal;
 
         if (!empty($coupon)) {
             $coupon_count = $coupon->UsesCouponCount();
             $couponQuery = Coupon::query();
             $coupon_expiry_date = (clone $couponQuery)->where('id', $coupon->id)
                 ->whereDate('coupon_expiry_date', '>=', date('Y-m-d'))
-                ->where('coupon_limit', '>', $coupon_count)
+                // THE THIRD CALL SITE OF THIS GATE, and the one a census keyed on "the two sites
+                // I had already read" missed. P1-ORD-01: `coupon_limit` defaults to 0, so
+                // `0 > 0` read a brand-new coupon as exhausted. Fixing only ApiController's two
+                // sites made the two coupon arithmetics DISAGREE -- apply_coupon accepted while
+                // this path still refused, and because the free-shipping arm reports the CART's
+                // figure the shopper was told "applied successfully" with a discount of 0.00.
+                // Keyed on Coupon::applyUsageLimit so all three sites share one definition.
+                ->tap(fn ($q) => Coupon::applyUsageLimit($q, $coupon_count))
                 ->first();
-            // Usage limit per user
+            // USAGE LIMIT PER USER, counted on the principal. Same change and same reason as
+            // ApiController::apply_coupon: the two coupon arithmetics must agree about the per-user
+            // cap as well as the total one, or the preview and the charge disagree. The count was
+            // keyed on `order_billing_details.email`, which the shopper posts. See
+            // Coupon::usesByCustomer().
             $i = 0;
 
             if (auth('customers')->user()) {
-                $coupon_email  = $coupon->PerUsesCouponCount();
-                foreach ($coupon_email as $email) {
-                    if ($email == auth('customers')->user()->email) {
-                        $i++;
-                    }
-                }
+                $i = Coupon::usesByCustomer($coupon, auth('customers')->user());
             }
             if (!empty($coupon->coupon_limit_user)) {
                 if ($i  >= $coupon->coupon_limit_user) {
-                    return 0;
+                    // THE SHOPPER HAS USED THIS COUPON TO THEIR LIMIT: no discount, not a free line.
+                    return $subTotal;
                 }
             }
             if (empty($coupon_expiry_date)) {
-                return 0;
+                // EXPIRED, OR THE STORE'S TOTAL USAGE LIMIT IS SPENT: same answer, same reason.
+                return $subTotal;
             }
         }
 
@@ -1053,7 +1165,11 @@ class Cart extends Model
             }
         }
         //}
-        return $coupon_price;
+
+        // A COUPON MAY REDUCE A LINE TO NOTHING; IT MAY NOT PAY THE SHOPPER. `flat` subtracts a
+        // fixed amount with no floor, so a 50.00 coupon on a 20.00 line returned -30.00 and the
+        // caller added that into the basket as a credit.
+        return max(0, $coupon_price);
     }
 
     public static function calculateFlatRateShippingAmount($shippingMethods, $shippingCost, $productList)

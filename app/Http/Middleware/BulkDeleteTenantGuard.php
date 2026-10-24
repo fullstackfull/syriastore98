@@ -117,6 +117,9 @@ class BulkDeleteTenantGuard
     /** The name the addon gives its one route (packages/.../BulkDelete/src/routes/web.php:18). */
     public const ROUTE_NAME = 'bulk-delete';
 
+    /** The `type` whose rows cascade products away. Named so the D13 checks cannot drift apart. */
+    public const CATEGORY_TYPE = 'main-category';
+
     /** Matched as well as the name, so an upstream rename cannot silently unhook the guard. */
     public const CONTROLLER = 'Workdo\\BulkDelete\\app\\Http\\Controllers\\BulkDeleteController';
 
@@ -307,9 +310,37 @@ class BulkDeleteTenantGuard
             return $next($request);
         }
 
+        /*
+         * OWNER DECISION D13 SITS ABOVE THE OPERATOR BYPASS. P1-INV-12.
+         *
+         * `$model::whereIn('id', $request->ids)->delete()` (BulkDeleteController:116) is a MASS
+         * delete that never reaches `CategoryController::destroy`, so the D13 refusal in that
+         * handler does not cover this route at all. `products.category_id` is
+         * `ON DELETE CASCADE` against `categories.id`, so one bulk tick of a category removes
+         * every product in it IN THE DATABASE -- no model event, no log line, nothing to undo.
+         *
+         * D13 is a DATA-INTEGRITY rule, not a permission one, which is why this is the one check
+         * in this guard that precedes the operator bypass: an operator has no more ability to
+         * un-cascade a catalogue than a merchant has, and the bypass exists so platform
+         * administration is not narrowed, not so the operator can destroy a merchant's products
+         * by accident.
+         *
+         * The non-operator path is checked AGAIN below, against the narrowed `$owned` list rather
+         * than against raw input, so a tenant is never told whether some other store's category
+         * holds products.
+         */
+        if ($request->input('type') === self::CATEGORY_TYPE
+            && $this->isOperator($user)) {
+            $blocked = $this->categoriesStillHoldingProducts($this->scalarIds($request->input('ids')));
+
+            if ($blocked !== []) {
+                return $this->rejectPopulatedCategories($blocked);
+            }
+        }
+
         // THE ONE PLATFORM-OPERATOR BYPASS, same branch StoreScope::resolveTenant() takes and
         // same as CountryController::destroy:128.
-        if (isset($user->type) && strtolower(trim((string) $user->type)) === 'super admin') {
+        if ($this->isOperator($user)) {
             return $next($request);
         }
 
@@ -376,6 +407,18 @@ class BulkDeleteTenantGuard
 
         if ($owned === null) {
             return $this->reject(__('Permission denied.'));
+        }
+
+        /*
+         * OWNER DECISION D13, tenant side. Asked of `$owned` rather than of raw input, so the
+         * refusal can only ever be about a category this caller owns.
+         */
+        if ($type === self::CATEGORY_TYPE) {
+            $blocked = $this->categoriesStillHoldingProducts($owned);
+
+            if ($blocked !== []) {
+                return $this->rejectPopulatedCategories($blocked);
+            }
         }
 
         // The controller reads `$request->ids`, which Request::__get resolves through
@@ -478,6 +521,101 @@ class BulkDeleteTenantGuard
         }
 
         return $query->pluck('id')->map(fn ($value) => (string) $value)->all();
+    }
+
+    /**
+     * Is this principal the platform operator? Same string comparison the bypass has always used.
+     *
+     * THIS MUST AGREE WITH `StoreScope`, NOT WITH `UserPolicy`, AND THAT IS NOT AN OVERSIGHT.
+     * It is character-identical to `StoreScope::isSuperAdmin()` (app/Scopes/StoreScope.php:1231),
+     * which is the function this guard's own comment claims lockstep with -- and it has to be,
+     * because section D below defers to `StoreScope::resolveTenant()` and refuses any principal
+     * whose mode is not `MODE_TENANT`.
+     *
+     * Do NOT "unify" this with the project-canonical `App\Policies\UserPolicy::isOperator()`.
+     * That one uses `rtrim($x, ' ')` to match MySQL's PAD SPACE collation, which keeps a LEADING
+     * space -- so `' super admin'` is an operator to `trim()` and not to `rtrim()`. Switching
+     * here would NARROW who counts as operator, which sounds safe and is a LOCKOUT: such a
+     * principal would fail this check, fall into the tenant path, and then `resolveTenant()`
+     * would classify them `MODE_SUPER_ADMIN` and section D would answer 403. Bulk delete would
+     * simply stop working for that account.
+     *
+     * The two helpers legitimately differ because they answer different questions: this one must
+     * agree with the scope that decides what rows this request can see, and `UserPolicy`'s must
+     * agree with the collation that decides what the database considers equal. Raised and
+     * verified by the independent authorization review of the D13 change.
+     */
+    private function isOperator($user): bool
+    {
+        return isset($user->type) && strtolower(trim((string) $user->type)) === 'super admin';
+    }
+
+    /**
+     * The scalar members of a raw `ids` input, as strings, with no integer validation.
+     *
+     * DELIBERATELY NOT `FILTER_VALIDATE_INT`. The question this feeds is "which of the rows the
+     * controller is about to delete still hold products", and the controller passes the values
+     * straight into `whereIn('id', ...)` -- so the check has to ask the database the SAME question
+     * the delete will, coercion and all. Validating first would drop `'5abc'` from the check while
+     * MySQL still coerced it to row 5 in the delete.
+     *
+     * A non-array or an empty list yields `[]`, which skips the D13 check rather than inventing a
+     * refusal: there is no category being named, and the existing input-shape section below
+     * answers a malformed request on the tenant path.
+     */
+    private function scalarIds($ids): array
+    {
+        if (! is_array($ids)) {
+            return [];
+        }
+
+        $out = [];
+
+        foreach ($ids as $id) {
+            if (is_scalar($id)) {
+                $out[] = (string) $id;
+            }
+        }
+
+        return array_values(array_unique($out));
+    }
+
+    /**
+     * Which of these category ids still have `products` rows pointing at them.
+     *
+     * RAW QUERY, no store predicate, for the two reasons the controller's own guard states: the
+     * foreign key does not read `store_id`, and `Product` is `Cachable`, so a stale Eloquent count
+     * could read zero against a populated category and wave a mass delete through.
+     */
+    private function categoriesStillHoldingProducts(array $ids): array
+    {
+        if ($ids === [] || ! Schema::hasTable('products') || ! Schema::hasColumn('products', 'category_id')) {
+            return [];
+        }
+
+        return DB::table('products')
+            ->whereIn('category_id', $ids)
+            ->distinct()
+            ->pluck('category_id')
+            ->map(fn ($value) => (string) $value)
+            ->all();
+    }
+
+    /** 409, not 403: the caller's permission is fine, the request conflicts with the data. */
+    private function rejectPopulatedCategories(array $blocked): Response
+    {
+        \Illuminate\Support\Facades\Log::warning(
+            'bulk category delete refused: products would be cascade-deleted with the categories',
+            [
+                'category_ids' => $blocked,
+                'user_id' => optional(auth()->user())->id,
+            ]
+        );
+
+        return $this->reject(
+            __('Some of the selected categories still contain products and cannot be deleted. Move those products to another category first.'),
+            409
+        );
     }
 
     private function hasStoreColumn(string $table): bool

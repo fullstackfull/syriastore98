@@ -1,9 +1,10 @@
 <!DOCTYPE html>
-<html lang="en">
-@php
-    $invoice_logo = \App\Models\Utility::GetValueByName('invoice_logo');
-    $invoice_logo = get_file($invoice_logo);
-@endphp
+{{-- P1-SEC-11 criterion 4. This was `<html lang="en">` with no `dir`, so the `html[dir="rtl"]` block
+     further down this file -- right-aligned table cells, a flipped `.text-right`, a moved QR block --
+     could never match, and an Arabic store's label was laid out left to right with Arabic text in it.
+     Both values come from the ORDER'S store (App\Services\DocumentDirection, resolved in
+     OrderController::shippinglabel), never from the viewer's, which is criterion 1's rule. --}}
+<html lang="{{ $documentLocale ?? app()->getLocale() }}" dir="{{ ($documentRtl ?? false) ? 'rtl' : 'ltr' }}">
 
 <head>
     <meta charset="utf-8">
@@ -211,7 +212,14 @@
                     <div class="col-xl-6">
                         <div class="page-logo">
                             <img class="invoice-logo"
-                                src="{{ !empty($invoice_logo) ? $invoice_logo : $profile . '/logo.png' }}"
+                                {{-- P1-SEC-11 criterion 4, found while driving this document. `$profile` IS DEFINED NOWHERE:
+                                     not by the controller, not by a view composer, not by a shared variable -- grepped. So
+                                     whenever `$invoice_logo` came back empty this line raised "Undefined variable $profile"
+                                     and the document answered 500. It stayed hidden because the old code read
+                                     `GetValueByName('invoice_logo')` with NO store id, which resolves the VIEWER's store and
+                                     so almost always found a row -- the very defect criterion 1 is about was what kept this
+                                     one latent. The handler now guarantees a value, so the fallback is gone. --}}
+                                src="{{ $invoice_logo }}"
                                 alt="Invoice-Logo">
                         </div>
                     </div>
