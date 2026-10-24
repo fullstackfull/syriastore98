@@ -93,6 +93,19 @@ class RefundIntegrityService
         'bank_transfer',
         'whatsapp',
         'telegram',
+        /*
+         * 'pos' AND 'lottery product' follow the same two entries in
+         * PaymentVerificationService::OFFLINE_PAYMENT_TYPES, and the coupling is asserted by
+         * RefundIntegrityTest::test_the_offline_list_agrees_with_the_payment_verification_seam --
+         * which is what caught this when only the payment list was updated.
+         *
+         * The reason is the same in both directions and is the assertion's own message: a type
+         * settled off-platform for PAYMENT is settled off-platform for REFUND too. A POS refund is
+         * cash handed back at the counter and a lottery settlement is the module's own; neither has
+         * a gateway to call, so 'Refunded' is a true statement without one.
+         */
+        'pos',
+        'lottery product',
     ];
 
     /**

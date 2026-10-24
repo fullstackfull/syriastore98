@@ -46,19 +46,30 @@ class PaymentVerificationService
     public const SESSION_KEY = 'payment_verification';
 
     /**
-     * Payment types whose settlement this platform can actually establish
-     * server-side today, and for which an unverified order is therefore NOT
-     * recorded as Paid.
+     * Payment types whose settlement this platform can establish server-side, and whose recorded
+     * amount is therefore COMPARED against the captured amount as well.
      *
-     * Only Paymera is listed because Paymera is the only arm with a
-     * server-to-server status call (`PaymentController::pollPaymentStatus`).
-     * Adding a gateway here is a one-line change once its arm records a
-     * verification; until then its behaviour is preserved exactly and every
-     * unverified Paid write is logged, so the backlog is measurable instead of
-     * invisible. See the owner action in the Phase 1B report.
+     * THIS LIST IS NO LONGER WHAT DECIDES PAID-WITHOUT-VERIFICATION. It used to be: a type absent
+     * from it was recorded Paid whether or not anything had confirmed a capture. Owner decision,
+     * Phase 01 final execution directive: *"Any unverified gateway payment must remain Pending,
+     * never Paid. Do not create a falsely paid order, and preserve a safe reconciliation path for
+     * customers who may have been charged."*
+     *
+     * So the DEFAULT is now Pending for every gateway type, and membership here means one extra
+     * thing on top: the captured AMOUNT is reconciled against the order's expected total, not just
+     * the existence of a verification record. Paymera is listed because it has a server-to-server
+     * status call that reports an amount (`PaymentController::pollPaymentStatus`); NMI is listed
+     * because its arm makes the capture itself and records the provider's own `response == 1`
+     * through `recordVerification()` (`NMIPayController::getNMIProductStatus`).
      */
     public const ENFORCED_PAYMENT_TYPES = [
         'paymera',
+        // LOWERCASE, and that is not cosmetic: resolveOrderPaymentStatus() compares against
+        // `strtolower(trim($paymentType))` with a STRICT in_array, and recordVerification() stores
+        // `strtolower($paymentType)`. The payment type the checkout posts is 'NMI'
+        // (PaymentController::getValidPaymentTypes), so an entry spelled 'NMI' here would never
+        // match and the enrolment would be silently inert. Caught before it shipped.
+        'nmi',
     ];
 
     /**
@@ -81,6 +92,29 @@ class PaymentVerificationService
         // into asserting COD is Paid.
         'bank_transfer',
         'whatsapp',
+        /*
+         * 'pos' AND 'lottery product' ARE NEW HERE, and they are a correction forced by the owner's
+         * no-unverified-Paid decision rather than a widening of it.
+         *
+         * Both settle OFF-GATEWAY and both write a literal 'Paid' at their own unwired sites --
+         * PosController for money taken at the counter, and the vendored LotteryResultController
+         * for a lottery settlement. While every unenforced type resolved to Paid the derivation
+         * happened to agree with those literals, and PaymentStatusDerivationTest
+         * ::test_the_pos_and_lottery_literals_are_equivalent_to_the_derivation_today existed
+         * precisely to keep that equivalence falsifiable.
+         *
+         * Flipping the default to Pending broke it, and the test caught it: POS orders would have
+         * been recorded Pending while the cash was already in the drawer, and the derivation would
+         * have disagreed with the literal the write site uses. Neither site can be edited from here
+         * (one is vendored), so the constant is where the two are reconciled.
+         *
+         * This is not a hole in the decision. The decision governs GATEWAY payments -- "any
+         * unverified GATEWAY payment must remain Pending" -- and a counter sale is not one: no
+         * gateway ever confirms it, which is exactly what this list means. Lowercase, because the
+         * comparison is against `strtolower(trim($paymentType))`.
+         */
+        'pos',
+        'lottery product',
     ];
 
     /**
@@ -227,73 +261,90 @@ class PaymentVerificationService
             return self::STATUS_PAID;
         }
 
-        if (!in_array($type, self::ENFORCED_PAYMENT_TYPES, true)) {
-            /*
-             * Behaviour is preserved rather than changed, because recording every gateway order
-             * as Pending would stop merchant wallets being credited for 51 live payment methods
-             * — a business change, not a security fix. The write is logged so the residual
-             * exposure is measurable.
-             *
-             * BUT THE LOG MUST SAY WHICH OF THE TWO CASES IT IS. P01-COMMERCE-SEC-02 wired the
-             * first gateway that genuinely records a verification for a type that is not
-             * enforced: NMIPayController::getNMIProductStatus makes the capture itself and
-             * records NMI's own `response == 1` through recordVerification(). This branch then
-             * logged 'No server-side verification seam exists for this payment type' over the
-             * top of it — the exact opposite of what had happened — and an adversarial review
-             * caught the contradiction between that line and the package's own claim.
-             *
-             * So a matching record is now reported as what it is. The STATUS is identical
-             * either way; only the log changes, which is the whole point of a log that exists
-             * to measure the residual.
-             */
-            if (is_array($verification) && ($verification['payment_type'] ?? null) === $type) {
-                Log::info('Order recorded as Paid, backed by a recorded gateway verification', [
-                    'site' => $site,
-                    'payment_type' => $type,
-                    'expected_total' => (string) $expectedTotal,
-                    'captured_amount' => $verification['captured_amount'] ?? null,
-                    'verified_at' => $verification['verified_at'] ?? null,
-                    'reason' => $verification['reason'] ?? null,
-                    'note' => 'Not in ENFORCED_PAYMENT_TYPES, so the amount is NOT compared and'
-                        . ' a missing record would NOT withhold Paid. Enforcing this type is a'
-                        . ' one-line change in ENFORCED_PAYMENT_TYPES.',
-                ]);
-
-                return self::STATUS_PAID;
-            }
-
-            Log::warning('Order recorded as Paid without gateway verification', [
-                'site' => $site,
-                'payment_type' => $type,
-                'expected_total' => (string) $expectedTotal,
-                'note' => 'No server-side verification seam exists for this payment type.',
-            ]);
-
-            return self::STATUS_PAID;
-        }
-
+        /*
+         * NO GATEWAY ORDER IS RECORDED PAID WITHOUT A VERIFICATION RECORD.
+         *
+         * OWNER DECISION, Phase 01 final execution directive: "Any unverified gateway payment must
+         * remain Pending, never Paid. Do not create a falsely paid order, and preserve a safe
+         * reconciliation path for customers who may have been charged."
+         *
+         * WHAT THIS REPLACES, AND WHY THE OLD REASONING WAS RIGHT UNTIL NOW. This branch used to
+         * return Paid for any type absent from ENFORCED_PAYMENT_TYPES, with the comment "behaviour
+         * is preserved rather than changed, because recording every gateway order as Pending would
+         * stop merchant wallets being credited for 51 live payment methods -- a business change,
+         * not a security fix." That was the correct call while the business change was unmade: when
+         * an order counts as paid decides when a merchant is credited, which is the owner's to
+         * choose. It is chosen now, and it forecloses the old default.
+         *
+         * THE ORDER IS STILL WRITTEN. This returns a STATUS, not a refusal, and that is the
+         * "reconciliation path" the decision asks for: the customer's order exists with its lines,
+         * its total and its billing record, and a merchant who confirms the capture with the
+         * provider marks it Paid through the existing status workflow. A refusal here would be the
+         * worse failure the directive names -- the customer charged with nothing recorded.
+         *
+         * AND NO WALLET IS CREDITED FOR AN UNCONFIRMED CAPTURE, with no separate guard, for the
+         * same reason recorded on the COD branch above: `OrderObserver::created()` credits the
+         * wallet only for an order already Paid at creation, and `OrderObserver::updated()` syncs
+         * it when `payment_status` later changes. So settlement follows confirmation.
+         *
+         * THE LOG IS THE RECONCILIATION QUEUE. Every order that lands here is one a human may need
+         * to confirm, so the line carries what that takes: the type, the expected total, and
+         * whether a record existed at all.
+         */
         if ($verification === null) {
-            Log::error('Order NOT marked Paid: no verification record for an enforced gateway', [
+            Log::warning('Order recorded as PENDING: no gateway verification for this payment', [
                 'site' => $site,
                 'payment_type' => $type,
                 'expected_total' => (string) $expectedTotal,
+                'note' => 'Owner decision: an unverified gateway payment is never Paid. The order '
+                    . 'is written so the customer has a record and the merchant can reconcile it '
+                    . 'against the provider.',
             ]);
 
             return self::STATUS_PENDING;
         }
 
         if (($verification['payment_type'] ?? null) !== $type) {
-            Log::error('Order NOT marked Paid: verification record is for a different payment type', [
+            Log::warning('Order recorded as PENDING: the verification record is for another payment type', [
                 'site' => $site,
                 'payment_type' => $type,
                 'verified_payment_type' => $verification['payment_type'] ?? null,
+                'expected_total' => (string) $expectedTotal,
             ]);
 
             return self::STATUS_PENDING;
         }
 
-        // The verification was taken against a total; if the order being written
-        // is for a different total, the verification does not cover it.
+        /*
+         * A RECORD EXISTS AND NAMES THIS TYPE. For a type that is NOT amount-enforced that is as
+         * far as this platform can establish settlement today, so the order is Paid and the log
+         * says exactly which of the two grounds it rests on -- the distinction an adversarial
+         * review already caught this method getting backwards once.
+         */
+        if (!in_array($type, self::ENFORCED_PAYMENT_TYPES, true)) {
+            Log::info('Order recorded as Paid, backed by a recorded gateway verification', [
+                'site' => $site,
+                'payment_type' => $type,
+                'expected_total' => (string) $expectedTotal,
+                'captured_amount' => $verification['captured_amount'] ?? null,
+                'verified_at' => $verification['verified_at'] ?? null,
+                'reason' => $verification['reason'] ?? null,
+                'note' => 'Not in ENFORCED_PAYMENT_TYPES, so the captured AMOUNT is not compared. '
+                    . 'The existence of the record is what was checked.',
+            ]);
+
+            return self::STATUS_PAID;
+        }
+
+        /*
+         * AMOUNT-ENFORCED FROM HERE. The two preconditions this branch used to re-test -- a missing
+         * record, and a record naming another payment type -- are now refused ABOVE for every
+         * gateway type rather than only for the enforced ones, so re-testing them here would be
+         * dead code. What remains is the one check that is particular to this list.
+         *
+         * The verification was taken against a total; if the order being written is for a different
+         * total, the verification does not cover it.
+         */
         if (!OrderTotalReconciler::amountsMatch(
             (string) ($verification['expected_amount'] ?? ''),
             (string) $expectedTotal

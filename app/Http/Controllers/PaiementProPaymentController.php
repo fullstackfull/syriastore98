@@ -224,7 +224,68 @@ class PaiementProPaymentController extends Controller
 
     public function getProductStatus(Request $request, $slug)
     {
-        // if ($request->responsecode == 0) {
+        /*
+         * =========================================================================================
+         *  THIS HANDLER'S ONLY GATEWAY CHECK WAS COMMENTED OUT, SO IT WROTE AN ORDER FOR ANY RETURN.
+         * =========================================================================================
+         *
+         * The line below this block reads `// if ($request->responsecode == 0) {` -- commented out,
+         * and `git blame` puts it at the boundary commit, so it arrived that way rather than being
+         * disabled by this project. The handler therefore wrote a Paid order whatever PaiementPro
+         * said, including for a declined payment and for a bare GET to the callback.
+         *
+         * OWNER DECISION, Phase 01 final execution directive: "Any unverified gateway payment must
+         * remain Pending, never Paid. Do not create a falsely paid order, and preserve a safe
+         * reconciliation path for customers who may have been charged."
+         *
+         * WHY THE COMMENT IS NOT SIMPLY RESTORED, and this is the part that matters. Two reasons,
+         * both measured rather than assumed:
+         *
+         *   1. THAT GATE NEVER WORKED. `$request->responsecode == 0` is a LOOSE comparison against
+         *      integer 0, and in PHP 8 `null == 0` is TRUE -- so an ABSENT responsecode satisfied
+         *      it. A prior cycle recorded exactly this on the sibling plan path in this same file
+         *      (:149-151): "The gate was therefore satisfied by a bare GET to the callback with no
+         *      responsecode at all." Restoring it would install a check that passes the attack it
+         *      is supposed to stop.
+         *
+         *   2. RESTORING IT WOULD REFUSE RATHER THAN RECONCILE. If PaiementPro's real return does
+         *      not carry `responsecode` under that name -- which this repository cannot establish,
+         *      and which docs/security/P01-ORD-13-GATEWAY-TEST-REQUIREMENTS.md lists as an item to
+         *      obtain from the provider -- then an `if` around the whole handler stops every
+         *      legitimate order being written while the customer has already been charged. That is
+         *      the exact failure the directive's second sentence forbids.
+         *
+         * WHAT IS DONE INSTEAD. The gateway's own success code is RECORDED as a verification, on a
+         * STRICT comparison that an absent value cannot satisfy, and nothing else about the
+         * handler's control flow changes. The order is always written; its payment_status is then
+         * resolved by PaymentVerificationService::resolveOrderPaymentStatus(), which under the same
+         * owner decision returns Pending for any gateway payment with no verification record.
+         *
+         * So: responsecode strictly '0' -> recorded -> Paid, as a genuine success always was.
+         * Anything else, including absent -> no record -> PENDING, with the order written, the
+         * customer holding a record, and the merchant able to reconcile it against the provider.
+         * Fail-closed on the money, fail-open on the record, which is the only combination that
+         * satisfies both halves of the decision.
+         */
+        $paiementproSucceeded = ((string) $request->input('responsecode')) === '0';
+
+        if ($paiementproSucceeded) {
+            $this->gatewayReturnVerifier()->recordVerification(
+                'paiementpro',
+                \App\Services\PaymentVerificationResult::verified(
+                    'PaiementPro return responsecode=0',
+                    null,
+                    null
+                ),
+                null
+            );
+        } else {
+            \Illuminate\Support\Facades\Log::warning('PaiementPro return carried no success code; the order will be recorded Pending', [
+                'slug' => $slug,
+                'responsecode' => $request->input('responsecode'),
+            ]);
+        }
+
             /*
              * P01-COMMERCE-SEC-01. THE CHECKOUT STATE IS THE SERVER'S, OR THERE IS NO ORDER.
              *

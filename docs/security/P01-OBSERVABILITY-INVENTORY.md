@@ -47,7 +47,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/ProductStockService.php:127` | Stock decremented below zero on an order path that cannot refuse |
 | `app/Services/ProductStockService.php:210` | Stock decremented below zero on an order path that cannot refuse |
 
-### `warning` — 106 lines
+### `warning` — 108 lines
 
 | line | message |
 |---|---|
@@ -82,8 +82,8 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/NMIPayController.php:419` | Pending partial payment refused: the balance named does not belong to this customer. |
 | `app/Http/Controllers/OrderController.php:306` | Manual order total did not match its components; the computed total was stored |
 | `app/Http/Controllers/OrderController.php:987` | Return approval restored no stock: order carries no readable product_json |
-| `app/Http/Controllers/OrderController.php:1053` | Return approval skipped a line with an unusable product id or quantity |
 | `app/Http/Controllers/OrderController.php:1033` | Return approval skipped a line whose stock was already credited |
+| `app/Http/Controllers/OrderController.php:1053` | Return approval skipped a line with an unusable product id or quantity |
 | `app/Http/Controllers/OrderController.php:1074` | Return approval skipped a line whose product is not in the order |
 | `app/Http/Controllers/OrderController.php:1101` | Return approval skipped a line whose variant does not belong to its product |
 | `app/Http/Controllers/OrderController.php:1457` | Order cancellation skipped a line with an unusable product id or quantity |
@@ -97,7 +97,8 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/OrderRefundController.php:765` | Refund restock clamped to the units the order lines lost |
 | `app/Http/Controllers/OrderRefundController.php:1167` | Refund settled but the order totals were left unchanged: product_json is unparseable |
 | `app/Http/Controllers/OzowController.php:217` | Ozow plan return refused: no TransactionId to key on. |
-| `app/Http/Controllers/PaiementProPaymentController.php:335` | Pending partial payment refused: the balance named does not belong to this customer. |
+| `app/Http/Controllers/PaiementProPaymentController.php:283` | PaiementPro return carried no success code; the order will be recorded Pending |
+| `app/Http/Controllers/PaiementProPaymentController.php:396` | Pending partial payment refused: the balance named does not belong to this customer. |
 | `app/Http/Controllers/PayHerePaymnetController.php:64` | PayHere plan checkout refused: the integration is retired (owner decision). |
 | `app/Http/Controllers/PayHerePaymnetController.php:76` | PayHere plan checkout refused: the PayHere SDK is not installed. |
 | `app/Http/Controllers/PayUPaymentController.php:274` | Pending partial payment refused: the balance named does not belong to this customer. |
@@ -141,13 +142,14 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/PaymentService.php:2345` | cod/bank_transfer order writer refused: basket holds an unusable quantity |
 | `app/Services/PaymentService.php:2438` | Checkout: client-supplied shipping_final_price discarded (server value used) |
 | `app/Services/PaymentService.php:3634` | PayHere storefront checkout refused: the integration is retired (owner decision). |
-| `app/Services/PaymentVerificationService.php:265` | Order recorded as Paid without gateway verification |
-| `app/Services/PaymentVerificationService.php:572` | COD_SETTLEMENT=order is NO LONGER HONOURED and is ignored |
-| `app/Services/PaymentVerificationService.php:580` | Unrecognised COD settlement policy; settle-on-delivery is in force regardless |
+| `app/Services/PaymentVerificationService.php:295` | Order recorded as PENDING: no gateway verification for this payment |
+| `app/Services/PaymentVerificationService.php:308` | Order recorded as PENDING: the verification record is for another payment type |
+| `app/Services/PaymentVerificationService.php:623` | COD_SETTLEMENT=order is NO LONGER HONOURED and is ignored |
+| `app/Services/PaymentVerificationService.php:631` | Unrecognised COD settlement policy; settle-on-delivery is in force regardless |
 | `app/Services/ProductStockService.php:110` | Stock decrement rejected: insufficient stock |
 | `app/Services/ProductStockService.php:192` | Variant stock decrement rejected: insufficient stock |
 | `app/Services/ProductStockService.php:330` | Could not flush the model cache after a stock change |
-| `app/Services/RefundIntegrityService.php:134` | Refund recorded as approved but NOT settled: no gateway refund was made |
+| `app/Services/RefundIntegrityService.php:147` | Refund recorded as approved but NOT settled: no gateway refund was made |
 | `app/Services/ShopifyAdminApi.php:137` | a Shopify Admin API address was refused before the request was made |
 | `app/Services/ShopifyAdminApi.php:173` | a Shopify Admin API call answered with a redirect, which was not followed |
 | `app/Services/SocialIdentity/JwksProvider.php:74` | social-identity: provider key fetch failed |

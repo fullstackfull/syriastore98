@@ -179,16 +179,37 @@ class PaymentStatusDerivationTest extends TestCase
             );
         }
 
+        /*
+         * REVERSED BY OWNER DECISION, Phase 01 final execution directive: "Any unverified gateway
+         * payment must remain Pending, never Paid."
+         *
+         * This assertion used to read STATUS_PAID, and the docblock above still records why: an
+         * unseamed gateway kept its Paid status because recording 51 live methods Pending would
+         * stop merchant wallets being credited, which is a business change and not an engineering
+         * one. The owner has now made that change, so the expectation inverts. The rest of this
+         * test is unchanged, and the off-platform loop above is what keeps the decision from
+         * over-reaching into types no gateway ever confirms.
+         */
         $this->assertSame(
-            PaymentVerificationService::STATUS_PAID,
-            $this->verifier->resolveOrderPaymentStatus('stripe', null, '1250.50', self::class)
+            PaymentVerificationService::STATUS_PENDING,
+            $this->verifier->resolveOrderPaymentStatus('stripe', null, '1250.50', self::class),
+            'stripe with no verification record must be PENDING. An unverified gateway payment is '
+            . 'never recorded Paid.'
         );
     }
 
-    /** Paymera is the only enforced type today, and the list is explicit. */
-    public function test_paymera_is_the_enforced_gateway(): void
+    /**
+     * The amount-enforced types, and the list is explicit.
+     *
+     * 'nmi' JOINED paymera under the same decision: its arm makes the capture itself and records
+     * the provider's own `response == 1` through recordVerification(), so its captured amount can
+     * be reconciled against the order total rather than merely existing. Lowercase because
+     * resolveOrderPaymentStatus() compares against `strtolower(trim($paymentType))` with a strict
+     * in_array -- an entry spelled 'NMI' would be silently inert.
+     */
+    public function test_the_amount_enforced_gateways_are_explicit(): void
     {
-        $this->assertSame(['paymera'], PaymentVerificationService::ENFORCED_PAYMENT_TYPES);
+        $this->assertSame(['paymera', 'nmi'], PaymentVerificationService::ENFORCED_PAYMENT_TYPES);
     }
 
     /**

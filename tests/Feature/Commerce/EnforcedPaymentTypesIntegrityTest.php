@@ -125,10 +125,21 @@ class EnforcedPaymentTypesIntegrityTest extends TestCase
      * later phase wires another gateway it should update this list and this
      * assertion together, having read the invariant above.
      */
-    public function test_paymera_is_the_only_enforced_gateway_today(): void
+    public function test_the_amount_enforced_gateways_are_exactly_these(): void
     {
+        /*
+         * 'nmi' JOINED paymera under the owner's Phase 01 final execution directive. Its arm makes
+         * the capture itself and records the provider's own `response == 1` through
+         * recordVerification() (NMIPayController::getNMIProductStatus), so it satisfies the
+         * recorder invariant asserted above this method -- which is the condition this test's
+         * message has always demanded of a new entry.
+         *
+         * AND THIS LIST NO LONGER DECIDES PAID-WITHOUT-VERIFICATION. Under the same decision every
+         * gateway type is Pending without a record; membership here means the captured AMOUNT is
+         * additionally reconciled against the order total.
+         */
         $this->assertSame(
-            ['paymera'],
+            ['paymera', 'nmi'],
             PaymentVerificationService::ENFORCED_PAYMENT_TYPES,
             'if this list changed, the recorder invariant above must hold for the new '
                 . 'entry, and the gateway must genuinely have been verified against its '
@@ -154,28 +165,41 @@ class EnforcedPaymentTypesIntegrityTest extends TestCase
     }
 
     /**
-     * A gateway that is NOT enforced keeps its pre-existing behaviour exactly.
+     * A GATEWAY WITH NO VERIFICATION RECORD IS PENDING, enforced or not.
      *
-     * This is the preservation half: 50-odd live payment methods must go on
-     * working while their verification seams do not exist.
+     * REVERSED BY OWNER DECISION, Phase 01 final execution directive: "Any unverified gateway
+     * payment must remain Pending, never Paid. Do not create a falsely paid order, and preserve a
+     * safe reconciliation path for customers who may have been charged."
+     *
+     * This method used to assert the opposite, and its old message recorded why: "recording it
+     * Pending would stop merchant wallets being credited for a live payment method." That was the
+     * right call while the business change was unmade -- when an order counts as paid decides when
+     * a merchant is credited -- and the owner has now made it.
+     *
+     * NMI IS DROPPED FROM THE FIXTURE because it is now enforced; its own behaviour is asserted by
+     * test_an_enforced_gateway_without_a_record_is_not_paid above, which covers every entry in the
+     * list rather than a hand-written sample.
+     *
+     * THE RECONCILIATION PATH IS NOT ASSERTED HERE. This method measures the STATUS; that the
+     * order is still written is the end-to-end question and lives in
+     * UnverifiedGatewayStaysPendingTest alongside the off-platform and COD carve-outs.
      */
-    public function test_an_unenforced_gateway_keeps_its_existing_behaviour(): void
+    public function test_a_gateway_with_no_verification_record_is_not_paid(): void
     {
         $verifier = new PaymentVerificationService();
 
-        foreach (['stripe', 'paypal', 'khalti', 'CinetPay', 'payu', 'NMI', 'easebuzz'] as $type) {
+        foreach (['stripe', 'paypal', 'khalti', 'CinetPay', 'payu', 'easebuzz'] as $type) {
             $this->assertNotContains(
                 strtolower($type),
                 PaymentVerificationService::ENFORCED_PAYMENT_TYPES,
-                'fixture assumption: this gateway must not be enforced'
+                'fixture assumption: this gateway must not be amount-enforced, so that what is '
+                    . 'measured below is the no-record rule and not the amount comparison'
             );
 
             $this->assertSame(
-                PaymentVerificationService::STATUS_PAID,
+                PaymentVerificationService::STATUS_PENDING,
                 $verifier->resolveOrderPaymentStatus($type, null, '100.00', __METHOD__),
-                $type . ' has no verification seam, so its behaviour must be preserved '
-                    . 'rather than changed -- recording it Pending would stop merchant '
-                    . 'wallets being credited for a live payment method'
+                $type . ' was recorded Paid with nothing having confirmed a capture'
             );
         }
     }
