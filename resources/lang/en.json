@@ -2876,5 +2876,15 @@
     "Ranked by how many orders include the product, all time.": "Ranked by how many orders include the product, all time.",
     "No orders yet": "No orders yet",
     "No sales yet": "No sales yet",
-    "Status :code": "Status :code"
+    "Status :code": "Status :code",
+    "Getting started": "Getting started",
+    "Add your first product": "Add your first product",
+    "Receive your first order": "Receive your first order",
+    "Welcome your first customer": "Welcome your first customer",
+    ":done of :total done": ":done of :total done",
+    "To do": "To do",
+    "Done": "Done",
+    "While you are setting up": "While you are setting up",
+    "Products you add are not visible in your storefront until they are published.": "Products you add are not visible in your storefront until they are published.",
+    "Order totals shown here are gross order value, not money collected.": "Order totals shown here are gross order value, not money collected."
 }

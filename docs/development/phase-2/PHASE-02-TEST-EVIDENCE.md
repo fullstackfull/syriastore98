@@ -596,6 +596,40 @@ and the check is bitten with a rule that *can* win rather than one that cannot.
 That is the second time in this phase a static reading and a measurement disagreed, and the second
 time the measurement was right.
 
+### 5e. P2-06 onboarding — built, measured, and deliberately not shipped
+
+The getting-started checklist is complete and correct in LTR. Under `dir="rtl"` the preview paints
+each step's mark **twice** — once in its own box and once at the far inline-end of the row. It is
+recorded here rather than quietly fixed or quietly shipped, because what makes it interesting is
+how much evidence says the markup is right:
+
+| question | answer |
+|---|---|
+| marks in the DOM | exactly **one** per row (3 marks, 3 rows) |
+| `getClientRects()` | **one** rect, at the correct position |
+| box-shadow / transform / filter / reflection | none |
+| pseudo-elements on the row, link, mark or label | none |
+| rules matching the mark | its own, plus two `box-sizing` rules |
+| hiding the mark | removes **both** circles |
+| LTR | renders **one** |
+
+And it is unchanged by every structural variant tried: icon font → CSS `border-radius` → inline
+SVG; `position: static` vs `relative`; `display: flex` vs `grid`; `overflow: hidden` on the row;
+removing the label's `flex`.
+
+That exhausts what this harness can answer. The remaining candidate is **the harness itself** — it
+loads `style-rtl.css` and `rtl-custom.css` into a stand-in layout rather than the real one — and
+separating a harness artefact from a product defect needs the real application, which §0's Composer
+blocker prevents. This session has already produced two cases where a static reading and a
+measurement disagreed and the measurement won; this is the first where the measurement is
+self-contradictory, and the honest answer is that I do not know which side is wrong.
+
+**So it is not rendered.** The wiring is written and commented out in `dashboard/overview.blade.php`
+with the full trail, so shipping it is a one-block change the moment it can be seen in the real
+app. The alternative — shipping it because the DOM looks right — would put a visibly duplicated
+mark on the first screen a new Arabic-speaking merchant sees, and "the DOM is correct" is not a
+defence a merchant can read.
+
 ## 6. Translations
 
 ```

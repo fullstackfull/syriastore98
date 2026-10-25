@@ -105,6 +105,34 @@
 
 <div class="ss-scope">
 
+    {{-- P2-06 GETTING STARTED IS BUILT BUT NOT RENDERED HERE YET, and that is
+         a deliberate hold rather than unfinished work.
+
+         `<x-ss.setup-checklist>` and its styles are complete, correct in LTR,
+         and covered by browser checks. Under `dir="rtl"` the preview harness
+         paints each step's mark TWICE — once in its own box and once at the
+         far inline-end of the row. Measured, not guessed:
+
+           - the DOM has exactly ONE mark per row (3 marks, 3 rows);
+           - `getClientRects()` returns ONE rect, at the correct position;
+           - no box-shadow, transform, filter, reflection or pseudo-element,
+             and only `box-sizing` rules match it besides its own;
+           - hiding the mark removes BOTH circles, so it is that one element;
+           - LTR renders exactly one;
+           - unchanged by: icon font -> CSS border -> inline SVG; `position`
+             static vs relative; flex vs grid; `overflow: hidden`; removing
+             the label's `flex`.
+
+         That exhausts what the harness can tell me. The remaining candidate is
+         the harness's own RTL layout — it loads style-rtl.css and
+         rtl-custom.css into a stand-in layout — and confirming that needs the
+         REAL application, which the Composer blocker (§0) prevents.
+
+         So the component waits for a runtime check rather than shipping to
+         every merchant's dashboard. Half of them read Arabic; a duplicated
+         mark on the first thing a new store sees is not a detail. Ledger
+         P2-06-1. --}}
+
     @if ($ssNeedsAttention)
         <x-ss.attention :title="__('Needs attention')"
                         :severity="$ssOutOfStock > 0 ? 'warning' : 'brand'"

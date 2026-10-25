@@ -2924,5 +2924,15 @@
     "Ranked by how many orders include the product, all time.": "مرتّبة حسب عدد الطلبات التي تتضمّن المنتج، منذ البداية.",
     "No orders yet": "لا توجد طلبات بعد",
     "No sales yet": "لا توجد مبيعات بعد",
-    "Status :code": "الحالة :code"
+    "Status :code": "الحالة :code",
+    "Getting started": "البداية",
+    "Add your first product": "أضف أول منتج",
+    "Receive your first order": "استقبل أول طلب",
+    "Welcome your first customer": "رحّب بأول عميل",
+    ":done of :total done": "أُنجز :done من :total",
+    "To do": "قيد الإنجاز",
+    "Done": "تم",
+    "While you are setting up": "أثناء الإعداد",
+    "Products you add are not visible in your storefront until they are published.": "المنتجات التي تضيفها لا تظهر في واجهة متجرك حتى تُنشر.",
+    "Order totals shown here are gross order value, not money collected.": "إجماليات الطلبات هنا هي قيمة الطلبات الإجمالية، وليست المبالغ المحصّلة."
 }

@@ -1771,6 +1771,58 @@
     outline-offset: var(--ss-focus-offset);
 }
 
+/* ---- Setup checklist (P2-06) ----
+   Onboarding for a new store. It is a LIST OF LINKS with a state, not a
+   wizard: a merchant who already knows the product must be able to ignore it,
+   and nothing here blocks or sequences anything.
+
+   The step's state is carried by its icon AND by visually-hidden text, never
+   by colour alone -- a done step and a pending step are two shapes and two
+   words, so WCAG 1.4.1 holds and the list reads correctly aloud. */
+.ss-setup__list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: var(--ss-space-1);
+}
+.ss-setup__item {
+    display: flex;
+    align-items: center;
+    gap: var(--ss-space-3);
+    padding: var(--ss-space-2) var(--ss-space-2);
+    border-radius: var(--ss-radius-sm);
+    color: var(--ss-fg);
+    text-decoration: none;
+    font-size: var(--ss-text-sm);
+}
+a.ss-setup__item:hover { background: var(--ss-surface-hover); }
+a.ss-setup__item:focus-visible {
+    outline: var(--ss-focus-width) solid var(--ss-focus-ring);
+    outline-offset: var(--ss-focus-offset);
+}
+/* The mark is an inline SVG -- see the note in
+   components/ss/setup-checklist.blade.php for the two approaches that failed
+   under RTL before this one. Colour comes from `currentColor`, so state is a
+   single property here and the SVG needs no variant. */
+.ss-setup__mark {
+    flex: 0 0 auto;
+    inline-size: 1.125rem;
+    block-size: 1.125rem;
+    color: var(--ss-border-strong);
+}
+.ss-setup__item--done .ss-setup__mark { color: var(--ss-success-fg); }
+/* A completed step is still readable -- struck through would make the one
+   thing the merchant has achieved the hardest line to read. */
+.ss-setup__item--done .ss-setup__label { color: var(--ss-fg-muted); }
+.ss-setup__label { flex: 1 1 auto; min-width: 0; }
+.ss-setup__count {
+    font-size: var(--ss-text-xs);
+    color: var(--ss-fg-muted);
+    font-variant-numeric: tabular-nums;
+}
+
 /* ---- Command palette ---- */
 .ss-command {
     position: fixed;
