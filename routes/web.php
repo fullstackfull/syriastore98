@@ -1146,6 +1146,17 @@ Route::get(
         ->name('merchant.search');
 
     /*
+     * P2-03-6. The product quick-preview fragment, read-only.
+     *
+     * Unlike the order preview, this needs NO entry in OrderDocumentAccessGuard -- that guard is
+     * about order documents and arming it here would be a category error. Products are
+     * authorised by the handler itself, in the same shape `show()`, `update()` and `destroy()`
+     * already use (P1-INV-01). The id is raw: encryption is an encoding here, not a control.
+     */
+    Route::get('product-preview/{id}', [ProductController::class, 'product_preview'])
+        ->name('product.preview');
+
+    /*
      * P2-04-5. The read-only quick-preview fragment for the order side panel.
      *
      * GET, because it is a read -- and because OrderDocumentAccessGuard arms only on GET

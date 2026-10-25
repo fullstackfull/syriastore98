@@ -878,6 +878,76 @@ $Product->cost_price = $request->cost_price;
     /**
      * Display the specified resource.
      */
+    /**
+     * P2-03-6. THE PRODUCT QUICK PREVIEW -- a read-only fragment for the side panel.
+     *
+     * THE SAME SHAPE AS `OrderController::order_preview`, DELIBERATELY. A second idiom for
+     * "authorise a read of one record" is how two surfaces drift apart, and this codebase has
+     * the scars: `show()`, `update()` and `destroy()` above all carry the SAME ownership block
+     * for exactly that reason (P1-INV-01). This adds a fourth instance of it, not a fifth
+     * approach.
+     *
+     * `Product` is NOT in `config/tenancy.php`'s `scoped_models` and registers no effective
+     * global scope, so `Product::find()` reaches EVERY tenant's catalogue -- the predicate
+     * below is the only control, and the S19 cross-tenant stock drain came from forgetting
+     * exactly that. The store is derived from the authenticated principal, with the id passed
+     * explicitly because the no-argument `getCurrentStore()` reads the MUTABLE default guard.
+     *
+     * THE ID IS RAW. `Crypt::encrypt()` is an encoding here, not a control: APP_KEY is in git
+     * history and unrotated (owner decision D7), so an encrypted id in a uri is forgeable for
+     * any id. A new surface shipping one would imply a protection that does not exist.
+     *
+     * JSON FOR A REFUSAL, A FRAGMENT FOR A HIT -- and 403/404, never 401. The shipped Flutter
+     * app force-logs-out on any 401, and the rule is applied uniformly even on a web-only route.
+     */
+    public function product_preview(Request $request, $id)
+    {
+        $user = auth()->user();
+
+        // OPERATOR FIRST, in the one expression. Laratrust has no super-admin bypass, so
+        // `isAbleTo()` alone refuses the one principal who legitimately reads every store's
+        // catalogue -- and reversing these two limbs is a lockout, not a tightening.
+        $isOperator = $user !== null && \App\Policies\UserPolicy::isOperator($user);
+
+        if ($user === null || (! $isOperator && ! $user->isAbleTo('Manage Products'))) {
+            return response()->json(['message' => __('Permission denied.')], 403);
+        }
+
+        // `filter_var`, not `is_numeric`: is_numeric accepts '5.9' and rejects '5abc', while
+        // MySQL coerces '5abc' to row 5 in a `WHERE id = ?` comparison.
+        $productId = filter_var($id, FILTER_VALIDATE_INT);
+
+        if ($productId === false || $productId <= 0) {
+            return response()->json(['message' => __('Product not found.')], 404);
+        }
+
+        $product = Product::find($productId);
+
+        if ($product === null) {
+            return response()->json(['message' => __('Product not found.')], 404);
+        }
+
+        if (! $isOperator) {
+            $currentStore = getCurrentStore($user->id);
+
+            // Fail closed on either side being absent. A product with a NULL store_id is
+            // invisible to every store predicate in the application and must not become
+            // visible here.
+            if (empty($currentStore) || empty($product->store_id)
+                || (int) $product->store_id !== (int) $currentStore) {
+                return response()->json(['message' => __('Product not found.')], 404);
+            }
+        }
+
+        return response()->view('product.partials.preview', [
+            'product' => $product,
+            // The threshold that decides "low stock" comes from the SAME store whose row is
+            // being shown, not from the caller's own settings -- the two differ for a staff
+            // member, and P1-SEC-26 is the row that records why that matters.
+            'outOfStockThreshold' => getAdminAllSetting(null, $product->store_id)['out_of_stock_threshold'] ?? 0,
+        ]);
+    }
+
     public function show(Product $product)
     {
         /*
@@ -1066,9 +1136,14 @@ $Product->cost_price = $request->cost_price;
              * authorization control, and failing closed on it would break every client that
              * posts the form without the field, including the API and the Flutter app.
              *
-             * THE REFUSAL KEEPS THE INPUT. `withInput()` so the merchant's typing is not thrown
-             * away by the very mechanism that exists to stop work being lost -- scrubbed of the
-             * token itself so a resubmit cannot carry the stale value back.
+             * THE REFUSAL SPEAKS THE SHAPE THE PAGE READS. `resources/views/product/edit.blade.php`
+             * submits this route with `$.ajax` in both of its branches and its `success` handler
+             * reads `data.flag` and `data.msg` -- it never navigates. A `redirect()->back()`
+             * here is followed by jQuery, so the handler would receive the edit page's own HTML,
+             * find `data.flag` undefined, and call `show_toastr('Error', undefined)`: a BLANK
+             * error toast, and the merchant is told nothing. `withInput()` would also be inert,
+             * because nothing reloads to read the flash. So the refusal returns the same array
+             * every other refusal in this method returns, which is the one the page understands.
              */
             $seenAt = $request->input('ss_last_seen_at');
 
@@ -1077,9 +1152,10 @@ $Product->cost_price = $request->cost_price;
                     $seen = \Carbon\Carbon::parse($seenAt);
 
                     if (! $product->updated_at->eq($seen)) {
-                        return redirect()->back()
-                            ->withInput($request->except(['ss_last_seen_at', '_token']))
-                            ->with('error', __('Someone else saved this product while you were editing it. Your changes have not been saved. Reload the page to see the current version, then re-apply your changes.'));
+                        return [
+                            'flag' => 'error',
+                            'msg' => __('Someone else saved this product while you were editing it. Your changes have not been saved. Reload the page to see the current version, then re-apply your changes.'),
+                        ];
                     }
                 } catch (\Throwable $e) {
                     // Unparseable token: treat as not supplied. See the note above.

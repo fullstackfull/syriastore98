@@ -295,18 +295,38 @@ class MerchantSearchAuthorizationTest extends SecurityTestCase
     }
 
     /**
-     * A NOTE ON WHAT THE CASES ABOVE CAN AND CANNOT PROVE, recorded because the bite test said
-     * so and the alternative is a comfortable illusion.
+     * WHAT THESE CASES BITE ON, PER SECTION -- measured by removing each predicate in turn, and
+     * corrected here after an earlier version of this note overstated the limitation.
      *
-     * The endpoint is protected by TWO controls that overlap: the explicit
-     * `where('store_id', $storeId)` in each query, and the early refusal when no tenant
-     * resolves. MEASURED by removing each in turn: with EITHER one gone the suite stays green,
-     * because `where('store_id', null)` compiles to `store_id IS NULL` and matches nothing, and
-     * because `Customer`'s global scope covers the resolved-tenant case on its own.
+     * PRODUCTS and ORDERS: the explicit `where('store_id', $storeId)` is the ONLY control, so a
+     * single removal fails a single case. Measured by deleting each of the three predicates in
+     * turn and running this file:
      *
-     * So no case in this file can fail on a SINGLE control being removed -- only on both. That
-     * is a real limit of testing redundant controls through the endpoint, it is stated here
-     * rather than papered over, and the test above is what keeps the underlying hazard visible.
+     *     products predicate removed  -> ⨯ a merchant does not find another tenants products
+     *                                    Tests: 1 failed, 10 passed
+     *     orders predicate removed    -> ⨯ a merchant does not find another tenants orders
+     *                                    Tests: 1 failed, 10 passed
+     *     customers predicate removed -> Tests: 11 passed
+     *
+     * Neither model is in `config/tenancy.php`'s `scoped_models`, so `StoreScope::isActiveFor()`
+     * short-circuits and no scope contributes anything for any principal. Nothing is redundant
+     * there and nothing covers for the predicate.
+     *
+     * CUSTOMERS is the one section where a single removal is NOT caught -- the third line above
+     * -- and the reason is specific: `Customer` IS scoped, so for a principal who DOES resolve a tenant the global
+     * scope supplies the same predicate the controller does, and the cross-tenant case stays
+     * green with the controller's own `where` deleted. The unresolved-tenant case does not
+     * cover it either -- the early refusal returns before any customer query runs. The explicit
+     * predicate stays because this project's rule is that the scope must never be the only
+     * tenant check, and `test_the_global_scope_does_NOT_protect_a_principal_with_no_tenant`
+     * above is what keeps the reason for that rule visible and failing loudly if it changes.
+     *
+     * THE EARLY REFUSAL is likewise not caught by a single removal: with it gone, the queries
+     * run with `where('store_id', null)`, which compiles to `store_id IS NULL` and matches
+     * nothing, so products and orders return empty either way. Its value is in the Customer
+     * query, where under `null_tenant => 'open'` the scope adds nothing -- and the predicate
+     * then also narrows to `IS NULL`. Both controls would have to go for rows to escape, which
+     * is why that hazard is pinned by the direct-query test rather than by this endpoint.
      */
     public function test_an_anonymous_caller_is_refused(): void
     {
@@ -320,11 +340,19 @@ class MerchantSearchAuthorizationTest extends SecurityTestCase
     }
 
     /**
-     * `%` AND `_` ARE LIKE WILDCARDS, so an unescaped term widens the match instead of
+     * `%` AND `_` ARE LIKE WILDCARDS, so a term carrying either widens the match instead of
      * narrowing it -- `%` alone returns the whole table within the caller's own store, and `_`
-     * matches any single character. Escaped, they are literals and match nothing here.
+     * matches any single character.
+     *
+     * THE CONTROLLER STRIPS THEM, IT DOES NOT ESCAPE THEM, and the distinction matters for what
+     * this test proves. Escaping needs a declared `ESCAPE` clause, because MySQL defaults to
+     * backslash and SQLite has no default at all; stripping needs nothing and is portable. So
+     * the three terms below do not become literals that match nothing -- they become `%%`→``,
+     * `a_b`→`ab`, `%`→``, and the first and third fall UNDER the two-character minimum while
+     * `ab` is a real two-character term that does not occur in "Plain Scarf". Either way the
+     * assertion is the same: a wildcard term must not return a row it does not literally match.
      */
-    public function test_like_wildcards_in_the_term_are_literals(): void
+    public function test_like_wildcards_in_the_term_are_not_wildcards(): void
     {
         [$merchant, $store] = $this->makeTenant();
         $this->grantPermission($merchant, 'Manage Products');
@@ -338,11 +366,39 @@ class MerchantSearchAuthorizationTest extends SecurityTestCase
                 "the term [{$term}] was treated as a wildcard rather than as text");
         }
 
-        // And a literal percent in a NAME is still findable, so the escaping did not break
-        // searching for one.
+        /*
+         * And a name CONTAINING a percent is still findable.
+         *
+         * STATED HONESTLY: this case passes under stripping AND under escaping, so it does not
+         * distinguish them. `50%` strips to `50`, which matches "50% Linen Mix" on the digits;
+         * escaped, `50\%` would match the literal percent. It is here as a usability guard --
+         * that handling the wildcard did not make such a product unsearchable -- not as evidence
+         * for either strategy.
+         */
         $this->makeProduct($store->id, $merchant->id, '50% Linen Mix');
         $titles = $this->titles($this->actingAs($merchant)->getJson($this->url('50%'))->json());
         $this->assertContains('50% Linen Mix', $titles);
+    }
+
+    /**
+     * `q` IS NOT GUARANTEED TO BE A STRING. `?q[]=a` makes `$request->query('q')` an array, and
+     * `(string) []` raises an "Array to string conversion" warning that Laravel's handler turns
+     * into an ErrorException -- so a query string produces a server error on a route every
+     * authenticated merchant can reach. `assertOk()` is the point of this case. MEASURED by
+     * reverting the guard to `trim((string) $qInput)`: this test then failed with
+     * "Array to string conversion" raised at the `assertOk()` line.
+     */
+    public function test_a_non_string_term_does_not_crash_the_endpoint(): void
+    {
+        [$merchant, $store] = $this->makeTenant();
+        $this->grantPermission($merchant, 'Manage Products');
+        $this->makeProduct($store->id, $merchant->id, 'Aardvark Scarf');
+
+        $response = $this->actingAs($merchant)->getJson('/merchant-search?' . http_build_query(['q' => ['Aardvark']]));
+
+        $response->assertOk();
+        $this->assertSame([], $response->json('sections') ?? ['not-empty'],
+            'a non-string term must be treated as no term, not silently flattened into one');
     }
 
     public function test_a_term_shorter_than_two_characters_runs_no_query(): void

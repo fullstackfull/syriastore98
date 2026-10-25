@@ -58,7 +58,16 @@ class MerchantSearchController extends Controller
             return response()->json(['sections' => []], 401);
         }
 
-        $raw = trim((string) $request->query('q', ''));
+        /*
+         * `is_string` FIRST, BECAUSE `q` IS NOT GUARANTEED TO BE ONE. `?q[]=a` makes
+         * `$request->query('q')` an ARRAY, and `(string) []` raises an "Array to string
+         * conversion" warning that Laravel's handler turns into an ErrorException -- a 500 from
+         * a query string, on a route reachable by every authenticated merchant. Anything that is
+         * not a string is treated as no term at all, which falls through the length gate below
+         * and returns the empty result. Fails closed, and costs one line.
+         */
+        $qInput = $request->query('q', '');
+        $raw = is_string($qInput) ? trim($qInput) : '';
 
         /*
          * STRIPPED FIRST, THEN LENGTH-CHECKED, AND THE ORDER IS THE WHOLE POINT.
@@ -91,7 +100,11 @@ class MerchantSearchController extends Controller
          * other controller in this application already treats them that way.
          */
         if (! $isOperator && empty($storeId)) {
-            return response()->json(['sections' => [], 'term' => $term]);
+            // `$raw`, like every other exit. Echoing the STRIPPED term here and the raw one
+            // elsewhere would make the field mean two different things depending on which refusal
+            // the caller hit, and the palette uses it to decide whether a response is still
+            // current for what the merchant has typed.
+            return response()->json(['sections' => [], 'term' => $raw]);
         }
 
         $sections = [];

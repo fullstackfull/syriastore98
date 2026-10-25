@@ -55,7 +55,11 @@ class ProductDataTable extends DataTable
                 });
             })
             ->editColumn('variant_product', function (Product $product) {
-                return $product->variant_product == 1 ? 'has variant' : 'no variant';
+                // P2-03: these two strings never went through `__()`, so the variant column
+                // read ENGLISH on every Arabic product list. `no variant` already had an
+                // ar.json entry that nothing was reaching; `has variant` had none and was
+                // added with this change.
+                return $product->variant_product == 1 ? __('has variant') : __('no variant');
             })
             ->editColumn('average_rating', function (Product $product) {
                 return '<i class="ti ti-star text-warning"></i> ' . $product->average_rating;

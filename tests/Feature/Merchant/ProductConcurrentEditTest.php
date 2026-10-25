@@ -18,6 +18,19 @@ use Tests\Feature\Security\SecurityTestCase;
  * is not to add one when an existing column answers the question. The edit form emits the value
  * it loaded; the controller refuses a save whose token does not match the row's current value.
  *
+ * THE REFUSAL IS A JSON BODY, NOT A REDIRECT, and that is load-bearing rather than incidental.
+ * `resources/views/product/edit.blade.php` submits this route with `$.ajax` in both of its
+ * branches and reads `data.flag` / `data.msg` in `success`; it never navigates on its own. A
+ * `redirect()->back()` is followed by jQuery, so the handler would be handed the edit page's HTML,
+ * read `data.flag` as undefined, and raise a BLANK error toast -- the merchant told nothing, by
+ * the mechanism that exists to tell them. So every assertion below reads the RESPONSE BODY. An
+ * assertion on the session would pass against the broken shape, which is how the first version of
+ * this file passed against a defect.
+ *
+ * `flag => 'error'` ALONE IS NOT ENOUGH to assert. Every validation failure in `update()` returns
+ * the same flag, so a refusal test that checked only the flag would pass if the save were rejected
+ * for a missing field instead -- the conflict check never reached. The message is asserted too.
+ *
  * NOT AN AUTHORIZATION CONTROL, deliberately. A missing or unparseable token lets the save
  * through, because failing closed on it would refuse every client that posts the form without
  * the field -- the API and the Flutter app among them -- and this exists to prevent DATA LOSS,
@@ -130,7 +143,17 @@ class ProductConcurrentEditTest extends SecurityTestCase
             $this->payload(['category_id' => $categoryId, 'ss_last_seen_at' => $staleToken])
         );
 
-        $response->assertSessionHas('error');
+        /*
+         * The shape the page reads. `assertOk()` matters on its own: `update()` catches nothing
+         * here, so a 500 would otherwise be invisible to the row assertions below -- "the row
+         * did not change" is satisfied by a handler that crashed before writing.
+         */
+        $response->assertOk();
+        $response->assertJson(['flag' => 'error']);
+        $this->assertStringContainsString('Someone else saved this product',
+            (string) $response->json('msg'),
+            'the save was refused, but not BY THE CONFLICT CHECK -- a validation failure returns '
+            . 'the same flag, so this assertion is what distinguishes the two');
 
         // THE POINT: A's write survives. Asserted through DB::table() because Product is
         // Cachable and an Eloquent read can serve a mutated in-memory instance.
@@ -156,7 +179,8 @@ class ProductConcurrentEditTest extends SecurityTestCase
             ])
         );
 
-        $response->assertSessionMissing('error');
+        $response->assertOk();
+        $response->assertJson(['flag' => 'success']);
 
         $row = \DB::table('products')->where('id', $product->id)->first();
         $this->assertSame('Renamed by B', $row->name, 'a current-token save must not be refused');
@@ -180,13 +204,21 @@ class ProductConcurrentEditTest extends SecurityTestCase
             $this->payload(['category_id' => $categoryId])
         );
 
-        $response->assertSessionMissing('error');
+        $response->assertOk();
+        $response->assertJson(['flag' => 'success']);
 
         $row = \DB::table('products')->where('id', $product->id)->first();
         $this->assertSame('Renamed by B', $row->name);
     }
 
-    /** An unparseable token is treated as absent, not as a conflict. */
+    /**
+     * An unparseable token is treated as absent, not as a conflict.
+     *
+     * `Carbon::parse('not-a-date')` throws, and the `catch (\Throwable)` around it is what makes
+     * that a no-op rather than a refusal. ASSERTING THE ABSENCE OF A REFUSAL IS NOT ENOUGH: a
+     * caught exception that aborted the save, or a 500, would both show "no refusal" too. So this
+     * asserts the save SUCCEEDED and the row actually moved -- the positive fact.
+     */
     public function test_an_unparseable_token_is_treated_as_absent(): void
     {
         [$merchant, $store] = $this->makeTenant();
@@ -200,7 +232,12 @@ class ProductConcurrentEditTest extends SecurityTestCase
             $this->payload(['category_id' => $categoryId, 'ss_last_seen_at' => 'not-a-date'])
         );
 
-        $response->assertSessionMissing('error');
+        $response->assertOk();
+        $response->assertJson(['flag' => 'success']);
+
+        $row = \DB::table('products')->where('id', $product->id)->first();
+        $this->assertSame('Renamed by B', $row->name,
+            'an unparseable token must let the save through, not swallow it');
     }
 
     /** The edit form emits the token, or the whole mechanism is inert in the browser. */

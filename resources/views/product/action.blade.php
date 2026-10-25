@@ -1,4 +1,15 @@
 <span class="d-flex gap-1 justify-content-end">
+{{-- P2-03-6: quick preview, beside the editor rather than instead of it. The panel is
+     read-only; editing a product is a full-page job. --}}
+<button type="button"
+    data-ss-panel-open="ss-product-preview-panel"
+    data-ss-panel-url="{{ route('product.preview', $product->id) }}"
+    class="btn btn-sm btn-light-primary"
+    data-bs-toggle="tooltip"
+    title="{{ __('Quick preview') }}"
+    aria-label="{{ __('Quick preview of :name', ['name' => $product->name]) }}">
+    <i class="ti ti-layout-sidebar-right-expand" aria-hidden="true"></i>
+</button>
 <a href="{{ route('product.edit', $product->id) }}" class="btn btn-sm btn-info"
     data-title="{{ __('Edit Product') }}" data-bs-toggle="tooltip"
     title="{{ __('Edit') }}">

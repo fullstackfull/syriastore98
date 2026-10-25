@@ -2916,5 +2916,19 @@
     "Search is unavailable right now.": "Search is unavailable right now.",
     "Searching…": "Searching…",
     "Type at least two characters": "Type at least two characters",
-    ":n in stock": ":n in stock"
+    ":n in stock": ":n in stock",
+    "Product preview": "Product preview",
+    "Variants": "Variants",
+    "Has variants": "Has variants",
+    "No variants": "No variants",
+    "Last saved": "Last saved",
+    "Open full product": "Open full product",
+    "Not tracked": "Not tracked",
+    ":n left": ":n left",
+    "Sale price": "Sale price",
+    "This is the listed price. It is not revenue, and no margin is calculated here.": "This is the listed price. It is not revenue, and no margin is calculated here.",
+    "Quick preview of :name": "Quick preview of :name",
+    "Loading product…": "Loading product…",
+    "This product could not be loaded.": "This product could not be loaded.",
+    "has variant": "has variant"
 }

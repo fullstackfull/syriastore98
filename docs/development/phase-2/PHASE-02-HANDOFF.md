@@ -23,7 +23,7 @@
 | P2-00 discovery and reuse audit | — | **done** |
 | P2-01 shared layout and core components | A, F | **done** — components, panel, action bar, dirty guard, sidebar zones, workspace chip, collapsed rail. Concurrent-edit conflict handling arrived with P2-03. |
 | P2-02 merchant dashboard | C | **done except** the recent-orders / top-products blocks (P2-02-9) |
-| P2-03 products | D | **started** — concurrent-edit conflict detection shipped and tested. List, filters, full-page editor, media/variant UX and the product quick preview are **not built**. |
+| P2-03 products | D | **partial** — concurrent-edit conflict detection, the quick-preview panel and the variant column's missing translation are shipped and tested. List, filters, full-page editor and media/variant UX are **not built**. |
 | P2-04 orders | E | **partial** — the status breakdown is honest and reconciles, and the **authorised quick preview** is shipped with its own guard entry and nine authorization tests. Order list redesign, detail page, Kanban and saved views are **not built**. |
 | P2-05 common merchant screens | J | **not started** |
 | P2-06 search, notifications, preferences, onboarding | G, H, I | **partial** — **global search** shipped (authorised per section, scoped per query, 10 tests) and **onboarding** shipped (the RTL hold settled at runtime). Notifications and persisted table preferences are **not built**. |
@@ -71,6 +71,10 @@ P2-03's list, filters, editor and media UX. P2-04's list redesign, detail page, 
 views. All of P2-05. P2-06's notifications and persisted table preferences. P2-07's dashboard
 honesty pass. None of these has a blocker; they have not been done.
 
+P2-03's filters and P2-04's saved views want the **same** mechanism. Build it once, for both lists,
+rather than twice — `<x-datatable>` is shared by roughly 65 screens, which is also why P2-06-4 is
+the riskiest of the remaining items and not the easiest.
+
 ## 4. Defects found by running the real application
 
 Every one was invisible to the preview harness, and that is the point: a renderer with no routing,
@@ -86,6 +90,9 @@ auth, tenancy or DataTables cannot answer these questions.
 | 6 | **A dropped sidebar row left a dangling unclosed `<li>`**, and a parent whose children were all dropped kept its expand arrow over an empty submenu. | My own new tests, then the independent review |
 | 7 | **`store/change-status` is a state-changing GET** writing `stores.is_active` from query input — an `<img src>` on any page a signed-in merchant visits takes their storefront offline. The sweep that found the same defect on `change-store` had missed it. | The independent review of that fix |
 | 8 | **My own "dark mode" screenshots were not dark.** The harness set a client attribute; the layout picks its stylesheet server-side. Four of eight shots were of the light stylesheet. | Asserting which stylesheet the server actually sent |
+| 9 | **The concurrent-edit refusal produced a BLANK error toast.** It returned `redirect()->back()->withInput(...)`, but `product/edit.blade.php` submits that route with `$.ajax` in both branches and reads `data.flag`/`data.msg`. jQuery follows the redirect, `flag` comes back undefined, and `show_toastr('Error', undefined)` tells the merchant nothing — by the mechanism built to tell them. `withInput()` was inert too, since nothing reloads. The tests passed because they asserted the **session**, which a 302 populates. | The independent review, reading the view that posts the route |
+| 10 | **`?q[]=a` was a server error on the global search.** `trim((string) $request->query('q'))` on an array raises "Array to string conversion", which Laravel's handler turns into an exception — from a query string, on a route every authenticated merchant can reach. | The independent review |
+| 11 | **The product list's variant column read ENGLISH in Arabic.** `ProductDataTable::dataTable()` returned the bare literals `'has variant'`/`'no variant'` with no `__()`. Caught in the same pass as `"Stock": "الأسهم"` — Arabic for financial *shares*, not inventory. | Reading an Arabic screenshot of the product list |
 
 ## 5. What a successor should do first
 

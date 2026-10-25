@@ -168,8 +168,15 @@ Nothing in this phase altered an API response shape, a status code or a route th
 - **No new 401 on any path a client calls.** The shipped app force-logs-out on any 401, so the new
   endpoints answer 403 for a permission refusal and 404 for an unreadable row — never 401 — and the
   authorization tests assert exactly that.
-- **The new endpoints are web-only** (`order-preview/{id}`, `merchant-search`), inside the
-  authenticated admin group, and no client in either repository calls them.
+- **The new endpoints are web-only** (`order-preview/{id}`, `product-preview/{id}`,
+  `merchant-search`), inside the authenticated admin group, and no client in either repository
+  calls them. The app's own product read stays `/api/admin/viewproduct`, untouched.
 - **The concurrent-edit token is opt-in by design.** A save with no `ss_last_seen_at` is not
   refused, precisely so the API and the Flutter app — which post the product form without it —
   keep working unchanged. That is asserted by a test rather than assumed.
+- **The concurrent-edit refusal's SHAPE is the web page's shape, and it adds no new one.** It
+  returns `['flag' => 'error', 'msg' => …]`, which is what every other refusal in
+  `ProductController::update` already returns and what `product/edit.blade.php`'s `$.ajax` handler
+  already reads. A client that posts no token never reaches it; a client that does would receive a
+  body it can already parse. The earlier `redirect()->back()` would have been the new shape — and
+  on the web page it produced a blank error toast, which is how it was found.

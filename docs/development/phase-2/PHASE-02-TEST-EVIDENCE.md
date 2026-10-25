@@ -854,16 +854,23 @@ keeping one merchant's catalogue out of another's list. That is what these measu
 | `CustomSidebarAuthorizationTest` | 19 | F4's gate at its seams, F5's escaping, the route-existence drop, the iframe branch, the arrow-after-drop |
 | `CustomSidebarRenderPathTest` | 3 | **`getSideMenu()` itself** — the gate's production call site |
 | `OrderPreviewAuthorizationTest` | 9 | the new preview endpoint, with its two controls measured **separately** |
-| `MerchantSearchAuthorizationTest` | 10 | the global search: cross-tenant, per-section permission, unresolved tenant, LIKE wildcards |
+| `MerchantSearchAuthorizationTest` | 11 | the global search: cross-tenant, per-section permission, unresolved tenant, LIKE wildcards, a non-string `q` |
 | `TenantSwitchTest` | 12 | F12 — a GET answers 405 having moved nothing; CSRF asserted structurally |
-| `ProductConcurrentEditTest` | 5 | a stale save is refused and A's work survives |
+| `ProductConcurrentEditTest` | 5 | a stale save is refused and A's work survives — asserted on the RESPONSE BODY, because a session assertion passed against a refusal shape the page could not read |
+| `ProductPreviewAuthorizationTest` | 8 | the new product preview endpoint: `Product` carries no effective scope, so the handler's predicate is the only control |
 | `DashboardPermissionNamesTest` | 1 | every `isAbleTo()` name in the merchant views can actually be granted |
 | `AdminLayoutAssetsTest` | 2 | every `asset()` path in the admin layout resolves to a real file |
 
 ### Bite tests — every control reverted, and what failed
 
 This project's rule is stricter than TDD's: after the fix, revert it and confirm the test fails
-again. Recorded in full because **three of these revealed tests that passed for the wrong reason**.
+again. Recorded in full because **two of these revealed tests that passed for the wrong reason**
+(the `getSideMenu()` call site and the iframe ordering, both 0-failed on the first attempt), and
+because **one bite test's own written conclusion was wrong**: the search row below used to say no
+endpoint case fails on a single control being removed. Re-measuring each of the three predicates
+separately refuted it — products and orders each fail a case; only customers does not. The
+corrected rows are below, and the overstated note has been replaced in the test file too. Reverting
+a control is evidence; what somebody writes about the revert is not, until it is re-run.
 
 | control reverted | result |
 |---|---|
@@ -874,9 +881,14 @@ again. Recorded in full because **three of these revealed tests that passed for 
 | the order preview's **handler** check | 1 failed — exactly the direct-call case |
 | the order preview's **guard** entry | 1 failed — exactly the registration case |
 | the concurrent-edit check | 1 failed — exactly the stale-token case |
+| the product preview's store predicate | 2 failed — exactly the two cross-tenant cases |
+| the search's `is_string($q)` guard | 1 failed, with "Array to string conversion" raised at the `assertOk()` line — `?q[]=a` was a server error on a route every merchant can reach |
 | both contrast stylesheets | 14 of 32 readings below AA, from 0 |
 | the singular permission name restored | 1 failed, with the plural named in the message |
-| search: the store predicate, or the unresolved-tenant refusal | **0 failed, either way.** The two controls are redundant: `where('store_id', null)` compiles to `IS NULL`, and Customer's global scope covers the resolved case. **No endpoint test can fail on a single removal.** Stated in the test file; the hazard underneath is pinned by its own test, which measures that `Customer::query()` for a tenant-less principal compiles with NO store predicate and returns both tenants' rows |
+| search: the **products** store predicate | 1 failed — `⨯ a merchant does not find another tenants products` (1 failed, 10 passed) |
+| search: the **orders** store predicate | 1 failed — `⨯ a merchant does not find another tenants orders` (1 failed, 10 passed) |
+| search: the **customers** store predicate | **0 failed (11 passed)** — the one section where a single removal is not caught, because `Customer` IS in `scoped_models` and its global scope supplies the same predicate for a principal who resolves a tenant. The predicate stays on the project's rule that the scope must never be the only tenant check, and the hazard is pinned by its own test, which measures that `Customer::query()` for a **tenant-less** principal compiles with NO store predicate and returns both tenants' rows |
+| search: the unresolved-tenant refusal | 0 failed — with it gone the queries run `where('store_id', null)`, which compiles to `IS NULL` and matches nothing, so products and orders come back empty either way. Its value is in the Customer query under `null_tenant => 'open'`, and both controls would have to go for rows to escape |
 
 ## 9e. Contrast, measured in the running application
 

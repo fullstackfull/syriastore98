@@ -46,6 +46,13 @@
     <div class="row">
         <div class="col-xl-12">
             <x-datatable :dataTable="$dataTable" />
+
+            {{-- P2-03-6: ONE panel for the whole list, filled per row — the same arrangement
+                 the orders list uses, so the focus-return bookkeeping has one id to key on. --}}
+            <x-ss.panel id="ss-product-preview-panel"
+                        :title="__('Product preview')"
+                        :loading-text="__('Loading product…')"
+                        :error-text="__('This product could not be loaded.')" />
         </div>
     </div>
 @endsection
