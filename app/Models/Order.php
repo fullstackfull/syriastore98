@@ -332,6 +332,19 @@ public function getFormattedSubTotalAttribute()
             }
 
             $order_array['id'] = $order->id;
+            /*
+             * P2-04-6. THE ORDER'S OWN STORE, which the detail view needs and could not get.
+             *
+             * `order/view.blade.php` looks each line item's product up to decide whether to
+             * offer a download, and `Product` registers no `StoreScope` and is absent from
+             * `config/tenancy.php`'s `scoped_models` -- so that lookup needs an explicit store
+             * predicate. It cannot use the CALLER's store: `OrderController::order_view()`
+             * passes `getStoreById(getCurrentStore())`, and the platform operator legitimately
+             * opens another store's order (the operator limb is first in both
+             * `mayUseOrderScreen()` and `OrderDocumentAccessGuard`), so scoping to the caller
+             * would blank the line items for exactly the principal the guard admits.
+             */
+            $order_array['store_id'] = $order->store_id;
             $order_array['is_guest'] = $order->is_guest;
             $order_array['order_id'] = '#' . $order->product_order_id;
             $order_array['delivery_date'] = $order->delivery_date;

@@ -132,7 +132,12 @@ $theme_url = App\Http\Controllers\HomeController::getThemeUrl($store);
 
                     @if (auth()->user() && auth()->user()->type == 'admin')
                     <li class="web-browse-icon">
-                        <a href="{{ $theme_url ?? '#' }}" target="_blank" data-bs-toggle="tooltip"
+                        {{-- `rel="noopener noreferrer"`: this opens the merchant's own storefront
+                             in a new tab, and without it that tab gets a `window.opener` handle on
+                             the ADMIN page and can navigate it. It is the only `target="_blank"` in
+                             this layout, so every admin screen carried it. Found while auditing the
+                             order detail page's four. --}}
+                        <a href="{{ $theme_url ?? '#' }}" target="_blank" rel="noopener noreferrer" data-bs-toggle="tooltip"
                         title="{{ __('Store Link') }}" class="dash-head-link cust-btn">
                            <svg data-replit-metadata="client/src/components/icons/CustomIcons.tsx:36:4" data-component-name="svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#060606" stroke-width="2" class="w-4 h-4"><path data-replit-metadata="client/src/components/icons/CustomIcons.tsx:37:6" data-component-name="path" d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline data-replit-metadata="client/src/components/icons/CustomIcons.tsx:38:6" data-component-name="polyline" points="9,22 9,12 15,12 15,22"></polyline><path data-replit-metadata="client/src/components/icons/CustomIcons.tsx:39:6" data-component-name="path" d="m15 7 3 3-3 3M8 13l-3-3 3-3"></path></svg>
                         </a>

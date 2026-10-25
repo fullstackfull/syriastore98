@@ -2996,5 +2996,9 @@
     "Reject the return of order :id": "رفض إرجاع الطلب :id",
     "Edit :name": "تعديل :name",
     "Delete :name": "حذف :name",
-    "Status not set": "الحالة غير محددة"
+    "Status not set": "الحالة غير محددة",
+    "Assign to delivery boy": "تعيين إلى مندوب التوصيل",
+    "Copy the public link to this order": "نسخ الرابط العام لهذا الطلب",
+    "Download :name": "تنزيل :name",
+    "Delete this note": "حذف هذه الملاحظة"
 }

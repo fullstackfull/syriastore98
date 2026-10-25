@@ -89,15 +89,15 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/KhaltiPaymnetController.php:737` | Khalti verification refused: no server-computed payable in the stored state. |
 | `app/Http/Controllers/NMIPayController.php:428` | Pending partial payment refused: the balance named does not belong to this customer. |
 | `app/Http/Controllers/OrderController.php:306` | Manual order total did not match its components; the computed total was stored |
-| `app/Http/Controllers/OrderController.php:1063` | Return approval restored no stock: order carries no readable product_json |
-| `app/Http/Controllers/OrderController.php:1109` | Return approval skipped a line whose stock was already credited |
-| `app/Http/Controllers/OrderController.php:1129` | Return approval skipped a line with an unusable product id or quantity |
-| `app/Http/Controllers/OrderController.php:1150` | Return approval skipped a line whose product is not in the order |
-| `app/Http/Controllers/OrderController.php:1177` | Return approval skipped a line whose variant does not belong to its product |
-| `app/Http/Controllers/OrderController.php:1523` | Order cancellation skipped a line with an unusable product id or quantity |
-| `app/Http/Controllers/OrderController.php:1538` | Order cancellation skipped a line whose product is not in the order |
-| `app/Http/Controllers/OrderController.php:1560` | Order cancellation skipped a line whose variant does not belong to its product |
-| `app/Http/Controllers/OrderController.php:1726` | Order assignment refused: the delivery boy is not in a store this caller owns |
+| `app/Http/Controllers/OrderController.php:1066` | Return approval restored no stock: order carries no readable product_json |
+| `app/Http/Controllers/OrderController.php:1112` | Return approval skipped a line whose stock was already credited |
+| `app/Http/Controllers/OrderController.php:1132` | Return approval skipped a line with an unusable product id or quantity |
+| `app/Http/Controllers/OrderController.php:1153` | Return approval skipped a line whose product is not in the order |
+| `app/Http/Controllers/OrderController.php:1180` | Return approval skipped a line whose variant does not belong to its product |
+| `app/Http/Controllers/OrderController.php:1526` | Order cancellation skipped a line with an unusable product id or quantity |
+| `app/Http/Controllers/OrderController.php:1541` | Order cancellation skipped a line whose product is not in the order |
+| `app/Http/Controllers/OrderController.php:1563` | Order cancellation skipped a line whose variant does not belong to its product |
+| `app/Http/Controllers/OrderController.php:1729` | Order assignment refused: the delivery boy is not in a store this caller owns |
 | `app/Http/Controllers/OrderRefundController.php:180` | Refund transition refused: unrecognised current state |
 | `app/Http/Controllers/OrderRefundController.php:202` | Refund transition refused: illegal transition |
 | `app/Http/Controllers/OrderRefundController.php:416` | Refund cancellation refused: the record does not match the order |
@@ -136,8 +136,8 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Middleware/LotteryDrawOwnershipGuard.php:260` | lottery draw refused |
 | `app/Http/Middleware/ModuleOrderMutationGuard.php:378` | module order mutation refused |
 | `app/Http/Middleware/ModuleResourceOwnershipGuard.php:374` | module resource mutation refused |
-| `app/Models/Order.php:781` | Order return refused: the order carries no readable product_json |
-| `app/Models/Order.php:792` | Order return refused: the order lines are not in a shape this workflow can return |
+| `app/Models/Order.php:794` | Order return refused: the order carries no readable product_json |
+| `app/Models/Order.php:805` | Order return refused: the order lines are not in a shape this workflow can return |
 | `app/Models/Utility.php:2174` | New Order webhook skipped: no store could be resolved for the order |
 | `app/Models/Utility.php:2184` | New Order webhook skipped: the resolved store does not exist |
 | `app/Providers/PackageServiceProvider.php:80` | addon loader: the dynamic add-on pass failed, so some modules are not loaded |

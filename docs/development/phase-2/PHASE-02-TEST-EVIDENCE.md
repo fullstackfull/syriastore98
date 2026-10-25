@@ -1387,3 +1387,146 @@ $ node docs/development/phase-2/tools/shoot-orders-live.cjs               8 comb
 $ node docs/development/phase-2/tools/shoot-dashboard-cards-live.cjs      8 configurations, 0 problems
 $ php artisan test --testsuite=Unit                                     370 passed
 ```
+
+
+## 9n. P2-04-6 — the order detail page, and the fixture that had to come first
+
+**Three blocks on this page had never held content**, so the first work was not the page at all.
+`order_billing_details`, `order_notes`, and the `countries`/`states`/`cities` the two address
+cards resolve through were all empty: both address cards rendered every field blank and the notes
+panel rendered nothing. That is P2-02-9's defect on a second page — an empty block is
+indistinguishable from a healthy block with nothing to show.
+
+**Getting the notes on screen took three fixture fixes, and each intermediate state looked like
+success:**
+
+| attempt | result | why |
+|---|---|---|
+| seed five notes | `notes=0` | they went on the OLDEST order; the check opens the one the list shows first |
+| seed them on every order | `notes=0` | the panel is gated on `Manage Order Note`, which the fixture merchant's role did not hold (`isAbleTo` false, while `Show Order` was true — which is why the page opened at all) |
+| grant the three note permissions | `notes=5` | — |
+
+`order_notes.customer_id` also carries a foreign key to `customers`, so the conventional `0`
+fails the insert; `NULL` is both what works and what is true, since these notes have no customer.
+
+### 9n.1  What the populated page then measured
+
+```
+BEFORE                                           AFTER
+  dark  customer-note        1.24:1                every measured string passes
+  dark  order-create-note    1.77:1                worst reading 8.53:1 (light), 12.06:1 (dark)
+  dark  admin-private-note   1.86:1
+  dark  stock-mange-note     2.95:1
+  dark  order-status-note   12.21:1  <- passed by accident of being the one opaque hex
+  dark  status control       1.09:1
+  dark  grand total          1.10:1  <- the money figure
+  dark  every address label
+        and value            1.10:1  <- the whole shipping/billing block
+  light note delete icons    2.28:1     (3:1 threshold — icons, not text)
+  dark  note delete icons    2.88:1
+  light item name link       2.59:1  <- F9's case a third time
+```
+
+Light mode is deliberately untouched where it already passed (the five tints measure
+8.53–12.21:1 there), so merchants on the light theme see no change at all. The dark fixes are in
+`custom.css`/`rtl-custom.css` under the `data-ss-theme="dark"` hook — the same mechanism and the
+same file F8 used, rather than `assets/css/style-dark.css`, which an update would revert. The
+fills are the design system's own dark tone tokens, already measured at AA, not five new colours.
+
+### 9n.2  Four correctness defects, each pinned and each bitten
+
+```
+$ php artisan test tests/Feature/Merchant/OrderDetailTest.php
+  ✓ a note is not attributed to the person reading the page
+  ✓ a deleted product does not shift the total column
+  ✓ a foreign products download is not offered
+  ✓ every new window link is opener safe
+  Tests: 4 passed (33 assertions)
+
+bite: the attribution restored         1 failed
+bite: the cell condition restored      1 failed — "3 cells against 4 headers"
+bite: the store predicate dropped      1 failed — the foreign path returns
+bite: rel removed from the LAYOUT only 1 failed — "4 links … and 3 carry rel=noopener"
+```
+
+The cross-tenant one is **measured rather than reasoned**: store A's order naming store B's
+product id rendered `uploads/<B>/beta-secret-file.zip` to store A's merchant. What already
+contained it is worth stating too — `StoredPathPolicy` keeps store B's file under store B's
+folder, so the file was never mis-stored; what leaked was this page's willingness to link to it.
+
+```
+$ node docs/development/phase-2/tools/check-order-detail-live.cjs
+  112 cases, 112 passed, 0 failed      (desktop + mobile x en/ar x light/dark)
+  16 screenshots, taken by the same run that measured the page
+```
+
+### 9n.3  The suite caught a regression this slice caused, and the gate refused it
+
+The first full Feature run after these changes reported **3 failures where 2 are declared**, and
+the known-outcome gate refused it in exactly the terms it exists for:
+
+```
+Tests: 3 failed, 17 skipped, 5920 passed
+::error:: This is a regression unless you can show otherwise. Do NOT add it to
+::error:: .github/known-test-outcomes.json to get green
+```
+
+The third was `SecurityLogInventoryTest`. Nothing about logging changed — the inventory is keyed
+on `file:line`, and adding the `store_id` block to `Order::order_detail()` and the `__()` call in
+`OrderController::order_view()` shifted 11 rows beneath them. CLAUDE.md names this as the most
+common way an unrelated change turns CI red here, and the repository ships the tool for it:
+
+```
+$ python3 docs/development/phase-1/tools/resync-observability-inventory.py --write
+  rows re-pointed : 11      rows unchanged : 118      documented : 129
+```
+
+The other three line-keyed inventories (`ResidualTenancyExposureTest`,
+`EloquentScopeBypassInventoryTest`, `StoredFilePathSafetyTest`) were checked too and were
+unaffected — 101 passed.
+
+**Worth recording for its own sake:** the gate did the job it was built for. A third failure in a
+5,900-test suite is invisible in a summary line, and the temptation it names — declaring the new
+failure to get green — is precisely what would have buried a real regression had this been one.
+
+### 9n.4  Three things the check itself got wrong first
+
+1. **It found the address cards by an English heading fragment**, so it reported both cards
+   missing on the Arabic page and passing on the English one — 4 failures out of 48. The same
+   mistake as the dashboard's caption lookup, two slices earlier. The headings now carry
+   `data-ss-address`, which is neither translated nor positional.
+2. **It counted the address values and measured none of them.** Both cards could report "has
+   values" while every value was unreadable — which is exactly what a screenshot then showed, at
+   1.10:1. Counting is a premise; the ratio is the check.
+3. **It skipped the note delete icons**, because `measure()` ignores an element with no text. They
+   were at 2.28:1, and three of the five carried `text-white` while two did not — an asymmetry
+   from the five-way copy-paste rather than a decision.
+
+**And a guard that could never fire.** A backtick inside the probe's template literal ends it and
+the file stops parsing; it happened a third time in this phase. The first version of this tool
+answered that with a runtime check that the probe string contains no backtick — which cannot
+work, because if the backtick is there, no line in the file runs. It was protection in appearance
+only. `node --check <file>` is the check that works, and the comment now says so instead.
+
+### 9n.5  One claim this slice had to shrink
+
+`product/action.blade.php` had `Form::open()` with no `Form::close()` (F40, fixed with P2-04-4).
+It was written up as leaving the form's extent "to the browser's error recovery rather than the
+one button it is for" — which sounds like a consequence and is not one. Driving the product list
+with and without the close tag:
+
+```
+with Form::close()      10 forms, 1 button each, 4 descendants each, actions /product/32, /31, /30
+without Form::close()   10 forms, 1 button each, 4 descendants each, actions /product/32, /31, /30
+```
+
+**Identical.** The cell is injected as a DataTables fragment, so the parser closes the form at the
+end of the fragment either way. It is a well-formedness fix with **no behaviour change** — still
+right, because the next control added to that cell would inherit a real bug, but it did not have
+one. The attempt to assert it in `check-row-actions-live.cjs` therefore came back clean, and the
+assertion was kept for what it DOES guard (a control outside any form, and a form that does not
+spoof DELETE) with a comment saying what it does not.
+
+This is §4b's pattern with the third answer: a clean bite can mean the control is redundant, or
+the test is not measuring it — or, here, that there was nothing to measure and the write-up was
+the thing that was wrong.

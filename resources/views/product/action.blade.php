@@ -9,11 +9,17 @@
     quick-preview button asked for an icon name the bundled font does not have, so it painted
     nothing at all.
 
-    AND A FOURTH, ONLY HERE: `Form::open()` WAS NEVER CLOSED. The delete form opened in this
-    cell and no `Form::close()` followed it, so the `</form>` the markup needs was never
-    written. The browser recovers by closing it at the end of the enclosing element, which means
-    the form's extent was whatever the surrounding markup happened to allow rather than the one
-    button it is for. Nothing visibly broke, which is why it survived.
+    AND A FOURTH, ONLY HERE: `Form::open()` WAS NEVER CLOSED -- and the honest version of that
+    sentence is shorter than the one first written here. The `</form>` the markup needs was
+    never emitted. **Measured, and the rendered DOM is IDENTICAL either way**: 10 forms, one
+    button each, four descendants each, the same actions, with and without the close tag. This
+    cell is injected as a DataTables cell fragment, so the parser closes the form at the end of
+    the fragment regardless.
+
+    So this is a WELL-FORMEDNESS fix with no behaviour change, and it is worth saying so plainly
+    rather than letting "an unclosed form" imply a consequence that was looked for and is not
+    there. It is still worth fixing -- the next person to add a second control to this cell
+    would inherit a real bug -- but it did not have one.
 
     The JavaScript hooks are behaviour and stay exactly as they were: `.show_confirm` (delegated
     in `public/js/custom.js`, so it survives a DataTables redraw) and the `data-ss-panel-*`

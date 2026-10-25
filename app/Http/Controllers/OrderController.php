@@ -532,7 +532,10 @@ public function store(Request $request)
                 $order = Order::order_detail($id);
                 $store_id = $store = getStoreById(getCurrentStore());
                 $order_notes = OrderNote::where('order_id', $id)->where('store_id', getCurrentStore())->get();
-                $deliveryboys = DeliveryBoy::where('store_id', $store_id->id)->pluck('name', 'id')->prepend('Assign to delivery boy', "");
+                // P2-04-6: `__()`. This was a bare English string, so the Arabic order detail
+                // page offered "Assign to delivery boy" in English -- visible in the screenshots.
+                $deliveryboys = DeliveryBoy::where('store_id', $store_id->id)->pluck('name', 'id')
+                    ->prepend(__('Assign to delivery boy'), "");
                 if (!empty($order['message'])) {
                     return redirect()->back()->with('error', __('Order Not Found.'));
                 }

@@ -69,7 +69,7 @@ const PROBE = `(function () {
 
     /* THE ACCESSIBLE NAME AS THE PAGE ACTUALLY EXPOSES IT, in the order the accname spec
        resolves: aria-label, then aria-labelledby, then the element's own text, then title.
-       \`title\` is LAST and is read from the live attribute, so a tooltip plugin that has
+       \'title\' is LAST and is read from the live attribute, so a tooltip plugin that has
        emptied it is reflected rather than papered over. */
     function accName(el) {
         var label = (el.getAttribute('aria-label') || '').trim();
@@ -88,7 +88,7 @@ const PROBE = `(function () {
     }
 
     var rows = [].slice.call(document.querySelectorAll('table tbody tr'));
-    var actions = [], badges = [];
+    var actions = [], badges = [], confirms = [];
 
     rows.forEach(function (tr, i) {
         [].slice.call(tr.querySelectorAll('.ss-btn, .btn')).forEach(function (el) {
@@ -108,6 +108,24 @@ const PROBE = `(function () {
             });
         });
 
+        /* EVERY DELETE BUTTON HAS A FORM TO SUBMIT, AND IT SPOOFS DELETE.
+           'public/js/custom.js' handles '.show_confirm' with closest('form'), so a button
+           outside any form is a delete that silently does nothing.
+
+           WHAT THIS DOES NOT CATCH, stated because it was tried: a missing 'Form::close()'.
+           F40 was exactly that, and driving the list with and without the close tag renders an
+           IDENTICAL DOM -- the cell is injected as a DataTables fragment, so the parser closes
+           the form at the end of the fragment either way. The bite came back clean because
+           there was nothing to catch, not because this assertion is weak. It guards the case
+           it names: a control that has drifted out of its form entirely. */
+        [].slice.call(tr.querySelectorAll('.show_confirm')).forEach(function (el) {
+            confirms.push({
+                row: i,
+                hasForm: !!el.closest('form'),
+                method: el.closest('form') ? (el.closest('form').querySelector('input[name="_method"]') || {}).value || '' : ''
+            });
+        });
+
         [].slice.call(tr.querySelectorAll('.ss-badge')).forEach(function (el) {
             var cs = getComputedStyle(el);
             var fg = parse(cs.color), bg = effBg(el);
@@ -121,7 +139,7 @@ const PROBE = `(function () {
         });
     });
 
-    return { rowCount: rows.length, actions: actions, badges: badges };
+    return { rowCount: rows.length, actions: actions, badges: badges, confirms: confirms };
 })()`;
 
 (async () => {
@@ -227,6 +245,16 @@ const PROBE = `(function () {
                     say(tones.size >= needTones,
                         `${tag} — at least ${needTones} badge tone(s) on screen (${tones.size})`);
                 }
+
+                say(r.confirms.length >= r.rowCount,
+                    `${tag} — every row has a delete control (${r.confirms.length})`);
+                const orphan = r.confirms.filter((c) => !c.hasForm);
+                say(orphan.length === 0,
+                    `${tag} — every delete control is inside its form`
+                    + (orphan.length ? ` — ${orphan.length} orphaned, so the click submits nothing` : ''));
+                const notDelete = r.confirms.filter((c) => c.method.toUpperCase() !== 'DELETE');
+                say(notDelete.length === 0,
+                    `${tag} — every delete form spoofs DELETE (${r.confirms.length - notDelete.length}/${r.confirms.length})`);
 
                 say(errors.length === 0, `${tag} — no uncaught page error and no 500`
                     + (errors.length ? ` — ${errors[0]}` : ''));

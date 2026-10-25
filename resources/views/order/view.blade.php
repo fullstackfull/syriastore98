@@ -14,7 +14,7 @@
 
         @if ($order['payment_receipt'])
             <a href="{{ asset($order['payment_receipt']) }}"
-                target="_blank" class="btn btn-badge mr-2 btn-sm btn-primary btn-icon d-flex align-items-center" data-bs-toggle="tooltip"
+                target="_blank" rel="noopener noreferrer" class="btn btn-badge mr-2 btn-sm btn-primary btn-icon d-flex align-items-center" data-bs-toggle="tooltip"
                 data-bs-placement="top" title="Payment Receipt" aria-label="Payment Receipt" download>
                 <i class="ti ti-download" style="font-size:20px"></i>
             </a>
@@ -23,7 +23,7 @@
             @stack('invoice-button')
         @else
             <a href="{{ route('shippinglabel.pdf', \Illuminate\Support\Facades\Crypt::encrypt($order['id'])) }}"
-                target="_blank" class="btn btn-badge mr-2 btn-sm btn-primary btn-icon d-flex align-items-center" data-bs-toggle="tooltip"
+                target="_blank" rel="noopener noreferrer" class="btn btn-badge mr-2 btn-sm btn-primary btn-icon d-flex align-items-center" data-bs-toggle="tooltip"
                 data-bs-placement="top" title="Print" aria-label="Print">
                 <i class="ti ti-printer" style="font-size:20px"></i>
             </a>
@@ -32,10 +32,27 @@
             class="mx-1 btn btn-sm btn-badge mr-2 btn-primary btn-icon d-flex align-items-center" data-bs-toggle="tooltip"
             data-bs-placement="top" title="{{ __('Receipt') }}"><i class="ti ti-receipt" style="font-size:20px"></i>
         </a>
+        {{--
+            P2-04-6. THREE THINGS, one of which only breaks in production.
+
+            `config('app.url')`, NOT `env('APP_URL')`. `env()` reads `$_ENV`, which
+            `php artisan config:cache` does not populate -- and caching config is the normal
+            production posture. So on a cached deployment this button copied
+            `/<slug>/order/<cipher>` with NO HOST: a broken link, broken only in production,
+            which is why nobody had seen it. (Ledger F48: 29 such calls across host views, three
+            distinct variables. The sweep is its own slice; this is the one on this page.)
+
+            `data-ss-copy`, NOT `id`. The full url was stored in the element's `id` and read back
+            as `element.id` -- not what the attribute is for, and not valid as an id.
+
+            And the tooltip was a bare English string with no `__()`, so the Arabic page said
+            "Copy Link".
+        --}}
         <a href="#"
-            id="{{ env('APP_URL') . '/' . $store->slug . '/order/' . \Illuminate\Support\Facades\Crypt::encrypt($order['id']) }}"
+            data-ss-copy="{{ config('app.url') . '/' . $store->slug . '/order/' . \Illuminate\Support\Facades\Crypt::encrypt($order['id']) }}"
             class="btn btn-sm btn-primary btn-badge mr-2 btn-icon d-flex align-items-center" onclick="copyToClipboard(this)"
-            title="Copy Link" data-bs-toggle="tooltip" data-original-title="{{ __('Click to copy') }}"><i class="ti ti-link"
+            title="{{ __('Copy Link') }}" data-bs-toggle="tooltip" data-original-title="{{ __('Click to copy') }}"
+            aria-label="{{ __('Copy the public link to this order') }}"><i class="ti ti-link" aria-hidden="true"
                 style="font-size:20px"></i></a>
         @php
             $btn_class = 'btn-info';
@@ -140,7 +157,18 @@
                                 ]) !!}
                             </div>
                             <div class="col-xxl-2 col-lg-3 col-sm-4 col-12 px-2 d-flex align-items-center">
-                                {!! Form::select('payment_status', App\Models\order::payment_status(), $order['payment_status'], [
+                                {{-- P2-04-6. TRANSLATED AT THE CALL SITE, not in the model.
+                                     `Order::payment_status()` returns `['Paid' => 'Paid', 'Unpaid' => 'Unpaid']`
+                                     -- the KEY is what gets posted and stored, the value is only a label, and
+                                     the label was rendering in English on the Arabic page. Translating inside
+                                     the model would put presentation in the data layer and would surprise any
+                                     future caller that reads the values as data (the LynomiaChat fixture seeder
+                                     comments on these exact spellings). Mapping here changes only the label. --}}
+                                @php
+                                    $ssPaymentOptions = collect(App\Models\Order::payment_status())
+                                        ->map(fn ($label) => __($label))->all();
+                                @endphp
+                                {!! Form::select('payment_status', $ssPaymentOptions, $order['payment_status'], [
                                     'class' => 'form-control select category btn-badge h-100',
                                     'id' => 'payment_status',
                                 ]) !!}
@@ -165,7 +193,12 @@
                                             <path d="M17.5 18.25C19.5677 18.25 21.25 16.5677 21.25 14.5C21.25 12.4323 19.5677 10.75 17.5 10.75C15.4323 10.75 13.75 12.4323 13.75 14.5C13.75 16.5677 15.4323 18.25 17.5 18.25ZM17.5 12C18.8785 12 20 13.1215 20 14.5C20 15.8785 18.8785 17 17.5 17C16.1215 17 15 15.8785 15 14.5C15 13.1215 16.1215 12 17.5 12Z" fill="#002332"></path>
                                         </svg>
                                     </div>
-                                    <h5 class="d-flex align-items-center mb-0">{{ __('Shipping Information') }}</h5>
+                                    {{-- `data-ss-address` IS THE VERIFICATION HOOK. The heading cannot be
+                                         one: it is translated, so a browser check that found these two cards
+                                         by an English fragment reported "card not found" on the Arabic page
+                                         and passed on the English one. Same lesson as the dashboard's
+                                         `data-ss-list`. --}}
+                                    <h5 class="d-flex align-items-center mb-0" data-ss-address="shipping">{{ __('Shipping Information') }}</h5>
                                 </div>
 
                                 <div class="card-body pb-3 pt-0">
@@ -198,7 +231,7 @@
                                             <dt class="col-sm-3 h6 text-sm mb-0">{{ __('Phone') }}</dt>
                                             <dd class="col-sm-9 text-sm mb-0">
                                                 <a href="https://api.whatsapp.com/send?phone={{ !empty($order['delivery_informations']['phone']) ? $order['delivery_informations']['phone'] : '' }}&amp;text=Hi"
-                                                    target="_blank">
+                                                    target="_blank" rel="noopener noreferrer">
                                                     {{ !empty($order['delivery_informations']['phone']) ? $order['delivery_informations']['phone'] : '' }}
                                                 </a>
                                             </dd>
@@ -217,7 +250,7 @@
                                         <path d="M16.7504 20.98H10.9168C10.6757 20.98 10.4801 21.1756 10.4801 21.4167C10.4801 21.6578 10.6757 21.8534 10.9168 21.8534H16.7504C16.9914 21.8534 17.1871 21.6578 17.1871 21.4167C17.1871 21.1756 16.9914 20.98 16.7504 20.98Z" fill="#D80027" stroke="#D80027" stroke-width="0.04" />
                                     </svg>
                                 </div>
-                                <h5 class="d-flex align-items-center mb-0">{{ __('Billing Information') }}</h5>
+                                <h5 class="d-flex align-items-center mb-0" data-ss-address="billing">{{ __('Billing Information') }}</h5>
                             </div>
 
                                 <div class="card-body pb-3 pt-0">
@@ -249,7 +282,7 @@
                                         <dt class="col-sm-3 h6 text-sm mb-0">{{ __('Phone') }}</dt>
                                         <dd class="col-sm-9 text-sm mb-0">
                                             <a href="https://api.whatsapp.com/send?phone={{ !empty($order['billing_informations']['phone']) ? $order['billing_informations']['phone'] : '' }}&amp;text=Hi"
-                                                target="_blank">
+                                                target="_blank" rel="noopener noreferrer">
                                                 {{ !empty($order['billing_informations']['phone']) ? $order['billing_informations']['phone'] : '' }}
                                             </a>
                                         </dd>
@@ -263,6 +296,28 @@
                             <h4 class="mb-0">{{ __('Items from Order') }} {{ $order['order_id'] }} </h4>
                         </div>
                         <div class="card-body">
+                            @php
+                                /* P2-04-6. ONE query each, scoped to the ORDER's store.
+                                   Not the CALLER's: the platform operator legitimately opens another store's order
+                                   (the operator limb is first in both OrderController::mayUseOrderScreen() and
+                                   OrderDocumentAccessGuard), so `getCurrentStore()` here would blank the line items
+                                   for exactly the principal the guard admits. `order_detail()` now returns the
+                                   order's own store_id for this. */
+                                $ssOrderStore = $order['store_id'] ?? null;
+
+                                $ssItemProductIds = collect($order['product'])->pluck('product_id')->filter()->unique();
+                                $ssItemVariantIds = collect($order['product'])->pluck('variant_id')->filter()->unique();
+
+                                $ssItemProducts = $ssOrderStore === null || $ssItemProductIds->isEmpty()
+                                    ? collect()
+                                    : \App\Models\Product::whereIn('id', $ssItemProductIds)
+                                        ->where('store_id', $ssOrderStore)->get()->keyBy('id');
+
+                                $ssItemVariants = $ssOrderStore === null || $ssItemVariantIds->isEmpty()
+                                    ? collect()
+                                    : \App\Models\ProductVariant::whereIn('id', $ssItemVariantIds)
+                                        ->where('store_id', $ssOrderStore)->get()->keyBy('id');
+                            @endphp
                             <div class="table-responsive">
                                 <table class="table">
                                     <thead>
@@ -278,20 +333,33 @@
                                     <tbody>
                                         @foreach ($order['product'] as $item)
                                             @php
-                                                $variant = \App\Models\ProductVariant::where(
-                                                    'id',
-                                                    $item['variant_id'],
-                                                )->first();
-                                                $product = \App\Models\Product::where(
-                                                    'id',
-                                                    $item['product_id'],
-                                                )->first();
+                                                /* P2-04-6. Two lookups that used to run PER ITEM and carried NO store
+                                                   predicate. `Product` and `ProductVariant` both register no StoreScope
+                                                   and neither is in config/tenancy.php's `scoped_models`, so
+                                                   `Product::where('id', $item['product_id'])` returned whichever product
+                                                   held that id -- and the only field read from it is
+                                                   `downloadable_product`, which this view turns into a download link.
+                                                   Measured: store A's order naming store B's product id rendered store
+                                                   B's file path. `product_json` is written at checkout from the cart,
+                                                   and S19 established a cart can carry a foreign product id.
+
+                                                   Both are now resolved once, above the loop, against the ORDER's store
+                                                   (see $ssItemProducts below). */
+                                                $product = $ssItemProducts[$item['product_id'] ?? null] ?? null;
+                                                $variant = $ssItemVariants[$item['variant_id'] ?? null] ?? null;
                                             @endphp
 
                                             <tr>
                                                 <td class="total">
-                                                    <span class="h6 text-sm"> <a href="#">{{ $item['name'] }}</a>
-                                                    </span> <br>
+                                                    {{-- P2-04-6. TEXT, NOT A LINK. It was `<a href="#">`: a link to
+                                                         nowhere on every line item, which a keyboard user tabs to
+                                                         and a screen reader announces as a link. It also measured
+                                                         2.59:1 in light mode, because an anchor inherits the brand
+                                                         colour on a white surface -- F9's case a third time. A line
+                                                         item is a record of what was ordered, including products
+                                                         that have since been deleted, so there is nothing it can
+                                                         reliably link to. --}}
+                                                    <span class="h6 text-sm">{{ $item['name'] }}</span> <br>
                                                     <span class="text-sm"> {{ $item['variant_name'] }} </span>
                                                 </td>
                                                 <td>
@@ -301,32 +369,45 @@
                                                         {{ $item['qty'] }}
                                                     @endif
                                                 </td>
-                                                @if ($product || $variant)
-                                                    @if ($order['order_status'] == 1)
-                                                        @if (!empty($variant->downloadable_product) != null || !empty($product->downloadable_product) != null)
-                                                            <td>
-                                                                @if (!empty($variant->downloadable_product))
-                                                                    <a class="downloadable_product_{{ $item['product_id'] }}"
-                                                                        href="{{ get_file($variant->downloadable_product) }}"
-                                                                        download style="display: none;"></a>
-                                                                @endif
-                                                                @if (!empty($product->downloadable_product))
-                                                                    <a class="downloadable_product_{{ $item['product_id'] }}"
-                                                                        href="{{ get_file($product->downloadable_product) }}"
-                                                                        download style="display: none;"></a>
-                                                                @endif
-                                                                <button
-                                                                    class="download-btn action-btn btn-primary btn btn-sm align-items-center"
-                                                                    data-bs-toggle="tooltip" data-bs-placement="top"
-                                                                    title="{{ __('Download') }}"
-                                                                    data-product-id="{{ $item['product_id'] }}">
-                                                                    <i class="ti ti-download text-white"></i>
-                                                                </button>
-                                                            </td>
+                                                {{-- P2-04-6. ONE condition, the SAME one the header uses.
+                                                     It read `@if ($product || $variant)` wrapped around
+                                                     `@if ($order['order_status'] == 1)`, while the header only
+                                                     asks the second -- so a DELIVERED order naming a product that
+                                                     has since been deleted rendered three cells against four
+                                                     headers and slid Total under "Downloadable Product". The cell
+                                                     is now emitted whenever the header is, and what goes INSIDE it
+                                                     is the only thing the product's existence decides.
+
+                                                     `text-white` is also gone from the icon: it overrode the
+                                                     button's own `--ss-onbrand` colour and left that one icon at
+                                                     2.59:1 on the merchant's brand while every other
+                                                     `.btn-primary` on the page is correct. --}}
+                                                @if ($order['order_status'] == 1)
+                                                    @php
+                                                        $ssDownloads = array_values(array_filter([
+                                                            $variant->downloadable_product ?? null,
+                                                            $product->downloadable_product ?? null,
+                                                        ]));
+                                                    @endphp
+                                                    <td>
+                                                        @if (!empty($ssDownloads))
+                                                            @foreach ($ssDownloads as $ssFile)
+                                                                <a class="downloadable_product_{{ $item['product_id'] }}"
+                                                                    href="{{ get_file($ssFile) }}"
+                                                                    download style="display: none;"></a>
+                                                            @endforeach
+                                                            <button
+                                                                class="download-btn action-btn btn-primary btn btn-sm align-items-center"
+                                                                data-bs-toggle="tooltip" data-bs-placement="top"
+                                                                title="{{ __('Download') }}"
+                                                                aria-label="{{ __('Download :name', ['name' => $item['name'] ?? '']) }}"
+                                                                data-product-id="{{ $item['product_id'] }}">
+                                                                <i class="ti ti-download" aria-hidden="true"></i>
+                                                            </button>
                                                         @else
-                                                            <td>-</td>
+                                                            -
                                                         @endif
-                                                    @endif
+                                                    </td>
                                                 @endif
                                                 <td>
 @if ($order['paymnet_type'] == 'POS')
@@ -448,18 +529,32 @@ class="text-start ps-3"><b>{{ order_currency_format_with_sym($order['coupon_pric
                                                 {{ $note->notes }}
                                             </span>
                                             <div class="cart-time-wrapper">
+                                                {{-- P2-04-6. NO AUTHOR. This read
+                                                     `{{ __(' by ') }}{{ Auth::user()->name }}` -- the name of
+                                                     whoever is LOOKING at the page, so the same note read "by
+                                                     Amina" to Amina and "by Khalid" to Khalid. And there is no
+                                                     honest name to put in its place: `order_notes` has NO author
+                                                     column (one migration, no later one, nothing in
+                                                     `_gate_f_pending/`, nothing in any module), and `customer_id`
+                                                     is a FK to the SHOPPER while these notes are written by staff.
+                                                     Adding `created_by` is a migration and therefore an owner
+                                                     decision, so the timestamp stands alone. --}}
                                                 <span
-                                                    class="time">{{ $note->created_at->format('d M Y h:i A') }}{{ __(' by ') }}{{ Auth::user()->name ?? '' }}</span>
+                                                    class="time">{{ $note->created_at->format('d M Y h:i A') }}</span>
                                                 @permission('Delete Order Note')
                                                 {!! Form::open([
                                                     'method' => 'DELETE',
                                                     'route' => ['order-note.destroy', $note->id],
                                                     'class' => 'd-inline',
                                                 ]) !!}
-                                                <button type="button" class="btn btn-sm show_confirm order-not-dlt" data-confirm="{{ __('Are You Sure?') }}"
-                                                data-text="{{ __('This action can not be undone. Do you want to continue?') }}" data-text-yes="{{ __('Yes') }}" data-text-no="{{ __('No') }}" >
-                                                    <i class="ti ti-trash" data-bs-toggle="tooltip"
-                                                        title="Delete"></i>
+                                                <button type="button"
+                                                    class="ss-btn ss-btn--sm ss-btn--icon ss-btn--danger-quiet show_confirm order-not-dlt"
+                                                    data-confirm="{{ __('Are You Sure?') }}"
+                                                    data-text="{{ __('This action can not be undone. Do you want to continue?') }}"
+                                                    data-text-yes="{{ __('Yes') }}" data-text-no="{{ __('No') }}"
+                                                    data-bs-toggle="tooltip" title="{{ __('Delete') }}"
+                                                    aria-label="{{ __('Delete this note') }}">
+                                                    <i class="ti ti-trash" aria-hidden="true"></i>
                                                 </button>
                                                 {!! Form::close() !!}
                                                 @endpermission
@@ -472,17 +567,21 @@ class="text-start ps-3"><b>{{ order_currency_format_with_sym($order['coupon_pric
                                             </span>
                                             <div class="cart-time-wrapper">
                                                 <span
-                                                    class="time">{{ $note->created_at->format('d M Y h:i A') }}{{ __(' by ') }}{{ Auth::user()->name ?? '' }}</span>
+                                                    class="time">{{ $note->created_at->format('d M Y h:i A') }}</span>
                                                 @permission('Delete Order Note')
                                                 {!! Form::open([
                                                     'method' => 'DELETE',
                                                     'route' => ['order-note.destroy', $note->id],
                                                     'class' => 'd-inline',
                                                 ]) !!}
-                                                <button type="button" class="btn btn-sm  show_confirm order-not-dlt" data-confirm="{{ __('Are You Sure?') }}"
-                                                data-text="{{ __('This action can not be undone. Do you want to continue?') }}" data-text-yes="{{ __('Yes') }}" data-text-no="{{ __('No') }}" >
-                                                    <i class="ti ti-trash" data-bs-toggle="tooltip"
-                                                        title="Delete"></i>
+                                                <button type="button"
+                                                    class="ss-btn ss-btn--sm ss-btn--icon ss-btn--danger-quiet show_confirm order-not-dlt"
+                                                    data-confirm="{{ __('Are You Sure?') }}"
+                                                    data-text="{{ __('This action can not be undone. Do you want to continue?') }}"
+                                                    data-text-yes="{{ __('Yes') }}" data-text-no="{{ __('No') }}"
+                                                    data-bs-toggle="tooltip" title="{{ __('Delete') }}"
+                                                    aria-label="{{ __('Delete this note') }}">
+                                                    <i class="ti ti-trash" aria-hidden="true"></i>
                                                 </button>
                                                 {!! Form::close() !!}
                                                 @endpermission
@@ -495,17 +594,21 @@ class="text-start ps-3"><b>{{ order_currency_format_with_sym($order['coupon_pric
                                             </span>
                                             <div class="cart-time-wrapper">
                                                 <span
-                                                    class="time">{{ $note->created_at->format('d M Y h:i A') }}{{ __(' by ') }}{{ Auth::user()->name ?? '' }}</span>
+                                                    class="time">{{ $note->created_at->format('d M Y h:i A') }}</span>
                                                 @permission('Delete Order Note')
                                                 {!! Form::open([
                                                     'method' => 'DELETE',
                                                     'route' => ['order-note.destroy', $note->id],
                                                     'class' => 'd-inline',
                                                 ]) !!}
-                                                <button type="button" class="btn btn-sm  show_confirm order-not-dlt" data-confirm="{{ __('Are You Sure?') }}"
-                                                data-text="{{ __('This action can not be undone. Do you want to continue?') }}" data-text-yes="{{ __('Yes') }}" data-text-no="{{ __('No') }}" >
-                                                    <i class="ti ti-trash text-white py-1" data-bs-toggle="tooltip"
-                                                        title="Delete"></i>
+                                                <button type="button"
+                                                    class="ss-btn ss-btn--sm ss-btn--icon ss-btn--danger-quiet show_confirm order-not-dlt"
+                                                    data-confirm="{{ __('Are You Sure?') }}"
+                                                    data-text="{{ __('This action can not be undone. Do you want to continue?') }}"
+                                                    data-text-yes="{{ __('Yes') }}" data-text-no="{{ __('No') }}"
+                                                    data-bs-toggle="tooltip" title="{{ __('Delete') }}"
+                                                    aria-label="{{ __('Delete this note') }}">
+                                                    <i class="ti ti-trash" aria-hidden="true"></i>
                                                 </button>
                                                 {!! Form::close() !!}
                                                 @endpermission
@@ -518,17 +621,21 @@ class="text-start ps-3"><b>{{ order_currency_format_with_sym($order['coupon_pric
                                             </span>
                                             <div class="cart-time-wrapper">
                                                 <span
-                                                    class="time">{{ $note->created_at->format('d M Y h:i A') }}{{ __(' by ') }}{{ Auth::user()->name ?? '' }}</span>
+                                                    class="time">{{ $note->created_at->format('d M Y h:i A') }}</span>
                                                 @permission('Delete Order Note')
                                                 {!! Form::open([
                                                     'method' => 'DELETE',
                                                     'route' => ['order-note.destroy', $note->id],
                                                     'class' => 'd-inline',
                                                 ]) !!}
-                                                <button type="button" class="btn btn-sm  show_confirm order-not-dlt" data-confirm="{{ __('Are You Sure?') }}"
-                                                data-text="{{ __('This action can not be undone. Do you want to continue?') }}" data-text-yes="{{ __('Yes') }}" data-text-no="{{ __('No') }}" >
-                                                    <i class="ti ti-trash text-white py-1" data-bs-toggle="tooltip"
-                                                        title="Delete"></i>
+                                                <button type="button"
+                                                    class="ss-btn ss-btn--sm ss-btn--icon ss-btn--danger-quiet show_confirm order-not-dlt"
+                                                    data-confirm="{{ __('Are You Sure?') }}"
+                                                    data-text="{{ __('This action can not be undone. Do you want to continue?') }}"
+                                                    data-text-yes="{{ __('Yes') }}" data-text-no="{{ __('No') }}"
+                                                    data-bs-toggle="tooltip" title="{{ __('Delete') }}"
+                                                    aria-label="{{ __('Delete this note') }}">
+                                                    <i class="ti ti-trash" aria-hidden="true"></i>
                                                 </button>
                                                 {!! Form::close() !!}
                                                 @endpermission
@@ -541,17 +648,21 @@ class="text-start ps-3"><b>{{ order_currency_format_with_sym($order['coupon_pric
                                             </span>
                                             <div class="cart-time-wrapper">
                                                 <span
-                                                    class="time">{{ $note->created_at->format('d M Y h:i A') }}{{ __(' by ') }}{{ Auth::user()->name ?? '' }}</span>
+                                                    class="time">{{ $note->created_at->format('d M Y h:i A') }}</span>
                                                 @permission('Delete Order Note')
                                                 {!! Form::open([
                                                     'method' => 'DELETE',
                                                     'route' => ['order-note.destroy', $note->id],
                                                     'class' => 'd-inline',
                                                 ]) !!}
-                                                <button type="button" class="btn btn-sm  show_confirm order-not-dlt" data-confirm="{{ __('Are You Sure?') }}"
-                                                data-text="{{ __('This action can not be undone. Do you want to continue?') }}" data-text-yes="{{ __('Yes') }}" data-text-no="{{ __('No') }}" >
-                                                    <i class="ti ti-trash text-white py-1" data-bs-toggle="tooltip"
-                                                        title="Delete"></i>
+                                                <button type="button"
+                                                    class="ss-btn ss-btn--sm ss-btn--icon ss-btn--danger-quiet show_confirm order-not-dlt"
+                                                    data-confirm="{{ __('Are You Sure?') }}"
+                                                    data-text="{{ __('This action can not be undone. Do you want to continue?') }}"
+                                                    data-text-yes="{{ __('Yes') }}" data-text-no="{{ __('No') }}"
+                                                    data-bs-toggle="tooltip" title="{{ __('Delete') }}"
+                                                    aria-label="{{ __('Delete this note') }}">
+                                                    <i class="ti ti-trash" aria-hidden="true"></i>
                                                 </button>
                                                 {!! Form::close() !!}
                                                 @endpermission
@@ -766,7 +877,8 @@ class="text-start ps-3"><b>{{ order_currency_format_with_sym($order['coupon_pric
 
         function copyToClipboard(element) {
 
-            var copyText = element.id;
+            // `data-ss-copy`, not `id`: the url used to be stored in the element's id.
+            var copyText = element.dataset.ssCopy || element.id;
             document.addEventListener('copy', function(e) {
                 e.clipboardData.setData('text/plain', copyText);
                 e.preventDefault();

@@ -4572,3 +4572,82 @@ body .btn-primary:focus,
 body .btn-primary:active {
     color: var(--ss-onbrand, #fff);
 }
+
+/* ============================================================================
+   P2-04-6. THE ORDER DETAIL PAGE IN DARK MODE.
+
+   MEASURED IN THE RUNNING APPLICATION, with WCAG alpha compositing, after the
+   fixture was fixed so the blocks held content at all (they never had):
+
+     customer-note        1.24:1      status button   1.09:1
+     order-create-note    1.77:1      grand total     1.10:1   <- the MONEY figure
+     admin-private-note   1.86:1
+     stock-mange-note     2.95:1
+     order-status-note   12.21:1      <- the only tint written as an opaque hex,
+                                         and the only one of the five that passed
+
+   The four failures are `rgba()` fills over the host's dark page, so they
+   composite to mid-greys while the text stays `#293240`. The fifth passes by
+   accident of being opaque.
+
+   LIGHT MODE IS UNTOUCHED, deliberately: all five measure 8.53-12.21:1 there,
+   so there is nothing to fix and changing them would alter an appearance
+   merchants already have. Everything below is inside the `data-ss-theme="dark"`
+   hook the layout publishes on every page (the same mechanism F8 used), and in
+   THIS file rather than `assets/css/style-dark.css`, which is a host theme asset
+   an update would revert.
+
+   The fills are the design system's own dark tone tokens, which are measured at
+   AA on both surfaces, rather than five new colours nobody has checked.
+   ============================================================================ */
+
+html[data-ss-theme="dark"] body .card-body .card-header.stock-mange-note {
+    background: var(--ss-neutral-bg, #212c2a);
+}
+html[data-ss-theme="dark"] body .card-body .card-header.order-create-note {
+    background: var(--ss-info-bg, #10233a);
+}
+html[data-ss-theme="dark"] body .card-body .card-header.order-status-note {
+    background: var(--ss-success-bg, #102a1b);
+}
+html[data-ss-theme="dark"] body .card-body .card-header.admin-private-note {
+    background: var(--ss-danger-bg, #2c1413);
+}
+html[data-ss-theme="dark"] body .card-body .card-header.customer-note {
+    background: var(--ss-warning-bg, #2c2109);
+}
+
+/* The note text and its timestamp. Both measured `#293240` -- a dark ink the host
+   sets for a light surface -- so the fill alone would not have been enough. */
+html[data-ss-theme="dark"] body .card-body .card-header.note-bg-color,
+html[data-ss-theme="dark"] body .card-body .card-header.note-bg-color .tl-btn,
+html[data-ss-theme="dark"] body .card-body .card-header.note-bg-color .time {
+    color: var(--ss-fg, #e6eceb);
+}
+
+/* The status control and the totals list. `.order_status_btn` carries one of the
+   vendored `btn-{info,danger,success,warning,secondary,dark}` classes -- the same
+   family P2-04-4 removed from the order list, still here -- and the totals are the
+   page's money figures. Both are dark ink on the dark page. */
+html[data-ss-theme="dark"] body .order_status_btn,
+html[data-ss-theme="dark"] body .sub-total-footer,
+html[data-ss-theme="dark"] body .sub-total-footer b,
+html[data-ss-theme="dark"] body .sub-total-footer span {
+    color: var(--ss-fg, #e6eceb);
+}
+html[data-ss-theme="dark"] body .order_status_btn {
+    background: var(--ss-surface-sunken, #1f2a28);
+    border-color: var(--ss-border, #364442);
+}
+
+/* THE TWO ADDRESS CARDS. Every label and value measured 1.1:1 in dark mode -- the whole
+   shipping and billing block was effectively invisible, and the first version of this run
+   missed it because it COUNTED the non-empty values and measured none of them. A card can
+   report "has values" while none of them can be read. The labels take the muted token and
+   the values the full one, which is the same relationship they have in light mode. */
+html[data-ss-theme="dark"] body .card-body dl.row dt {
+    color: var(--ss-fg-muted, #a7b2b1);
+}
+html[data-ss-theme="dark"] body .card-body dl.row dd {
+    color: var(--ss-fg, #e6eceb);
+}

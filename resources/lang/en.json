@@ -2967,5 +2967,9 @@
     "Reject the return of order :id": "Reject the return of order :id",
     "Edit :name": "Edit :name",
     "Delete :name": "Delete :name",
-    "Status not set": "Status not set"
+    "Status not set": "Status not set",
+    "Assign to delivery boy": "Assign to delivery boy",
+    "Copy the public link to this order": "Copy the public link to this order",
+    "Download :name": "Download :name",
+    "Delete this note": "Delete this note"
 }

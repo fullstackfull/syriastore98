@@ -1,9 +1,30 @@
 # P2-04-6 — order detail page: what the reconnaissance found
 
-**Read-only.** Nothing in this file has been changed in the code yet; it is the measurement that
-the slice starts from. Everything below is either read from a named file and line, or measured in
-the running application and shown with its number. Where something was reasoned rather than
-driven, it says so.
+**This was written BEFORE any of it was fixed, and is kept as written** — the reasoning is the
+record, and a reconnaissance rewritten after the fact stops being evidence of what was actually
+found. Everything below is either read from a named file and line, or measured in the running
+application and shown with its number. Where something was reasoned rather than driven, it says
+so.
+
+## What has since been done, and what has not
+
+**DONE** (see ledger F49–F52, evidence §9n): the fixture now populates all three empty blocks;
+the note attribution is gone; the items table renders as many cells as it has headers; the
+line-item lookups are hoisted and scoped to the order's store; every `target="_blank"` carries
+`rel="noopener"`, the shared layout's included; the line-item name is text rather than a link to
+nowhere; the copy-link button uses `config('app.url')` and `data-ss-copy`; four untranslated
+strings have Arabic; and every measured string and icon on the page reaches its threshold in both
+themes and both directions (112 live cases, 16 screenshots).
+
+**NOT DONE** — the design-system restyle of the page shell: Bootstrap `card` → `x-ss.card`, the
+five near-identical note branches → one loop, the status control as a DS badge plus menu, the
+hard-coded icon tints, the totals layout. The drafts for the first two are in the sections below
+and still apply.
+
+**NOT DONE, and deliberately so:** the `env()` sweep (F48) and the checkout-path input trust
+(F46) are their own slices for the reasons their ledger rows give.
+
+---
 
 Read-only pass over `resources/views/order/view.blade.php` (791 lines),
 `OrderController::order_view()`, `Order::order_detail()` and `OrderNoteController`.

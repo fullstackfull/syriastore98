@@ -24,7 +24,7 @@
 | P2-01 shared layout and core components | A, F | **done** — components, panel, action bar, dirty guard, sidebar zones, workspace chip, collapsed rail. Concurrent-edit conflict handling arrived with P2-03. |
 | P2-02 merchant dashboard | C | **done.** P2-02-9's two list cards were the last row, and they were already BUILT — what was missing was any data in them: the fixture left `orders.product_id` at `'0'` while the controller plucks that column, so the best-selling card had only ever been seen in its empty state. Fixed, pinned (4 tests / 16 assertions, bitten three ways) and shot with rows in it in 8 configurations |
 | P2-03 products | D | **partial** — concurrent-edit conflict detection, the quick-preview panel, the variant column's missing translation and **the list filters** (status / stock / category / variants, with no JavaScript, 12 tests and 58 browser cases) are shipped and tested. Its **row actions** came with P2-04-4's sweep: the design system's quiet icon buttons, an `aria-label` on each (three had no accessible name at runtime), a `Form::close()` that was missing, an icon that had never painted a glyph, and the stock badges off white-on-brand (2.59:1) onto `ss-badge`. The list's own layout and density, the full-page editor and media/variant UX are **not built**. |
-| P2-04 orders | E | **partial** — the status breakdown is honest and reconciles, the **authorised quick preview** is shipped with its own guard entry and nine authorization tests, **F19 is fixed** (no more Unix epoch as a date), and **the list filters are shipped** (status, payment, date range; 14 tests, five controls bite-tested, 112 browser cases shared with the product list). **P2-04-4 is now done**: the status column off the vendored theme's classes (below AA in **44 of 56** readings, two of them unreadable at 1.03:1 and 1.12:1) onto one shared `OrderStatusTone` the dashboard reads too — the two surfaces had disagreed about four of the nine statuses — plus named, contrast-clean row actions and the reference pill fixed through F9's own `--ss-onbrand`. 84 live cases, bitten five ways. The independent review of that change then found a **stored XSS** on the line it edits (F42, fixed and pinned) and a preview harness that had been showing the opposite of production (F43). **The detail page's blocker was stale and is cleared** — see 3b. Kanban and SAVED views are **not built**. |
+| P2-04 orders | E | **partial** — the status breakdown is honest and reconciles, the **authorised quick preview** is shipped with its own guard entry and nine authorization tests, **F19 is fixed** (no more Unix epoch as a date), and **the list filters are shipped** (status, payment, date range; 14 tests, five controls bite-tested, 112 browser cases shared with the product list). **P2-04-4 is now done**: the status column off the vendored theme's classes (below AA in **44 of 56** readings, two of them unreadable at 1.03:1 and 1.12:1) onto one shared `OrderStatusTone` the dashboard reads too — the two surfaces had disagreed about four of the nine statuses — plus named, contrast-clean row actions and the reference pill fixed through F9's own `--ss-onbrand`. 84 live cases, bitten five ways. The independent review of that change then found a **stored XSS** on the line it edits (F42, fixed and pinned) and a preview harness that had been showing the opposite of production (F43). **P2-04-6 is PARTIAL**: its blocker was stale and is cleared, three blocks on that page had never held content (fixed in the fixture first), and the populated page then yielded four correctness defects — including **another tenant's downloadable file being linked** (F51, measured) — and six contrast failures, the worst being every address label and value at 1.10:1 in dark mode. 4 Feature tests and 112 live cases, all bitten. The design-system restyle of that page's shell is **not** done. Kanban and SAVED views are **not built**. |
 | P2-05 common merchant screens | J | **started** — **P2-05-1** is shipped: four state-changing GETs converted to POST, **three of which were also unauthorised cross-tenant writes** (no permission check, no ownership check, no tenant predicate, on models that carry no scope), plus a ratchet so the set of state-changing GETs cannot grow. The design-system pass over customers, stock, categories, staff and settings is **not built**. |
 | P2-06 search, notifications, preferences, onboarding | G, H, I | **done** — all four. **Global search** (per-section authorisation, per-query scoping, 11 tests); **onboarding** (the RTL hold settled at runtime); **persisted table preferences** across all 68 DataTables from the one shared helper; and **notifications**, against the same `store_notifications` rows the Flutter app already reads, authorised BY TYPE with 24 tests, two live defects and four weak tests of my own found by the independent review and fixed (F23–F28). No `packages/workdo/` file touched and no schema change in any of the four. |
 | P2-07 Flutter | K | **partial** — RTL wiring, the vendor-host leak, accessible names, the parity matrix, the RTL mirroring pass and now the **status honesty pass** (P2-07-6: statuses 7 and 8 named instead of "unknown", nine Arabic-literal descriptions translated, the "Cancel" button word replaced by the order STATE, and three badge colour pairs raised above AA — one was at 1.85:1) are done. Broader a11y (P2-07-8) is not, and the API half of the status honesty pass is F29, escalated. |
@@ -91,9 +91,10 @@ driven.
 ### 3b. Not blocked — simply not built
 
 P2-03's list layout, editor and media UX (its filters are done, and its ROW ACTIONS came with
-P2-04-4's sweep). P2-04's Kanban and saved views — **the list redesign and the detail page are no
-longer on this list**: P2-04-4 is done, and P2-04-6's "blocker" turned out to be stale (see
-below). **P2-05's design-system pass** over customers, stock, categories, staff and settings —
+P2-04-4's sweep). P2-04's Kanban and saved views, plus the design-system restyle of the order
+detail page's shell — **the list redesign is no longer on this list** (P2-04-4 is done), and
+P2-04-6's "blocker" turned out to be stale (see below); its correctness, accessibility and
+dark-mode legibility work is done, its restyle is not. **P2-05's design-system pass** over customers, stock, categories, staff and settings —
 the largest untouched surface in the phase, now that P2-05-1 has dealt with what was dangerous
 there. P2-07-8's broader accessibility work. None of these has a blocker; they have not been done.
 
@@ -165,7 +166,10 @@ the fixes, because the tempting reading was wrong every single time.
 | `customerStatus`'s ownership block | the predicate is redundant | `Customer`'s global scope covers the resolved-tenant case; only a principal who resolves NO tenant measures the handler's own limb |
 
 **The pattern.** A clean bite test says one of two things: the control is redundant, or the test is
-not measuring it. **It was the second one six times out of six.** The way to tell them apart is to
+not measuring it. **It was the second one six times out of six.** A seventh case later added a
+THIRD answer: there was nothing to measure, because the write-up had claimed a consequence the
+change did not have (F40 — see §9n.5 of the evidence file). A clean bite always has to be
+explained; it just does not always mean the test is weak. The way to tell them apart is to
 ask what principal or state the control exists for and then write a case that puts the system in
 it — a tenant-less principal, an operator holding no role, an unregistered type, a saved state
 that still contains what should be dropped. Five of the six got such a case; the sixth got a
@@ -300,6 +304,44 @@ removed costs one command and separates "the control is redundant", "the test is
 it" and "nothing was reverted" — three states that produce the identical green output. §4b is a
 whole section about the second of those; this is the third, and it is the only one of the three
 where the green is simply correct.
+
+## 4i. Three blocks, one page, and none of them had ever held a row
+
+P2-04-6 began the way P2-02-9 did and that is the point. The order detail page has a shipping
+card, a billing card and an order-notes panel; `order_billing_details`, `order_notes` and the
+`countries`/`states`/`cities` those cards resolve through were **all empty** in the development
+fixture. Both address cards rendered every field blank. The notes panel rendered nothing at all.
+Neither looked broken, because neither is: an empty state is what a block does when there is
+nothing to show.
+
+**Getting one note on screen took three fixture fixes and each intermediate state read as
+success.** Seeding five notes left the count at zero (they went on the oldest order; the check
+opens the one the list shows first). Seeding them on every order left it at zero (the panel is
+gated on `Manage Order Note`, which the fixture merchant's role did not hold — while `Show Order`
+was true, which is why the page opened at all). Only the third attempt produced a note. Then,
+with the page finally populated, it yielded **four correctness defects and six contrast
+failures** in one sitting, including every address label and value at 1.10:1 and another tenant's
+downloadable file being linked.
+
+**So: seed the screen before you design it.** Not after, and not "it renders". The question is
+not whether the block appears; it is whether anyone has ever seen it with a row in it. Both times
+this phase, the answer was no, and both times the defects were waiting behind the empty state.
+
+## 4j. A guard that cannot fire is worse than no guard
+
+A backtick inside a probe's template literal ends the literal and the file stops parsing. It has
+now happened three times in this phase, always in a comment inside the probe where a backtick is
+the natural way to quote a column name, and Node's error points at the identifier *after* the
+stray backtick so it reads like an unrelated typo.
+
+The first version of `check-order-detail-live.cjs` answered that with a runtime check: if the
+probe string contains a backtick, print a message and exit. **It can never fire.** If the
+backtick is there the file does not parse, so no line in it runs — including that one. It looked
+like protection, it was written as protection, and it protected nothing.
+
+`node --check <file>` is the check that works, costs one command, and would have caught all three.
+Run it before invoking a tool you have just edited. The lesson generalises past this file: a guard
+placed downstream of the failure it is guarding against is decoration.
 
 ## 5. What a successor should do first
 
