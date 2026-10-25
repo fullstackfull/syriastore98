@@ -214,6 +214,7 @@ Phase 02 engineering may proceed on its own branch; this does **not** waive Phas
 | phase plan and evidence | `docs/development/phase-1/` |
 | **what Phase 02 was actually asked for** | **`docs/development/phase-2/PHASE-02-MASTER-EXECUTION-PROMPT.md`** — the owner's master execution prompt, verbatim and not to be edited. Workstreams A–K, slices P2-00…P2-08, and the completion criteria. Later clarifications are appended to it in their own dated section; status lives in `PHASE-02-TASK-LEDGER.md`, never there. |
 | Phase 02 status, evidence, parity, handoff | `docs/development/phase-2/` |
+| the Phase 02 acceptance report | `docs/development/phase-2/PHASE-02-ACCEPTANCE-REPORT-AR.md` (Arabic, for the owner) |
 | the Phase 0 audit | `docs/discovery/` |
 
 ---
