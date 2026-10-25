@@ -28,6 +28,11 @@
 @section('content')
     <div class="row">
         <div class="col-xl-12">
+            {{-- P2-04-8. Above the table, because it changes what the table shows. The same
+                 GET-form mechanism the product list uses — see that partial for why it needs
+                 no JavaScript. --}}
+            @include('order.partials.filters')
+
             <x-datatable :dataTable="$dataTable" />
         </div>
     </div>

@@ -213,13 +213,133 @@ class OrderDataTable extends DataTable
     /**
      * Get the query source of dataTable.
      */
-  public function query(Order $model): QueryBuilder
-{
-    return $model->newQuery()
-        ->with('ShippingMethod')
-        ->where('store_id', getCurrentStore())
-        ->orderBy('created_at', 'desc');
-}
+    /**
+     * P2-04-8. The caller's own orders, optionally NARROWED.
+     *
+     * THE STORE PREDICATE COMES FIRST AND IS NOT NEGOTIABLE. `Order` is not in
+     * `config/tenancy.php`'s `scoped_models` and registers no `StoreScope`, so this
+     * `where('store_id', ...)` is the ONLY thing keeping one merchant's orders out of another's
+     * list. Filters are applied after it and can only add predicates.
+     */
+    public function query(Order $model): QueryBuilder
+    {
+        $query = $model->newQuery()
+            ->with('ShippingMethod')
+            ->where('store_id', getCurrentStore())
+            ->orderBy('created_at', 'desc');
+
+        return $this->applyFilters($query);
+    }
+
+    /**
+     * P2-04-8 -- the list filters. The SAME SHAPE as `ProductDataTable::applyFilters()`,
+     * deliberately: two lists with two idioms for "read a filter from request input into a
+     * query" is how they drift apart, and this one carries a date range, which is the half with
+     * the sharp edges.
+     *
+     * `ss_`-prefixed, because the AJAX leg's url IS the page url (yajra's `minifiedAjax()` sets
+     * it that way), so DataTables' own `draw`, `columns`, `search`, `order`, `start` and
+     * `length` travel in the same query string. No JavaScript: the bar is a GET form and both
+     * legs see the same parameters.
+     *
+     * An unrecognised value adds no predicate. A filter can only narrow.
+     */
+    private function applyFilters(QueryBuilder $query): QueryBuilder
+    {
+        $request = request();
+
+        /*
+         * STATUS IS MATCHED AGAINST THE CONSTANTS, not against `0..6` or a literal list here.
+         * `orders.delivered_status` holds NINE values, and 7 (Partially Paid, a payment state)
+         * and 8 (Pre Order, an order type) sit in the same column as the seven fulfilment
+         * states -- host ledger F0. A filter offering only 0..6 would make those orders
+         * unreachable from the screen a merchant uses to find them.
+         */
+        $status = $request->query('ss_status');
+
+        if (is_string($status) && in_array($status, self::orderStatuses(), true)) {
+            $query->where('delivered_status', (int) $status);
+        }
+
+        /*
+         * PAYMENT IS AN EXACT MATCH, never a `LIKE`. "Paid" and "Partially Paid" are different
+         * financial states and a loose match would quietly merge them -- asserted directly,
+         * because that is the mistake a `LIKE` here would make and it would look like it worked.
+         */
+        $payment = $request->query('ss_payment');
+
+        if (is_string($payment) && in_array($payment, self::PAYMENT_STATUSES, true)) {
+            $query->where('payment_status', $payment);
+        }
+
+        $from = self::parseDate($request->query('ss_from'));
+
+        if ($from !== null) {
+            $query->where('order_date', '>=', $from->startOfDay());
+        }
+
+        $to = self::parseDate($request->query('ss_to'));
+
+        if ($to !== null) {
+            /*
+             * `endOfDay()`, AND THIS IS THE ONE THAT BITES. `order_date` is a datetime, so a
+             * naive `<= '2026-03-17'` compares against MIDNIGHT at the start of that day and
+             * silently drops every order placed on the date the merchant actually typed. The
+             * test fixture puts an order at 23:45 on the end date for exactly this reason.
+             */
+            $query->where('order_date', '<=', $to->endOfDay());
+        }
+
+        return $query;
+    }
+
+    /** The nine values `delivered_status` holds, as strings, read from the constants. */
+    private static function orderStatuses(): array
+    {
+        $statuses = [];
+
+        foreach ((new \ReflectionClass(\App\Http\Controllers\HomeController::class))->getConstants() as $name => $value) {
+            if (str_starts_with($name, 'ORDER_STATUS_')) {
+                $statuses[] = (string) $value;
+            }
+        }
+
+        return $statuses;
+    }
+
+    /** The payment states this application writes, as literals, matched exactly. */
+    public const PAYMENT_STATUSES = ['Paid', 'Unpaid', 'Partially Paid'];
+
+    /**
+     * A `Y-m-d` date, or null.
+     *
+     * `createFromFormat` WITH AN EXPLICIT FORMAT, not `Carbon::parse`. Parse is lenient in
+     * surprising ways -- `'0'`, `'now'` and `'+1 day'` all succeed -- so a merchant's typo or a
+     * hostile query string would silently become a real bound rather than being ignored. It also
+     * THROWS on nonsense, and an unhandled throw here is a 500 on the order list from a query
+     * string.
+     *
+     * The `->format() === $value` check is what makes it strict: `createFromFormat` happily
+     * rolls `2026-13-45` over into 2027, and only comparing the round-trip catches that.
+     */
+    private static function parseDate($value): ?\Carbon\Carbon
+    {
+        if (! is_string($value) || $value === '') {
+            return null;
+        }
+
+        try {
+            $date = \Carbon\Carbon::createFromFormat('Y-m-d', $value);
+        } catch (\Throwable $e) {
+            return null;
+        }
+
+        if ($date === false || $date->format('Y-m-d') !== $value) {
+            return null;
+        }
+
+        return $date;
+    }
 
     /**
      * Optional method if you want to use the html builder.

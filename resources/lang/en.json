@@ -2954,5 +2954,10 @@
     "Apply filters": "Apply filters",
     "Clear filters": "Clear filters",
     "Low stock": "Low stock",
-    "Applies to products with stock tracking on.": "Applies to products with stock tracking on."
+    "Applies to products with stock tracking on.": "Applies to products with stock tracking on.",
+    "Filter orders": "Filter orders",
+    "Any payment status": "Any payment status",
+    "Recorded in the same field, but not fulfilment states": "Recorded in the same field, but not fulfilment states",
+    "Unpaid": "Unpaid",
+    "Paid": "Paid"
 }

@@ -865,6 +865,7 @@ keeping one merchant's catalogue out of another's list. That is what these measu
 | `BrandLabelStatusAuthorizationTest` | 15 | P2-05-1: three toggles that were unauthorised cross-tenant writes on a GET — cross-tenant, per-permission, operator, the verb, a non-integer id, a NULL-store row, and that the switch is DISABLED for a caller the handler would refuse |
 | `StateChangingGetInventoryTest` | 4 | the set of host GET routes whose handler writes cannot grow, and cannot carry a stale row |
 | `ProductListFilterTest` | 12 | P2-03-2: each filter narrows to what it names, the three stock filters PARTITION the tracked products on boundary values, and no filter value — including SQL fragments — reaches another tenant or returns more rows than no filter |
+| `OrderListFilterTest` | 14 | P2-04-8: status (all NINE values, including the two that are not fulfilment states), payment as an exact match, and a date range whose end is inclusive of the whole day |
 | `order_status_label_test.dart` (Flutter) | 27 | P2-07-6: all nine statuses in both locales, that no label still looks like a translation key, that an Arabic locale yields Arabic characters, that each label resolves the KEY it should, and that every badge colour pair clears AA |
 | `DashboardPermissionNamesTest` | 1 | every `isAbleTo()` name in the merchant views can actually be granted |
 | `AdminLayoutAssetsTest` | 2 | every `asset()` path in the admin layout resolves to a real file |
@@ -920,6 +921,11 @@ redundant, which is the tempting reading and was wrong every time it was tried.
 | the stock filter's `track_stock` guard | 1 failed — an untracked product reported as out of stock |
 | the low-stock boundary made exclusive (`<` for `<=`) | 1 failed — the partition case, on a stock exactly equal to the threshold |
 | the filter reads' `is_string` guards (all four) | **0 failed**, and the comment claiming they prevented a 500 was wrong: strict `in_array` and `filter_var` both decline an array on their own. Kept, with the reason corrected — the next filter added there may compare directly, which is where `?ss_x[]=` becomes a 500 |
+| the order range's `endOfDay()` | 1 failed — an order at 23:45 on the END date vanished from its own range |
+| the payment filter matched with `LIKE` | 1 failed — "Partially Paid" answered a request for "Paid" |
+| the order statuses limited to 0–6 | 1 failed — a Pre Order became unfindable from the list |
+| the strict date parse replaced by `Carbon::parse` | 1 failed — `'0'` and `'now'` became real bounds |
+| the order list's store predicate | 1 failed — the cross-tenant case, which drives 11 filter values |
 | a duplicate key and an Arabic-only key reintroduced into `ar.json` | 2 of 5 failed |
 | the brand **store predicate** | 3 failed — both cross-tenant cases and the NULL-store case |
 | the brand **permission check** | 2 failed |

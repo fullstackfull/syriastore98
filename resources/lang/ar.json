@@ -2985,5 +2985,8 @@
     "Apply filters": "تطبيق المرشّحات",
     "Clear filters": "مسح المرشّحات",
     "Low stock": "مخزون منخفض",
-    "Applies to products with stock tracking on.": "ينطبق على المنتجات التي يُتابَع مخزونها فقط."
+    "Applies to products with stock tracking on.": "ينطبق على المنتجات التي يُتابَع مخزونها فقط.",
+    "Filter orders": "تصفية الطلبات",
+    "Any payment status": "أي حالة دفع",
+    "Recorded in the same field, but not fulfilment states": "مُسجَّلة في الحقل نفسه، لكنها ليست حالات تنفيذ"
 }
