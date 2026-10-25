@@ -37,7 +37,8 @@ document is cited instead — inventing a register ID would be worse than citing
 | P2-01-9 | Drive the panel, action bar and dirty guard in a browser | — | **DONE** | `tools/previews/components.blade.php`, `browser-checks-p02.cjs` | 21 interactive checks: focus trap (8/8), Esc, scroll lock, focus return to trigger, dirty guard armed by typing and **not** by focus, summary focus move, RTL panel edge | — |
 | P2-01-12 | Fix the wrong-sense Arabic in the merchant surface | — | **DONE** | `resources/lang/ar.json` | 8 entries changed, 0 removed; re-rendered and re-shot | **owner: needs a native reviewer before release** |
 | P2-01-10 | Menu registry returns data, not an HTML string | ADMIN-LAYOUT §0 | **DONE** | `app/Helper/helper.php`, `resources/views/partision/menu-tree.blade.php` | `verify-menu-render-parity.php` — 17 checks, DOM-tree comparison + selector assertions; **bites twice** (a wrapper div and a dropped `.dash-mtext` each produce 6 failures). Reviewed by `tenant-authz-reviewer`: gates unmoved, no tenant read, no request input. Rendered in Chromium at 1440x900 and 390x760, en/ar x light/dark — 7 screenshots in `screenshots/p2-01-sidebar-nav/`, **reviewed, and the review found a harness bug** (the preview took the non-default `cust_theme_bg` branch; see F8) | — |
-| P2-01-11 | Sidebar zones, workspace chip, collapsed rail | UX | **TODO** (blocked by P2-01-10) | — | — | — |
+| P2-01-11 | Sidebar zones, workspace chip, collapsed rail | UX | **TODO** — now UNBLOCKED (P2-01-10 is done) | — | — | — |
+| P2-01-13 | Sidebar navigation legible below 1025px | WCAG AA | **DONE** | `public/css/custom.css`, `public/css/rtl-custom.css` | 10 browser checks across 5 widths x 2 languages, **bite-tested** (revert → exactly 8 failures, 1440px pair still passes); active/hover verified to keep `#fff` at 390px and 1440px; pre-existing DS suite still **66/0** | — |
 
 ## Slice P2-02 — merchant dashboard (Workstream C)
 
