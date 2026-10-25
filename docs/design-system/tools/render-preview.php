@@ -156,6 +156,81 @@ class PreviewUser
     public $type = 'admin';
     public function isAbleTo($permission) { return permission_check($permission); }
     public function can($permission) { return permission_check($permission); }
+
+    /* P2-01-11. The workspace chip asks the authenticated user which stores it
+     * may switch into. $SS_STORES is set by a fixture; the DEFAULT IS ONE
+     * STORE, not several, because the single-store chip renders as static text
+     * while the multi-store one renders a listbox — and defaulting to the
+     * richer branch would show every screen's preview a control most merchants
+     * never see. */
+    public $current_store = 1;
+    public function switchableStores()
+    {
+        global $SS_STORES;
+        return collect($SS_STORES ?? [new PreviewStore(1, 'Linen & Co')]);
+    }
+}
+
+/** Shaped like the columns partision/workspace-chip.blade.php actually reads. */
+class PreviewStore
+{
+    public $id;
+    public $name;
+    public function __construct($id, $name) { $this->id = $id; $this->name = $name; }
+}
+
+/**
+ * The few Collection methods the previews use. Not a reimplementation of
+ * Illuminate's: if a view starts needing map/filter/sortBy, add them here
+ * rather than quietly changing the view to use arrays, or the preview stops
+ * exercising the same code as production.
+ */
+class PreviewCollection implements IteratorAggregate, Countable
+{
+    private $items;
+    public function __construct(array $items = []) { $this->items = $items; }
+    public function count(): int { return count($this->items); }
+    public function getIterator(): Iterator { return new ArrayIterator($this->items); }
+}
+
+if (!function_exists('collect')) {
+    function collect($items = []) { return new PreviewCollection(is_array($items) ? $items : [$items]); }
+}
+
+/* P2-02-9: the dashboard reads HomeController's order-status constants, so a
+ * preview needs them. They are EXTRACTED FROM THE REAL CONTROLLER rather than
+ * copied, for the same reason the sidebar fixture extracts menuTree(): a
+ * hand-copied 0..8 here would silently stop matching the day someone renumbers
+ * a status, and the preview would then show a confident wrong label.
+ *
+ * The class cannot simply be autoloaded -- it extends Laravel's Controller and
+ * there is no framework here -- so only the constants are lifted. */
+if (!class_exists('App\\Http\\Controllers\\HomeController')) {
+    $__ssCtl = @file_get_contents(dirname(__DIR__, 3) . '/app/Http/Controllers/HomeController.php');
+    $__ssConsts = '';
+    if ($__ssCtl !== false && preg_match_all(
+            '/public const (ORDER_STATUS_[A-Z_]+)\s*=\s*(\d+);/', $__ssCtl, $__ssM, PREG_SET_ORDER)) {
+        foreach ($__ssM as $__ssC) {
+            $__ssConsts .= "    public const {$__ssC[1]} = {$__ssC[2]};\n";
+        }
+    }
+    if ($__ssConsts === '') {
+        fwrite(STDERR, "HARNESS: no ORDER_STATUS_* constants found in HomeController -- "
+            . "the dashboard preview would fail, or worse, render every order as an unknown status.\n");
+        exit(3);
+    }
+    eval("namespace App\\Http\\Controllers; class HomeController {\n{$__ssConsts}}");
+}
+
+if (!function_exists('getStoreById')) {
+    function getStoreById($id)
+    {
+        global $SS_STORES;
+        foreach ($SS_STORES ?? [] as $s) {
+            if ((int) $s->id === (int) $id) return $s;
+        }
+        return new PreviewStore((int) $id, 'Linen & Co');
+    }
 }
 
 class PreviewAuth
@@ -841,6 +916,15 @@ $html = <<<HTML
   </div>
 </div>
 <template id="ss-pushed-scripts">{$pushedJs}</template>
+<!-- P2-01-11: the sidebar's own behaviour, loaded the same way
+     partision/footerlink.blade.php loads it in production.
+
+     Without it a preview renders a workspace chip that cannot be opened and a
+     rail toggle with no state, and a browser check driving either would be
+     measuring an absence rather than the behaviour -- which is exactly what
+     happened: "ArrowDown moves focus into the list" failed with 3 options
+     present, because no listener existed to move it. -->
+<script src="/js/store-syria-nav.js"></script>
 </body>
 </html>
 HTML;

@@ -3,21 +3,41 @@
    ==========================================================================
 
    WHAT THIS IS
-   A single, additive, opt-in stylesheet. It defines the Store Syria design
-   tokens and a small set of reusable components for the merchant and Super
-   Admin administration.
+   A single, additive stylesheet. It defines the Store Syria design tokens and
+   a set of reusable components for the merchant and Super Admin
+   administration.
 
-   HOW IT IS LOADED
-   Nothing loads it globally. A page opts in from its own Blade view:
+   HOW IT IS LOADED  —  CHANGED IN P2-01-11, AND THIS SECTION USED TO SAY THE
+   OPPOSITE. It is now loaded GLOBALLY, from two places:
+
+       layouts/app.blade.php        every admin page
+       partision/head.blade.php     layouts/main.blade.php's pages
+
+   It had to move because the SIDEBAR became a design-system consumer: the
+   workspace chip (.ss-workspace) and the nav-group headings (.ss-navgroup) are
+   components in this file, and the sidebar is rendered by the layout on every
+   page. Opting in per screen would have left them unstyled almost everywhere —
+   and `.ss-visually-hidden` undefined, which turns screen-reader-only labels
+   into ordinary visible text rather than failing quietly.
+
+   The per-screen opt-in still works and is still used:
 
        @push('css')
            <link rel="stylesheet" href="{{ asset('css/store-syria-ds.css') }}">
        @endpush
 
-   `layouts/app.blade.php:176` already renders @stack('css'), so no shared
-   layout file has to be edited and no screen that does not opt in is affected
-   in any way. That is deliberate: this is a production multi-tenant system and
-   a foundation sprint must not be able to regress a screen it never touched.
+   WHY GLOBAL LOADING DOES NOT REGRESS A SCREEN THIS FILE NEVER TOUCHED — which
+   was the whole reason for the original opt-in, and still matters: no selector
+   here can match an element outside the design system. Every subject is an
+   `.ss-` class, except `:root`, the two `[data-ss-theme=...]` blocks (custom
+   properties only), the keyframes, and `.ss-sort-list .ui-sortable-placeholder`
+   at :833 — whose subject is jQuery UI's class but which is descendant-scoped
+   under `.ss-sort-list` and so cannot fire outside a DS sort list. Nothing in
+   the application uses an `.ss-` class. The enumeration is spelled out in the
+   comment at layouts/app.blade.php where the link lives.
+
+   KEEP IT TRUE. The standing rule — never style a bare element selector — is
+   what makes global loading safe. It is no longer a style preference.
 
    NAMING
    Every custom property is `--ss-*` and every class is `.ss-*`. Nothing here
@@ -1098,6 +1118,19 @@
    satisfied without downloading a second family — which matters here because
    --ss-font-sans deliberately inherits the host's own family and declares the
    Arabic faces ahead of any Latin fallback. Works for Arabic-Indic digits too. */
+/* An IDENTIFIER, not a figure: an order reference, SKU or invoice number.
+   Distinct from .ss-num because isolation alone is not enough for these.
+   `unicode-bidi: isolate` keeps a run from reordering against its neighbours,
+   but the run's own direction is still inherited -- so inside an Arabic table
+   `#SY-10427` put the neutral `#` at the visual end and rendered `SY-10427#`,
+   which is not the reference the merchant reads back to a customer.
+   `direction: ltr` is what pins the prefix to the start. */
+.ss-ident {
+    direction: ltr;
+    unicode-bidi: isolate;
+    font-variant-numeric: tabular-nums;
+}
+
 .ss-num {
     font-variant-numeric: tabular-nums;
     font-feature-settings: "tnum" 1;
@@ -1565,6 +1598,95 @@
 }
 .ss-workspace__meta { display: block; font-size: var(--ss-text-xs); color: var(--ss-fg-subtle); }
 
+/* The chip's own extras, added in P2-01-11 when the component was first
+   actually rendered. The base above was built in P2-01-1 against the design,
+   before anything consumed it.
+
+   --static: one store means the switcher would open a list of one, so the
+   chip renders as text. It must not look pressable. */
+.ss-workspace--static { cursor: default; }
+.ss-workspace--static:hover { background: var(--ss-surface); }
+
+.ss-workspace__caret {
+    flex: 0 0 auto;
+    margin-inline-start: auto;
+    color: var(--ss-fg-subtle);
+}
+.ss-workspace__tick { margin-inline-start: auto; }
+
+/* The switcher popup. Positioning only -- the surface, border and shadow are
+   .ss-menu's, so the chip's dropdown and every other menu stay one thing. */
+.ss-workspace-wrap { position: relative; }
+.ss-workspace__list {
+    position: absolute;
+    z-index: var(--ss-z-dropdown);
+    inset-inline: 0;
+    margin-block-start: var(--ss-space-1);
+    max-height: 17.5rem;
+    overflow-y: auto;
+}
+
+/* ---- Collapsed-rail toggle ----
+   Sits in the sidebar's search row. The collapse behaviour itself is the
+   host's (body.minimenu, assets/js/dash.js:71); this is only its trigger. */
+.ss-rail-toggle {
+    flex: 0 0 auto;
+    /* NO `display` HERE, AND NO `place-items`. The host hard-codes
+       `#vertical-nav-toggle { display: block !important }` in
+       assets/css/style.css -- at top level AND again inside
+       @media (min-width: 1025px) -- which is an ID selector carrying
+       !important, so no class rule the design system can write will ever beat
+       it. A first version set `display: grid; place-items: center` and both
+       were inert: the box computed `block` at every width and the icon
+       happened to look centred for an unrelated reason.
+       So the button is centred as the block box it is forced to be. */
+    width: 1.875rem;
+    height: 1.875rem;
+    line-height: 1.875rem;
+    text-align: center;
+    margin-inline-start: auto;
+    border: 0;
+    border-radius: var(--ss-radius-sm);
+    background: transparent;
+    color: var(--ss-fg-subtle);
+    cursor: pointer;
+}
+.ss-rail-toggle:hover { background: var(--ss-surface-hover); color: var(--ss-fg); }
+.ss-rail-toggle:focus-visible {
+    outline: var(--ss-focus-width) solid var(--ss-focus-ring);
+    outline-offset: var(--ss-focus-offset);
+}
+
+/* A 70px rail fits no store name, and a truncated one is worse than none, so
+   the chip goes.
+
+   THE TOGGLE STAYS, and that is a correctness fix rather than a preference.
+   The first version hid it too. It is the ONLY `#vertical-nav-toggle` in the
+   repository, no `.minimenu` rule in any theme reveals another expand
+   affordance, and layouts/app.blade.php restores `body.minimenu` from
+   localStorage on every page load — so one click collapsed the sidebar,
+   removed the control that undoes it, and made that permanent for that
+   browser until the merchant cleared site data. The feature had been
+   unreachable since it shipped, so nobody could reach the state; rendering
+   the trigger is what opened the door, and hiding it was removing the
+   handle. */
+.minimenu .ss-workspace-wrap { display: none; }
+
+/* In the rail the toggle is all that is left in the search row, so it centres
+   rather than sitting at the end of a row that no longer exists.
+   Note this CAN apply where `display` could not: the host's !important rule
+   constrains only `display`, not margin. */
+.minimenu .ss-rail-toggle { margin-inline: auto; }
+
+/* Worth recording, because an independent review raised it as a trap and the
+   measurement says otherwise: hiding this button in the rail would strand a
+   merchant with a collapsed sidebar and no way to expand it, since the state
+   is persisted to localStorage and re-applied on every page load. The design
+   system therefore does not hide it -- AND COULD NOT IF IT TRIED. The host's
+   `display: block !important` on the id wins over anything here, so the trap
+   was never reachable in the first place. Both facts are kept: the intent, and
+   the reason the intent cannot be undone from this file. */
+
 /* ---- Nav group heading ----
    Sentence case, not tracked-out capitals: an ALL-CAPS eyebrow label is a
    template tell, and capitals are also meaningless in Arabic. */
@@ -1573,7 +1695,80 @@
     margin: 0;
     font-size: var(--ss-text-xs);
     font-weight: var(--ss-weight-semibold);
-    color: var(--ss-fg-subtle);
+    /* --ss-fg-muted (grey-600), NOT --ss-fg-subtle (grey-500), and the
+       difference is measured rather than aesthetic. This component is the
+       first thing to render on a HOST surface instead of an .ss-* one: the
+       sidebar's page background is #f8f9fd, where grey-500 measures 4.46:1 --
+       under AA, by 0.04. On the design system's own --ss-surface (#ffffff) it
+       is 4.69:1 and passes, which is why the 58-pair contrast checker never
+       saw it; the checker verifies tokens against DS surfaces.
+       grey-600 measures 5.65:1 on #f8f9fd and 5.94:1 on white. */
+    color: var(--ss-fg-muted);
+}
+
+/* ---- Bar chart (P2-02-8) ----
+   CSS bars, not a charting library. Three reasons, in order of weight:
+   the owner's instruction is to add no analytics engine; a library would be a
+   third-party script on every dashboard load for seven numbers; and a canvas
+   chart cannot be read by a screen reader, restyled by the theme tokens, or
+   mirrored for RTL without per-library special-casing. These bars inherit the
+   tokens and mirror because the grid direction follows `dir`.
+
+   The chart is DECORATIVE MARKUP. The accessible representation is the <table>
+   that ships beside it -- see components/ss/bar-chart.blade.php. */
+.ss-chart {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: 1fr;
+    align-items: end;
+    gap: var(--ss-space-2);
+    /* Fixed height: bars are a proportion of it, so a day with 0 orders and a
+       day with 400 share one scale and the shape means something. */
+    block-size: 8rem;
+    padding-block-start: var(--ss-space-2);
+    border-block-end: 1px solid var(--ss-border);
+}
+.ss-chart__col {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    block-size: 100%;
+    min-inline-size: 0;
+}
+.ss-chart__bar {
+    inline-size: 100%;
+    min-block-size: 2px;          /* a zero day is still a visible baseline */
+    border-start-start-radius: var(--ss-radius-sm);
+    border-start-end-radius: var(--ss-radius-sm);
+    background: var(--ss-brand);
+}
+.ss-chart__bar--zero { background: var(--ss-border-strong); }
+.ss-chart__labels {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: 1fr;
+    gap: var(--ss-space-2);
+    margin-block-start: var(--ss-space-2);
+}
+.ss-chart__label {
+    font-size: var(--ss-text-xs);
+    color: var(--ss-fg-muted);
+    text-align: center;
+    /* Tabular figures so 1 Oct and 11 Oct do not shift the column rhythm, and
+       isolate so an Arabic-Indic numeral beside a Latin month does not flip. */
+    font-variant-numeric: tabular-nums;
+    unicode-bidi: isolate;
+}
+/* The disclosure that reveals the same numbers as a table. */
+.ss-chart-data > summary {
+    cursor: pointer;
+    padding-block: var(--ss-space-2);
+    font-size: var(--ss-text-sm);
+    color: var(--ss-fg-muted);
+}
+.ss-chart-data > summary:focus-visible {
+    outline: var(--ss-focus-width) solid var(--ss-focus-ring);
+    outline-offset: var(--ss-focus-offset);
 }
 
 /* ---- Command palette ---- */

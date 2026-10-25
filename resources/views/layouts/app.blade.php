@@ -51,7 +51,22 @@
 @endphp
 
 <!DOCTYPE html>
-<html lang="{{ str_replace('_', '-', ($setting['currantLang'] ?? app()->getLocale())) }}" dir="{{ isset($setting['SITE_RTL']) && $setting['SITE_RTL'] == 'on'? 'rtl' : '' }}" id="html-dir-tag">
+{{-- P2-01-11: data-ss-theme is set SERVER-SIDE here, not only by the opt-in
+     include at layouts/includes/store-syria-ds.blade.php.
+
+     That include is per-page (dashboard, attribute_option, previews), but the
+     SIDEBAR is rendered by this layout on EVERY page -- so sidebar rules that
+     need to know the theme could not rely on it. Setting the attribute here
+     makes the theme known to CSS on every page, with no script and no
+     flash-of-wrong-theme.
+
+     `data-ss-theme-source="host"` is set with it on purpose: the brand-settings
+     page swaps #main-style-link's href live, and the include's sync() only
+     removes an attribute whose source is "host". Omitting it would leave a
+     stale data-ss-theme="dark" behind when a merchant toggles to light without
+     reloading. --}}
+<html lang="{{ str_replace('_', '-', ($setting['currantLang'] ?? app()->getLocale())) }}" dir="{{ isset($setting['SITE_RTL']) && $setting['SITE_RTL'] == 'on'? 'rtl' : '' }}" id="html-dir-tag"
+    @if (isset($setting['cust_darklayout']) && $setting['cust_darklayout'] == 'on') data-ss-theme="dark" data-ss-theme-source="host" @endif>
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=0, minimal-ui" />
@@ -117,6 +132,56 @@
         <link rel="stylesheet" href="{{ asset('css/loader.css') }}{{ '?v=' . time() }}" >
     @endif
 
+    {{-- P2-01-11: the design system is loaded for EVERY admin page now, not
+         only the screens that opt in via layouts/includes/store-syria-ds.blade.php.
+
+         Why it moved: the sidebar is shared chrome rendered by this layout on
+         every page, and its workspace chip and nav-group headings are
+         design-system components (.ss-workspace, .ss-navgroup, built in
+         P2-01-1). Opting in per screen would have left them unstyled almost
+         everywhere — which is how the first attempt at this ended up with a
+         SECOND, duplicate copy of the chip's CSS in custom.css that then
+         collided with the real one.
+
+         Why that is safe for all 70 WorkDo modules: NO SELECTOR IN
+         store-syria-ds.css CAN MATCH AN ELEMENT OUTSIDE THE DESIGN SYSTEM.
+         That is the operative property, and it is checked rather than assumed.
+         The non-`.ss-` subjects in the file are:
+
+           :root (:52, :106)                custom properties only
+           [data-ss-theme="dark"] (:246)    custom properties only
+           [data-ss-theme="auto"] (:289)    custom properties only
+           @keyframes ss-spin, ss-shimmer   no subject
+           .ss-scope *                      scoped by an .ss- ancestor
+           [dir="rtl"] .ss-*  (11 of them)  likewise
+           .minimenu .ss-workspace-wrap     a HOST class as ancestor, .ss- subject
+           .ss-sort-list .ui-sortable-placeholder (:833)
+
+         That last one is the exception worth knowing, because a stricter claim
+         — "every selector carries an `.ss-` class" — is literally FALSE and an
+         earlier version of this comment made it. Its subject is jQuery UI's
+         own placeholder class, not an `.ss-` one. It is still unreachable
+         outside the design system: it is descendant-scoped under
+         `.ss-sort-list`, so it can only fire inside a DS sort list.
+
+         No existing markup in the application uses an `.ss-` class, so nothing
+         that was already on the page is restyled. Re-check this if the design
+         system's standing rule — never style a bare element selector — is ever
+         relaxed.
+
+         NOT COVERED BY ANY OF THAT: this slice also adds host-selector rules
+         to public/css/custom.css and rtl-custom.css —
+         `.dash-sidebar .sidebar-input` and its `.form-control` — which really
+         do restyle the host's sidebar search row on every admin page. They are
+         confined to `.dash-sidebar` and justified by a measurement recorded
+         beside them, but they are a host change and are not made safe by
+         anything written above.
+
+         The per-screen include remains and is now a no-op duplicate link on
+         those screens; it is kept so a screen outside this layout (guest,
+         theme_layout) can still opt in. --}}
+    <link rel="stylesheet" href="{{ asset('css/store-syria-ds.css') }}?v=p02-2">
+
     <link rel="stylesheet" href="{{ asset('assets/css/plugins/flatpickr.min.css') }}">
 
     <link rel="stylesheet" href="{{ asset('assets/css/summernote/summernote-bs4.css') }}">
@@ -180,6 +245,28 @@
 </head>
 
 <body class="{{ $themeColor ?? 'theme-3'}}">
+    {{-- P2-01-11: restore the collapsed rail BEFORE the sidebar paints.
+
+         This is inline and first-in-body rather than in store-syria-nav.js for
+         one reason: a deferred script runs after first paint, so the merchant
+         would see the full-width sidebar appear and then snap to the rail on
+         every single page load. Three lines here, no flash.
+
+         It only ever ADDS a class the host stylesheets already define
+         (38 `.minimenu` rules in each of style.css, style-dark.css and
+         style-rtl.css). localStorage is the right store for this and not a
+         users column: it is a per-DEVICE layout preference, and a merchant who
+         collapses the rail on a laptop has said nothing about their phone.
+         Wrapped in try/catch because localStorage throws, not returns null, in
+         a private window with site data blocked. --}}
+    <script>
+        try {
+            if (localStorage.getItem('ss-nav-rail') === 'collapsed') {
+                document.body.classList.add('minimenu');
+            }
+        } catch (e) {}
+    </script>
+
     @include('partision.sidebar')
 
     @include('partision.header')

@@ -57,6 +57,47 @@
      * superadmin.dashboard, so the operator-first ordering the rest of the
      * codebase needs does not apply here.
      */
+    /* P2-02-9: one order status -> one label and one tone.
+     *
+     * The integers are HomeController's own constants (P2-04-3), and the
+     * labels are the SAME strings the status breakdown below uses, so the
+     * latest-orders table and the chips cannot disagree about what a 4 is.
+     *
+     * 7 and 8 are deliberately NOT given fulfilment-looking tones. They are
+     * not fulfilment states at all -- 7 is Partially Paid, a PAYMENT state,
+     * and 8 is Pre Order, an ORDER TYPE -- all three living in one integer
+     * column is ledger finding F0. The breakdown names them separately for
+     * the same reason.
+     *
+     * An unknown value falls through to its own number rather than to
+     * "Pending": inventing a familiar label for a value nobody recognises is
+     * how a dashboard reports a state that is not happening.
+     */
+    $ssOrderLabels = [
+        \App\Http\Controllers\HomeController::ORDER_STATUS_PENDING        => __('Pending'),
+        \App\Http\Controllers\HomeController::ORDER_STATUS_DELIVERED      => __('Order Delivered'),
+        \App\Http\Controllers\HomeController::ORDER_STATUS_CANCEL         => __('Cancel Order'),
+        \App\Http\Controllers\HomeController::ORDER_STATUS_RETURN         => __('Order Return'),
+        \App\Http\Controllers\HomeController::ORDER_STATUS_CONFIRMED      => __('Confirmed Order'),
+        \App\Http\Controllers\HomeController::ORDER_STATUS_PICKED_UP      => __('Picked Up'),
+        \App\Http\Controllers\HomeController::ORDER_STATUS_SHIPPED        => __('Order Shipped'),
+        \App\Http\Controllers\HomeController::ORDER_STATUS_PARTIALLY_PAID => __('Partially Paid'),
+        \App\Http\Controllers\HomeController::ORDER_STATUS_PRE_ORDER      => __('Pre Order'),
+    ];
+    $ssOrderTones = [
+        \App\Http\Controllers\HomeController::ORDER_STATUS_PENDING        => 'warning',
+        \App\Http\Controllers\HomeController::ORDER_STATUS_DELIVERED      => 'success',
+        \App\Http\Controllers\HomeController::ORDER_STATUS_CANCEL         => 'danger',
+        \App\Http\Controllers\HomeController::ORDER_STATUS_RETURN         => 'danger',
+        \App\Http\Controllers\HomeController::ORDER_STATUS_CONFIRMED      => 'info',
+        \App\Http\Controllers\HomeController::ORDER_STATUS_PICKED_UP      => 'info',
+        \App\Http\Controllers\HomeController::ORDER_STATUS_SHIPPED        => 'info',
+        \App\Http\Controllers\HomeController::ORDER_STATUS_PARTIALLY_PAID => 'neutral',
+        \App\Http\Controllers\HomeController::ORDER_STATUS_PRE_ORDER      => 'neutral',
+    ];
+    $ssOrderLabel = fn (int $s) => $ssOrderLabels[$s] ?? __('Status :code', ['code' => $s]);
+    $ssOrderTone  = fn (int $s) => $ssOrderTones[$s] ?? 'neutral';
+
     $ssMayOrders    = auth()->check() && auth()->user()->isAbleTo('Manage Order');
     $ssMayProducts  = auth()->check() && auth()->user()->isAbleTo('Manage Product');
     $ssMayCustomers = auth()->check() && auth()->user()->isAbleTo('Manage Customer');
@@ -210,5 +251,159 @@
             </p>
         </x-slot:footer>
     </x-ss.card>
+
+    {{-- P2-02-8: the weekly orders series.
+
+         GATED ON `Manage Order`, the same permission as every other order
+         figure on this page (P2-02-10). /dashboard carries no permission
+         middleware, so a staff member whose role grants only, say, Manage Blog
+         reaches this view; order volume per day is order data and is not
+         theirs. Omitted entirely rather than zeroed -- the data exists and
+         this viewer may not see it, and those are different statements.
+
+         The series is $chartData, which HomeController::handleRegularUser()
+         has been putting in this view's scope all along (line 323) while NO
+         view rendered it. That is ledger F6: the same variable was being built
+         from PlanOrder for merchant staff, platform-wide and unscoped, and was
+         harmless only because nothing drew it. P2-02-12 fixed the branch
+         first, for exactly this moment -- rendering it is what would have
+         turned that latent defect live. --}}
+    {{-- The card renders even when the series is empty, and that is the
+         opposite of how "Needs attention" behaves two regions up. The
+         difference is what absence MEANS. An absent attention block says
+         "nothing needs attention", which is self-evident. An absent chart says
+         nothing at all -- the merchant cannot tell a quiet week from a widget
+         that failed to load. So an empty series gets an explicit empty state,
+         and only the permission gate removes the card. --}}
+    @if ($ssMayOrders && isset($chartData))
+        <x-ss.card :title="__('Orders per day')" class="mt-4">
+            <x-ss.bar-chart :labels="$chartData['label']"
+                            :values="$chartData['data']"
+                            :title="__('Orders per day')"
+                            :value-label="__('Orders')"
+                            :period="__('last 7 days')" />
+
+            <x-slot:footer>
+                <p class="ss-stat__period">
+                    {{-- Says what is counted and what is not. An order placed
+                         and cancelled the same day is still an order placed,
+                         and a chart that quietly excluded it would disagree
+                         with the status breakdown above. --}}
+                    {{ __('Orders placed each day, last 7 days. Counts every order by the day it was created, whatever its status since.') }}
+                </p>
+            </x-slot:footer>
+        </x-ss.card>
+    @endif
+
+    {{-- P2-02-9: the two "what just happened / what sells" lists.
+
+         BOTH DATASETS WERE ALREADY IN THIS VIEW'S SCOPE and rendered by
+         nothing: handleRegularUser() has been passing $new_orders and
+         $topSellingProducts all along. Neither needed a controller change,
+         and checking that was the point — a new query here would have been a
+         new chance to get a tenant predicate wrong.
+
+         Both are scoped AT SOURCE, verified rather than assumed:
+           $orderQuery   = Order::where('store_id', getCurrentStore())    :198
+           $productQuery = Product::where(...)->where('store_id', ...)    :197
+         $topSellingProducts is doubly covered — the ids come from
+         (clone $orderQuery) and are then intersected with (clone $productQuery).
+         That matters because Product registers NO StoreScope and is not in
+         config/tenancy.php's scoped_models, so an unscoped Product query here
+         would have reached every tenant's catalogue.
+
+         Gated separately: orders on Manage Order, products on Manage Product.
+         /dashboard carries no permission middleware, so a staff member with
+         only one of the two must see only that one. --}}
+    @if ($ssMayOrders || $ssMayProducts)
+        <div class="ss-row mt-4">
+            @if ($ssMayOrders)
+                <x-ss.card :title="__('Latest orders')">
+                    @if (!empty($new_orders) && count($new_orders))
+                        <div class="ss-table-wrap">
+                            <table class="ss-table">
+                                <caption class="ss-visually-hidden">{{ __('The four most recent orders') }}</caption>
+                                <thead>
+                                    <tr>
+                                        <th scope="col">{{ __('Order') }}</th>
+                                        <th scope="col">{{ __('Status') }}</th>
+                                        <th scope="col" class="ss-table__num">{{ __('Order value') }}</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach ($new_orders as $ssOrder)
+                                        <tr>
+                                            <th scope="row">
+                                                {{-- product_order_id is the merchant-facing reference;
+                                                     the primary key is not shown because it is not what
+                                                     a merchant reads back to a customer. --}}
+                                                <span class="ss-ident">#{{ $ssOrder->product_order_id }}</span>
+                                            </th>
+                                            <td>
+                                                <x-ss.status-badge
+                                                    :tone="$ssOrderTone((int) $ssOrder->delivered_status)"
+                                                    :label="$ssOrderLabel((int) $ssOrder->delivered_status)" />
+                                            </td>
+                                            <td class="ss-table__num ss-num">
+                                                {{ currency_format_with_sym($ssOrder->final_price) }}
+                                            </td>
+                                        </tr>
+                                    @endforeach
+                                </tbody>
+                            </table>
+                        </div>
+                        <x-slot:footer>
+                            <p class="ss-stat__period">
+                                {{-- The same qualification the order-value stat carries. Phase 01's
+                                     P1-PAY-04 established Delivered is not Paid. --}}
+                                {{ __('Gross order value, not cash collected.') }}
+                            </p>
+                        </x-slot:footer>
+                    @else
+                        <x-ss.empty :title="__('No orders yet')" />
+                    @endif
+                </x-ss.card>
+            @endif
+
+            @if ($ssMayProducts)
+                <x-ss.card :title="__('Best selling products')">
+                    @if (!empty($topSellingProducts) && count($topSellingProducts))
+                        <div class="ss-table-wrap">
+                            <table class="ss-table">
+                                <caption class="ss-visually-hidden">{{ __('Products appearing most often in this store\'s orders') }}</caption>
+                                <thead>
+                                    <tr>
+                                        <th scope="col">{{ __('Product') }}</th>
+                                        <th scope="col" class="ss-table__num">{{ __('Price') }}</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach ($topSellingProducts as $ssProduct)
+                                        <tr>
+                                            <th scope="row"><span class="ss-truncate">{{ $ssProduct->name }}</span></th>
+                                            <td class="ss-table__num ss-num">
+                                                {{ currency_format_with_sym($ssProduct->price) }}
+                                            </td>
+                                        </tr>
+                                    @endforeach
+                                </tbody>
+                            </table>
+                        </div>
+                        <x-slot:footer>
+                            <p class="ss-stat__period">
+                                {{-- Ranked by HOW MANY ORDERS NAME THE PRODUCT (HomeController:219-234
+                                     groups order rows by product_id and counts them), not by quantity
+                                     sold and not by value. Saying "best selling" without saying by what
+                                     measure is the kind of claim PRD-001 exists to stop. --}}
+                                {{ __('Ranked by how many orders include the product, all time.') }}
+                            </p>
+                        </x-slot:footer>
+                    @else
+                        <x-ss.empty :title="__('No sales yet')" />
+                    @endif
+                </x-ss.card>
+            @endif
+        </div>
+    @endif
 
 </div>

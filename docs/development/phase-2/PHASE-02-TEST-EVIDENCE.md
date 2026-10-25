@@ -299,7 +299,7 @@ Counts, all executed on Chromium 153 at the head this file documents:
 
 | suite | result |
 |---|---|
-| `docs/development/phase-2/tools/browser-checks-p02.cjs` | **110 PASSED, 0 FAILED** (was 100; +10 sidebar legibility) |
+| `docs/development/phase-2/tools/browser-checks-p02.cjs` | **159 PASSED, 0 FAILED** (100 → 110 legibility → 137 zones/chip/rail → 148 orders chart → 159 keyboard, rail and the two dashboard lists) |
 | `docs/design-system/tools/browser-checks.cjs` (pre-existing) | **66 PASSED, 0 FAILED** — unchanged by the CSS fix |
 | `docs/design-system/tools/check-contrast.py` | **58 pairs pass**, light and dark |
 | `tests/Support/Security/bin/verify-menu-render-parity.php` | **17 checks**, all match |
@@ -384,9 +384,9 @@ unrun, and both green artefacts use stand-in Blade compilers, so view-finder res
 has no known-outcome allowance (`phpunit.xml:8-10` gates Feature only), so a first-run error there
 is a hard CI break. **Run `php artisan test --testsuite=Unit` before this slice is relied on.**
 
-## 5. Visual evidence — 33 screenshots, reviewed
+## 5. Visual evidence — 47 screenshots, reviewed
 
-16 in `p2-02-dashboard/`, 10 in `p2-01-components/`, 7 in `p2-01-sidebar-nav/` (§5a).
+23 in `p2-02-dashboard/`, 10 in `p2-01-components/`, 14 in `p2-01-sidebar-nav/` (§5a, §5b).
 
 `docs/development/phase-2/screenshots/p2-02-dashboard/`, real Chromium 153 at
 `deviceScaleFactor: 2`, full-page at desktop widths and true-viewport at 390px.
@@ -460,6 +460,141 @@ selector list **shared with `p` and `.dataTable-info`** — admin-wide across al
 branches plus the `minimenu` and `collapse-sidebar` variants. **With Composer blocked (§0) the
 Feature suite cannot run**, so that change currently has no regression evidence available. Recorded
 as ledger finding **F8** and proposed as its own slice.
+
+### 5b. P2-01-11 — four defects that only a screenshot found
+
+The sidebar zones, workspace chip and collapsed rail passed `php -l`, rendered without error, and
+measured correctly in a DOM probe while being visibly wrong. Each of these was caught by opening the
+PNG:
+
+1. **The rail toggle was an empty box.** `ti-layout-sidebar-left-collapse` is not in this build of
+   the icon font — `public/assets/fonts/tabler-icons.min.css` has no such rule — so the button
+   rendered at the right size, in the right place, containing nothing. A probe reported it
+   `display: block, visibility: visible`. Changed to `ti-layout-sidebar`, which exists.
+2. **The toggle's icon was pinned on top of the search magnifier.** The host positions the
+   magnifier with a *descendant* selector, `.sidebar-input i { position: absolute; left: 10px }`,
+   which also captured the `<i>` inside the new button. Measured: both icons at `x=46`, the button
+   itself at `x=285`.
+3. **The toggle was clipped outside the sidebar.** `.sidebar-input .form-control` is `width: 100%`,
+   so in a flex row it took everything and pushed the 30px button past the 280px edge — row
+   `x=36 w=279`, button `x=285`, sidebar ending at 316.
+4. **The chip was drawn inside a white box with a teal edge, on a dark sidebar.** A class-name
+   collision: `store-syria-ds.css:1539` *already defined* `.ss-workspace`, built in P2-01-1 for
+   exactly this chip, and the new CSS in `custom.css` collided with it.
+
+The fourth is the one worth keeping. **The component already existed and was rebuilt by accident** —
+accent, ellipsis, print rule and all. The fix was not to rename the duplicate but to delete it and
+use the real one, which then exposed the actual blocker: `store-syria-ds.css` shipped through a
+**per-screen** include while the sidebar is rendered by the layout on **every** screen. So the
+stylesheet is now loaded from `layouts/app.blade.php`.
+
+That is a change to all 70 WorkDo modules, so it was not made on an assumption. Every selector in
+the file was enumerated: all of them carry an `.ss-` class except `:root`, `*`, keyframes, and two
+`[data-ss-theme=…]` blocks — and those two contain **35 declarations each, zero of them anything but
+a custom property**. No markup in the application uses an `.ss-` class. The pre-existing DS suite
+re-ran at **66 PASSED, 0 FAILED** afterwards.
+
+Using the real component also produced a correctness fix the duplicate had got wrong: `.ss-navgroup`
+carries a comment refusing `text-transform: uppercase` because *capitals are meaningless in Arabic*
+and an ALL-CAPS eyebrow label is a template tell. The duplicate had used uppercase.
+
+**A measured AA failure came out of the same move.** `.ss-navgroup` used `--ss-fg-subtle`
+(grey-500). On the design system's own `--ss-surface` (`#ffffff`) that is 4.69:1 and passes, which
+is why the 58-pair contrast checker never flagged it — **the checker verifies tokens against DS
+surfaces**. The sidebar is a *host* surface, `#f8f9fd`, where the same token measures **4.46:1** —
+under AA by 0.04. Changed to `--ss-fg-muted` (grey-600): 5.65:1. The new browser checks measure the
+rendered pixels on the real surface, which is how it surfaced at all.
+
+### 5c. The sidebar checks, and what they are really protecting
+
+`browser-checks-p02.cjs` went from 100 to **137 checks, 0 failed**. Most of the new ones are not
+about appearance. The sidebar search at `layouts/app.blade.php:426` selects
+`.dash-navbar > .dash-item` with a **direct-child** combinator, so the obvious way to group items —
+wrapping each zone in a container — breaks search *with no error*. The checks therefore assert the
+DOM contract and then **drive the search's own algorithm** over the rendered page rather than
+reasoning about it.
+
+Bitten three ways, each the mistake it exists to catch:
+
+| mutation | result |
+|---|---|
+| wrap each zone's items in a `<div>` | **3 FAILED** — "every navbar child is an `<li>`", "nav entries are still DIRECT children", "a search query still matches real items" |
+| drop `dash-item` from the zone heading | **1 FAILED** — headings would stop hiding during a search |
+| revert `.ss-navgroup` to the 4.46:1 token | **1 FAILED** — at 1440px light only, naming the measured pair |
+
+That last row matters: the same check passes at 390px and in dark mode, so a single-viewport or
+single-theme run would have reported it clean.
+
+### 5d. Third independent review — seven defects, and one the review got wrong
+
+The `tenant-authz-reviewer` ran over P2-01-11 before commit. It confirmed the parts I was least sure
+of — `menuZones()` is a pure regrouping that cannot surface a gated item; `switchableStores()` could
+never be broader than `changeStore()` for any shape of `users.type`; the design system's global load
+cannot restyle host markup — and then found **seven defects, four of them functional**. All are
+fixed; the fixes are below because several are instructive.
+
+**1. The store switcher's keyboard path was dead and threw.** The JS queried
+`.ss-workspace__option` — a class that exists nowhere. It was left behind when the chip was
+refactored onto the design system's `.ss-menu__item`. `options()` returned `[]`, so ArrowDown opened
+the list and focused nothing, and arrowing inside it evaluated `opts[(i+1) % 0]` → `opts[NaN]` →
+`TypeError`. Mouse users saw a working menu. **Three browser checks now drive the keyboard.**
+
+**2. A shipped Unit test's premise had moved.** `MenuTreeParityTest:78` asserts exactly 2 direct
+`.dash-item` children; a zone heading is itself a `.dash-item` (by design — that is what makes the
+search hide it), so the count became 3. The counts were **not** loosened to `>=`: that assertion is
+what stands between a future wrapper element and a silently dead sidebar search. The flat case now
+pins `zones_enabled => false`, and a second case covers the zoned rendering with items and headings
+counted separately. Its expected numbers were verified by driving the real `menuZones()` against the
+real config — 2 items, 1 "More" heading — since PHPUnit cannot run here.
+
+**3. The operator's sidebar was being zoned with a merchant-shaped map.** `getMenu()` passes
+`$parent = null` for everyone, so `SuperAdminMenuListener`'s entries were zoned too — and only
+`plan` and `settings` are in the map, while the operator's landing entry is `dashboard`, not
+`admin_dashboard`. Result: "Administration" drawn first and the operator's own Dashboard, Users,
+Plan Request, Country and Currency under a heading called **"More"**, on every page. Zoning is now
+skipped for the operator.
+
+**4. The new literal broke the project's own ratchet.** Mirroring `changeStore()`'s
+`type !== 'super admin'` matched `OperatorCheckCensusTest`'s `strict against the literal` pattern,
+whose `CEILING` may only fall. The resolution was not to reword it — dodging the regex is what the
+ratchet exists to prevent — but to **stop asking the type question at all**: `switchableStores()`
+now scopes by `created_by = creatorId()` for everyone. For an operator `creatorId()` returns their
+own id, so they see the stores they created, which is **strictly narrower** than `changeStore()`
+accepts. That also removed an unbounded `Store::where('is_active',1)->get()` that hydrated every
+store on the platform on every operator page render.
+
+**5. The chip rendered dead on two real surfaces.** `store-syria-nav.js` was loaded only in
+`footerlink.blade.php`'s `@else` arm, so a tenant with `SidebarCustomization` active got a "Switch
+store" button with nothing to open it. And `layouts/main.blade.php` renders the sidebar but takes
+its head from `partision/head.blade.php`, which loaded neither the script nor the design system —
+and an undefined `.ss-visually-hidden` does not fail quietly: **"Current store:" and "Collapse menu"
+become ordinary visible text**, on nine live super-admin screens. Both files now load both assets.
+
+**6. `?v=` was not bumped** after `store-syria-ds.css` changed, so any browser holding the file from
+an earlier Phase 02 slice would have served the chip and the rail unstyled. All six references are
+now `p02-2`.
+
+**7. Three claims in my own comments were false** and are corrected in place, because each was the
+justification on record for something: that nothing linked to `change.store` (a header switcher has
+shipped all along — ledger F11); that "every selector in the design system carries an `.ss-` class"
+(`.ss-sort-list .ui-sortable-placeholder` does not, though it is still descendant-scoped and
+unreachable outside the DS); and the stale `app.blade.php:358-398` pointer to the sidebar search,
+which is at **`:421-461`** — swept across all eleven copies in code, tests and docs.
+
+**The one the review got wrong, and it is worth recording.** It reported the collapsed rail as a
+one-way trip: the toggle hid itself under `.minimenu` while the state persisted to localStorage, so
+one click would strand the merchant permanently. The reasoning was sound from the CSS alone, and I
+fixed it. But the browser disagreed — a bite that re-added the hide rule still **passed**. The
+measurement says why: the host sets `#vertical-nav-toggle { display: block !important }` in
+`style.css`, at top level *and* inside `@media (min-width: 1025px)`. An ID selector carrying
+`!important` beats anything a class rule can say, so the trap was never reachable — **and my own
+`.ss-rail-toggle { display: grid; place-items: center }` was equally inert**, which no one had
+noticed because the icon happened to look centred for an unrelated reason. The component is now
+centred as the block box the host forces (`line-height` + `text-align`, measured: 6px either side),
+and the check is bitten with a rule that *can* win rather than one that cannot.
+
+That is the second time in this phase a static reading and a measurement disagreed, and the second
+time the measurement was right.
 
 ## 6. Translations
 

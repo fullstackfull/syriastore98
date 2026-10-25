@@ -10,7 +10,7 @@
     THE DOM CONTRACT, which is not cosmetic:
 
       .dash-navbar > .dash-item        the inline sidebar search at
-      .dash-link                       layouts/app.blade.php:358-398 selects
+      .dash-link                       layouts/app.blade.php:421-461 selects
       .dash-mtext                      these, and `.dash-navbar > .dash-item`
       .dash-submenu                    uses a DIRECT-CHILD combinator. Wrap an
       .dash-arrow                      item in any new element and search stops

@@ -60,12 +60,24 @@ class MenuTreeParityTest extends TestCase
     /**
      * The DOM contract the inline sidebar search depends on.
      *
-     * layouts/app.blade.php:358-398 selects `.dash-navbar > .dash-item` with a
-     * DIRECT-CHILD combinator. A wrapper element breaks search with no error,
-     * so the nesting is asserted, not just the class names.
+     * layouts/app.blade.php:421-461 selects `.dash-navbar > .dash-item` with a
+     * DIRECT-CHILD combinator (`:426` and `:431`). A wrapper element breaks
+     * search with no error, so the nesting is asserted, not just the class
+     * names.
+     *
+     * ZONES ARE TURNED OFF FOR THIS CASE, deliberately. P2-01-11 made
+     * generateMenu() emit a zone heading -- itself a `.dash-item`, by design,
+     * so the search hides it along with the items -- which took this method's
+     * direct-child count from 2 to 3 and failed it. The counts were NOT
+     * loosened to `>=` to accommodate that: this assertion is the thing
+     * standing between a future wrapper element and a silently dead sidebar
+     * search, and an inequality would no longer catch one. So the flat
+     * rendering is pinned here, exactly as it shipped, and the zoned rendering
+     * gets its own case below.
      */
     public function test_the_rendered_dom_keeps_every_selector_the_sidebar_search_needs(): void
     {
+        config(['merchant-navigation.zones_enabled' => false]);
         $html = generateMenu($this->registry(), null);
 
         $doc = new \DOMDocument();
@@ -84,6 +96,54 @@ class MenuTreeParityTest extends TestCase
         $this->assertSame(2, $x->query('//li[contains(@class,"dash-item")]/ul[contains(@class,"dash-submenu")]')->length,
             '.dash-submenu must be a direct child of its .dash-item');
         $this->assertSame(2, $x->query('//a/span[contains(@class,"dash-arrow")]')->length);
+    }
+
+    /**
+     * The same contract, with zones ON -- which is the shipped default.
+     *
+     * A zone heading is emitted as a SIBLING `<li class="dash-item ss-nav-zone">`,
+     * never a wrapper, so the items stay direct children and the search keeps
+     * working. What changes is the count, and that is asserted exactly rather
+     * than relaxed: items and headings are counted separately, so a wrapper
+     * would still drive the item count to 0 and fail.
+     */
+    public function test_zones_add_headings_as_siblings_and_never_wrap_an_item(): void
+    {
+        config(['merchant-navigation.zones_enabled' => true]);
+        $html = generateMenu($this->registry(), null);
+
+        $doc = new \DOMDocument();
+        libxml_use_internal_errors(true);
+        $doc->loadHTML('<ul class="dash-navbar">' . $html . '</ul>',
+            LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        libxml_clear_errors();
+        $x = new \DOMXPath($doc);
+
+        $direct = '//ul[contains(@class,"dash-navbar")]/li[contains(@class,"dash-item")]';
+
+        $this->assertSame(
+            2,
+            $x->query($direct . '[not(contains(@class,"ss-nav-zone"))]')->length,
+            'the two top-level items must still be DIRECT children of .dash-navbar'
+        );
+        $this->assertSame(
+            1,
+            $x->query($direct . '[contains(@class,"ss-nav-zone")]')->length,
+            'the registry\'s names are unmapped, so both items land in one zone: "More"'
+        );
+        $this->assertSame(
+            0,
+            $x->query('//ul[contains(@class,"dash-navbar")]/div')->length,
+            'nothing may wrap an item -- that is what kills the sidebar search'
+        );
+        // A heading carries no link, which is what makes the search hide it.
+        $this->assertSame(
+            0,
+            $x->query($direct . '[contains(@class,"ss-nav-zone")]//a')->length
+        );
+        // The items themselves are untouched by grouping.
+        $this->assertSame(5, $x->query('//a[contains(@class,"dash-link")]')->length);
+        $this->assertSame(2, $x->query('//li[contains(@class,"dash-item")]/ul[contains(@class,"dash-submenu")]')->length);
     }
 
     /**

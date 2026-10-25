@@ -122,3 +122,15 @@ flutter test                          # 1189 passed
 | every command run and its output | `PHASE-02-TEST-EVIDENCE.md` |
 | the design decisions, written before the code | `design/P2-DESIGN-FOUNDATION.md` |
 | screenshots | `screenshots/p2-01-components/`, `screenshots/p2-02-dashboard/` |
+
+## Deploy note added by P2-01-11
+
+`config/merchant-navigation.php` is a **new** config file, and `generateMenu()` reads it through
+`config()` with a `false` default. On any environment that has run `php artisan config:cache`, the
+cache must be rebuilt or **zones silently stay off** — which looks exactly like the kill switch
+working, not like a deployment step that was missed.
+
+`public/css/store-syria-ds.css`, `public/css/custom.css`, `public/css/rtl-custom.css` and
+`public/js/store-syria-nav.js` all changed; the cache-busting token moved `p02-1` → `p02-2` in all
+six places that reference them.
+

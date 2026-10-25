@@ -128,7 +128,7 @@ if (!function_exists('generateMenu')) {
      * can read, instead of in string concatenation in a helper.
      *
      * The emitted DOM stays SELECTOR-COMPATIBLE and that is load-bearing: the
-     * inline sidebar search at layouts/app.blade.php:358-398 selects
+     * inline sidebar search at layouts/app.blade.php:421-461 selects
      * `.dash-navbar > .dash-item` with a DIRECT-CHILD combinator, so wrapping
      * an item in any new element breaks search with no error at all. The
      * classes `dash-item`, `dash-hasmenu`, `dash-link`, `dash-mtext` and
@@ -140,7 +140,126 @@ if (!function_exists('generateMenu')) {
      */
     function generateMenu($menuItems, $parent = null)
     {
-        return view('partision.menu-tree', ['nodes' => menuTree($menuItems, $parent)])->render();
+        $nodes = menuTree($menuItems, $parent);
+
+        /* P2-01-11: zones. Three conditions, each for its own reason.
+         *
+         * 1. TOP LEVEL ONLY. A submenu is already a group; `$parent !== null`
+         *    means we are rendering one, so it stays a flat <li> list or the
+         *    nesting depth the sidebar search depends on changes.
+         *
+         * 2. MERCHANTS ONLY. config/merchant-navigation.php maps the 21
+         *    top-level entries CompanyMenuListener registers. The platform
+         *    operator's sidebar comes from SuperAdminMenuListener and shares
+         *    almost none of those names -- only `plan` and `settings` -- and
+         *    its landing entry is `dashboard`, not `admin_dashboard`. Zoning
+         *    it with the merchant map drew "Administration" (order 60) FIRST
+         *    and pushed the operator's own Dashboard, Users, Plan Request,
+         *    Country and Currency under a heading called "More" (order 900).
+         *    Not a leak, but wrong on every page the operator opens. A
+         *    super-admin map can be added later; until one exists the operator
+         *    keeps the flat list, which is what they have today.
+         *
+         * 3. config() DEFENSIVELY, because getSideMenu() can run where the
+         *    config repository is not bound. A missing config means the flat
+         *    list -- the pre-P2-01-11 behaviour, and the same thing the kill
+         *    switch produces.
+         */
+        $ssUser = function_exists('auth') ? auth()->user() : null;
+        $ssIsOperator = $ssUser && class_exists(\App\Policies\UserPolicy::class)
+            && \App\Policies\UserPolicy::isOperator($ssUser);
+
+        $zoned = $parent === null
+            && ! $ssIsOperator
+            && function_exists('config')
+            && (bool) config('merchant-navigation.zones_enabled', false);
+
+        if ($zoned) {
+            return view('partision.menu-zones', ['zones' => menuZones($nodes)])->render();
+        }
+
+        return view('partision.menu-tree', ['nodes' => $nodes])->render();
+    }
+}
+
+if (!function_exists('menuZones')) {
+    /**
+     * Group already-built top-level nodes into the zones of
+     * config/merchant-navigation.php. P2-01-11.
+     *
+     * DELIBERATELY SEPARATE FROM menuTree(). menuTree() and
+     * partision/menu-tree.blade.php are pinned by
+     * tests/Support/Security/bin/verify-menu-render-parity.php, which proves the
+     * Blade renderer emits the same DOM as the string builder it replaced.
+     * Folding grouping into menuTree() would make that proof compare a tree
+     * against a differently-shaped tree, and the guarantee would quietly become
+     * worthless. So this is a pure function over menuTree()'s OUTPUT: it
+     * reorders and labels, it never builds a node and never drops one.
+     *
+     * IT GRANTS NOTHING. Every node here already passed Menu::add()'s module
+     * and permission gates. An item whose gate refused it is not in $nodes, so
+     * no arrangement of this function can surface it.
+     *
+     * A ZONE WITH NO ITEMS IS NOT RETURNED. The gates run per item, so a
+     * narrowly-scoped employee can leave a whole zone empty -- and a heading
+     * over nothing reads as a loading failure. Same reasoning as the empty
+     * <ul> the arrow fix removed in P2-01-10.
+     *
+     * @param  array $nodes  top-level nodes from menuTree($items, null)
+     * @return array<int, array{key:string,title:?string,nodes:array}>
+     */
+    function menuZones(array $nodes)
+    {
+        $config    = function_exists('config') ? (array) config('merchant-navigation', []) : [];
+        $zoneDefs  = $config['zones'] ?? [];
+        $ungrouped = $config['ungrouped'] ?? [];
+
+        // name => zone key, built once rather than scanned per node.
+        $zoneOf = [];
+        foreach ($zoneDefs as $key => $def) {
+            foreach ($def['items'] ?? [] as $name) {
+                $zoneOf[$name] = $key;
+            }
+        }
+
+        $lead    = [];
+        $buckets = [];
+        foreach ($nodes as $node) {
+            if (in_array($node['name'], $ungrouped, true)) {
+                $lead[] = $node;
+                continue;
+            }
+            // An unmapped name lands in 'other' rather than vanishing.
+            $key = $zoneOf[$node['name']] ?? 'other';
+            $buckets[$key][] = $node;
+        }
+
+        // Zones in their declared order; an undeclared key sorts last.
+        uksort($buckets, function ($a, $b) use ($zoneDefs) {
+            $oa = $zoneDefs[$a]['order'] ?? PHP_INT_MAX;
+            $ob = $zoneDefs[$b]['order'] ?? PHP_INT_MAX;
+            return $oa === $ob ? strcmp($a, $b) : $oa - $ob;
+        });
+
+        $out = [];
+        if ($lead) {
+            // No title: the dashboard is where the merchant lands, not a
+            // category of work. The partial renders no heading for a null.
+            $out[] = ['key' => 'lead', 'title' => null, 'nodes' => $lead];
+        }
+        foreach ($buckets as $key => $bucket) {
+            if (!$bucket) {
+                continue;
+            }
+            $title = $zoneDefs[$key]['title'] ?? null;
+            $out[] = [
+                'key'   => $key,
+                'title' => $title === null ? null : __($title),
+                'nodes' => $bucket,
+            ];
+        }
+
+        return $out;
     }
 }
 

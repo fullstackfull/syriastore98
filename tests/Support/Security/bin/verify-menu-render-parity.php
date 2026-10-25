@@ -17,7 +17,7 @@
  *
  * WHAT IS ASSERTED, and why not byte-equality
  * The contract is that the emitted DOM stays SELECTOR-COMPATIBLE, because the
- * inline sidebar search (layouts/app.blade.php:358-398) selects
+ * inline sidebar search (layouts/app.blade.php:421-461) selects
  * `.dash-navbar > .dash-item` with a direct-child combinator. So this compares
  * element names, attributes, nesting and text -- with insignificant whitespace
  * collapsed. Byte-equality is deliberately NOT the contract: the old string

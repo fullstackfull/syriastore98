@@ -25,8 +25,8 @@
     has no dependencies -- it does not touch jQuery, Bootstrap, the host's
     data-ajax-popup contract, show_toastr or the inline sidebar search.
 --}}
-<link rel="stylesheet" href="{{ asset('css/store-syria-ds.css') }}?v=p02-1">
-<script defer src="{{ asset('js/store-syria-ds.js') }}?v=p02-1"></script>
+<link rel="stylesheet" href="{{ asset('css/store-syria-ds.css') }}?v=p02-2">
+<script defer src="{{ asset('js/store-syria-ds.js') }}?v=p02-2"></script>
 <script>
     (function () {
         var html = document.documentElement;

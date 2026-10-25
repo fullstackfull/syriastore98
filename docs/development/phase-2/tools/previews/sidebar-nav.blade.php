@@ -48,12 +48,24 @@
 @endif
     <div class="navbar-wrapper">
         <div class="navbar-content">
+            @include('partision.workspace-chip')
             <div class="d-flex align-items-center sidebar-input position-relative">
                 <i class="ti ti-search"></i>
                 <input type="text" class="form-control" id="sideBarsearch" placeholder="{{ __('Search here...') }}">
+                <button type="button" id="vertical-nav-toggle" class="ss-rail-toggle"
+                        aria-pressed="false" title="{{ __('Collapse menu') }}"
+                        data-ss-collapse="{{ __('Collapse menu') }}"
+                        data-ss-expand="{{ __('Expand menu') }}">
+                    <span class="ss-visually-hidden">{{ __('Collapse menu') }}</span>
+                    <i class="ti ti-layout-sidebar" aria-hidden="true"></i>
+                </button>
             </div>
             <ul class="dash-navbar">
-                @include('partision.menu-tree', ['nodes' => $nodes])
+                @if ($zonesEnabled)
+                    @include('partision.menu-zones', ['zones' => $zones])
+                @else
+                    @include('partision.menu-tree', ['nodes' => $nodes])
+                @endif
             </ul>
         </div>
     </div>

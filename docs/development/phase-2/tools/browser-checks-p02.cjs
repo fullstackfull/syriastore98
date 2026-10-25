@@ -503,6 +503,365 @@ const VARIANTS = [
     }
   }
 
+  // ====================================================================
+  //  10. SIDEBAR ZONES, WORKSPACE CHIP, COLLAPSED RAIL  (P2-01-11)
+  //
+  //  The expensive thing to get wrong here is not how it looks: it is the
+  //  sidebar SEARCH. layouts/app.blade.php:426 selects
+  //  `.dash-navbar > .dash-item` with a direct-child combinator, so wrapping
+  //  an item to group it breaks search with no error of any kind. These
+  //  checks exist mostly to prove that did not happen.
+  // ====================================================================
+  {
+    const zctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const zp = await zctx.newPage();
+    await zp.goto(`${BASE}/preview/nav3-en-light-full.html`, { waitUntil: 'load' });
+    await zp.waitForTimeout(350);
+
+    const dom = await zp.evaluate(() => {
+      const nav = document.querySelector('ul.dash-navbar');
+      const direct = [...nav.children];
+      return {
+        // EVERY child of the navbar is an <li>, and every nav entry is still a
+        // DIRECT child. A wrapper would show up here as a depth change.
+        allLi: direct.every(e => e.tagName === 'LI'),
+        zoneHeads: direct.filter(e => e.classList.contains('ss-nav-zone')).length,
+        items: direct.filter(e => e.classList.contains('dash-item')
+                                 && !e.classList.contains('ss-nav-zone')).length,
+        // A heading must ALSO be a .dash-item, because that is what makes the
+        // search hide it; see partision/menu-zones.blade.php.
+        headsAreDashItems: direct.filter(e => e.classList.contains('ss-nav-zone'))
+                                 .every(e => e.classList.contains('dash-item')),
+        // ...and must contain no link, or the search would treat it as a match.
+        headsHaveNoLink: direct.filter(e => e.classList.contains('ss-nav-zone'))
+                               .every(e => !e.querySelector('.dash-link')),
+        zoneTitles: [...document.querySelectorAll('.ss-nav-zone .ss-navgroup')].map(e => e.textContent.trim()),
+        // Submenus still nest exactly one level under their item.
+        submenuDepthOk: [...document.querySelectorAll('.dash-submenu')]
+          .every(u => u.parentElement && u.parentElement.classList.contains('dash-item')),
+      };
+    });
+    check('every navbar child is an <li>', dom.allLi);
+    check('nav entries are still DIRECT children of .dash-navbar',
+          dom.items > 0, `${dom.items} items, ${dom.zoneHeads} zone headings`);
+    check('zone headings carry .dash-item, so the search hides them',
+          dom.zoneHeads > 0 && dom.headsAreDashItems);
+    check('zone headings contain no .dash-link', dom.headsHaveNoLink);
+    check('submenus still nest one level under their item', dom.submenuDepthOk);
+    check('zones are grouped and labelled', dom.zoneTitles.length >= 3,
+          JSON.stringify(dom.zoneTitles));
+    // Sentence case, not capitals: .ss-navgroup refuses text-transform because
+    // capitals carry no meaning in Arabic.
+    check('zone headings are NOT upper-cased',
+          dom.zoneTitles.every(t => t !== t.toUpperCase() || t.length < 2),
+          JSON.stringify(dom.zoneTitles));
+
+    // ---- the search contract, DRIVEN rather than reasoned about ----
+    const searched = await zp.evaluate(() => {
+      const nav = document.querySelector('ul.dash-navbar');
+      const heads = [...nav.children].filter(e => e.classList.contains('ss-nav-zone'));
+      const hit = [...nav.children].filter(e => e.classList.contains('dash-item')
+                   && !e.classList.contains('ss-nav-zone'));
+      // Reproduce exactly what app.blade.php:426-396 does for a query.
+      const value = 'order';
+      hit.concat(heads).forEach(item => {
+        const t = item.querySelector(':scope > .dash-link .dash-mtext');
+        const main = t ? t.textContent.toLowerCase() : '';
+        item.dataset.ssWouldShow = main.includes(value) ? 'yes' : 'no';
+      });
+      return {
+        headsHidden: heads.every(h => h.dataset.ssWouldShow === 'no'),
+        someItemMatched: hit.some(i => i.dataset.ssWouldShow === 'yes'),
+      };
+    });
+    check('a search query hides every zone heading', searched.headsHidden);
+    check('a search query still matches real items', searched.someItemMatched);
+
+    // ---- the workspace chip ----
+    const chip = await zp.evaluate(() => {
+      const trigger = document.getElementById('ss-workspace-trigger');
+      const list = document.getElementById('ss-workspace-list');
+      const nav = document.querySelector('ul.dash-navbar');
+      return {
+        exists: !!trigger,
+        // It must NOT be inside the navbar, or the search would iterate it.
+        outsideNavbar: !!trigger && !nav.contains(trigger),
+        expanded: trigger && trigger.getAttribute('aria-expanded'),
+        listHidden: list ? list.hidden : null,
+        haspopup: trigger && trigger.getAttribute('aria-haspopup'),
+        options: document.querySelectorAll('#ss-workspace-list [role="option"]').length,
+        selected: document.querySelectorAll('#ss-workspace-list [aria-selected="true"]').length,
+        name: trigger && trigger.querySelector('.ss-workspace__name').textContent.trim(),
+        // The accessible name must say what the control DOES.
+        srLabel: trigger && !!trigger.querySelector('.ss-visually-hidden'),
+      };
+    });
+    check('the workspace chip renders', chip.exists, chip.name || '');
+    check('the chip is OUTSIDE ul.dash-navbar', chip.outsideNavbar);
+    check('the chip starts collapsed', chip.expanded === 'false' && chip.listHidden === true);
+    check('the chip is a listbox trigger', chip.haspopup === 'listbox');
+    check('exactly one store is aria-selected',
+          chip.selected === 1, `${chip.selected} of ${chip.options}`);
+    check('the chip has a visually-hidden purpose label', chip.srLabel);
+
+    // ---- the rail toggle ----
+    const rail = await zp.evaluate(() => {
+      const b = document.getElementById('vertical-nav-toggle');
+      if (!b) return { exists: false };
+      const i = b.querySelector('i');
+      const br = b.getBoundingClientRect(), ir = i.getBoundingClientRect();
+      const nav = document.querySelector('nav.dash-sidebar').getBoundingClientRect();
+      return {
+        exists: true,
+        pressed: b.getAttribute('aria-pressed'),
+        named: !!b.querySelector('.ss-visually-hidden'),
+        bothLabels: !!(b.dataset.ssCollapse && b.dataset.ssExpand),
+        // The icon must sit INSIDE its own button. The host positions
+        // `.sidebar-input i` absolutely at left:10px, which pinned this icon
+        // on top of the search magnifier while the button sat 240px away.
+        iconInsideButton: ir.left >= br.left - 1 && ir.right <= br.right + 1,
+        // ...and the whole button must be inside the sidebar, not clipped off
+        // its edge, which is where `width:100%` on the search input put it.
+        insideSidebar: br.right <= nav.right + 1,
+      };
+    });
+    // ---- the two defects the independent review found ----
+    // 1. the switcher's keyboard path. The first version queried
+    //    `.ss-workspace__option`, a class that exists nowhere, so options()
+    //    returned [] -- ArrowDown focused nothing and then threw on opts[NaN].
+    const kbd = await zp.evaluate(async () => {
+      const trigger = document.getElementById('ss-workspace-trigger');
+      const list = document.getElementById('ss-workspace-list');
+      if (!trigger) return { n: 0 };
+      const sel = [...list.querySelectorAll('.ss-menu__item')];
+      trigger.focus();
+      trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+      await new Promise(r => setTimeout(r, 50));
+      const movedIn = sel.includes(document.activeElement);
+      let threw = false;
+      try {
+        document.activeElement.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+        await new Promise(r => setTimeout(r, 30));
+      } catch (e) { threw = true; }
+      const esc = () => document.activeElement.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      esc();
+      await new Promise(r => setTimeout(r, 30));
+      return {
+        n: sel.length,
+        movedIn,
+        threw,
+        backOnTrigger: document.activeElement === trigger,
+        closed: list.hidden,
+      };
+    });
+    check('ArrowDown on the chip moves focus INTO the list',
+          kbd.n > 0 && kbd.movedIn, `${kbd.n} options, movedIn=${kbd.movedIn}`);
+    check('arrowing inside the list does not throw', !kbd.threw);
+    check('Escape closes the list and returns focus to the chip',
+          kbd.closed && kbd.backOnTrigger,
+          `closed=${kbd.closed} focusBack=${kbd.backOnTrigger}`);
+
+    // 2. the rail must not hide the control that un-collapses it. Collapsing
+    //    is persisted to localStorage and re-applied on every page load, so
+    //    a hidden toggle would strand the merchant for that browser.
+    //
+    //    WHAT THIS CHECK IS REALLY WORTH, stated because it was vacuous once:
+    //    the host sets `#vertical-nav-toggle { display: block !important }`
+    //    (assets/css/style.css, top level AND inside @media min-width:1025px),
+    //    an ID rule with !important, so NO class rule here can hide the button
+    //    and the trap is unreachable from the design system. Re-adding the
+    //    hide rule therefore does NOT make this fail. What does make it fail
+    //    is a rule that can actually win -- which is what the bite used, and
+    //    which is what a future change would have to introduce to cause the
+    //    problem. The check guards the outcome, not one way of breaking it.
+    const trap = await zp.evaluate(async () => {
+      document.body.classList.add('minimenu');
+      await new Promise(r => setTimeout(r, 30));
+      const b = document.getElementById('vertical-nav-toggle');
+      const cs = b && getComputedStyle(b);
+      const r = b && b.getBoundingClientRect();
+      const out = {
+        toggleStillShown: !!cs && cs.display !== 'none' && cs.visibility !== 'hidden'
+                          && r.width > 0 && r.height > 0,
+        chipHidden: getComputedStyle(document.querySelector('.ss-workspace-wrap')).display === 'none',
+      };
+      document.body.classList.remove('minimenu');
+      return out;
+    });
+    check('COLLAPSING THE RAIL DOES NOT HIDE THE CONTROL THAT EXPANDS IT',
+          trap.toggleStillShown);
+    check('the chip itself is hidden in the rail, where its name would not fit',
+          trap.chipHidden);
+
+    check('the rail toggle renders', rail.exists);
+    check('the rail toggle is a named toggle button',
+          rail.pressed === 'false' && rail.named && rail.bothLabels);
+    check('its icon is inside its own button, not the search magnifier',
+          rail.iconInsideButton);
+    check('the toggle is inside the sidebar, not clipped off the edge',
+          rail.insideSidebar);
+    await zctx.close();
+  }
+
+  // ---- zone headings and chip text reach 4.5:1, all four combinations ----
+  for (const variant of ['nav3-en-light-full', 'nav3-ar-light-full',
+                         'nav3-en-dark-full', 'nav3-ar-dark-full']) {
+    for (const w of [390, 1440]) {
+      const cctx = await browser.newContext({ viewport: { width: Math.max(w, 520), height: 820 } });
+      const cp = await cctx.newPage();
+      await cp.goto(`${BASE}/frame/${variant}.html?w=${w}&h=820`, { waitUntil: 'load' });
+      await cp.waitForTimeout(350);
+      const inner = cp.frames().find(f => f.url().includes('/preview/'));
+      const rows = await inner.evaluate(() => {
+        const bgOf = el => { let n = el; while (n) { const c = getComputedStyle(n).backgroundColor;
+            if (c && !/rgba\(.*,\s*0\)$/.test(c) && c !== 'transparent') return c; n = n.parentElement; }
+          return 'rgb(255, 255, 255)'; };
+        const out = [];
+        document.querySelectorAll('.ss-navgroup, .ss-workspace__name, .ss-workspace__meta')
+          .forEach(e => out.push({ what: e.className, color: getComputedStyle(e).color, bg: bgOf(e),
+                                   text: e.textContent.trim().slice(0, 18) }));
+        return out;
+      });
+      const bad = rows.filter(r => contrast(r.color, r.bg) < 4.5);
+      const worst = rows.reduce((a, r) => Math.min(a, contrast(r.color, r.bg)), 99);
+      check(`zone headings and chip reach 4.5:1 at ${w}px (${variant.slice(5, 12)})`,
+            rows.length > 0 && bad.length === 0,
+            `${rows.length} measured, worst ${worst.toFixed(2)}:1` +
+            (bad.length ? ` -- e.g. "${bad[0].text}" ${bad[0].color} on ${bad[0].bg}` : ''));
+      await cctx.close();
+    }
+  }
+
+  // ====================================================================
+  //  11. THE WEEKLY ORDERS CHART  (P2-02-8)
+  //
+  //  The thing worth checking is not that bars appear. It is that the TABLE
+  //  carries the same numbers as the bars, because the table IS the
+  //  accessible representation -- not a summary of it. A chart whose picture
+  //  and data disagree misleads one audience or the other.
+  // ====================================================================
+  {
+    const kctx = await browser.newContext({ viewport: { width: 1280, height: 1000 } });
+    const kp = await kctx.newPage();
+    await kp.goto(`${BASE}/preview/after-en-full-light.html`, { waitUntil: 'load' });
+    await kp.waitForTimeout(350);
+
+    const chart = await kp.evaluate(() => {
+      const block = document.querySelector('.ss-chart-block');
+      if (!block) return { present: false };
+      const bars = [...block.querySelectorAll('.ss-chart__bar')];
+      const labels = [...block.querySelectorAll('.ss-chart__label')].map(e => e.textContent.trim());
+      const rows = [...block.querySelectorAll('tbody tr')].map(tr => ({
+        day: tr.querySelector('th').textContent.trim(),
+        val: parseInt(tr.querySelector('td').textContent.replace(/[^0-9]/g, ''), 10),
+      }));
+      const foot = block.querySelector('tfoot td');
+      const heights = bars.map(b => parseFloat(b.style.blockSize) || 0);
+      const max = Math.max(...rows.map(r => r.val));
+      return {
+        present: true,
+        bars: bars.length,
+        labels,
+        rows,
+        total: foot ? parseInt(foot.textContent.replace(/[^0-9]/g, ''), 10) : null,
+        heights,
+        max,
+        // The picture must be hidden from AT; the table must not be.
+        barsAriaHidden: block.querySelector('.ss-chart').getAttribute('aria-hidden') === 'true',
+        labelsAriaHidden: block.querySelector('.ss-chart__labels').getAttribute('aria-hidden') === 'true',
+        tableInAT: !block.querySelector('table').closest('[aria-hidden="true"]'),
+        hasCaption: !!block.querySelector('table caption'),
+        rowHeaders: [...block.querySelectorAll('tbody tr th')].every(t => t.getAttribute('scope') === 'row'),
+        colHeaders: [...block.querySelectorAll('thead th')].every(t => t.getAttribute('scope') === 'col'),
+        detailsClosed: block.querySelector('details') && !block.querySelector('details').open,
+        zeroBars: bars.filter(b => b.classList.contains('ss-chart__bar--zero')).length,
+      };
+    });
+
+    check('the orders chart renders', chart.present);
+    check('one bar and one label per day',
+          chart.bars === chart.rows.length && chart.labels.length === chart.rows.length,
+          `${chart.bars} bars, ${chart.labels.length} labels, ${chart.rows.length} rows`);
+    check('bar labels and table rows name the SAME days in the same order',
+          JSON.stringify(chart.labels) === JSON.stringify(chart.rows.map(r => r.day)),
+          JSON.stringify(chart.labels));
+    // The bar is a percentage of the largest value. If the picture and the
+    // numbers ever drift apart, this is where it shows.
+    const expected = chart.rows.map(r => (chart.max > 0 ? Math.round(r.val / chart.max * 100) : 0));
+    check('every bar height matches its own number',
+          JSON.stringify(chart.heights) === JSON.stringify(expected),
+          `heights ${JSON.stringify(chart.heights)} vs expected ${JSON.stringify(expected)}`);
+    check('the footer total equals the sum of the rows',
+          chart.total === chart.rows.reduce((a, r) => a + r.val, 0),
+          `${chart.total} vs ${chart.rows.reduce((a, r) => a + r.val, 0)}`);
+    check('a zero day is drawn as a baseline, not an absent bar',
+          chart.zeroBars === chart.rows.filter(r => r.val === 0).length,
+          `${chart.zeroBars} zero bars for ${chart.rows.filter(r => r.val === 0).length} zero values`);
+    check('the picture is hidden from assistive technology',
+          chart.barsAriaHidden && chart.labelsAriaHidden);
+    check('the table is NOT hidden from assistive technology', chart.tableInAT);
+    check('the table has a caption and scoped headers on both axes',
+          chart.hasCaption && chart.rowHeaders && chart.colHeaders);
+    check('the numbers start collapsed, so the chart stays a chart',
+          chart.detailsClosed);
+
+    // ---- the permission gate ----
+    await kp.goto(`${BASE}/preview/after-en-noperm-light.html`, { waitUntil: 'load' });
+    await kp.waitForTimeout(300);
+    const gated = await kp.evaluate(() => ({
+      chart: document.querySelectorAll('.ss-chart-block').length,
+      bars: document.querySelectorAll('.ss-chart__bar').length,
+      // and no stray numbers left behind in a table
+      tables: document.querySelectorAll('.ss-chart-data table').length,
+    }));
+    check('a staff member without Manage Order gets NO orders chart',
+          gated.chart === 0 && gated.bars === 0 && gated.tables === 0,
+          JSON.stringify(gated));
+
+    // ---- P2-02-9: latest orders and best sellers ----
+    await kp.goto(`${BASE}/preview/after-ar-full-light.html`, { waitUntil: 'load' });
+    await kp.waitForTimeout(300);
+    const lists = await kp.evaluate(() => {
+      const ident = document.querySelector('.ss-ident');
+      const cs = ident && getComputedStyle(ident);
+      const badges = [...document.querySelectorAll('.ss-badge')];
+      return {
+        orderRows: document.querySelectorAll('.ss-table caption')[0] ? true : false,
+        identText: ident && ident.textContent.trim(),
+        // An order reference is an LTR token. Isolation alone leaves the
+        // neutral '#' at the visual END in an RTL table -- "SY-10427#".
+        identLtr: !!cs && cs.direction === 'ltr' && cs.unicodeBidi.includes('isolate'),
+        // Colour must not be the only signal for a status (WCAG 1.4.1).
+        badgesHaveText: badges.length > 0 && badges.every(b => b.textContent.trim().length > 0),
+        badgeDotsHidden: [...document.querySelectorAll('.ss-badge__dot')]
+                           .every(d => d.getAttribute('aria-hidden') === 'true'),
+        // Distinct tones actually in play, so the map is exercised.
+        tones: new Set(badges.map(b => [...b.classList].find(c => c.startsWith('ss-badge--')) || 'neutral')).size,
+        captions: document.querySelectorAll('.ss-table caption').length,
+      };
+    });
+    check('the order reference reads #SY-… not SY-…# under RTL',
+          lists.identLtr && /^#/.test(lists.identText || ''), lists.identText || '(absent)');
+    check('every status badge carries text, not colour alone', lists.badgesHaveText);
+    check('badge dots are decorative and hidden from AT', lists.badgeDotsHidden);
+    check('more than one status tone is exercised', lists.tones >= 3, `${lists.tones} tones`);
+    check('every dashboard table has a caption', lists.captions >= 2, `${lists.captions}`);
+
+    // the two lists gate SEPARATELY -- Manage Order and Manage Product
+    await kp.goto(`${BASE}/preview/after-en-noperm-light.html`, { waitUntil: 'load' });
+    await kp.waitForTimeout(250);
+    const listGate = await kp.evaluate(() => ({
+      idents: document.querySelectorAll('.ss-ident').length,
+      badges: document.querySelectorAll('.ss-badge').length,
+      tables: document.querySelectorAll('.ss-table').length,
+    }));
+    check('an ungated staff member gets neither list',
+          listGate.idents === 0 && listGate.tables === 0, JSON.stringify(listGate));
+    await kctx.close();
+  }
+
   await browser.close();
 
   console.log(results.join('\n'));

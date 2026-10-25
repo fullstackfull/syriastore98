@@ -4331,3 +4331,119 @@ body.custom-color .nex-prev-btn-wrp .btn {
         color: #c7ccd4;
     }
 }
+
+/* ==========================================================================
+   P2-01-11: sidebar navigation zone headings
+   ==========================================================================
+
+   A zone heading is emitted by partision/menu-zones.blade.php as a SIBLING
+   `<li class="dash-item ss-nav-zone">`, never a wrapper -- wrapping an item
+   would take it out of `.dash-navbar > .dash-item` and break the sidebar
+   search with no error (layouts/app.blade.php:426).
+
+   Carrying `dash-item` is what makes the heading hide and reappear with the
+   search for free, but it also brings the host's item styling, which has to be
+   neutralised: an item is interactive, a heading is not.
+
+   Typography and colour are NOT here: the heading uses .ss-navgroup, the
+   design system's own nav-group component. What is here is only the part the
+   design system must not know about -- cancelling the host's `.dash-item`
+   styling, which the heading inherits because it carries that class.
+   ========================================================================== */
+.dash-sidebar .dash-navbar > .dash-item.ss-nav-zone {
+    /* Not a control: no hover, no pointer, no focus target. */
+    pointer-events: none;
+    background: none;
+    cursor: default;
+    margin: 18px 0 2px;
+    padding: 0;
+}
+
+.dash-sidebar .dash-navbar > .dash-item.ss-nav-zone:first-child {
+    margin-block-start: 4px;
+}
+
+.dash-sidebar .dash-navbar > .dash-item.ss-nav-zone::before,
+.dash-sidebar .dash-navbar > .dash-item.ss-nav-zone::after {
+    /* The host draws a bullet marker on submenu items; a heading gets none. */
+    content: none;
+}
+
+
+/* The search row has to make room for the rail toggle.
+
+   `.sidebar-input .form-control` is `width: 100%` from the host, so in a flex
+   row it claimed the whole width and pushed the 30px toggle PAST the sidebar's
+   edge -- rendered, visible to a probe, and clipped out of sight. Measured
+   before this rule: row x=36 w=279 (ends 315), toggle x=285 w=30, sidebar 280.
+
+   Scoped to `.dash-sidebar` so the many other `.sidebar-input` users across the
+   70 modules are untouched. `min-width: 0` is the part that actually does the
+   work: a flex item will not shrink below its content width without it. */
+.dash-sidebar .sidebar-input {
+    gap: 6px;
+}
+
+.dash-sidebar .sidebar-input .form-control {
+    flex: 1 1 auto;
+    min-width: 0;
+    width: auto;
+}
+
+/* ==========================================================================
+   P2-01-11: the sidebar carries the DARK token set below 1025px
+   ==========================================================================
+
+   The chip and the zone headings are design-system components, so they read
+   --ss-surface / --ss-fg / --ss-fg-subtle. Those resolve to the LIGHT palette
+   unless :root carries data-ss-theme="dark".
+
+   But the sidebar is dark below 1025px even in light mode: style.css only
+   applies `transprent-bg` inside @media (min-width: 1025px), so under that
+   width `.dash-sidebar { background: #1c232f }` wins. Light tokens on that
+   surface is how the nav labels reached 1.25:1 before the fix above, and the
+   chip would have repeated it exactly.
+
+   So the sidebar subtree is given the dark values of the six colour tokens it
+   actually uses. Copied verbatim from the [data-ss-theme="dark"] block in
+   store-syria-ds.css so the two cannot drift into different darks; the
+   remaining 29 tokens are spacing, radii and type, which do not change with
+   theme.
+
+   Above 1025px nothing here applies and the light tokens stand, which is
+   correct: there the sidebar really is light. */
+@media (max-width: 1024px) {
+    .dash-sidebar {
+        --ss-surface:        #263331;
+        --ss-surface-hover:  #2d3b39;
+        --ss-surface-sunken: #1f2a28;
+        --ss-fg:             #e8eded;
+        --ss-fg-muted:       #a7b2b1;
+        --ss-fg-subtle:      #95a09e;
+        --ss-border:         #364442;
+        --ss-border-strong:  #7d8a88;
+    }
+}
+
+/* Placement of the chip INSIDE the host's sidebar. The component itself
+   (.ss-workspace, store-syria-ds.css) is `width: 100%` with no margin, which is
+   right for a component: where it sits is the host's business, not the design
+   system's. Without this the chip ran edge-to-edge while the search box below
+   it was inset, which read as a rendering fault rather than a design. */
+.dash-sidebar .ss-workspace-wrap {
+    margin: 12px 10px 4px;
+}
+/* The host positions the search magnifier with a DESCENDANT selector --
+   `.sidebar-input i { position: absolute; top: 20px; left: 10px }` (custom.css)
+   -- so it also captured the <i> inside the rail-toggle button, pinning it on
+   top of the magnifier while the button itself sat 240px away at the end of the
+   row. Measured: both icons at x=46, button at x=285. The screenshot showed one
+   odd doubled glyph and an apparently empty button.
+
+   Putting the icon back in normal flow is enough; the button is already a grid
+   that centres it. */
+.dash-sidebar .sidebar-input .ss-rail-toggle i {
+    position: static;
+    transform: none;
+    font-size: 18px;
+}

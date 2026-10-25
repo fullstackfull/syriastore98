@@ -92,3 +92,70 @@ $GRANTS = $state === 'noperm'
         'Manage Product'  => true,
         'Manage Customer' => true,
       ];
+
+/* P2-02-8: the weekly orders series, shaped exactly like
+ * HomeController::getOrderChart(['duration' => 'week']) returns it -- a
+ * 'label' array of seven d-M strings and a 'data' array of counts.
+ *
+ * The values are NOT seven similar numbers. A flat series would render seven
+ * near-identical bars and prove nothing about the scale: the spread here
+ * includes the largest value, a mid value and a ZERO, because a zero day is
+ * the case that divides by max, draws the baseline variant, and has to stay
+ * distinguishable from "no data at all".
+ *
+ * 'empty' means the controller produced no series, which is a different state
+ * from a week of zeroes and renders the empty component instead of bars. */
+if ($state === 'empty') {
+    $chartData = ['label' => [], 'data' => []];
+} else {
+    $chartData = [
+        'label' => ['19-Oct', '20-Oct', '21-Oct', '22-Oct', '23-Oct', '24-Oct', '25-Oct'],
+        'data'  => [14, 22, 9, 31, 0, 18, 26],
+    ];
+}
+
+/* P2-02-9: the latest-orders and best-selling-products lists.
+ *
+ * Shaped like what handleRegularUser() passes -- Eloquent collections of Order
+ * and Product rows -- using the harness's Row stand-in, which exposes
+ * arbitrary properties.
+ *
+ * The STATUSES ARE CHOSEN, not arbitrary. They cover one of each tone the
+ * badge can take (warning / success / info / danger) plus 7 = Partially Paid,
+ * which is a PAYMENT state sharing the same column as fulfilment states
+ * (ledger F0). If the preview only ever showed Pending and Delivered, the
+ * tone map and the "not a fulfilment state" handling would never be seen.
+ *
+ * Product names mix Arabic and Latin so the RTL preview exercises a Latin name
+ * inside an Arabic table, which is the case that needs bidi isolation. */
+if ($state === 'empty') {
+    $new_orders = [];
+    $topSellingProducts = [];
+} else {
+    $new_orders = [
+        new Row(0, ''), new Row(0, ''), new Row(0, ''), new Row(0, ''),
+    ];
+    foreach ([
+        ['SY-10427', 0, 184000.0],   // Pending          -> warning
+        ['SY-10426', 1, 92500.0],    // Order Delivered  -> success
+        ['SY-10425', 6, 310000.0],   // Order Shipped    -> info
+        ['SY-10424', 7, 47000.0],    // Partially Paid   -> neutral (a payment state)
+    ] as $i => $row) {
+        $new_orders[$i]->product_order_id = $row[0];
+        $new_orders[$i]->delivered_status = $row[1];
+        $new_orders[$i]->final_price      = $row[2];
+    }
+
+    $topSellingProducts = [];
+    foreach ([
+        ['قميص قطن دمشقي', 65000.0],
+        ['Linen Table Runner', 128000.0],
+        ['عباءة صوف حلبية', 240000.0],
+        ['Olive Soap, 6-pack', 32000.0],
+        ['وشاح حرير', 88000.0],
+    ] as $i => $row) {
+        $p = new Row(200 + $i, $row[0]);
+        $p->price = $row[1];
+        $topSellingProducts[] = $p;
+    }
+}

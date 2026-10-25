@@ -195,7 +195,7 @@ hand-concatenated HTML string from `generateMenu()` / `generateSideMenu()`, and 
 
 - the two gates do not move, and nothing new renders a nav item without passing them;
 - the emitted DOM stays **selector-compatible**, because the inline sidebar search at
-  `app.blade.php:358-398` selects `.dash-navbar > .dash-item` with **direct-child** combinators —
+  `app.blade.php:421-461` selects `.dash-navbar > .dash-item` with **direct-child** combinators —
   wrapping an item in a new element breaks search *with no error*;
 - `getCurrentStore()` semantics are frozen. The chip changes how the store is **displayed**, never
   how it resolves.

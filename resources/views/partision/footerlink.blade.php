@@ -32,6 +32,26 @@
 @else
     <script src="{{ asset('assets/js/dash.js') }}"></script>
 @endif
+{{-- P2-01-11: sidebar behaviour (workspace switcher, rail persistence).
+
+     OUTSIDE the branch, and the first version got that wrong. It sat in the
+     @else arm only, so on a tenant with SidebarCustomization active the chip
+     still rendered — sidebar.blade.php includes it unconditionally — with no
+     script to un-hide its listbox. A multi-store merchant saw a "Switch store"
+     button that did nothing at all, and the rail lost its persistence and its
+     aria-pressed state. The sidebar is rendered on both branches, so its
+     behaviour belongs on both.
+
+     Still loaded AFTER the branch, because the order is load-bearing: whichever
+     of dash.js / side-dash.js ran owns the #vertical-nav-toggle click that adds
+     or removes `body.minimenu` (dash.js:71, side-dash.js:68); this file only
+     persists the result. Listeners on one element fire in registration order,
+     so this must be registered second or it reads the class before the host
+     has changed it.
+
+     Not part of store-syria-ds.js on purpose: that bundle is included
+     per-screen, and the sidebar is on every screen. --}}
+<script src="{{ asset('js/store-syria-nav.js') }}?v=p02-2"></script>
 <script src="{{ asset('assets/js/plugins/apexcharts.min.js') }}"></script>
 <script src="{{ asset('assets/js/plugins/simple-datatables.js') }}"></script>
 <script src="{{ asset('assets/js/plugins/notifier.js') }}"></script>

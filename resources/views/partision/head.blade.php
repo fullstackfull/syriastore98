@@ -69,4 +69,20 @@
     <link rel='stylesheet' href='https://unpkg.com/nprogress@0.2.0/nprogress.css'/>
     <script src='https://unpkg.com/nprogress@0.2.0/nprogress.js'></script>
     <link rel="stylesheet" href="{{ asset('css/responsive.css') }}">
+
+    {{-- P2-01-11: the design system, because this head serves
+         layouts/main.blade.php, which renders partision.sidebar (:21).
+
+         Without it `.ss-visually-hidden` is undefined — and an undefined
+         visually-hidden class does not fail quietly, it fails LOUDLY: the
+         screen-reader-only labels in the sidebar become ordinary visible text,
+         so "Current store:" appears inside the workspace chip and "Collapse
+         menu" appears beside the search box. That is on nine live super-admin
+         screens in the LandingPage module.
+
+         Safe to add here for the same checked reason it is loaded in
+         layouts/app.blade.php: nothing outside the design system uses an
+         `.ss-` class, so this file cannot restyle existing markup. See the
+         note at app.blade.php for the one selector that qualifies that. --}}
+    <link rel="stylesheet" href="{{ asset('css/store-syria-ds.css') }}?v=p02-2">
 </head>
