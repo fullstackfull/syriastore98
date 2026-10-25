@@ -223,6 +223,22 @@ async function run() {
             const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
             const page = await ctx.newPage();
             await login(page);
+            /* THE LANGUAGE, SET EXPLICITLY -- not inherited. `setServerState` writes
+               `cust_darklayout` and `SITE_RTL` and NOTHING ELSE, so it flips the DIRECTION
+               without flipping the LANGUAGE. The Arabic accessible-name case below reads
+               `__('Choose columns')`, which resolves against `users.language` -- a column
+               `/change-language/<lang>` PERSISTS (LanguageController::changeLanquage sets
+               `$user->language` and saves).
+
+               MEASURED, which is why this line exists: with `users.language` at its fresh-seed
+               default of 'en' the case FAILED with `aria-label="Choose columns"`, and with it
+               left at 'ar' by a previous run of THIS script's own rtl leg it PASSED -- same
+               commit, same code, opposite verdicts. The script restores light/RTL in its
+               `finally` but never the language, so case 2's verdict depended on whether the
+               script had been run before. Cases 5-7 already set the language per leg; this
+               block was the one that did not. */
+            await page.goto(BASE + '/change-language/ar', { waitUntil: 'domcontentloaded' })
+                .catch(() => {});
             await openList(page, '/product', 'product-table');
 
             const extensionLoaded = await page.evaluate(

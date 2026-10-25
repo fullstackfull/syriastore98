@@ -7,12 +7,12 @@ use Illuminate\Support\Facades\{DB, Hash};
 
 $op = User::firstOrCreate(['email' => 'operator@example.test'], [
     'name' => 'Platform Operator', 'type' => 'super admin', 'password' => Hash::make('password'),
-    'is_active' => 1, 'email_verified_at' => now(), 'created_by' => null, 'lang' => 'en',
+    'is_active' => 1, 'email_verified_at' => now(), 'created_by' => null, 'language' => 'en',
 ]);
 
 $merchant = User::firstOrCreate(['email' => 'merchant@example.test'], [
     'name' => 'Amina Haddad', 'type' => 'admin', 'password' => Hash::make('password'),
-    'is_active' => 1, 'email_verified_at' => now(), 'created_by' => $op->id, 'plan_id' => 1, 'lang' => 'en',
+    'is_active' => 1, 'email_verified_at' => now(), 'created_by' => $op->id, 'plan_id' => 1, 'language' => 'en',
 ]);
 
 $store = Store::where('created_by', $merchant->id)->first();

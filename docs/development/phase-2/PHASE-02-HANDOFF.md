@@ -412,6 +412,16 @@ rm -f database/p2dev.sqlite && touch database/p2dev.sqlite
 DB_CONNECTION=sqlite DB_DATABASE=$PWD/database/p2dev.sqlite php artisan migrate --force
 DB_CONNECTION=sqlite DB_DATABASE=$PWD/database/p2dev.sqlite CACHE_STORE=file \
     php artisan tinker --execute="require base_path('database/seed-p2dev.php');"
+
+# THE MODULES THE HARNESSES NEED. This step was missing, and omitting it does not produce a
+# vacuous pass -- `check-pinned-column-live.cjs` has a premise case that FAILS LOUDLY when
+# BulkDelete's select-all column is absent ("NOT MEASURED -- no add_on_managers row for
+# BulkDelete on this instance"), so following the procedure exactly gave 57/58 with the one
+# failure being the harness correctly reporting an unmet premise. `seed-p2dev.php` creates no
+# `add_on_managers` row; this enables the module through the same two rows production uses.
+DB_CONNECTION=sqlite DB_DATABASE=$PWD/database/p2dev.sqlite CACHE_STORE=file \
+    php artisan tinker --execute="require base_path('database/enable-p2dev-modules.php');"
+
 DB_CONNECTION=sqlite DB_DATABASE=$PWD/database/p2dev.sqlite CACHE_STORE=file \
     SESSION_DRIVER=file php artisan serve --host=127.0.0.1 --port=8899 &
 

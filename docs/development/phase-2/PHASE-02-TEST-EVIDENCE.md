@@ -1530,3 +1530,175 @@ spoof DELETE) with a comment saying what it does not.
 This is §4b's pattern with the third answer: a clean bite can mean the control is redundant, or
 the test is not measuring it — or, here, that there was nothing to measure and the write-up was
 the thing that was wrong.
+
+---
+
+## 10. `[2026-10-25]` The verification debt at `6e3564e5`, paid — and what paying it found
+
+Commits `567686f0` and `6e3564e5` named the suites they had **not** run. This section is that run,
+in a fresh container, at HEAD `6e3564e5f8e8078cc204cc1f558826a8796ecdde`, working tree clean.
+
+**Every figure below was executed here. Nothing is carried forward from a commit message.**
+
+### 10a. The suites
+
+```
+$ php artisan test --testsuite=Unit
+  Tests:  372 passed (2042 assertions)        Duration: 13.77s        exit 0
+
+$ php artisan test --testsuite=Feature \
+      --log-junit storage/logs/feature-junit.xml \
+      --log-teamcity storage/logs/feature-teamcity.txt
+  Tests:  2 failed, 17 skipped, 5921 passed (30055 assertions)
+  Duration: 1171.00s                                                  exit 1 (the 2 declared failures)
+
+$ php .github/scripts/assert-known-test-outcomes.php \
+      storage/logs/feature-junit.xml .github/known-test-outcomes.json \
+      storage/logs/feature-teamcity.txt
+  testcases observed   : 5940  (manifest floor 1000)
+  failures observed    : 2  (manifest declares 2)
+  errors observed      : 0  (always expected: 0)
+  skips observed       : 17  (manifest declares 17)
+  skip reasons parsed  : 17 from feature-teamcity.txt
+  OK: the observed outcome set matches the manifest exactly               exit 0
+
+$ php artisan test --testsuite=Contract
+  Tests:  26 passed (83 assertions)           Duration: 3.93s         exit 0
+```
+
+**`567686f0`'s hedged figure holds.** Its message claimed "5921 passed, gate OK" while admitting
+"a re-run covering the later comment and aria-label edits was still in flight". That re-run is
+above: **5921 passed, 2 declared failures, 17 declared skips, gate OK** — the same number, now
+measured at HEAD rather than asserted. The manifest was **not** touched to get there.
+
+Two things worth separating, because the earlier sections of this file do not:
+
+- The figure `5921` appears **nowhere in `docs/` or `.github/`** — only in `567686f0`'s commit
+  message. §7's gate-passing run is `5814 passed` at `b314cca1`, **18 commits back**. So before
+  this section, the current head had *no* recorded suite evidence at all.
+- `tests/Unit/Ui/DesignSystemStylesheetScopeTest.php` (new in `6e3564e5`, the executable test that
+  replaced a stale stylesheet-scoping *claim*) had **never been executed**. It runs inside the 372
+  above and passes — both of its cases.
+
+### 10b. Flutter, at `fd76ac81` on Flutter 3.47.7 (the pinned `FLUTTER_VERSION`)
+
+| CI gate | CI's figure | Measured here | |
+|---|---|---|---|
+| `flutter pub get --enforce-lockfile` | exit 0 | exit 0, "Got dependencies!" | PASS |
+| `pubspec.lock` unchanged | byte-identical | sha256 identical before/after | PASS |
+| `flutter analyze --no-fatal-infos` | exit 0 | **exit 0** | PASS |
+| errors / warnings | 0 / 0 | **0 / 0** | PASS |
+| infos (ratchet, may fall never rise) | ceiling 248 | **246** (CI's own `'^ *info • '` grep) | PASS |
+| `flutter test` | 1165/1165 | **1222/1222 "All tests passed!"** | PASS |
+| containment | only `analysis_options.yaml` | only that file; restored | PASS |
+
+`1222 > 1165` because CI's figure predates the five P2-07 commits, which added tests. `246 < 248`
+is two infos paid down. **`INFO_CEILING` was deliberately NOT lowered to 246**: CI measured 248 on
+its own runner, and tightening a ratchet on one local measurement can turn CI red for an
+environmental reason. Recorded as a candidate tightening for whoever can watch a real CI run.
+
+### 10c. `check-pinned-column-live.cjs` — 58/58, and the two defects getting there found
+
+First run against a correctly seeded instance: **57 ok, 1 FAIL**.
+
+```
+FAIL  that name is translated, not left in English on the Arabic screen  [aria-label="Choose columns"]
+```
+
+**It is not a product defect.** Measured under a real Arabic locale the label is
+`"اختيار الأعمدة"`, and `resources/lang/ar.json:3004` has carried the entry since `567686f0`.
+
+**It is an order-dependent test.** `setServerState()` writes `cust_darklayout` and `SITE_RTL` and
+nothing else, so the menu block (cases 1-4) flipped the **direction** without the **language**.
+`__('Choose columns')` resolves against `users.language`, which `/change-language/<lang>`
+**persists** (`LanguageController::changeLanquage` sets `$user->language` and saves). Cases 5-7
+set the language per leg; this block did not, and the `finally` restores light/RTL but never the
+language. So the verdict depended on whether the script had been run before:
+
+```
+users.language = 'en'  (fresh-seed default)      ->  1 of 58 FAILED
+users.language = 'ar'  (left by a previous run)  ->  58 of 58 passed
+```
+
+Same commit, same code, opposite verdicts. Fixed by setting the language explicitly in that
+block, the way the other legs already do. **Bite-tested both ways**: with the fix and
+`language='en'`, 58/58 (exit 0); with the fix reverted and the same state, 1/58 FAILED again.
+
+**And the fixture was writing a column that does not exist.** `seed-p2dev.php` passed
+`'lang' => 'en'`. There is no `users.lang`; the column is `users.language`, and `'lang'` is not in
+`User::$fillable`, so mass-assignment protection **silently dropped it** and the merchant got the
+column default. Measured:
+
+```
+passing 'lang'     => 'xx'  ->  users.language = 'en'   DROPPED
+passing 'language' => 'xx'  ->  users.language = 'xx'   HONOURED
+```
+
+Harmless today because the default is `'en'` anyway, but it meant the fixture's stated intent was
+not real, and the language the menu block depends on was unpinned. Now `'language' => 'en'`.
+
+### 10d. The BulkDelete premise — satisfied, and the procedure that could not satisfy it
+
+The premise case added in `6e3564e5` **works, and fails loudly** rather than passing vacuously.
+With `add_on_managers.is_enable = 0`:
+
+```
+FAIL  premise: the BulkDelete select-all column is present ...
+      [NOT MEASURED -- no add_on_managers row for BulkDelete on this instance, so the two cases
+       above passed without exercising the column that produced the defect]
+```
+
+What was missing was any documented way to **satisfy** it. `seed-p2dev.php` creates no
+`add_on_managers` row and activates no module, and §6 of the handoff did not say to — so following
+the procedure exactly gave **57/58**, the one failure being the harness correctly reporting an
+unmet premise. Closed by `database/enable-p2dev-modules.php` plus the step in handoff §6.
+
+**Both rows are required, measured not assumed.** With `add_on_managers.is_enable = 1` alone the
+premise still failed `count=0` and the column did not render: `module_is_active()` for a type
+`admin` merchant resolves `activated_modules_for_owner()`, which reads `user_active_modules`. A
+`super admin` short-circuits to `true` before that check, so enabling only the first row and
+driving the operator would have proved nothing about a merchant.
+
+With the module genuinely active the menu holds exactly ten named entries and no blank:
+
+```
+["Name","Category","Brand","Label","Cover Image","Variant","Review","Price","Stock Status","Stock Quantity"]
+```
+
+against the eleven-with-one-blank that `helper.php:2210-2262` records as the pre-fix state. That
+is the bulk-delete defect verified **under the condition that produces it**.
+
+### 10e. The composer blocker is gone, and `ci.yml` still says it cannot be
+
+```
+$ composer install --no-interaction --prefer-dist --no-scripts
+  237 installs, 0 updates, 0 removals                                   exit 0
+```
+
+`composer.json` and `composer.lock` were **not** modified (`git status` clean on both).
+
+`ci.yml`'s `lockfile-reproducibility` comment states in capitals that `composer install` "CANNOT
+SUCCEED ON ANY MACHINE until an owner decision lands". That was true when written and is **stale
+on this branch**: the one dead package, `lahirulhr/laravel-payhere`, is absent from this branch's
+lock and manifest (grep count 0). The ledger's Blockers table already carries B1 as cleared; the
+CI comment did not get the same correction. This also retires the caveat on ledger row
+**P2-02-12** ("Still not runtime-verified — needs the composer blocker lifted").
+
+The prompt handed over to this session named `git.yoomoney.ru` as the blocker. `ci.yml`'s own
+measurement already refuted that — both yoomoney packages fetch cleanly — and they fetched cleanly
+here too (the archive URL answers 200).
+
+**The constraint in THIS container is a third thing, and it is environmental, not a repo defect:**
+the agent proxy answers **403 to every `api.github.com` zipball**, with or without credentials, so
+composer cannot use `dist` for any GitHub-hosted package and clones all 237 from source instead.
+Slow (~25 min), and it succeeds.
+
+### 10f. What this section still does NOT verify
+
+- **No MySQL run.** There is no MySQL server or client in this container, so every figure above is
+  SQLite `:memory:` with `CACHE_STORE=array`. §9j's "No MySQL run" stands unchanged, and nothing
+  here establishes any schema- or payment-sensitive behaviour on production MySQL.
+- **Only one browser harness was re-run.** `check-pinned-column-live.cjs` is the one the two
+  commits at HEAD changed. The other eleven live harnesses were not re-run in this session, so
+  §9e/§9f/§9g remain evidence for the commits they were measured on.
+- **No screenshots were retaken.** The 200 committed PNGs are still from their original runs.
