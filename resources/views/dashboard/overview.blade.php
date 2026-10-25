@@ -99,39 +99,102 @@
     $ssOrderTone  = fn (int $s) => $ssOrderTones[$s] ?? 'neutral';
 
     $ssMayOrders    = auth()->check() && auth()->user()->isAbleTo('Manage Order');
-    $ssMayProducts  = auth()->check() && auth()->user()->isAbleTo('Manage Product');
+    /*
+     * `Manage Products`, PLURAL. This read `Manage Product`, SINGULAR -- a permission that
+     * EXISTS NOWHERE: not in Utility's seeded `$companyNewPermission`, not in the live
+     * permissions table, not in any module seeder. A permission with no row can be held by no
+     * role, so this evaluated FALSE for every principal including the tenant owner, and the
+     * dashboard silently hid the out-of-stock link, the top-products list and the product
+     * onboarding step from everybody.
+     *
+     * Invisible to every previous check because the preview harness supplies `$GRANTS` directly
+     * rather than asking Laratrust, so the name was never resolved against a real permission
+     * set. Found by driving /dashboard in the running application. The ratchet that stops it
+     * coming back is Tests\Unit\Dashboard\DashboardPermissionNamesTest.
+     */
+    $ssMayProducts  = auth()->check() && auth()->user()->isAbleTo('Manage Products');
     $ssMayCustomers = auth()->check() && auth()->user()->isAbleTo('Manage Customer');
 @endphp
 
 <div class="ss-scope">
 
-    {{-- P2-06 GETTING STARTED IS BUILT BUT NOT RENDERED HERE YET, and that is
-         a deliberate hold rather than unfinished work.
+    {{-- P2-06 GETTING STARTED, NOW SHIPPED — the RTL hold is settled.
 
-         `<x-ss.setup-checklist>` and its styles are complete, correct in LTR,
-         and covered by browser checks. Under `dir="rtl"` the preview harness
-         paints each step's mark TWICE — once in its own box and once at the
-         far inline-end of the row. Measured, not guessed:
+         THE HOLD, AND WHAT IT WAS. The component painted each step's mark TWICE
+         under `dir="rtl"` in the preview harness: once in its own box and once
+         at the far inline-end of the row. The investigation that recorded this
+         exhausted what the harness could answer — one mark in the DOM, ONE
+         client rect at the correct position, no box-shadow, transform, filter,
+         reflection or pseudo-element, and hiding the mark removed BOTH circles
+         — and named the remaining candidate as the harness's own stand-in RTL
+         layout, which could only be ruled out in the real application. The
+         Composer blocker meant it could not be.
 
-           - the DOM has exactly ONE mark per row (3 marks, 3 rows);
-           - `getClientRects()` returns ONE rect, at the correct position;
-           - no box-shadow, transform, filter, reflection or pseudo-element,
-             and only `box-sizing` rules match it besides its own;
-           - hiding the mark removes BOTH circles, so it is that one element;
-           - LTR renders exactly one;
-           - unchanged by: icon font -> CSS border -> inline SVG; `position`
-             static vs relative; flex vs grid; `overflow: hidden`; removing
-             the label's `flex`.
+         SETTLED IN THE RUNNING APPLICATION. Driven at /dashboard through a real
+         login, a real session and the host's own RTL path (`SITE_RTL = on`, so
+         the server serves style-rtl.css / rtl-style-dark.css), at desktop and
+         mobile in light and dark: EXACTLY ONE mark per row, in all eight
+         combinations, counted from the painted geometry rather than from the
+         DOM. The duplication was the harness, not the component — which is what
+         the third implementation (an inline SVG, after an icon font whose
+         ::before computed empty and a CSS-drawn border that painted twice)
+         already suspected.
 
-         That exhausts what the harness can tell me. The remaining candidate is
-         the harness's own RTL layout — it loads style-rtl.css and
-         rtl-custom.css into a stand-in layout — and confirming that needs the
-         REAL application, which the Composer blocker (§0) prevents.
+         The guard against it coming back is
+         docs/development/phase-2/tools/shoot-dashboard-live.cjs, which counts
+         painted marks per row in the real application and fails on anything but
+         one.
 
-         So the component waits for a runtime check rather than shipping to
-         every merchant's dashboard. Half of them read Arabic; a duplicated
-         mark on the first thing a new store sees is not a detail. Ledger
-         P2-06-1. --}}
+         NO NEW QUERIES. Every step is answered from data `handleRegularUser()`
+         already put in scope, which is the component's own rule: a checklist
+         that costs five COUNT(*) on every dashboard load to tell an established
+         merchant something they finished a year ago is a bad trade. --}}
+    @php
+        $ssSetupSteps = [
+            [
+                'label' => __('Add your first product'),
+                'done'  => (int) ($totalproduct ?? 0) > 0,
+                'href'  => route('product.index'),
+                'can'   => $ssMayProducts,
+            ],
+            [
+                'label' => __('Name your store and set its details'),
+                // `store` is the row itself, so this asks whether the merchant has
+                // moved past the name the installer generated.
+                'done'  => ! empty($store?->name) && ! empty($store?->email),
+                'href'  => route('app-setting.index'),
+                'can'   => auth()->check() && auth()->user()->isAbleTo('Manage Store Setting'),
+            ],
+            [
+                'label' => __('Receive your first order'),
+                'done'  => (int) ($totle_order ?? 0) > 0,
+                'href'  => route('order.index'),
+                'can'   => $ssMayOrders,
+            ],
+            [
+                'label' => __('Welcome your first customer'),
+                'done'  => (int) ($totle_customers ?? 0) > 0,
+                'href'  => route('customer.index'),
+                'can'   => $ssMayCustomers,
+            ],
+        ];
+
+        // IT DISAPPEARS WHEN IT IS DONE. The caller owns that decision, per the
+        // component's docblock: an onboarding panel that stays forever stops
+        // being onboarding and becomes furniture. Only steps this viewer may act
+        // on are counted, so a staff member is not held back by a step they
+        // cannot reach.
+        $ssVisibleSteps = array_filter($ssSetupSteps, fn ($s) => $s['can'] === true);
+        $ssSetupComplete = $ssVisibleSteps !== []
+            && count(array_filter($ssVisibleSteps, fn ($s) => $s['done'])) === count($ssVisibleSteps);
+    @endphp
+
+    @unless ($ssSetupComplete)
+        <x-ss.card :title="__('Getting started')" class="mb-4">
+            <x-ss.setup-checklist :steps="$ssSetupSteps" />
+        </x-ss.card>
+    @endunless
+
 
     @if ($ssNeedsAttention)
         <x-ss.attention :title="__('Needs attention')"

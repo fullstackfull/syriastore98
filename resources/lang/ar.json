@@ -2939,5 +2939,6 @@
     "Quick preview of order :id": "معاينة سريعة للطلب :id",
     "Loading order…": "جارٍ تحميل الطلب…",
     "This order could not be loaded.": "تعذّر تحميل هذا الطلب.",
-    "Payment": "الدفع"
+    "Payment": "الدفع",
+    "Name your store and set its details": "سمِّ متجرك واضبط تفاصيله"
 }
