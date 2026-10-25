@@ -65,6 +65,18 @@ function __t($key, array $replace = [])
 }
 
 /**
+ * `__()` itself, for PHP that the harness runs directly rather than compiling.
+ *
+ * The Blade pass rewrites `__(` to `__t(` in TEMPLATES, but a fixture that
+ * eval's a real helper out of app/ -- which is how the sidebar preview gets the
+ * shipped menuTree() instead of a copy of it -- calls `__()` from PHP, where no
+ * rewrite happens. Without this that call is a fatal.
+ */
+if (!function_exists('__')) {
+    function __($key, array $replace = [], $locale = null) { return __t($key, $replace); }
+}
+
+/**
  * trans_choice() stand-in. Picks the plural branch the way Laravel's simple
  * "singular|plural" form does and substitutes :placeholders.
  */
@@ -358,6 +370,43 @@ function ss_component($path, array $props, $slot = '', array $namedSlots = [])
 }
 
 /**
+ * Renders resources/views/<path>.blade.php with $data bound, for the
+ * `@include('x', [...])` form.
+ *
+ * Separate from ss_component() because a partial is not a component: it has no
+ * @props, no $attributes and no $slot. It sees the caller's globals plus the
+ * data it was handed, which is Laravel's behaviour.
+ *
+ * This is what lets partision/menu-tree render a submenu by including itself.
+ */
+function ss_include($path, array $data = [])
+{
+    global $repo;
+
+    $file = $repo . '/resources/views/' . str_replace('.', '/', $path) . '.blade.php';
+    if (!is_file($file)) {
+        fwrite(STDERR, "missing include: {$path}\n");
+        return '';
+    }
+
+    $__ssPhp = compile_blade(file_get_contents($file));
+    $__ssTmp = tempnam(sys_get_temp_dir(), 'ssincl') . '.php';
+    file_put_contents($__ssTmp, $__ssPhp);
+
+    $data = ss_clean_scope($data);
+    $__ssRender = function () use ($__ssTmp, $data) {
+        extract(ss_clean_globals(), EXTR_SKIP);
+        extract($data, EXTR_OVERWRITE);
+        ob_start();
+        include $__ssTmp;
+        return ob_get_clean();
+    };
+    $__ssOut = $__ssRender();
+    unlink($__ssTmp);
+    return $__ssOut;
+}
+
+/**
  * Finds the index just past the matching close tag for a component that opened
  * at $from, counting nested <x-same> opens so a card inside a card closes the
  * right one.
@@ -589,8 +638,22 @@ function compile_blade($src)
     // Comments first, so directives inside them never compile.
     $s = preg_replace('/\{\{--.*?--\}\}/s', '', $src);
 
-    // @include('a.b.c') -> resources/views/a/b/c.blade.php, inlined before the
-    // rest of the compile so the partial's own directives are handled too.
+    /* @include('a.b.c') -> resources/views/a/b/c.blade.php, inlined before the
+       rest of the compile so the partial's own directives are handled too.
+
+       @include('a.b.c', ['x' => $y]) is a DIFFERENT shape and is compiled to a
+       call instead of inlined: inlining it would lose the data binding, and
+       inlining a partial that includes ITSELF (which is how
+       partision/menu-tree renders a submenu) would recurse forever at compile
+       time. ss_include() below renders it in its own scope. */
+    $s = preg_replace_callback(
+        '/@include\s*\(\s*([\'"])([A-Za-z0-9_.\-]+)\1\s*,\s*(\[.*?\])\s*\)/s',
+        function ($m) {
+            return '<?php echo ss_include(' . var_export($m[2], true) . ', ' . $m[3] . '); ?>';
+        },
+        $s
+    );
+
     $s = preg_replace_callback(
         '/@include\s*\(\s*([\'"])([A-Za-z0-9_.\-]+)\1\s*\)/',
         function ($m) use ($repo) {

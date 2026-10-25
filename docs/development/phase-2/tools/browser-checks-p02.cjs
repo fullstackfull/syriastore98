@@ -445,6 +445,64 @@ const VARIANTS = [
         JSON.stringify(rtlPanel));
 
   await ctx.close();
+
+  // ====================================================================
+  //  9. SIDEBAR NAVIGATION LEGIBILITY, ACROSS WIDTHS
+  //
+  //  This section exists because a screenshot caught what the desktop
+  //  measurement did not. `transprent-bg` -- the class the DEFAULT
+  //  `cust_theme_bg = 'on'` puts on the nav -- only turns the sidebar
+  //  transparent inside `@media (min-width: 1025px)` (style.css). Below
+  //  that the nav falls back to `.dash-sidebar { background: #1c232f }`
+  //  while `.dash-sidebar .dash-link { color: #333333 }` (custom.css)
+  //  stays put: 1.25:1, on the default settings, at every width a phone
+  //  or tablet uses. Desktop measured 12.01:1 and said nothing about it.
+  //
+  //  So the widths are the whole point of this check, not decoration.
+  //  A true viewport is needed (Chromium will not open a window under
+  //  500px), hence the /frame/ iframe wrapper.
+  // ====================================================================
+  const lum = c => { const [r, g, bl] = c.match(/\d+/g).map(Number)
+      .map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); });
+    return 0.2126 * r + 0.7152 * g + 0.0722 * bl; };
+  const contrast = (a, b2) => { const [x, y] = [lum(a), lum(b2)].sort((p, q) => q - p);
+    return (x + 0.05) / (y + 0.05); };
+
+  for (const variant of ['nav2-en-light-full', 'nav2-ar-light-full']) {
+    for (const w of [360, 390, 768, 1024, 1440]) {
+      const nctx = await browser.newContext({ viewport: { width: Math.max(w, 520), height: 760 } });
+      const npage = await nctx.newPage();
+      await npage.goto(`${BASE}/frame/${variant}.html?w=${w}&h=760`, { waitUntil: 'load' });
+      await npage.waitForTimeout(350);
+      const inner = npage.frames().find(f => f.url().includes('/preview/'));
+      const m = await inner.evaluate(() => {
+        const bgOf = el => { let n = el; while (n) { const c = getComputedStyle(n).backgroundColor;
+            if (c && !/rgba\(.*,\s*0\)$/.test(c) && c !== 'transparent') return c; n = n.parentElement; }
+          return 'rgb(255, 255, 255)'; };
+        // EVERY label, not just the first: a submenu item could differ.
+        return [...document.querySelectorAll('.dash-link')].map(l => {
+          const t = l.querySelector('.dash-mtext');
+          return { color: getComputedStyle(t || l).color, bg: bgOf(l),
+                   label: (t || l).textContent.trim().slice(0, 20) };
+        });
+      });
+      /* WHAT THIS DOES NOT COVER, so "PASSED" is not over-read: the fixture
+         marks no item `.active`, so these numbers are the DEFAULT state only.
+         The active item is `#fff` on `var(--theme-color)` -- on theme-3's
+         #10B77F that is 2.59:1, failing AA at EVERY width, desktop included.
+         That is the merchant's own brand colour across ten themes plus a
+         custom picker, so it is a theming decision and not this slice's to
+         make: ledger F9. */
+      const worst = m.reduce((acc, x) => Math.min(acc, contrast(x.color, x.bg)), 99);
+      const bad = m.filter(x => contrast(x.color, x.bg) < 4.5);
+      // .dash-link is 15px/500 -- normal text, so 4.5:1, not the 3:1 for large text.
+      check(`sidebar labels reach 4.5:1 at ${w}px (${variant.includes('-ar-') ? 'ar' : 'en'})`,
+            bad.length === 0,
+            `worst ${worst.toFixed(2)}:1` + (bad.length ? ` -- ${bad.length}/${m.length} fail, e.g. "${bad[0].label}" ${bad[0].color} on ${bad[0].bg}` : ''));
+      await nctx.close();
+    }
+  }
+
   await browser.close();
 
   console.log(results.join('\n'));

@@ -60,45 +60,87 @@ if (!function_exists('getMenu')) {
     }
 }
 
-if (!function_exists('generateMenu')) {
-    function generateMenu($menuItems, $parent = null)
+if (!function_exists('menuTree')) {
+    /**
+     * The merchant / Super Admin navigation as DATA, for a view to render.
+     *
+     * This is the seam `docs/design-system/ADMIN-LAYOUT-ARCHITECTURE.md` §0
+     * asks for, and it is the thing that was blocking every navigation item in
+     * Phase 02: the sidebar was a hand-concatenated HTML string built in this
+     * file, so no Blade view and no stylesheet could reach it. Only the
+     * rendering moves. Nothing about WHO SEES WHAT changes.
+     *
+     * THE TWO GATES ARE NOT HERE, AND MUST NOT MOVE HERE. `App\Classes\Menu::add()`
+     * filters on module entitlement (`ActivatedModule()`) AND Laratrust
+     * `isAbleTo($item['permission'])` before an item ever reaches `$menuItems`.
+     * That is a security property, not a convenience: an item that bypasses
+     * `Menu::add()` bypasses both gates. This function receives what survived
+     * them and re-shapes it; it decides nothing.
+     *
+     * Ordering, the `mobilescreensetting` exclusion and the `#!` fallback href
+     * are reproduced exactly from the string builder this replaces.
+     *
+     * @param  array      $menuItems  the flat registry, post-gates
+     * @param  mixed      $parent     parent `name`, or null for the top level
+     * @return array<int, array{name:string,title:string,icon:?string,href:string,isTop:bool,children:array}>
+     */
+    function menuTree($menuItems, $parent = null)
     {
-        $html = '';
-
         $filteredItems = array_filter($menuItems, function ($item) use ($parent) {
             return $item['parent'] == $parent;
         });
         usort($filteredItems, function ($a, $b) {
             return $a['order'] - $b['order'];
         });
+
+        $nodes = [];
         foreach ($filteredItems as $item) {
             if ($item['name'] == 'mobilescreensetting' && env('IS_MOBILE') != 'yes') {
                 continue;
             }
-            $hasChildren = hasChildren($menuItems, $item['name']);
-            if ($item['parent'] == null) {
-                $html .= '<li class="dash-item dash-hasmenu">';
-            } else {
-                $html .= '<li class="dash-item">';
-            }
-            $html .= '<a href="' . (!empty($item['route']) ? route($item['route']) : '#!') . '" class="dash-link">';
 
-            if ($item['parent'] == null) {
-                $html .= '<i class="ti ti-' . $item['icon'] . '"></i>
-                <span class="dash-mtext">';
-            }
-            $html .= __($item['title']) . '</span>';
-            if ($hasChildren) {
-                $html .= '<span class="dash-arrow"> <i data-feather="chevron-right"></i> </span> </a>';
-                $html .= '<ul class="dash-submenu">';
-                $html .= generateMenu($menuItems, $item['name']);
-                $html .= '</ul>';
-            } else {
-                $html .= '</a>';
-            }
-            $html .= '</li>';
+            $nodes[] = [
+                'name'     => $item['name'],
+                'title'    => __($item['title']),
+                'icon'     => $item['icon'] ?? null,
+                // route() is called here exactly where the string builder
+                // called it, so a missing route still throws in the same place
+                // rather than failing later inside a view.
+                'href'     => !empty($item['route']) ? route($item['route']) : '#!',
+                'isTop'    => $item['parent'] == null,
+                'children' => hasChildren($menuItems, $item['name'])
+                    ? menuTree($menuItems, $item['name'])
+                    : [],
+            ];
         }
-        return $html;
+
+        return $nodes;
+    }
+}
+
+if (!function_exists('generateMenu')) {
+    /**
+     * Unchanged signature, unchanged callers, unchanged DOM contract.
+     *
+     * `partision/sidebar.blade.php` still does `{!! getMenu() !!}`, and
+     * getSideMenu() still falls back to this, so every call site is untouched.
+     * What changed is that the markup now lives in a Blade partial a designer
+     * can read, instead of in string concatenation in a helper.
+     *
+     * The emitted DOM stays SELECTOR-COMPATIBLE and that is load-bearing: the
+     * inline sidebar search at layouts/app.blade.php:358-398 selects
+     * `.dash-navbar > .dash-item` with a DIRECT-CHILD combinator, so wrapping
+     * an item in any new element breaks search with no error at all. The
+     * classes `dash-item`, `dash-hasmenu`, `dash-link`, `dash-mtext` and
+     * `dash-submenu` are therefore fixed, as is the nesting depth.
+     *
+     * Parity is asserted by tests/Support/Security/bin/verify-menu-render-parity.php,
+     * which parses this renderer's output and the old string builder's output
+     * into DOM trees and compares them element by element.
+     */
+    function generateMenu($menuItems, $parent = null)
+    {
+        return view('partision.menu-tree', ['nodes' => menuTree($menuItems, $parent)])->render();
     }
 }
 

@@ -491,8 +491,46 @@ class HomeController extends Controller
         $arrTask['data'] = [];
         $registerTotal = '';
         $newguestTotal = '';
+        /* P2-02: the discriminator was `type == 'admin'`, and that was the wrong
+         * question.
+         *
+         * A staff user's `type` is THEIR ROLE NAME -- UserController::store sets
+         * `$user->type = $role_r->name` -- so "Manager", "Accountant", anything
+         * the merchant named the role. It is never the literal 'admin', which
+         * only the store owner carries. Every staff member therefore fell into
+         * the else-branch below and had their dashboard chart built from
+         * `PlanOrder`: the PLATFORM's SaaS subscription orders, with no
+         * `store_id` predicate of any kind (PlanOrder is not in
+         * config/tenancy.php's scoped_models and registers no StoreScope, so
+         * nothing scopes it).
+         *
+         * LATENT, NOT LIVE -- and the distinction is the point. `$chartData` is
+         * rendered by exactly two views, superadmin/dashboard.blade.php and
+         * theme_analytic.blade.php; `resources/views/dashboard.blade.php` and
+         * its overview partial never reference it (measured: 0 occurrences).
+         * So for merchant staff these counts were computed server-side and
+         * discarded, never rendered and never serialised. An earlier version of
+         * this comment said an employee "was shown" the platform's subscription
+         * volume. That was an overclaim, caught in review, and corrected here.
+         *
+         * It is still worth fixing now rather than later: PHASE-02-REUSE-INVENTORY
+         * marks this chart "Reuse", i.e. Phase 02 intends to start rendering it,
+         * which is precisely when latent would become live.
+         *
+         * The real question is operator-or-merchant: getOrderChart() is called
+         * from handleSuperAdmin() -- where PlanOrder is genuinely the right
+         * table -- and from handleRegularUser(), where the store's own Orders
+         * are, for the owner and for staff alike.
+         *
+         * Asked through UserPolicy::isOperator() rather than a fourth
+         * hand-written spelling of it: P1-SEC-11 criterion 3 asks for the
+         * operator to be defined ONCE, and that helper normalises the way
+         * MySQL's PAD SPACE does.
+         */
+        $isOperator = \App\Policies\UserPolicy::isOperator($user);
+
         foreach ($arrDuration as $date => $label) {
-            if (auth()->user()->type == 'admin') {
+            if (! $isOperator) {
                 $data = Order::select(\DB::raw('count(*) as total'))                    
                     ->where('store_id', getCurrentStore())
                     ->whereDate('created_at', '=', $date)
@@ -510,6 +548,9 @@ class HomeController extends Controller
                     ->whereDate('last_active', '=', $date)
                     ->first();
             } else {
+                // The platform operator only. PlanOrder is deliberately
+                // unscoped here -- platform-wide subscription volume is what
+                // the Super Admin dashboard is for.
                 $data = PlanOrder::select(\DB::raw('count(*) as total'))
                     ->whereDate('created_at', '=', $date)
                     ->first();

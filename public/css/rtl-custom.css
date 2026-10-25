@@ -4264,3 +4264,70 @@ body.custom-color .nex-prev-btn-wrp .btn {
     border-top: none;
 
 }
+
+/* ==========================================================================
+   P2-01: sidebar navigation legibility below 1025px
+   ==========================================================================
+
+   `partision/sidebar.blade.php` puts `transprent-bg` on the nav whenever
+   `cust_theme_bg` is 'on', which is the DEFAULT (Utility.php:44,
+   helper.php:1106 and :1181, DefaultSetting.php:32, app.blade.php:17). But the
+   rule that acts on it --
+
+       @media (min-width: 1025px) {
+         .dash-sidebar.light-sidebar.transprent-bg { background: transparent }
+       }                                            -- assets/css/style.css
+
+   -- is gated at 1025px. Below that the nav falls back to
+   `.dash-sidebar { background: #1c232f }` while this file's own
+   `.dash-sidebar .dash-link { color: #333333 }` stays where it is. Measured in
+   Chromium at 360/390/768/1024px, en and ar, on default settings:
+
+       label  #333333 on #1c232f   1.25:1
+       icon   #060606 on #1c232f   ~1.07:1
+       search #293240 on #1c232f   ~1.30:1
+
+   So on a phone or tablet a merchant could not read the navigation, the icons,
+   or what they typed into the sidebar search. At 1440px the same page measures
+   12.01:1 -- which is why desktop screenshots and a desktop contrast probe both
+   reported it clean. It took a 390px screenshot to see it.
+
+   The fix follows the background that is actually there rather than changing
+   it: below 1025px the sidebar IS dark, by the host's own design, so the text
+   is made light. Nothing above 1025px is touched.
+
+   Specificity is deliberate, not incidental. `.dash-sidebar .dash-navbar
+   .dash-link` is (0,3,0): it beats this file's (0,2,0) base rule and LOSES to
+   `.dash-sidebar .dash-item.active>.dash-link` and the `:hover`/`:focus`
+   variants at (0,4,0), so the active and hover states keep their own `#fff`.
+   No `!important` is used, which also leaves `style-dark.css`'s
+   `color: #808191 !important` to win in dark mode -- dark mode is unchanged
+   here and its own AA shortfall is tracked separately (ledger F8).
+
+   Note #808191, the host's own dark-sidebar grey, is NOT reused: on #1c232f it
+   reaches only 4.11:1, under the 4.5:1 that `.dash-link`'s 15px/500 requires.
+   ========================================================================== */
+@media (max-width: 1024px) {
+    .dash-sidebar .dash-navbar .dash-link,
+    .dash-sidebar .dash-navbar .dash-link .dash-mtext {
+        color: #c7ccd4;
+    }
+
+    .dash-sidebar.light-sidebar .dash-navbar .dash-link i,
+    .dash-sidebar .dash-navbar .dash-link .dash-arrow {
+        color: #c7ccd4;
+    }
+
+    .dash-sidebar .sidebar-input .form-control {
+        color: #e9ecf1;
+    }
+
+    .dash-sidebar .sidebar-input .form-control::placeholder {
+        color: #a7adba;
+        opacity: 1;
+    }
+
+    .dash-sidebar .sidebar-input i {
+        color: #c7ccd4;
+    }
+}
