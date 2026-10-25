@@ -222,6 +222,29 @@ if (!class_exists('App\\Http\\Controllers\\HomeController')) {
     eval("namespace App\\Http\\Controllers; class HomeController {\n{$__ssConsts}}");
 }
 
+/* P2-04-4: the dashboard asks App\Support\OrderStatusTone which tone each order status
+ * wears, and the order list asks the same class, which is the whole point of it existing.
+ *
+ * THE REAL FILE IS LOADED, not shimmed. It is a plain final class with no framework
+ * dependency -- its only Laravel call is `e()` inside `badge()`, which the dashboard does not
+ * reach -- so a `require` gives the preview the ACTUAL mapping rather than a second copy that
+ * could drift. That matters more here than anywhere: the class exists specifically because two
+ * surfaces had drifted apart, and a preview carrying a third copy would be the same defect
+ * wearing a harness.
+ *
+ * AFTER the HomeController shim above, which supplies the constants its entries are keyed on.
+ * If this require is ever removed, the dashboard fixture dies with "class not found" rather
+ * than rendering something plausible -- which is how this was found. */
+if (!class_exists('App\\Support\\OrderStatusTone')) {
+    $__ssTone = dirname(__DIR__, 3) . '/app/Support/OrderStatusTone.php';
+    if (!is_file($__ssTone)) {
+        fwrite(STDERR, "HARNESS: app/Support/OrderStatusTone.php is missing -- the dashboard "
+            . "preview cannot resolve an order status to a tone.\n");
+        exit(3);
+    }
+    require_once $__ssTone;
+}
+
 if (!function_exists('getStoreById')) {
     function getStoreById($id)
     {

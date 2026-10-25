@@ -22,17 +22,21 @@
 |---|---|---|
 | P2-00 discovery and reuse audit | — | **done** |
 | P2-01 shared layout and core components | A, F | **done** — components, panel, action bar, dirty guard, sidebar zones, workspace chip, collapsed rail. Concurrent-edit conflict handling arrived with P2-03. |
-| P2-02 merchant dashboard | C | **done except** the recent-orders / top-products blocks (P2-02-9) |
-| P2-03 products | D | **partial** — concurrent-edit conflict detection, the quick-preview panel, the variant column's missing translation and **the list filters** (status / stock / category / variants, with no JavaScript, 12 tests and 58 browser cases) are shipped and tested. The list's design-system redesign, the full-page editor and media/variant UX are **not built**. |
-| P2-04 orders | E | **partial** — the status breakdown is honest and reconciles, the **authorised quick preview** is shipped with its own guard entry and nine authorization tests, **F19 is fixed** (no more Unix epoch as a date), and **the list filters are shipped** (status, payment, date range; 14 tests, five controls bite-tested, 112 browser cases shared with the product list). The order list's design-system redesign, the detail page, Kanban and SAVED views are **not built**. |
+| P2-02 merchant dashboard | C | **done.** P2-02-9's two list cards were the last row, and they were already BUILT — what was missing was any data in them: the fixture left `orders.product_id` at `'0'` while the controller plucks that column, so the best-selling card had only ever been seen in its empty state. Fixed, pinned (4 tests / 16 assertions, bitten three ways) and shot with rows in it in 8 configurations |
+| P2-03 products | D | **partial** — concurrent-edit conflict detection, the quick-preview panel, the variant column's missing translation and **the list filters** (status / stock / category / variants, with no JavaScript, 12 tests and 58 browser cases) are shipped and tested. Its **row actions** came with P2-04-4's sweep: the design system's quiet icon buttons, an `aria-label` on each (three had no accessible name at runtime), a `Form::close()` that was missing, an icon that had never painted a glyph, and the stock badges off white-on-brand (2.59:1) onto `ss-badge`. The list's own layout and density, the full-page editor and media/variant UX are **not built**. |
+| P2-04 orders | E | **partial** — the status breakdown is honest and reconciles, the **authorised quick preview** is shipped with its own guard entry and nine authorization tests, **F19 is fixed** (no more Unix epoch as a date), and **the list filters are shipped** (status, payment, date range; 14 tests, five controls bite-tested, 112 browser cases shared with the product list). **P2-04-4 is now done**: the status column off the vendored theme's classes (below AA in **44 of 56** readings, two of them unreadable at 1.03:1 and 1.12:1) onto one shared `OrderStatusTone` the dashboard reads too — the two surfaces had disagreed about four of the nine statuses — plus named, contrast-clean row actions and the reference pill fixed through F9's own `--ss-onbrand`. 84 live cases, bitten five ways. The independent review of that change then found a **stored XSS** on the line it edits (F42, fixed and pinned) and a preview harness that had been showing the opposite of production (F43). **The detail page's blocker was stale and is cleared** — see 3b. Kanban and SAVED views are **not built**. |
 | P2-05 common merchant screens | J | **started** — **P2-05-1** is shipped: four state-changing GETs converted to POST, **three of which were also unauthorised cross-tenant writes** (no permission check, no ownership check, no tenant predicate, on models that carry no scope), plus a ratchet so the set of state-changing GETs cannot grow. The design-system pass over customers, stock, categories, staff and settings is **not built**. |
 | P2-06 search, notifications, preferences, onboarding | G, H, I | **done** — all four. **Global search** (per-section authorisation, per-query scoping, 11 tests); **onboarding** (the RTL hold settled at runtime); **persisted table preferences** across all 68 DataTables from the one shared helper; and **notifications**, against the same `store_notifications` rows the Flutter app already reads, authorised BY TYPE with 24 tests, two live defects and four weak tests of my own found by the independent review and fixed (F23–F28). No `packages/workdo/` file touched and no schema change in any of the four. |
 | P2-07 Flutter | K | **partial** — RTL wiring, the vendor-host leak, accessible names, the parity matrix, the RTL mirroring pass and now the **status honesty pass** (P2-07-6: statuses 7 and 8 named instead of "unknown", nine Arabic-literal descriptions translated, the "Cancel" button word replaced by the order STATE, and three badge colour pairs raised above AA — one was at 1.85:1) are done. Broader a11y (P2-07-8) is not, and the API half of the status honesty pass is F29, escalated. |
 | P2-08 integration and acceptance | — | this document and the evidence file |
 
 **Do not read the passing suites as "Phase 02 is finished".** They say that what *was* built is
-verified, and verified more strongly than before — but three workstreams are untouched and two are
-half-built.
+verified, and verified more strongly than before. What is NOT built is named in §3b and in the
+ledger's own TODO rows — at the time of writing: P2-03's list layout, full-page editor and
+media/variant UX; P2-04's Kanban and saved views; P2-05's design-system pass over five screens;
+P2-07-8's broader Flutter accessibility; and P2-04-6, which is now unblocked but unstarted.
+Read those rows rather than a count here, because a count in prose goes stale and these rows do
+not.
 
 ## 2. What changed since the last handoff, and why it matters
 
@@ -65,12 +69,44 @@ configuration that exposed them.
 
 **B1 and B2 are cleared and are kept here only so the change is visible.**
 
+### 3a-bis. One thing escalated rather than fixed
+
+**F46 — the checkout path attributes an order from request input.**
+`PaymentService.php:2689` builds `product_order_id` as `$request->customer_id . date('YmdHis')`
+for a caller `auth('customers')->check()` has already authenticated, and `:2696` writes the same
+raw value to `orders.customer_id`. The authenticated customer's own id is on the line above. The
+usual objection — that the `unsignedBigInteger` insert would reject a string — does not hold:
+`config/database.php:55` sets `'strict' => false` on the `mysql` connection, so MySQL coerces
+that column to 0 and the `string` column keeps the value whole, which is how the order list's
+reference cell became an injection vector.
+
+**The rendering half is fixed and pinned** (`OrderListCellEscapingTest`, bites). **The input half
+is not, deliberately:** it is a payment path, and material changes to payments are an owner
+decision under this phase's constraints. The fix is one line on each of those two statements, and
+it wants its own slice with checkout tests rather than a drive-by inside a contrast fix. What was
+NOT measured: whether a crafted `customer_id` survives a full checkout request on production
+MySQL. That was reasoned from the column type, the handler and the strict-mode setting — not
+driven.
+
 ### 3b. Not blocked — simply not built
 
-P2-03's list, filters, editor and media UX. P2-04's list redesign, detail page, Kanban and saved
-views. **P2-05's design-system pass** over customers, stock, categories, staff and settings — the
-largest untouched surface in the phase, now that P2-05-1 has dealt with what was dangerous there.
-P2-07-8's broader accessibility work. None of these has a blocker; they have not been done.
+P2-03's list layout, editor and media UX (its filters are done, and its ROW ACTIONS came with
+P2-04-4's sweep). P2-04's Kanban and saved views — **the list redesign and the detail page are no
+longer on this list**: P2-04-4 is done, and P2-04-6's "blocker" turned out to be stale (see
+below). **P2-05's design-system pass** over customers, stock, categories, staff and settings —
+the largest untouched surface in the phase, now that P2-05-1 has dealt with what was dangerous
+there. P2-07-8's broader accessibility work. None of these has a blocker; they have not been done.
+
+**P2-04-6's blocker was stale, and the row is the only thing that was holding it.** It said
+`order.view` reaches `Order::order_detail()` = `Order::find()` with no tenant predicate, on a
+forgeable `Crypt`-encoded id, and that fixing it "needs runtime tests, which the Composer blocker
+prevents". Both halves are overtaken: `OrderDocumentAccessGuard` is on the `web` group and lists
+`order-view/{id}` in its `TARGETS`, and `OrderDocumentAccessTest` passes 49 tests / 77 assertions
+with `'order detail (order.view)' => ['/order-view/']` among the cross-tenant data sets. The
+Composer blocker is cleared, so those tests run. **Re-measured, not re-read.** Keep one nuance:
+the guard keys on `$route->uri()` by design, so a NEW route reaching `order_detail()` is not
+guarded by implication and needs its own `TARGETS` entry plus a case in that test — restyling
+`order.view` in place needs neither.
 
 **Saved views are now the only part of the filter story left, and most of the pieces exist.**
 P2-06-4 put `stateSave` on every table (page length, sort, column visibility, per device).
@@ -183,6 +219,87 @@ every "this product is absent" assertion held for free. The premise assertion (`
 found at all`) is what failed and said so. That is the same trap P2-02-13 fixed in the view
 itself; it is worth knowing that a **fixture** can fall into it too, and that only a premise
 assertion catches it.
+
+## 4e. A screenshot is the only thing that found any of these
+
+P2-04-4 began with one crop of one table row at 3x. It produced, in order: a status control with
+no readable text (1.03:1), a button with no glyph in it at all, three controls with no accessible
+name, and an unclosed `<form>`. **Not one of them was visible to any test in the repository**, and
+three of them could not have been — the missing glyph is a font fact, the missing name only
+appears after Bootstrap's tooltip plugin empties `title`, and the contrast is a composited pixel
+value. The run that eventually proved the fixes (`check-row-actions-live.cjs`, 72 cases) exists
+because of the crop, not the other way round.
+
+**The cheap habit, worth repeating:** render the screen, crop one row or one card at 2–3x, and
+count what you expect to see. Four actions, four glyphs. Two cards, two footers on the bottom
+edge. Five products, five rows. Counting in the DOM answers a different question and has now
+agreed with a broken page three times this phase — the empty best-selling card (§4d), the status
+button with no text, and the preview button with no icon.
+
+**And two near misses in the measuring itself, both caught before they were written down.** A
+contrast probe that treated `rgba(…, 0.15)` as opaque returned `1.00:1` for a warning label and
+`0 problems` for a card it had read twice; and a browser run reported `159/159` against fixtures
+rendered before the change it was supposed to be checking, because the render script had exited
+255 and the stale HTML was still on disk. A green number is a claim about what was actually
+driven. Check that the thing under test is the thing the harness loaded.
+
+## 4f. The independent review found the serious thing, and it was next to the change, not in it
+
+The P2-04-4 slice was presentational: badges, button classes, aria-labels. The
+`tenant-authz-reviewer` pass over it confirmed the change itself was clean — no predicate, gate,
+route or middleware moved — and then reported a **stored XSS on the line the change edits**. The
+status column was escaped correctly; the `customer_id` column three cases above it, in the same
+`rawColumns()` list, printed a shopper-chosen name straight into the merchant's admin origin
+(ledger F42). It also found that the **preview harness had been granting a permission production
+does not have** since P2-02-13, so every dashboard screenshot showed the opposite of the
+application while 159/159 checks passed (F43).
+
+**The habit worth keeping:** run the review on the slice even when the slice is "just styling",
+and brief it on the surrounding file rather than only the diff. Two of the last three slices got
+a real finding from it, and both findings were in code the diff touched but did not change.
+
+**And weigh what it returns rather than applying it.** Of its five suggested actions, three were
+right and are fixed (F42, F43, F44), one was a real defect it had framed as an owner question and
+is also fixed, and **one was wrong**: it reported that `$(this)` inside the `.return_request`
+success callback is the ajax settings object, making a comment of mine inaccurate. It is not —
+`order/index.blade.php:80` sets `context: this`, which is exactly what makes `$(this)` the
+clicked element in every callback. The comment was correct and stayed. A reviewer's finding is a
+claim to check, on the same terms as a bot's.
+
+## 4g. A test can be poisoned by the request before it
+
+`OrderListCellEscapingTest` needs the order list's AJAX leg, because yajra's `render()` branches
+on `request()->ajax() && request()->wantsJson()` and only that leg builds any rows. The first
+version of its helper did the obvious thing first — `$this->get('/order')->assertOk()` as a
+liveness check — and then asked for the JSON. **It got the page back both times.**
+
+`Yajra\DataTables\Utilities\Request` captures `app('request')` when the container first resolves
+it and keeps it for the rest of the test method. So the liveness request fixed `ajax()` at FALSE
+for everything after it, and all three cases then asserted against a 1,300-line HTML shell with
+no customer cell in it — a state in which "the payload is absent" is perfectly true and means
+nothing. Driving the same call as the *first* request in the method returns JSON and the test
+bites.
+
+**Two headers, not one:** `getJson()` supplies `Accept` and nothing supplies `X-Requested-With`,
+so `wantsJson()` was true and `ajax()` false — which is also why the response looked like a
+plausible 200 rather than an error. The premise assertion (`the body starts with {`) is what
+caught both, and it is now the helper's own liveness check, so there is nothing left to put
+before it.
+
+## 4h. A bite test that passes may not have reverted anything
+
+The reference-cell escaping fix was bitten with a one-line `sed`, the test passed, and that read
+as the familiar result: a clean bite means the test is not measuring the control. It was not that
+at all. **The `sed` pattern had not matched** — PHP string quoting inside the shell command — so
+the file was unchanged and the test was correctly reporting a fix that was still there. Running
+`grep` on the file first showed `e($item->product_order_id)` untouched; redoing the revert with
+an exact-match replacement produced the failure.
+
+**Confirm the revert landed before reading the result.** `git diff` or a `grep` for the thing you
+removed costs one command and separates "the control is redundant", "the test is not measuring
+it" and "nothing was reverted" — three states that produce the identical green output. §4b is a
+whole section about the second of those; this is the third, and it is the only one of the three
+where the green is simply correct.
 
 ## 5. What a successor should do first
 

@@ -22,4 +22,4 @@ $errors = $state === 'noperm'
       ])
     : new ErrorBagStub();
 
-$GRANTS = ['Manage Order' => true, 'Manage Product' => true];
+$GRANTS = ['Manage Order' => true, 'Manage Products' => true];

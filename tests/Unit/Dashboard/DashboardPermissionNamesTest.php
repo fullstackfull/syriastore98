@@ -56,7 +56,21 @@ class DashboardPermissionNamesTest extends TestCase
                 continue;
             }
 
-            if (preg_match_all('/[\'"]((?:Manage|Create|Edit|Delete|Show|Reset|Replay|Module)\s[A-Za-z0-9 ]+)[\'"]/', (string) file_get_contents($file), $m)) {
+            /*
+             * COMMENT-PROOFED, like the view side already was -- and the asymmetry was a real
+             * hole, not a tidiness point. This scan builds the ALLOWLIST, so a comment anywhere
+             * in `Utility.php` or any seeder quoting `'Manage Product'` would have ADDED that
+             * name to the grantable set and the ratchet would have stopped biting on the exact
+             * defect it exists for. The view side strips comments so prose cannot satisfy it;
+             * this side strips them so prose cannot widen it. Raised by the tenant/authz review
+             * as hardening; it is the repository's own rule ("strip comment lines from any
+             * source-grep ratchet") applied to the half that had been missed.
+             */
+            $source = (string) file_get_contents($file);
+            $source = (string) preg_replace('#/\*.*?\*/#s', '', $source);
+            $source = (string) preg_replace('#^\s*//.*$#m', '', $source);
+
+            if (preg_match_all('/[\'"]((?:Manage|Create|Edit|Delete|Show|Reset|Replay|Module)\s[A-Za-z0-9 ]+)[\'"]/', $source, $m)) {
                 foreach ($m[1] as $name) {
                     $names[$name] = true;
                 }

@@ -2959,5 +2959,13 @@
     "Any payment status": "Any payment status",
     "Recorded in the same field, but not fulfilment states": "Recorded in the same field, but not fulfilment states",
     "Unpaid": "Unpaid",
-    "Paid": "Paid"
+    "Paid": "Paid",
+    "Show order :id": "Show order :id",
+    "Edit order :id": "Edit order :id",
+    "Delete order :id": "Delete order :id",
+    "Approve the return of order :id": "Approve the return of order :id",
+    "Reject the return of order :id": "Reject the return of order :id",
+    "Edit :name": "Edit :name",
+    "Delete :name": "Delete :name",
+    "Status not set": "Status not set"
 }

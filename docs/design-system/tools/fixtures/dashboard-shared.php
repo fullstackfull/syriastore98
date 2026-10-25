@@ -89,7 +89,7 @@ $GRANTS = $state === 'noperm'
     : [
         'Manage Order'    => true,
         'Create Product'  => true,
-        'Manage Product'  => true,
+        'Manage Products' => true,
         'Manage Customer' => true,
       ];
 

@@ -84,19 +84,14 @@
         \App\Http\Controllers\HomeController::ORDER_STATUS_PARTIALLY_PAID => __('Partially Paid'),
         \App\Http\Controllers\HomeController::ORDER_STATUS_PRE_ORDER      => __('Pre Order'),
     ];
-    $ssOrderTones = [
-        \App\Http\Controllers\HomeController::ORDER_STATUS_PENDING        => 'warning',
-        \App\Http\Controllers\HomeController::ORDER_STATUS_DELIVERED      => 'success',
-        \App\Http\Controllers\HomeController::ORDER_STATUS_CANCEL         => 'danger',
-        \App\Http\Controllers\HomeController::ORDER_STATUS_RETURN         => 'danger',
-        \App\Http\Controllers\HomeController::ORDER_STATUS_CONFIRMED      => 'info',
-        \App\Http\Controllers\HomeController::ORDER_STATUS_PICKED_UP      => 'info',
-        \App\Http\Controllers\HomeController::ORDER_STATUS_SHIPPED        => 'info',
-        \App\Http\Controllers\HomeController::ORDER_STATUS_PARTIALLY_PAID => 'neutral',
-        \App\Http\Controllers\HomeController::ORDER_STATUS_PRE_ORDER      => 'neutral',
-    ];
     $ssOrderLabel = fn (int $s) => $ssOrderLabels[$s] ?? __('Status :code', ['code' => $s]);
-    $ssOrderTone  = fn (int $s) => $ssOrderTones[$s] ?? 'neutral';
+
+    /* THE TONES USED TO BE A SECOND ARRAY RIGHT HERE, and the order list had a third answer
+       again in its own markup. The two disagreed about four of the nine statuses, so one order
+       changed colour between this card and the list a merchant opens from it. One place now:
+       App\Support\OrderStatusTone. The LABELS stay local, because the two surfaces word them
+       differently on purpose -- "Order Delivered" here, "Delivered : 11 Oct 2026" there. */
+    $ssOrderTone  = fn (int $s) => \App\Support\OrderStatusTone::for($s);
 
     $ssMayOrders    = auth()->check() && auth()->user()->isAbleTo('Manage Order');
     /*
@@ -403,7 +398,9 @@
          config/tenancy.php's scoped_models, so an unscoped Product query here
          would have reached every tenant's catalogue.
 
-         Gated separately: orders on Manage Order, products on Manage Product.
+         Gated separately: orders on `Manage Order`, products on `Manage Products`
+         -- SINGULAR and PLURAL, and both spellings are the real row names, not a
+         typo in one of them (see the note on $ssMayProducts above).
          /dashboard carries no permission middleware, so a staff member with
          only one of the two must see only that one. --}}
     @if ($ssMayOrders || $ssMayProducts)

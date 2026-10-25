@@ -3,6 +3,8 @@
 namespace App\DataTables;
 
 use App\Models\Order;
+use App\Http\Controllers\HomeController;
+use App\Support\OrderStatusTone;
 use Illuminate\Database\Eloquent\Builder as QueryBuilder;
 use Yajra\DataTables\EloquentDataTable;
 use Yajra\DataTables\Html\Builder as HtmlBuilder;
@@ -27,10 +29,28 @@ class OrderDataTable extends DataTable
                 return view('order.action', compact('order'));
             })
             ->editColumn('product_order_id', function ($item) {
+                /*
+                 * ESCAPED, for the same reason as the customer cell below and with a longer
+                 * path to it. `product_order_id` is a STRING column
+                 * (`create_orders_table.php:16`) and `PaymentService.php:2689` builds it as
+                 * `$request->customer_id . date('YmdHis')` for an authenticated shopper -- raw
+                 * caller input, not the authenticated customer's id. The same request value is
+                 * also written to `orders.customer_id`, which is `unsignedBigInteger`, so the
+                 * obvious objection is that the insert would fail -- but `config/database.php`
+                 * sets `'strict' => false` on the `mysql` connection, so MySQL COERCES that one
+                 * to 0 and stores the string column whole.
+                 *
+                 * THE AUTHORIZATION HALF OF THAT IS NOT FIXED HERE and is recorded as ledger
+                 * F46: reading `$request->customer_id` where `auth('customers')->id()` is
+                 * available is the pattern CLAUDE.md names as this codebase's most productive
+                 * defect class, and it sits on a payment path, which the owner's constraints
+                 * reserve for escalation. Escaping the cell closes the rendering vector whatever
+                 * is decided there.
+                 */
                 return '<div class="d-flex align-items-center">
                             <a href="' . route('order.view', \Illuminate\Support\Facades\Crypt::encrypt($item->id)) . '" class="btn btn-primary btn-sm text-sm" data-bs-toggle="tooltip" title="' . __('Invoice ID') . '">
                                 <span class="btn-inner--icon"></span>
-                                <span class="btn-inner--text">#' . $item->product_order_id . '</span>
+                                <span class="btn-inner--text">#' . e($item->product_order_id) . '</span>
                             </a>
                         </div>';
             })
@@ -41,11 +61,31 @@ class OrderDataTable extends DataTable
                 return self::dateOrDash($item->order_date);
             })
             ->editColumn('customer_id', function ($item) {
+                /*
+                 * ESCAPED. `customer_id` is in this table's `rawColumns()` list, so yajra does
+                 * NOT escape it -- and both values here are written by a SHOPPER. Registration
+                 * validates `first_name` as `'required','string','max:255'` and nothing more
+                 * (`Customer\Auth\CustomerLoginController::register`), so a shopper of this
+                 * merchant's own store chooses the string this cell prints into the merchant's
+                 * admin origin. `Customer::getNameAttribute()` is `first_name . ' ' . last_name`.
+                 *
+                 * THE XSS MIDDLEWARE DOES NOT COVER IT, and reading it is the point:
+                 * `app/Http/Middleware/XSS.php` runs `htmlspecialchars_decode()` and THEN strips
+                 * only the four strings `&lt;`, `&gt;`, `javascript`, `alert`. The decode turns an
+                 * encoded `&lt;` into a raw `<` before the strip looks for `&lt;`, and a raw `<`
+                 * was never a target to begin with -- so `<img src=x onerror=...>` passes through
+                 * whole, as long as it avoids two words. A denylist of four strings is not an
+                 * escaping layer and nothing downstream supplies one.
+                 *
+                 * Found by the tenant/authz review of the status-column change, on the same
+                 * `rawColumns()` line that change edits. `<br>` stays raw: it is this file's own
+                 * markup, not the data.
+                 */
                 if ($item->is_guest == 1) {
                     return __('Guest');
                 } elseif ($item->customer_id != 0) {
-                    return (!empty($item->CustomerData->name) ? $item->CustomerData->name : '') . '<br>' .
-                        (!empty($item->CustomerData->mobile) ? $item->CustomerData->mobile : '');
+                    return e(!empty($item->CustomerData->name) ? $item->CustomerData->name : '') . '<br>' .
+                        e(!empty($item->CustomerData->mobile) ? $item->CustomerData->mobile : '');
                 } else {
                     return __('Walk-in-customer');
                 }
@@ -115,39 +155,62 @@ class OrderDataTable extends DataTable
     return $item->ShippingMethod?->method_name ?? '-';
 })
             ->editColumn('delivered_status', function ($item) {
-                $statusButtons = [
-                    0 => '<button type="button" class="btn btn-sm btn-soft-info btn-icon bg-info badge-same">
-                            <span class="btn-inner--icon"><i class="fas fa-check soft-info"></i></span>
-                            <span class="btn-inner--text"> ' . __('Pending') . self::statusDate($item->order_date) . ' </span>
-                        </button>',
-                    1 => '<button type="button" class="btn btn-sm btn-soft-success btn-icon bg-success badge-same">
-                            <span class="btn-inner--text"> ' . __('Delivered') . self::statusDate($item->delivery_date) . ' </span>
-                        </button>',
-                    2 => '<button type="button" class="btn btn-sm btn-soft-danger btn-icon bg-danger badge-same">
-                            <span class="btn-inner--text"> ' . __('Cancel') . self::statusDate($item->cancel_date) . ' </span>
-                        </button>',
-                    3 => '<button type="button" class="btn btn-sm btn-soft-danger btn-icon bg-danger badge-same">
-                            <span class="btn-inner--text"> ' . __('Return') . self::statusDate($item->return_date) . ' </span>
-                        </button>',
-                    4 => '<button type="button" class="btn btn-sm btn-soft-warning btn-icon bg-warning badge-same">
-                            <span class="btn-inner--text"> ' . __('Confirmed') . self::statusDate($item->confirmed_date) . ' </span>
-                        </button>',
-                    5 => '<button type="button" class="btn btn-sm btn-soft-secondary btn-icon bg-secondary badge-same">
-                            <span class="btn-inner--icon"><i class="fas fa-check soft-secondary"></i></span>
-                            <span class="btn-inner--text"> ' . __('Picked Up') . self::statusDate($item->picked_date) . ' </span>
-                        </button>',
-                    6 => '<button type="button" class="btn btn-sm btn-soft-dark btn-icon bg-dark badge-same">
-                            <span class="btn-inner--text"> ' . __('Shipped') . self::statusDate($item->shipped_date) . ' </span>
-                        </button>',
-                    7 => '<button type="button" class="btn btn-sm btn-soft-dark btn-icon bg-dark badge-same">
-                            <span class="btn-inner--text"> ' . __('Partially Paid') . self::statusDate($item->order_date) . ' </span>
-                        </button>',
-                    8 => '<button type="button" class="btn btn-sm btn-soft-dark btn-icon bg-dark badge-same">
-                            <span class="btn-inner--text"> ' . __('Pre Order') . self::statusDate($item->order_date) . ' </span>
-                        </button>',
+                /*
+                 * THE DESIGN SYSTEM'S BADGE, NOT THE VENDORED THEME'S BUTTONS.
+                 *
+                 * Two defects in one piece of markup, both measured in the running application.
+                 *
+                 * CONTRAST. The `btn btn-soft-*` classes this column used come from
+                 * `public/assets/css/style.css` and are below AA in 44 of 56 readings across
+                 * LTR/RTL x light/dark -- `btn-soft-dark` (Shipped, Partially Paid, Pre Order)
+                 * at 1.12:1 in dark mode and `btn-soft-danger` (Cancel, Return) at 1.03:1 are
+                 * not readable at all. Seen first in a screenshot: row 2 of the Arabic dark
+                 * order list had a status control with no visible text in it.
+                 *
+                 * AND A BUTTON THAT IS NOT A BUTTON. Every one of these was
+                 * `<button type="button">` with no handler, no `onclick` and no form -- a status
+                 * label wearing a control's clothes. Assistive technology announces it as an
+                 * actionable button and a keyboard user tabs to each one in turn for nothing.
+                 * The status is a label, so it is now a `<span>`.
+                 *
+                 * The tone comes from `OrderStatusTone`, which the dashboard's "Latest orders"
+                 * card reads too. The two surfaces previously disagreed about four of the nine
+                 * statuses -- Shipped was `info` on the dashboard and `dark` here, Confirmed
+                 * `info` there and `warning` here, Pending `warning` there and `info` here,
+                 * Picked Up `info` there and `secondary` here -- so one order changed colour
+                 * between two screens a merchant reads one after the other.
+                 */
+                $labels = [
+                    HomeController::ORDER_STATUS_PENDING        => __('Pending') . self::statusDate($item->order_date),
+                    HomeController::ORDER_STATUS_DELIVERED      => __('Delivered') . self::statusDate($item->delivery_date),
+                    HomeController::ORDER_STATUS_CANCEL         => __('Cancel') . self::statusDate($item->cancel_date),
+                    HomeController::ORDER_STATUS_RETURN         => __('Return') . self::statusDate($item->return_date),
+                    HomeController::ORDER_STATUS_CONFIRMED      => __('Confirmed') . self::statusDate($item->confirmed_date),
+                    HomeController::ORDER_STATUS_PICKED_UP      => __('Picked Up') . self::statusDate($item->picked_date),
+                    HomeController::ORDER_STATUS_SHIPPED        => __('Shipped') . self::statusDate($item->shipped_date),
+                    HomeController::ORDER_STATUS_PARTIALLY_PAID => __('Partially Paid') . self::statusDate($item->order_date),
+                    HomeController::ORDER_STATUS_PRE_ORDER      => __('Pre Order') . self::statusDate($item->order_date),
                 ];
 
-                return $statusButtons[$item->delivered_status] ?? '';
+                /*
+                 * NULL IS NOT PENDING. `(int) null` is `0`, so casting first would print
+                 * "Pending" for an order whose status was never written -- a confident claim
+                 * about fulfilment made out of an absent value, which is the same class of
+                 * defect as F19's epoch dates. It is reported as unset instead.
+                 *
+                 * An unrecognised NON-NULL code is SHOWN rather than swallowed: the previous
+                 * array returned '' for anything outside 0-8, so a tenth status rendered an
+                 * order with no status at all. `LynomiaCommerceDataTest` establishes that
+                 * out-of-range values do occur in this column.
+                 */
+                if ($item->delivered_status === null || $item->delivered_status === '') {
+                    return OrderStatusTone::badge(-1, __('Status not set'));
+                }
+
+                $status = (int) $item->delivered_status;
+                $label = $labels[$status] ?? __('Status :code', ['code' => $status]);
+
+                return OrderStatusTone::badge($status, $label);
             })
             ->rawColumns(['action', 'product_order_id', 'order_date', 'customer_id', 'final_price', 'payment_type', 'delivered_status']);
         return $dataTable;

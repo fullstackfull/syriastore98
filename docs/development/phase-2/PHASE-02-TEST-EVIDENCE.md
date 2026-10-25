@@ -1188,3 +1188,202 @@ the row wraps and there is no stretching to do. The shared stylesheet change was
 everything that drives it: **159/159** Phase 02 browser checks, **66/66** design-system checks,
 **76** contrast readings with none below AA, and the three live assertion tools (112, 21 and 33
 cases).
+
+
+## 9l. P2-04-4 — the order list's row controls, measured rather than looked at
+
+Started from one screenshot. The Arabic dark order list had a status control with no readable
+text in it, so the row's controls were measured with WCAG alpha compositing (the same arithmetic
+`measure-contrast-live.cjs` uses) across LTR/RTL x light/dark.
+
+```
+BEFORE, the vendored theme's own classes:            44 of 56 readings below AA
+  btn-soft-dark    Shipped / Partially Paid / Pre Order   1.12:1  dark
+  btn-soft-danger  Cancel / Return                        1.03:1  dark
+  btn-soft-success Delivered                              2.59:1  all four
+  btn-soft-warning Confirmed                              1.68:1  light
+  btn-primary      the #ORD-xxxx reference pill           2.59:1  all four
+  btn-info         the Edit pencil (icon, needs 3:1)      1.09:1  dark
+
+AFTER, on the design system's badge and quiet icon buttons:   0 of 56 below AA
+  worst text reading   6.82:1     worst icon reading   5.94:1   reference pill   6.92:1
+```
+
+**A first reading of this was wrong and said `0 problems`.** The probe treated
+`rgba(244,180,26,0.15)` as opaque, so a warning label on its own tinted background came out at
+exactly 1.00:1 and a dark tone at 1.22:1 — numbers that are not false in direction but are not
+measurements either. A ratio against a translucent background is not a ratio until the background
+is composited. The figures above are from the repository's own compositing routine, and the first
+set was discarded rather than reported.
+
+**`btn-primary` is F9 again, on a third surface.** 2.59:1 is the same figure F9 recorded for the
+selected sidebar item, because it is the same pair of colours: `#fff` on the merchant's brand.
+`--ss-onbrand` — F9's own mechanism, white or near-black chosen by measured ratio against the
+merchant's colour — supplies the label. **No brand colour changes**, the fill stays exactly what
+the merchant picked, a merchant on a dark brand sees no change at all, and no new global policy
+was needed, so nothing was escalated.
+
+### 9l-bis. Three things no stylesheet could have fixed
+
+| | found by | fixed by |
+|---|---|---|
+| **Three icons with no glyph.** `ti-layout-sidebar-right-expand` is not in the bundled font (it has `ti-layout-sidebar-right` and no `-expand` variant); `ti-category` has no `ti-categor*` at all. The quick-preview button on BOTH lists had painted an empty 18px box since it shipped. | cropping one row at 3x and counting glyphs — three where four were expected | the names the font has, plus two ratchets: `IconNamesExistTest` reads the expectation **out of the font file** (no allowlist) and names the file; `check-row-actions-live.cjs` asserts the **painted** width |
+| **Three of four row actions had no accessible name.** `data-bs-toggle="tooltip"` makes Bootstrap move `title` into `data-bs-original-title` and blank the attribute, so a server-rendered DOM has a name and the merchant's page does not. | measuring the accessible name in the browser **after** the scripts ran | `aria-label` naming the verb and the record on every action, both lists; 7 new keys in both language files |
+| **`Form::open()` with no `Form::close()`** in the product list's cell. | reading the file while changing it | `{!! Form::close() !!}` |
+
+### 9l-ter. And a stale-fixture near miss worth recording
+
+Moving the status tones into `App\Support\OrderStatusTone` broke the preview harness, which has
+no Laravel autoloader: `dashboard-after` died with *class not found*. **The first browser run after
+that change still reported 159/159**, because it was driving fixtures rendered before it — the
+render script had exited 255 and the stale HTML was still on disk and still being served. The
+figure was discarded, `render-preview.php` now `require`s the real class (not a third copy of the
+mapping, which is the defect the class exists to prevent), and both suites were re-run against
+freshly rendered fixtures:
+
+```
+$ bash docs/development/phase-2/tools/render-all-fixtures.sh <dir>     exit 0, 41 fixtures
+$ node docs/development/phase-2/tools/browser-checks-p02.cjs           159 PASSED, 0 FAILED
+$ node docs/design-system/tools/browser-checks.cjs                      66 PASSED, 0 FAILED
+$ node docs/development/phase-2/tools/check-row-actions-live.cjs        84 cases, 84 passed
+$ node docs/development/phase-2/tools/check-list-filters-live.cjs      112 cases passed
+$ node docs/development/phase-2/tools/measure-contrast-live.cjs         76 measured, 0 below AA
+$ php artisan test --testsuite=Unit                                    370 passed
+```
+
+**`check-row-actions-live.cjs` bites five ways.** The font-less icon name → 4 failures naming it;
+one `aria-label` dropped while its `title` stays → 4 failures, which is the measurement behind the
+"`title` is not a name" claim; the `--ss-onbrand` rule reverted → 2.59:1 on `#ORD-2047`; one badge
+tone's colour broken → 1:1 on Cancel; and `--ss-success-fg` broken → 1:1 on both lists at once,
+8 failures, which is what proves the product list's stock badges are covered too.
+
+**And the "refuses to check what is not there" clause was itself a bug for about an hour.** The
+badge assertions were keyed on `screen.name === 'orders'`, which was true when only the order
+list used `ss-badge`. The product stock column moved onto the same badge (F45) and the check went
+on printing `no status badges on this list by design (10 found)` — skipping ten real badges while
+saying so in its own output. It now keys on what the page contains: the order list must have
+badges, and every badge found anywhere is measured. A skip message that names a non-zero count is
+the tell.
+
+
+## 9m. The review of 9l, and the three things it found that 9l had not
+
+The P2-04-4 change was presentational, so it went to `tenant-authz-reviewer` under CLAUDE.md's
+rule for anything touching an order surface. The review confirmed the change itself: no
+authorization, tenancy predicate, permission check or route middleware moved; the row actions
+expose the same routes, ids and `Crypt` usage as the unchanged sibling `order/grid.blade.php`;
+the new badge's class string cannot be influenced (`for()` returns only literals, `$status` is a
+typed `int`); and `aria-label="{{ __('Delete order :id', [...]) }}"` cannot inject, because
+Laravel substitutes first and `{{ }}` escapes after, with `ENT_QUOTES`.
+
+Then it reported three things the slice had not looked at.
+
+**1. Stored XSS on the line the change edits** — ledger F42. `OrderDataTable`'s `customer_id`
+column prints a shopper-chosen name unescaped into a `rawColumns()` cell, and the XSS middleware
+that looks like it would stop it decodes entities *before* stripping four literal strings, so a
+raw `<img src=x onerror=…>` survives.
+
+```
+$ php artisan test tests/Feature/Security/OrderListCellEscapingTest.php
+  ✓ a shoppers name cannot inject markup into the merchants order list
+  ✓ a shoppers mobile number is escaped too
+  ✓ an order reference cannot inject markup
+  ✓ an ordinary customer name still renders
+  Tests: 4 passed (26 assertions)
+
+bite: the two customer e() calls removed    2 failed, 2 passed
+bite: the reference e() removed             1 failed, 3 passed
+```
+
+**A SECOND CELL, which the review flagged as unproven and which measurement settled.**
+`product_order_id` is in the same `rawColumns()` list and `PaymentService.php:2689` builds it as
+`$request->customer_id . date('YmdHis')` for an authenticated shopper — raw caller input. The
+objection is that the same value also goes to `orders.customer_id`, an `unsignedBigInteger`,
+so the insert should fail. It does not: `config/database.php:55` sets `'strict' => false` on the
+`mysql` connection, and `product_order_id` is a `string` column
+(`create_orders_table.php:16`), so MySQL coerces one and stores the other whole. Escaped and
+pinned. **The INPUT half is ledger F46 and is escalated, not fixed** — it is a payment path.
+What was not measured: a full checkout request on production MySQL. That reachability is read
+from the column type, the handler and the strict-mode setting.
+
+**And one of those bites was a false reading before it was a real one.** The first attempt at the
+reference bite used `sed` with a pattern that did not match, so the "reverted" file was
+unmodified and the test passed — which read exactly like a vacuous test. Checking that the edit
+had actually landed, and redoing it, produced the failure above. A bite test proves nothing until
+you confirm the revert is in the file.
+
+**2. The preview harness had been showing the opposite of production** — ledger F43. The
+dashboard fixtures granted `Manage Product` (singular) after P2-02-13 renamed the gate to the
+plural, so every "permitted merchant" render hid the best-selling card, the out-of-stock
+attention item with its `Review stock` link, and the Products stat link. **159/159 passed
+throughout**: no check asserted those blocks were present in the granted state. After the fixture
+fix and a re-render, `after-en-full-light.html` carries `Best selling products` and a third
+attention item (`below the stock threshold` + `Review stock`) that had been absent.
+
+The review also listed the add-product onboarding step. That step IS gated on the same name, but
+its checklist does not render in this fixture state at all — P2-06-1 is held — so it is left out
+of the count above. A reviewer's list is a set of claims; the ones reported here are the ones
+that were checked.
+
+**3. A NULL status would have read "Pending"** — ledger F44, fixed before shipping, and the
+test for it is worth describing because **two of its three cases are not the obvious one**.
+
+```
+$ php artisan test tests/Feature/Merchant/OrderStatusLabelTest.php
+  ✓ an unrecognised status is named rather than left blank
+  ✓ each of the nine known statuses is named
+  ✓ the null branch is unreachable because the column forbids null
+  Tests: 3 passed (31 assertions)
+
+bite: the `?? __('Status :code')` fallback replaced by `?? ''`   1 failed, 2 passed
+```
+
+The **reachable** defect is the out-of-range value: the markup this replaced returned `''` for
+anything outside 0–8, so an order carrying a tenth status rendered with no status at all in the
+one column a merchant scans the list by. `LynomiaCommerceDataTest` establishes those values occur.
+
+The **NULL** branch cannot be driven: `delivered_status` is declared
+`integer(...)->default(0)` — NOT NULL — and SQLite refuses the write, so the first attempt at that
+case failed on its own premise. A conditionally-skipped test would have been worse than none,
+because it would join the declared skip set the known-outcome gate asserts, for something that is
+not a blocker. So the third case **asserts the reason instead**: it reads `PRAGMA table_info` and
+fails if the column ever becomes nullable, with the message saying what test to write then. The
+one-line guard stays, because GATE F records that the migrations are not the schema.
+
+The second case also carries the assertion that makes the first meaningful: `Pre Order` appears
+**exactly once** across nine rows. Without it, a column that printed all nine labels on every row
+would satisfy every "status N is named" assertion.
+
+**Its one hardening note was real, and was measured both ways** — ledger F47.
+`DashboardPermissionNamesTest` strips comments from the view side so prose cannot satisfy the
+scan, and read the seeder side raw. The seeder side builds the ALLOWLIST, so a comment quoting
+`'Manage Product'` anywhere in `Utility.php` or a seeder would have widened it and the ratchet
+would have stopped biting on P2-02-13's defect.
+
+```
+state: a `// probe: 'Manage Product'` comment in Utility.php
+     + the view reverted to isAbleTo('Manage Product')
+
+with the comment-stripping fix      ⨯ FAILS, naming the view
+without it (the pre-fix scan)       ✓ passes
+```
+
+**One of its five findings was wrong, and was checked rather than applied.** It reported that
+`$(this)` inside the `.return_request` ajax `success:` callback is the settings object, which
+would make a comment in `order/action.blade.php` inaccurate. `order/index.blade.php:80` sets
+`context: this`, so `$(this)` is the clicked element and the comment was right. Nothing changed.
+
+### 9m-bis. Everything re-run after the review's fixes
+
+```
+$ bash docs/development/phase-2/tools/render-all-fixtures.sh <dir>     exit 0, 41 fixtures
+$ node docs/development/phase-2/tools/browser-checks-p02.cjs           159 PASSED, 0 FAILED
+$ node docs/design-system/tools/browser-checks.cjs                      66 PASSED, 0 FAILED
+$ node docs/development/phase-2/tools/check-row-actions-live.cjs         84 cases, 84 passed
+$ node docs/development/phase-2/tools/check-list-filters-live.cjs       112 cases passed
+$ node docs/development/phase-2/tools/measure-contrast-live.cjs          76 measured, 0 below AA
+$ node docs/development/phase-2/tools/shoot-products-live.cjs             8 combinations, 0 problems
+$ node docs/development/phase-2/tools/shoot-orders-live.cjs               8 combinations, 0 problems
+$ node docs/development/phase-2/tools/shoot-dashboard-cards-live.cjs      8 configurations, 0 problems
+$ php artisan test --testsuite=Unit                                     370 passed
+```

@@ -2988,5 +2988,13 @@
     "Applies to products with stock tracking on.": "ينطبق على المنتجات التي يُتابَع مخزونها فقط.",
     "Filter orders": "تصفية الطلبات",
     "Any payment status": "أي حالة دفع",
-    "Recorded in the same field, but not fulfilment states": "مُسجَّلة في الحقل نفسه، لكنها ليست حالات تنفيذ"
+    "Recorded in the same field, but not fulfilment states": "مُسجَّلة في الحقل نفسه، لكنها ليست حالات تنفيذ",
+    "Show order :id": "عرض الطلب :id",
+    "Edit order :id": "تعديل الطلب :id",
+    "Delete order :id": "حذف الطلب :id",
+    "Approve the return of order :id": "الموافقة على إرجاع الطلب :id",
+    "Reject the return of order :id": "رفض إرجاع الطلب :id",
+    "Edit :name": "تعديل :name",
+    "Delete :name": "حذف :name",
+    "Status not set": "الحالة غير محددة"
 }

@@ -4550,3 +4550,25 @@ body .breadcrumb a,
 body .breadcrumb .breadcrumb-item a {
     color: var(--ss-brand-ontext, var(--theme-color)) !important;
 }
+
+/* P2-A-05. THE BRAND AS A BUTTON FILL, which is P2-A-03's defect a third time.
+   `.btn-primary` is `#fff` on `var(--theme-color)`. On the default theme-3 (`#10B77F`) that is
+   2.59:1 -- the SAME figure F9 recorded for the selected sidebar item, because it is the same
+   pair of colours. Measured in the running application on the order list, where it is the
+   order-reference pill in every row: 2.59:1 in all four of LTR/RTL x light/dark.
+
+   `--ss-onbrand` is the F9 mechanism, not a new one: white or near-black, whichever the
+   merchant's own colour actually contrasts with, chosen by measured WCAG ratio in
+   layouts/app.blade.php. NO BRAND COLOUR CHANGES -- the fill stays exactly what the merchant
+   picked, and only the text on top of it moves. On a dark brand the token returns `#ffffff`,
+   so those merchants see no change at all. The fallback is `#fff`, i.e. today's appearance if
+   the script is blocked.
+
+   The border is left alone deliberately: it is the brand colour against the page, not against
+   the fill, and changing it would alter the button's shape on the page. */
+body .btn-primary,
+body .btn-primary:hover,
+body .btn-primary:focus,
+body .btn-primary:active {
+    color: var(--ss-onbrand, #fff);
+}

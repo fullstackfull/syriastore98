@@ -3,6 +3,7 @@
 namespace App\DataTables;
 
 use App\Models\Product;
+use App\Support\DsBadge;
 use Illuminate\Database\Eloquent\Builder as QueryBuilder;
 use Yajra\DataTables\EloquentDataTable;
 use Yajra\DataTables\Html\Builder as HtmlBuilder;
@@ -72,25 +73,40 @@ class ProductDataTable extends DataTable
                 }
             })
             ->addColumn('stock_status', function ($product) use ($admin) {
+                /*
+                 * THE DESIGN SYSTEM'S BADGE. The vendored `badge bg-light-*` classes this
+                 * column used measured 2.59:1 for "In stock" (white on the merchant's brand
+                 * green) and 2.66:1 for "Out of stock" -- both text, both needing 4.5:1 -- in
+                 * every one of LTR/RTL x light/dark. Same family of defect as the order list's
+                 * status buttons (P2-04-4), found the same way, on the screen beside it.
+                 *
+                 * `In Variant` MOVES FROM WARNING TO NEUTRAL, deliberately. It is not a stock
+                 * level and not a problem: it says the stock lives on this product's variants,
+                 * so the question does not apply at this row. An amber pill in a stock column
+                 * reads as "something is wrong with this product", which is a claim the data
+                 * does not support.
+                 */
                 if ($product->variant_product == 1) {
-                    return '<span class="badge badge-80 rounded p-2 f-w-600 bg-light-warning">' . __('In Variant') . '</span>';
-                } else {
-                    if ($product->track_stock == 0) {
-                        if ($product->stock_status == 'out_of_stock') {
-                            return '<span class="badge badge-80 rounded p-2 f-w-600 bg-light-danger">' . __('Out of stock') . '</span>';
-                        } elseif ($product->stock_status == 'on_backorder') {
-                            return '<span class="badge badge-80 rounded p-2 f-w-600 bg-light-warning">' . __('On Backorder') . '</span>';
-                        } else {
-                            return '<span class="badge badge-80 rounded p-2 f-w-600 bg-light-primary">' . __('In stock') . '</span>';
-                        }
-                    } else {
-                        if ($product->product_stock <= (isset($admin['out_of_stock_threshold']) ? $admin['out_of_stock_threshold'] : 0)) {
-                            return '<span class="badge badge-80 rounded p-2 f-w-600 bg-light-danger">' . __('Out of stock') . '</span>';
-                        } else {
-                            return '<span class="badge badge-80 rounded p-2 f-w-600 bg-light-primary">' . __('In stock') . '</span>';
-                        }
-                    }
+                    return DsBadge::render('neutral', __('In Variant'));
                 }
+
+                if ($product->track_stock == 0) {
+                    if ($product->stock_status == 'out_of_stock') {
+                        return DsBadge::render('danger', __('Out of stock'));
+                    }
+
+                    if ($product->stock_status == 'on_backorder') {
+                        return DsBadge::render('warning', __('On Backorder'));
+                    }
+
+                    return DsBadge::render('success', __('In stock'));
+                }
+
+                $threshold = $admin['out_of_stock_threshold'] ?? 0;
+
+                return $product->product_stock <= $threshold
+                    ? DsBadge::render('danger', __('Out of stock'))
+                    : DsBadge::render('success', __('In stock'));
             })
             ->addColumn('product_stock', function ($product) {
                 if ($product->variant_product == 1) {
