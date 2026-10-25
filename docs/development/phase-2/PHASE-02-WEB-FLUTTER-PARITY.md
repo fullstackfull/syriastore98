@@ -1,13 +1,25 @@
 # Phase 02 — merchant web ↔ Flutter parity
 
-Measured, not estimated. The Flutter app was read with a working SDK
-(**Flutter 3.41.2 / Dart 3.11.0**) in this container, which closes the Phase 0 blocked check
-*"whether Repo B compiles at all"*.
+Measured, not estimated.
+
+**Re-measured on Flutter 3.47.8 / Dart 3.13.7** (head `2774a76d`):
 
 ```
-flutter analyze   246 info · 0 warning · 0 error
-flutter test      1186 PASSED, 0 FAILED
+flutter pub get --enforce-lockfile   exit 0      # blocker B2 CLEARED; pubspec.lock unchanged
+flutter analyze                      246 issues · 0 warning · 0 error
+flutter test                         1195 PASSED, 0 FAILED        # was 1186, then 1189
+flutter build web --release          FAILS — blocker B4, see §6
 ```
+
+The earlier figures (Flutter 3.41.2 / Dart 3.11.0, 1186 tests) are superseded, not contradicted:
+the counts grew because tests were added, and `analyze` is unchanged at 246 with zero errors.
+
+**`flutter pub get --enforce-lockfile` now succeeds**, which settles blocker B2 — it was an
+artefact of 3.41.2, as that row suspected. The lockfile is untouched by this phase.
+
+**One SDK behaviour to know about:** `pub get` rewrites `analysis_options.yaml` to exclude the
+platform directories. That silently narrows what `analyze` sees, so it is reverted after every
+`pub get` and the 246 above is measured without it.
 
 ---
 
@@ -99,6 +111,34 @@ Measured, and worth stating because a modernisation pass can destroy these by ac
 | **G3** | **The app's dashboard has not had the honesty pass the web one just had.** No period on its figures, and no permission gate on money. The web now withholds order value from staff without `Manage Order`; the app shows whatever `/dashboard` returns. | **P1** | **OPEN.** The right fix is partly server-side — `/dashboard` should not return a figure the caller may not see — which makes it an API change and therefore an escalation, not a quiet edit. |
 | **G4** | **Zero accessibility affordances.** `grep -rn "Semantics(\|semanticLabel" lib` → **0** across 198 files. Icon-only controls (the 5-tab bottom bar, the 6-item popup menu, the password-visibility toggle) expose no label to TalkBack or VoiceOver. | **P2** | **OPEN.** Mechanical but broad; wants its own slice. |
 
+## 5b. RTL — measured for LAYOUT this cycle
+
+The RTL visual pass was recorded as blocked for *"no device, no emulator, no Flutter rendering"*.
+**Two of those three have changed.** A widget test is not a mock: `pumpWidget` builds, lays out and
+paints through the same RenderObject tree a device uses, and `tester.getRect()` reads the resolved
+geometry — which is what *"does it mirror"* actually asks.
+
+A census of `lib/view` found only **seven files** using a direction-blind alignment or padding, and
+**five of those shapes were defects**:
+
+| file | was | why it mattered |
+|---|---|---|
+| `customers_details.dart` | `Alignment.centerLeft` on the `latest_order` and `personal_data` headings | an ARABIC heading pinned to the physical left of its row |
+| `top_orders.dart` | `EdgeInsets.only(right:)` margin; `centerLeft` date | an RTL row spaced from the wrong side |
+| `app_txt_field.dart` | `EdgeInsets.only(left: 8, right: 12)` | the field suffix's inset did not follow the text |
+| `common_drop_down_widget.dart` | `EdgeInsets.only(right: 4)` | the chevron flush in Arabic, gapped in English |
+
+`invoice.dart` and `product_widget.dart` are deliberately left alone: an invoice is a printed
+document with its own direction, and `product_widget`'s two are a default parameter and a numeric
+column.
+
+`test/localization/rtl_mirroring_test.dart` asserts the painted geometry is a **mirror** rather
+than merely different — the start inset equal, the physical sides swapped — plus that the OLD shape
+does **not** mirror (so the difference is a measured fact, not a claim), plus a "did it move" case
+so a centred layout cannot pass by symmetry, plus a comment-proofed ratchet over the four files.
+
+**Still not verified:** no Flutter screen has been SEEN. See §6.
+
 ## 6. What cannot be verified here, stated plainly
 
 - **No device, no emulator, no Flutter screenshot.** Everything claimed about the app is from
@@ -112,3 +152,24 @@ Measured, and worth stating because a modernisation pass can destroy these by ac
   screen with **no `registerLicense` call anywhere**. Commercial, and without a key it renders a
   licence banner in release builds. **An owner decision; it blocks release of that screen, not
   engineering.**
+
+
+---
+
+## 7. Contract compatibility — unchanged, and checked
+
+Nothing in this phase altered an API response shape, a status code or a route the app calls.
+
+- **The Contract suite passes: 26 tests, 83 assertions.** It replays a committed artifact of
+  Lynomia's real producer output through this side's real ingress, so a drift between the two
+  repositories fails it.
+- **The store switch changed verb on the WEB route only** (`change.store`, GET → POST). The app
+  calls the API sibling, `POST /api/admin/changestore`, which was already POST and is untouched.
+- **No new 401 on any path a client calls.** The shipped app force-logs-out on any 401, so the new
+  endpoints answer 403 for a permission refusal and 404 for an unreadable row — never 401 — and the
+  authorization tests assert exactly that.
+- **The new endpoints are web-only** (`order-preview/{id}`, `merchant-search`), inside the
+  authenticated admin group, and no client in either repository calls them.
+- **The concurrent-edit token is opt-in by design.** A save with no `ss_last_seen_at` is not
+  refused, precisely so the API and the Flutter app — which post the product form without it —
+  keep working unchanged. That is asserted by a test rather than assumed.

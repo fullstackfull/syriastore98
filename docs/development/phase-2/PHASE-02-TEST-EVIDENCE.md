@@ -6,7 +6,26 @@ worked around.
 
 ---
 
-## 0. What has NOT been run, and why it matters most
+## 0. SECTION 0 IS OBSOLETE — the suites run now
+
+> **This section is kept, not deleted.** It is the record of what was true before the owner opened
+> `git.yoomoney.ru`, and the reasoning in it is still the reasoning that identified the blocker.
+> Everything it says is unavailable is now available, and §9 below carries the measured output.
+
+**WHAT CHANGED.** `composer install --no-interaction --prefer-dist --no-scripts` completes from the
+**existing lockfile**, exit 0, with YooKassa installed and `composer.lock` untouched. GitHub
+*archive* downloads still answer 403 at the proxy, so Composer falls back to `git clone --mirror`
+for most packages — about twenty minutes and ~7 GB of cache, and lock-faithful, which is what
+matters. Nothing was removed, no payment SDK was swapped, and the lockfile was not edited to make
+anything install.
+
+So the sentence this section opened with — *"the PHPUnit suites have not run in this container at
+all"* — no longer holds, and neither does anything downstream of it.
+
+---
+
+<details>
+<summary><strong>The original §0, as written under the blocker</strong></summary>
 
 **The PHPUnit suites have not run in this container at all.** Not the Unit suite, not Feature, not
 Contract, and not `.github/scripts/assert-known-test-outcomes.php`.
@@ -101,6 +120,9 @@ tenancy enforcement at runtime, the yajra DataTables stack, or the controller qu
 Those remain unverified here.
 
 ---
+
+
+</details>
 
 ## 1. Design-system contrast — 58 pairs, light and dark
 
@@ -700,3 +722,233 @@ $ php -l   on every changed PHP and Blade file            -> No syntax errors de
 $ node --check public/js/store-syria-ds.js                -> clean
 $ python3 -c "import json; json.load(...)"  on both lang files -> valid
 ```
+
+---
+
+# 9. THE RUNTIME CYCLE — everything §0 said could not be run
+
+Laravel head `d1bb94ee`, Flutter head `2774a76d`. PHP 8.3.6, Laravel 11.47.0, PHPUnit on SQLite
+`:memory:` with `CACHE_STORE=array` (`phpunit.xml`); the browser runs drive a real `artisan serve`
+on a seeded SQLite file. Flutter 3.47.8 / Dart 3.13.7.
+
+## 9a. The PHPUnit suites, first execution in this phase
+
+```
+$ composer install --no-interaction --prefer-dist --no-scripts
+  ... exit 0.  vendor/yoomoney/{yookassa-sdk-php,yookassa-sdk-validator} present.
+  git diff composer.lock -> empty
+
+$ php artisan test --testsuite=Unit
+  Tests:  363 passed (2012 assertions)
+
+$ php artisan test --testsuite=Contract
+  Tests:   26 passed (83 assertions)
+
+$ php artisan test --testsuite=Feature \
+      --log-junit storage/logs/feature-junit.xml \
+      --log-teamcity storage/logs/feature-teamcity.txt
+  Tests:  5798 passed, 3 failed, 17 skipped (29134 assertions)   [first run]
+
+$ php .github/scripts/assert-known-test-outcomes.php \
+      storage/logs/feature-junit.xml .github/known-test-outcomes.json \
+      storage/logs/feature-teamcity.txt
+  failures observed : 3  (manifest declares 2)
+  ::error::NEW FAILURE, not in the manifest:
+      SecurityLogInventoryTest::test_the_observability_inventory_matches_the_source
+```
+
+**The extra failure was mine, and it was the inventory doing its job.** Three security log lines in
+`OrderController.php` moved when `order_preview()` was inserted above them, and
+`P01-OBSERVABILITY-INVENTORY.md` is keyed on `file:line`. Re-pointed with the repository's own tool
+rather than by hand:
+
+```
+$ python3 docs/development/phase-1/tools/resync-observability-inventory.py --write
+  rows re-pointed : 9      rows unchanged : 120      documented : 129
+
+$ php artisan test tests/Feature/Security/SecurityLogInventoryTest.php \
+      tests/Feature/Tenancy/ResidualTenancyExposureTest.php \
+      tests/Feature/Tenancy/EloquentScopeBypassInventoryTest.php \
+      tests/Feature/Security/StoredFilePathSafetyTest.php
+  Tests: 106 passed
+```
+
+**The 17 skips matched the manifest exactly on the first run**, in both directions.
+
+## 9b. The suites the brief named individually
+
+```
+$ php artisan test --filter OperatorCheckCensusTest
+  Tests: 19 passed (33 assertions)
+
+$ php artisan test tests/Unit/Navigation/MenuTreeParityTest.php     # the REAL Blade engine
+  Tests:  8 passed (28 assertions)
+
+$ php artisan test tests/Feature/Security/OrderDocumentAccessTest.php
+  Tests: 49 passed (77 assertions)
+
+$ php artisan test tests/Feature/Security/ReportAuthorizationTest.php
+  Tests: 25 passed      # 24 report routes refused without the permission, then admitted with it
+```
+
+`OrderDocumentAccessTest` had never executed. It is the suite that proves the order-document
+guard — encrypted and raw ids, merchant and shopper, a doubled principal, and the guard's presence
+in each target's resolved middleware stack.
+
+## 9c. Real DataTables behaviour — both legs
+
+`tests/Feature/Merchant/DataTableRuntimeTest.php`, 6 cases, 33 assertions.
+
+yajra chooses its leg on `$this->request()->ajax() && $this->request()->wantsJson()`
+(`laravel-datatables-buttons/src/Services/DataTable.php::render`), so a drive setting only one of
+the two headers silently takes the HTML branch and returns 200 with no rows — the shape of a test
+that passes while measuring nothing. Both headers are set and **every case asserts the DataTables
+envelope is present as its premise** before claiming anything about the rows.
+
+| case | result |
+|---|---|
+| the product list renders its DataTable scaffold | pass (404 and 500 excluded explicitly) |
+| the AJAX leg returns the caller's own rows | pass, `recordsTotal = 1` |
+| the AJAX leg does not serve another tenant's catalogue | pass — foreign row asserted **still present** via `DB::table()`, so "excluded" is distinguished from "absent" |
+| the order DataTable's AJAX leg is tenant-scoped | pass |
+| staff without `Manage Products` get no envelope and no product data | pass (302, not JSON) |
+| the **same** staff member gets both once granted | pass |
+
+`Product` is not in `scoped_models` and registers no effective scope, so
+`ProductDataTable::query()`'s own `where('store_id', getCurrentStore())` is the **only** thing
+keeping one merchant's catalogue out of another's list. That is what these measure.
+
+## 9d. Security and tenancy regressions added this cycle
+
+| file | cases | what it pins |
+|---|---|---|
+| `CustomSidebarAuthorizationTest` | 19 | F4's gate at its seams, F5's escaping, the route-existence drop, the iframe branch, the arrow-after-drop |
+| `CustomSidebarRenderPathTest` | 3 | **`getSideMenu()` itself** — the gate's production call site |
+| `OrderPreviewAuthorizationTest` | 9 | the new preview endpoint, with its two controls measured **separately** |
+| `MerchantSearchAuthorizationTest` | 10 | the global search: cross-tenant, per-section permission, unresolved tenant, LIKE wildcards |
+| `TenantSwitchTest` | 12 | F12 — a GET answers 405 having moved nothing; CSRF asserted structurally |
+| `ProductConcurrentEditTest` | 5 | a stale save is refused and A's work survives |
+| `DashboardPermissionNamesTest` | 1 | every `isAbleTo()` name in the merchant views can actually be granted |
+| `AdminLayoutAssetsTest` | 2 | every `asset()` path in the admin layout resolves to a real file |
+
+### Bite tests — every control reverted, and what failed
+
+This project's rule is stricter than TDD's: after the fix, revert it and confirm the test fails
+again. Recorded in full because **three of these revealed tests that passed for the wrong reason**.
+
+| control reverted | result |
+|---|---|
+| `Menu::add()` stops recording denials | 1 failed — the right one |
+| F5's escaping + the route-existence drop | 4 failed, one of them `RouteNotFoundException` — the availability defect, reproduced |
+| `getSideMenu()`'s gate call site | **first attempt: 0 failed.** Every assertion drove the helpers directly. `CustomSidebarRenderPathTest` was written to drive the function; now 1 fails |
+| the iframe ordering fix | **first attempt: 0 failed** — `sidemenubuilder.iframe` does not resolve in a test run, so the row was dropped for the wrong reason. A stand-in wrapper route is registered and asserted; now 2 fail |
+| the order preview's **handler** check | 1 failed — exactly the direct-call case |
+| the order preview's **guard** entry | 1 failed — exactly the registration case |
+| the concurrent-edit check | 1 failed — exactly the stale-token case |
+| both contrast stylesheets | 14 of 32 readings below AA, from 0 |
+| the singular permission name restored | 1 failed, with the plural named in the message |
+| search: the store predicate, or the unresolved-tenant refusal | **0 failed, either way.** The two controls are redundant: `where('store_id', null)` compiles to `IS NULL`, and Customer's global scope covers the resolved case. **No endpoint test can fail on a single removal.** Stated in the test file; the hazard underneath is pinned by its own test, which measures that `Customer::query()` for a tenant-less principal compiles with NO store predicate and returns both tenants' rows |
+
+## 9e. Contrast, measured in the running application
+
+`docs/development/phase-2/tools/measure-contrast-live.cjs` — a real login, a real session, and the
+host's own server-side theme/direction switch, reading composited colours off the painted page.
+
+```
+before:  32 measured, 14 below AA
+after:   32 measured,  0 below AA
+```
+
+| element | ltr/light | ltr/dark | rtl/light | rtl/dark |
+|---|---|---|---|---|
+| sidebar label (inactive) | 12.63 | 3.71 → **5.66** | 12.63 | 3.71 → **5.66** |
+| **sidebar label (active)** | 2.59 → **6.92** | 2.59 → **6.92** | 2.59 → **6.92** | 2.59 → **6.92** |
+| sidebar search field | 12.93 | 3.71 → **5.66** | 12.93 | 3.71 → **5.66** |
+| table cell | 12.93 | 3.71 → **5.66** | 12.93 | 3.71 → **5.66** |
+| breadcrumb link | 2.48 → **5.00+** | 4.03 → **6.14** | 2.48 → **5.00+** | 4.03 → **6.14** |
+
+F9's fix changes **no brand colour**: across the ten presets, white wins on six and near-black on
+four, and all ten reach AA — worst case 4.90:1.
+
+## 9f. The browser suites, after every change
+
+```
+$ bash docs/development/phase-2/tools/render-all-fixtures.sh /tmp/p2fixtures   # 41 fixtures
+$ SS_PREVIEW_DIR=/tmp/p2fixtures php -S 127.0.0.1:8099 -t public \
+      docs/design-system/tools/preview-server.php &
+
+$ node docs/development/phase-2/tools/browser-checks-p02.cjs      159 PASSED, 0 FAILED
+$ node docs/design-system/tools/browser-checks.cjs                 66 PASSED, 0 FAILED
+$ python3 docs/design-system/tools/check-contrast.py               ALL 58 PAIRS PASS
+$ php tests/Support/Security/bin/verify-menu-render-parity.php     17 checks, all match
+$ php tests/Support/Security/bin/verify-order-chart-operator-branch.php   9 PASSED
+```
+
+**Neither browser suite's fixture set was committed or fully documented** — the evidence file named
+`nav2-*` where the code reads `nav3-*`, and said nothing about the `orig-*` baselines, which must
+come from git because the pre-redesign markup no longer exists in the tree. A missing fixture does
+not report as missing; it reports as a FAILING CHECK or a harness `TypeError`, which reads like a
+regression in the thing being tested. `render-all-fixtures.sh` renders all 41.
+
+## 9g. Screenshots of the running application
+
+| harness | what it drives | combinations |
+|---|---|---|
+| `shoot-orders-live.cjs` | the order list and the quick-preview panel, fetched | 8 — desktop/mobile x en/ar x light/dark |
+| `shoot-dashboard-live.cjs` | the dashboard and the onboarding checklist | 8 |
+| `shoot-search-live.cjs` | Ctrl+K, a real term, real results, arrow-key selection | 8 |
+
+Each run asserts, per combination: which stylesheet the **server** actually sent, the resolved
+`dir`, that the fetch produced real content, and that no 5xx occurred — with
+`/top-brand-category-chart` excluded **by name** (blocker B5), so a 500 anywhere else still fails.
+
+**The dark-mode shots were wrong at first and the harness said so.** It set `data-theme` from the
+browser while the layout picks its stylesheet server-side, so four of eight were of the light
+stylesheet. `set-preview-state.php` writes the store's real `cust_darklayout` / `SITE_RTL`, and
+every run now asserts the result.
+
+## 9h. P2-06-1 — the RTL hold, settled
+
+The onboarding checklist was held because the preview harness painted each step's mark **twice**
+under `dir="rtl"`. Driven in the running application, at desktop and mobile in light and dark,
+reading **painted geometry** rather than the DOM — because counting elements is exactly what could
+not see the defect, the DOM always had one:
+
+```
+desktop-ar-light   rows=4 domMarks=4 paintedRects=[1,1,1,1] OK
+desktop-ar-dark    rows=4 domMarks=4 paintedRects=[1,1,1,1] OK
+mobile-ar-light    rows=4 domMarks=4 paintedRects=[1,1,1,1] OK
+mobile-ar-dark     rows=4 domMarks=4 paintedRects=[1,1,1,1] OK
+```
+
+**The duplication was the harness.** The component ships.
+
+## 9i. Flutter
+
+```
+$ flutter --version          3.47.8 stable / Dart 3.13.7
+$ flutter pub get --enforce-lockfile      exit 0   # B2 CLEARED; pubspec.lock unchanged
+$ flutter analyze            246 issues, 0 warnings, 0 errors   # unchanged by this cycle
+$ flutter test               1195 passed            # was 1189; +6 RTL mirroring
+$ flutter build web --release             FAILS — see B4
+```
+
+`flutter build web` fails inside `firebase_messaging_web` 3.5.18 under Dart 3.13.7, with **zero
+files under `lib/` implicated**. That blocks Flutter *screenshots*; it does not block RTL *layout*,
+which `test/localization/rtl_mirroring_test.dart` measures through the real RenderObject tree.
+
+**`analysis_options.yaml` must be reverted after every `pub get`.** The SDK rewrites it to exclude
+the platform directories, which silently narrows what `analyze` sees and would make the 246 figure
+incomparable to the recorded baseline.
+
+## 9j. What is still NOT verified, stated plainly
+
+- **No Flutter screen has been seen.** B4. Layout is measured; pixels are not.
+- **No MySQL run.** Everything PHPUnit here is SQLite, whose type affinity hides real MySQL
+  defects — that is how P01-SEC-13 survived. Nothing about payment or schema behaviour in
+  production is established by any figure in this file.
+- **`/top-brand-category-chart` is unexercised** (B5), so the dashboard's brand/category chart has
+  no runtime coverage in any environment available here.
+- **The ~31 remaining `asset('public/...')` files** (F16) are not fixed and not measured.
+- **P2-03's list and editor, P2-04's list and detail page, all of P2-05, P2-06's notifications and
+  preferences** are not built, so there is nothing to verify.

@@ -2,8 +2,16 @@
 
 **State: Phase 02 engineering is PARTIALLY COMPLETE.** Read §1 before anything else.
 
-**Branch:** `claude/store-syria-p02-merchant-experience` in both repositories, mirrored to
-`claude/brave-cori-byyw4s` at the same SHA. Nothing merged to `main`, nothing deployed.
+**Branch:** `claude/store-syria-p02-merchant-experience` in both repositories. Nothing merged to
+`main`, nothing deployed, no production migration run.
+
+| | |
+|---|---|
+| Laravel head | `d1bb94ee` (`fullstackfull/syriastore98`) |
+| Flutter head | `2774a76d` (`fullstackfull/StoreSyria_app98`) |
+| Requirements | [`PHASE-02-MASTER-EXECUTION-PROMPT.md`](PHASE-02-MASTER-EXECUTION-PROMPT.md) — the owner's prompt, verbatim |
+| Row-level status | [`PHASE-02-TASK-LEDGER.md`](PHASE-02-TASK-LEDGER.md) |
+| Executed output | [`PHASE-02-TEST-EVIDENCE.md`](PHASE-02-TEST-EVIDENCE.md) |
 
 ---
 
@@ -12,125 +20,120 @@
 | Slice | Workstream | State |
 |---|---|---|
 | P2-00 discovery and reuse audit | — | **done** |
-| P2-01 shared layout and core components | A, F | **done except navigation** — the menu registry still emits an HTML string, so the sidebar zones and workspace chip are not built |
-| P2-02 merchant dashboard | C | **done except the chart** and the recent-orders/top-products blocks |
-| P2-03 products | D | **not started** |
-| P2-04 orders | E | **partial** — the status breakdown is honest and reconciles; list, detail, Kanban, saved views and the preview panel are not built |
+| P2-01 shared layout and core components | A, F | **done** — components, panel, action bar, dirty guard, sidebar zones, workspace chip, collapsed rail. Concurrent-edit conflict handling arrived with P2-03. |
+| P2-02 merchant dashboard | C | **done except** the recent-orders / top-products blocks (P2-02-9) |
+| P2-03 products | D | **started** — concurrent-edit conflict detection shipped and tested. List, filters, full-page editor, media/variant UX and the product quick preview are **not built**. |
+| P2-04 orders | E | **partial** — the status breakdown is honest and reconciles, and the **authorised quick preview** is shipped with its own guard entry and nine authorization tests. Order list redesign, detail page, Kanban and saved views are **not built**. |
 | P2-05 common merchant screens | J | **not started** |
-| P2-06 search, notifications, preferences, onboarding | G, H, I | **not started** |
-| P2-07 Flutter | K | **partial** — the P0 RTL defect, the vendor-host leak, accessible names and the parity matrix are done; the RTL visual pass and the dashboard honesty pass are not |
+| P2-06 search, notifications, preferences, onboarding | G, H, I | **partial** — **global search** shipped (authorised per section, scoped per query, 10 tests) and **onboarding** shipped (the RTL hold settled at runtime). Notifications and persisted table preferences are **not built**. |
+| P2-07 Flutter | K | **partial** — RTL wiring, the vendor-host leak, accessible names, the parity matrix and now the **RTL mirroring pass** are done. The dashboard honesty pass and broader a11y are not. |
 | P2-08 integration and acceptance | — | this document and the evidence file |
 
 **Do not read the passing suites as "Phase 02 is finished".** They say that what *was* built is
-verified. More than half the workstreams have not been started.
+verified, and verified more strongly than before — but three workstreams are untouched and two are
+half-built.
 
-## 2. What blocks the rest, and what merely remains
+## 2. What changed since the last handoff, and why it matters
 
-Two different things, and conflating them is how a handoff lies.
+The previous handoff was written under a blocker that no longer exists, and almost every claim in
+it was carrying that caveat.
 
-### 2a. Genuine external blockers
+**`composer install` COMPLETES.** The owner opened `git.yoomoney.ru`; the install runs from the
+existing lockfile with YooKassa intact and `composer.lock` untouched. (GitHub *archive* downloads
+still 403 at the proxy, so Composer falls back to git clones — slow, ~20 minutes, but complete and
+lock-faithful.) **Blocker B1 is cleared**, and with it the entire basis of the old document: the
+Unit, Feature and Contract suites, the known-outcome gate, the DataTables stack, routing and
+runtime tenancy had never run once. They all run now.
 
-| # | Blocker | What it stops |
+**Blocker B2 is cleared.** `flutter pub get --enforce-lockfile` succeeds on Flutter 3.47.8 with
+`pubspec.lock` unchanged — it was an artefact of 3.41.2, exactly as B2 suspected.
+
+**Running the real application found eight defects no static check could see.** Every one is
+listed in §4. Two of them had shipped and were invisible because nobody had rendered the one
+configuration that exposed them.
+
+## 3. What blocks the rest, and what merely remains
+
+### 3a. Genuine external blockers
+
+| # | Blocker | What it stops | What would clear it |
+|---|---|---|---|
+| **B3** | Syncfusion charts licence — `syncfusion_flutter_charts` is used by one Flutter screen with no `registerLicense` call anywhere. | Release of the statistics screen. Not engineering. | An owner/commercial decision. |
+| **B4** | **`flutter build web` fails**, and not on this app's code: `firebase_messaging_web` 3.5.18, a transitive pin, does not compile under Dart 3.13.7 (`dartify` against its own `MessagePayload`). **Zero files under `lib/` appear in the failure.** | Screenshots of Flutter screens. There is still no device and no emulator, and the web target was the remaining route to a rendering surface. | Raising that pin — a dependency change on the push-notification path, so an owner decision, not a test fixture. **RTL LAYOUT is no longer blocked by this**: widget tests lay out and paint through the real RenderObject tree, which is what "does it mirror" actually asks. |
+| **B5** | **MySQL-only SQL in `HomeController::top_brand_category_chart`** (`SUBSTRING_INDEX`, `CURDATE`). | That one dashboard AJAX call answers 500 against SQLite, so it cannot be exercised in the test environment or the screenshot harness. **Not a product defect** — production is MySQL, and the dashboard page itself answers 200. | Nothing. Recorded so the 500 is not mistaken for a regression; the harness excludes that one url **by name**, so a 500 anywhere else still fails. |
+
+**B1 and B2 are cleared and are kept here only so the change is visible.**
+
+### 3b. Not blocked — simply not built
+
+P2-03's list, filters, editor and media UX. P2-04's list redesign, detail page, Kanban and saved
+views. All of P2-05. P2-06's notifications and persisted table preferences. P2-07's dashboard
+honesty pass. None of these has a blocker; they have not been done.
+
+## 4. Defects found by running the real application
+
+Every one was invisible to the preview harness, and that is the point: a renderer with no routing,
+auth, tenancy or DataTables cannot answer these questions.
+
+| # | Defect | How it was found |
 |---|---|---|
-| **B1** | `composer install` cannot complete. The environment's network policy denies **`git.yoomoney.ru`** (403 at the proxy) and `yoomoney/yookassa-sdk-php` + `yoomoney/yookassa-sdk-validator` are **production** dependencies. | **No `vendor/`, so no PHPUnit at all.** Unit, Feature, Contract and the known-outcome gate have not run once. It also blocks anything needing a booted application: the yajra DataTables stack, routing, runtime tenancy. **Fix: add that host under Allowed domains in the environment's Network access settings.** |
-| **B2** | No device, emulator or Flutter rendering. | No screen of the Flutter app has been *seen*. The RTL visual pass that the P0 fix unblocks cannot start here. |
-| **B3** | Syncfusion charts licence. | An owner/commercial decision. Blocks release of the statistics screen, not engineering. |
+| 1 | **Arabic + dark mode loaded NO stylesheet.** `asset('public/assets/css/rtl-style-dark.css')` resolves to `/public/...` and 404s; the docroot already is `public/`. An Arabic merchant with dark mode on got the admin with no layout CSS at all. Three sibling branches used the correct form. | A screenshot of the one combination nobody had rendered |
+| 2 | **`isAbleTo('Manage Product')` — singular — exists NOWHERE.** Not seeded, not in the live table. Laratrust answers false for a name nothing holds, so the out-of-stock link, the top-products list and the product onboarding step were hidden from **every** principal including the tenant owner, silently. | Driving `/dashboard` as a real merchant |
+| 3 | **`COD` was translated as "سبب الوفاة"** — *cause of death*, a machine translation of the medical abbreviation — on every Arabic order row. `Payment` was missing from `ar.json` entirely. | Reading an Arabic screenshot |
+| 4 | **The side panel never loaded.** `data-ss-panel-url` was documented on the component from the start and never implemented, and the behaviour file was in an opt-in partial the order list does not include. | Eight screenshot combinations all reporting an empty panel body |
+| 5 | **Tax and Delivery rows read `0,00`** on orders that had neither — `!empty()` on a `SetNumber()` result is true for `"0,00"`. | A screenshot of the preview panel |
+| 6 | **A dropped sidebar row left a dangling unclosed `<li>`**, and a parent whose children were all dropped kept its expand arrow over an empty submenu. | My own new tests, then the independent review |
+| 7 | **`store/change-status` is a state-changing GET** writing `stores.is_active` from query input — an `<img src>` on any page a signed-in merchant visits takes their storefront offline. The sweep that found the same defect on `change-store` had missed it. | The independent review of that fix |
+| 8 | **My own "dark mode" screenshots were not dark.** The harness set a client attribute; the layout picks its stylesheet server-side. Four of eight shots were of the light stylesheet. | Asserting which stylesheet the server actually sent |
 
-### 2b. Deliberately not done, with reasons
+## 5. What a successor should do first
 
-- **The shared `<x-datatable>` wrapper is untouched.** 65 merchant screens use it, and the preview
-  harness explicitly cannot drive the yajra DataTables stack. Changing it blind would put every
-  list screen in the product at risk with no way to verify. It needs B1 fixed first. **This is the
-  single biggest piece of remaining Workstream D/E/J work and it is gated on B1.**
-- **Workstream G (preferences) and H (search) need server work that cannot be tested here.** A
-  scoped, permission-filtered search endpoint is exactly the shape CLAUDE.md warns about, and
-  preference persistence needs a schema change. Both want B1 fixed and a tenant/authz review with
-  runnable tests.
-- **The Flutter dashboard honesty pass (G3 in the parity matrix)** is partly a server change —
-  `/dashboard` should not return a figure the caller may not see — which makes it an API change and
-  therefore an owner escalation, not a quiet edit.
+1. **Read [`PHASE-02-MASTER-EXECUTION-PROMPT.md`](PHASE-02-MASTER-EXECUTION-PROMPT.md)**, not a
+   summary of it. Its coverage check names four workstream requirements that have no ledger row.
+2. **Bring the environment up before changing anything**, using §6. Everything in this phase that
+   is worth trusting was measured there.
+3. **Do not re-litigate the settled holds.** P2-06-1's RTL duplication was the preview harness,
+   measured eight ways in the real application. B2 is cleared. F8 and F9 are resolved.
+4. **Start with P2-03's list and editor**, which is the largest untouched surface and the one
+   whose absence is most visible to a merchant.
 
-## 3. What a new session must not assume
-
-1. **`main` still contains the 20 MB production database dump.** This branch deletes it from the
-   tree; that is **not** remediation — the blob stays fetchable from history, and purging it
-   rewrites `main`, which is the owner's call. `P1-SEC-40` (#120) is open and Phase 02 claims
-   nothing about it.
-2. **Do not merge `claude/store-syria-p01b-design-foundation`.** Measured: it would delete ~148 k
-   lines including the whole Phase 01 CI and security apparatus. Its design content is already in
-   this baseline, verified blob-for-blob.
-3. **The preview harness is not the application.** It proves markup, stylesheets, translations,
-   `dir` handling, focus and keyboard behaviour at real viewport widths. It proves **nothing**
-   about routing, authentication, tenancy enforcement at runtime, or DataTables.
-4. **`resources/lang/ar.json` has 17 duplicated keys.** Re-serialising it silently drops the
-   earlier of each pair — it changed `"Symbol"` once during this phase before being caught. Edit it
-   as text, one exact line at a time, and verify `changed=0 removed=0` for everything you did not
-   intend.
-5. **`orders.delivered_status` is one column carrying four concepts** (ledger F0). Its migration
-   comment documents four of the nine values it really takes.
-6. **A `@permission` is not a `@can`.** Laratrust resolves through `hasPermission()`; `@can` goes
-   through Laravel's Gate and is **always false** here.
-
-## 4. Owner decisions waiting
-
-| # | Decision | Why it is yours |
-|---|---|---|
-| 1 | **The eight Arabic corrections need a native Syrian reviewer.** `Order` read "النظام" (the system) and `Orders` read "أوامر" (military commands) across the merchant surface. They are now `الطلب` / `الطلبات`. | User-facing content. The commit asserts only that the previous strings denoted the wrong thing. |
-| 2 | **Unblock `git.yoomoney.ru`, or decide to drop the YooKassa dependency.** Phase 01 retired the *provider* but kept the *package*. | Dependency change with a release consequence. |
-| 3 | **Syncfusion licence** for the Flutter statistics screen. | Commercial. |
-| 4 | **Splitting `delivered_status`** into order / payment / fulfilment. | Schema and commerce — Phase 04. |
-| 5 | **`P1-SEC-40` / #120** — the dump in `main`'s history. | Requires rewriting `main`. |
-| 6 | Whether to **de-duplicate `ar.json`'s 17 duplicated keys**. | Changes strings nobody asked to change. |
-
-## 5. How to verify what is here
+## 6. Bringing the environment up
 
 ```bash
-# contrast, light and dark -- no setup needed
-python3 docs/design-system/tools/check-contrast.py public/css/store-syria-ds.css
+# Laravel
+composer install --no-interaction --prefer-dist --no-scripts   # ~20 min: git-clone fallback
+php artisan key:generate --force                               # if .env is fresh
 
-# render the previews, serve them, drive them
-export SS_PREVIEW_DIR=/tmp/ss-preview && mkdir -p "$SS_PREVIEW_DIR"
-#   dashboard: docs/development/phase-2/tools/previews/dashboard-{after,before}.blade.php
-#   components: docs/development/phase-2/tools/previews/components.blade.php
-#   pilot: resources/views/attribute_option/index.blade.php
-#   locales en|ar, states full|empty|noperm, themes light|dark
-php docs/design-system/tools/render-preview.php <view> <locale> <state> "$SS_PREVIEW_DIR/<name>.html" [light|dark]
+# The dev instance the screenshot harnesses drive (invented data only)
+rm -f database/p2dev.sqlite && touch database/p2dev.sqlite
+DB_CONNECTION=sqlite DB_DATABASE=$PWD/database/p2dev.sqlite php artisan migrate --force
+DB_CONNECTION=sqlite DB_DATABASE=$PWD/database/p2dev.sqlite CACHE_STORE=file \
+    php artisan tinker --execute="require base_path('database/seed-p2dev.php');"
+DB_CONNECTION=sqlite DB_DATABASE=$PWD/database/p2dev.sqlite CACHE_STORE=file \
+    SESSION_DRIVER=file php artisan serve --host=127.0.0.1 --port=8899 &
 
-php -S 127.0.0.1:8099 -t public docs/design-system/tools/preview-server.php &
-node docs/design-system/tools/browser-checks.cjs          # 66, pre-existing
-node docs/development/phase-2/tools/browser-checks-p02.cjs # 100, Phase 02
+# The preview fixtures BOTH browser suites need (41 files; neither docblock lists them all)
+bash docs/development/phase-2/tools/render-all-fixtures.sh /tmp/p2fixtures
+SS_PREVIEW_DIR=/tmp/p2fixtures php -S 127.0.0.1:8099 -t public \
+    docs/design-system/tools/preview-server.php &
+
+# Flutter
+export PATH="/opt/flutter/bin:$PATH"     # or install 3.47.x stable
+flutter pub get --enforce-lockfile       # succeeds; do NOT commit a lock change
+git checkout analysis_options.yaml       # pub get rewrites it and narrows `analyze`
 ```
 
-Flutter (needs an SDK with Dart ≥ 3.11.0; 3.41.2 was used):
+**`SESSION_DRIVER=file` matters**: the default database driver needs a `sessions` table the
+migrations do not create, and every page 500s without it.
 
-```bash
-flutter pub get      # NOT --enforce-lockfile: see B2 in the evidence file
-flutter analyze --no-fatal-infos      # 246 info, 0 warning, 0 error
-flutter test                          # 1189 passed
-```
+## 7. Standing rules this phase did not touch
 
-**`php artisan test` cannot be run until B1 is fixed.**
-
-## 6. Where the detail is
-
-| | |
-|---|---|
-| scope and refusals | `PHASE-02-SCOPE.md` |
-| what was reused and why | `PHASE-02-REUSE-INVENTORY.md` |
-| per-task state, blockers, findings | `PHASE-02-TASK-LEDGER.md` |
-| web ↔ Flutter parity, 91 endpoints | `PHASE-02-WEB-FLUTTER-PARITY.md` |
-| every command run and its output | `PHASE-02-TEST-EVIDENCE.md` |
-| the design decisions, written before the code | `design/P2-DESIGN-FOUNDATION.md` |
-| screenshots | `screenshots/p2-01-components/`, `screenshots/p2-02-dashboard/` |
-
-## Deploy note added by P2-01-11
-
-`config/merchant-navigation.php` is a **new** config file, and `generateMenu()` reads it through
-`config()` with a `false` default. On any environment that has run `php artisan config:cache`, the
-cache must be rebuilt or **zones silently stay off** — which looks exactly like the kill switch
-working, not like a deployment step that was missed.
-
-`public/css/store-syria-ds.css`, `public/css/custom.css`, `public/css/rtl-custom.css` and
-`public/js/store-syria-nav.js` all changed; the cache-busting token moved `p02-1` → `p02-2` in all
-six places that reference them.
-
+- **Issue #120 / P1-SEC-40 is NOT resolved.** The exposed production database dump is a separate
+  critical incident. It is live on `main` (commit `3935dee8`, `storesyria_ecommercego.sql`) and
+  deliberately **absent from this branch** — which is why this branch must never be brought up to
+  date by merging `main` without removing it first. No Phase 02 work touches the incident.
+- **Phase 01's release gates remain open and separately tracked** in
+  `docs/development/phase-1/PHASE-01-CLOSURE-EXECUTION.md`.
+- Green CI is necessary evidence, not proof of production readiness. The Feature suite's accepted
+  failures and skips are declared in `.github/known-test-outcomes.json`; the gate asserts that set
+  in both directions.
