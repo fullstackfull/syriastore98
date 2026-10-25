@@ -31,6 +31,22 @@
             <x-datatable :dataTable="$dataTable" />
         </div>
     </div>
+
+    {{--
+        P2-04-5. ONE panel for the whole list, filled per row.
+
+        One element rather than one per row: the body is replaced on each open,
+        so N rows do not mean N panels in the DOM, and the focus-return
+        bookkeeping in store-syria-ds.js keys on the panel id.
+
+        The loading and error strings are passed as data attributes because the
+        script that writes them has no access to `__()`. Without them it falls
+        back to English, which is the one thing an Arabic merchant must not see.
+    --}}
+    <x-ss.panel id="ss-order-preview-panel"
+                :title="__('Order preview')"
+                :loading-text="__('Loading order…')"
+                :error-text="__('This order could not be loaded.')" />
 @endsection
 
 @push('custom-script')

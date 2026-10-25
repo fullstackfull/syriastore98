@@ -48,10 +48,11 @@
         var status = $(this).prop('checked') == true ? 1 : 0;
         var id = $(this).data('id');
         $.ajax({
-            type: "GET",
+            {{-- P2-SEC-F12(b): this toggles a storefront offline, so it posts with a token. --}}
+            type: "POST",
             dataType: "json",
             url: "{{ route('store.active.status') }}",
-            data: {'status': status, 'id': id},
+            data: {'status': status, 'id': id, '_token': '{{ csrf_token() }}'},
             success: function(data){
                 $('#loader').fadeOut();
                 if (data.status != 'success') {

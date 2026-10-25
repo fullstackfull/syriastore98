@@ -1335,6 +1335,109 @@
     background: var(--ss-surface);
 }
 
+/* ---- Panel remote content: loading and failure ----
+   P2-04-5. A panel that fetches its body has two states static markup never
+   needed. Both are text, not a spinner glyph: a spinner says "something is
+   happening" and nothing else, while `role="status"` on real text is what a
+   screen reader can actually announce. The error carries `role="alert"`
+   because focus is already inside the panel when it arrives. */
+.ss-panel__loading,
+.ss-panel__error {
+    margin: 0;
+    padding: var(--ss-space-6) 0;
+    color: var(--ss-fg-muted);
+    font-size: var(--ss-text-base);
+    text-align: center;
+}
+.ss-panel__error { color: var(--ss-danger-fg); }
+
+/* ---- Order quick preview (P2-04-5) ----
+   Logical properties throughout: this panel renders in Arabic RTL and English
+   LTR from the same rules, so `inline-start` rather than `left`. */
+.ss-order-preview > * + * { margin-block-start: var(--ss-space-6); }
+
+.ss-order-preview__h {
+    display: flex;
+    align-items: center;
+    gap: var(--ss-space-2);
+    margin: 0 0 var(--ss-space-3);
+    font-size: var(--ss-text-sm);
+    font-weight: var(--ss-weight-semibold);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--ss-fg-subtle);
+}
+
+.ss-order-preview__count {
+    padding: 0 var(--ss-space-2);
+    border-radius: var(--ss-radius-pill);
+    background: var(--ss-surface-sunken);
+    color: var(--ss-fg-muted);
+    font-size: var(--ss-text-xs);
+    font-weight: var(--ss-weight-medium);
+    letter-spacing: 0;
+}
+
+/* The three <dl> grids share a shape: a label above its value, wrapping into
+   as many columns as fit. `dt`/`dd` rather than a table because these are
+   name/value pairs, not tabular data -- the items list below IS a table. */
+.ss-order-preview__meta,
+.ss-order-preview__statusgrid,
+.ss-order-preview__totalgrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+    gap: var(--ss-space-4);
+    margin: 0;
+}
+
+.ss-order-preview dt {
+    margin: 0 0 var(--ss-space-1);
+    color: var(--ss-fg-subtle);
+    font-size: var(--ss-text-xs);
+    font-weight: var(--ss-weight-medium);
+}
+
+.ss-order-preview dd {
+    margin: 0;
+    color: var(--ss-fg);
+    font-size: var(--ss-text-base);
+}
+
+.ss-order-preview__totalgrid {
+    padding: var(--ss-space-4);
+    border: 1px solid var(--ss-border);
+    border-radius: var(--ss-radius-md);
+    background: var(--ss-surface-sunken);
+}
+
+/* The order value spans the grid and is the one emphasised figure. */
+.ss-order-preview__total {
+    grid-column: 1 / -1;
+    padding-block-start: var(--ss-space-3);
+    border-block-start: 1px solid var(--ss-border);
+}
+.ss-order-preview__total dt { font-size: var(--ss-text-sm); }
+.ss-order-preview__total dd {
+    font-size: var(--ss-text-lg);
+    font-weight: var(--ss-weight-semibold);
+}
+
+.ss-order-preview__table { width: 100%; }
+.ss-order-preview__table th[scope="row"] { font-weight: var(--ss-weight-medium); }
+
+.ss-order-preview__variant {
+    display: block;
+    color: var(--ss-fg-subtle);
+    font-size: var(--ss-text-xs);
+    font-weight: var(--ss-weight-normal);
+}
+
+.ss-order-preview__actions {
+    display: flex;
+    gap: var(--ss-space-3);
+}
+.ss-order-preview__actions .ss-btn { flex: 1 1 auto; }
+
 /* A definition list is the right element for "field: value" inspection, and
    it gives screen readers the pairing for free. */
 .ss-deflist { margin: 0; display: grid; grid-template-columns: minmax(6rem, 10rem) 1fr; gap: var(--ss-space-2) var(--ss-space-4); }

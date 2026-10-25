@@ -2249,7 +2249,18 @@ if (!function_exists('getSideMenu')) {
     {
         $user = auth()->user();
         $menu = new \App\Classes\Menu($user);
-        if ($user->type == 'super admin') {
+
+        /*
+         * ONE OPERATOR TEST FOR BOTH DECISIONS. This line was `$user->type == 'super admin'`
+         * while the gate below went through `UserPolicy::isOperator()`, so a row typed
+         * 'Super Admin' took the MERCHANT row set and then had the gate waved for it -- the two
+         * comparisons disagreeing about who the operator is, which is the pattern P1-SEC-11
+         * exists to end. Found by the independent review. Narrowing both to the helper is the
+         * safe direction: the helper is what every other gate in this phase asks.
+         */
+        $isOperator = \App\Policies\UserPolicy::isOperator($user);
+
+        if ($isOperator) {
             if (module_is_active('SidebarCustomization') && Schema::hasTable('side_menus_option')) {
                 $sortedModules = SideMenuOption::where('type', 'super admin')->orderBy('order')->get();
                 if ($sortedModules->isEmpty()) {
@@ -2313,13 +2324,17 @@ if (!function_exists('getSideMenu')) {
          * finding's stated harm is "renders for every merchant", and merchants and staff are
          * where this now bites.
          */
-        $isOperator = \App\Policies\UserPolicy::isOperator($user);
+        /*
+         * BUILT ONLY FOR THE PRINCIPAL THAT CONSULTS IT. The operator short-circuits the gate
+         * below, so firing the event for them paid for every module listener's
+         * `module_is_active()` and `isAbleTo()` calls to produce a map nothing reads -- and the
+         * operator is the principal most likely to be on this code path. Found by the
+         * independent review.
+         */
+        $gate = null;
 
-        $gate = new \App\Classes\Menu($user);
-
-        if ($isOperator) {
-            event(new \App\Events\SuperAdminMenuEvent($gate));
-        } else {
+        if (! $isOperator) {
+            $gate = new \App\Classes\Menu($user);
             event(new \App\Events\CompanyMenuEvent($gate));
         }
 
@@ -2341,7 +2356,7 @@ if (!function_exists('getSideMenu')) {
                     'permission' => $item->permission ?? null,
                 ];
 
-                if (! $isOperator && ! sideMenuRowIsPermitted($row, $gate)) {
+                if ($gate !== null && ! sideMenuRowIsPermitted($row, $gate)) {
                     continue;
                 }
 
@@ -2548,9 +2563,35 @@ if (!function_exists('generateSideMenu')) {
                             break;
 
                         case 'iframe':
-                            $href = \Illuminate\Support\Facades\Route::has('sidemenubuilder.iframe')
-                                ? route("sidemenubuilder.iframe", $item['id'])
-                                : null;
+                            /*
+                             * P2-SEC-F5, SECOND PASS. This branch used to run AFTER
+                             * `sideMenuHref()` and OVERWRITE its answer, which quietly undid
+                             * both controls for an iframe row: a row naming an unregistered
+                             * route was resurrected instead of dropped, and an `external` row's
+                             * scheme never reached `sideMenuSafeExternalUrl()`. Found by the
+                             * independent tenant/authz review of the first commit.
+                             *
+                             * `$href === null` is therefore honoured FIRST -- a row the
+                             * resolvers already refused stays refused, whatever its
+                             * `window_type`. Only then is the wrapper substituted, and only if
+                             * the wrapper route itself exists.
+                             *
+                             * The wrapper page embeds the row's own link as the frame `src`
+                             * (SidebarCustomization's super-admin/iframe.blade.php), so the
+                             * allowlist has to hold for the EMBEDDED url too, not just for the
+                             * wrapper uri. An iframe row whose link is not http(s) is dropped.
+                             */
+                            if ($href === null) {
+                                break;
+                            }
+
+                            if (! \Illuminate\Support\Facades\Route::has('sidemenubuilder.iframe')
+                                || sideMenuSafeExternalUrl((string) $href) === '#') {
+                                $href = null;
+                                break;
+                            }
+
+                            $href = route("sidemenubuilder.iframe", $item['id']);
                             break;
                     }
                 }
@@ -2559,7 +2600,31 @@ if (!function_exists('generateSideMenu')) {
                     continue;
                 }
 
-                $hasChildren = hasChildren($menuItems, $item['name']);
+                /*
+                 * P2-SEC-F4, THIRD PASS: RENDER THE CHILDREN FIRST, THEN DECIDE ON THE ARROW.
+                 *
+                 * This was `hasChildren($menuItems, $item['name'])`, which asks whether any ROW
+                 * names this one as its parent -- a question answered before the per-row drops
+                 * in this same loop. So a parent whose every child was dropped by the
+                 * route-existence check still rendered a `.dash-arrow` and an empty
+                 * `<ul class="dash-submenu">` holding nothing but the two collapse buttons. The
+                 * concrete case is the one this change's own docblock cites: with PreOrder
+                 * uninstalled, the `preorder` parent has `route => ''` (so it resolves to '#'
+                 * and is kept) while both its children are dropped.
+                 *
+                 * That is the empty-submenu-with-an-arrow defect P2-01-10 removed from the
+                 * listener-fed path, reintroduced here by the drop. Found by the independent
+                 * review, not by the tests -- so a test for it is added in the same change.
+                 *
+                 * Recursing first costs nothing: the recursion ran anyway whenever there WERE
+                 * children, and it is skipped entirely when `hasChildren` says there are none.
+                 */
+                $childHtml = hasChildren($menuItems, $item['name'])
+                    ? generateSideMenu($menuItems, $item['name'], $level + 1)
+                    : '';
+
+                $hasChildren = $childHtml !== '';
+
                 if ($item['parent'] == null) {
                     $html .= '<li class="dash-item dash-hasmenu">';
                 } else {
@@ -2590,7 +2655,7 @@ if (!function_exists('generateSideMenu')) {
                     $html .= ' </a><span class="dash-arrow"> <i data-feather="chevron-right"></i> </span>';
                     $html .= '<ul class="dash-submenu sub-menu-dropdown">';
                     $html .= $buttonHtml;
-                    $html .= generateSideMenu($menuItems, $item['name'], $level + 1);
+                    $html .= $childHtml;
                     $html .= '</ul>';
                 } else {
                     $html .= '</a>';

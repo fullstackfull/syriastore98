@@ -228,18 +228,29 @@
     var searchInput = document.getElementById("searchInput");
     if (searchInput) {
         searchInput.addEventListener("input", function() {
-        var input, filter, ul, li, a, i, txtValue;
-        input = document.getElementById("searchInput");
-        filter = input.value.toUpperCase();
-        div = document.getElementById("storeList");
-        a = div.getElementsByTagName("a");
-        for (i = 0; i < a.length; i++) {
-            txtValue = a[i].textContent || a[i].innerText;
-            if (txtValue.toUpperCase().indexOf(filter) > -1) {
-                a[i].style.display = "";
-            } else {
-                a[i].style.display = "none";
-            }
+        /*
+         * P2-SEC-F12. This filtered `storeList.getElementsByTagName("a")`, which was every
+         * entry while every entry was a link. P2-SEC-F12 made the SWITCHABLE stores posting
+         * forms (a GET that moves the tenant pointer is reachable from a third-party page), so
+         * only the current store and the locked ones stayed anchors -- and the search box then
+         * hid exactly the rows it should leave alone and left every switchable store visible.
+         * Found by the independent review of that change.
+         *
+         * Filtering `.dropdown-item` instead: Bootstrap puts that class on the control in all
+         * three shapes, so the selector names what is being filtered rather than what it
+         * happens to be made of. The element hidden is the one carrying the class, and for a
+         * form-wrapped button that is the button -- hiding the button empties the row, so the
+         * form is hidden too, by walking up to the row wrapper when there is one.
+         */
+        var input = document.getElementById("searchInput");
+        var filter = input.value.toUpperCase();
+        var div = document.getElementById("storeList");
+        var items = div.querySelectorAll(".dropdown-item");
+
+        for (var i = 0; i < items.length; i++) {
+            var txtValue = items[i].textContent || items[i].innerText;
+            var row = items[i].closest("form") || items[i];
+            row.style.display = txtValue.toUpperCase().indexOf(filter) > -1 ? "" : "none";
         }
     });
     }

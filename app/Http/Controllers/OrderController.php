@@ -547,6 +547,82 @@ public function store(Request $request)
         }
     }
 
+    /**
+     * P2-04-5. THE AUTHORIZED QUICK PREVIEW -- a read-only fragment for the side panel.
+     *
+     * WHY A NEW URI NEEDS A NEW GUARD ENTRY, EXPLICITLY. `OrderDocumentAccessGuard` keys on
+     * `$route->uri()`, not on the controller action, which is deliberate (its docblock: "a second
+     * uri on a guarded handler is NOT guarded by implication"). So this route is listed in that
+     * guard's TARGETS map in the same change, and `order_preview` is added to the document-method
+     * list `OrderDocumentRouteResolutionTest`'s census scans -- otherwise the census would be
+     * keyed on a spelling that does not include this one, which is the exact way four earlier
+     * censuses in this project missed what they claimed to cover.
+     *
+     * THE ID IS RAW, NOT ENCRYPTED, AND THAT IS THE HONEST CHOICE. `APP_KEY` is in git history
+     * and is not being rotated (owner decision D7), so `Crypt::encrypt($id)` in a URL is an
+     * ENCODING, not a control -- the ciphertext is forgeable for any id. Shipping a new surface
+     * with an encrypted id would imply a protection that does not exist. Authorization is the
+     * guard plus the two checks below, and the guard already accepts either form.
+     *
+     * DEFENCE IN DEPTH, not duplication. The middleware is the control; these checks mean the
+     * handler is still safe if the route is ever re-declared outside the `web` group (which is
+     * how `Authenticate` silently vanished from an order document route once already -- see
+     * OrderDocumentAccessGuard's docblock on AutomaticOrderPrinting:31).
+     */
+    public function order_preview(Request $request, $id)
+    {
+        if (! $this->mayUseOrderScreen('Show Order')) {
+            return response()->json(['message' => __('Permission denied.')], 403);
+        }
+
+        $orderId = filter_var($id, FILTER_VALIDATE_INT);
+
+        // `filter_var`, not `is_numeric`: is_numeric accepts '5.9' and rejects '5abc', while
+        // MySQL coerces '5abc' to row 5 in a `WHERE id = ?` comparison.
+        if ($orderId === false || $orderId <= 0) {
+            return response()->json(['message' => __('Order Not Found.')], 404);
+        }
+
+        $user = auth()->user();
+        $order = Order::find($orderId);
+
+        if ($order === null) {
+            return response()->json(['message' => __('Order Not Found.')], 404);
+        }
+
+        /*
+         * THE OWNERSHIP TEST, DERIVED FROM THE PRINCIPAL AND NEVER FROM REQUEST INPUT.
+         * `Order` is not in config/tenancy.php's `scoped_models` and registers no `StoreScope`,
+         * so `Order::find()` above reaches every tenant's orders -- the global scope contributes
+         * nothing here for any principal. `getCurrentStore($user->id)` takes the id explicitly
+         * because the no-argument form reads the MUTABLE default guard.
+         *
+         * Operator first, which is this codebase's rule: Laratrust has no super-admin bypass.
+         */
+        if (! \App\Policies\UserPolicy::isOperator($user)) {
+            $currentStore = getCurrentStore($user->id);
+
+            // Fail closed on either side being absent. An order with a NULL store_id is
+            // invisible to every store predicate in the application and must not become visible
+            // here.
+            if (empty($currentStore) || $order->store_id === null
+                || (int) $order->store_id !== (int) $currentStore) {
+                return response()->json(['message' => __('Order Not Found.')], 404);
+            }
+        }
+
+        $detail = Order::order_detail($orderId);
+
+        if (! empty($detail['message'])) {
+            return response()->json(['message' => __('Order Not Found.')], 404);
+        }
+
+        return response()->view('order.partials.preview', [
+            'order' => $detail,
+            'orderModel' => $order,
+        ]);
+    }
+
     public function applycoupon(Request $request, $slug)
     {
         $store = getStore($slug);

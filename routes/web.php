@@ -827,7 +827,22 @@ Route::get(
     Route::get('stores/user/create', [StoreController::class, 'userCreate'])->name('store.user.create');
     Route::get('store/customdomain', [StoreController::class, 'customDomain'])->name('store.customdomain');
     Route::get('store/subdomain', [StoreController::class, 'subDomain'])->name('store.subdomain');
-    Route::get('store/change-status', [StoreController::class, 'changeStatus'])->name('store.active.status');
+    /*
+     * P2-SEC-F12(b). POST, NOT GET -- the same finding as `change-store` one screen away, found
+     * by the independent review of that fix rather than by the sweep that produced it.
+     *
+     * `changeStatus()` writes `stores.is_active` from query input, so as a GET
+     * `<img src="/store/change-status?id=<a store the caller owns>&status=0">` on any page a
+     * signed-in merchant visits takes that storefront OFFLINE -- no token, no click, and link
+     * prefetching reaches it too. `resolveOwnedStore()` confines it to the caller's own stores
+     * and the last-active-store guard saves a single-store merchant, so a merchant with two or
+     * more stores is the exposed case.
+     *
+     * The route NAME is unchanged, and both callers are jQuery `$.ajax` calls in
+     * store/index.blade.php and store/list.blade.php; each is switched to POST and now sends the
+     * CSRF token. There is no bookmarkable use of this uri -- it answers JSON to a toggle.
+     */
+    Route::post('store/change-status', [StoreController::class, 'changeStatus'])->name('store.active.status');
     Route::get('store/list', [StoreController::class, 'list'])->name('store.list');
 
     Route::post('pwa-settings/{id}', [StoreController::class, 'pwaSetting'])->name('pwa.setting');
@@ -1119,6 +1134,18 @@ Route::get(
         ->middleware('themelanguage');
 
     Route::get('order-grid', [OrderController::class, 'order_grid_view'])->name('order.grid');
+
+    /*
+     * P2-04-5. The read-only quick-preview fragment for the order side panel.
+     *
+     * GET, because it is a read -- and because OrderDocumentAccessGuard arms only on GET
+     * (`! in_array('GET', $route->methods(), true)` returns early). Its uri is registered in
+     * that guard's TARGETS map, which is what authorises it; the handler repeats the ownership
+     * test as defence in depth. The id is RAW: `Crypt::encrypt()` is an encoding here, not a
+     * control, because APP_KEY is in git history and unrotated (owner decision D7).
+     */
+    Route::get('order-preview/{id}', [OrderController::class, 'order_preview'])
+        ->name('order.preview');
     // Pos Route
     Route::resource('pos', PosController::class);
     Route::get('product-categories', [CategoryController::class, 'getProductCategories'])->name('product.categories');

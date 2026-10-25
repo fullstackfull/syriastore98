@@ -338,6 +338,183 @@ class CustomSidebarAuthorizationTest extends SecurityTestCase
         $this->assertStringContainsString('a=1&amp;b=2', $html);
     }
 
+    // =========================================================================================
+    // THE PRODUCTION CALL SITE. Added after the independent review found that every assertion
+    // above drove the helpers directly, so deleting the `continue` in `getSideMenu()` -- the one
+    // line that actually applies the gate in production -- left all thirteen green.
+    // =========================================================================================
+
+    /**
+     * THE GATE IS REACHED FROM THE RENDER PATH, not only from the helper.
+     *
+     * `getSideMenu()` cannot be driven end to end here: it needs
+     * `module_is_active('SidebarCustomization')` AND the `side_menus_option` table, whose
+     * migration is contributed by the module's own provider, which
+     * `PackageServiceProvider::loadDynamicAddons()` registers from `app->booted()` -- so the
+     * `add_on_managers` row would have to exist before the application boots, which no
+     * in-process test can arrange after RefreshDatabase. That constraint is real and is why the
+     * cases above test the seams.
+     *
+     * What CAN be driven is the composition those seams are wired into: the gate map a real
+     * principal produces, fed through the same filter the loop calls, into the same renderer the
+     * loop returns. A denied row must not reach the HTML. This fails if
+     * `sideMenuRowIsPermitted()` stops being consulted, if it stops returning false, or if the
+     * renderer stops honouring it.
+     */
+    public function test_a_denied_row_does_not_reach_the_rendered_sidebar(): void
+    {
+        $owner = $this->makeMerchant();
+        $this->actingAs($owner);
+
+        $gate = new Menu($owner);
+        event(new \App\Events\CompanyMenuEvent($gate));
+
+        $this->assertArrayHasKey('product', $gate->denied, 'premise: the gate refused "product"');
+
+        $rows = [
+            $this->databaseRow('product', ['title' => 'Products', 'route' => '']),
+            $this->databaseRow('a-merchants-own-link', ['title' => 'My Link', 'route' => '']),
+        ];
+
+        // The loop's own filter, applied exactly as getSideMenu() applies it.
+        $permitted = array_values(array_filter(
+            $rows,
+            static fn (array $row) => sideMenuRowIsPermitted($row, $gate)
+        ));
+
+        $html = generateSideMenu($permitted, null);
+
+        $this->assertStringNotContainsString('Products', $html, 'a denied row reached the sidebar');
+        $this->assertStringContainsString('My Link', $html, 'an un-denied row must still render');
+    }
+
+    /**
+     * P2 REVIEW F5. A PARENT WHOSE CHILDREN WERE ALL DROPPED MUST NOT KEEP ITS ARROW.
+     *
+     * `hasChildren()` asks whether any row names this one as parent, which is answered BEFORE
+     * the per-row drops. So the `preorder` parent -- `route => ''`, therefore kept -- rendered a
+     * `.dash-arrow` and an empty `<ul class="dash-submenu">` containing only the two collapse
+     * buttons once its children were dropped for naming an uninstalled module's routes. That is
+     * the empty-submenu defect P2-01-10 removed from the listener-fed path, reintroduced by the
+     * drop and found by review rather than by test.
+     */
+    public function test_a_parent_whose_children_are_all_dropped_renders_no_arrow(): void
+    {
+        $this->assertFalse(Route::has('preorders.index'), 'premise: the module route is absent');
+
+        $html = generateSideMenu([
+            $this->databaseRow('preorder', ['title' => 'Pre Order', 'route' => '', 'parent' => null]),
+            $this->databaseRow('po-child', [
+                'id' => 2, 'title' => 'Orders', 'route' => 'preorders.index', 'parent' => 'preorder',
+            ]),
+        ], null);
+
+        // The parent itself is kept -- it is a heading, and nothing about it is unavailable.
+        $this->assertStringContainsString('Pre Order', $html);
+
+        $this->assertStringNotContainsString('dash-arrow', $html,
+            'the parent kept an expand arrow with nothing behind it');
+        $this->assertStringNotContainsString('dash-submenu', $html,
+            'the parent kept an empty submenu list');
+    }
+
+    /** And a parent whose children survive still gets both, so the fix is not just deleting them. */
+    public function test_a_parent_whose_children_survive_still_renders_its_arrow(): void
+    {
+        Route::get('/p2-child-probe', fn () => '')->name('p2.child.probe');
+        Route::getRoutes()->refreshNameLookups();
+
+        $html = generateSideMenu([
+            $this->databaseRow('parent', ['title' => 'Group', 'route' => '', 'parent' => null]),
+            $this->databaseRow('child', [
+                'id' => 2, 'title' => 'Child', 'route' => 'p2.child.probe', 'parent' => 'parent',
+            ]),
+        ], null);
+
+        $this->assertStringContainsString('dash-arrow', $html);
+        $this->assertStringContainsString('dash-submenu', $html);
+        $this->assertStringContainsString('Child', $html);
+    }
+
+    /**
+     * P2 REVIEW F3. AN IFRAME ROW DOES NOT ESCAPE THE TWO CONTROLS.
+     *
+     * The `window_type = 'iframe'` branch used to run after the href resolvers and OVERWRITE
+     * their answer, so an iframe row naming an unregistered route was resurrected instead of
+     * dropped and an external iframe row's scheme never reached the allowlist. The wrapper page
+     * embeds the row's own link as the frame `src`, so the allowlist has to hold for the
+     * embedded url too.
+     */
+    /**
+     * THE WRAPPER ROUTE HAS TO EXIST FOR THESE TO MEASURE ANYTHING, and it does not in a test
+     * run -- `sidemenubuilder.iframe` belongs to the SidebarCustomization module, whose provider
+     * is registered only when `add_on_managers` holds its row.
+     *
+     * MEASURED: without this stand-in both cases below PASSED against the REVERTED fix, because
+     * `Route::has('sidemenubuilder.iframe')` was false either way and the row was dropped for
+     * the wrong reason. That is precisely the "a precondition was never met" shape in the
+     * skill's §6.3, and it is why the bite test is mandatory rather than advisory.
+     */
+    private function registerIframeWrapper(): void
+    {
+        Route::get('/p2-sidemenu-iframe/{id}', fn ($id) => '')->name('sidemenubuilder.iframe');
+        Route::getRoutes()->refreshNameLookups();
+
+        $this->assertTrue(
+            Route::has('sidemenubuilder.iframe'),
+            'premise: the iframe wrapper route must resolve, or these cases drop rows for the '
+            . 'wrong reason and pass against unfixed code'
+        );
+    }
+
+    public function test_an_iframe_row_naming_an_unregistered_route_is_still_dropped(): void
+    {
+        $this->registerIframeWrapper();
+
+        $this->assertFalse(Route::has('a.route.no.module.registered'));
+
+        $html = generateSideMenu([
+            $this->databaseRow('x', [
+                'route' => 'a.route.no.module.registered',
+                'window_type' => 'iframe',
+            ]),
+        ], null);
+
+        $this->assertSame('', $html, 'an iframe row resurrected a dropped route');
+    }
+
+    public function test_an_iframe_row_carrying_a_javascript_url_is_dropped(): void
+    {
+        $this->registerIframeWrapper();
+
+        $html = generateSideMenu([
+            $this->databaseRow('x', [
+                'link_type' => 'external',
+                'route' => json_encode(['href' => ['javascript:alert(1)'], 'type' => ['']]),
+                'window_type' => 'iframe',
+            ]),
+        ], null);
+
+        $this->assertStringNotContainsString('javascript:', $html);
+        $this->assertSame('', $html, 'an iframe row bypassed the scheme allowlist');
+    }
+
+    /** And a well-formed iframe row still renders, so the two above are not refusing everything. */
+    public function test_a_wellformed_iframe_row_still_renders_through_the_wrapper(): void
+    {
+        $this->registerIframeWrapper();
+
+        $html = generateSideMenu([
+            $this->databaseRow('x', [
+                'link_type' => 'external',
+                'route' => json_encode(['href' => ['https://example.com/embed'], 'type' => ['']]),
+                'window_type' => 'iframe',
+            ]),
+        ], null);
+
+        $this->assertStringContainsString('p2-sidemenu-iframe', $html);
+    }
+
     public function test_sideMenuIconSlug_keeps_every_icon_the_shipped_data_uses(): void
     {
         foreach (['home', 'layout-2', 'message-circle', 'user', 'settings'] as $icon) {

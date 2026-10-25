@@ -107,11 +107,82 @@
 
     function openPanelIds() { return Object.keys(panelState); }
 
+    /* P2-04-5. REMOTE PANEL CONTENT.
+
+       `data-ss-panel-url` was documented on the panel component from the
+       start and was never implemented here, so a trigger carrying it opened
+       an empty panel. It is implemented now because the order quick preview
+       is the first screen that needs it.
+
+       THE PANEL OPENS FIRST, then fills. Opening after the fetch would mean a
+       click with no feedback for as long as the request takes, and would move
+       focus long after the user's action. So the panel opens with a loading
+       state, which is also what keeps the focus move tied to the click.
+
+       A FAILED FETCH SAYS SO. The server answers 403 or 404 for an order the
+       caller may not see -- that is the guard and the handler doing their job
+       -- and the panel must report it rather than sit on a spinner. The
+       message is the server's own when it sends one, because the handler
+       distinguishes "not found" from "not permitted" deliberately. */
+
+    function panelBody(id) {
+        var els = panelEls(id);
+        return els.panel ? els.panel.querySelector('[data-ss-panel-body]') : null;
+    }
+
+    function loadPanel(id, url) {
+        var body = panelBody(id);
+        if (!body) { return; }
+
+        body.setAttribute('aria-busy', 'true');
+        body.innerHTML = '<p class="ss-panel__loading" role="status">'
+            + (body.getAttribute('data-ss-loading-text') || 'Loading\u2026')
+            + '</p>';
+
+        fetch(url, {
+            headers: { 'X-Requested-With': 'XMLHttpRequest' },
+            credentials: 'same-origin'
+        }).then(function (response) {
+            return response.text().then(function (text) {
+                return { ok: response.ok, status: response.status, text: text };
+            });
+        }).then(function (result) {
+            body.removeAttribute('aria-busy');
+
+            if (result.ok) {
+                body.innerHTML = result.text;
+                return;
+            }
+
+            var message = '';
+            try {
+                message = (JSON.parse(result.text) || {}).message || '';
+            } catch (err) {
+                message = '';
+            }
+
+            /* `role="alert"` rather than `status`: this is an error, and the
+               panel already has focus inside it, so it must be announced. */
+            body.innerHTML = '<p class="ss-panel__error" role="alert"></p>';
+            body.firstChild.textContent = message
+                || (body.getAttribute('data-ss-error-text') || 'This could not be loaded.');
+        }).catch(function () {
+            body.removeAttribute('aria-busy');
+            body.innerHTML = '<p class="ss-panel__error" role="alert"></p>';
+            body.firstChild.textContent =
+                body.getAttribute('data-ss-error-text') || 'This could not be loaded.';
+        });
+    }
+
     document.addEventListener('click', function (e) {
         var opener = e.target.closest && e.target.closest('[data-ss-panel-open]');
         if (opener) {
             e.preventDefault();
-            openPanel(opener.getAttribute('data-ss-panel-open'), opener);
+            var panelId = opener.getAttribute('data-ss-panel-open');
+            openPanel(panelId, opener);
+
+            var url = opener.getAttribute('data-ss-panel-url');
+            if (url) { loadPanel(panelId, url); }
             return;
         }
 
@@ -244,6 +315,7 @@
     window.StoreSyriaDS = {
         openPanel: openPanel,
         closePanel: closePanel,
+        loadPanel: loadPanel,
         wireDirtyTracking: wireDirtyTracking
     };
 })();

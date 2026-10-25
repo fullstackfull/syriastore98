@@ -469,7 +469,7 @@ class SubscriptionAuthorizationTest extends SecurityTestCase
         $this->makeStore($victim);
 
         $response = $this->actingAs($attacker)
-            ->get(route('store.active.status', ['id' => $victimStore->id, 'status' => 0]));
+            ->post(route('store.active.status', ['id' => $victimStore->id, 'status' => 0]));
 
         $this->assertSame(
             1,
@@ -485,7 +485,7 @@ class SubscriptionAuthorizationTest extends SecurityTestCase
         $second = $this->makeStore($merchant);
 
         $this->actingAs($merchant)
-            ->get(route('store.active.status', ['id' => $second->id, 'status' => 0]))
+            ->post(route('store.active.status', ['id' => $second->id, 'status' => 0]))
             ->assertStatus(200);
 
         $this->assertSame(
@@ -504,7 +504,7 @@ class SubscriptionAuthorizationTest extends SecurityTestCase
         [$merchant] = $this->makeTenant();
 
         $response = $this->actingAs($merchant)
-            ->get(route('store.active.status', ['id' => 999999, 'status' => 0]));
+            ->post(route('store.active.status', ['id' => 999999, 'status' => 0]));
 
         $this->assertSame(403, $response->getStatusCode());
     }

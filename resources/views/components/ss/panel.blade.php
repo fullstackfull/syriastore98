@@ -10,9 +10,23 @@
     scrolling. The markup below only has to be the right markup.
 
     Open it from anywhere with:
-        <button data-ss-panel-open="order-panel" data-ss-panel-url="/orders/4312/preview">
+        <button data-ss-panel-open="order-panel" data-ss-panel-url="/order-preview/4312">
+
+    With `data-ss-panel-url` the script replaces the BODY's contents, so
+    `loadingText` and `errorText` belong on this component rather than inside
+    the slot: the script reads them off the same element it writes into, and
+    `querySelector('[data-ss-panel-body]')` would find the body here before any
+    element a caller nested inside it. They are passed through `__()` by the
+    caller because the script has no translator -- omit them and an Arabic
+    merchant sees English.
 --}}
-@props(['id', 'title' => null, 'labelledby' => null])
+@props([
+    'id',
+    'title' => null,
+    'labelledby' => null,
+    'loadingText' => null,
+    'errorText' => null,
+])
 
 <div class="ss-panel-backdrop" data-ss-panel-backdrop="{{ $id }}" hidden></div>
 
@@ -34,7 +48,10 @@
         </button>
     </div>
 
-    <div class="ss-panel__body" data-ss-panel-body>
+    <div class="ss-panel__body"
+         data-ss-panel-body
+         @if ($loadingText) data-ss-loading-text="{{ $loadingText }}" @endif
+         @if ($errorText) data-ss-error-text="{{ $errorText }}" @endif>
         {{ $slot }}
     </div>
 
