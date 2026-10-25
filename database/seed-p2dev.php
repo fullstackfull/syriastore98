@@ -50,6 +50,13 @@ foreach ([
     // fixture merchant got 403 on /product-brand-status and was redirected off /product-label.
     'Edit Product Brand','Manage Product Label','Edit Product Label','Status Customer',
     'Manage Store Setting','Manage Reports','Manage Order Reports','Manage Stock Reports','Manage Coupon',
+    // P2-04-6. The order detail page gates its ENTIRE notes panel on `Manage Order Note`, and
+    // the fixture merchant did not hold it -- so seeding 35 notes changed nothing on screen and
+    // the panel still rendered as absent. All three are granted to a real tenant owner's role in
+    // `app/Models/Utility.php:2874-2876`, so this brings the fixture in line with production
+    // rather than loosening it. Measured: `isAbleTo('Manage Order Note')` was false for the
+    // fixture merchant while `Show Order` was true, which is why the page opened at all.
+    'Manage Order Note','Create Order Note','Delete Order Note',
 ] as $name) {
     $p = Permission::firstOrCreate(['name' => $name], ['display_name' => $name]);
     if (! $role->hasPermission($name)) { $role->givePermission($p); }
@@ -202,5 +209,103 @@ foreach ($orders as [$ref, $status, $pay, $total]) {
     ]);
 }
 
+/*
+ * THE ORDER DETAIL PAGE'S THREE EMPTY BLOCKS.
+ * =================================================================================================
+ *
+ * `/order-view/{id}` renders a shipping card, a billing card and an order-notes panel, and NONE of
+ * them has ever been seen with content in it: `order_billing_details` and `order_notes` were both
+ * EMPTY in this fixture, and so were `countries`, `states` and `cities`, which the two address
+ * cards resolve their state/country/city through. Every field rendered blank and the notes panel
+ * rendered nothing at all.
+ *
+ * That is P2-02-9's defect on a second page. An empty block looks exactly like a healthy block
+ * with nothing to show, which is what it is for -- so a screenshot of a blank card is not evidence
+ * that the card is wrong, and it is not evidence that it is right either. Seeding these before the
+ * design-system pass is the only way the pass gets reviewed against the page merchants see.
+ *
+ * ONE ROW PER ORDER, and ONE NOTE OF EACH OF THE FIVE KINDS, because the notes panel styles them
+ * differently and the five branches had already drifted apart (two carry `text-white` on the
+ * delete icon and three do not). All five have to be on screen at once to see that.
+ */
+$ssCountry = DB::table('countries')->where('name', 'Syria')->value('id')
+    ?: DB::table('countries')->insertGetId(['name' => 'Syria', 'created_at' => now(), 'updated_at' => now()]);
+
+$ssState = DB::table('states')->where('name', 'Damascus Governorate')->value('id')
+    ?: DB::table('states')->insertGetId([
+        'name' => 'Damascus Governorate', 'country_id' => $ssCountry,
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+
+$ssCity = DB::table('cities')->where('name', 'Damascus')->value('id')
+    ?: DB::table('cities')->insertGetId([
+        'name' => 'Damascus', 'country_id' => $ssCountry, 'state_id' => $ssState,
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+
+/*
+ * NOT REAL PEOPLE AND NOT REAL CONTACT DETAILS. The brief forbids real customer data in a
+ * screenshot, and this fixture exists to be screenshotted. The name is invented, the address is a
+ * street that is not one, and the mailbox and phone are in the reserved ranges
+ * (`example.test`, +963 9XX XXX XXX with an all-zero subscriber part).
+ */
+foreach (Order::where('store_id', $store->id)->get() as $ssOrder) {
+    if (DB::table('order_billing_details')->where('order_id', $ssOrder->id)->exists()) { continue; }
+
+    DB::table('order_billing_details')->insert([
+        'order_id' => $ssOrder->id,
+        'product_order_id' => $ssOrder->product_order_id,
+        'first_name' => 'Rana', 'last_name' => 'Khalil',
+        'email' => 'rana.khalil@example.test',
+        'telephone' => '+963 900 000 000',
+        'company_name' => '',
+        'address' => '12 Souk Al-Hamidiyah', 'postcode' => '11001',
+        'country' => $ssCountry, 'state' => $ssState, 'city' => $ssCity,
+        'delivery_address' => '12 Souk Al-Hamidiyah', 'delivery_postcode' => '11001',
+        'delivery_country' => $ssCountry, 'delivery_state' => $ssState, 'delivery_city' => $ssCity,
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+}
+
+/*
+ * The five note kinds, on EVERY order rather than on one.
+ *
+ * The first attempt put them on `orderBy('id')->first()` and the browser check opened the order
+ * the LIST shows first, which is a different one -- so the panel was still empty and the run
+ * still reported `notes=0`. Rather than guess which order a reviewer will open, or encode the
+ * list's sort order here where it would silently go stale, every order carries the set. Five
+ * notes on seven orders is a fixture, not a dataset.
+ *
+ * The `status` / `note_type` pairs are the ones `order/view.blade.php` branches on, read from
+ * the view rather than invented -- otherwise the fixture would exercise a sixth branch that
+ * does not exist and leave one of the five real ones unseen.
+ */
+foreach (Order::where('store_id', $store->id)->get() as $ssNoteOrder) {
+    if (\App\Models\OrderNote::where('order_id', $ssNoteOrder->id)->exists()) { continue; }
+
+    foreach ([
+        ['Stock Manage',        null,            'Stock reduced by 2 for Damask Cotton Scarf.'],
+        ['Order Created',       null,            'Order placed from the storefront.'],
+        ['Order status change', null,            'Status changed to Confirmed.'],
+        ['',                    'private_note',  'Customer asked for delivery after 5pm. Not visible to them.'],
+        ['',                    'to_customer',   'Your order is being prepared and ships tomorrow.'],
+    ] as [$ssStatus, $ssType, $ssText]) {
+        \App\Models\OrderNote::create([
+            'order_id' => $ssNoteOrder->id,
+            // NULL, not 0: `order_notes.customer_id` carries a FOREIGN KEY to `customers`, and
+            // SQLite enforces it, so 0 fails the insert. These notes are written by staff and
+            // have no customer anyway -- which is the same reason the page cannot attribute
+            // them to anyone (there is no author column at all).
+            'customer_id' => null,
+            'notes' => $ssText,
+            'note_type' => $ssType,
+            'status' => $ssStatus,
+            'store_id' => $store->id,
+        ]);
+    }
+}
+
 echo "seeded: merchant={$merchant->id} store={$store->id} products=" . Product::where('store_id', $store->id)->count()
-   . " orders=" . Order::where('store_id', $store->id)->count() . "\n";
+   . " orders=" . Order::where('store_id', $store->id)->count()
+   . " billing=" . DB::table('order_billing_details')->count()
+   . " notes=" . \App\Models\OrderNote::where('store_id', $store->id)->count() . "\n";
