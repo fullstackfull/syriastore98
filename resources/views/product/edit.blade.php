@@ -26,6 +26,22 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
 @endphp
 @section('content')
 {{ Form::model($product, ['route' => ['product.update', $product->id], 'method' => 'PUT', 'enctype' => 'multipart/form-data', 'id' => 'choice_form', 'class' => 'choice_form_edit']) }}
+{{--
+    P2-03-5. THE CONCURRENT-EDIT TOKEN.
+
+    Two people editing the same product is a last-writer-wins race with no signal: the second
+    save silently discards the first person's work -- a price, a stock figure -- and both see a
+    success message. This carries the `updated_at` the form LOADED, and ProductController::update
+    refuses the save if the row has moved since.
+
+    `->toJSON()` rather than the default cast, so the value survives the round trip at full
+    precision; the controller parses it back to an instant and compares with `->eq()`, so a
+    formatting difference is never read as a conflict.
+
+    No migration: `updated_at` is already there, and Workstream G's rule is not to add a column
+    when an existing one answers the question.
+--}}
+<input type="hidden" name="ss_last_seen_at" value="{{ optional($product->updated_at)->toJSON() }}">
 
 <div class="row product-page-info">
     <div class="col-md-12">

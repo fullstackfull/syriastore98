@@ -1046,6 +1046,46 @@ $Product->cost_price = $request->cost_price;
                 }
             }
 
+            /*
+             * P2-03-5. CONCURRENT-EDIT CONFLICT DETECTION, BEFORE ANYTHING IS WRITTEN.
+             *
+             * THE DEFECT IT CLOSES: two people editing the same product is a last-writer-wins
+             * race with no signal. The second save silently discards the first person's work --
+             * including a PRICE or a STOCK figure -- and both of them see a success message. On a
+             * screen with a dozen fields, the loser usually never learns anything happened.
+             *
+             * `updated_at` IS THE TOKEN, which needs no migration and no new column. The edit
+             * form emits the value it loaded; on save, a row whose `updated_at` has moved since
+             * then is refused rather than overwritten. Workstream G's rule is to avoid schema
+             * changes unless clearly necessary, and here one is not.
+             *
+             * COMPARED AS AN INSTANT, not as a string. `->eq()` on Carbon, after parsing, so a
+             * difference in format or timezone rendering is not read as a conflict -- that
+             * would refuse saves nobody is racing. A malformed or absent token is treated as
+             * "not supplied" and the save proceeds: this is a data-loss guard, not an
+             * authorization control, and failing closed on it would break every client that
+             * posts the form without the field, including the API and the Flutter app.
+             *
+             * THE REFUSAL KEEPS THE INPUT. `withInput()` so the merchant's typing is not thrown
+             * away by the very mechanism that exists to stop work being lost -- scrubbed of the
+             * token itself so a resubmit cannot carry the stale value back.
+             */
+            $seenAt = $request->input('ss_last_seen_at');
+
+            if (is_string($seenAt) && $seenAt !== '' && $product->updated_at !== null) {
+                try {
+                    $seen = \Carbon\Carbon::parse($seenAt);
+
+                    if (! $product->updated_at->eq($seen)) {
+                        return redirect()->back()
+                            ->withInput($request->except(['ss_last_seen_at', '_token']))
+                            ->with('error', __('Someone else saved this product while you were editing it. Your changes have not been saved. Reload the page to see the current version, then re-apply your changes.'));
+                    }
+                } catch (\Throwable $e) {
+                    // Unparseable token: treat as not supplied. See the note above.
+                }
+            }
+
             $dir        = 'uploads/' .getCurrentStore();
             if ($request->variant_product == 0) {
                 $rules = [
