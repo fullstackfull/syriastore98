@@ -838,7 +838,25 @@ Route::get(
     Route::get('store-reset-password/{id}', [StoreController::class, 'storeResetPassword'])->name('stores.reset.password');
     Route::post('store-reset-password-update/{id}', [StoreController::class, 'storeResetPasswordUpdate'])->name('stores.reset.password.update');
 
-    Route::get('/change-store/{id}', [StoreController::class, 'changeStore'])->name('change.store');
+    /*
+     * P2-SEC-F12. POST, NOT GET -- this writes `users.current_store`, the tenant pointer every
+     * `where('store_id', getCurrentStore())` in the application reads.
+     *
+     * As a GET it was a state-changing request with no CSRF token, so it fired from a
+     * third-party page's `<img src>` or link, and from browser link prefetching with no click at
+     * all. `changeStore()` ownership-checks the target (R4-03), so the reachable effect was
+     * bounded to flipping a merchant between stores they already own -- not a cross-tenant
+     * write -- but that is still a silent tenant switch, and every screen the merchant then
+     * loads reports another store's data as if they had asked for it. P2-01-11 made switching a
+     * permanently visible control rather than an admin-only menu item, which is what moved this
+     * from recorded to fixed.
+     *
+     * The ROUTE NAME is unchanged, so `route('change.store', $id)` still resolves for every
+     * caller; both of them (partision/header.blade.php and partision/workspace-chip.blade.php)
+     * are converted to posting forms in the same change. A bookmarked GET now answers 405,
+     * which is the correct answer for this URI and is asserted in TenantSwitchTest.
+     */
+    Route::post('/change-store/{id}', [StoreController::class, 'changeStore'])->name('change.store');
 
     Route::resource('testimonial', TestimonialController::class);
     Route::post('get-product', [TestimonialController::class, 'get_product'])->name('get.product');

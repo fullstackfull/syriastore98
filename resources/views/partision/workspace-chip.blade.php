@@ -85,18 +85,37 @@
                 @foreach ($ssStores as $ssStore)
                     @php $ssIsCurrent = (int) $ssStore->id === (int) $ssCurrentStore->id; @endphp
                     <li role="none">
-                        <a role="option"
-                           aria-selected="{{ $ssIsCurrent ? 'true' : 'false' }}"
-                           class="ss-menu__item"
-                           href="{{ route('change.store', $ssStore->id) }}">
-                            <span class="ss-workspace__name">{{ $ssStore->name }}</span>
-                            @if ($ssIsCurrent)
-                                {{-- A tick is colour-and-shape only; the state a
-                                     screen reader needs is aria-selected above,
-                                     so the icon is hidden from it. --}}
-                                <i class="ti ti-check ss-workspace__tick" aria-hidden="true"></i>
-                            @endif
-                        </a>
+                        {{-- P2-SEC-F12. A POSTING FORM, NOT A LINK. Choosing a workspace writes
+                             `users.current_store`, the tenant pointer every store-scoped query
+                             reads, so it is a state-changing request and needs a CSRF token; as
+                             a GET it fired from a third-party `<img src>` and from link
+                             prefetching with no click at all.
+
+                             THE ARIA IS UNCHANGED, deliberately. `role="option"`,
+                             `aria-selected` and `.ss-menu__item` move onto the submit control,
+                             and the interposed form carries `role="none"` so the listbox still
+                             owns its options -- an element with a presentational role is
+                             transparent for that ownership. The three browser checks that read
+                             `#ss-workspace-list [role="option"]`, `[aria-selected="true"]` and
+                             `.ss-menu__item` therefore measure the same thing. --}}
+                        <form method="POST"
+                              action="{{ route('change.store', $ssStore->id) }}"
+                              role="none"
+                              class="ss-workspace__form">
+                            @csrf
+                            <button type="submit"
+                                    role="option"
+                                    aria-selected="{{ $ssIsCurrent ? 'true' : 'false' }}"
+                                    class="ss-menu__item">
+                                <span class="ss-workspace__name">{{ $ssStore->name }}</span>
+                                @if ($ssIsCurrent)
+                                    {{-- A tick is colour-and-shape only; the state a
+                                         screen reader needs is aria-selected above,
+                                         so the icon is hidden from it. --}}
+                                    <i class="ti ti-check ss-workspace__tick" aria-hidden="true"></i>
+                                @endif
+                            </button>
+                        </form>
                     </li>
                 @endforeach
             </ul>

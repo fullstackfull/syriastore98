@@ -1514,6 +1514,10 @@
     outline-offset: -1px;
 }
 .ss-menu__item[aria-current="true"] { background: var(--ss-brand-subtle); color: var(--ss-brand); }
+/* P2-SEC-F12. The workspace switcher posts, so each option is a form wrapping the control.
+   `.ss-menu__item` was already authored for a <button> (transparent background, zero border,
+   full width), so the only thing the interposed form must not do is add box spacing. */
+.ss-workspace__form { margin: 0; padding: 0; border: 0; }
 .ss-menu__sep { height: 1px; margin: var(--ss-space-2) 0; background: var(--ss-border); border: 0; }
 .ss-menu__group {
     padding: var(--ss-space-2) var(--ss-space-3) var(--ss-space-1);

@@ -22,7 +22,12 @@ class TenantSwitchTest extends SecurityTestCase
     use RefreshDatabase;
 
     // ---------------------------------------------------------------
-    // Web: GET /change-store/{id} -> StoreController::changeStore
+    // Web: POST /change-store/{id} -> StoreController::changeStore
+    //
+    // P2-SEC-F12 changed the verb from GET. These six drives were rewritten with it; every
+    // assertion they make is about the ownership predicate and the discriminator, which the
+    // verb does not touch, so the regression coverage R4-03 added is preserved exactly. The
+    // verb itself is pinned by the two tests at the end of this section.
     // ---------------------------------------------------------------
 
     public function test_user_cannot_switch_into_a_store_they_do_not_own(): void
@@ -30,7 +35,7 @@ class TenantSwitchTest extends SecurityTestCase
         [$merchantA, $storeA] = $this->makeTenant();
         [, $storeB] = $this->makeTenant();
 
-        $response = $this->actingAs($merchantA)->get("/change-store/{$storeB->id}");
+        $response = $this->actingAs($merchantA)->post("/change-store/{$storeB->id}");
 
         $response->assertForbidden();
 
@@ -51,7 +56,7 @@ class TenantSwitchTest extends SecurityTestCase
         [$merchant, $storeA] = $this->makeTenant();
         $storeB = $this->makeStore($merchant);
 
-        $this->actingAs($merchant)->get("/change-store/{$storeB->id}");
+        $this->actingAs($merchant)->post("/change-store/{$storeB->id}");
 
         $this->assertSame($storeB->id, $merchant->fresh()->current_store);
         $this->assertNotSame($storeA->id, $merchant->fresh()->current_store);
@@ -67,7 +72,7 @@ class TenantSwitchTest extends SecurityTestCase
         $secondStore = $this->makeStore($owner);
         $staff = $this->makeStaff($owner);
 
-        $this->actingAs($staff)->get("/change-store/{$secondStore->id}");
+        $this->actingAs($staff)->post("/change-store/{$secondStore->id}");
 
         $this->assertSame($secondStore->id, $staff->fresh()->current_store);
     }
@@ -81,7 +86,7 @@ class TenantSwitchTest extends SecurityTestCase
         [, $foreignStore] = $this->makeTenant();
 
         $this->actingAs($staff)
-            ->get("/change-store/{$foreignStore->id}")
+            ->post("/change-store/{$foreignStore->id}")
             ->assertForbidden();
 
         $this->assertSame($original, $staff->fresh()->current_store);
@@ -98,7 +103,7 @@ class TenantSwitchTest extends SecurityTestCase
         $locked = $this->makeStore($merchant, ['is_active' => 0]);
 
         $this->actingAs($merchant)
-            ->get("/change-store/{$locked->id}")
+            ->post("/change-store/{$locked->id}")
             ->assertSessionHas('error');
 
         $this->assertSame($storeA->id, $merchant->fresh()->current_store);
@@ -109,9 +114,54 @@ class TenantSwitchTest extends SecurityTestCase
     {
         [, $store] = $this->makeTenant();
 
-        $response = $this->get("/change-store/{$store->id}");
+        $response = $this->post("/change-store/{$store->id}");
 
         $this->assertContains($response->getStatusCode(), [302, 401, 403]);
+    }
+
+    /**
+     * P2-SEC-F12. THE VERB IS THE CONTROL. A GET that writes `users.current_store` is reachable
+     * from a third-party page's `<img src>` or link and from browser link prefetching, with no
+     * click and no token -- so the request shape, not just the ownership predicate, is what is
+     * being asserted here.
+     *
+     * 405 is what Laravel answers for a known uri on the wrong verb. A 404 would mean the route
+     * is gone entirely, which is a different (and broken) outcome, so it is excluded explicitly
+     * -- the project has been bitten by a row assertion that a 404 satisfied.
+     */
+    public function test_the_store_switch_refuses_a_get(): void
+    {
+        [$merchant, $storeA] = $this->makeTenant();
+        $storeB = $this->makeStore($merchant);
+
+        $response = $this->actingAs($merchant)->get("/change-store/{$storeB->id}");
+
+        $this->assertSame(405, $response->getStatusCode());
+
+        $this->assertSame(
+            $storeA->id,
+            $merchant->fresh()->current_store,
+            'a GET must not have moved the tenant pointer before being refused'
+        );
+    }
+
+    /**
+     * And the token is enforced, which is the other half of "not a GET". `withMiddleware`
+     * reinstates VerifyCsrfToken, which the test kernel disables -- without it this would pass
+     * against a route that had no CSRF protection at all.
+     */
+    public function test_the_store_switch_refuses_a_post_with_no_csrf_token(): void
+    {
+        [$merchant, $storeA] = $this->makeTenant();
+        $storeB = $this->makeStore($merchant);
+
+        $response = $this->withMiddleware(\Illuminate\Foundation\Http\Middleware\VerifyCsrfToken::class)
+            ->actingAs($merchant)
+            ->post("/change-store/{$storeB->id}");
+
+        $this->assertSame(419, $response->getStatusCode());
+
+        $this->assertSame($storeA->id, $merchant->fresh()->current_store);
     }
 
     // ---------------------------------------------------------------

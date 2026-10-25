@@ -2286,9 +2286,46 @@ if (!function_exists('getSideMenu')) {
                 return generateMenu($menu->menu, null);
             }
         }
+        /*
+         * P2-SEC-F4. THE GATE THIS PATH NEVER HAD.
+         *
+         * `$menu->menu[]` below bypasses `App\Classes\Menu::add()`, which is the only place
+         * module entitlement and permission are checked for the navigation, and the two keys the
+         * row carries to say what it needs -- `module` and `permission` -- are structurally
+         * always null, because `side_menus_option` HAS NEITHER COLUMN. See the `Menu::$denied`
+         * docblock for that measurement. So the platform-authored rows (`created_by = 0`,
+         * `store_id = null`, selected at :2270) rendered for EVERY merchant and every staff
+         * member, whatever they hold and whatever their plan includes.
+         *
+         * The gate is recovered from the listeners rather than from a schema change. They are the
+         * authoritative `name => [module, permission]` map, `Menu::add()` already applies the
+         * decision, and `Menu::$denied` now records the refusals -- so a database row naming one
+         * of those entries honours the same answer. A row naming something the listeners do not
+         * know (a merchant's own external link) has no permission to apply and is governed by the
+         * route-existence check in `generateSideMenu()` instead; that is a real limit of this
+         * approach and is stated in the ledger rather than papered over.
+         *
+         * THE OPERATOR LIMB IS FIRST, which is this codebase's rule (the skill's §1, and
+         * FinancePermission records the reverse ordering causing a lockout). It is also what
+         * makes this change zero-regression for the principal who OWNS this screen: the operator
+         * configures the custom sidebar, holds no merchant role, and a permission with no row
+         * can be held by nobody -- so enforcing against them is a lockout, not a tightening. The
+         * finding's stated harm is "renders for every merchant", and merchants and staff are
+         * where this now bites.
+         */
+        $isOperator = \App\Policies\UserPolicy::isOperator($user);
+
+        $gate = new \App\Classes\Menu($user);
+
+        if ($isOperator) {
+            event(new \App\Events\SuperAdminMenuEvent($gate));
+        } else {
+            event(new \App\Events\CompanyMenuEvent($gate));
+        }
+
         foreach ($sortedModules as $item) {
             if (isset($item->is_enable) && $item->is_enable == 'on') {
-                $menu->menu[] = [
+                $row = [
                     'id' => $item->id,
                     'category' => $item->category,
                     'title' => $item->title,
@@ -2303,11 +2340,157 @@ if (!function_exists('getSideMenu')) {
                     'is_enable' => $item->is_enable ?? null,
                     'permission' => $item->permission ?? null,
                 ];
+
+                if (! $isOperator && ! sideMenuRowIsPermitted($row, $gate)) {
+                    continue;
+                }
+
+                $menu->menu[] = $row;
             }
         }
         return generateSideMenu($menu->menu, null);
     }
 }
+
+if (!function_exists('sideMenuRowIsPermitted')) {
+    /**
+     * P2-SEC-F4. Is this `side_menus_option` row one the caller is entitled to see?
+     *
+     * TWO INDEPENDENT QUESTIONS, because the row can answer only one of them today:
+     *
+     * 1. THE ROW'S OWN COLUMNS, applied when a deployment actually has them. Today it does not
+     *    -- neither the migration nor the production dump defines `module` or `permission` -- so
+     *    this limb is inert and exists so that adding the columns later makes the row's own
+     *    declaration authoritative without another change here. `Menu::permits()` is reused
+     *    rather than re-spelled.
+     *
+     * 2. THE LISTENER'S DECISION FOR THAT NAME, which is what actually gates anything today.
+     *    `$gate->denied` holds the names the listeners offered and the gate refused for THIS
+     *    user -- a module their plan omits, or a permission their role lacks. A row naming one
+     *    of them is refused here for the same reason.
+     *
+     * A name the listeners never offered is NOT refused: there is no permission on record for it
+     * and inventing one would hide a merchant's own custom links. `generateSideMenu()`'s
+     * route-existence check covers the module half of that case, since an inactive module
+     * registers no routes.
+     */
+    function sideMenuRowIsPermitted(array $row, \App\Classes\Menu $gate): bool
+    {
+        // Limb 1 -- only ask when the row actually declares something.
+        if (! empty($row['module']) || ! empty($row['permission'])) {
+            if (! $gate->permits($row)) {
+                return false;
+            }
+        }
+
+        // Limb 2 -- the listeners' answer for this name.
+        if (! empty($row['name']) && isset($gate->denied[$row['name']])) {
+            return false;
+        }
+
+        return true;
+    }
+}
+if (!function_exists('sideMenuIconSlug')) {
+    /**
+     * P2-SEC-F5. `icon` is a database-sourced string interpolated INSIDE a class attribute
+     * (`class="ti ti-<icon>"`), so escaping alone is the weaker control: an allowlist is exact
+     * here because the value is a Tabler icon slug and nothing else. Every icon in the restored
+     * production dump and in both seeders matches `[a-z0-9-]+` (`home`, `layout-2`,
+     * `message-circle`, `user`, `settings`), so this changes no shipping row.
+     */
+    function sideMenuIconSlug($icon): string
+    {
+        return preg_replace('/[^A-Za-z0-9-]/', '', (string) $icon) ?? '';
+    }
+}
+
+if (!function_exists('sideMenuHref')) {
+    /**
+     * P2-SEC-F4 / F5. Resolve a `side_menus_option` row's href, or NULL to drop the row.
+     *
+     * NULL means "this row names something that is not there", which is how a path whose table
+     * has no `module` column still enforces module entitlement: an add-on registers its routes
+     * only when `add_on_managers` holds its row, so `Route::has()` is a true reading of whether
+     * the module is active. Dropping the row is also strictly safer than the old behaviour,
+     * which called `route()` on the unregistered name and threw from inside the sidebar.
+     *
+     * The returned string is escaped by the CALLER with `e()`; what is checked here is the
+     * SCHEME, which escaping does not address -- `javascript:alert(1)` survives
+     * htmlspecialchars intact and still runs on click. `link_type = 'external'` is the one
+     * branch whose value is a free-text URL, and the module's own form offers `http://` and
+     * `https://` only (SideMenuOption::$hrefs), so anything else is outside what the UI can
+     * produce.
+     */
+    function sideMenuHref(array $item): ?string
+    {
+        if (! isset($item['link_type'])) {
+            return '#!';
+        }
+
+        switch ($item['link_type']) {
+            case 'internal':
+                // Unchanged, including the vendored oddity that the ternary's condition is
+                // always true because the concatenation always contains '/'. `url()` returns an
+                // application URL, so there is no scheme to validate.
+                return !empty((env('APP_URL')) . '/' . $item['route']) ? url((env('APP_URL')) . '/' . $item['route']) : '#';
+
+            case 'external':
+                if (! isset($item['route'])) {
+                    return '#';
+                }
+
+                $routeData = json_decode($item['route'], true);
+
+                if (! isset($routeData['href'][0]) || ! isset($routeData['type'][0])) {
+                    return '#';
+                }
+
+                $candidate = (string) $routeData['href'][0] . (string) $routeData['type'][0];
+
+                return sideMenuSafeExternalUrl($candidate);
+
+            case 'hash':
+                // `link` is not a key this array carries -- `getSideMenu()` maps the column to
+                // 'route' -- so this has always resolved to '#'. Left exactly as it was: making
+                // it read 'route' would turn a dead branch into a live one, which is a behaviour
+                // change this security fix has no business making.
+                return '#' . (isset($item['link']) ? $item['link'] : '');
+
+            case 'route':
+                if (empty($item['route'])) {
+                    return '#';
+                }
+
+                if (! \Illuminate\Support\Facades\Route::has($item['route'])) {
+                    return null;
+                }
+
+                return route($item['route']);
+        }
+
+        return '#!';
+    }
+}
+
+if (!function_exists('sideMenuSafeExternalUrl')) {
+    /**
+     * P2-SEC-F5. An http(s) URL, or '#'.
+     *
+     * Deliberately an ALLOWLIST of two schemes rather than a denylist of `javascript:` and
+     * `data:`, because a denylist loses to whitespace and entity tricks
+     * (`java\tscript:`, `JaVaScRiPt:`) that browsers still honour. A protocol-relative `//host`
+     * is also refused: it is not something the module's form can produce, and it silently
+     * inherits the page's scheme.
+     */
+    function sideMenuSafeExternalUrl(string $candidate): string
+    {
+        $scheme = strtolower((string) parse_url(trim($candidate), PHP_URL_SCHEME));
+
+        return in_array($scheme, ['http', 'https'], true) ? $candidate : '#';
+    }
+}
+
 if (!function_exists('generateSideMenu')) {
     function generateSideMenu($menuItems, $parent = null, $level = 0)
     {
@@ -2331,37 +2514,31 @@ if (!function_exists('generateSideMenu')) {
                 }
                 $marginLeft = 10 * $level;
 
-                $href = '#!';
-                if (isset($item['link_type'])) {
-                    switch ($item['link_type']) {
-                        case 'internal':
-                            $href = !empty((env('APP_URL')) . '/' . $item['route']) ? url((env('APP_URL')) . '/' . $item['route']) : '#';
-                            break;
+                /*
+                 * P2-SEC-F4 (module entitlement) and P2-SEC-F5 (output escaping).
+                 *
+                 * `sideMenuHref()` returns null to mean SKIP THIS ROW, which is how module
+                 * entitlement is enforced for a path whose table carries no `module` column: an
+                 * add-on's provider is registered only when `add_on_managers` holds a row for it
+                 * (PackageServiceProvider::loadDynamicAddons), so an inactive module registers no
+                 * routes and `Route::has()` answers false for every row pointing at one.
+                 *
+                 * That also closes an availability defect, not only a disclosure one. The old
+                 * line was `route($item['route'])`, and `route()` THROWS RouteNotFoundException
+                 * for a name that is not registered -- from inside the sidebar, which every admin
+                 * page renders. Live production data holds rows naming `preorders.index`
+                 * (PreOrder) and `additionalcustomfields.index` (AdditionalCustomFields), so
+                 * turning either module off served HTTP 500 on every admin screen. Those row
+                 * values were read from the database dump committed to `main` -- the P1-SEC-40 /
+                 * #120 incident artifact, deliberately absent from this branch -- so the claim is
+                 * recorded here rather than resting on a file this branch can point at.
+                 */
+                $href = sideMenuHref($item);
 
-                        case 'external':
-                            if (isset($item['route'])) {
-                                $routeData = json_decode($item['route'], true);
-
-                                if (isset($routeData['href'][0]) && isset($routeData['type'][0])) {
-                                    $baseUrl = $routeData['href'][0];
-                                    $domain = $routeData['type'][0];
-                                    $href = $baseUrl . $domain;
-                                } else {
-                                    $href = '#';
-                                }
-                            } else {
-                                $href = '#';
-                            }
-                            break;
-
-                        case 'hash':
-                            $href = '#' . (isset($item['link']) ? $item['link'] : '');
-                            break;
-                        case 'route':
-                            $href = !empty($item['route']) ? route($item['route']) : '#';
-                            break;
-                    }
+                if ($href === null) {
+                    continue;
                 }
+
                 $target = '';
                 if (isset($item['window_type'])) {
                     switch ($item['window_type']) {
@@ -2374,16 +2551,30 @@ if (!function_exists('generateSideMenu')) {
                             break;
 
                         case 'iframe':
+                            if (! \Illuminate\Support\Facades\Route::has('sidemenubuilder.iframe')) {
+                                continue 2;
+                            }
+
                             $href = route("sidemenubuilder.iframe", $item['id']);
                             break;
                     }
                 }
-                $html .= '<a href="' . $href . '" class="dash-link" ' . $target . '>';
+                $html .= '<a href="' . e($href) . '" class="dash-link" ' . $target . '>';
                 if ($item['parent'] == null) {
-                    $html .= ' <span class="dash-micon"><i class="ti ti-' . $item['icon'] . '"></i></span>
+                    $html .= ' <span class="dash-micon"><i class="ti ti-' . sideMenuIconSlug($item['icon'] ?? '') . '"></i></span>
                     <span class="dash-mtext">';
                 }
-                $html .= __($item['title']) . '</span>';
+                /*
+                 * P2-SEC-F5. `__($item['title'])` was interpolated raw. `title` is a
+                 * database-sourced, operator- and merchant-editable string
+                 * (SidebarCustomization's SideMenuController and Company\SettingsController both
+                 * write it), and `__()` returns its INPUT unchanged when the key misses -- which
+                 * it does for every custom title -- so the row's bytes reached the document. The
+                 * platform-level rows are authored by the operator and render inside every
+                 * merchant's admin chrome, which is the stored-XSS shape. `generateMenu()`, the
+                 * listener-fed sibling this phase converted, already escapes.
+                 */
+                $html .= e(__($item['title'])) . '</span>';
                 $buttonHtml = '<div class="d-flex justify-content-between"><div><button type="button" class="collepse-menu-buttons collepse-btn-back btn btn-sm btn-secondary"><i class="ti ti-arrow-back"></i></button></div>
                 <div><button type="button" class="collepse-menu-buttons collepse-btn-close btn btn-sm btn-danger"><i class="ti ti-x"></i></button></div></div>';
 

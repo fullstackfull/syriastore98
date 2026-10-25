@@ -148,13 +148,22 @@ $theme_url = App\Http\Controllers\HomeController::getThemeUrl($store);
                                 @if (auth()->user()->type == 'admin')
                                 @foreach ($stores as $store)
                                 @if ($store->is_active)
-                                <a href="@if ($activeStore == $store->id) # @else {{ route('change.store', $store->id) }} @endif"
-                                    class="dropdown-item">
-                                    @if ($activeStore == $store->id)
+                                {{-- P2-SEC-F12: switching the tenant pointer is a POST with a CSRF
+                                     token, not a GET link. The current store stays a plain <a>
+                                     because it changes nothing. --}}
+                                @if ($activeStore == $store->id)
+                                <a href="#" class="dropdown-item">
                                     <i class="ti ti-checks text-primary"></i>
-                                    @endif
                                     {{ ucfirst($store->name) }}
                                 </a>
+                                @else
+                                <form method="POST" action="{{ route('change.store', $store->id) }}" class="m-0">
+                                    @csrf
+                                    <button type="submit" class="dropdown-item">
+                                        {{ ucfirst($store->name) }}
+                                    </button>
+                                </form>
+                                @endif
                                 @else
                                 <a href="#!" class="dropdown-item">
                                     <i class="ti ti-lock"></i>
