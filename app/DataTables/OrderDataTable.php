@@ -35,7 +35,10 @@ class OrderDataTable extends DataTable
                         </div>';
             })
             ->editColumn('order_date', function ($item) {
-                return \App\Models\Utility::dateFormat($item->order_date);
+                // F19. `Utility::dateFormat(null)` is `date($fmt, strtotime(null))`, and
+                // `strtotime(null)` is FALSE, so that call renders the Unix EPOCH -- a date the
+                // order does not have, in the same type as the dates around it that are real.
+                return self::dateOrDash($item->order_date);
             })
             ->editColumn('customer_id', function ($item) {
                 if ($item->is_guest == 1) {
@@ -115,32 +118,32 @@ class OrderDataTable extends DataTable
                 $statusButtons = [
                     0 => '<button type="button" class="btn btn-sm btn-soft-info btn-icon bg-info badge-same">
                             <span class="btn-inner--icon"><i class="fas fa-check soft-info"></i></span>
-                            <span class="btn-inner--text"> ' . __('Pending') . ' : ' . \App\Models\Utility::dateFormat($item->order_date) . ' </span>
+                            <span class="btn-inner--text"> ' . __('Pending') . self::statusDate($item->order_date) . ' </span>
                         </button>',
                     1 => '<button type="button" class="btn btn-sm btn-soft-success btn-icon bg-success badge-same">
-                            <span class="btn-inner--text"> ' . __('Delivered') . ' : ' . \App\Models\Utility::dateFormat($item->delivery_date) . ' </span>
+                            <span class="btn-inner--text"> ' . __('Delivered') . self::statusDate($item->delivery_date) . ' </span>
                         </button>',
                     2 => '<button type="button" class="btn btn-sm btn-soft-danger btn-icon bg-danger badge-same">
-                            <span class="btn-inner--text"> ' . __('Cancel') . ' : ' . \App\Models\Utility::dateFormat($item->cancel_date) . ' </span>
+                            <span class="btn-inner--text"> ' . __('Cancel') . self::statusDate($item->cancel_date) . ' </span>
                         </button>',
                     3 => '<button type="button" class="btn btn-sm btn-soft-danger btn-icon bg-danger badge-same">
-                            <span class="btn-inner--text"> ' . __('Return') . ' : ' . \App\Models\Utility::dateFormat($item->return_date) . ' </span>
+                            <span class="btn-inner--text"> ' . __('Return') . self::statusDate($item->return_date) . ' </span>
                         </button>',
                     4 => '<button type="button" class="btn btn-sm btn-soft-warning btn-icon bg-warning badge-same">
-                            <span class="btn-inner--text"> ' . __('Confirmed') . ' : ' . \App\Models\Utility::dateFormat($item->confirmed_date) . ' </span>
+                            <span class="btn-inner--text"> ' . __('Confirmed') . self::statusDate($item->confirmed_date) . ' </span>
                         </button>',
                     5 => '<button type="button" class="btn btn-sm btn-soft-secondary btn-icon bg-secondary badge-same">
                             <span class="btn-inner--icon"><i class="fas fa-check soft-secondary"></i></span>
-                            <span class="btn-inner--text"> ' . __('Picked Up') . ' : ' . \App\Models\Utility::dateFormat($item->picked_date) . ' </span>
+                            <span class="btn-inner--text"> ' . __('Picked Up') . self::statusDate($item->picked_date) . ' </span>
                         </button>',
                     6 => '<button type="button" class="btn btn-sm btn-soft-dark btn-icon bg-dark badge-same">
-                            <span class="btn-inner--text"> ' . __('Shipped') . ' : ' . \App\Models\Utility::dateFormat($item->shipped_date) . ' </span>
+                            <span class="btn-inner--text"> ' . __('Shipped') . self::statusDate($item->shipped_date) . ' </span>
                         </button>',
                     7 => '<button type="button" class="btn btn-sm btn-soft-dark btn-icon bg-dark badge-same">
-                            <span class="btn-inner--text"> ' . __('Partially Paid') . ' : ' . \App\Models\Utility::dateFormat($item->order_date) . ' </span>
+                            <span class="btn-inner--text"> ' . __('Partially Paid') . self::statusDate($item->order_date) . ' </span>
                         </button>',
                     8 => '<button type="button" class="btn btn-sm btn-soft-dark btn-icon bg-dark badge-same">
-                            <span class="btn-inner--text"> ' . __('Pre Order') . ' : ' . \App\Models\Utility::dateFormat($item->order_date) . ' </span>
+                            <span class="btn-inner--text"> ' . __('Pre Order') . self::statusDate($item->order_date) . ' </span>
                         </button>',
                 ];
 
@@ -148,6 +151,63 @@ class OrderDataTable extends DataTable
             })
             ->rawColumns(['action', 'product_order_id', 'order_date', 'customer_id', 'final_price', 'payment_type', 'delivered_status']);
         return $dataTable;
+    }
+
+    /**
+     * F19 -- a date this order does not have is not invented.
+     * =========================================================================================
+     *
+     * `Utility::dateFormat()` is `date($settings, strtotime($date))`. `strtotime(null)` and
+     * `strtotime('')` both return FALSE, and `date($fmt, false)` is `date($fmt, 0)` -- 1 January
+     * 1970. So an order marked Delivered whose `delivery_date` was never written rendered
+     * **"Delivered : Jan 1, 1970"**: a fabricated date presented exactly like the real ones in
+     * the rows around it, with nothing to tell a merchant which is which. Seen in this phase's
+     * live screenshots of the order list.
+     *
+     * WHY THIS IS HERE AND NOT IN `Utility::dateFormat()`. The null behaviour is wrong wherever
+     * it happens, but that helper has 64 call sites and **28 of them are inside vendored
+     * `packages/workdo/` modules**. Changing it alters output across seventy modules with no
+     * regression evidence available for any of them -- a sweep with an owner decision behind it,
+     * not a line in a list fix. The surface P2-04 owns is corrected here; the wider finding, and
+     * the same epoch in `Order::getReturnDateAttribute()`, stay on the ledger.
+     *
+     * STATIC, because these are called from the `editColumn()` closures above, which yajra
+     * invokes with its own binding.
+     */
+    private static function hasDate($value): bool
+    {
+        if ($value === null || $value === '') {
+            return false;
+        }
+
+        // A zero-ish STORED value is the epoch too: `'0000-00-00'` is what MySQL's old zero-date
+        // default leaves behind, and `strtotime()` answers false for that as well. `> 0` rather
+        // than `!== false` so a literal `'1970-01-01'` that somebody actually stored is also
+        // treated as the placeholder it almost certainly is.
+        $timestamp = strtotime((string) $value);
+
+        return $timestamp !== false && $timestamp > 0;
+    }
+
+    /** The formatted date, or a dash -- never a date the row does not have. */
+    private static function dateOrDash($value): string
+    {
+        return self::hasDate($value) ? \App\Models\Utility::dateFormat($value) : '-';
+    }
+
+    /**
+     * The ` : <date>` suffix a status badge carries, or nothing at all.
+     *
+     * THE LABEL IS NOT THE DATE'S HOSTAGE: with no date the badge still reads "Delivered",
+     * because the status is what the column exists for and a merchant needs it whether or not
+     * the timestamp was recorded. Only the fabricated half goes. The single trailing space
+     * preserves the badge's existing padding either way.
+     */
+    private static function statusDate($value): string
+    {
+        return self::hasDate($value)
+            ? ' : ' . \App\Models\Utility::dateFormat($value)
+            : '';
     }
 
     /**
