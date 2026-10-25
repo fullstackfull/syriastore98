@@ -111,8 +111,7 @@ class MerchantNotificationController extends Controller
         [$isOperator, $storeId, $types] = $context;
 
         return view('notification.index', [
-            'notifications' => $this->scope($storeId, $isOperator, $types)
-                ->orderByDesc('id')
+            'notifications' => $this->newestFirst($this->scope($storeId, $isOperator, $types))
                 ->limit(50)
                 ->get(),
             'unread' => $this->unreadCount($storeId, $isOperator, $types),
@@ -147,8 +146,7 @@ class MerchantNotificationController extends Controller
 
         [$isOperator, $storeId, $types] = $context;
 
-        $items = $this->scope($storeId, $isOperator, $types)
-            ->orderByDesc('id')
+        $items = $this->newestFirst($this->scope($storeId, $isOperator, $types))
             ->limit(self::FEED_LIMIT)
             ->get()
             ->map(fn (StoreNotification $n) => [
@@ -282,6 +280,27 @@ class MerchantNotificationController extends Controller
         }
 
         return redirect()->back();
+    }
+
+    /**
+     * NEWEST FIRST, BY `created_at` AND THEN BY ID. P2-06-3.
+     *
+     * `orderByDesc('id')` alone is reverse-chronological ONLY while ids and timestamps ascend
+     * together. They normally do -- but relying on that is relying on an accident, and the
+     * Flutter sibling (`Api\DashboardController::noti`) orders by `latest()`, i.e. `created_at`.
+     * Two surfaces reading one table should not disagree about which notification is newest.
+     *
+     * FOUND BY LOOKING AT A SCREENSHOT. The P2-06-3 fixture happened to create rows whose ids
+     * ascend while their timestamps descend, and the rendered feed showed the OLDEST row at the
+     * top. The fixture was unrealistic; the ordering was fragile; both are fixed.
+     *
+     * The id is kept as a TIEBREAK, not as the key: `created_at` has second precision here, so
+     * two notifications written in the same second would otherwise come back in whatever order
+     * the engine chose, which is how a list flickers between page loads.
+     */
+    private function newestFirst($query)
+    {
+        return $query->orderByDesc('created_at')->orderByDesc('id');
     }
 
     // =============================================================================== internals

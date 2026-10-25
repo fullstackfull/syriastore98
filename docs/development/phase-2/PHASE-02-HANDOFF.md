@@ -7,8 +7,8 @@
 
 | | |
 |---|---|
-| Laravel head | `d1bb94ee` (`fullstackfull/syriastore98`) |
-| Flutter head | `2774a76d` (`fullstackfull/StoreSyria_app98`) |
+| Laravel head | `e53d9fc8` (`fullstackfull/syriastore98`) |
+| Flutter head | `fd76ac8` (`fullstackfull/StoreSyria_app98`) |
 | Requirements | [`PHASE-02-MASTER-EXECUTION-PROMPT.md`](PHASE-02-MASTER-EXECUTION-PROMPT.md) — the owner's prompt, verbatim |
 | Row-level status | [`PHASE-02-TASK-LEDGER.md`](PHASE-02-TASK-LEDGER.md) |
 | Executed output | [`PHASE-02-TEST-EVIDENCE.md`](PHASE-02-TEST-EVIDENCE.md) |
@@ -26,7 +26,7 @@
 | P2-03 products | D | **partial** — concurrent-edit conflict detection, the quick-preview panel and the variant column's missing translation are shipped and tested. List, filters, full-page editor and media/variant UX are **not built**. |
 | P2-04 orders | E | **partial** — the status breakdown is honest and reconciles, the **authorised quick preview** is shipped with its own guard entry and nine authorization tests, and **F19 is fixed**: the list no longer renders the Unix epoch as a date. Order list redesign, detail page, Kanban and saved views are **not built**. |
 | P2-05 common merchant screens | J | **started** — **P2-05-1** is shipped: four state-changing GETs converted to POST, **three of which were also unauthorised cross-tenant writes** (no permission check, no ownership check, no tenant predicate, on models that carry no scope), plus a ratchet so the set of state-changing GETs cannot grow. The design-system pass over customers, stock, categories, staff and settings is **not built**. |
-| P2-06 search, notifications, preferences, onboarding | G, H, I | **done** — all four. **Global search** (per-section authorisation, per-query scoping, 11 tests); **onboarding** (the RTL hold settled at runtime); **persisted table preferences** across all 68 DataTables from the one shared helper; and **notifications**, against the same `store_notifications` rows the Flutter app already reads, authorised BY TYPE with 17 tests. No `packages/workdo/` file touched and no schema change in any of the four. |
+| P2-06 search, notifications, preferences, onboarding | G, H, I | **done** — all four. **Global search** (per-section authorisation, per-query scoping, 11 tests); **onboarding** (the RTL hold settled at runtime); **persisted table preferences** across all 68 DataTables from the one shared helper; and **notifications**, against the same `store_notifications` rows the Flutter app already reads, authorised BY TYPE with 24 tests, two live defects and four weak tests of my own found by the independent review and fixed (F23–F28). No `packages/workdo/` file touched and no schema change in any of the four. |
 | P2-07 Flutter | K | **partial** — RTL wiring, the vendor-host leak, accessible names, the parity matrix, the RTL mirroring pass and now the **status honesty pass** (P2-07-6: statuses 7 and 8 named instead of "unknown", nine Arabic-literal descriptions translated, the "Cancel" button word replaced by the order STATE, and three badge colour pairs raised above AA — one was at 1.85:1) are done. Broader a11y (P2-07-8) is not, and the API half of the status honesty pass is F29, escalated. |
 | P2-08 integration and acceptance | — | this document and the evidence file |
 
@@ -85,7 +85,8 @@ Every one was invisible to the preview harness, and that is the point: a rendere
 auth, tenancy or DataTables cannot answer these questions. Rows 12–15 were found by pointing the
 existing live tools at a NEW screen before claiming it was finished, which is the cheapest of all
 the lessons here. Row 17 is the most serious defect this phase found, and it was found while
-fixing something else: a verb.
+fixing something else: a verb. Row 19 was found by opening a PNG and looking at it, which no
+amount of green suite output would have done.
 
 | # | Defect | How it was found |
 |---|---|---|
@@ -104,9 +105,52 @@ fixing something else: a verb.
 | 13 | **The notification bell's unread badge measured 1.91:1 in dark mode.** The rule used `--ss-danger-fg` as a *background*; it is a foreground token, pale red in dark, and white on it is unreadable. | Extending the live contrast tool to the new screen BEFORE calling it done |
 | 14 | **Every line of text in the notification feed measured 3.42–3.85:1 in dark mode.** `style-dark.css` forces `p { color: #808191 !important }` on a selector list shared with the sidebar, so a `<p>` anywhere in a new component is grey whatever the component says — the same rule F8 fought, met again on a new surface. | The same contrast run |
 | 17 | **Three merchant toggles were unauthorised cross-tenant writes.** `ProductBrandController::changeStatus`/`changePopular` and `ProductLabelController::changeStatus` did `find($request->id)` then wrote, with no permission check, no ownership check and no tenant predicate — on models that are in no `scoped_models` list. Any authenticated web caller could disable or promote any brand in any store. **The Flutter siblings had been fixed long before**; a sweep closed the API path and left the web path open. | Censusing GET routes by their HANDLER's source rather than by uri words, while fixing a verb |
+| 19 | **The notification feed showed the OLDEST item at the top**, and its timestamp measured 4.13:1 on an unread row in light mode. Neither was reachable by any test that existed: the ordering only misbehaves when ids and timestamps disagree, and the contrast probe sampled whichever row came first — which happened to be the one on the lighter surface. | **Opening a screenshot and reading it.** Both are now pinned: the ordering test's fixture makes id order and time order disagree on purpose, and the probe measures the timestamp on both surfaces. |
 | 18 | **The dev fixture was missing four permissions its own screens gate on**, so the first browser run of P2-05-1 reported six failures that were ALL fixture gaps — a 403 and a redirect that looked exactly like a lockout the tightening had introduced. Reading them as product defects would have produced a wrong fix. | Running the browser check and then checking which seeded role actually holds the permission |
 | 16 | **The Flutter app said "unknown" about statuses 7 and 8**, had nine hardcoded Arabic descriptions with no `.tr` in a bilingual app, asked for the "Cancel" BUTTON word as an order's state, and carried **three badge colour pairs below AA — one at 1.85:1**. Hardcoded pairs inside the widget, so no theme check was ever going to reach them. | Writing a test that enumerated all NINE values the column holds, rather than the seven the switch handled |
 | 15 | **A `<p>` in a new component is grey in dark mode, every time.** Not a new defect so much as the lesson from 13 and 14: `public/css/store-syria-ds.css` already carries a documented "host override defence" block for exactly this, and the cost of not knowing it was there is two contrast failures per new text class. **Add new text classes to that block, and measure.** | — |
+
+## 4b. Six bite tests came back clean, and every time the TEST was wrong
+
+This project's rule is stricter than TDD's: after the fix, revert it and confirm the test fails
+again. Six reverts in this cycle produced **zero failures**. Writing that down matters more than
+the fixes, because the tempting reading was wrong every single time.
+
+| control reverted | what it looked like | what it was |
+|---|---|---|
+| `getSideMenu()`'s gate call site | the gate is redundant | every assertion drove the helpers directly; nothing drove the function |
+| the iframe ordering fix | the ordering does not matter | `sidemenubuilder.iframe` does not resolve in a test run, so the row was dropped for the wrong reason |
+| the search's three store predicates | all three are redundant | **two of them bite**; only `customers` does not, because `Customer` IS scoped — the written note had generalised from one measurement to three |
+| `sanitizeTableState`, against the live browser check | the sanitiser does nothing | the check cleared the search and returned to page one BEFORE reloading, so the saved state held nothing to drop |
+| the notification type filter and operator limb | both redundant | no case drove an operator at all, and the type filter was shadowed by the empty-types short-circuit |
+| `customerStatus`'s ownership block | the predicate is redundant | `Customer`'s global scope covers the resolved-tenant case; only a principal who resolves NO tenant measures the handler's own limb |
+
+**The pattern.** A clean bite test says one of two things: the control is redundant, or the test is
+not measuring it. **It was the second one six times out of six.** The way to tell them apart is to
+ask what principal or state the control exists for and then write a case that puts the system in
+it — a tenant-less principal, an operator holding no role, an unregistered type, a saved state
+that still contains what should be dropped. Five of the six got such a case; the sixth got a
+corrected sentence, because the claim rather than the code was wrong.
+
+**And a bite test's written conclusion is not evidence.** One of these rows had been recorded as
+"no endpoint test can fail on a single removal", which was false and sat in a test file and two
+documents for a cycle. Re-running it refuted it. Reverting a control is evidence; what somebody
+writes about the revert is a claim until it is re-run.
+
+## 4c. The same census mistake, four times
+
+| round | found | why the previous round missed it |
+|---|---|---|
+| F12 | `change-store` is a state-changing GET | — |
+| F14 | `store/change-status`, one screen up the same controller | the F12 fix was keyed on the one route somebody was looking at |
+| P2-05-1 | `customer-status`, and then `product-brand-status`/`-popular`, `product-label-status` | the F14 sweep was keyed on the two routes then known |
+| P2-05-1 again | those three also had **no permission check and no tenant predicate** | and their **Flutter siblings had been fixed long before** — a sweep closed the API path and left the web path open |
+
+**Key a census on the handler, never on the surface or the spelling.** The sweep that finally
+worked walked the real router, kept host controllers, and read each handler method's own
+comment-stripped source. It is now a ratchet (`StateChangingGetInventoryTest`) that fails in both
+directions, and it declares its own limit: a write reached through a helper, a job or an event
+listener is invisible to a source heuristic.
 
 ## 5. What a successor should do first
 

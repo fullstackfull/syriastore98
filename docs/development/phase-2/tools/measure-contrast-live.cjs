@@ -110,7 +110,13 @@ const PROBE = `
     measure('feed message (read row)', '.ss-feed__item:not(.ss-feed__item--unread) .ss-feed__message');
     measure('feed title (unread row)', '.ss-feed__item--unread .ss-feed__title');
     measure('feed message (unread row)', '.ss-feed__item--unread .ss-feed__message');
-    measure('feed timestamp', '.ss-feed__when time');
+    /* BOTH surfaces, like the title and the message above. Measuring one timestamp sampled
+       whichever row happened to be first, and the first run drew the READ one -- so a 4.13:1
+       timestamp on an UNREAD row went unmeasured until a fixture change moved it.
+       (No backticks in this comment: it lives inside a template literal, and a backtick here
+       ends the probe. That has now happened twice in this file.) */
+    measure('feed timestamp (read row)', '.ss-feed__item:not(.ss-feed__item--unread) .ss-feed__when time');
+    measure('feed timestamp (unread row)', '.ss-feed__item--unread .ss-feed__when time');
     measure('feed unread badge', '.ss-feed__item--unread .ss-badge');
     measure('bell unread count', '.ss-bell__count');
     return out;
@@ -119,7 +125,7 @@ const PROBE = `
 
 /* The screens measured, in order. The bell lives in the header, so it is measured on the feed
    page where it is also populated. */
-const PAGES = ['/order', '/notifications'];
+const PAGES = ['/order', '/merchant-notifications'];
 
 (async () => {
     const browser = await chromium.launch();

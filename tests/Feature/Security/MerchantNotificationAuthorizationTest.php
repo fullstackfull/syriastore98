@@ -102,7 +102,7 @@ class MerchantNotificationAuthorizationTest extends SecurityTestCase
         $notification = $this->makeNotification($store->id);
 
         $response = $this->actingAs($merchant)
-            ->get('/notifications/' . $notification->id . '/read');
+            ->get(route('merchant.notifications.read', $notification->id));
 
         $this->assertSame(405, $response->getStatusCode(),
             'a GET marked a notification read -- reachable from a third-party <img>');
@@ -722,6 +722,58 @@ class MerchantNotificationAuthorizationTest extends SecurityTestCase
     }
 
     // =========================================================================================
+    // Ordering
+    // =========================================================================================
+
+    /**
+     * NEWEST FIRST, AND THE FIXTURE MAKES ID ORDER DISAGREE WITH TIME ORDER ON PURPOSE.
+     *
+     * `orderByDesc('id')` is reverse-chronological only while ids and timestamps ascend
+     * together, which they normally do -- so a fixture built the normal way cannot tell the two
+     * apart, and the case would pass against either. Here row 1 is the NEWEST and row 3 the
+     * oldest, which is the shape that exposes the difference.
+     *
+     * It is also the shape that exposed it for real: the P2-06-3 screenshots were taken against
+     * a fixture that happened to be built this way, and the rendered feed showed the oldest
+     * notification at the top. Found by looking at the picture.
+     */
+    public function test_the_feed_is_ordered_newest_first_by_time_not_by_id(): void
+    {
+        [$merchant, $store] = $this->makeTenant();
+        $this->grantPermission($merchant, 'Manage Order');
+
+        $newest = $this->makeNotification($store->id, ['message' => 'Row NEWEST received.']);
+        $middle = $this->makeNotification($store->id, ['message' => 'Row MIDDLE received.']);
+        $oldest = $this->makeNotification($store->id, ['message' => 'Row OLDEST received.']);
+
+        // Ids ascend 1,2,3 while the timestamps DESCEND -- raw, so `created_at` is written
+        // exactly as given rather than being refreshed by the model's own timestamps.
+        \DB::table('store_notifications')->where('id', $newest->id)
+            ->update(['created_at' => now()->subHour()]);
+        \DB::table('store_notifications')->where('id', $middle->id)
+            ->update(['created_at' => now()->subHours(5)]);
+        \DB::table('store_notifications')->where('id', $oldest->id)
+            ->update(['created_at' => now()->subHours(9)]);
+
+        // PREMISE: id order and time order really do disagree, or this measures nothing.
+        $byId = \DB::table('store_notifications')->orderBy('id')->pluck('created_at')->all();
+        $this->assertGreaterThan((string) $byId[1], (string) $byId[0],
+            'premise: the fixture must make the lowest id the NEWEST row');
+
+        $items = $this->actingAs($merchant)
+            ->getJson(route('merchant.notifications.feed'))
+            ->json('items');
+
+        $this->assertCount(3, $items, 'premise: all three rows are served');
+
+        $this->assertStringContainsString('NEWEST', $items[0]['message'],
+            'the feed is ordered by id rather than by time, so the newest notification is not '
+            . 'at the top when the two disagree');
+        $this->assertStringContainsString('MIDDLE', $items[1]['message']);
+        $this->assertStringContainsString('OLDEST', $items[2]['message']);
+    }
+
+    // =========================================================================================
     // The unread count, which is what the bell shows
     // =========================================================================================
 
@@ -770,7 +822,7 @@ class MerchantNotificationAuthorizationTest extends SecurityTestCase
      * A non-integer id is refused rather than coerced.
      *
      * THROUGH `route()`, NOT A HAND-WRITTEN PATH. The first version posted
-     * `'/notifications/' . $id . 'abc/read'` and asserted 404 -- which a NONEXISTENT URI also
+     * a hand-built `'/notifications/' . $id . 'abc/read'` and asserted 404 -- which a NONEXISTENT URI also
      * returns, so a renamed route would have satisfied it. That is defect shape #2 in this
      * project's own list, and the independent review found it here.
      *

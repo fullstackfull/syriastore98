@@ -1166,13 +1166,26 @@ Route::get(
      * a merchant who may read order notifications and not customer ones must get the first and
      * not the second rather than a 403 for the whole bell.
      */
-    Route::get('notifications', [\App\Http\Controllers\MerchantNotificationController::class, 'index'])
+    /*
+     * `merchant-notifications`, NOT `notifications`.
+     *
+     * `routes/api.php:347` already declares `Route::get('notifications', ...)` for the delivery
+     * boy's own feed. At RUNTIME the two do not collide -- that one sits inside
+     * `Route::prefix('admin')` and registers as `api/admin/notifications` -- but
+     * `RouteShadowingTest` compares the DECLARED strings in the route files, and it is right to:
+     * "only the later declaration survives registration, with no error" is how an authenticated
+     * `order-view/{id}` once lost its slot to an unauthenticated copy. Two identical `get
+     * notifications` lines in `routes/` is a hazard whether or not today's prefixes happen to
+     * separate them, and the `merchant-` prefix matches `merchant-search` on this phase's other
+     * new route. Found by that guard, not by review.
+     */
+    Route::get('merchant-notifications', [\App\Http\Controllers\MerchantNotificationController::class, 'index'])
         ->name('merchant.notifications');
-    Route::get('notifications/feed', [\App\Http\Controllers\MerchantNotificationController::class, 'feed'])
+    Route::get('merchant-notifications/feed', [\App\Http\Controllers\MerchantNotificationController::class, 'feed'])
         ->name('merchant.notifications.feed');
-    Route::post('notifications/{id}/read', [\App\Http\Controllers\MerchantNotificationController::class, 'markRead'])
+    Route::post('merchant-notifications/{id}/read', [\App\Http\Controllers\MerchantNotificationController::class, 'markRead'])
         ->name('merchant.notifications.read');
-    Route::post('notifications/read-all', [\App\Http\Controllers\MerchantNotificationController::class, 'markAllRead'])
+    Route::post('merchant-notifications/read-all', [\App\Http\Controllers\MerchantNotificationController::class, 'markAllRead'])
         ->name('merchant.notifications.read-all');
 
     /*

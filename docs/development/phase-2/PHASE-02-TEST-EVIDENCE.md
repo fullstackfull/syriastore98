@@ -860,7 +860,7 @@ keeping one merchant's catalogue out of another's list. That is what these measu
 | `ProductPreviewAuthorizationTest` | 8 | the new product preview endpoint: `Product` carries no effective scope, so the handler's predicate is the only control |
 | `OrderStatusDateTest` | 4 | F19 — the order list does not render the Unix epoch as a date, and keeps the status label when the date is missing |
 | `TablePreferencesTest` | 8 | P2-06-4's wiring on the shared helper that builds all 68 DataTables, that yajra emits the hooks as real JS, the absent-script guard, and three real lists still rendering |
-| `MerchantNotificationAuthorizationTest` | 24 | P2-06-3: four handlers, two of them writes; cross-tenant on all four; per-TYPE permission; the operator admitted while holding no Laratrust permission; an unregistered type refused; route ACTIONS asserted; the marks refuse GET |
+| `MerchantNotificationAuthorizationTest` | 25 | P2-06-3: four handlers, two of them writes; cross-tenant on all four; per-TYPE permission; the operator admitted while holding no Laratrust permission; an unregistered type refused; route ACTIONS asserted; the marks refuse GET |
 | `TranslationFileIntegrityTest` | 5 | both lang files are valid JSON, carry no duplicate keys, and gain no new Arabic-only orphan (F2, resolved as a side effect and now pinned) |
 | `BrandLabelStatusAuthorizationTest` | 15 | P2-05-1: three toggles that were unauthorised cross-tenant writes on a GET — cross-tenant, per-permission, operator, the verb, a non-integer id, a NULL-store row, and that the switch is DISABLED for a caller the handler would refuse |
 | `StateChangingGetInventoryTest` | 4 | the set of host GET routes whose handler writes cannot grow, and cannot carry a stale row |
@@ -913,6 +913,8 @@ redundant, which is the tempting reading and was wrong every time it was tried.
 | the notification **unresolved-tenant guard** | **first attempt: 0 failed.** `where('store_id', null)` becomes `store_id IS NULL` and the column is NOT NULL, so the row assertion was free. Rewritten to count queries against `store_notifications` (0 with the guard, 2 without), with a companion case proving a resolved principal DOES reach the table; now 1 fails |
 | the bell badge's colour pair reverted to `--ss-danger-fg` + white | 2 of 60 contrast readings fail at **1.91:1** in dark. `--ss-danger-fg` is a FOREGROUND token (#f3a9a4 in dark); the pair `.ss-btn--danger` already uses (`--ss-danger` / `--ss-on-danger`) inverts correctly in both themes |
 | the feed's three text classes removed from the host-override block | 10 of 60 fail at 3.42–3.85:1. `style-dark.css` sets `p { color: #808191 !important }` on a selector list shared with the sidebar and `.dataTable-info`, so a `<p>` in the feed is forced grey — the same rule F8 fought |
+| the feed's timestamp colour reverted to `--ss-fg-subtle` | 2 of 64 failed — the unread row in both directions, light mode |
+| the feed's `orderByDesc('created_at')` reverted to `orderByDesc('id')` | 1 failed — the ordering case, whose fixture makes id order and time order disagree |
 | a duplicate key and an Arabic-only key reintroduced into `ar.json` | 2 of 5 failed |
 | the brand **store predicate** | 3 failed — both cross-tenant cases and the NULL-store case |
 | the brand **permission check** | 2 failed |
@@ -923,6 +925,7 @@ redundant, which is the tempting reading and was wrong every time it was tried.
 | one of the four converted routes reverted to GET | 2 failed |
 | a stale row added to the declared set | 1 failed |
 | one of the four live callers reverted to GET | 4 of 28 browser cases failed, including the values reappearing in the query string |
+| `CustomerController::customerStatus`'s ownership block | **first attempt: 0 failed**, even with all five drives on POST — `Customer` IS in `scoped_models`, so the global scope already excludes a foreign row for a principal who resolves a tenant, and an endpoint test cannot tell the handler's `where` from the scope. A case was added for a principal who resolves NONE, where `null_tenant => 'open'` means the scope adds nothing; now 1 fails |
 | the Flutter badge's statuses 7 and 8 reverted | 4 failed |
 | the three Flutter badge colours reverted | 1 failed, naming all three ratios (2.81, 4.06, 1.85:1) |
 | one Arabic description literal restored | 1 failed |
@@ -934,6 +937,19 @@ redundant, which is the tempting reading and was wrong every time it was tried.
 | search: the **orders** store predicate | 1 failed — `⨯ a merchant does not find another tenants orders` (1 failed, 10 passed) |
 | search: the **customers** store predicate | **0 failed (11 passed)** — the one section where a single removal is not caught, because `Customer` IS in `scoped_models` and its global scope supplies the same predicate for a principal who resolves a tenant. The predicate stays on the project's rule that the scope must never be the only tenant check, and the hazard is pinned by its own test, which measures that `Customer::query()` for a **tenant-less** principal compiles with NO store predicate and returns both tenants' rows |
 | search: the unresolved-tenant refusal | 0 failed — with it gone the queries run `where('store_id', null)`, which compiles to `IS NULL` and matches nothing, so products and orders come back empty either way. Its value is in the Customer query under `null_tenant => 'open'`, and both controls would have to go for rows to escape |
+
+## 9d-ter. What the full Feature suite caught that the targeted suites did not
+
+The targeted suites were green through all of P2-05-1. The full `--testsuite=Feature` run found
+**three failures the targeted runs could not see**, and all three were mine:
+
+| failure | what it was |
+|---|---|
+| `RouteShadowingTest` | `routes/web.php` gained `Route::get('notifications', ...)` while `routes/api.php:347` already declared the same verb and uri for the delivery boy. No runtime collision — the api one is inside `Route::prefix('admin')` — but the guard compares DECLARED strings and is right to. Renamed to `merchant-notifications` (F35). |
+| `CustomerAdminAuthorizationTest` × 2 | the two cases asserting a 200 and a write, broken by `customer-status` becoming a POST. **The other three in that file kept passing, vacuously** — a 405 satisfies "the row did not change" as well as a guard does. All five drives moved (F34). |
+
+That is the argument for running the whole suite at an integration milestone rather than trusting
+the slice's own tests: none of these three is reachable from the files the slice touched.
 
 ## 9d-bis. The four toggles, driven in a real browser (P2-05-1)
 
@@ -978,7 +994,17 @@ had to be read by a human to mean anything.
 ```
 first run:  60 measured, 12 below AA
 after:      60 measured,  0 below AA
+then:       64 measured,  0 below AA   (two more readings; see below)
 ```
+
+**And the first clean run was clean by luck.** The probe measured `.ss-feed__when time` once,
+which samples whichever row is first — and that fixture's first row happened to be the READ one,
+on the plain surface. A later fixture change put an UNREAD row first and the timestamp measured
+**4.13:1**: it sits on `--ss-surface-sunken` there, where `--ss-fg-subtle` does not clear AA
+(4.69:1 on the plain surface, 4.13 on the sunken one). Fixed with `--ss-fg-muted` (5.94 / 5.23),
+and the probe now measures the timestamp on BOTH rows, as it already did for the title and the
+message. Third instance of the same lesson: **AA on one surface is not AA on another, and a probe
+that samples one row is a probe that samples one surface.**
 
 Both of those twelve were real and neither was visible by looking:
 

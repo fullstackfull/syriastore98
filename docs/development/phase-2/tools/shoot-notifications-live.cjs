@@ -102,7 +102,7 @@ function setServerState(theme, dir) {
                 await page.screenshot({ path: path.join(OUT, `01-bell-badge-${tag}.png`) });
 
                 // ---------------------------------------------------- the feed
-                await page.goto(`${BASE}/notifications`, { waitUntil: 'networkidle' });
+                await page.goto(`${BASE}/merchant-notifications`, { waitUntil: 'networkidle' });
                 await page.waitForTimeout(300);
 
                 const feed = await page.evaluate(() => {

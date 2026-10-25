@@ -1049,10 +1049,14 @@
 .ss-empty__body,
 .ss-feed__message,
 .ss-dialog__body       { color: var(--ss-fg-muted) !important; }
-/* `.ss-feed__when` is the quietest text on the feed and still has to clear 4.5:1, so it takes
-   `--ss-fg-subtle` rather than being left to the host's #808191 -- MEASURED at 3.42:1 against
-   the feed surface in dark before this line existed. */
-.ss-feed__when         { color: var(--ss-fg-subtle) !important; }
+/* `.ss-feed__when` is the quietest text on the feed and still has to clear 4.5:1.
+   `--ss-fg-muted`, NOT `--ss-fg-subtle`: the timestamp appears on TWO surfaces -- the plain one
+   on a read row and `--ss-surface-sunken` on an unread one -- and subtle measured 4.69:1 on the
+   first and **4.13:1 on the second**. Muted clears both (5.94 and 5.23). The first contrast run
+   missed it by luck: the fixture's newest row happened to be the READ one, so the probe sampled
+   the lighter surface. The probe now measures both, and the fixture was corrected. Same lesson
+   as F8 and as the feed's title and message: AA on one surface is not AA on another. */
+.ss-feed__when         { color: var(--ss-fg-muted) !important; }
 .ss-page-header__title,
 .ss-card__title,
 .ss-empty__title,
