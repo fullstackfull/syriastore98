@@ -4437,3 +4437,116 @@ body.custom-color .nex-prev-btn-wrp .btn {
     transform: none;
     font-size: 18px;
 }
+/* =============================================================================================
+   P2-A-02 / ledger F8 — DARK MODE CONTRAST, the half that was still open.
+   =============================================================================================
+
+   MEASURED IN THE RUNNING APPLICATION, not in a preview: `#808191` on the dark surfaces gives
+   3.71:1 for the sidebar label, the sidebar search field and every table cell, and 4.03:1 for a
+   breadcrumb link. AA wants 4.5:1 for text this size. P2-01-13 fixed the LIGHT sidebar below
+   1025px and recorded dark mode as still open, for a reason that no longer holds: the fix needs
+   regression evidence and the Feature suite could not run while Composer was blocked. It runs
+   now.
+
+   `#9DA3B4` IS THE SAME HUE, LIFTED. Measured on the two real backgrounds: 5.66:1 on #292A33
+   (sidebar, cards, tables) and 6.14:1 on #22242C (the breadcrumb bar), against 3.71 and 4.03.
+   The design system's own dark `--ss-fg-muted` (#a7b2b1) would also pass at 6.55:1, but it is a
+   GREEN-grey chosen for the design system's own surfaces and would read as a different palette
+   beside the host's blue-greys. Keeping the hue is what makes this a legibility fix rather than
+   a restyle.
+
+   WHY HERE AND NOT IN style-dark.css. The value there is `#808191 !important` on a selector list
+   shared with `p` and `.dataTable-info`, and that file is a host theme asset: an in-place edit is
+   reverted by the next theme update and leaves no record. custom.css is first-party and survives.
+   That is also why these rules carry `!important` and an extra `body` — they have to beat an
+   `!important` at (0,2,0), and (0,3,1) does.
+
+   SCOPED TO DARK ONLY. custom.css is loaded in BOTH light and dark, so without a hook these
+   rules would wash out the light admin. `data-ss-theme` is published by the head script in
+   layouts/app.blade.php, which reads the host's own #main-style-link swap. */
+
+html[data-ss-theme="dark"] body .dash-sidebar .dash-link,
+html[data-ss-theme="dark"] body .dash-sidebar .dash-link .dash-mtext,
+html[data-ss-theme="dark"] body .dash-sidebar.light-sidebar .dash-link i,
+html[data-ss-theme="dark"] body .sidebar-input i,
+/* The search FIELD's own text, not just its icon. The first pass styled `.sidebar-input i` and
+   left the input at 3.71:1 -- measured, which is the only reason it was noticed. */
+html[data-ss-theme="dark"] body #sidebar-search,
+html[data-ss-theme="dark"] body .dash-sidebar input[type="text"],
+html[data-ss-theme="dark"] body .dash-sidebar input[type="search"],
+html[data-ss-theme="dark"] body .dash-sidebar .form-control,
+html[data-ss-theme="dark"] body .dataTable-info,
+html[data-ss-theme="dark"] body .dataTable-dropdown label,
+html[data-ss-theme="dark"] body div.dataTables_wrapper div.dataTables_info,
+html[data-ss-theme="dark"] body .breadcrumb a,
+html[data-ss-theme="dark"] body label {
+    color: #9DA3B4 !important;
+}
+
+/* The table body is the other 3.71:1 surface. Bootstrap drives it through a custom property
+   rather than a colour declaration, so the property is what has to move. */
+html[data-ss-theme="dark"] body .table {
+    --bs-table-color: #9DA3B4;
+    --bs-table-striped-color: #9DA3B4;
+    --bs-table-active-color: #9DA3B4;
+    --bs-table-hover-color: #9DA3B4;
+}
+
+/* The ACTIVE item keeps its own white-on-brand treatment, which F9 below handles. Excluded here
+   so this rule cannot quietly take over that decision. */
+html[data-ss-theme="dark"] body .dash-sidebar .dash-navbar > .dash-item.active > .dash-link,
+html[data-ss-theme="dark"] body .dash-sidebar .dash-navbar > .dash-item.active > .dash-link .dash-mtext {
+    color: var(--ss-onbrand, #fff) !important;
+}
+
+/* =============================================================================================
+   P2-A-03 / ledger F9 — THE SELECTED NAVIGATION ITEM, at every width and in both themes.
+   =============================================================================================
+
+   `#fff` on `var(--theme-color)` measures 2.59:1 on the default theme-3, so the merchant's
+   current location was the least legible label on the screen. F9 was recorded as an owner
+   decision because `--theme-color` is the merchant's own brand — ten presets plus a picker — and
+   there is no single safe label colour.
+
+   THIS CHANGES NO BRAND COLOUR. The background stays exactly what the merchant chose; only the
+   label flips to whichever of white or near-black is readable on it, computed from the brand's
+   own WCAG luminance by the first-in-body script in layouts/app.blade.php. Measured across all
+   ten presets: white wins on six, near-black on four, and every one of the ten reaches AA — the
+   worst case becomes 4.90:1 where six were previously below 4.5:1. A custom picker colour goes
+   through the same arithmetic, so it cannot be a theme nobody checked.
+
+   The fallback is `#fff`, which is today's value: if the script is blocked or throws, the screen
+   is exactly what it is now rather than something worse. */
+
+body .dash-sidebar .dash-navbar > .dash-item.active > .dash-link,
+body .dash-sidebar .dash-navbar > .dash-item:hover > .dash-link,
+body .dash-sidebar .dash-navbar > .dash-item:focus > .dash-link,
+body .dash-sidebar.light-sidebar .dash-navbar > .dash-item.active > .dash-link,
+body .dash-sidebar.light-sidebar .dash-navbar > .dash-item:hover > .dash-link,
+body .dash-sidebar.light-sidebar .dash-navbar > .dash-item:focus > .dash-link {
+    color: var(--ss-onbrand, #fff) !important;
+}
+
+body .dash-sidebar .dash-navbar > .dash-item.active > .dash-link i,
+body .dash-sidebar .dash-navbar > .dash-item.active > .dash-link .dash-mtext,
+body .dash-sidebar .dash-navbar > .dash-item:hover > .dash-link i,
+body .dash-sidebar .dash-navbar > .dash-item:hover > .dash-link .dash-mtext,
+body .dash-sidebar .dash-navbar > .dash-item:focus > .dash-link i,
+body .dash-sidebar .dash-navbar > .dash-item:focus > .dash-link .dash-mtext,
+body .dash-sidebar.light-sidebar .dash-navbar > .dash-item.active > .dash-link i,
+body .dash-sidebar.light-sidebar .dash-navbar > .dash-item:hover > .dash-link i,
+body .dash-sidebar.light-sidebar .dash-navbar > .dash-item:focus > .dash-link i {
+    color: var(--ss-onbrand, #fff) !important;
+}
+
+
+/* P2-A-03 (b). THE BRAND AS LINK TEXT ON A LIGHT SURFACE.
+   `.breadcrumb a` is `var(--theme-color)` on the page background -- 2.48:1 on the default
+   theme-3, measured in the running application. `--ss-brand-ontext` is the merchant's own colour
+   darkened only until it reaches AA, computed in layouts/app.blade.php; six of the ten presets
+   are already above the threshold and come out unchanged. The fallback is the brand colour
+   itself, i.e. exactly today's appearance if the script is blocked. */
+body .breadcrumb a,
+body .breadcrumb .breadcrumb-item a {
+    color: var(--ss-brand-ontext, var(--theme-color)) !important;
+}

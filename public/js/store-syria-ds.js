@@ -2,10 +2,23 @@
    Store Syria design system — behaviour (Phase 02)
    ==========================================================================
 
-   Loaded per page, beside the stylesheet, by
-   resources/views/layouts/includes/store-syria-ds.blade.php. Like the
-   stylesheet it is additive and opt-in: a page that does not include the
-   partial is byte-for-byte unaffected.
+   LOADED IN THE ADMIN LAYOUT, beside the stylesheet (layouts/app.blade.php),
+   because P2-04-5 needs it on screens that never opted in -- the order list's
+   quick-preview panel is driven from `order/index.blade.php`, which does not
+   include the partial, so the panel opened with an empty body and the fetch
+   never ran. MEASURED in the running application: eight screenshot
+   combinations all reported `panel=unknown` with an empty body before this
+   moved.
+
+   STILL ADDITIVE. Everything below is inert without the markup it looks for,
+   so a screen that has no panel, no dirty-tracked form and no error summary is
+   byte-for-byte unaffected. The per-screen include at
+   layouts/includes/store-syria-ds.blade.php remains for a screen outside this
+   layout (guest, theme_layout) and is a duplicate on the two admin screens
+   that still call it -- which is why the whole file is guarded against running
+   twice: a duplicate <script src> is fetched once and EXECUTED TWICE, and a
+   second execution would bind the panel's click handler again and open every
+   panel twice.
 
    WHAT IT DOES NOT DO
    It does not touch jQuery, Bootstrap, the host's `data-ajax-popup` modal
@@ -23,6 +36,11 @@
 
 (function () {
     'use strict';
+
+    /* ONE INITIALISATION PER DOCUMENT. See the header: this file is in the admin
+       layout AND in an opt-in partial two screens still include, and a repeated
+       <script src> executes again rather than being skipped. */
+    if (window.StoreSyriaDS) { return; }
 
     /* ---------------------------------------------------------------- utils */
 

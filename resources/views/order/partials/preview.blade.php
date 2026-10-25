@@ -48,6 +48,34 @@
     };
 
     $products = is_array($order['product'] ?? null) ? $order['product'] : [];
+
+    /**
+     * Is this money figure worth a row? See the note beside the totals.
+     *
+     * `SetNumber()` returns a formatted string, so "0,00" and "0.00" are both zero and both
+     * non-empty. Thousands separators are stripped and a decimal comma normalised before the
+     * cast, so "1.234,56" is not read as 1.234.
+     */
+    $ssHasMoney = static function ($value): bool {
+        if ($value === null || $value === '') {
+            return false;
+        }
+
+        if (is_numeric($value)) {
+            return (float) $value != 0.0;
+        }
+
+        $normalised = str_replace(' ', '', (string) $value);
+
+        // A comma used as the decimal mark: strip dots as thousands, comma becomes the point.
+        if (substr_count($normalised, ',') === 1 && strrpos($normalised, ',') > strrpos($normalised, '.')) {
+            $normalised = str_replace(['.', ','], ['', '.'], $normalised);
+        } else {
+            $normalised = str_replace(',', '', $normalised);
+        }
+
+        return (float) preg_replace('/[^0-9.\-]/', '', $normalised) != 0.0;
+    };
 @endphp
 
 <div class="ss-scope ss-order-preview">
@@ -187,19 +215,28 @@
                 <dt>{{ __('Subtotal') }}</dt>
                 <dd>{{ $order['sub_total_formatted'] ?? (($order['currency_symbol'] ?? '') . ($order['sub_total'] ?? '—')) }}</dd>
             </div>
-            @if (!empty($order['coupon_price']))
+            {{--
+                `$ssHasMoney()`, NOT `!empty()`. These three arrive from `order_detail()` through
+                `SetNumber()`, which returns a FORMATTED STRING -- zero comes back as "0,00",
+                and `!empty("0,00")` is true. So the first version of this panel showed a Tax row
+                and a Delivery row reading 0,00 on every order that had neither, which is noise
+                presented as information. Caught in a screenshot of the running application, not
+                by a test. The value is parsed back to a number before being judged, and the
+                decimal comma has to be handled because that is what the formatter may emit.
+            --}}
+            @if ($ssHasMoney($order['coupon_price'] ?? null))
                 <div>
                     <dt>{{ __('Discount') }}</dt>
                     <dd>−{{ ($order['currency_symbol'] ?? '') . $order['coupon_price'] }}</dd>
                 </div>
             @endif
-            @if (!empty($order['tax_price']))
+            @if ($ssHasMoney($order['tax_price'] ?? null))
                 <div>
                     <dt>{{ __('Tax') }}</dt>
                     <dd>{{ $order['tax_price_formatted'] ?? (($order['currency_symbol'] ?? '') . $order['tax_price']) }}</dd>
                 </div>
             @endif
-            @if (!empty($order['delivered_charge']))
+            @if ($ssHasMoney($order['delivered_charge'] ?? null))
                 <div>
                     <dt>{{ __('Delivery') }}</dt>
                     <dd>{{ ($order['currency_symbol'] ?? '') . $order['delivered_charge'] }}</dd>

@@ -55,3 +55,7 @@ CLAUDE.local.md
 # application root whenever a PayTabs code path runs, which the Feature suite does. Regenerated on
 # every run, so it shows up as an untracked file and makes the tree look dirty after any test run.
 /debug_paytabs.log
+
+# P2: the local dev database the screenshot harness seeds (database/seed-p2dev.php builds it).
+# Never committed: it is a database, and the repository has a standing rule against those.
+database/p2dev.sqlite
