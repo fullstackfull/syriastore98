@@ -64,7 +64,7 @@ Legend — **Web**: the merchant panel. **Flutter**: the app. *parity* = both ca
 |---|---|---|---|---|
 | Login / logout | session | `/adminlogin`, `/adminlogout` | **parity** | different mechanisms, same capability |
 | Dashboard summary | redesigned in P2-02 | `/dashboard`, `/staticsdata`, `/Top_orders` | **parity, diverging** | the web dashboard now states periods and withholds order value from ungated staff; **the app does neither** — see §5 G3 |
-| Orders list / view | yes | `/orderlist`, `/vieworder` | **parity** | |
+| Orders list / view | yes | `/orderlist`, `/vieworder` | **parity** | **Both sides now name all NINE `delivered_status` values.** The web dashboard's honesty pass came first (P2-04-2); the app said "unknown" for 7 and 8 until P2-07-6. **The SERVER still does not**: `Order`'s `order_status_text` defaults to `__('Pending')` and is overwritten only for 0–6, so the API reports a Pre Order to the app as Pending — ledger F29, a public-response change and an owner decision. |
 | Order status change | yes | `/orders/update-status` | **parity** | |
 | Order notes | yes | `/orders/notes/create`, `/orders/notes/delete` | **parity** | |
 | Manual order entry | yes | `/createOrderViaApi` | **parity** | |
@@ -99,7 +99,7 @@ Measured, and worth stating because a modernisation pass can destroy these by ac
 | **Loading / shimmer** | `lib/view/new_widgets/shimmer.dart`, 668 lines, theme-aware **and** RTL-aware, imported by 20 files — the strongest UX artefact in either repository |
 | **Empty and error states** | `lib/view/widget/error_empty_state.dart`, imported by 15 files; `SliverFillRemaining` so pull-to-refresh still works on an empty list |
 | **Pull-to-refresh** | 17 files |
-| **Translation parity** | `en.dart` 640 keys / `ar.dart` 642; no key present in en and missing from ar |
+| **Translation parity** | `en.dart` / `ar.dart`; no key present in en and missing from ar. **P2-07-6 added 13 keys to each**: statuses 7 and 8, an unrecognised-status label, and the nine status descriptions that had been ARABIC STRING LITERALS with no `.tr` — so an English merchant read them in Arabic. Translation parity by key count had not caught that, because the strings were never keyed at all. |
 | **Push notifications** | FCM wired in the app; the web has nothing equivalent **and was not given a timer instead**. An interval on every admin page is a request per merchant per tab per interval, forever, for a number that changes when an order arrives — which the merchant sees on the next page they load anyway. Live updates on the web are a push channel (the same Firebase path `StoreNotificationService` already uses), not a poll added quietly. |
 
 ## 5. The real gaps, and their state

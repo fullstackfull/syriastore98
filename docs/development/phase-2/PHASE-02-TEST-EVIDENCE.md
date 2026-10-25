@@ -862,6 +862,7 @@ keeping one merchant's catalogue out of another's list. That is what these measu
 | `TablePreferencesTest` | 8 | P2-06-4's wiring on the shared helper that builds all 68 DataTables, that yajra emits the hooks as real JS, the absent-script guard, and three real lists still rendering |
 | `MerchantNotificationAuthorizationTest` | 24 | P2-06-3: four handlers, two of them writes; cross-tenant on all four; per-TYPE permission; the operator admitted while holding no Laratrust permission; an unregistered type refused; route ACTIONS asserted; the marks refuse GET |
 | `TranslationFileIntegrityTest` | 5 | both lang files are valid JSON, carry no duplicate keys, and gain no new Arabic-only orphan (F2, resolved as a side effect and now pinned) |
+| `order_status_label_test.dart` (Flutter) | 27 | P2-07-6: all nine statuses in both locales, that no label still looks like a translation key, that an Arabic locale yields Arabic characters, that each label resolves the KEY it should, and that every badge colour pair clears AA |
 | `DashboardPermissionNamesTest` | 1 | every `isAbleTo()` name in the merchant views can actually be granted |
 | `AdminLayoutAssetsTest` | 2 | every `asset()` path in the admin layout resolves to a real file |
 
@@ -911,6 +912,10 @@ redundant, which is the tempting reading and was wrong every time it was tried.
 | the bell badge's colour pair reverted to `--ss-danger-fg` + white | 2 of 60 contrast readings fail at **1.91:1** in dark. `--ss-danger-fg` is a FOREGROUND token (#f3a9a4 in dark); the pair `.ss-btn--danger` already uses (`--ss-danger` / `--ss-on-danger`) inverts correctly in both themes |
 | the feed's three text classes removed from the host-override block | 10 of 60 fail at 3.42–3.85:1. `style-dark.css` sets `p { color: #808191 !important }` on a selector list shared with the sidebar and `.dataTable-info`, so a `<p>` in the feed is forced grey — the same rule F8 fought |
 | a duplicate key and an Arabic-only key reintroduced into `ar.json` | 2 of 5 failed |
+| the Flutter badge's statuses 7 and 8 reverted | 4 failed |
+| the three Flutter badge colours reverted | 1 failed, naming all three ratios (2.81, 4.06, 1.85:1) |
+| one Arabic description literal restored | 1 failed |
+| the Flutter `'cancelled'` key reverted to `'cancel'` | **first attempt: 0 failed** — both keys exist and both resolve to a real word, so "does it still look like a key" cannot tell them apart. Two cases were added comparing each label to the value of the key it should use; now 2 fail |
 | the search's `is_string($q)` guard | 1 failed, with "Array to string conversion" raised at the `assertOk()` line — `?q[]=a` was a server error on a route every merchant can reach |
 | both contrast stylesheets | 14 of 32 readings below AA, from 0 |
 | the singular permission name restored | 1 failed, with the plural named in the message |
