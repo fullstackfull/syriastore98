@@ -10,6 +10,7 @@
 | Laravel head | `e53d9fc8` (`fullstackfull/syriastore98`) |
 | Flutter head | `fd76ac8` (`fullstackfull/StoreSyria_app98`) |
 | Requirements | [`PHASE-02-MASTER-EXECUTION-PROMPT.md`](PHASE-02-MASTER-EXECUTION-PROMPT.md) — the owner's prompt, verbatim |
+| Requirement coverage | [`PHASE-02-COVERAGE-AUDIT-2026-10-25.md`](PHASE-02-COVERAGE-AUDIT-2026-10-25.md) — which of the prompt's 104 workstream requirements have a ledger row, and which do not |
 | Row-level status | [`PHASE-02-TASK-LEDGER.md`](PHASE-02-TASK-LEDGER.md) |
 | Executed output | [`PHASE-02-TEST-EVIDENCE.md`](PHASE-02-TEST-EVIDENCE.md) |
 | Owner acceptance report (Arabic) | [`PHASE-02-ACCEPTANCE-REPORT-AR.md`](PHASE-02-ACCEPTANCE-REPORT-AR.md) |

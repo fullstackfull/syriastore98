@@ -192,12 +192,18 @@ declared skip set.
 |---|---|---|
 | 01 Foundation | security, CI, regression gates, design-system foundation | engineering complete (2026-10-24), **NOT release-ready or accepted** |
 | 02 Merchant Experience | merchant dashboard, product/order UX, preferences, search, notifications, onboarding, web and Flutter parity | **owner authorised isolated engineering (2026-10-25); not authorised to merge/release** |
-| 03 Storefront | themes, visual editor, shopper experience, checkout UX, SEO | not started |
+| 02.5 Premium Merchant UI/UX | a separately approved FUTURE polish stage over Phase 02's surfaces | **not started — must not be merged into Phase 02** |
+| 03 Storefront | themes, visual editor, shopper experience, checkout UX, SEO, **plus a separately scoped Official Website and a bilingual Documentation Center** | not started |
 | 04 Commerce | products, multi-warehouse stock, pricing, fulfilment, COD, returns, channels | not started |
 | 05 Marketing & Analytics | campaigns, loyalty, reports and trustworthy analytics | not started |
-| 06 SaaS & Super Admin | SaaS subscriptions, support, controls, operations, platform admin | not started |
+| 06 SaaS & Super Admin | SaaS subscriptions, support, controls, operations, platform admin, **plus premium Super Admin UX** | not started |
 
-Phase 02 engineering may proceed on its own branch; this does **not** waive Phase 01 acceptance criteria or authorise release to production. Preserve and separately track the outstanding release gates in `docs/development/phase-1/PHASE-01-CLOSURE-EXECUTION.md` and the security incident #120.
+Phase 02 engineering may proceed on its own branch; this does **not** waive Phase 01 acceptance criteria or authorise release to production.
+
+**Phase 02 keeps its original Merchant Experience scope.** Phase 2.5, 03 and 06 are separate and
+must not be started during it, nor absorbed into it — see *Scope boundaries* in the ledger. Phase 02
+is not complete until every master-prompt requirement has a verified status or an authorised
+exception; `PHASE-02-COVERAGE-AUDIT-2026-10-25.md` traces which do and which do not. Preserve and separately track the outstanding release gates in `docs/development/phase-1/PHASE-01-CLOSURE-EXECUTION.md` and the security incident #120.
 
 ---
 
@@ -213,6 +219,7 @@ Phase 02 engineering may proceed on its own branch; this does **not** waive Phas
 | schema gaps | **`docs/GATE-F-VERIFIED-SCHEMA.md`** (measured), `docs/GATE-F-SCHEMA-EXPORT.md`, `_gate_f_pending/README.md` |
 | phase plan and evidence | `docs/development/phase-1/` |
 | **what Phase 02 was actually asked for** | **`docs/development/phase-2/PHASE-02-MASTER-EXECUTION-PROMPT.md`** — the owner's master execution prompt, verbatim and not to be edited. Workstreams A–K, slices P2-00…P2-08, and the completion criteria. Later clarifications are appended to it in their own dated section; status lives in `PHASE-02-TASK-LEDGER.md`, never there. |
+| **which master-prompt requirements are tracked** | **`docs/development/phase-2/PHASE-02-COVERAGE-AUDIT-2026-10-25.md`** — the A–K requirement-to-row trace. 50 tracked, 23 partial, **31 missing**; the missing ones became ledger rows in the same change |
 | Phase 02 status, evidence, parity, handoff | `docs/development/phase-2/` |
 | the Phase 02 acceptance report | `docs/development/phase-2/PHASE-02-ACCEPTANCE-REPORT-AR.md` (Arabic, for the owner) |
 | the Phase 0 audit | `docs/discovery/` |
