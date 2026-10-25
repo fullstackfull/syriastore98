@@ -156,6 +156,27 @@ $orders = [
     ['ORD-2046', 7, 'Partially Paid', 97.00],
     ['ORD-2047', 8, 'Unpaid', 54.00],
 ];
+
+/*
+ * `orders.product_id` IS WHAT THE DASHBOARD'S BEST-SELLING BLOCK READS, not `product_json`.
+ * `HomeController` plucks `product_id`, splits it on commas and counts the ids. Leaving it at
+ * its default of '0' meant `topSellingProductIds` was `[0]`, nothing matched, and the block
+ * rendered its EMPTY state while looking perfectly healthy -- so the feature was built, shipped
+ * and never once seen with data in it. Found by driving the dashboard and reading the card.
+ *
+ * The lists below give the orders overlapping products, so one is genuinely the best seller
+ * rather than every product tying at one.
+ */
+$ssOrderProducts = [
+    'ORD-2041' => '1,4',
+    'ORD-2042' => '1,2',
+    'ORD-2043' => '1,3',
+    'ORD-2044' => '2,4',
+    'ORD-2045' => '1',
+    'ORD-2046' => '2',
+    'ORD-2047' => '5',
+];
+
 foreach ($orders as [$ref, $status, $pay, $total]) {
     if (Order::where('product_order_id', $ref)->exists()) { continue; }
     Order::create([
@@ -173,6 +194,8 @@ foreach ($orders as [$ref, $status, $pay, $total]) {
         // panel show "Subtotal $0,00" beside real line items -- a fixture artifact, found in
         // a screenshot of the running application.
         'product_price' => 66.00,
+        // See the note above the list: this, not product_json, is what the dashboard counts.
+        'product_id' => $ssOrderProducts[$ref] ?? '1',
         'tax_price' => 0, 'delivery_price' => 0, 'coupon_price' => 0,
         'final_price' => $total, 'payment_type' => 'cod', 'payment_status' => $pay,
         'delivered_status' => $status, 'store_id' => $store->id,

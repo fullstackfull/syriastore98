@@ -659,6 +659,18 @@
     /* Clips square-cornered children (table headers, list rows) to the card's
        radius; without it their backgrounds paint over the rounded corner. */
     overflow: hidden;
+
+    /* A COLUMN, SO THE FOOTER SITS ON THE CARD'S BOTTOM EDGE.
+       `.ss-row` is a flex container and stretches its cards to the tallest
+       one's height. A card is otherwise a plain block, so a SHORTER card's
+       footer stayed where its content ended and the card painted empty
+       surface BELOW it -- a sunken band floating mid-card with 40px of nothing
+       under it. Measured on the dashboard the moment its two lists held
+       different numbers of rows (4 orders beside 5 products); invisible for as
+       long as both cards happened to be the same height, which is why it
+       survived into the screenshots. */
+    display: flex;
+    flex-direction: column;
 }
 
 /* Escape hatch for a card that must let a child escape its bounds — a
@@ -682,7 +694,10 @@
     color: var(--ss-fg);
 }
 
-.ss-card__body { padding: var(--ss-space-5); }
+/* `1 1 auto`, not `1`: `flex: 1` would reset the basis to 0 and re-distribute
+   every card body's height from scratch. This grows into leftover space and
+   otherwise leaves intrinsic height exactly as it was. */
+.ss-card__body { padding: var(--ss-space-5); flex: 1 1 auto; }
 .ss-card__body--flush { padding: 0; }
 .ss-card__footer {
     padding: var(--ss-space-4) var(--ss-space-5);

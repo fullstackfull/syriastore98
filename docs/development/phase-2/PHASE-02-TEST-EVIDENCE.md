@@ -1115,5 +1115,76 @@ incomparable to the recorded baseline.
 - **`/top-brand-category-chart` is unexercised** (B5), so the dashboard's brand/category chart has
   no runtime coverage in any environment available here.
 - **The ~31 remaining `asset('public/...')` files** (F16) are not fixed and not measured.
-- **P2-03's list and editor, P2-04's list and detail page, all of P2-05, P2-06's notifications and
-  preferences** are not built, so there is nothing to verify.
+- **P2-03's list redesign and full-page editor, P2-04's list redesign, detail page and Kanban,
+  P2-05-2's design-system pass** are not built, so there is nothing to verify. P2-05-1, P2-06 in
+  full, P2-03-2 and P2-04-8 were built and verified after this bullet was first written; the parts
+  still listed are the parts still owed.
+
+## 9k. P2-02-9 — the dashboard lists, with rows in them
+
+The two cards were finished code that had **never been seen holding a row**. `handleRegularUser()`
+already passed `$new_orders` and `$topSellingProducts`; the view rendered, gated and empty-stated
+both. What was wrong was the development fixture: `database/seed-p2dev.php` left
+`orders.product_id` at its default `'0'`, and `HomeController` plucks *that* column, not
+`product_json`. So `topSellingProductIds` was `[0]`, nothing matched, and the card showed
+`No sales yet` — which is exactly what a healthy card with nothing to show looks like.
+
+```
+$ php artisan test tests/Feature/Merchant/DashboardBestSellersTest.php
+  ✓ the block lists the products the orders actually contain
+  ✓ a foreign product sharing an id cannot appear
+  ✓ a staff member without the product permission does not get the block
+  ✓ with no orders the block renders its empty state
+  Tests: 4 passed (16 assertions)
+
+$ node docs/development/phase-2/tools/shoot-dashboard-cards-live.cjs
+  desktop-en-light: best=5 rows "Best selling products", orders=4 rows "Latest orders"  ok
+  desktop-ar-light: best=5 rows "المنتجات الأكثر مبيعاً", orders=4 rows "أحدث الطلبات"  ok
+  ... 8 configurations, 0 problems
+```
+
+**Bitten four ways.**
+
+| reverted | result |
+|---|---|
+| `(clone $productQuery)->whereIn(...)` → `Product::whereIn(...)` | store B's product appears on store A's dashboard — 1 failure |
+| the `Manage Products` gate in the view | staff holding only `Manage Order` are shown the table — 1 failure |
+| `pluck('product_id')` → `pluck('product_json')` | the card empties — 2 failures |
+| `orders.product_id` blanked back to `'0'` in the dev database | the browser run reports 32 problems across 8 configurations, which is the original defect exactly |
+
+**Two things the first attempt got wrong, both caught by premise assertions.**
+
+1. **The test granted `Manage Product`, singular.** That name exists in no seeder, so
+   `grantPermission()` created a fresh row nothing reads, `$ssMayProducts` stayed false, the card
+   never rendered, and every "this product is absent" assertion held for free. The same trap
+   P2-02-13 fixed in the view; a **fixture** can fall into it too.
+2. **The browser check looked each table up by a fragment of its caption, and read the same card
+   twice.** The best-selling caption is "Products appearing most often in this store's **orders**"
+   and the orders caption is "The four most recent **orders**", so a search for `orders` matched
+   the orders table first. Four of eight configurations reported the orders table as the
+   best-selling one and the run said `0 problems`. The Arabic four escaped only because the
+   captions are translated, so neither fragment matched and a positional fallback answered. A
+   caption is a *translated* screen-reader name and cannot identify a table in a bilingual check;
+   the two tables now carry `data-ss-list`, and the run asserts both readings came from cards with
+   different titles.
+
+### 9k-bis. And the rows exposed a design-system defect that had been invisible
+
+`.ss-row` is a flex container, so it stretches its cards to the tallest one's height. `.ss-card`
+was a plain block, so a **shorter** card's footer stayed where its content ended and the card
+painted empty surface below it — a sunken band floating mid-card. Measured in the running
+application the moment the two lists held different row counts (4 orders beside 5 products):
+
+```
+latest-orders  card bottom 1645.5   footer bottom 1605.1   gap 40px
+best-selling   card bottom 1645.5   footer bottom 1644.5   gap  1px
+```
+
+`.ss-card` is now `display: flex; flex-direction: column` with `.ss-card__body { flex: 1 1 auto }`
+— `1 1 auto` rather than `1`, because `flex: 1` resets the basis to `0` and would re-distribute
+every card body's height across the application. After: both gaps 1px, which is the border.
+Reverting it reproduces 36–40px in the three stretched configurations and nothing on mobile, where
+the row wraps and there is no stretching to do. The shared stylesheet change was re-checked against
+everything that drives it: **159/159** Phase 02 browser checks, **66/66** design-system checks,
+**76** contrast readings with none below AA, and the three live assertion tools (112, 21 and 33
+cases).

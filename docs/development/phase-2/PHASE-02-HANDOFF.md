@@ -155,6 +155,35 @@ comment-stripped source. It is now a ratchet (`StateChangingGetInventoryTest`) t
 directions, and it declares its own limit: a write reached through a helper, a job or an event
 listener is invisible to a source heuristic.
 
+## 4d. A card can be built, screenshotted and signed off while it has never held a row
+
+P2-02-9's two dashboard cards were finished code. `handleRegularUser()` passed both datasets, the
+view rendered both, both were gated, both had empty states, both appear in the Phase 02
+screenshots — and the **best-selling card had never once been seen with data in it**. The
+development fixture left `orders.product_id` at its default `'0'` while `HomeController` plucks
+that column, not `product_json`, so `topSellingProductIds` was `[0]`, nothing matched, and the
+card rendered `No sales yet`. An empty state is indistinguishable from a healthy card that has
+nothing to show, which is exactly what it is for, so nothing looked wrong at any point: not in the
+screenshots, not in the browser checks, not in the ledger, where the row still read TODO.
+
+**Two things it costs nothing to do, and this cycle paid for skipping both.**
+
+- **Drive every block with a row in it before calling the screen done.** The empty state is the
+  cheap half to verify and the half that proves nothing. Read the card, not the table count — a
+  present-and-empty card and a present-and-populated card are both "the block renders".
+- **Check which column the feature actually reads.** `product_json` is the field that looks right
+  and `product_id` is the one the controller counts. A fixture filling the plausible one produces
+  a screen that is wrong in a way no assertion in the repository mentioned: no test named
+  `topSellingProducts` at all.
+
+**And the first run of the test that pinned it passed for the wrong reason in a new way.** It
+granted `Manage Product`, singular — a name that exists in no seeder, so `grantPermission()`
+created a fresh row nothing reads, `$ssMayProducts` stayed false, the card never rendered, and
+every "this product is absent" assertion held for free. The premise assertion (`the table was
+found at all`) is what failed and said so. That is the same trap P2-02-13 fixed in the view
+itself; it is worth knowing that a **fixture** can fall into it too, and that only a premise
+assertion catches it.
+
 ## 5. What a successor should do first
 
 1. **Read [`PHASE-02-MASTER-EXECUTION-PROMPT.md`](PHASE-02-MASTER-EXECUTION-PROMPT.md)**, not a

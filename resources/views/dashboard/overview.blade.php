@@ -412,7 +412,13 @@
                 <x-ss.card :title="__('Latest orders')">
                     @if (!empty($new_orders) && count($new_orders))
                         <div class="ss-table-wrap">
-                            <table class="ss-table">
+                            {{-- `data-ss-list` IS THE VERIFICATION HOOK, and it exists because the
+                                 caption cannot be one: it is translated, and in English "The four
+                                 most recent orders" contains the word a check for the best-selling
+                                 table's own caption would match first. A browser check keyed on a
+                                 caption fragment read THIS table and reported it as that one, in
+                                 four of eight configurations, and passed. --}}
+                            <table class="ss-table" data-ss-list="latest-orders">
                                 <caption class="ss-visually-hidden">{{ __('The four most recent orders') }}</caption>
                                 <thead>
                                     <tr>
@@ -460,7 +466,7 @@
                 <x-ss.card :title="__('Best selling products')">
                     @if (!empty($topSellingProducts) && count($topSellingProducts))
                         <div class="ss-table-wrap">
-                            <table class="ss-table">
+                            <table class="ss-table" data-ss-list="best-selling">
                                 <caption class="ss-visually-hidden">{{ __('Products appearing most often in this store\'s orders') }}</caption>
                                 <thead>
                                     <tr>
