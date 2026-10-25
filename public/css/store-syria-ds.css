@@ -2539,3 +2539,61 @@ a.ss-setup__item:focus-visible {
     outline: 2px solid var(--ss-focus-ring);
     outline-offset: 2px;
 }
+
+/* THE COLUMN-VISIBILITY MENU'S ENTRIES (P2-03-1).
+   ------------------------------------------------------------------------
+   MEASURED IN THE RUNNING APPLICATION, these rendered at 2.59:1 on white --
+   below the 4.5:1 AA minimum -- and the cause is worth stating because it is
+   not a colour anybody chose for them.
+
+   DataTables Buttons builds each entry as a CLASS-LESS `<a>` (its
+   `collection.buttonLiner` is `{tag: "a", className: ""}`), so the host
+   theme's `a:not([class]) { color: var(--theme-color) }` catches it and
+   paints the entry in THE MERCHANT'S OWN BRAND COLOUR. That makes the
+   contrast of this menu a function of whichever brand colour a merchant
+   picked: this store's teal measured 2.59:1 in light and 5.19:1 in dark, and
+   a different brand would fail in the other direction instead. A surface
+   whose legibility depends on a tenant's colour choice is not one that can be
+   signed off per tenant.
+
+   The fix is the smallest one that removes the dependency rather than
+   adjusting it: these are MENU ITEMS, not links, so they take the system's
+   foreground colour. **No merchant's brand colour changes anywhere** -- the
+   brand still paints every link, button and accent it painted before; it just
+   stops leaking into a menu that never asked for it. That keeps this inside
+   "minimal, accessible, preserves merchant branding" and short of anything
+   needing a new global brand-colour policy.
+
+   `.ss-colvis-menu` is on the collection itself, from `buildDataTable`'s
+   `collectionLayout`. The collection is appended to `<body>`, outside the
+   table's card, so it cannot be reached from `.ss-dt-card-body` -- this hook
+   is the only one that scopes the rule to OUR menu and leaves every other
+   DataTables collection in the application alone. */
+.ss-colvis-menu .dt-button > a,
+.ss-colvis-menu .dt-button > a:hover,
+.ss-colvis-menu .dt-button > a:focus {
+    color: var(--ss-fg);
+    text-decoration: none;
+}
+
+/* SHOWN VERSUS HIDDEN, WITHOUT RELYING ON COLOUR (P2-03-1, WCAG 1.4.1).
+   Measured: a shown column and a hidden one rendered IDENTICALLY -- same
+   colour, same background, no marker, no `aria-pressed`, the only difference
+   an `active` class with no visual effect at all. So the menu could not tell
+   a merchant which columns they had hidden.
+
+   PRE-EXISTING, NOT CAUSED BY THE CONTRAST RULE ABOVE -- checked by removing
+   that rule and re-measuring, which gave `rgb(16,183,127)` for both. But this
+   menu is new, so the defect is new to a merchant, and it is fixed here.
+
+   A CHECK MARK, not a colour: a tick on the shown entries and a blank gutter
+   on the hidden ones, so the state survives greyscale and colour blindness.
+   The gutter is reserved on every entry so labels stay aligned and nothing
+   shifts as a column is toggled. */
+.ss-colvis-menu .dt-button > a::before {
+    content: "\2003";              /* em space: the reserved gutter */
+    margin-inline-end: var(--ss-space-2, 0.5rem);
+}
+.ss-colvis-menu .dt-button.active > a::before {
+    content: "\2713";              /* check mark */
+}

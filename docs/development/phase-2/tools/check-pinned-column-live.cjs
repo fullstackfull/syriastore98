@@ -12,7 +12,8 @@
  *
  *   1. the colvis button EXISTS, the extension is really loaded, and the button has an explicit
  *      ARABIC accessible name rather than relying on `title`
- *   2. the menu OMITS the Action column and omits the hidden Id column   <- `ss-col-locked`
+ *   2. the menu OMITS every `ss-col-locked` column -- the Action column, the hidden Id column
+ *      and BulkDelete's select-all -- and contains no blank or zero-height entry
  *   3. toggling a menu entry hides that column
  *   4. the choice SURVIVES A RELOAD                                     <- it is a preference
  *   5. the actions cell is `position: sticky` in all four configurations
@@ -270,7 +271,9 @@ async function run() {
             if (buttonCount !== 1) {
                 for (const label of [
                     'the menu does not offer the actions column',
-                    'the menu does not offer the hidden Id column',
+                    'the menu offers exactly the unlocked columns',
+                    'no column-visibility entry is blank',
+                    'no column-visibility entry is an invisible focus stop',
                     'toggling a menu entry hides that column',
                     'the hidden column is still hidden after a reload',
                 ]) {
@@ -310,9 +313,63 @@ async function run() {
             check('the menu does not offer the actions column',
                 actionHeading !== null && !menuItems.includes(actionHeading),
                 'heading=' + JSON.stringify(actionHeading) + ' menu=' + JSON.stringify(menuItems));
-            check('the menu does not offer the hidden Id column',
-                menuItems.length === headersBefore - 1,
-                'menu=' + menuItems.length + ' visibleHeaders=' + headersBefore);
+            /* ---- THE MENU OFFERS EXACTLY THE UNLOCKED COLUMNS, counted from the DOM rather
+               than from a number written here. The locked count is read off the rendered
+               headers, so adding a fourth locked column later cannot make this case stale --
+               and so the arithmetic states the rule instead of encoding today's answer.
+
+               ITS BLIND SPOT, STATED SO NOBODY BANKS ON IT: because both sides are read from
+               the same DOM, this case cannot detect a column that SHOULD be locked and is not.
+               Unlocking BulkDelete's select-all moves the menu from 10 entries to 11 and
+               `lockedVisible` from 3 to 2, and 11 === 12 - 2 still holds -- measured, by
+               running exactly that bite. What catches an unlocked column is the pair of cases
+               below, which test the SHAPE of what the menu offers rather than its count. ---- */
+            const lockedVisible = await page.locator('#product-table thead th.ss-col-locked:visible').count();
+            check('the menu offers exactly the unlocked columns',
+                menuItems.length === headersBefore - lockedVisible,
+                'menu=' + menuItems.length + ' visibleHeaders=' + headersBefore
+                + ' lockedVisible=' + lockedVisible);
+
+            /* ---- NO BLANK AND NO ZERO-HEIGHT ENTRY. These two exist because adding this menu
+               BROKE BULK DELETE, found by independent review and then reproduced here.
+
+               The BulkDelete module's select-all column titles itself with MARKUP ONLY
+               (`<input type="checkbox" id="select-all">`), and Buttons 1.3.1 labels each entry
+               by stripping tags from `sTitle` -- so the entry's label was the empty string and
+               its box measured 146 x 0 px with a 0 x 0 anchor. Not clickable by pointer, but
+               `tabindex="0"`, so a keyboard user could focus and activate an unnamed invisible
+               control; doing so removed every `.select-row` checkbox, and `stateSave` with
+               `stateDuration: 0` persisted that with no expiry while Reset clears only the
+               search. Bulk delete was permanently unusable.
+
+               Both cases are written against the RULE, not against that one column: any future
+               column whose title is markup, or is empty, reintroduces the same hazard. ---- */
+            const menuShape = await page.evaluate(() => {
+                const items = Array.from(document.querySelectorAll('.dt-button-collection .dt-button'));
+                return {
+                    blank: items.filter((li) => (li.textContent || '').trim() === '').length,
+                    zeroHeight: items.filter((li) => li.getBoundingClientRect().height === 0).length,
+                };
+            });
+            check('no column-visibility entry is blank', menuShape.blank === 0,
+                'blank=' + menuShape.blank + ' menu=' + JSON.stringify(menuItems));
+            check('no column-visibility entry is an invisible focus stop',
+                menuShape.zeroHeight === 0, 'zeroHeight=' + menuShape.zeroHeight);
+
+            /* ---- THE PREMISE FOR THE TWO CASES ABOVE. With no `add_on_managers` row the
+               BulkDelete column does not exist, and both cases pass without ever having met the
+               thing they are about -- which is exactly how the slice's first round of browser
+               evidence missed this. Reported rather than asserted: a dev instance legitimately
+               may not have the module, and this check must say so instead of going quiet.
+               Enable it with an `add_on_managers` row through the production loader. ---- */
+            const bulkDeletePresent = await page.evaluate(
+                () => !!document.querySelector('#product-table thead th input[type="checkbox"]')
+            );
+            check('premise: the BulkDelete select-all column is present, so the blank-entry '
+                + 'cases actually met a markup-titled column',
+                bulkDeletePresent,
+                'NOT MEASURED -- no add_on_managers row for BulkDelete on this instance, so the '
+                + 'two cases above passed without exercising the column that produced the defect');
 
             /* Toggle the LAST entry rather than the first: the first is the name column, which
                several other cases and the search box lean on. */

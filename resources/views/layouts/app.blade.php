@@ -167,24 +167,30 @@
 
          Why that is safe for all 70 WorkDo modules: NO SELECTOR IN
          store-syria-ds.css CAN MATCH AN ELEMENT OUTSIDE THE DESIGN SYSTEM.
-         That is the operative property, and it is checked rather than assumed.
-         The non-`.ss-` subjects in the file are:
+         That is the operative property, and
+         `Tests\Unit\Ui\DesignSystemStylesheetScopeTest` is what checks it:
+         every selector in the file must be CONFINED by an `.ss-` class or a
+         `data-ss-` attribute somewhere in it, so it cannot match an element
+         the design system does not own. The test parses the real stylesheet
+         and asserts the count it parsed, so it cannot pass by matching
+         nothing; bite-tested by adding `.card-body { … }`, which it names.
 
-           :root (:52, :106)                custom properties only
-           [data-ss-theme="dark"] (:246)    custom properties only
-           [data-ss-theme="auto"] (:289)    custom properties only
-           @keyframes ss-spin, ss-shimmer   no subject
-           .ss-scope *                      scoped by an .ss- ancestor
-           [dir="rtl"] .ss-*  (11 of them)  likewise
-           .minimenu .ss-workspace-wrap     a HOST class as ancestor, .ss- subject
-           .ss-sort-list .ui-sortable-placeholder (:833)
+         THIS COMMENT USED TO CARRY THAT INVENTORY ITSELF, and the inventory is
+         why the test now exists. It listed eight shapes and a count of RTL
+         rules; measuring the file turns up twenty-four distinct subject shapes
+         (`th`, `td`, `tr:hover`, `summary`, `img`, `td::before`, …) and a
+         different RTL count, and P2-03-1 then added rules it did not mention.
+         A list of this kind drifts every time somebody edits the stylesheet
+         and nothing notices — CLAUDE.md records the same lesson about the
+         skills section being "wrong in both directions". So the list is gone
+         and the property is asserted instead.
 
-         That last one is the exception worth knowing, because a stricter claim
-         — "every selector carries an `.ss-` class" — is literally FALSE and an
-         earlier version of this comment made it. Its subject is jQuery UI's
-         own placeholder class, not an `.ss-` one. It is still unreachable
-         outside the design system: it is descendant-scoped under
-         `.ss-sort-list`, so it can only fire inside a DS sort list.
+         The subtlety the list did get right, and worth keeping: the stricter
+         claim "every selector's SUBJECT carries an `.ss-` class" is FALSE
+         here. `.ss-sort-list .ui-sortable-placeholder` targets jQuery UI's own
+         class, and the twenty-four shapes above are bare element subjects.
+         Every one is confined by an ancestor, which is why the test asserts
+         confinement rather than the subject.
 
          No existing markup in the application uses an `.ss-` class, so nothing
          that was already on the page is restyled. Re-check this if the design

@@ -2215,13 +2215,42 @@ if (!function_exists('bulkDeleteCloneCheckboxColumn')) {
 
         // Check if the BulkDelete module is active
         if (module_is_active('BulkDelete')) {
-            // Add the checkbox column if the module is active
+            /*
+             * `ss-col-locked` IS LOAD-BEARING, and it is here because P2-03-1's
+             * column-visibility menu broke bulk delete without it. Found by independent review
+             * of that change and then reproduced in the running application.
+             *
+             * This column's `title` is MARKUP ONLY -- a bare select-all checkbox. Buttons 1.3.1
+             * builds each menu entry's label by stripping tags from `sTitle`
+             * (`buttons.colVis.min.js`, `_columnText`), so the label came out as the empty
+             * string and the menu's first entry was a blank row.
+             *
+             * MEASURED, with BulkDelete enabled on the dev instance through the production
+             * loader (the premise matters: with no `add_on_managers` row this column does not
+             * exist at all, which is why the slice's own browser checks never saw it):
+             *
+             *     menu entries        "", "Name", "Category", ... (11, one of them blank)
+             *     blank entry's box   146 x 0 px, its <a> 0 x 0   -- NOT mouse-clickable
+             *     tabindex            "0"                        -- but FOCUSABLE
+             *     activate it         .select-row 10 -> 0, #select-all gone
+             *     reload              still 0   (stateSave, stateDuration 0, no expiry)
+             *     Reset button        still 0   (Reset clears the SEARCH, not visibility)
+             *     reload after Reset  still 0
+             *
+             * So bulk delete became permanently unusable, and the only control that undoes it
+             * is an invisible zero-height item a pointer cannot reach -- reachable by keyboard
+             * alone, where it is also an unnamed focus stop that did not exist before the menu
+             * did. Locking the column removes the entry and the focus stop together.
+             *
+             * The empty `title` is left as it is: the blank HEADER CELL predates this and
+             * changing what that cell renders is a different change with different callers.
+             */
             return Column::computed('checkbox')
                 ->title('<input type="checkbox" id="select-all">')
                 ->orderable(false)
                 ->exportable(false)
                 ->printable(false)
-                ->addClass('text-left')
+                ->addClass('text-left ss-col-locked')
                 ->render('function() {
                     return \'<input type="checkbox" class="select-row" value="\' + this.id + \'">\';
                 }');
@@ -2835,7 +2864,15 @@ if (! function_exists('buildDataTable')) {
                            control, and Space does not fire click on an anchor. */
                         $(table.api().table().container())
                             .find(\'.ss-colvis\')
-                            .attr(\'aria-label\', function () { return $(this).attr(\'title\') || \'\'; })
+                            .attr(\'aria-label\', function () {
+                                /* RETURNING undefined LEAVES THE ATTRIBUTE UNSET, which is what
+                                   a missing title should do. Returning an empty string would
+                                   set `aria-label=""`, and an explicitly empty label is WORSE
+                                   than none: it overrides the `title` and the text content a
+                                   screen reader would otherwise have fallen back to, turning a
+                                   weakly-named control into an unnamed one. */
+                                return $(this).attr(\'title\') || undefined;
+                            })
                             .attr(\'aria-haspopup\', \'true\');
                     }');
 
@@ -2879,7 +2916,7 @@ if (! function_exists('buildDataTable')) {
             'titleAttr' => __('Choose columns'),
             'className' => 'btn btn-light-primary ss-colvis',
             'columns' => ':not(.ss-col-locked)',
-            'collectionLayout' => 'fixed two-column',
+            'collectionLayout' => 'fixed two-column ss-colvis-menu',
             /*
              * NO `attr` KEY HERE, and the reason is measured rather than remembered. This
              * application bundles DataTables Buttons **1.3.1**, which accepts an `attr` config
