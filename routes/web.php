@@ -1146,6 +1146,29 @@ Route::get(
         ->name('merchant.search');
 
     /*
+     * P2-06-3. The merchant's notifications on the web, against the SAME `store_notifications`
+     * rows the shipped Flutter app already reads through `api/admin/notification`. No schema
+     * change, and that API is untouched -- see MerchantNotificationController's class note on
+     * why its `count` cannot be corrected from here.
+     *
+     * The two marks are POST, because they change state. A state-changing GET is reachable from
+     * a third-party `<img>` and by link prefetching, which is F12 and F14 on this phase's
+     * ledger; it is not repeated.
+     *
+     * No permission middleware: authorisation is BY NOTIFICATION TYPE inside the handler, since
+     * a merchant who may read order notifications and not customer ones must get the first and
+     * not the second rather than a 403 for the whole bell.
+     */
+    Route::get('notifications', [\App\Http\Controllers\MerchantNotificationController::class, 'index'])
+        ->name('merchant.notifications');
+    Route::get('notifications/feed', [\App\Http\Controllers\MerchantNotificationController::class, 'feed'])
+        ->name('merchant.notifications.feed');
+    Route::post('notifications/{id}/read', [\App\Http\Controllers\MerchantNotificationController::class, 'markRead'])
+        ->name('merchant.notifications.read');
+    Route::post('notifications/read-all', [\App\Http\Controllers\MerchantNotificationController::class, 'markAllRead'])
+        ->name('merchant.notifications.read-all');
+
+    /*
      * P2-03-6. The product quick-preview fragment, read-only.
      *
      * Unlike the order preview, this needs NO entry in OrderDocumentAccessGuard -- that guard is

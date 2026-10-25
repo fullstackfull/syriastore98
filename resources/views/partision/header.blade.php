@@ -86,6 +86,50 @@ $theme_url = App\Http\Controllers\HomeController::getThemeUrl($store);
                         </a>
                     </li>
                     @endif
+
+                    {{--
+                        P2-06-3 -- THE NOTIFICATION BELL.
+
+                        OUTSIDE THE `type == 'admin'` BLOCK BELOW, AND THAT IS THE POINT.
+                        It was first placed inside it, which meant the one principal the
+                        per-type authorisation was built to serve correctly -- a STAFF member
+                        holding `Manage Order` -- had no link to `/notifications` anywhere in
+                        the application, and neither did the operator. Staff `users.type` is
+                        their ROLE NAME (`UserController::store`: `$user->type = $role_r->name`),
+                        never the literal `'admin'`, so that conditional is owner-only. Found by
+                        the independent review.
+
+                        A LINK, NOT A DROPDOWN, and that is a decision rather than a shortcut.
+                        The feed endpoint exists and the badge is filled from it, but the bell
+                        navigates to the full list: a dropdown would be a second surface showing
+                        the same eight rows with its own focus trap, its own RTL placement and
+                        its own dark-mode contrast to verify, for a screen a merchant visits in
+                        order to clear it. One surface, checked once.
+
+                        NO PERMISSION CHECK HERE. Authorisation is by notification TYPE inside
+                        the handler, so a staff member who may read none of them gets a bell
+                        with no badge and a page that says, in words, that notifications exist
+                        which their role does not include -- which is honest, where an empty
+                        list would be a lie. The count the badge shows is already filtered to
+                        what the caller may read.
+
+                        `hidden` until the fetch answers: a badge that renders 0 and then
+                        becomes 3 flashes on every page load, and one that renders 0 forever is
+                        what a blocked script leaves behind.
+                    --}}
+                    <li class="dash-h-item">
+                        <a href="{{ route('merchant.notifications') }}"
+                           class="dash-head-link h-100"
+                           data-ss-notification-bell
+                           data-ss-feed-url="{{ route('merchant.notifications.feed') }}"
+                           data-bs-toggle="tooltip"
+                           title="{{ __('Notifications') }}">
+                            <i class="ti ti-bell" aria-hidden="true"></i>
+                            <span class="ss-bell__count" data-ss-notification-count hidden></span>
+                            <span class="visually-hidden" data-ss-notification-label>{{ __('Notifications') }}</span>
+                        </a>
+                    </li>
+
                     @if (auth()->user() && auth()->user()->type == 'admin')
                     <li class="web-browse-icon">
                         <a href="{{ $theme_url ?? '#' }}" target="_blank" data-bs-toggle="tooltip"

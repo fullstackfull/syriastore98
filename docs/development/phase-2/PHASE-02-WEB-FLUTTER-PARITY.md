@@ -78,7 +78,7 @@ Legend — **Web**: the merchant panel. **Flutter**: the app. *parity* = both ca
 | Taxes, shipping | yes | `/taxlist`, `/shippinglist` + CRUD | **parity** | |
 | Reviews | yes | `/reviewlist`, `/reviewstatus`, `/addreview` | **parity** | |
 | Wallet | yes | `/wallet/transactions`, `/wallet/add-balance`, `/wallet/deduct-balance` | **parity** | money paths — any change is an escalation |
-| Notifications | header icon | `/notification` + FCM (`/store/fcm-token`) | **Flutter ahead** | the app has push; the web has no durable inbox at all |
+| Notifications | **inbox + bell badge (P2-06-3)** | `/notification` + FCM (`/store/fcm-token`) | **parity on the inbox; Flutter still ahead on PUSH** | Both now read the same `store_notifications` rows. The web adds what the app does not have: per-TYPE authorisation and a real `is_read` the merchant can clear. The app keeps what the web does not: Firebase push. The web is deliberately NOT polling — see the note below. |
 | Store switching | header switcher | `/changestore`, `/getStoreInfo` | **parity** | |
 | Language / currency | yes | `/getAvailableLanguages`, `/updateStoreLanguage`, `/getCurrenciesApi` | **parity** | |
 | Plans / subscription | yes | `/indexAllPlan` | **partial** | viewing only |
@@ -100,7 +100,7 @@ Measured, and worth stating because a modernisation pass can destroy these by ac
 | **Empty and error states** | `lib/view/widget/error_empty_state.dart`, imported by 15 files; `SliverFillRemaining` so pull-to-refresh still works on an empty list |
 | **Pull-to-refresh** | 17 files |
 | **Translation parity** | `en.dart` 640 keys / `ar.dart` 642; no key present in en and missing from ar |
-| **Push notifications** | FCM wired; the web has nothing equivalent |
+| **Push notifications** | FCM wired in the app; the web has nothing equivalent **and was not given a timer instead**. An interval on every admin page is a request per merchant per tab per interval, forever, for a number that changes when an order arrives — which the merchant sees on the next page they load anyway. Live updates on the web are a push channel (the same Firebase path `StoreNotificationService` already uses), not a poll added quietly. |
 
 ## 5. The real gaps, and their state
 
@@ -169,8 +169,24 @@ Nothing in this phase altered an API response shape, a status code or a route th
   endpoints answer 403 for a permission refusal and 404 for an unreadable row — never 401 — and the
   authorization tests assert exactly that.
 - **The new endpoints are web-only** (`order-preview/{id}`, `product-preview/{id}`,
-  `merchant-search`), inside the authenticated admin group, and no client in either repository
-  calls them. The app's own product read stays `/api/admin/viewproduct`, untouched.
+  `merchant-search`, `notifications` and its three siblings), inside the authenticated admin
+  group, and no client in either repository calls them. The app's own product read stays
+  `/api/admin/viewproduct`, untouched.
+- **NOTIFICATIONS ARE THE ONE PLACE THE TWO CLIENTS SHARE A TABLE, and the API is untouched.**
+  P2-06-3 reads the same `store_notifications` rows the app reads through
+  `GET api/admin/notification` (`Api\DashboardController::noti`), with no schema change and not a
+  line changed in that handler. Two consequences worth stating rather than discovering:
+
+  - **That endpoint's `count` is a TOTAL, not an unread count**, and the app derives its badge by
+    diffing it against a previous total it stores locally
+    (`NotificationController._calculateUnreadCount`) — it never reads `is_read` at all. So
+    correcting `count` to mean "unread" would break the app's arithmetic in a shipped build. That
+    is a public-response change and an owner decision; it is recorded as a finding, not done.
+  - **Marking a row read on the web is therefore safe for the app** — precisely because the app's
+    number is a total, which marking does not change. The flip side is the honest gap: a merchant
+    who clears their notifications on the web will NOT see the app's badge clear, because the two
+    compute "unread" from different facts. Closing that properly means the API reading `is_read`,
+    which is the same owner decision as above.
 - **The concurrent-edit token is opt-in by design.** A save with no `ss_last_seen_at` is not
   refused, precisely so the API and the Flutter app — which post the product form without it —
   keep working unchanged. That is asserted by a test rather than assumed.

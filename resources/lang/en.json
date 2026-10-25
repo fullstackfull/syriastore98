@@ -2930,5 +2930,19 @@
     "Quick preview of :name": "Quick preview of :name",
     "Loading product…": "Loading product…",
     "This product could not be loaded.": "This product could not be loaded.",
-    "has variant": "has variant"
+    "has variant": "has variant",
+    ":n unread": ":n unread",
+    "Nothing unread": "Nothing unread",
+    "Mark all as read": "Mark all as read",
+    "Mark as read": "Mark as read",
+    "Unread": "Unread",
+    "View order": "View order",
+    "No notifications yet": "No notifications yet",
+    "New orders and payments will appear here as they happen.": "New orders and payments will appear here as they happen.",
+    "No notifications you can see": "No notifications you can see",
+    "Notifications in this store are about orders, and your role does not include reading them. Ask the store owner if you need access.": "Notifications in this store are about orders, and your role does not include reading them. Ask the store owner if you need access.",
+    "Showing the 50 most recent notifications.": "Showing the 50 most recent notifications.",
+    "Notification not found.": "Notification not found.",
+    "No store selected": "No store selected",
+    "Notifications belong to a store, and no store is currently active for your account. Choose a store, or ask the platform administrator if you expected one.": "Notifications belong to a store, and no store is currently active for your account. Choose a store, or ask the platform administrator if you expected one."
 }

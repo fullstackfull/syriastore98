@@ -860,19 +860,29 @@ keeping one merchant's catalogue out of another's list. That is what these measu
 | `ProductPreviewAuthorizationTest` | 8 | the new product preview endpoint: `Product` carries no effective scope, so the handler's predicate is the only control |
 | `OrderStatusDateTest` | 4 | F19 — the order list does not render the Unix epoch as a date, and keeps the status label when the date is missing |
 | `TablePreferencesTest` | 8 | P2-06-4's wiring on the shared helper that builds all 68 DataTables, that yajra emits the hooks as real JS, the absent-script guard, and three real lists still rendering |
+| `MerchantNotificationAuthorizationTest` | 24 | P2-06-3: four handlers, two of them writes; cross-tenant on all four; per-TYPE permission; the operator admitted while holding no Laratrust permission; an unregistered type refused; route ACTIONS asserted; the marks refuse GET |
+| `TranslationFileIntegrityTest` | 5 | both lang files are valid JSON, carry no duplicate keys, and gain no new Arabic-only orphan (F2, resolved as a side effect and now pinned) |
 | `DashboardPermissionNamesTest` | 1 | every `isAbleTo()` name in the merchant views can actually be granted |
 | `AdminLayoutAssetsTest` | 2 | every `asset()` path in the admin layout resolves to a real file |
 
 ### Bite tests — every control reverted, and what failed
 
 This project's rule is stricter than TDD's: after the fix, revert it and confirm the test fails
-again. Recorded in full because **two of these revealed tests that passed for the wrong reason**
+again. Recorded in full because **five of these revealed tests that passed for the wrong reason**
 (the `getSideMenu()` call site and the iframe ordering, both 0-failed on the first attempt), and
 because **one bite test's own written conclusion was wrong**: the search row below used to say no
 endpoint case fails on a single control being removed. Re-measuring each of the three predicates
 separately refuted it — products and orders each fail a case; only customers does not. The
 corrected rows are below, and the overstated note has been replaced in the test file too. Reverting
 a control is evidence; what somebody writes about the revert is not, until it is re-run.
+
+**AND A BITE TEST THAT FINDS NOTHING IS A RESULT, NOT A PASS.** Four of the rows below read
+"first attempt: 0 failed". Each time the honest reading was the same: the control was real and the
+TEST was not measuring it. In three of those cases a new case was written that does
+(`getSideMenu()`'s call site, the iframe ordering, the unregistered notification type, the
+operator limb, the unresolved-tenant guard); in one the measurement refuted a written claim
+instead (the search's redundancy note). None of them was resolved by deciding the control was
+redundant, which is the tempting reading and was wrong every time it was tried.
 
 | control reverted | result |
 |---|---|
@@ -889,6 +899,18 @@ a control is evidence; what somebody writes about the revert is not, until it is
 | `sanitizeTableState` made a no-op | 8 of 16 node cases failed, and the suite case that drives the script failed with it |
 | `sanitizeTableState` made to clean a COPY instead of mutating | **exactly 1 of 16** — the mutate-in-place case, which exists because `stateSaveParams` is called for its side effect and discards the return value, so a function returning a cleaned copy would pass everything else and change nothing on the page |
 | `sanitizeTableState` made a no-op, against the LIVE browser check | **first attempt: 0 of 14 failed.** That version cleared the search and returned to page one before reloading, so the saved state held nothing to drop. Rewritten to leave all three set, the fixture seeded to 32 products so page two exists, and the reloaded row count asserted to be the UNFILTERED total; now **5 of 21 fail** — the search restored, the box pre-filled, page two restored, the filtered count, and the term still in localStorage |
+| the notification **store predicate** | 5 failed — both reads, both writes, and the unread count |
+| the notification **type filter** (`whereIn('type', $types)`) | **first attempt: 0 failed.** Both current types name the SAME permission, so a staff member reads both or neither and `context()`'s empty-types short-circuit already served them nothing — the `whereIn` was redundant with it and nothing measured it. A case was added driving an UNREGISTERED type against a merchant holding every permission; now 1 fails |
+| the scoped find in `markRead` replaced by `StoreNotification::find($id)` | 1 failed — exactly the cross-tenant mark |
+| the notification **operator limb** (operator checked after `isAbleTo`) | **first attempt: 0 failed** — no case drove an operator, and `isAbleTo()` alone refuses them, so the bell would have been empty for the one principal whose contract is to read across stores. A case was added; now 1 fails |
+| a type dropped from `TYPE_PERMISSIONS` | 1 failed — the registry ratchet |
+| the notification **mass-write store limb** | 2 failed — the operator marking another tenant's rows, and the operator with no current store mass-marking store 1 |
+| the bell `<li>` put back inside the header's `type == 'admin'` block | 1 failed — the staff reachability case |
+| the `Show Order` gate removed from the "View order" button | 1 failed |
+| the notification **unresolved-tenant guard** | **first attempt: 0 failed.** `where('store_id', null)` becomes `store_id IS NULL` and the column is NOT NULL, so the row assertion was free. Rewritten to count queries against `store_notifications` (0 with the guard, 2 without), with a companion case proving a resolved principal DOES reach the table; now 1 fails |
+| the bell badge's colour pair reverted to `--ss-danger-fg` + white | 2 of 60 contrast readings fail at **1.91:1** in dark. `--ss-danger-fg` is a FOREGROUND token (#f3a9a4 in dark); the pair `.ss-btn--danger` already uses (`--ss-danger` / `--ss-on-danger`) inverts correctly in both themes |
+| the feed's three text classes removed from the host-override block | 10 of 60 fail at 3.42–3.85:1. `style-dark.css` sets `p { color: #808191 !important }` on a selector list shared with the sidebar and `.dataTable-info`, so a `<p>` in the feed is forced grey — the same rule F8 fought |
+| a duplicate key and an Arabic-only key reintroduced into `ar.json` | 2 of 5 failed |
 | the search's `is_string($q)` guard | 1 failed, with "Array to string conversion" raised at the `assertOk()` line — `?q[]=a` was a server error on a route every merchant can reach |
 | both contrast stylesheets | 14 of 32 readings below AA, from 0 |
 | the singular permission name restored | 1 failed, with the plural named in the message |
@@ -903,9 +925,28 @@ a control is evidence; what somebody writes about the revert is not, until it is
 host's own server-side theme/direction switch, reading composited colours off the painted page.
 
 ```
-before:  32 measured, 14 below AA
+before:  32 measured, 14 below AA     (F8/F9, the sidebar and the active item)
 after:   32 measured,  0 below AA
 ```
+
+**Extended to the notification feed (P2-06-3).** The same tool now visits `/notifications` as
+well as `/order` and measures seven more elements — the feed's title, message and timestamp on
+BOTH the read and the unread surface (different backgrounds: a token pair that is AA on one is
+not AA on the other by implication, which is what F8 was), the unread badge, and the header
+bell's count. It also exits non-zero on a failure now; it used to always exit 0, so its number
+had to be read by a human to mean anything.
+
+```
+first run:  60 measured, 12 below AA
+after:      60 measured,  0 below AA
+```
+
+Both of those twelve were real and neither was visible by looking:
+
+| failure | reading | cause |
+|---|---|---|
+| bell unread count | **1.91:1** white on #f3a9a4 | the rule set `background: var(--ss-danger-fg)` — a FOREGROUND token, fine by accident in light, a pale red in dark |
+| feed title / message / timestamp, read and unread rows | **3.42–3.85:1** | `style-dark.css` forces `p { color: #808191 !important }`; the feed's text sits on `<p>` |
 
 | element | ltr/light | ltr/dark | rtl/light | rtl/dark |
 |---|---|---|---|---|

@@ -26,7 +26,7 @@
 | P2-03 products | D | **partial** — concurrent-edit conflict detection, the quick-preview panel and the variant column's missing translation are shipped and tested. List, filters, full-page editor and media/variant UX are **not built**. |
 | P2-04 orders | E | **partial** — the status breakdown is honest and reconciles, the **authorised quick preview** is shipped with its own guard entry and nine authorization tests, and **F19 is fixed**: the list no longer renders the Unix epoch as a date. Order list redesign, detail page, Kanban and saved views are **not built**. |
 | P2-05 common merchant screens | J | **not started** |
-| P2-06 search, notifications, preferences, onboarding | G, H, I | **partial** — **global search** shipped (authorised per section, scoped per query, 11 tests), **onboarding** shipped (the RTL hold settled at runtime), and **persisted table preferences** shipped across all 68 DataTables from the one shared helper, with no `packages/workdo/` file touched and no schema change. Notifications are **not built**. |
+| P2-06 search, notifications, preferences, onboarding | G, H, I | **done** — all four. **Global search** (per-section authorisation, per-query scoping, 11 tests); **onboarding** (the RTL hold settled at runtime); **persisted table preferences** across all 68 DataTables from the one shared helper; and **notifications**, against the same `store_notifications` rows the Flutter app already reads, authorised BY TYPE with 17 tests. No `packages/workdo/` file touched and no schema change in any of the four. |
 | P2-07 Flutter | K | **partial** — RTL wiring, the vendor-host leak, accessible names, the parity matrix and now the **RTL mirroring pass** are done. The dashboard honesty pass and broader a11y are not. |
 | P2-08 integration and acceptance | — | this document and the evidence file |
 
@@ -68,7 +68,8 @@ configuration that exposed them.
 ### 3b. Not blocked — simply not built
 
 P2-03's list, filters, editor and media UX. P2-04's list redesign, detail page, Kanban and saved
-views. All of P2-05. P2-06's notifications. P2-07's dashboard honesty pass. None of these has a
+views. **All of P2-05** — customers, stock, categories, staff and settings, which is now the
+largest untouched surface in the phase. P2-07's dashboard honesty pass. None of these has a
 blocker; they have not been done.
 
 P2-03's filters and P2-04's saved views want the **same** mechanism, and **half of it now exists**:
@@ -81,7 +82,9 @@ twice.
 ## 4. Defects found by running the real application
 
 Every one was invisible to the preview harness, and that is the point: a renderer with no routing,
-auth, tenancy or DataTables cannot answer these questions.
+auth, tenancy or DataTables cannot answer these questions. Rows 12–15 were found by pointing the
+existing live tools at a NEW screen before claiming it was finished, which is the cheapest of all
+the lessons here.
 
 | # | Defect | How it was found |
 |---|---|---|
@@ -96,6 +99,10 @@ auth, tenancy or DataTables cannot answer these questions.
 | 9 | **The concurrent-edit refusal produced a BLANK error toast.** It returned `redirect()->back()->withInput(...)`, but `product/edit.blade.php` submits that route with `$.ajax` in both branches and reads `data.flag`/`data.msg`. jQuery follows the redirect, `flag` comes back undefined, and `show_toastr('Error', undefined)` tells the merchant nothing — by the mechanism built to tell them. `withInput()` was inert too, since nothing reloads. The tests passed because they asserted the **session**, which a 302 populates. | The independent review, reading the view that posts the route |
 | 10 | **`?q[]=a` was a server error on the global search.** `trim((string) $request->query('q'))` on an array raises "Array to string conversion", which Laravel's handler turns into an exception — from a query string, on a route every authenticated merchant can reach. | The independent review |
 | 11 | **The product list's variant column read ENGLISH in Arabic.** `ProductDataTable::dataTable()` returned the bare literals `'has variant'`/`'no variant'` with no `__()`. Caught in the same pass as `"Stock": "الأسهم"` — Arabic for financial *shares*, not inventory. | Reading an Arabic screenshot of the product list |
+| 12 | **The order list rendered `Jan 1, 1970`** as a delivery date. `Utility::dateFormat()` is `date($fmt, strtotime($date))`, `strtotime(null)` is FALSE, and `date($fmt, false)` is the epoch — a fabricated date in the same type as the real ones beside it. | A live screenshot of the order list |
+| 13 | **The notification bell's unread badge measured 1.91:1 in dark mode.** The rule used `--ss-danger-fg` as a *background*; it is a foreground token, pale red in dark, and white on it is unreadable. | Extending the live contrast tool to the new screen BEFORE calling it done |
+| 14 | **Every line of text in the notification feed measured 3.42–3.85:1 in dark mode.** `style-dark.css` forces `p { color: #808191 !important }` on a selector list shared with the sidebar, so a `<p>` anywhere in a new component is grey whatever the component says — the same rule F8 fought, met again on a new surface. | The same contrast run |
+| 15 | **A `<p>` in a new component is grey in dark mode, every time.** Not a new defect so much as the lesson from 13 and 14: `public/css/store-syria-ds.css` already carries a documented "host override defence" block for exactly this, and the cost of not knowing it was there is two contrast failures per new text class. **Add new text classes to that block, and measure.** | — |
 
 ## 5. What a successor should do first
 

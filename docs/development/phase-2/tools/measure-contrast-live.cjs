@@ -99,9 +99,27 @@ const PROBE = `
     measure('table header', 'table thead th');
     measure('table cell', 'table tbody td');
     measure('breadcrumb link', '.breadcrumb a');
+
+    /* P2-06-3's notification feed. Present only on /notifications, so these report
+       "(not present)" on the order list -- which is why the page list below visits both rather
+       than this probe guessing. The unread row sits on the sunken surface token, a DIFFERENT
+       background from the read rows, so its text is measured separately: a token pair that is
+       AA on one surface is not AA on the other by implication, and that assumption is what
+       F8 was. */
+    measure('feed title (read row)', '.ss-feed__item:not(.ss-feed__item--unread) .ss-feed__title');
+    measure('feed message (read row)', '.ss-feed__item:not(.ss-feed__item--unread) .ss-feed__message');
+    measure('feed title (unread row)', '.ss-feed__item--unread .ss-feed__title');
+    measure('feed message (unread row)', '.ss-feed__item--unread .ss-feed__message');
+    measure('feed timestamp', '.ss-feed__when time');
+    measure('feed unread badge', '.ss-feed__item--unread .ss-badge');
+    measure('bell unread count', '.ss-bell__count');
     return out;
 })()
 `;
+
+/* The screens measured, in order. The bell lives in the header, so it is measured on the feed
+   page where it is also populated. */
+const PAGES = ['/order', '/notifications'];
 
 (async () => {
     const browser = await chromium.launch();
@@ -118,30 +136,65 @@ const PROBE = `
             await Promise.all([page.waitForLoadState('domcontentloaded'), page.click('button[type="submit"]')]);
             if (page.url().includes('/login')) throw new Error('login failed');
             await page.goto(`${BASE}/change-language/${dir === 'rtl' ? 'ar' : 'en'}`, { waitUntil: 'domcontentloaded' }).catch(() => {});
-            await page.goto(`${BASE}/order`, { waitUntil: 'networkidle' });
+            for (const screen of PAGES) {
+                await page.goto(`${BASE}${screen}`, { waitUntil: 'networkidle' });
 
-            const sheet = await page.evaluate(() => {
-                const el = document.getElementById('main-style-link');
-                return el ? (el.getAttribute('href') || '').split('/').pop() : '(none)';
-            });
+                // The bell's number arrives by fetch; without this the badge is still hidden
+                // and measures as "(not present)" rather than being measured.
+                await page.waitForFunction(() => {
+                    const b = document.querySelector('[data-ss-notification-count]');
+                    return !b || !b.hidden;
+                }, { timeout: 8000 }).catch(() => {});
 
-            const results = await page.evaluate(PROBE);
-            for (const r of results) rows.push(Object.assign({ dir, theme, sheet }, r));
+                const sheet = await page.evaluate(() => {
+                    const el = document.getElementById('main-style-link');
+                    return el ? (el.getAttribute('href') || '').split('/').pop() : '(none)';
+                });
+
+                const results = await page.evaluate(PROBE);
+                for (const r of results) rows.push(Object.assign({ dir, theme, sheet, screen }, r));
+            }
+
             await ctx.close();
         }
     }
 
     await browser.close();
 
+    /*
+     * ONE READING PER (config, element). A selector present on BOTH screens -- the sidebar, the
+     * page title, the breadcrumb -- would otherwise be reported twice per configuration and the
+     * "N measured" total would silently double, which is the kind of number that later gets
+     * quoted. The first screen that finds an element wins; a screen where it is absent cannot
+     * displace a reading that was taken.
+     */
+    const seen = new Set();
+    const unique = [];
+    for (const r of rows) {
+        const key = `${r.dir}/${r.theme}/${r.label}`;
+        if (r.found) {
+            if (seen.has(key)) { continue; }
+            seen.add(key);
+            unique.push(r);
+        } else if (!seen.has(key) && !rows.some((o) => o.found
+            && `${o.dir}/${o.theme}/${o.label}` === key)) {
+            seen.add(key);
+            unique.push(r);
+        }
+    }
+
     let fails = 0;
     console.log('config         sheet                   element                       ratio  need  verdict');
-    for (const r of rows) {
+    for (const r of unique) {
         const cfg = `${r.dir}/${r.theme}`.padEnd(14);
         if (!r.found) { console.log(`${cfg} ${r.sheet.padEnd(23)} ${r.label.padEnd(29)} (not present)`); continue; }
         const ok = r.ratio >= r.need;
         if (!ok) fails++;
         console.log(`${cfg} ${r.sheet.padEnd(23)} ${r.label.padEnd(29)} ${String(r.ratio).padStart(5)}  ${String(r.need).padStart(4)}  ${ok ? 'pass' : 'FAIL  ' + r.color + ' on ' + r.bg}`);
     }
-    console.log(`\n${rows.filter(r => r.found).length} measured, ${fails} below AA.`);
-    process.exit(0);
+    console.log(`\n${unique.filter(r => r.found).length} measured, ${fails} below AA.`);
+
+    // EXIT NON-ZERO ON A FAILURE. This tool used to always exit 0, so its number had to be read
+    // by a human to mean anything -- which is fine in a transcript and useless in a script.
+    process.exit(fails > 0 ? 1 : 0);
 })().catch((e) => { console.error('FATAL', e.message); process.exit(2); });

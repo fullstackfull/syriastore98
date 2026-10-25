@@ -2961,5 +2961,19 @@
     "Quick preview of :name": "معاينة سريعة لـ :name",
     "Loading product…": "جارٍ تحميل المنتج…",
     "This product could not be loaded.": "تعذّر تحميل هذا المنتج.",
-    "has variant": "له متغيّرات"
+    "has variant": "له متغيّرات",
+    ":n unread": ":n غير مقروء",
+    "Nothing unread": "لا جديد غير مقروء",
+    "Mark all as read": "تعليم الكل كمقروء",
+    "Mark as read": "تعليم كمقروء",
+    "Unread": "غير مقروء",
+    "View order": "عرض الطلب",
+    "No notifications yet": "لا إشعارات بعد",
+    "New orders and payments will appear here as they happen.": "ستظهر هنا الطلبات الجديدة والمدفوعات عند حدوثها.",
+    "No notifications you can see": "لا إشعارات يمكنك رؤيتها",
+    "Notifications in this store are about orders, and your role does not include reading them. Ask the store owner if you need access.": "إشعارات هذا المتجر تتعلق بالطلبات، ودورك لا يتضمّن قراءتها. راجع مالك المتجر إن كنت تحتاج صلاحية الوصول.",
+    "Showing the 50 most recent notifications.": "يتم عرض آخر 50 إشعاراً.",
+    "Notification not found.": "الإشعار غير موجود.",
+    "No store selected": "لا متجر محدّد",
+    "Notifications belong to a store, and no store is currently active for your account. Choose a store, or ask the platform administrator if you expected one.": "الإشعارات تابعة لمتجر، ولا يوجد متجر نشِط حالياً لحسابك. اختر متجراً، أو راجع مدير المنصّة إن كنت تتوقّع وجود متجر."
 }

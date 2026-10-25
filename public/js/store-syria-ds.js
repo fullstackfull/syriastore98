@@ -584,6 +584,63 @@
         return data;
     }
 
+    /* ------------------------------------------- notification badge (P2-06-3)
+
+       ONE FETCH, ONE NUMBER. The bell is a plain link to the notifications
+       page; this only fills the unread count on it, so the merchant can see
+       there is something to look at without opening the page.
+
+       NO POLLING. An interval on every admin page is a request per merchant
+       per tab per interval, forever, for a number that changes when an order
+       arrives -- which the merchant will see on the next page they load
+       anyway. If live updates are ever wanted, that is a push channel (the
+       Firebase path StoreNotificationService already uses for the app), not a
+       timer added quietly here.
+
+       THE LABEL IS BUILT FROM THE MARKUP'S OWN TRANSLATED TEXT. This file has
+       no translator, so the screen-reader label appends the count to the
+       server-rendered word rather than composing an English sentence -- the
+       same reason the panel takes its loading text as a prop.
+
+       EVERY FAILURE IS SILENT. A 403, a network error, a logged-out session:
+       the badge simply stays hidden, which is what it looks like with nothing
+       unread. A bell that renders an error is worse than a bell that renders
+       nothing. */
+
+    function updateNotificationBadge() {
+        var bell = document.querySelector('[data-ss-notification-bell]');
+        if (!bell) { return; }
+
+        var url = bell.getAttribute('data-ss-feed-url');
+        var badge = bell.querySelector('[data-ss-notification-count]');
+        var label = bell.querySelector('[data-ss-notification-label]');
+        if (!url || !badge) { return; }
+
+        var base = label ? (label.textContent || '').trim() : '';
+
+        fetch(url, {
+            headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+            credentials: 'same-origin'
+        })
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (data) {
+                if (!data) { return; }
+
+                var unread = parseInt(data.unread, 10);
+                if (!(unread > 0)) { return; }
+
+                /* `textContent`, never innerHTML. The number comes from the
+                   server, but the rule in this file is that nothing fetched is
+                   ever parsed as markup -- the command palette is written the
+                   same way, for the same reason. */
+                badge.textContent = unread > 99 ? '99+' : String(unread);
+                badge.hidden = false;
+
+                if (label && base) { label.textContent = base + ' (' + unread + ')'; }
+            })
+            .catch(function () { /* see the note above: silent by design */ });
+    }
+
     /* ------------------------------------------------------------------ init */
 
     function init() {
@@ -592,6 +649,7 @@
             wireDirtyTracking
         );
         focusErrorSummary();
+        updateNotificationBadge();
     }
 
     if (document.readyState === 'loading') {
@@ -613,6 +671,9 @@
         // P2-06-4. Called from the `stateSaveParams`/`stateLoadParams` options
         // that `buildDataTable()` puts on every merchant table, so the rule
         // lives in one place rather than inlined 68 times.
-        sanitizeTableState: sanitizeTableState
+        sanitizeTableState: sanitizeTableState,
+        // P2-06-3. Exposed so a screen that just marked a notification read can
+        // refresh the header count without a reload.
+        updateNotificationBadge: updateNotificationBadge
     };
 })();
