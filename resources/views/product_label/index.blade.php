@@ -40,7 +40,10 @@
             var status = $(this).prop('checked') == true ? 1 : 0;
             var id = $(this).data('id');
             $.ajax({
-                type: "GET",
+                // P2-05-1. POST, not GET -- see product_brand/index.blade.php for why, and
+                // for where the CSRF token comes from (public/js/custom.js's global
+                // $.ajaxSetup, not a line here).
+                type: "POST",
                 dataType: "json",
                 url: "{{ route('product-label.status') }}",
                 data: {

@@ -1089,7 +1089,14 @@ Route::get(
     Route::resource('customer', CustomerController::class);
     Route::get('/customer-filter', [CustomerController::class, 'CustomFilter'])->name('customer.filter');
     Route::get('/customer-filter-data', [CustomerController::class, 'CustomFilterData'])->name('customer.filter.data');
-    Route::get('/customer-status', [CustomerController::class, 'customerStatus'])->name('update.customer.status');
+    /*
+     * P2-05-1. POST, not GET. `customerStatus()` already carries the operator-first permission
+     * check and the ownership predicate (Phase 01); what it did not have was a verb that
+     * matched what it does. It writes `customers.status` from query input, so an `<img src>` on
+     * any page a signed-in merchant visited deactivated one of their own customers with no
+     * token and no click. The route NAME is unchanged.
+     */
+    Route::post('/customer-status', [CustomerController::class, 'customerStatus'])->name('update.customer.status');
     Route::get('/customer-timeline/{id}', [CustomerController::class, 'customerTimeline'])->name('customer.timeline');
     
     
@@ -1253,12 +1260,25 @@ Route::get(
 
     // Product Brand
     Route::resource('product-brand', ProductBrandController::class);
-    Route::get('product-brand-status', [ProductBrandController::class, 'changeStatus'])->name('product-brand.status');
-    Route::get('product-brand-popular', [ProductBrandController::class, 'changePopular'])->name('product-brand.popular');
+    /*
+     * P2-05-1. POST, NOT GET -- the route NAMES are unchanged, so every caller keeps working
+     * once its `type` is corrected. These three wrote `product_brands.status`,
+     * `product_brands.is_popular` and `product_labels.status` from QUERY INPUT on a GET, so an
+     * `<img src>` on any page a signed-in merchant visited flipped a row with no token and no
+     * click, and link prefetching reached them too. F12 and F14 on this phase's ledger are the
+     * same shape; this is the third and fourth instance.
+     *
+     * The verb was the smaller half. The handlers had no permission check, no ownership check
+     * and no tenant predicate at all, and neither model is in `config/tenancy.php`'s
+     * `scoped_models` -- see the controllers' own notes.
+     */
+    Route::post('product-brand-status', [ProductBrandController::class, 'changeStatus'])->name('product-brand.status');
+    Route::post('product-brand-popular', [ProductBrandController::class, 'changePopular'])->name('product-brand.popular');
 
     // Product Label
     Route::resource('product-label', ProductLabelController::class);
-    Route::get('product-label-status', [ProductLabelController::class, 'changeStatus'])->name('product-label.status');
+    // P2-05-1. POST, not GET -- see the note on product-brand-status above.
+    Route::post('product-label-status', [ProductLabelController::class, 'changeStatus'])->name('product-label.status');
 
     Route::get('newsletter/export', [NewsletterController::class, 'fileExport'])->name('newsletter.export');
 

@@ -862,6 +862,8 @@ keeping one merchant's catalogue out of another's list. That is what these measu
 | `TablePreferencesTest` | 8 | P2-06-4's wiring on the shared helper that builds all 68 DataTables, that yajra emits the hooks as real JS, the absent-script guard, and three real lists still rendering |
 | `MerchantNotificationAuthorizationTest` | 24 | P2-06-3: four handlers, two of them writes; cross-tenant on all four; per-TYPE permission; the operator admitted while holding no Laratrust permission; an unregistered type refused; route ACTIONS asserted; the marks refuse GET |
 | `TranslationFileIntegrityTest` | 5 | both lang files are valid JSON, carry no duplicate keys, and gain no new Arabic-only orphan (F2, resolved as a side effect and now pinned) |
+| `BrandLabelStatusAuthorizationTest` | 15 | P2-05-1: three toggles that were unauthorised cross-tenant writes on a GET — cross-tenant, per-permission, operator, the verb, a non-integer id, a NULL-store row, and that the switch is DISABLED for a caller the handler would refuse |
+| `StateChangingGetInventoryTest` | 4 | the set of host GET routes whose handler writes cannot grow, and cannot carry a stale row |
 | `order_status_label_test.dart` (Flutter) | 27 | P2-07-6: all nine statuses in both locales, that no label still looks like a translation key, that an Arabic locale yields Arabic characters, that each label resolves the KEY it should, and that every badge colour pair clears AA |
 | `DashboardPermissionNamesTest` | 1 | every `isAbleTo()` name in the merchant views can actually be granted |
 | `AdminLayoutAssetsTest` | 2 | every `asset()` path in the admin layout resolves to a real file |
@@ -912,6 +914,15 @@ redundant, which is the tempting reading and was wrong every time it was tried.
 | the bell badge's colour pair reverted to `--ss-danger-fg` + white | 2 of 60 contrast readings fail at **1.91:1** in dark. `--ss-danger-fg` is a FOREGROUND token (#f3a9a4 in dark); the pair `.ss-btn--danger` already uses (`--ss-danger` / `--ss-on-danger`) inverts correctly in both themes |
 | the feed's three text classes removed from the host-override block | 10 of 60 fail at 3.42–3.85:1. `style-dark.css` sets `p { color: #808191 !important }` on a selector list shared with the sidebar and `.dataTable-info`, so a `<p>` in the feed is forced grey — the same rule F8 fought |
 | a duplicate key and an Arabic-only key reintroduced into `ar.json` | 2 of 5 failed |
+| the brand **store predicate** | 3 failed — both cross-tenant cases and the NULL-store case |
+| the brand **permission check** | 2 failed |
+| the brand **operator limb** | 1 failed |
+| the label **store predicate** | 1 failed |
+| the brand table's **disabled-switch gate** | 1 failed |
+| a NEW state-changing GET route added | 1 failed, naming the uri and the action |
+| one of the four converted routes reverted to GET | 2 failed |
+| a stale row added to the declared set | 1 failed |
+| one of the four live callers reverted to GET | 4 of 28 browser cases failed, including the values reappearing in the query string |
 | the Flutter badge's statuses 7 and 8 reverted | 4 failed |
 | the three Flutter badge colours reverted | 1 failed, naming all three ratios (2.81, 4.06, 1.85:1) |
 | one Arabic description literal restored | 1 failed |
@@ -923,6 +934,29 @@ redundant, which is the tempting reading and was wrong every time it was tried.
 | search: the **orders** store predicate | 1 failed — `⨯ a merchant does not find another tenants orders` (1 failed, 10 passed) |
 | search: the **customers** store predicate | **0 failed (11 passed)** — the one section where a single removal is not caught, because `Customer` IS in `scoped_models` and its global scope supplies the same predicate for a principal who resolves a tenant. The predicate stays on the project's rule that the scope must never be the only tenant check, and the hazard is pinned by its own test, which measures that `Customer::query()` for a **tenant-less** principal compiles with NO store predicate and returns both tenants' rows |
 | search: the unresolved-tenant refusal | 0 failed — with it gone the queries run `where('store_id', null)`, which compiles to `IS NULL` and matches nothing, so products and orders come back empty either way. Its value is in the Customer query under `null_tenant => 'open'`, and both controls would have to go for rows to escape |
+
+## 9d-bis. The four toggles, driven in a real browser (P2-05-1)
+
+`docs/development/phase-2/tools/check-toggle-posts-live.cjs` — a real login, a real list, a real
+click. The suite drives the ROUTE; this drives the PAGE, which is where the GET→POST change to
+four `$.ajax` calls could silently break a toggle a merchant then discovers.
+
+```
+33 cases passed
+```
+
+Per toggle: the switch is on the page (asserted, not assumed), the click issues a **POST**, no
+values remain in the query string, the response is 200, the handler reports success, and **the row
+changed in the database** — read back after a reload rather than from the DOM the click left
+behind.
+
+**And one case the file was missing until it was written down.** The three views originally set an
+explicit `X-CSRF-TOKEN` header; removing it changed nothing here, because
+`public/js/custom.js` sets `$.ajaxSetup({headers: …})` for every jQuery call in the application.
+So the protection was claimed and never measured. The redundant headers were deleted and a case
+added that POSTs with `fetch` — which bypasses `$.ajaxSetup` — from the page's own origin and
+session: **419 required on all four**. That is the shape a cross-site POST takes once it reaches
+the handler, and without it these routes would have been POST in name only.
 
 ## 9e. Contrast, measured in the running application
 

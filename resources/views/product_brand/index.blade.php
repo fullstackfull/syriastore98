@@ -40,7 +40,18 @@
             var status = $(this).prop('checked') == true ? 1 : 0;
             var id = $(this).data('id');
             $.ajax({
-                type: "GET",
+                // P2-05-1. POST, not GET: this route writes, and a state-changing GET is
+                // reachable from a third-party <img src> and by link prefetching. The route
+                // NAME is unchanged, so the verb is the only thing new here.
+                //
+                // THE CSRF TOKEN NEEDS NO LINE. `public/js/custom.js` sets
+                // `$.ajaxSetup({headers: {'X-CSRF-TOKEN': ...}})` for every jQuery call, which
+                // is how every other POST in this codebase gets its token. An explicit header
+                // here was written first and then removed: it was redundant, and MEASURED so --
+                // deleting it did not change the live check, while reverting the verb failed
+                // four of its cases. Enforcement itself is asserted, not assumed: the live
+                // check sends a tokenless `fetch` and requires 419.
+                type: "POST",
                 dataType: "json",
                 url: "{{ route('product-brand.status') }}",
                 data: {
@@ -62,7 +73,10 @@
             var is_popular = $(this).prop('checked') == true ? 1 : 0;
             var id = $(this).data('id');
             $.ajax({
-                type: "GET",
+                // P2-05-1. POST with the token: this route writes, and a state-changing GET
+                // is reachable from a third-party <img src> and by link prefetching. The route
+                // NAME is unchanged, so only the verb and the token are new here.
+                type: "POST",
                 dataType: "json",
                 url: "{{ route('product-brand.popular') }}",
                 data: {

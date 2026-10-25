@@ -187,20 +187,89 @@ class ProductBrandController extends Controller
      *
      * @return \Illuminate\Http\Response
      */
+    /**
+     * THE SHARED GUARD for the two toggles below. P2-05-1.
+     *
+     * WHAT WAS HERE: `ProductBrand::find($request->id)`, then a write. No permission check, no
+     * ownership check, no tenant predicate -- and `ProductBrand` is **not in
+     * `config/tenancy.php`'s `scoped_models`**, carries no `BelongsToStore` and registers no
+     * `StoreScope`, so `find()` reached every tenant's rows for every principal. Any
+     * authenticated web caller could disable any brand in any store by walking the id, and
+     * `status` is the column the storefront filters on.
+     *
+     * THE API SIBLINGS WERE ALREADY FIXED -- `Api\DashboardController::ChangeStatus` and
+     * `ChangePopular` both carry `whereIn('store_id', $this->ownedStoreIds())`. The Flutter path
+     * was closed and this one was left open, which is a census keyed on the surface somebody
+     * happened to be looking at rather than on the model.
+     *
+     * OPERATOR FIRST. Laratrust has no super-admin bypass, so `isAbleTo()` alone refuses the
+     * platform operator; reversing these two limbs is a lockout, not a tightening.
+     *
+     * `Edit Product Brand` is the permission `edit()` and `update()` on this same row already
+     * use, so the toggle asks the question the editor asks. It is seeded, so this is not the
+     * F15 trap of gating on a name no row exists for.
+     *
+     * 404 FOR A FOREIGN OR ABSENT ROW, 403 for a permission refusal: a row outside the caller's
+     * store is indistinguishable from one that does not exist, so the response is not an
+     * existence oracle.
+     *
+     * @return array{0: null, 1: \App\Models\ProductBrand}|array{0: \Illuminate\Http\JsonResponse, 1: null}
+     */
+    private function resolveOwnedBrand(Request $request): array
+    {
+        $user = auth()->user();
+
+        $isOperator = $user !== null && \App\Policies\UserPolicy::isOperator($user);
+
+        if ($user === null || (! $isOperator && ! $user->isAbleTo('Edit Product Brand'))) {
+            return [response()->json(['status' => 'error', 'message' => __('Permission denied.')], 403), null];
+        }
+
+        // `filter_var`, not `is_numeric`: is_numeric accepts '5.9' and rejects '5abc', while
+        // MySQL coerces '5abc' to row 5 in a `WHERE id = ?` comparison.
+        $id = filter_var($request->input('id'), FILTER_VALIDATE_INT);
+
+        $notFound = [response()->json(['status' => 'error', 'message' => __('Something went wrong!!')], 404), null];
+
+        if ($id === false || $id <= 0) {
+            return $notFound;
+        }
+
+        $brand = ProductBrand::find($id);
+
+        if ($brand === null) {
+            return $notFound;
+        }
+
+        if (! $isOperator) {
+            $currentStore = getCurrentStore($user->id);
+
+            // Fail closed on either side being absent. A row with a NULL store_id is invisible
+            // to every store predicate in the application and must not become visible here.
+            if (empty($currentStore) || empty($brand->store_id)
+                || (int) $brand->store_id !== (int) $currentStore) {
+                return $notFound;
+            }
+        }
+
+        return [null, $brand];
+    }
+
     public function changeStatus(Request $request)
     {
-        $productBrand = ProductBrand::find($request->id);
-        if ($productBrand) {
-            $productBrand->status = $request->status;
-            $productBrand->save();
-            $return['status'] = 'success';
-            $return['message'] = __('Status change successfully.');
-            return response()->json($return);
-        } else {
-            $return['status'] = 'error';
-            $return['message'] = __('Something went wrong!!');
-            return response()->json($return);
+        [$refusal, $productBrand] = $this->resolveOwnedBrand($request);
+
+        if ($refusal !== null) {
+            return $refusal;
         }
+
+        $productBrand->status = $request->input('status');
+        $productBrand->save();
+
+        return response()->json([
+            'status' => 'success',
+            'message' => __('Status change successfully.'),
+        ]);
     }
 
     /**
@@ -210,18 +279,21 @@ class ProductBrandController extends Controller
      */
     public function changePopular(Request $request)
     {
-        $productBrand = ProductBrand::find($request->id);
+        // THE SAME GUARD as changeStatus. `is_popular` promotes a brand on the storefront, so
+        // it is the same question about the same row -- a second, looser idiom here is how two
+        // handlers on one model drift apart.
+        [$refusal, $productBrand] = $this->resolveOwnedBrand($request);
 
-        if ($productBrand) {
-            $productBrand->is_popular = $request->is_popular;
-            $productBrand->save();
-            $return['status'] = 'success';
-            $return['message'] = __('Status change successfully.');
-            return response()->json($return);
-        } else {
-            $return['status'] = 'error';
-            $return['message'] = __('Something went wrong!!');
-            return response()->json($return);
+        if ($refusal !== null) {
+            return $refusal;
         }
+
+        $productBrand->is_popular = $request->input('is_popular');
+        $productBrand->save();
+
+        return response()->json([
+            'status' => 'success',
+            'message' => __('Status change successfully.'),
+        ]);
     }
 }

@@ -131,21 +131,72 @@ class ProductLabelController extends Controller
      *
      * @return \Illuminate\Http\Response
      */
+    /**
+     * P2-05-1. THE LABEL TOGGLE, with the controls it never had.
+     *
+     * WHAT WAS HERE: `ProductLabel::find($request->id)`, then a write. No permission check, no
+     * ownership check, no tenant predicate -- and `ProductLabel` is **not in
+     * `config/tenancy.php`'s `scoped_models`**, carries no `BelongsToStore` and registers no
+     * `StoreScope`, so `find()` reached every tenant's rows for every principal. It was also a
+     * GET, so it was reachable from a third-party `<img src>` and by link prefetching.
+     *
+     * `Api\DashboardController::LableChangeStatus` -- the Flutter sibling -- was already fixed
+     * with `whereIn('store_id', $this->ownedStoreIds())`. This path was left open.
+     *
+     * The shape is deliberately identical to `ProductBrandController::resolveOwnedBrand()`:
+     * operator first (Laratrust has no super-admin bypass, so `isAbleTo()` alone refuses the
+     * operator and reversing the limbs is a lockout), `filter_var` rather than `is_numeric`
+     * (MySQL coerces '5abc' to row 5), an explicit store predicate that fails closed on either
+     * side being absent, and 404 for a foreign or absent row so the response is not an
+     * existence oracle.
+     *
+     * `Edit Product Label` is what `edit()` and `update()` on this row already use.
+     */
     public function changeStatus(Request $request)
     {
-        $productLabel = ProductLabel::find($request->id);
+        $user = auth()->user();
 
-        if ($productLabel) {
-            $productLabel->status = $request->status;
-            $productLabel->save();
-            $return['status'] = 'success';
-            $return['message'] = __('Status change successfully.');
-            return response()->json($return);
-            // return success_res('Install successfully.');
-        } else {
-            $return['status'] = 'error';
-            $return['message'] = __('Something went wrong!!');
-            return response()->json($return);
+        $isOperator = $user !== null && \App\Policies\UserPolicy::isOperator($user);
+
+        if ($user === null || (! $isOperator && ! $user->isAbleTo('Edit Product Label'))) {
+            return response()->json([
+                'status' => 'error',
+                'message' => __('Permission denied.'),
+            ], 403);
         }
+
+        $id = filter_var($request->input('id'), FILTER_VALIDATE_INT);
+
+        $notFound = response()->json([
+            'status' => 'error',
+            'message' => __('Something went wrong!!'),
+        ], 404);
+
+        if ($id === false || $id <= 0) {
+            return $notFound;
+        }
+
+        $productLabel = ProductLabel::find($id);
+
+        if ($productLabel === null) {
+            return $notFound;
+        }
+
+        if (! $isOperator) {
+            $currentStore = getCurrentStore($user->id);
+
+            if (empty($currentStore) || empty($productLabel->store_id)
+                || (int) $productLabel->store_id !== (int) $currentStore) {
+                return $notFound;
+            }
+        }
+
+        $productLabel->status = $request->input('status');
+        $productLabel->save();
+
+        return response()->json([
+            'status' => 'success',
+            'message' => __('Status change successfully.'),
+        ]);
     }
 }

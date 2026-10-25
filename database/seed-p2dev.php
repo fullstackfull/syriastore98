@@ -43,6 +43,12 @@ if (! $role) {
 foreach ([
     'Manage Dashboard','Manage Order','Show Order','Manage Products','Create Product','Edit Product','Delete Product',
     'Manage Product Category','Manage Product Brand','Manage Customer','Manage User','Manage Role',
+    // P2-05-1 grants the EDIT permissions the four converted toggles now require, plus the
+    // label and customer-status ones the lists gate their switches on. All five are seeded in
+    // app/Models/Utility.php and granted to a real tenant owner's role there, so this brings
+    // the dev fixture in line with production rather than loosening anything -- measured: the
+    // fixture merchant got 403 on /product-brand-status and was redirected off /product-label.
+    'Edit Product Brand','Manage Product Label','Edit Product Label','Status Customer',
     'Manage Store Setting','Manage Reports','Manage Order Reports','Manage Stock Reports','Manage Coupon',
 ] as $name) {
     $p = Permission::firstOrCreate(['name' => $name], ['display_name' => $name]);
@@ -87,6 +93,55 @@ foreach ($rows as [$name, $price, $stock, $low]) {
         'variant_product' => 0, 'created_by' => $merchant->id,
         'stock_status' => $stock > 0 ? 'in_stock' : 'out_of_stock',
     ]);
+}
+
+/*
+ * P2-05-1 fixtures: brands, labels and customers, so the three toggles that became POST can be
+ * driven in a real browser. Invented data only -- the brief forbids production data in
+ * screenshots and the #120 dump is not on this branch.
+ *
+ * `created_by` and `store_id` are set EXPLICITLY on every row: neither is in the models'
+ * $fillable, so a mass-assigned create drops them and the row becomes invisible to the store
+ * predicates the handlers now carry.
+ */
+foreach ([['Damascene Silk', 1, 1], ['Aleppo Weave', 1, 0], ['Homs Cotton', 0, 0]] as [$bname, $bstatus, $bpopular]) {
+    $bslug = \Illuminate\Support\Str::slug($bname);
+    if (! \App\Models\ProductBrand::where('slug', $bslug)->where('store_id', $store->id)->exists()) {
+        \App\Models\ProductBrand::forceCreate([
+            'name' => $bname, 'slug' => $bslug, 'logo' => null,
+            'status' => $bstatus, 'is_popular' => $bpopular,
+            'store_id' => $store->id, 'created_by' => $merchant->id,
+        ]);
+    }
+}
+
+foreach ([['New Arrival', 1], ['Clearance', 1], ['Limited', 0]] as [$lname, $lstatus]) {
+    $lslug = \Illuminate\Support\Str::slug($lname);
+    if (! \App\Models\ProductLabel::where('slug', $lslug)->where('store_id', $store->id)->exists()) {
+        \App\Models\ProductLabel::forceCreate([
+            'name' => $lname, 'slug' => $lslug, 'status' => $lstatus,
+            'store_id' => $store->id, 'created_by' => $merchant->id,
+        ]);
+    }
+}
+
+foreach ([['Layla', 'Haddad', 1], ['Omar', 'Khalil', 1], ['Nour', 'Saleh', 0]] as [$first, $last, $cstatus]) {
+    $email = strtolower($first . '.' . $last) . '@example.test';
+    if (! \App\Models\Customer::withoutGlobalScopes()->where('email', $email)->exists()) {
+        /*
+         * `regiester_date` (sic -- the column is misspelled in the schema) is REQUIRED for the
+         * status switch to render: customer/status.blade.php wraps it in
+         * `@if ($customer->regiester_date != null)`. Measured -- without it the customer list
+         * showed three raw zeros where the switch belongs, which read as a defect and was a
+         * fixture gap.
+         */
+        \App\Models\Customer::forceCreate([
+            'first_name' => $first, 'last_name' => $last, 'email' => $email,
+            'password' => Hash::make('password'), 'status' => $cstatus,
+            'regiester_date' => now()->subDays(30),
+            'store_id' => $store->id,
+        ]);
+    }
 }
 
 // Orders across the statuses the dashboard partitions, including 7 and 8 -- the two

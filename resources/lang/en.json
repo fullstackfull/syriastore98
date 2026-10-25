@@ -2944,5 +2944,6 @@
     "Showing the 50 most recent notifications.": "Showing the 50 most recent notifications.",
     "Notification not found.": "Notification not found.",
     "No store selected": "No store selected",
-    "Notifications belong to a store, and no store is currently active for your account. Choose a store, or ask the platform administrator if you expected one.": "Notifications belong to a store, and no store is currently active for your account. Choose a store, or ask the platform administrator if you expected one."
+    "Notifications belong to a store, and no store is currently active for your account. Choose a store, or ask the platform administrator if you expected one.": "Notifications belong to a store, and no store is currently active for your account. Choose a store, or ask the platform administrator if you expected one.",
+    "You do not have permission to change this.": "You do not have permission to change this."
 }

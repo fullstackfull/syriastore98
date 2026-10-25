@@ -96,7 +96,13 @@
                 var customer_id = $(this).attr('id');
 
                 $.ajax({
-                    type: "GET",
+                    // P2-05-1. POST, not GET: this route writes `customers.status`, and a
+                    // state-changing GET is reachable from a third-party <img src> and by link
+                    // prefetching. The handler's own permission and ownership checks were
+                    // already in place (Phase 01); the verb was not. The CSRF token comes from
+                    // public/js/custom.js's global $.ajaxSetup, as it does for every other POST
+                    // in this codebase.
+                    type: "POST",
                     dataType: "json",
                     url: "{{ route('update.customer.status') }}",
                     data: {

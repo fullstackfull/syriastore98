@@ -144,7 +144,12 @@
                 var customer_id = $(this).attr('id');
 
                 $.ajax({
-                    type: "GET",
+                    // P2-05-1. POST, not GET -- the SECOND caller of this route.
+                    // The index view was the one somebody was looking at; this grid view calls
+                    // the same route and would have gone on sending a GET. That is the F14
+                    // lesson in this phase's ledger, which is why the callers were censused by
+                    // route NAME across every view rather than fixed where they were noticed.
+                    type: "POST",
                     dataType: "json",
                     url: "{{ route('update.customer.status') }}",
                     data: {

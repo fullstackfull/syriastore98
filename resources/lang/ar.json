@@ -2975,5 +2975,6 @@
     "Showing the 50 most recent notifications.": "يتم عرض آخر 50 إشعاراً.",
     "Notification not found.": "الإشعار غير موجود.",
     "No store selected": "لا متجر محدّد",
-    "Notifications belong to a store, and no store is currently active for your account. Choose a store, or ask the platform administrator if you expected one.": "الإشعارات تابعة لمتجر، ولا يوجد متجر نشِط حالياً لحسابك. اختر متجراً، أو راجع مدير المنصّة إن كنت تتوقّع وجود متجر."
+    "Notifications belong to a store, and no store is currently active for your account. Choose a store, or ask the platform administrator if you expected one.": "الإشعارات تابعة لمتجر، ولا يوجد متجر نشِط حالياً لحسابك. اختر متجراً، أو راجع مدير المنصّة إن كنت تتوقّع وجود متجر.",
+    "You do not have permission to change this.": "لا تملك صلاحية تغيير هذا."
 }
