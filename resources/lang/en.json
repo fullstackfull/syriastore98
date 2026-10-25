@@ -2909,5 +2909,12 @@
     "Loading order…": "Loading order…",
     "This order could not be loaded.": "This order could not be loaded.",
     "Payment": "Payment",
-    "Name your store and set its details": "Name your store and set its details"
+    "Name your store and set its details": "Name your store and set its details",
+    "Search results": "Search results",
+    "Search products, orders and customers…": "Search products, orders and customers…",
+    "Nothing found": "Nothing found",
+    "Search is unavailable right now.": "Search is unavailable right now.",
+    "Searching…": "Searching…",
+    "Type at least two characters": "Type at least two characters",
+    ":n in stock": ":n in stock"
 }

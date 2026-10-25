@@ -1136,6 +1136,16 @@ Route::get(
     Route::get('order-grid', [OrderController::class, 'order_grid_view'])->name('order.grid');
 
     /*
+     * P2-06-2. The merchant's global search.
+     *
+     * Inside the authenticated admin group, so it is never anonymous, and every SECTION of the
+     * response is gated and tenant-scoped in the controller -- a search box is an enumeration
+     * oracle otherwise. GET because it is a read; it writes nothing and has no side effects.
+     */
+    Route::get('merchant-search', [\App\Http\Controllers\MerchantSearchController::class, 'search'])
+        ->name('merchant.search');
+
+    /*
      * P2-04-5. The read-only quick-preview fragment for the order side panel.
      *
      * GET, because it is a read -- and because OrderDocumentAccessGuard arms only on GET

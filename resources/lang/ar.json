@@ -2940,5 +2940,12 @@
     "Loading order…": "جارٍ تحميل الطلب…",
     "This order could not be loaded.": "تعذّر تحميل هذا الطلب.",
     "Payment": "الدفع",
-    "Name your store and set its details": "سمِّ متجرك واضبط تفاصيله"
+    "Name your store and set its details": "سمِّ متجرك واضبط تفاصيله",
+    "Search results": "نتائج البحث",
+    "Search products, orders and customers…": "ابحث في المنتجات والطلبات والعملاء…",
+    "Nothing found": "لا توجد نتائج",
+    "Search is unavailable right now.": "البحث غير متاح حالياً.",
+    "Searching…": "جارٍ البحث…",
+    "Type at least two characters": "اكتب حرفين على الأقل",
+    ":n in stock": ":n في المخزون"
 }

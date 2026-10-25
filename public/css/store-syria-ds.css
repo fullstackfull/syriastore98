@@ -2205,3 +2205,35 @@ a.ss-setup__item:focus-visible {
     .ss-stats { border-color: #999; }
     .ss-stat { border-color: #999; }
 }
+
+
+/* ---- Command palette: backdrop and the states the results list can be in (P2-06-2) ----
+   The palette's own box already existed in this file and was never wired to anything; these are
+   the pieces a live, fetching palette needs that a static mock did not. */
+.ss-command-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: calc(var(--ss-z-dialog) - 1);
+    background: rgba(0, 0, 0, 0.45);
+}
+
+.ss-command__note {
+    margin: 0;
+    padding: var(--ss-space-6) var(--ss-space-5);
+    color: var(--ss-fg-muted);
+    font-size: var(--ss-text-sm);
+    text-align: center;
+}
+
+/* The row's secondary line. `--ss-fg-subtle` rather than a lighter grey: it is read, not
+   decoration, and it sits on the same surface as the title. */
+.ss-command__meta {
+    margin-inline-start: auto;
+    padding-inline-start: var(--ss-space-3);
+    color: var(--ss-fg-subtle);
+    font-size: var(--ss-text-xs);
+    white-space: nowrap;
+}
+
+.ss-command__item { text-decoration: none; }
+.ss-command__title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

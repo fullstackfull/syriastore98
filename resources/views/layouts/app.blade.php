@@ -510,6 +510,9 @@
     </div>
 
     @include('partision.settingPopup')
+    {{-- P2-06-2: the global search palette, once per admin page. --}}
+    @include('partision.command-palette')
+
     @include('partision.footerlink')
     @stack('scripts')
     @stack('custom-script')
