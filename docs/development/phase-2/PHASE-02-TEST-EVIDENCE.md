@@ -747,7 +747,7 @@ $ php artisan test --testsuite=Contract
 $ php artisan test --testsuite=Feature \
       --log-junit storage/logs/feature-junit.xml \
       --log-teamcity storage/logs/feature-teamcity.txt
-  Tests:  5798 passed, 3 failed, 17 skipped (29134 assertions)   [first run]
+  Tests:  5798 passed, 3 failed, 17 skipped (29134 assertions)   [FIRST run]
 
 $ php .github/scripts/assert-known-test-outcomes.php \
       storage/logs/feature-junit.xml .github/known-test-outcomes.json \
@@ -756,6 +756,35 @@ $ php .github/scripts/assert-known-test-outcomes.php \
   ::error::NEW FAILURE, not in the manifest:
       SecurityLogInventoryTest::test_the_observability_inventory_matches_the_source
 ```
+
+**FINAL run, at head `b314cca1`, after the inventory was re-pointed and every slice in this
+cycle was in the tree:**
+
+```
+$ php artisan test --testsuite=Feature \
+      --log-junit storage/logs/feature-junit.xml \
+      --log-teamcity storage/logs/feature-teamcity.txt
+  Tests:  5814 passed, 2 failed, 17 skipped (29174 assertions)
+  Duration: 1101.50s
+
+$ php .github/scripts/assert-known-test-outcomes.php \
+      storage/logs/feature-junit.xml .github/known-test-outcomes.json \
+      storage/logs/feature-teamcity.txt
+
+  testcases observed   : 5833  (manifest floor 1000)
+  failures observed    : 2  (manifest declares 2)
+  errors observed      : 0  (always expected: 0)
+  skips observed       : 17  (manifest declares 17)
+
+  OK: the observed outcome set matches the manifest exactly -- 2 declared failures,
+      17 declared skips, 0 errors, and nothing undeclared.
+```
+
+The two failures are the manifest's own — `RegistrationTest::test_new_users_can_register` and
+`ProfileTest::test_profile_page_is_displayed`. **The gate's own closing words are worth repeating
+rather than paraphrasing:** *"This is NOT a statement that the suite is green. It is a statement
+that the suite is failing and skipping exactly the tests the project has recorded, for the reasons
+it has recorded."*
 
 **The extra failure was mine, and it was the inventory doing its job.** Three security log lines in
 `OrderController.php` moved when `order_preview()` was inserted above them, and
