@@ -2695,12 +2695,20 @@ if (! function_exists('buildDataTableColumn')) {
     {
         $columns = [];
 
-        // Always add the ID column (hidden)
+        /*
+         * Always add the ID column (hidden) -- and LOCKED out of the column-visibility menu
+         * (P2-03-1). It is hidden on purpose: it is the raw primary key, it is not what a
+         * merchant identifies a record by (that is `product_order_id` on an order, the name on
+         * a product), and the menu offered it as "Id" with no indication of what un-hiding it
+         * would put on screen. Measured: before this, the menu listed eleven entries and the
+         * first was that column.
+         */
         $columns[] = Column::make('id')
             ->searchable(false)
             ->visible(false)
             ->exportable(false)
-            ->printable(false);
+            ->printable(false)
+            ->addClass('ss-col-locked');
 
         $deleteColumn = bulkDeleteCloneCheckboxColumn();
         if ($deleteColumn) {
@@ -2756,11 +2764,32 @@ if (! function_exists('buildDataTableColumn')) {
 
         // Add the action column
         if ($action) {
+            /*
+             * TWO CLASSES, TWO DIFFERENT JOBS -- and they are deliberately not one class.
+             *
+             * `ss-col-locked` KEEPS THIS COLUMN OUT OF THE COLUMN-VISIBILITY MENU. The menu's
+             * `columns` selector is `:not(.ss-col-locked)`. A merchant who hid the actions
+             * column would be left unable to act on any row, with the control that would bring
+             * it back sitting in a menu they have no reason to reopen.
+             *
+             * `ss-col-pinned` STICKS IT TO THE TRAILING EDGE of the scroll (P2-03-1), so Edit
+             * and Delete are reachable without dragging the table sideways. Measured at 390px:
+             * 848 of the Arabic table's 1168 pixels are off-screen, 930 of the English table's
+             * 1250 -- and with this class removed, a real click on Edit at the table's starting
+             * scroll position navigated nowhere in all eight configurations, 1440px included.
+             * `inset-inline-end` means the trailing edge is the right in English and the left
+             * in Arabic with no second rule; the styling, and why the pinned cell's background
+             * is a custom property carrying a copy of a vendored colour rather than a design
+             * token, are in `public/css/store-syria-ds.css`.
+             *
+             * The hidden `id` column above is locked but NOT pinned: it is never rendered, so
+             * pinning it would stick nothing to anything.
+             */
             $columns[] = Column::computed('action')
                 ->exportable(false)
                 ->printable(false)
                 ->width(60)
-                ->title(__('Action'))->addClass('text-center');
+                ->title(__('Action'))->addClass('text-center ss-col-locked ss-col-pinned');
         }
 
         return $columns;
@@ -2792,6 +2821,22 @@ if (! function_exists('buildDataTable')) {
                         searchInput.removeClass(\'form-control form-control-sm\');
                         searchInput.addClass(\'dataTable-input\');
                         var select = $(table.api().table().container()).find(".dataTables_length select").removeClass(\'custom-select custom-select-sm form-control form-control-sm\').addClass(\'dataTable-selector\');
+
+                        /* P2-03-1. THE COLUMN-VISIBILITY BUTTON\'S ACCESSIBLE NAME.
+                           Buttons 1.3.1 renders it as an <a> wrapping a span and an
+                           `aria-hidden` icon, so without this its only name is `title` --
+                           which is the last-resort name source and the one this codebase has
+                           already been bitten by (F38/F39: Bootstrap\'s tooltip moves `title`
+                           into `data-bs-original-title` and blanks it). This button carries no
+                           `data-bs-toggle="tooltip"`, so its title survives today; an explicit
+                           `aria-label` means it does not have to.
+                           `aria-haspopup` says it opens a menu. `role="button"` is deliberately
+                           NOT set: it would make a screen reader promise Space activates the
+                           control, and Space does not fire click on an anchor. */
+                        $(table.api().table().container())
+                            .find(\'.ss-colvis\')
+                            .attr(\'aria-label\', function () { return $(this).attr(\'title\') || \'\'; })
+                            .attr(\'aria-haspopup\', \'true\');
                     }');
 
         $exportButtonConfig = [];
@@ -2801,9 +2846,55 @@ if (! function_exists('buildDataTable')) {
             $bulkdeleteButtonConfig = bulkDeleteForm($type, $tableId);
         }
 
+        /*
+         * P2-03-1 / WS G2 -- THE COLUMN-VISIBILITY CONTROL, WHICH WAS LOADED AND UNUSED.
+         *
+         * `public/vendor/datatables/buttons.colVis.min.js` is already on every page that carries
+         * a DataTable -- measured in the running application: `$.fn.dataTable.ext.buttons.colvis`
+         * resolves, and the only buttons rendered were Reset and Reload. So the merchant had an
+         * eleven-column product table, no way to narrow it, and the extension that does exactly
+         * that sitting idle in the bundle.
+         *
+         * WHY IT BELONGS HERE. This helper builds all 68 DataTables (39 host, 29 vendored), so
+         * one addition reaches every merchant table and **no `packages/workdo/` file is touched**
+         * -- the same leverage P2-06-4 used for `stateSave`. And `stateSave` is what makes this a
+         * PREFERENCE rather than a per-visit toggle: the choice is already persisted per table,
+         * per device, with no expiry. Workstream G asks for "visible columns ... where
+         * supported"; this is the half that was missing.
+         *
+         * `columns: ':not(.ss-col-locked)'` keeps the actions column out of the menu: a merchant
+         * who hides it cannot act on any row and has no obvious way back.
+         *
+         * AND IT DOES NOT TOUCH EXPORT, which is the obvious worry and was checked rather than
+         * assumed. A DataTables export button defaults to the VISIBLE columns, so a hidden
+         * column would silently shrink the file -- but there is no DataTables export here:
+         * `$exportButtonConfig` is empty, and the Export control on these screens is the
+         * ImportExport module's own anchor to the server-side `product.export` route, which
+         * reads the model, not the table. Hiding a column changes what the merchant sees and
+         * nothing else.
+         */
+        $colvisButtonConfig = [
+            'extend' => 'colvis',
+            'text' => '<i class="ti ti-columns" aria-hidden="true"></i>',
+            'titleAttr' => __('Choose columns'),
+            'className' => 'btn btn-light-primary ss-colvis',
+            'columns' => ':not(.ss-col-locked)',
+            'collectionLayout' => 'fixed two-column',
+            /*
+             * NO `attr` KEY HERE, and the reason is measured rather than remembered. This
+             * application bundles DataTables Buttons **1.3.1**, which accepts an `attr` config
+             * and silently drops it: added and rendered, the button came back with `aria-label`
+             * and `role` both null. (Later Buttons releases do honour it -- but the version
+             * here is the one that decides, and that is the one that was checked.) A config
+             * that looks like it sets an accessible name and does not is worse than none, so
+             * the name is set in `initComplete` instead, where it can be read off the DOM.
+             */
+        ];
+
         $buttonsConfig = array_merge([
             $exportButtonConfig,
             $bulkdeleteButtonConfig,
+            $colvisButtonConfig,
             [
                 'text' => '<i class="ti ti-arrow-back-up" data-bs-toggle="tooltip" title="'.__("Reset").'" data-bs-original-title="'.__("Reset").'"></i>',
                 'extend' => 'reset',

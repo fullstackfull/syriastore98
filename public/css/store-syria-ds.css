@@ -2433,3 +2433,109 @@ a.ss-setup__item:focus-visible {
 }
 
 .ss-filterbar__actions { order: 2; }
+
+/* ==========================================================================
+   Merchant data table (P2-03-1)
+   ==========================================================================
+
+   THE VENDORED DATATABLES, not `.ss-table`. The 68 admin lists are yajra
+   DataTables rendering the theme's `.table.dataTable`, and this section does
+   exactly two things to them: it pins the row-actions column to the trailing
+   edge of the horizontal scroll, and it gives the column-visibility button
+   the same focus ring as every other control. Everything else about those
+   tables is left to the host, because restyling them is a different slice
+   with a different blast radius.
+
+   THE MEASUREMENT THAT PUT THIS HERE. The product list is 1168px wide at
+   1440, 1280, 992, 768 and 390 viewport widths alike -- eleven columns, no
+   collapse, `table-layout: auto` with long Arabic headers setting the floor.
+   `.table-responsive` keeps that off the document (measured: the document
+   does not overflow at any of the five widths), so the cost lands entirely on
+   reaching the end of a row: at 390px the wrapper shows 320 of those 1168
+   pixels, leaving 848px of sideways dragging between a merchant and the Edit
+   button. Pinning the actions is the smallest change that fixes it without
+   hiding a single field.
+
+   WHY THE PINNED CELL'S COLOUR IS A VARIABLE WITH TWO HARD-CODED VALUES,
+   which is the one ugly thing here and worth stating plainly.
+
+   A `position: sticky` cell needs an opaque background or the rest of the row
+   scrolls through it. Three candidates, measured in the running application:
+
+   1. `var(--ss-surface)` -- WRONG IN DARK MODE. The host paints this card
+      `#ffffff` in light, which the token matches, and `#292a33` in dark,
+      where the token is `#263331`. Different hues, so the token draws a
+      visibly off-colour band down every dark table: ledger F8 again.
+   2. `background-color: inherit`, chained down from the card -- TRIED, AND IT
+      DOES NOT REACH. `inherit` walks exactly one level, and DataTables
+      injects three divs of its own between `.ecom-data-table` and the table
+      (`.dataTables_wrapper` > `.dataTable-container` > `.col-sm-12`), each
+      painting nothing. Measured: with the chain written through wrapper,
+      table, tbody and tr, the pinned cell still computed
+      `rgba(0, 0, 0, 0)`. Enumerating those three would work until somebody
+      edits `buildDataTable`'s `dom` string, and it would fail silently.
+   3. A CUSTOM PROPERTY, which inherits through any depth of DOM whatever
+      DataTables injects. That is this.
+
+   So the two values below are a COPY OF A VENDORED COLOUR, and a copy goes
+   stale. It is ratcheted rather than trusted:
+   `docs/development/phase-2/tools/check-pinned-column-live.cjs` reads the
+   card's real painted background in both themes and fails if either stops
+   matching, so a theme update is caught by a check instead of by a merchant.
+
+   `thead th` IS DELIBERATELY NOT GIVEN THAT COLOUR. The host already paints
+   the header cells opaque and a shade off the card (`#f8f9fd` light,
+   `#22242c` dark), so they need no background from us -- and overriding
+   theirs would make the pinned header cell the one that does not match its
+   own row.
+   ========================================================================== */
+
+.ss-dt-card-body { --ss-dt-card-bg: #ffffff; }
+[data-ss-theme="dark"] .ss-dt-card-body { --ss-dt-card-bg: #292a33; }
+@media (prefers-color-scheme: dark) {
+    [data-ss-theme="auto"] .ss-dt-card-body { --ss-dt-card-bg: #292a33; }
+}
+
+.ss-dt-card-body table.dataTable > tbody > tr > td.ss-col-pinned {
+    position: sticky;
+    inset-inline-end: 0;
+    z-index: 2;
+    background-color: var(--ss-dt-card-bg);
+}
+
+/* The header cell pins too, or the actions column would be the one column
+   whose heading slides away from it. No background: the host's own is already
+   opaque. `z-index: 3` keeps it above the body cells it shares an edge with
+   while the table scrolls under both. */
+.ss-dt-card-body table.dataTable > thead > tr > th.ss-col-pinned {
+    position: sticky;
+    inset-inline-end: 0;
+    z-index: 3;
+}
+
+/* The pinned edge, so the column reads as held in place rather than as a
+   coincidence of scroll position. `box-shadow` rather than a border: a border
+   on a `border-collapse: separate` table shifts the cell's box and knocks the
+   column one pixel out of alignment with its heading, and this edge is
+   decoration -- the actions are already named and reachable without it. */
+.ss-dt-card-body table.dataTable > tbody > tr > td.ss-col-pinned,
+.ss-dt-card-body table.dataTable > thead > tr > th.ss-col-pinned {
+    box-shadow: inset 1px 0 0 var(--ss-border);
+}
+/* `inset 1px` is the inline START edge in LTR. In RTL the pinned column sits
+   on the left, so the edge the merchant scrolls content under is its RIGHT
+   one. `box-shadow` has no logical form, so this is the one place a direction
+   override is unavoidable. */
+[dir="rtl"] .ss-dt-card-body table.dataTable > tbody > tr > td.ss-col-pinned,
+[dir="rtl"] .ss-dt-card-body table.dataTable > thead > tr > th.ss-col-pinned {
+    box-shadow: inset -1px 0 0 var(--ss-border);
+}
+
+/* The column-visibility button (`buildDataTable`'s `colvis`). The host's
+   `.btn-light-primary` carries no visible focus ring, and this control is
+   keyboard-reachable and opens a menu, so it gets the system's ring. */
+.ss-dt-card-body .ss-colvis:focus-visible,
+.dt-buttons .ss-colvis:focus-visible {
+    outline: 2px solid var(--ss-focus-ring);
+    outline-offset: 2px;
+}

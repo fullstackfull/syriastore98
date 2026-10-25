@@ -24,7 +24,7 @@
 | P2-00 discovery and reuse audit | — | **done** |
 | P2-01 shared layout and core components | A, F | **done** — components, panel, action bar, dirty guard, sidebar zones, workspace chip, collapsed rail. Concurrent-edit conflict handling arrived with P2-03. |
 | P2-02 merchant dashboard | C | **done.** P2-02-9's two list cards were the last row, and they were already BUILT — what was missing was any data in them: the fixture left `orders.product_id` at `'0'` while the controller plucks that column, so the best-selling card had only ever been seen in its empty state. Fixed, pinned (4 tests / 16 assertions, bitten three ways) and shot with rows in it in 8 configurations |
-| P2-03 products | D | **partial** — concurrent-edit conflict detection, the quick-preview panel, the variant column's missing translation and **the list filters** (status / stock / category / variants, with no JavaScript, 12 tests and 58 browser cases) are shipped and tested. Its **row actions** came with P2-04-4's sweep: the design system's quiet icon buttons, an `aria-label` on each (three had no accessible name at runtime), a `Form::close()` that was missing, an icon that had never painted a glyph, and the stock badges off white-on-brand (2.59:1) onto `ss-badge`. The list's own layout and density, the full-page editor and media/variant UX are **not built**. |
+| P2-03 products | D | **partial** — concurrent-edit conflict detection, the quick-preview panel, the variant column's missing translation and **the list filters** (status / stock / category / variants, with no JavaScript, 12 tests and 58 browser cases) are shipped and tested. Its **row actions** came with P2-04-4's sweep: the design system's quiet icon buttons, an `aria-label` on each (three had no accessible name at runtime), a `Form::close()` that was missing, an icon that had never painted a glyph, and the stock badges off white-on-brand (2.59:1) onto `ss-badge`. **P2-03-1 is now PARTIAL, not untouched**: the list's COLUMN SET and the reachability of its row actions are shipped, its DENSITY is not. The measurement reframed the slice — the table is a fixed 1250px (en) / 1168px (ar) at 1440, 1280, 992, 768 and 390 alike, the document never overflows, and with the pinned class removed a real click on Edit at the starting scroll position **navigated nowhere in all eight configurations, 1440 included**. So this was never a phone problem. The actions column is now sticky at the inline end and the already-bundled-but-unused `colvis` extension is wired into the shared helper, reaching all 68 tables with no `packages/workdo/` edit and persisting through the existing `stateSave`. 52 live cases, bitten five ways; the check itself was corrected twice by its own bites. Row density (55px everywhere, no control) is split out as **P2-03-10**. The full-page editor and media/variant UX are **not built**. |
 | P2-04 orders | E | **partial** — the status breakdown is honest and reconciles, the **authorised quick preview** is shipped with its own guard entry and nine authorization tests, **F19 is fixed** (no more Unix epoch as a date), and **the list filters are shipped** (status, payment, date range; 14 tests, five controls bite-tested, 112 browser cases shared with the product list). **P2-04-4 is now done**: the status column off the vendored theme's classes (below AA in **44 of 56** readings, two of them unreadable at 1.03:1 and 1.12:1) onto one shared `OrderStatusTone` the dashboard reads too — the two surfaces had disagreed about four of the nine statuses — plus named, contrast-clean row actions and the reference pill fixed through F9's own `--ss-onbrand`. 84 live cases, bitten five ways. The independent review of that change then found a **stored XSS** on the line it edits (F42, fixed and pinned) and a preview harness that had been showing the opposite of production (F43). **P2-04-6 is PARTIAL**: its blocker was stale and is cleared, three blocks on that page had never held content (fixed in the fixture first), and the populated page then yielded four correctness defects — including **another tenant's downloadable file being linked** (F51, measured) — and six contrast failures, the worst being every address label and value at 1.10:1 in dark mode. 4 Feature tests and 112 live cases, all bitten. The design-system restyle of that page's shell is **not** done. Kanban and SAVED views are **not built**. |
 | P2-05 common merchant screens | J | **started** — **P2-05-1** is shipped: four state-changing GETs converted to POST, **three of which were also unauthorised cross-tenant writes** (no permission check, no ownership check, no tenant predicate, on models that carry no scope), plus a ratchet so the set of state-changing GETs cannot grow. The design-system pass over customers, stock, categories, staff and settings is **not built**. |
 | P2-06 search, notifications, preferences, onboarding | G, H, I | **done** — all four. **Global search** (per-section authorisation, per-query scoping, 11 tests); **onboarding** (the RTL hold settled at runtime); **persisted table preferences** across all 68 DataTables from the one shared helper; and **notifications**, against the same `store_notifications` rows the Flutter app already reads, authorised BY TYPE with 24 tests, two live defects and four weak tests of my own found by the independent review and fixed (F23–F28). No `packages/workdo/` file touched and no schema change in any of the four. |
@@ -33,7 +33,7 @@
 
 **Do not read the passing suites as "Phase 02 is finished".** They say that what *was* built is
 verified, and verified more strongly than before. What is NOT built is named in §3b and in the
-ledger's own TODO rows — at the time of writing: P2-03's list layout, full-page editor and
+ledger's own TODO rows — at the time of writing: P2-03's list DENSITY (P2-03-10), full-page editor and
 media/variant UX; P2-04's Kanban and saved views; P2-05's design-system pass over five screens;
 P2-07-8's broader Flutter accessibility; and P2-04-6, which is now unblocked but unstarted.
 Read those rows rather than a count here, because a count in prose goes stale and these rows do
@@ -344,6 +344,43 @@ like protection, it was written as protection, and it protected nothing.
 Run it before invoking a tool you have just edited. The lesson generalises past this file: a guard
 placed downstream of the failure it is guarding against is decoration.
 
+## 4k. A check that crashes instead of naming a case hides the thing it caught
+
+`check-pinned-column-live.cjs` was bite-tested five ways and **two of its five bites found a
+defect in the check rather than in the code**. Both are the same shape and neither shows up when
+the check is passing.
+
+The first: the bite that removes `ss-col-pinned` made `page.$eval` throw on the missing selector.
+The regression *was* detected — a throw exits non-zero — but the output was a Playwright stack
+trace naming no case, so the next person has to work out what broke before they can work out why.
+Read with `page.$` and a null check, it prints `FAIL the actions column carries ss-col-pinned`.
+
+The second is worse, because it is silence rather than noise. The per-configuration block did
+`continue` when the pinned class was absent, to skip the sticky and colour cases that have nothing
+to measure without it. The reachability case — *can a merchant click Edit* — was inside that
+block. So the check's **most important claim went unreported at exactly the moment it stopped
+holding**: six failures, and not one of them about whether the button could be reached. Lifting it
+into its own function, called in both paths, made the same bite print
+`clicked (1223,421) ... and the page did not navigate` — in a 390px-wide viewport, which is the
+whole diagnosis in one line.
+
+The rule both give: **bite-test for the message, not only for the exit code.** A red check that
+does not say what is red costs the next person the investigation you already did.
+
+## 4l. A deterministic failure can look like a flake if the observer's window is narrow
+
+`check-order-detail-live.cjs` reported `500 /top-brand-category-chart` in one run of four. The
+tempting reading is "flaky, re-run it". The log says otherwise: `HomeController::
+top_brand_category_chart()` builds four queries on MySQL's `SUBSTRING_INDEX` and `CURDATE()`,
+which SQLite does not have, so on the SQLite dev instance that endpoint **500s every single
+time**. What varies is only whether its background XHR lands inside the window the check is
+watching.
+
+Two things follow. The endpoint is not evidence of a production defect — production is MySQL,
+where both functions exist — and running it here is not evidence that it works. And "intermittent"
+described the *observation*, never the behaviour. Recorded as F53; the double-counting the same
+query does to `orders.final_price` is F54, with the half that is unverified marked as unverified.
+
 ## 5. What a successor should do first
 
 1. **Read [`PHASE-02-MASTER-EXECUTION-PROMPT.md`](PHASE-02-MASTER-EXECUTION-PROMPT.md)**, not a
@@ -367,6 +404,10 @@ composer install --no-interaction --prefer-dist --no-scripts   # ~20 min: git-cl
 php artisan key:generate --force                               # if .env is fresh
 
 # The dev instance the screenshot harnesses drive (invented data only)
+# ADD `DEBUGBAR_ENABLED=false` TO `.env` FIRST. The Laravel Debugbar is `position: fixed`
+# with z-index 6000000 across the bottom of the viewport: it sat in every screenshot and it
+# covered the product list's first-row actions at 390px, which cost an afternoon reading
+# `elementsFromPoint` output before the overlay was the obvious answer.
 rm -f database/p2dev.sqlite && touch database/p2dev.sqlite
 DB_CONNECTION=sqlite DB_DATABASE=$PWD/database/p2dev.sqlite php artisan migrate --force
 DB_CONNECTION=sqlite DB_DATABASE=$PWD/database/p2dev.sqlite CACHE_STORE=file \
