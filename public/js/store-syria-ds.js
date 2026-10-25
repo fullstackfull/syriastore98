@@ -526,6 +526,64 @@
         }
     });
 
+    /* ----------------------------------------------- table preferences (P2-06-4)
+
+       WHAT A MERCHANT KEEPS BETWEEN VISITS: how many rows per page, how the
+       table is sorted, and which columns are showing. Those are PREFERENCES --
+       a merchant who works 50 rows at a time said so once and should not have
+       to say it on every screen, every day.
+
+       WHAT IS DELIBERATELY NOT KEPT: the search term, and the page number.
+       DataTables' own `stateSave` restores both, and that is the one thing
+       that turns this feature into a support ticket: a merchant who searched
+       "refund" last Thursday comes back to a table showing four rows out of
+       nine hundred, with the box pre-filled somewhere they are not looking,
+       and concludes their orders are gone. Restoring page 7 of a list whose
+       rows have since changed is the same mistake more quietly. So the state
+       is sanitised on the way OUT and again on the way IN -- in, as well,
+       because a state saved by an earlier build (or by any other code that
+       sets stateSave) is still sitting in localStorage and must not be
+       honoured.
+
+       NO SERVER STORAGE, AND THAT IS A SCOPE DECISION, not an oversight.
+       Per-device presentation state needs no table and no migration, and this
+       phase is not authorised to add one. What is stored is a row count, a
+       sort direction and a set of visibility booleans -- NO tenant data, no
+       customer data, no identifiers -- which is also why sharing the default
+       `DataTables_<id>_<path>` key between two merchants on one browser is a
+       preference wrinkle and not a disclosure. Cross-device persistence, if it
+       is ever wanted, is a separate decision with a schema behind it.
+
+       DataTables 1.10.20 discards a saved state whose column COUNT differs
+       from the table's (`_fnLoadState` bails on `b.columns.length !== h.length`),
+       so enabling or disabling a module cannot leave a table applying the
+       wrong column's visibility. Verified in the shipped
+       `public/vendor/datatables/datatables.min.js`, not assumed. */
+
+    function sanitizeTableState(data) {
+        if (!data || typeof data !== 'object') { return data; }
+
+        // The global search box.
+        if (data.search && typeof data.search === 'object') {
+            data.search.search = '';
+        }
+
+        // Always open on the first page.
+        data.start = 0;
+
+        // And the per-column filters, which `columns.search` carries separately
+        // from the global one.
+        if (Object.prototype.toString.call(data.columns) === '[object Array]') {
+            data.columns.forEach(function (column) {
+                if (column && column.search && typeof column.search === 'object') {
+                    column.search.search = '';
+                }
+            });
+        }
+
+        return data;
+    }
+
     /* ------------------------------------------------------------------ init */
 
     function init() {
@@ -551,6 +609,10 @@
         openPanel: openPanel,
         closePanel: closePanel,
         loadPanel: loadPanel,
-        wireDirtyTracking: wireDirtyTracking
+        wireDirtyTracking: wireDirtyTracking,
+        // P2-06-4. Called from the `stateSaveParams`/`stateLoadParams` options
+        // that `buildDataTable()` puts on every merchant table, so the rule
+        // lives in one place rather than inlined 68 times.
+        sanitizeTableState: sanitizeTableState
     };
 })();

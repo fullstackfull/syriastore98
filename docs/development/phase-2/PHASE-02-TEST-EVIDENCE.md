@@ -858,6 +858,8 @@ keeping one merchant's catalogue out of another's list. That is what these measu
 | `TenantSwitchTest` | 12 | F12 — a GET answers 405 having moved nothing; CSRF asserted structurally |
 | `ProductConcurrentEditTest` | 5 | a stale save is refused and A's work survives — asserted on the RESPONSE BODY, because a session assertion passed against a refusal shape the page could not read |
 | `ProductPreviewAuthorizationTest` | 8 | the new product preview endpoint: `Product` carries no effective scope, so the handler's predicate is the only control |
+| `OrderStatusDateTest` | 4 | F19 — the order list does not render the Unix epoch as a date, and keeps the status label when the date is missing |
+| `TablePreferencesTest` | 8 | P2-06-4's wiring on the shared helper that builds all 68 DataTables, that yajra emits the hooks as real JS, the absent-script guard, and three real lists still rendering |
 | `DashboardPermissionNamesTest` | 1 | every `isAbleTo()` name in the merchant views can actually be granted |
 | `AdminLayoutAssetsTest` | 2 | every `asset()` path in the admin layout resolves to a real file |
 
@@ -882,6 +884,11 @@ a control is evidence; what somebody writes about the revert is not, until it is
 | the order preview's **guard** entry | 1 failed — exactly the registration case |
 | the concurrent-edit check | 1 failed — exactly the stale-token case |
 | the product preview's store predicate | 2 failed — exactly the two cross-tenant cases |
+| `OrderDataTable::hasDate()` short-circuited to true | 2 failed — exactly the two epoch cases; the label and real-date cases stayed green |
+| the `stateSave` wiring removed from `buildDataTable()` | 6 of 8 failed |
+| `sanitizeTableState` made a no-op | 8 of 16 node cases failed, and the suite case that drives the script failed with it |
+| `sanitizeTableState` made to clean a COPY instead of mutating | **exactly 1 of 16** — the mutate-in-place case, which exists because `stateSaveParams` is called for its side effect and discards the return value, so a function returning a cleaned copy would pass everything else and change nothing on the page |
+| `sanitizeTableState` made a no-op, against the LIVE browser check | **first attempt: 0 of 14 failed.** That version cleared the search and returned to page one before reloading, so the saved state held nothing to drop. Rewritten to leave all three set, the fixture seeded to 32 products so page two exists, and the reloaded row count asserted to be the UNFILTERED total; now **5 of 21 fail** — the search restored, the box pre-filled, page two restored, the filtered count, and the term still in localStorage |
 | the search's `is_string($q)` guard | 1 failed, with "Array to string conversion" raised at the `assertOk()` line — `?q[]=a` was a server error on a route every merchant can reach |
 | both contrast stylesheets | 14 of 32 readings below AA, from 0 |
 | the singular permission name restored | 1 failed, with the plural named in the message |

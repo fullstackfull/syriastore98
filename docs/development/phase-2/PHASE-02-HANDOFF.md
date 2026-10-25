@@ -24,9 +24,9 @@
 | P2-01 shared layout and core components | A, F | **done** — components, panel, action bar, dirty guard, sidebar zones, workspace chip, collapsed rail. Concurrent-edit conflict handling arrived with P2-03. |
 | P2-02 merchant dashboard | C | **done except** the recent-orders / top-products blocks (P2-02-9) |
 | P2-03 products | D | **partial** — concurrent-edit conflict detection, the quick-preview panel and the variant column's missing translation are shipped and tested. List, filters, full-page editor and media/variant UX are **not built**. |
-| P2-04 orders | E | **partial** — the status breakdown is honest and reconciles, and the **authorised quick preview** is shipped with its own guard entry and nine authorization tests. Order list redesign, detail page, Kanban and saved views are **not built**. |
+| P2-04 orders | E | **partial** — the status breakdown is honest and reconciles, the **authorised quick preview** is shipped with its own guard entry and nine authorization tests, and **F19 is fixed**: the list no longer renders the Unix epoch as a date. Order list redesign, detail page, Kanban and saved views are **not built**. |
 | P2-05 common merchant screens | J | **not started** |
-| P2-06 search, notifications, preferences, onboarding | G, H, I | **partial** — **global search** shipped (authorised per section, scoped per query, 10 tests) and **onboarding** shipped (the RTL hold settled at runtime). Notifications and persisted table preferences are **not built**. |
+| P2-06 search, notifications, preferences, onboarding | G, H, I | **partial** — **global search** shipped (authorised per section, scoped per query, 11 tests), **onboarding** shipped (the RTL hold settled at runtime), and **persisted table preferences** shipped across all 68 DataTables from the one shared helper, with no `packages/workdo/` file touched and no schema change. Notifications are **not built**. |
 | P2-07 Flutter | K | **partial** — RTL wiring, the vendor-host leak, accessible names, the parity matrix and now the **RTL mirroring pass** are done. The dashboard honesty pass and broader a11y are not. |
 | P2-08 integration and acceptance | — | this document and the evidence file |
 
@@ -68,12 +68,15 @@ configuration that exposed them.
 ### 3b. Not blocked — simply not built
 
 P2-03's list, filters, editor and media UX. P2-04's list redesign, detail page, Kanban and saved
-views. All of P2-05. P2-06's notifications and persisted table preferences. P2-07's dashboard
-honesty pass. None of these has a blocker; they have not been done.
+views. All of P2-05. P2-06's notifications. P2-07's dashboard honesty pass. None of these has a
+blocker; they have not been done.
 
-P2-03's filters and P2-04's saved views want the **same** mechanism. Build it once, for both lists,
-rather than twice — `<x-datatable>` is shared by roughly 65 screens, which is also why P2-06-4 is
-the riskiest of the remaining items and not the easiest.
+P2-03's filters and P2-04's saved views want the **same** mechanism, and **half of it now exists**:
+P2-06-4 put `stateSave` on every table through `buildDataTable()`, with
+`StoreSyriaDS.sanitizeTableState` deciding what is a preference and what is not. A saved VIEW is
+that plus a named, server-stored set — which is where the schema question starts, and it is an
+owner decision, not an extension of this one. Build the naming once, for both lists, rather than
+twice.
 
 ## 4. Defects found by running the real application
 
@@ -103,7 +106,11 @@ auth, tenancy or DataTables cannot answer these questions.
 3. **Do not re-litigate the settled holds.** P2-06-1's RTL duplication was the preview harness,
    measured eight ways in the real application. B2 is cleared. F8 and F9 are resolved.
 4. **Start with P2-03's list and editor**, which is the largest untouched surface and the one
-   whose absence is most visible to a merchant.
+   whose absence is most visible to a merchant. After that, **all of P2-05** is still at zero.
+5. **F20 is the one sweep worth proposing to the owner.** `Utility::dateFormat(null)` renders the
+   Unix epoch at 64 call sites, 28 of them vendored, and F22 says the same helper also prints
+   English month names inside the Arabic admin. One line inside it fixes both — and changes output
+   on screens across seventy modules, which is why it is a proposal and not a commit.
 
 ## 6. Bringing the environment up
 

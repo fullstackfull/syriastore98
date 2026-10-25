@@ -59,6 +59,21 @@ $rows = [
     ['Linen Tea Towel Set', 18.00, 120, 10],
     ['Silk Wall Hanging', 180.00, 7, 5],
 ];
+/*
+ * P2-06-4 NEEDS MORE THAN ONE PAGE. `check-table-prefs-live.cjs` asserts that a restored page
+ * NUMBER is dropped, and with five rows there is no page two -- `t.page(1)` is a no-op, `start`
+ * stays 0, and that assertion passes against a feature that stores nothing. Measured: the first
+ * version of that check passed with the sanitiser disabled, which is exactly the vacuous shape
+ * this project keeps catching. Thirty-two rows gives two pages at a length of 25.
+ *
+ * "Panel" is in every generated name ON PURPOSE, so a search can match many rows while matching
+ * FEWER THAN ALL of them -- a filtered count that differs from the total is what makes
+ * "the search term was dropped" measurable rather than assumed.
+ */
+for ($i = 1; $i <= 27; $i++) {
+    $rows[] = [sprintf('Woven Panel No. %02d', $i), 12.00 + $i, ($i % 7) * 4, 5];
+}
+
 foreach ($rows as [$name, $price, $stock, $low]) {
     // forceCreate: `created_by` is NOT NULL in the schema and NOT in Product's $fillable,
     // so a mass-assigned create drops it and the insert fails on the constraint.

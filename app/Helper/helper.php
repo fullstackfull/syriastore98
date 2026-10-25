@@ -2816,7 +2816,40 @@ if (! function_exists('buildDataTable')) {
             ],
         ]);
 
+        /*
+         * P2-06-4 -- TABLE PREFERENCES, ON EVERY MERCHANT TABLE AT ONCE.
+         *
+         * This helper is what all 68 DataTables in the application are built by (39 host, 29 in
+         * vendored modules), so the preference lives here rather than being pasted into each one
+         * -- and no `packages/workdo/` file is touched to reach the vendored 29.
+         *
+         * `stateDuration => 0` is localStorage with NO expiry. The DataTables default is 7200,
+         * which expires the merchant's choice after two hours; `-1` would be sessionStorage,
+         * which loses it when the tab closes. Neither is a preference.
+         *
+         * AND THE SAVED STATE IS SANITISED BOTH WAYS. `stateSaveParams` on the way out,
+         * `stateLoadParams` on the way in -- the second is not redundant: a state written by an
+         * earlier build is already sitting in localStorage, and honouring its search term would
+         * be exactly the defect the sanitiser exists to prevent. What it strips is the search
+         * term and the page number; what survives is the row count, the sort and the column
+         * visibility. The rule itself is `StoreSyriaDS.sanitizeTableState` in
+         * `public/js/store-syria-ds.js`, which is where it is explained and tested.
+         *
+         * GUARDED, because this helper also builds tables on screens outside the admin layout
+         * (the theme and guest layouts do not load the design-system script). Without the guard
+         * those pages would throw on every state save, which DataTables does not catch.
+         */
+        $sanitizeState = 'function (settings, data) {
+            if (window.StoreSyriaDS && window.StoreSyriaDS.sanitizeTableState) {
+                window.StoreSyriaDS.sanitizeTableState(data);
+            }
+        }';
+
         $dataTable->parameters([
+            'stateSave' => true,
+            'stateDuration' => 0,
+            'stateSaveParams' => $sanitizeState,
+            'stateLoadParams' => $sanitizeState,
             "dom" =>  "
         <'dataTable-top'<'dataTable-dropdown page-dropdown'l><'dataTable-botton table-btn dataTable-search tb-search  d-flex justify-content-end gap-1'Bf>>
         <'dataTable-container'<'col-sm-12'tr>>
