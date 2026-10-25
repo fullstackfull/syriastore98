@@ -112,9 +112,135 @@ class ProductDataTable extends DataTable
     /**
      * Get the query source of dataTable.
      */
+    /**
+     * P2-03-2. The caller's own catalogue, optionally NARROWED.
+     *
+     * THE STORE PREDICATE COMES FIRST AND IS NOT NEGOTIABLE. `Product` is not in
+     * `config/tenancy.php`'s `scoped_models` and registers no effective `StoreScope`, so this
+     * `where('store_id', ...)` is the ONLY thing keeping one merchant's catalogue out of
+     * another's list -- the fact behind the S19 cross-tenant stock drain. Filters are applied
+     * AFTER it and can only add predicates; `applyFilters()` never touches the builder's
+     * existing wheres and never calls `orWhere`.
+     */
     public function query(Product $model): QueryBuilder
     {
-        return $model->where('product_type', null)->where('store_id', getCurrentStore());
+        $query = $model->where('product_type', null)->where('store_id', getCurrentStore());
+
+        return $this->applyFilters($query);
+    }
+
+    /**
+     * P2-03-2 -- the list filters.
+     *
+     * READ FROM `ss_`-PREFIXED QUERY PARAMETERS, and the prefix earns its place: the AJAX leg's
+     * url IS the page url (yajra's `minifiedAjax()` sets it that way), so DataTables' own
+     * `draw`, `columns`, `search`, `order`, `start` and `length` travel in the same query
+     * string. A filter called `status` would be one library rename away from a collision.
+     *
+     * NO JAVASCRIPT ANYWHERE. The filter bar is a GET form that reloads the page; both legs then
+     * see the same parameters, because the AJAX url inherits them. Measured in a real browser
+     * before the feature was designed around it.
+     *
+     * AN UNRECOGNISED VALUE IS IGNORED, not refused. A merchant editing the url, or a bookmark
+     * from a build that spelled a value differently, gets the list -- not a 500 and not an empty
+     * screen that reads as data loss. Every branch below is an explicit match on a known value,
+     * so an unknown one simply adds no predicate: a filter can only narrow, never widen, and
+     * never replace what is already on the builder.
+     */
+    private function applyFilters(QueryBuilder $query): QueryBuilder
+    {
+        $request = request();
+
+        /*
+         * `is_string` on every read, and it is REDUNDANT TODAY -- stated rather than implied,
+         * because the first version of this comment claimed it was preventing a 500 and the
+         * bite test refuted that. `?ss_stock[]=out` does make these arrays, but strict
+         * `in_array` returns false for an array and `filter_var` returns false too, so every
+         * branch below already declines without it: removing all four guards left the suite
+         * green.
+         *
+         * Kept anyway, for one reason worth a line: the next filter added here may compare
+         * directly (`$v === 'x'`, `strtolower($v)`, a `LIKE`), and THAT is where an array
+         * becomes an "Array to string conversion" and a 500 from a query string. One guard per
+         * read makes the safe shape the default rather than something the next person has to
+         * remember.
+         */
+        $status = $request->query('ss_status');
+
+        if (is_string($status) && in_array($status, ['0', '1'], true)) {
+            $query->where('status', (int) $status);
+        }
+
+        $variant = $request->query('ss_variant');
+
+        if (is_string($variant) && in_array($variant, ['0', '1'], true)) {
+            $query->where('variant_product', (int) $variant);
+        }
+
+        $category = $request->query('ss_category');
+
+        if (is_string($category) && $category !== '') {
+            $categoryId = filter_var($category, FILTER_VALIDATE_INT);
+
+            /*
+             * A category id from request input needs no ownership check, and that is worth
+             * saying rather than leaving to inference: this predicate NARROWS a set already
+             * confined to the caller's own store, so a foreign category id returns zero rows
+             * rather than somebody else's. It is not a tenant predicate and is not standing in
+             * for one.
+             */
+            if ($categoryId !== false && $categoryId > 0) {
+                $query->where('category_id', $categoryId);
+            }
+        }
+
+        $stock = $request->query('ss_stock');
+
+        if (is_string($stock) && in_array($stock, ['in', 'low', 'out'], true)) {
+            $this->applyStockFilter($query, $stock);
+        }
+
+        return $query;
+    }
+
+    /**
+     * The three stock states, which PARTITION the tracked products: nothing is in two of them
+     * and nothing tracked is in none. That property is what makes the counts trustworthy, and a
+     * boundary mistake breaks it silently -- so `ProductListFilterTest` asserts the partition
+     * directly, on values sitting exactly on the boundaries.
+     *
+     * `track_stock = 1` ON ALL THREE. A product the merchant told the system not to count has
+     * no stock state at all: its `product_stock` of 0 is the absence of a fact, not "none
+     * left". Listing it under "out of stock" would invent a problem, which is the same honesty
+     * the preview panel applies to the same column.
+     *
+     * THE THRESHOLD IS PER PRODUCT, falling back to the STORE's setting.
+     * `COALESCE(NULLIF(low_stock_threshold, 0), ?)` reads the same on MySQL and on SQLite --
+     * both functions are standard in both -- and `NULLIF` is what makes a stored 0 mean
+     * "unset" rather than "a threshold of zero", which is how the column is used everywhere
+     * else in this application.
+     */
+    private function applyStockFilter(QueryBuilder $query, string $stock): void
+    {
+        $fallback = (int) (getAdminAllSetting()['out_of_stock_threshold'] ?? 0);
+
+        $query->where('track_stock', 1);
+
+        if ($stock === 'out') {
+            $query->where('product_stock', '<=', 0);
+
+            return;
+        }
+
+        $query->where('product_stock', '>', 0);
+
+        if ($stock === 'low') {
+            $query->whereRaw('product_stock <= COALESCE(NULLIF(low_stock_threshold, 0), ?)', [$fallback]);
+
+            return;
+        }
+
+        $query->whereRaw('product_stock > COALESCE(NULLIF(low_stock_threshold, 0), ?)', [$fallback]);
     }
 
     /**

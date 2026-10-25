@@ -45,6 +45,11 @@
 @section('content')
     <div class="row">
         <div class="col-xl-12">
+            {{-- P2-03-2. ABOVE the table, because it changes what the table shows: a control
+                 that alters a list belongs where the eye arrives before the rows, not below
+                 them. It is a plain GET form — see the partial for why that needs no script. --}}
+            @include('product.partials.filters')
+
             <x-datatable :dataTable="$dataTable" />
 
             {{-- P2-03-6: ONE panel for the whole list, filled per row — the same arrangement

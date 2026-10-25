@@ -2945,5 +2945,14 @@
     "Notification not found.": "Notification not found.",
     "No store selected": "No store selected",
     "Notifications belong to a store, and no store is currently active for your account. Choose a store, or ask the platform administrator if you expected one.": "Notifications belong to a store, and no store is currently active for your account. Choose a store, or ask the platform administrator if you expected one.",
-    "You do not have permission to change this.": "You do not have permission to change this."
+    "You do not have permission to change this.": "You do not have permission to change this.",
+    "Filter products": "Filter products",
+    "Any status": "Any status",
+    "Any stock level": "Any stock level",
+    "Any category": "Any category",
+    "Any": "Any",
+    "Apply filters": "Apply filters",
+    "Clear filters": "Clear filters",
+    "Low stock": "Low stock",
+    "Applies to products with stock tracking on.": "Applies to products with stock tracking on."
 }

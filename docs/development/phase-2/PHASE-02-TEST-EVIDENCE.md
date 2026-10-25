@@ -864,6 +864,7 @@ keeping one merchant's catalogue out of another's list. That is what these measu
 | `TranslationFileIntegrityTest` | 5 | both lang files are valid JSON, carry no duplicate keys, and gain no new Arabic-only orphan (F2, resolved as a side effect and now pinned) |
 | `BrandLabelStatusAuthorizationTest` | 15 | P2-05-1: three toggles that were unauthorised cross-tenant writes on a GET — cross-tenant, per-permission, operator, the verb, a non-integer id, a NULL-store row, and that the switch is DISABLED for a caller the handler would refuse |
 | `StateChangingGetInventoryTest` | 4 | the set of host GET routes whose handler writes cannot grow, and cannot carry a stale row |
+| `ProductListFilterTest` | 12 | P2-03-2: each filter narrows to what it names, the three stock filters PARTITION the tracked products on boundary values, and no filter value — including SQL fragments — reaches another tenant or returns more rows than no filter |
 | `order_status_label_test.dart` (Flutter) | 27 | P2-07-6: all nine statuses in both locales, that no label still looks like a translation key, that an Arabic locale yields Arabic characters, that each label resolves the KEY it should, and that every badge colour pair clears AA |
 | `DashboardPermissionNamesTest` | 1 | every `isAbleTo()` name in the merchant views can actually be granted |
 | `AdminLayoutAssetsTest` | 2 | every `asset()` path in the admin layout resolves to a real file |
@@ -915,6 +916,10 @@ redundant, which is the tempting reading and was wrong every time it was tried.
 | the feed's three text classes removed from the host-override block | 10 of 60 fail at 3.42–3.85:1. `style-dark.css` sets `p { color: #808191 !important }` on a selector list shared with the sidebar and `.dataTable-info`, so a `<p>` in the feed is forced grey — the same rule F8 fought |
 | the feed's timestamp colour reverted to `--ss-fg-subtle` | 2 of 64 failed — the unread row in both directions, light mode |
 | the feed's `orderByDesc('created_at')` reverted to `orderByDesc('id')` | 1 failed — the ordering case, whose fixture makes id order and time order disagree |
+| the product list's store predicate | 1 failed — the cross-tenant case, which drives 14 filter values |
+| the stock filter's `track_stock` guard | 1 failed — an untracked product reported as out of stock |
+| the low-stock boundary made exclusive (`<` for `<=`) | 1 failed — the partition case, on a stock exactly equal to the threshold |
+| the filter reads' `is_string` guards (all four) | **0 failed**, and the comment claiming they prevented a 500 was wrong: strict `in_array` and `filter_var` both decline an array on their own. Kept, with the reason corrected — the next filter added there may compare directly, which is where `?ss_x[]=` becomes a 500 |
 | a duplicate key and an Arabic-only key reintroduced into `ar.json` | 2 of 5 failed |
 | the brand **store predicate** | 3 failed — both cross-tenant cases and the NULL-store case |
 | the brand **permission check** | 2 failed |

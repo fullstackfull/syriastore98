@@ -119,13 +119,20 @@ const PROBE = `
     measure('feed timestamp (unread row)', '.ss-feed__item--unread .ss-feed__when time');
     measure('feed unread badge', '.ss-feed__item--unread .ss-badge');
     measure('bell unread count', '.ss-bell__count');
+
+    /* P2-03-2's filter bar. A new surface with its own text: a label, the select's own value,
+       and a hint line that is deliberately the quietest thing on the page -- which is exactly
+       the sort of element that lands under AA without anyone noticing. */
+    measure('filter label', '.ss-filterbar .ss-label');
+    measure('filter select', '.ss-filterbar .ss-select');
+    measure('filter hint', '.ss-filterbar__hint');
     return out;
 })()
 `;
 
 /* The screens measured, in order. The bell lives in the header, so it is measured on the feed
    page where it is also populated. */
-const PAGES = ['/order', '/merchant-notifications'];
+const PAGES = ['/order', '/merchant-notifications', '/product'];
 
 (async () => {
     const browser = await chromium.launch();

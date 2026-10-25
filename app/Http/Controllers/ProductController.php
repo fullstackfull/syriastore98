@@ -40,15 +40,31 @@ class ProductController extends Controller
             $products = Product::where('product_type', null)->where('store_id', getCurrentStore())->orderBy('id', 'desc')->get();
             $settings = Setting::where('store_id', getCurrentStore())->pluck('value', 'name')->toArray();
 
+            /*
+             * P2-03-2. The category options for the list's filter bar.
+             *
+             * EXPLICITLY STORE-FILTERED. `Category` is not in `config/tenancy.php`'s
+             * `scoped_models`, so it adds no predicate for any principal -- without this
+             * `where` the filter dropdown would list every tenant's category NAMES, which is a
+             * disclosure in a select box rather than in a table.
+             *
+             * The caller already holds `Manage Products` to be here, which is the permission
+             * the list itself gates on; the categories are shown only as filter options for
+             * that list.
+             */
+            $filterCategories = \App\Models\Category::where('store_id', getCurrentStore())
+                ->orderBy('name')
+                ->pluck('name', 'id');
+
             if ($request->id == 1) {
                 $msg = __('Product Successfully Created');
-                return $dataTable->render('product.index', compact('products', 'settings', 'msg'));
+                return $dataTable->render('product.index', compact('products', 'settings', 'msg', 'filterCategories'));
             } elseif ($request->id == 2) {
                 $msg = __('Product Successfully Updated');
-                return $dataTable->render('product.index', compact('products', 'settings', 'msg'));
+                return $dataTable->render('product.index', compact('products', 'settings', 'msg', 'filterCategories'));
             } else {
                 $msg = 0;
-                return $dataTable->render('product.index', compact('products', 'settings', 'msg'));
+                return $dataTable->render('product.index', compact('products', 'settings', 'msg', 'filterCategories'));
             }
         } else {
             return redirect()->back()->with('error', __('Permission denied.'));
@@ -3695,13 +3711,13 @@ $Product->cost_price = $request->cost_price;
 
             if ($request->id == 1) {
                 $msg = __('Product Successfully Created');
-                return view('product.list', compact('products', 'settings', 'msg'));
+                return view('product.list', compact('products', 'settings', 'msg', 'filterCategories'));
             } elseif ($request->id == 2) {
                 $msg = __('Product Successfully Updated');
-                return view('product.list', compact('products', 'settings', 'msg'));
+                return view('product.list', compact('products', 'settings', 'msg', 'filterCategories'));
             } else {
                 $msg = 0;
-                return view('product.list', compact('products', 'settings', 'msg'));
+                return view('product.list', compact('products', 'settings', 'msg', 'filterCategories'));
             }
         } else {
             return redirect()->back()->with('error', __('Permission denied.'));

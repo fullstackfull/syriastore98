@@ -23,7 +23,7 @@
 | P2-00 discovery and reuse audit | — | **done** |
 | P2-01 shared layout and core components | A, F | **done** — components, panel, action bar, dirty guard, sidebar zones, workspace chip, collapsed rail. Concurrent-edit conflict handling arrived with P2-03. |
 | P2-02 merchant dashboard | C | **done except** the recent-orders / top-products blocks (P2-02-9) |
-| P2-03 products | D | **partial** — concurrent-edit conflict detection, the quick-preview panel and the variant column's missing translation are shipped and tested. List, filters, full-page editor and media/variant UX are **not built**. |
+| P2-03 products | D | **partial** — concurrent-edit conflict detection, the quick-preview panel, the variant column's missing translation and **the list filters** (status / stock / category / variants, with no JavaScript, 12 tests and 58 browser cases) are shipped and tested. The list's design-system redesign, the full-page editor and media/variant UX are **not built**. |
 | P2-04 orders | E | **partial** — the status breakdown is honest and reconciles, the **authorised quick preview** is shipped with its own guard entry and nine authorization tests, and **F19 is fixed**: the list no longer renders the Unix epoch as a date. Order list redesign, detail page, Kanban and saved views are **not built**. |
 | P2-05 common merchant screens | J | **started** — **P2-05-1** is shipped: four state-changing GETs converted to POST, **three of which were also unauthorised cross-tenant writes** (no permission check, no ownership check, no tenant predicate, on models that carry no scope), plus a ratchet so the set of state-changing GETs cannot grow. The design-system pass over customers, stock, categories, staff and settings is **not built**. |
 | P2-06 search, notifications, preferences, onboarding | G, H, I | **done** — all four. **Global search** (per-section authorisation, per-query scoping, 11 tests); **onboarding** (the RTL hold settled at runtime); **persisted table preferences** across all 68 DataTables from the one shared helper; and **notifications**, against the same `store_notifications` rows the Flutter app already reads, authorised BY TYPE with 24 tests, two live defects and four weak tests of my own found by the independent review and fixed (F23–F28). No `packages/workdo/` file touched and no schema change in any of the four. |
@@ -72,12 +72,14 @@ views. **P2-05's design-system pass** over customers, stock, categories, staff a
 largest untouched surface in the phase, now that P2-05-1 has dealt with what was dangerous there.
 P2-07-8's broader accessibility work. None of these has a blocker; they have not been done.
 
-P2-03's filters and P2-04's saved views want the **same** mechanism, and **half of it now exists**:
-P2-06-4 put `stateSave` on every table through `buildDataTable()`, with
-`StoreSyriaDS.sanitizeTableState` deciding what is a preference and what is not. A saved VIEW is
-that plus a named, server-stored set — which is where the schema question starts, and it is an
-owner decision, not an extension of this one. Build the naming once, for both lists, rather than
-twice.
+**Saved views are now the only part of the filter story left, and most of the pieces exist.**
+P2-06-4 put `stateSave` on every table (page length, sort, column visibility, per device).
+P2-03-2 put real filters on the product list, carried in the url — which means a saved view is
+already shareable and bookmarkable today by copying the address bar. What remains is NAMING a
+set of filters and storing it, and that is where the schema question starts: an owner decision,
+not an extension of either. **When it is built, build it once for both lists** — the orders list
+needs the same bar, and `ProductDataTable::applyFilters()` is the shape to copy (store predicate
+first, filters only narrow, unrecognised values ignored).
 
 ## 4. Defects found by running the real application
 
@@ -105,6 +107,7 @@ amount of green suite output would have done.
 | 13 | **The notification bell's unread badge measured 1.91:1 in dark mode.** The rule used `--ss-danger-fg` as a *background*; it is a foreground token, pale red in dark, and white on it is unreadable. | Extending the live contrast tool to the new screen BEFORE calling it done |
 | 14 | **Every line of text in the notification feed measured 3.42–3.85:1 in dark mode.** `style-dark.css` forces `p { color: #808191 !important }` on a selector list shared with the sidebar, so a `<p>` anywhere in a new component is grey whatever the component says — the same rule F8 fought, met again on a new surface. | The same contrast run |
 | 17 | **Three merchant toggles were unauthorised cross-tenant writes.** `ProductBrandController::changeStatus`/`changePopular` and `ProductLabelController::changeStatus` did `find($request->id)` then wrote, with no permission check, no ownership check and no tenant predicate — on models that are in no `scoped_models` list. Any authenticated web caller could disable or promote any brand in any store. **The Flutter siblings had been fixed long before**; a sweep closed the API path and left the web path open. | Censusing GET routes by their HANDLER's source rather than by uri words, while fixing a verb |
+| 20 | **A field hint broke a filter row's alignment, twice.** `<x-ss.help>` inside a filter field rendered a bordered tinted callout two controls tall, which pushed that field onto its own line; swapping it for a quiet `.ss-field__hint` fixed the weight but not the geometry, because the bar aligns by `flex-end` and a field with an extra line puts its select higher than its neighbours'. It now sits on its own full-width line with `aria-describedby` keeping it attached to the control. **Neither version failed a single test.** | Opening the screenshots the browser check had just written |
 | 19 | **The notification feed showed the OLDEST item at the top**, and its timestamp measured 4.13:1 on an unread row in light mode. Neither was reachable by any test that existed: the ordering only misbehaves when ids and timestamps disagree, and the contrast probe sampled whichever row came first — which happened to be the one on the lighter surface. | **Opening a screenshot and reading it.** Both are now pinned: the ordering test's fixture makes id order and time order disagree on purpose, and the probe measures the timestamp on both surfaces. |
 | 18 | **The dev fixture was missing four permissions its own screens gate on**, so the first browser run of P2-05-1 reported six failures that were ALL fixture gaps — a 403 and a redirect that looked exactly like a lockout the tightening had introduced. Reading them as product defects would have produced a wrong fix. | Running the browser check and then checking which seeded role actually holds the permission |
 | 16 | **The Flutter app said "unknown" about statuses 7 and 8**, had nine hardcoded Arabic descriptions with no `.tr` in a bilingual app, asked for the "Cancel" BUTTON word as an order's state, and carried **three badge colour pairs below AA — one at 1.85:1**. Hardcoded pairs inside the widget, so no theme check was ever going to reach them. | Writing a test that enumerated all NINE values the column holds, rather than the seven the switch handled |

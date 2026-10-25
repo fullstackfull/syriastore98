@@ -2362,3 +2362,59 @@ a.ss-setup__item:focus-visible {
 /* The anchor is the positioning context. Scoped to the bell so no other
    `.dash-head-link` in the host header is affected. */
 [data-ss-notification-bell] { position: relative; }
+
+/* ==========================================================================
+   Filter bar (P2-03-2)
+   ==========================================================================
+
+   A row of selects above a list. It WRAPS rather than scrolling, because a
+   filter a merchant cannot see is a filter they will not clear — and a stale
+   hidden filter is how a list looks empty for no visible reason.
+
+   Logical properties throughout, so RTL mirrors with no second rule. */
+
+.ss-filterbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: var(--ss-space-3) var(--ss-space-4);
+    margin-block-end: var(--ss-space-4);
+    padding: var(--ss-space-4);
+    border: 1px solid var(--ss-border);
+    border-radius: var(--ss-radius-lg);
+    background: var(--ss-surface);
+}
+
+.ss-filterbar__field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--ss-space-1);
+    /* `min-width: 0` so a long category name shrinks the select instead of
+       pushing the row wider than its container. */
+    flex: 1 1 11rem;
+    min-width: 0;
+}
+
+.ss-filterbar__actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--ss-space-2);
+    /* Pushed to the inline END on a wide row; on a wrapped one it simply
+       starts its own line. */
+    margin-inline-start: auto;
+}
+
+/* The bar's hint line. `flex-basis: 100%` makes it take a row of its own, so
+   every FIELD stays label-plus-control and the row aligns by `flex-end`
+   cleanly. Putting it inside a field instead -- tried twice -- either rendered
+   a callout two controls tall or pushed that field's select above its
+   neighbours'. `order: 1` keeps it after the fields and before the buttons
+   even though it is declared between them. */
+.ss-filterbar__hint {
+    flex: 1 0 100%;
+    order: 1;
+    margin: 0;
+}
+
+.ss-filterbar__actions { order: 2; }

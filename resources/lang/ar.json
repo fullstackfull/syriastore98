@@ -2976,5 +2976,14 @@
     "Notification not found.": "الإشعار غير موجود.",
     "No store selected": "لا متجر محدّد",
     "Notifications belong to a store, and no store is currently active for your account. Choose a store, or ask the platform administrator if you expected one.": "الإشعارات تابعة لمتجر، ولا يوجد متجر نشِط حالياً لحسابك. اختر متجراً، أو راجع مدير المنصّة إن كنت تتوقّع وجود متجر.",
-    "You do not have permission to change this.": "لا تملك صلاحية تغيير هذا."
+    "You do not have permission to change this.": "لا تملك صلاحية تغيير هذا.",
+    "Filter products": "تصفية المنتجات",
+    "Any status": "أي حالة",
+    "Any stock level": "أي مستوى مخزون",
+    "Any category": "أي فئة",
+    "Any": "الكل",
+    "Apply filters": "تطبيق المرشّحات",
+    "Clear filters": "مسح المرشّحات",
+    "Low stock": "مخزون منخفض",
+    "Applies to products with stock tracking on.": "ينطبق على المنتجات التي يُتابَع مخزونها فقط."
 }
