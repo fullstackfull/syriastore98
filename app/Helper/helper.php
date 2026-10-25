@@ -2506,16 +2506,17 @@ if (!function_exists('generateSideMenu')) {
                 if ($item['name'] == 'mobilescreensetting' && env('IS_MOBILE') != 'yes') {
                     continue;
                 }
-                $hasChildren = hasChildren($menuItems, $item['name']);
-                if ($item['parent'] == null) {
-                    $html .= '<li class="dash-item dash-hasmenu">';
-                } else {
-                    $html .= '<li class="dash-item sub-menu-lnk">';
-                }
-                $marginLeft = 10 * $level;
-
                 /*
                  * P2-SEC-F4 (module entitlement) and P2-SEC-F5 (output escaping).
+                 *
+                 * RESOLVED BEFORE ANY MARKUP IS EMITTED, and that ordering is load-bearing. The
+                 * first version of this change resolved the href after the opening `<li>` and
+                 * `continue`d on a drop, which left a DANGLING UNCLOSED `<li>` in the sidebar for
+                 * every dropped row -- caught by
+                 * CustomSidebarAuthorizationTest::test_a_row_naming_an_unregistered_route_is_dropped_instead_of_throwing,
+                 * which asserts the whole output is empty rather than merely that the link is
+                 * absent. A `window_type` of `iframe` can also drop a row, so it is resolved here
+                 * too.
                  *
                  * `sideMenuHref()` returns null to mean SKIP THIS ROW, which is how module
                  * entitlement is enforced for a path whose table carries no `module` column: an
@@ -2535,10 +2536,6 @@ if (!function_exists('generateSideMenu')) {
                  */
                 $href = sideMenuHref($item);
 
-                if ($href === null) {
-                    continue;
-                }
-
                 $target = '';
                 if (isset($item['window_type'])) {
                     switch ($item['window_type']) {
@@ -2551,14 +2548,25 @@ if (!function_exists('generateSideMenu')) {
                             break;
 
                         case 'iframe':
-                            if (! \Illuminate\Support\Facades\Route::has('sidemenubuilder.iframe')) {
-                                continue 2;
-                            }
-
-                            $href = route("sidemenubuilder.iframe", $item['id']);
+                            $href = \Illuminate\Support\Facades\Route::has('sidemenubuilder.iframe')
+                                ? route("sidemenubuilder.iframe", $item['id'])
+                                : null;
                             break;
                     }
                 }
+
+                if ($href === null) {
+                    continue;
+                }
+
+                $hasChildren = hasChildren($menuItems, $item['name']);
+                if ($item['parent'] == null) {
+                    $html .= '<li class="dash-item dash-hasmenu">';
+                } else {
+                    $html .= '<li class="dash-item sub-menu-lnk">';
+                }
+                $marginLeft = 10 * $level;
+
                 $html .= '<a href="' . e($href) . '" class="dash-link" ' . $target . '>';
                 if ($item['parent'] == null) {
                     $html .= ' <span class="dash-micon"><i class="ti ti-' . sideMenuIconSlug($item['icon'] ?? '') . '"></i></span>

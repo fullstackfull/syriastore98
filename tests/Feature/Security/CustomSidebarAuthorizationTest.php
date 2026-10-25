@@ -219,6 +219,15 @@ class CustomSidebarAuthorizationTest extends SecurityTestCase
     {
         Route::get('/p2-sidebar-probe', fn () => '')->name('p2.sidebar.probe');
 
+        // `RouteCollection` caches its name lookup table, and a route added after the
+        // collection was built is NOT in it -- so `Route::has()` answers false and this test
+        // would measure the drop path while claiming to measure the keep path. Refreshing it is
+        // what makes the premise below true; without the premise this test was green for the
+        // wrong reason in its first run.
+        Route::getRoutes()->refreshNameLookups();
+
+        $this->assertTrue(Route::has('p2.sidebar.probe'), 'premise: the route must be registered');
+
         $html = generateSideMenu([
             $this->databaseRow('here', ['route' => 'p2.sidebar.probe']),
         ], null);
@@ -268,8 +277,16 @@ class CustomSidebarAuthorizationTest extends SecurityTestCase
             ]),
         ], null);
 
-        $this->assertStringNotContainsString('onmouseover', $html);
-        $this->assertStringContainsString('ti ti-homeonmouseoveralert1', $html);
+        /*
+         * NOT `assertStringNotContainsString('onmouseover')`. That is what this assertion said
+         * first, and it FAILED against correct output: the allowlist strips the quotes, the
+         * space and the `=`, leaving the letters `homeonmouseoveralert1` as an inert class name.
+         * The letters are not the vulnerability -- the attribute boundary is. So the assertion
+         * is that no quote survived inside the class attribute and no event handler was formed.
+         */
+        $this->assertStringContainsString('class="ti ti-homeonmouseoveralert1"', $html);
+        $this->assertStringNotContainsString('onmouseover=', $html);
+        $this->assertStringNotContainsString('ti-home"', $html);
     }
 
     /**
@@ -286,6 +303,27 @@ class CustomSidebarAuthorizationTest extends SecurityTestCase
 
         $this->assertSame('https://example.com/x', sideMenuSafeExternalUrl('https://example.com/x'));
         $this->assertSame('http://example.com/x', sideMenuSafeExternalUrl('http://example.com/x'));
+    }
+
+    /**
+     * THE SAME RULE THROUGH THE RENDERER, not only through the function.
+     *
+     * The assertion above drives `sideMenuSafeExternalUrl()` directly, so it stays green even if
+     * `sideMenuHref()` stops calling it -- measured during the bite test, where reverting the
+     * call left that case passing. This one fails in that revert, which is what makes the
+     * allowlist's reachability asserted rather than assumed.
+     */
+    public function test_a_javascript_url_does_not_reach_the_rendered_href(): void
+    {
+        $html = generateSideMenu([
+            $this->databaseRow('x', [
+                'link_type' => 'external',
+                'route' => json_encode(['href' => ['javascript:alert(1)'], 'type' => ['']]),
+            ]),
+        ], null);
+
+        $this->assertStringContainsString('href="#"', $html);
+        $this->assertStringNotContainsString('javascript:', $html);
     }
 
     public function test_an_external_row_renders_its_url_escaped(): void

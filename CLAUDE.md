@@ -212,6 +212,8 @@ Phase 02 engineering may proceed on its own branch; this does **not** waive Phas
 | design system | `docs/design-system/README.md` |
 | schema gaps | **`docs/GATE-F-VERIFIED-SCHEMA.md`** (measured), `docs/GATE-F-SCHEMA-EXPORT.md`, `_gate_f_pending/README.md` |
 | phase plan and evidence | `docs/development/phase-1/` |
+| **what Phase 02 was actually asked for** | **`docs/development/phase-2/PHASE-02-MASTER-EXECUTION-PROMPT.md`** — the owner's master execution prompt, verbatim and not to be edited. Workstreams A–K, slices P2-00…P2-08, and the completion criteria. Later clarifications are appended to it in their own dated section; status lives in `PHASE-02-TASK-LEDGER.md`, never there. |
+| Phase 02 status, evidence, parity, handoff | `docs/development/phase-2/` |
 | the Phase 0 audit | `docs/discovery/` |
 
 ---
@@ -252,21 +254,22 @@ or progress ledger beside the Phase 01 ledger, two for running `git merge`/`git 
 no vendored planning skill and that is deliberate** — upstream's planning skills are inseparable
 from their own ledger. Use the ledger and the Issues.
 
-**Account-level, so it may be absent:**
+**Design skills, committed on the owner's instruction (Phase 02), so these work everywhere too:**
+`frontend-design` (hash-pinned in `skills-lock.json`), `ui-ux-pro-max`, `design`, `design-system`,
+`ui-styling`, `brand`, `banner-design`, `slides`. `frontend-design` for aesthetic direction,
+`ui-ux-pro-max` for patterns, typography and accessibility. They **advise** the Store Syria Design
+System (`public/css/store-syria-ds.css`, `docs/design-system/`), which stays authoritative.
 
-- **`frontend-design`** — aesthetic direction for UI work. Present in some environments, not all.
+**Unlike the vendored subset they are not egress-free** — they reference external documentation,
+font and API hosts, one of them an AI image API behind a credential. The host set is ratcheted by
+`ClaudeConfigurationTest::test_the_design_skills_declare_every_external_host_they_reference`: a new
+host fails CI so somebody reads it. Phase 02 has called none of them.
 
-### What this section used to claim, and why it was wrong
-
-It named `laravel-best-practices`, `ui-ux-pro-max` and `claude-automation-recommender` and said to
-use them "without being asked". **None of the three exists in this environment.** They were
-account-level installs on another machine; the only capabilities that survived the move were the
-ones committed to `.claude/`. A missing skill is not an error — it is simply never offered — so a
-session proceeds silently without it.
-
-So: do not write code or reviews as if those three were available. If you need what they covered,
-the project-local skill above holds what is specific to this codebase, and `vendor/` holds the
-framework's own truth for the version actually installed.
+**Still absent, so do not write against them:** `laravel-best-practices`,
+`claude-automation-recommender`. This section has now been wrong in both directions — #66 found it
+instructing three skills that did not exist, and the fix then went stale by calling `ui-ux-pro-max`
+and `frontend-design` absent after they were committed. It is a claim about the filesystem, so a
+test asserts it rather than prose being trusted.
 
 The full evaluation of candidate additions — twelve tools, each read from its real upstream for
 license, install mechanics, hooks, egress and credentials — is in `docs/tooling/SKILLS-MANIFEST.md`,

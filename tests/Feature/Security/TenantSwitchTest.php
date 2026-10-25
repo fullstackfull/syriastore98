@@ -146,22 +146,58 @@ class TenantSwitchTest extends SecurityTestCase
     }
 
     /**
-     * And the token is enforced, which is the other half of "not a GET". `withMiddleware`
-     * reinstates VerifyCsrfToken, which the test kernel disables -- without it this would pass
-     * against a route that had no CSRF protection at all.
+     * AND THE TOKEN IS ACTUALLY ENFORCED -- asserted STRUCTURALLY, because it cannot be
+     * asserted behaviourally in this suite and the attempt to do so was a false reading.
+     *
+     * MEASURED: driving `POST /change-store/{id}` with no token, with
+     * `withMiddleware(VerifyCsrfToken::class)` reinstated, returns 302 AND MOVES
+     * `users.current_store` -- the write happens. Not because the route is unprotected, but
+     * because `ValidateCsrfToken::handle()` short-circuits on
+     * `runningInConsole() && runningUnitTests()` (framework line 84), so the middleware is inert
+     * in every PHPUnit run. The 302 was the controller's own `redirect()->back()`, not a
+     * refusal, and asserting 419 against it would have been one of the project's
+     * passes-for-the-wrong-reason shapes with the sign flipped: a RED test that proves nothing.
+     *
+     * So what is pinned is the two things that decide whether a real browser request is checked:
+     * the CSRF middleware is in the matched route's resolved stack, and this uri is not in
+     * `validateCsrfTokens(except: [...])` (bootstrap/app.php:365). Both are what an edit would
+     * break, and neither depends on the environment.
      */
-    public function test_the_store_switch_refuses_a_post_with_no_csrf_token(): void
+    public function test_the_store_switch_carries_csrf_protection(): void
     {
-        [$merchant, $storeA] = $this->makeTenant();
-        $storeB = $this->makeStore($merchant);
+        [$merchant] = $this->makeTenant();
+        $store = $this->makeStore($merchant);
 
-        $response = $this->withMiddleware(\Illuminate\Foundation\Http\Middleware\VerifyCsrfToken::class)
-            ->actingAs($merchant)
-            ->post("/change-store/{$storeB->id}");
+        $route = \Illuminate\Support\Facades\Route::getRoutes()
+            ->match(\Illuminate\Http\Request::create("/change-store/{$store->id}", 'POST'));
 
-        $this->assertSame(419, $response->getStatusCode());
+        $this->assertSame('change.store', $route->getName(), 'premise: the POST uri resolves to this route');
 
-        $this->assertSame($storeA->id, $merchant->fresh()->current_store);
+        $stack = app('router')->gatherRouteMiddleware($route);
+
+        // `ValidateCsrfToken`, which is the Laravel 11 name and what this app's `web` group
+        // actually resolves to -- measured by dumping `gatherRouteMiddleware()` for this route.
+        // `VerifyCsrfToken` is the legacy subclass and is NOT what is in the stack, so naming it
+        // here made this assertion fail against a correctly protected route.
+        $this->assertContains(
+            \Illuminate\Foundation\Http\Middleware\ValidateCsrfToken::class,
+            $stack,
+            'the store switch is outside CSRF protection. As a POST with no token check it is no '
+            . 'better than the GET it replaced.'
+        );
+
+        // AND NOT EXEMPTED. `inExceptArray()` matches with `Str::is`, so only `*` is special;
+        // this asks the middleware's own list rather than re-implementing the match.
+        $csrf = app(\Illuminate\Foundation\Http\Middleware\ValidateCsrfToken::class);
+        $except = (new \ReflectionClass($csrf))->getProperty('except');
+        $except->setAccessible(true);
+
+        foreach ((array) $except->getValue($csrf) as $pattern) {
+            $this->assertFalse(
+                \Illuminate\Support\Str::is(ltrim($pattern, '/'), "change-store/{$store->id}"),
+                "change-store is CSRF-exempt through the pattern [{$pattern}]."
+            );
+        }
     }
 
     // ---------------------------------------------------------------
