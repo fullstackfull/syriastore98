@@ -3018,5 +3018,16 @@
     "Up to :size per file": "حتى :size لكل ملف",
     "Up to :total for all files together": "حتى :total لجميع الملفات معاً",
     "That file is too large. The maximum is :max.": "هذا الملف كبير جداً. الحد الأقصى هو :max.",
-    "That file type is not accepted.": "هذه الصيغة غير مقبولة."
+    "That file type is not accepted.": "هذه الصيغة غير مقبولة.",
+    "Stock is not tracked for this product. You marked it out of stock.": "لا يتم تتبع المخزون لهذا المنتج. لقد حددته كغير متوفر.",
+    "Stock is not tracked for this product. You marked it on backorder.": "لا يتم تتبع المخزون لهذا المنتج. لقد حددته كطلب مُسبق.",
+    "Stock is not tracked for this product.": "لا يتم تتبع المخزون لهذا المنتج.",
+    "None left. :count in stock.": "لا يوجد المزيد. :count في المخزون.",
+    ":count left, at or below the low-stock level of :threshold.": "يتبقى :count، عند أو أدنى من مستوى المخزون المنخفض :threshold.",
+    ":count left, above the low-stock level of :threshold.": "يتبقى :count، أعلى من مستوى المخزون المنخفض :threshold.",
+    "Part of the product's web address. Leave it blank and it is generated from the name.": "جزء من عنوان المنتج على الويب. اتركه فارغاً وسيتم إنشاؤه من الاسم.",
+    "The discounted price customers pay. It must be lower than the price.": "السعر المخفّض الذي يدفعه العملاء. يجب أن يكون أقل من السعر.",
+    "What the item costs you. Required, cannot exceed the price, and never shown to customers.": "ما يكلّفك هذا المنتج. مطلوب، ولا يمكن أن يتجاوز السعر، ولا يُعرض للعملاء أبداً.",
+    "Used to work out shipping. Leave blank if your shipping does not depend on weight.": "يُستخدم لحساب الشحن. اتركه فارغاً إذا كان الشحن لا يعتمد على الوزن.",
+    "The product list shows Low stock at or below this number. Leave 0 to use the store default.": "تُظهر قائمة المنتجات \"مخزون منخفض\" عند هذا الرقم أو أقل. اتركه 0 لاستخدام الافتراضي للمتجر."
 }

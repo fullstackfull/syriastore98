@@ -76,7 +76,10 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                                 <div class="d-flex flex-wrap gap-3">
                                     <input class="input-group-text col-12" readonly id="basic-addon2"
                                         value="{{ $link }}">
-                                    {!! Form::text('slug', null, ['class' => 'form-control slug col-12', 'data-bs-toggle'=>'tooltip', 'title'=> __('Sku or Slug')]) !!}
+                                    {!! Form::text('slug', null, ['class' => 'form-control slug col-12', 'aria-describedby' => 'slug-help']) !!}
+                                    {{-- P2-06-10: this carried `title='Sku or Slug'` as a tooltip -- hover-only,
+                                         a restatement of its own label, and associated with nothing. --}}
+                                    <x-ss.field-help for="slug">{{ __("Part of the product's web address. Leave it blank and it is generated from the name.") }}</x-ss.field-help>
                                 </div>
                             </div>
                             <div class="col-sm-6 col-12">
@@ -150,7 +153,8 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                                 <div class="col-sm-6 col-12 product-weight">
                                     {!! Form::label('', __('Weight(Kg)'), ['class' => 'form-label ']) !!}
                                     {!! Form::number('product_weight', null, ['class' => 'form-control', 'min' => '0',
-                                    'step' => '0.01']) !!}
+                                    'step' => '0.01', 'aria-describedby' => 'product_weight-help']) !!}
+                                    <x-ss.field-help for="product_weight">{{ __('Used to work out shipping. Leave blank if your shipping does not depend on weight.') }}</x-ss.field-help>
                                 </div>
                                 </div>
                               </x-ss.advanced-fields>
@@ -165,7 +169,8 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                                 {!! Form::label('', __('Sale Price'), ['class' => 'form-label']) !!}<!--<span
                                     class="text-danger">*</span>-->
                                 {!! Form::number('sale_price', null, ['class' => 'form-control', 'min' => '0',
-                                'step' => '0.01']) !!}
+                                'step' => '0.01', 'aria-describedby' => 'sale_price-help']) !!}
+                                <x-ss.field-help for="sale_price">{{ __('The discounted price customers pay. It must be lower than the price.') }}</x-ss.field-help>
                             </div>
                         </div>
                  
@@ -176,8 +181,10 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
         'class' => 'form-control',
         'min' => '0',
         'step' => '0.01',
-        'required' => true
+        'required' => true,
+        'aria-describedby' => 'cost_price-help',
     ]) !!}
+    <x-ss.field-help for="cost_price">{{ __('What the item costs you. Required, cannot exceed the price, and never shown to customers.') }}</x-ss.field-help>
 </div>
                  
                  
@@ -252,7 +259,8 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                                     <div class="col-md-6 col-12">
                                         {!! Form::label('', __('Low stock threshold'), ['class' => 'form-label']) !!}
                                         {!! Form::number('low_stock_threshold', $low_stock_threshold, ['class' =>
-                                        'form-control', 'min' => '0']) !!}
+                                        'form-control', 'min' => '0', 'aria-describedby' => 'low_stock_threshold-help']) !!}
+                                        <x-ss.field-help for="low_stock_threshold">{{ __('The product list shows Low stock at or below this number. Leave 0 to use the store default.') }}</x-ss.field-help>
                                     </div>
                                     <div class="col-12 mb-3">
                                         {!! Form::label('', __('Allow BackOrders:'), ['class' => 'form-label']) !!}

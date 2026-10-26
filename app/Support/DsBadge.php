@@ -25,12 +25,22 @@ final class DsBadge
     /**
      * `$tone` outside the known set renders the neutral badge rather than an unstyled one, so a
      * typo is a quiet grey pill instead of unreadable default text on a transparent background.
+     *
+     * `$title` CARRIES THE RULE BEHIND THE LABEL (P2-03-9). A stock badge that says "Low stock"
+     * without saying what counts as low is a colour with a word on it: the merchant cannot act on
+     * it or tell whether it agrees with the filter they just used. It is optional and empty by
+     * default, so the seven existing callers are untouched, and it is ESCAPED like the label --
+     * it interpolates a threshold that comes from settings. The Blade sibling
+     * (`components/ss/status-badge.blade.php`) already accepts arbitrary attributes through
+     * `$attributes->merge()`, so it needs no change to do the same thing.
      */
-    public static function render(string $tone, string $label): string
+    public static function render(string $tone, string $label, string $title = ''): string
     {
         $class = 'ss-badge' . (in_array($tone, self::TONES, true) ? ' ss-badge--' . $tone : '');
 
-        return '<span class="' . $class . '">'
+        return '<span class="' . $class . '"'
+            . ($title !== '' ? ' title="' . e($title) . '"' : '')
+            . '>'
             . '<span class="ss-badge__dot" aria-hidden="true"></span>'
             . e($label)
             . '</span>';

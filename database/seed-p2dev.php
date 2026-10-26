@@ -574,6 +574,24 @@ foreach ($swatches as $key => $rgb) {
 }
 $galleryTargets = Product::where('store_id', $store->id)->orderBy('id')->limit(2)->get();
 foreach ($galleryTargets as $gp) {
+    /* A COVER IMAGE TOO, because its absence was mistaken for a defect. The edit view renders
+       `<img id="upcoverImg" src="{{ get_file($product->cover_image_path) }}">` and the fixture left
+       `cover_image_path` NULL, so a survey of the editor reported "the existing cover is not
+       previewed" against code that renders it correctly -- `get_file(null)` simply returns null.
+       Seeding one means the media half of the editor can be driven with an existing cover rather
+       than only with a freshly chosen file. Written through Eloquent, not a raw update, because
+       `Product` paths go through StoredPathPolicy on `saving` (P1-SEC-28) and a raw write would
+       skip the control this fixture should be exercising.
+       THIS SITS ABOVE THE `$have >= 3` GUARD ON PURPOSE: the first version put it after, so the
+       `continue` skipped it for exactly the products that already had their gallery -- which is
+       every product on a second run -- and the cover stayed NULL. */
+    if (empty($gp->cover_image_path)) {
+        $coverPath = 'uploads/' . $store->id . '/p2dev/swatch-a.png';
+        $gp->cover_image_path = $coverPath;
+        $gp->cover_image_url = $coverPath;
+        $gp->save();
+    }
+
     $have = \App\Models\ProductImage::where('product_id', $gp->id)->count();
     if ($have >= 3) { continue; }
     foreach (array_keys($swatches) as $key) {
@@ -586,6 +604,7 @@ foreach ($galleryTargets as $gp) {
             'store_id' => $store->id,
         ]);
     }
+
 }
 
 echo "seeded: merchant={$merchant->id} store={$store->id}"

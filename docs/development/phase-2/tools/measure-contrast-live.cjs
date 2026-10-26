@@ -135,6 +135,17 @@ const PROBE = `
        sort of element that lands under AA without anyone noticing. */
     measure('upload hint (gallery)', '#ss-gallery-upload-hint');
     measure('upload hint (cover)', '#ss-cover-upload-hint');
+
+    /* P2-06-10's contextual field help. The ss-field__hint class is already in the
+       host-override-defence list, but the product editor is a NEW surface for it and the card
+       behind these is not the one the filter bar's hint sits on -- the distinction F8, the feed
+       timestamp and the upload hint have each cost a measurement. Two of them: one on the main
+       card and one INSIDE the collapsed advanced section, whose background differs again.
+       (NO BACKTICKS IN THIS COMMENT. It lives inside a template literal, so a backtick ends the
+       probe -- the file's own note above says this has happened twice before. It has now happened
+       three times: the measurements came back as this comment's text.) */
+    measure('field help (slug)', '#slug-help');
+    measure('field help (weight, in the disclosure)', '#product_weight-help');
     return out;
 })()
 `;

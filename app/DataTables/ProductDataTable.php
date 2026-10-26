@@ -91,22 +91,50 @@ class ProductDataTable extends DataTable
                 }
 
                 if ($product->track_stock == 0) {
+                    /* UNTRACKED: the level is not a fact, so the merchant's own `stock_status` is
+                       the only thing to report. This half already agreed with the filter, which
+                       excludes untracked products from all three states for the same reason. */
                     if ($product->stock_status == 'out_of_stock') {
-                        return DsBadge::render('danger', __('Out of stock'));
+                        return DsBadge::render('danger', __('Out of stock'),
+                            __('Stock is not tracked for this product. You marked it out of stock.'));
                     }
 
                     if ($product->stock_status == 'on_backorder') {
-                        return DsBadge::render('warning', __('On Backorder'));
+                        return DsBadge::render('warning', __('On Backorder'),
+                            __('Stock is not tracked for this product. You marked it on backorder.'));
                     }
 
-                    return DsBadge::render('success', __('In stock'));
+                    return DsBadge::render('success', __('In stock'),
+                        __('Stock is not tracked for this product.'));
                 }
 
-                $threshold = $admin['out_of_stock_threshold'] ?? 0;
+                /* TRACKED: one rule, shared with the filter. See trackedStockState(). */
+                $fallback = self::stockFallbackThreshold($admin);
+                $state = self::trackedStockState(
+                    (int) $product->product_stock,
+                    $product->low_stock_threshold,
+                    $fallback
+                );
+                $effectiveLow = (int) ($product->low_stock_threshold ?: 0) ?: $fallback;
 
-                return $product->product_stock <= $threshold
-                    ? DsBadge::render('danger', __('Out of stock'))
-                    : DsBadge::render('success', __('In stock'));
+                if ($state === 'out') {
+                    return DsBadge::render('danger', __('Out of stock'),
+                        __('None left. :count in stock.', ['count' => (int) $product->product_stock]));
+                }
+
+                if ($state === 'low') {
+                    return DsBadge::render('warning', __('Low stock'),
+                        __(':count left, at or below the low-stock level of :threshold.', [
+                            'count' => (int) $product->product_stock,
+                            'threshold' => $effectiveLow,
+                        ]));
+                }
+
+                return DsBadge::render('success', __('In stock'),
+                    __(':count left, above the low-stock level of :threshold.', [
+                        'count' => (int) $product->product_stock,
+                        'threshold' => $effectiveLow,
+                    ]));
             })
             ->addColumn('product_stock', function ($product) {
                 if ($product->variant_product == 1) {
@@ -236,9 +264,74 @@ class ProductDataTable extends DataTable
      * "unset" rather than "a threshold of zero", which is how the column is used everywhere
      * else in this application.
      */
+    /**
+     * THE ONE STOCK RULE, used by BOTH the badge and the filter (P2-03-9).
+     * =============================================================================================
+     *
+     * P2-03-9's acceptance asks that the indicator "agree with the product list's own predicate".
+     * It did not, in two ways, and both were reachable:
+     *
+     *   1. THE BOUNDARY DISAGREED. The badge said out-of-stock at
+     *      `product_stock <= out_of_stock_threshold` (the global setting, which the merchant edits
+     *      at `setting/stock_setting.blade.php:19`), while the filter says out at
+     *      `product_stock <= 0`. With the threshold set to 5, a product at stock 3 showed the badge
+     *      "Out of stock" and `?ss_stock=out` did NOT return it, while `?ss_stock=low` did. The row
+     *      and the filter contradicted each other on screen.
+     *
+     *   2. THERE WAS NO "LOW STOCK" BADGE AT ALL. The filter has offered a Low stock option since
+     *      P2-03-2 (`product/partials/filters.blade.php:41`), so a merchant could filter to it and
+     *      every row would read "In stock".
+     *
+     * THE FILTER'S SEMANTICS WIN, and not merely because the acceptance names it: they are the
+     * better-reasoned pair. `ProductListFilterTest` asserts that the three states PARTITION the
+     * tracked products -- nothing in two, nothing tracked in none -- and that an untracked product
+     * is in none of them, because `track_stock = 0` means its zero is "not counted" rather than
+     * "none left". The badge had no such property.
+     *
+     * SO THEY NOW SHARE THIS METHOD. Agreement by construction, not by two copies of an
+     * expression that drift -- which is exactly how they came to disagree.
+     *
+     * WHAT THIS DOES NOT TOUCH, deliberately: the CART's rule. `Cart.php:135` refuses a purchase
+     * only when `product_stock <= out_of_stock_threshold` AND `stock_order_status == 'not_allow'`,
+     * so a product at zero with any other order status is still purchasable -- and the fixture's
+     * (and production's) `''` is "any other". That divergence between what the merchant list says
+     * and what a customer can actually do is recorded as F79; changing it would be a change to
+     * purchasing behaviour, which is reserved.
+     *
+     * @return 'out'|'low'|'in' the state a TRACKED product is in
+     */
+    public static function trackedStockState(int $stock, $lowThreshold, int $fallback): string
+    {
+        if ($stock <= 0) {
+            return 'out';
+        }
+
+        // `NULLIF(low_stock_threshold, 0)` in SQL: a per-product 0 means "unset", not "zero".
+        $low = (int) ($lowThreshold ?: 0);
+        if ($low === 0) {
+            $low = $fallback;
+        }
+
+        return $stock <= $low ? 'low' : 'in';
+    }
+
+    /** The global fallback the badge and the filter both start from. */
+    public static function stockFallbackThreshold($admin = null): int
+    {
+        $settings = $admin ?? getAdminAllSetting();
+
+        return (int) ($settings['out_of_stock_threshold'] ?? 0);
+    }
+
     private function applyStockFilter(QueryBuilder $query, string $stock): void
     {
-        $fallback = (int) (getAdminAllSetting()['out_of_stock_threshold'] ?? 0);
+        /* ONE SOURCE FOR THE FALLBACK, shared with the badge (P2-03-9). The SQL below cannot call
+           `trackedStockState()` -- it has to stay a predicate the database evaluates -- so the
+           shared PHP method and this SQL are kept in agreement by
+           `ProductStockIndicatorTest::test_the_badge_and_the_filter_agree_on_every_boundary`,
+           which drives both and compares them row by row rather than trusting that two
+           expressions written to match still do. */
+        $fallback = self::stockFallbackThreshold();
 
         $query->where('track_stock', 1);
 

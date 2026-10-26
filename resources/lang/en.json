@@ -2989,5 +2989,16 @@
     "Up to :size per file": "Up to :size per file",
     "Up to :total for all files together": "Up to :total for all files together",
     "That file is too large. The maximum is :max.": "That file is too large. The maximum is :max.",
-    "That file type is not accepted.": "That file type is not accepted."
+    "That file type is not accepted.": "That file type is not accepted.",
+    "Stock is not tracked for this product. You marked it out of stock.": "Stock is not tracked for this product. You marked it out of stock.",
+    "Stock is not tracked for this product. You marked it on backorder.": "Stock is not tracked for this product. You marked it on backorder.",
+    "Stock is not tracked for this product.": "Stock is not tracked for this product.",
+    "None left. :count in stock.": "None left. :count in stock.",
+    ":count left, at or below the low-stock level of :threshold.": ":count left, at or below the low-stock level of :threshold.",
+    ":count left, above the low-stock level of :threshold.": ":count left, above the low-stock level of :threshold.",
+    "Part of the product's web address. Leave it blank and it is generated from the name.": "Part of the product's web address. Leave it blank and it is generated from the name.",
+    "The discounted price customers pay. It must be lower than the price.": "The discounted price customers pay. It must be lower than the price.",
+    "What the item costs you. Required, cannot exceed the price, and never shown to customers.": "What the item costs you. Required, cannot exceed the price, and never shown to customers.",
+    "Used to work out shipping. Leave blank if your shipping does not depend on weight.": "Used to work out shipping. Leave blank if your shipping does not depend on weight.",
+    "The product list shows Low stock at or below this number. Leave 0 to use the store default.": "The product list shows Low stock at or below this number. Leave 0 to use the store default."
 }

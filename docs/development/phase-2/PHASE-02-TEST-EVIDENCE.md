@@ -3054,3 +3054,237 @@ version of the markup: `{{ __('Up to :size per file') }}: {{ $value }}` is a tra
 no replacement array, so the page would have read "Up to :size per file: 2 MB" with `:size`
 showing. A test that only asked whether the hint existed would have passed. Eight strings were added
 to both `en.json` and `ar.json`, each verified to contain Arabic script in the Arabic file.
+
+---
+
+## 21. `[2026-10-26]` P2-03-9 — a badge and a filter that contradicted each other
+
+### 21a. Two disagreements, both reachable from the UI
+
+> **Acceptance (ledger):** status and stock are distinguishable without colour, **carry their
+> rule**, and **agree with the product list's own predicate**.
+
+It did not agree, in two ways.
+
+**The boundary.** The badge and the filter used different arithmetic on the same column:
+
+| | out of stock | low stock | in stock |
+|---|---|---|---|
+| the badge | `product_stock <= out_of_stock_threshold` | **no such state** | otherwise |
+| the filter | `product_stock <= 0` | `0 < stock <= COALESCE(NULLIF(low_stock_threshold,0), fallback)` | above that |
+
+Worked through with the threshold set to 5:
+
+```
+    stock=0   badge says Out of stock   filter puts it in out
+    stock=3   badge says Out of stock   filter puts it in low   <-- CONTRADICTS
+    stock=5   badge says Out of stock   filter puts it in low   <-- CONTRADICTS
+    stock=6   badge says In stock       filter puts it in in
+```
+
+So a merchant could read "Out of stock" on a row and have `?ss_stock=out` not return it, while
+`?ss_stock=low` did. **Latent at the default**: `out_of_stock_threshold` ships unset, so `?? 0`
+makes both boundaries coincide — the defect appears the moment a merchant uses the setting the
+product offers at `setting/stock_setting.blade.php:19`. That is why the test sets it to 5 rather
+than relying on the fixture, which would have measured nothing.
+
+**And there was no Low stock badge at all**, though the filter has offered that option since
+P2-03-2 (`product/partials/filters.blade.php:41`). A merchant could filter to Low stock and read
+"In stock" on every row.
+
+### 21b. Which side moved, and why
+
+The filter's. The acceptance names it as the reference, and it is also the better-reasoned pair:
+`ProductListFilterTest` proves the three states **partition** the tracked products — nothing in
+two, nothing tracked in none — and that an untracked product is in none of them, because
+`track_stock = 0` makes its zero *"not counted"* rather than *"none left"*. The badge had neither
+property nor a third state.
+
+**They now share one method.** `ProductDataTable::trackedStockState()` is what both consult, so
+agreement is by construction rather than by two copies of an expression — which is precisely how
+they drifted apart. The SQL filter cannot call it (it has to stay a predicate the database
+evaluates), so the agreement is **also measured**: the test drives both and compares them row by
+row on 0, 1, 3, 5, 6 and 50.
+
+**A third copy was found, and it was already right.** `product/partials/preview.blade.php:16-28`
+uses the same `<= 0` / `<= low` boundaries, so P2-03-6's panel had been correct all along and the
+list badge was the only disagreeing surface. One residual difference on its *untracked* path is
+recorded as F80.
+
+### 21c. "Carry their rule"
+
+A colour and a word cannot satisfy that half: a merchant seeing "Low stock" cannot act on it, or
+tell whether it agrees with the filter they just used, unless it says what counts as low. So
+`DsBadge::render()` gained an optional third argument and every stock badge now states its rule:
+
+```
+  In stock     title="40 left, above the low-stock level of 5."
+  Low stock    title="3 left, at or below the low-stock level of 5."
+  Out of stock title="None left. 0 in stock."
+  In stock     title="Stock is not tracked for this product."
+```
+
+Optional and empty by default, so the seven existing `DsBadge` callers are untouched; the Blade
+sibling already accepted arbitrary attributes through `$attributes->merge()` and needed no change.
+
+### 21d. Measured — 11 Feature tests, 31 live cases, three bites
+
+```
+  ✓ the badge and the filter agree on every boundary
+  ✓ the low stock state is rendered at all
+  ✓ the badge carries its rule
+  ✓ the shared rule itself  (8 boundary cases)
+  Tests: 11 passed (37 assertions)
+```
+
+Live, driving each filter in two configurations — which is a live restatement of the agreement,
+and the only way to see that the `title` survives yajra's raw-column rendering:
+
+```
+    en/ltr/light ?ss_stock=out: ["Out of stock/ss-badge--danger"]
+    en/ltr/light ?ss_stock=low: ["Low stock/ss-badge--warning"]
+    en/ltr/light ?ss_stock=in:  ["In stock/ss-badge--success"]
+    ar/rtl/dark  ?ss_stock=out: ["لم يعد في المخزون/ss-badge--danger"]
+    ar/rtl/dark  ?ss_stock=low: ["مخزون منخفض/ss-badge--warning"]
+    ar/rtl/dark  ?ss_stock=in:  ["في المخزون/ss-badge--success"]
+PASS 31/31
+```
+
+Every row a filter returns wears the matching badge, each stating its rule with a number, titles
+in Arabic, no placeholder leaks.
+
+| reverted | result |
+|---|---|
+| the badge back to its two-state rule | agreement, low-stock and carries-rule all fail — **3 cases** |
+| the `title` emission in `DsBadge` | **only** the carries-its-rule case fails |
+| the shared boundary moved by one (`<` for `<=`) | the agreement test **and** the one provider case that names it — **2 cases** |
+
+### 21e. One harness defect, worth recording
+
+The first version of the live check read the **unfiltered** list and found every badge saying "In
+stock" with the not-tracked rule — so it reported "the Low stock state never appears" and "a title
+names no number" as product defects. Both were a sampling artefact: page 1 of that list happens to
+hold untracked rows. Driving each filter instead fixed it and made the harness strictly better,
+because it now checks the agreement live rather than only the presence of a badge.
+
+### 21f. What P2-03-9 does NOT claim — F79
+
+The badge agrees with the filter and the preview panel. It still does **not** reflect what a
+customer can do. `Cart.php:135` refuses a purchase only when
+`product_stock <= out_of_stock_threshold` **AND** `stock_order_status == 'not_allow'`, and that
+column is the empty string in the fixture and in production — which is none of its three valid
+values, so `'' == 'not_allow'` is false and the threshold check **never fires**. A tracked product
+at zero stock reads "Out of stock" on the list and can still be bought.
+
+Recorded as **F79** rather than fixed, because the honest fix is a purchasing-behaviour change
+(treat `''` as `not_allow`, which would stop sales that currently complete) and the owner's
+standing limits reserve that. F61 recorded the same `''`-as-permissive behaviour for
+`stock_status`; this is its sibling on the purchasing path. What this slice does do about it is
+make the number and the threshold visible in every badge's rule, so a merchant is not left
+inferring them.
+
+---
+
+## 22. `[2026-10-26]` P2-06-10 — contextual field help, associated rather than rendered
+
+### 22a. What was there before, and why the acceptance ends "not a tooltip only"
+
+> **Acceptance:** help attached to the field it is about via `aria-describedby`, in both languages,
+> **not a tooltip only**.
+
+The slug field carried this:
+
+```php
+Form::text('slug', null, ['class' => '...', 'data-bs-toggle' => 'tooltip', 'title' => __('Sku or Slug')])
+```
+
+Hover-only, a restatement of the field's own label, and bound to the input for nothing: Bootstrap's
+tooltip plugin moves `title` into `data-bs-original-title` and blanks the attribute — a behaviour
+`order/action.blade.php:8` already records — so even the browser's own fallback is gone. **No other
+field in the product editor had help at all.**
+
+### 22b. Five fields, each saying something the label does not
+
+Every sentence was checked against the code rather than written from intuition:
+
+| field | the help | verified against |
+|---|---|---|
+| `slug` | generated from the name when left blank | `store():286` — `$Product->slug = Product::slugs($request->name)` |
+| `sale_price` | must be **lower than** the price | the rule is `lt:price`, not `lte` |
+| `cost_price` | required, cannot exceed the price, never shown to customers | `required\|numeric\|min:0\|lte:price` |
+| `product_weight` | used to work out shipping | `nullable\|numeric\|min:0` |
+| `low_stock_threshold` | the list shows **Low stock** at or below it; 0 uses the store default | P2-03-9's own rule, and the `NULLIF(…, 0)` semantics the filter's SQL uses |
+
+The last one ties the help to the badge built in §21, so the two describe one rule.
+
+### 22c. The ratchet asserts BOTH directions, because each alone is satisfiable by something broken
+
+- "five hints exist" passes with five paragraphs nothing points at — decoration;
+- "five controls have `aria-describedby`" passes with five references to ids that are not on the
+  page — and a **dangling reference is worse than silence**, because it leaves the accessible
+  description empty while the markup looks complete.
+
+7 tests, bitten six ways, each failing exactly its own cases:
+
+| reverted | result |
+|---|---|
+| one `aria-describedby` dropped | points-at-its-help **and** no-orphan fail (the hint becomes an orphan) — 2 |
+| one hint removed, its reference left | really-on-the-page **and** says-something fail — 2 |
+| an orphan hint added | **only** no-orphan fails — 1 |
+| the useless tooltip restored | **only** tooltip-is-gone fails — 1 |
+| the English text copied into `ar.json` | **only** is-translated fails — 1 |
+| help removed from `edit` only | **only** edit-carries-the-same fails — 1 |
+
+### 22d. Driven live, 57/57 — resolving the id chain the way the browser does
+
+`check-field-help-live.cjs` reads the description the accessibility tree would announce, which
+catches two things the Feature test cannot see:
+
+```
+  BITE — reference points at a missing id:
+    FAIL  sale_price: every referenced id resolves  [unresolved: ["sale_price-helpp"]]
+    FAIL  sale_price: the description says something  [""]     <-- the description is EMPTY
+
+  BITE — a second element with the same id:
+    FAIL  slug: no duplicate id behind the reference  [duplicated: ["slug-help"]]
+    (in both languages — the browser silently describes the control with the first match)
+```
+
+Restored, both languages, every description confirmed Arabic in the Arabic run:
+
+```
+    descriptions: slug=Part of the product's web address. Leave it …
+                  sale_price=The discounted price customers pay. It …
+                  cost_price=What the item costs you. Required, cannot ex…
+                  product_weight=Used to work out shipping. Leave blank if yo…
+                  low_stock_threshold=The product list shows Low stock at or below…
+PASS 57/57
+```
+
+Contrast, two new targets across four configurations — **5.23 to 7.11:1, 56 measured, 0 below AA**.
+The weight field's help sits **inside** the P2-03-8 collapsed `<details>`, a different surface
+again; that distinction has now cost a measurement three times (F8, the feed timestamp, F75's
+gallery hint), which is why it is sampled separately rather than assumed from its sibling.
+
+### 22e. A precondition stated rather than assumed
+
+`low_stock_threshold` lives inside `@if ($stock_management == 'on')`, so with the setting unset —
+how it ships — the field is not on the page. **The first version of the test reported it as
+unhelped**, which was true of the page and false of the template. Both the test and the harness now
+turn the setting on and **assert the field is present** before judging its help.
+
+The harness does that through a new `set-stock-management.php` rather than through the fixture,
+because enabling it in `seed-p2dev.php` would change the editor's rendered field set — which
+`inventory-product-fields.cjs` diffs as its preservation gate, and a baseline that drifts for an
+unrelated reason is worse than a harness that states its own precondition.
+
+That script resolves `settings.created_by` **from the store**, copying `set-preview-state.php`
+beside it. Measured: the owner is **2, not 1** — so hardcoding 1, which the first draft did, would
+have written the setting where the store never reads it.
+
+### 22f. What this does not claim
+
+The **product editor only**. Workstream I2's wording is "contextual field help", and the other
+merchant screens — orders, customers, inventory, the ~20 settings panels — still have none. The
+component and the ratchet are reusable and the ratchet's field list is per-screen, so extending it
+is additive; P2-06-10 is recorded as done for this screen and open for Workstream I.
