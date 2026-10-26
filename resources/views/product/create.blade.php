@@ -1003,6 +1003,19 @@
 
               } else {
                 show_toastr('Error', data.msg, 'error');
+                /* F70. The toast says WHAT is wrong; this says WHERE. It marks each failed
+                   field, writes the message beside it, OPENS the collapsed section the field
+                   lives in, and builds the summary -- none of which the server-rendered
+                   path could do, because this save never re-renders the page.
+                   The strings are passed in because store-syria-ds.js has no translator;
+                   omit them and an Arabic merchant reads English. */
+                if (window.StoreSyriaDS && data.errors) {
+                    StoreSyriaDS.applyFormErrors(data.errors, {
+                        form: '#choice_form',
+                        needsAttentionText: @json(__('Needs attention')),
+                        titleText: @json(__('Please correct the highlighted fields'))
+                    });
+                }
                 $('#submit-all').attr('disabled', false);
               }
             },
@@ -1037,6 +1050,19 @@
 
             } else {
               show_toastr('Error', data.msg, 'error');
+              /* F70. The toast says WHAT is wrong; this says WHERE. It marks each failed
+                 field, writes the message beside it, OPENS the collapsed section the field
+                 lives in, and builds the summary -- none of which the server-rendered
+                 path could do, because this save never re-renders the page.
+                 The strings are passed in because store-syria-ds.js has no translator;
+                 omit them and an Arabic merchant reads English. */
+              if (window.StoreSyriaDS && data.errors) {
+                  StoreSyriaDS.applyFormErrors(data.errors, {
+                      form: '#choice_form',
+                      needsAttentionText: @json(__('Needs attention')),
+                      titleText: @json(__('Please correct the highlighted fields'))
+                  });
+              }
               $('#submit-all').attr('disabled', false);
             }
           },

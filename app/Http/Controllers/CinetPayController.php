@@ -840,15 +840,21 @@ class CinetPayController extends Controller
 
             $product_order_id = '0' . date('YmdHis');
             $is_guest = 1;
+            // F46. The AUTHENTICATED customer's id, never $request->customer_id. This is one of NINE byte-for-
+            // byte copies of the same checkout block; see app/Services/PaymentService.php for the full
+            // reasoning. The guest branch is untouched, and PosController is deliberately NOT changed -- it
+            // uses the MERCHANT guard and the merchant legitimately picks the customer.
+            $orderCustomerId = ! empty($request->customer_id) ? $request->customer_id : 0;
             if (auth('customers')->check()) {
-                $product_order_id = $request->customer_id . date('YmdHis');
+                $orderCustomerId = auth('customers')->id();
+                $product_order_id = $orderCustomerId . date('YmdHis');
                 $is_guest = 0;
             }
             // add in  Order table  start
             $order = new Order();
             $order->product_order_id = $product_order_id;
             $order->order_date = date('Y-m-d H:i:s');
-            $order->customer_id = !empty($request->customer_id) ? $request->customer_id : 0;
+            $order->customer_id = $orderCustomerId;   // F46
             $order->is_guest = $is_guest;
             $order->product_id = $prodduct_id_array;
             $order->product_json = json_encode($products);

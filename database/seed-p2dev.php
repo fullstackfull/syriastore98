@@ -438,10 +438,146 @@ if ($catIds) {
     }
 }
 
+/* ---------------------------------------------------------------------------------------
+ * P2-03-4. ATTRIBUTES, VARIANTS AND IMAGES.
+ *
+ * Without these the media and variant halves of the product editor CANNOT BE DRIVEN AT ALL,
+ * which is what the first survey of them measured: `product_attributes`,
+ * `product_attribute_options`, `product_variants` and `product_images` were all at 0 rows, so
+ * `#attribute_id` rendered with zero options and stayed invisible even with the variant toggle
+ * on, and the existing-image gallery had nothing to show. Same class as the categories/Plan/
+ * permission gaps that blocked P2-03-3 (ledger F33): a fixture that cannot reach the screen.
+ *
+ * THE ENCODING IS COPIED FROM THE CONTROLLER, NOT INVENTED. `ProductController::store():189-216`
+ * builds `products.attribute_id` as `implode(',', $request->attribute_no)` and
+ * `products.product_attribute` as a JSON array of
+ *   { attribute_id, values[], visible_attribute_<id>, for_variation_<id> }
+ * so a fixture that guessed a different shape would exercise a product the application could
+ * never have produced.
+ * ------------------------------------------------------------------------------------------ */
+
+$attrSpec = [
+    'Size'   => ['S', 'M', 'L'],
+    'Colour' => ['Natural', 'Indigo'],
+];
+$attrIds = [];
+foreach ($attrSpec as $attrName => $terms) {
+    $attr = \App\Models\ProductAttribute::where('name', $attrName)->where('store_id', $store->id)->first();
+    if (! $attr) {
+        // `slug` is NOT NULL with no default on this table too.
+        $attr = \App\Models\ProductAttribute::forceCreate([
+            'name' => $attrName,
+            'slug' => \Illuminate\Support\Str::slug($attrName),
+            'store_id' => $store->id,
+        ]);
+    }
+    $attrIds[$attrName] = $attr->id;
+
+    foreach ($terms as $order => $term) {
+        $exists = \App\Models\ProductAttributeOption::where('attribute_id', $attr->id)
+            ->where('terms', $term)->where('store_id', $store->id)->exists();
+        if (! $exists) {
+            // `order` is NOT NULL default '0'; it is set explicitly so the terms have a
+            // stable sequence rather than insertion order.
+            \App\Models\ProductAttributeOption::forceCreate([
+                'attribute_id' => $attr->id,
+                'terms' => $term,
+                'order' => $order,
+                'store_id' => $store->id,
+            ]);
+        }
+    }
+}
+
+/* A product that really is a variant product, so the combination table has something to
+ * render. `variant`, `sku` and `price` are NOT NULL with no default on product_variants. */
+$variantProduct = Product::where('store_id', $store->id)->orderBy('id')->first();
+if ($variantProduct && (int) $variantProduct->variant_product !== 1) {
+    $optionRows = [];
+    foreach ($attrSpec as $attrName => $terms) {
+        $id = $attrIds[$attrName];
+        $optionRows[] = [
+            'attribute_id' => (string) $id,
+            'values' => $terms,
+            'visible_attribute_' . $id => 'on',
+            'for_variation_' . $id => 'on',
+        ];
+    }
+    $variantProduct->variant_product = 1;
+    $variantProduct->attribute_id = implode(',', array_values($attrIds));
+    $variantProduct->product_attribute = json_encode($optionRows);
+    $variantProduct->save();
+
+    $i = 0;
+    foreach ($attrSpec['Size'] as $size) {
+        foreach ($attrSpec['Colour'] as $colour) {
+            $label = $size . '/' . $colour;
+            $exists = \App\Models\ProductVariant::where('product_id', $variantProduct->id)
+                ->where('variant', $label)->exists();
+            if ($exists) { continue; }
+            \App\Models\ProductVariant::forceCreate([
+                'product_id' => $variantProduct->id,
+                'variant' => $label,
+                'sku' => 'SKU-' . strtoupper(substr(md5($variantProduct->id . $label), 0, 8)),
+                'price' => 39 + ($i * 2),
+                'stock' => 4 + $i,
+                'low_stock_threshold' => 2,
+                'stock_status' => 'in_stock',
+                'store_id' => $store->id,
+            ]);
+            $i++;
+        }
+    }
+}
+
+/* Gallery images, with REAL FILES on disk, because the gallery renders an <img> and a broken
+ * one is indistinguishable from a missing affordance when you are surveying the screen.
+ * `/public/uploads/` is gitignored, so nothing here is committed. */
+/* The path must be `uploads/<storeId>/...`. P1-SEC-28's StoredPathPolicy refuses anything
+   whose first segment under `uploads/` is not the owning store's folder, and it refused this
+   fixture's first attempt at `uploads/p2dev/` -- the control working exactly as designed, on a
+   fixture rather than on an attacker. */
+$uploadDir = __DIR__ . '/../public/uploads/' . $store->id . '/p2dev';
+if (! is_dir($uploadDir)) { @mkdir($uploadDir, 0775, true); }
+$swatches = ['a' => [196, 164, 132], 'b' => [ 72, 101, 128], 'c' => [140, 120, 150]];
+foreach ($swatches as $key => $rgb) {
+    $file = $uploadDir . '/swatch-' . $key . '.png';
+    if (file_exists($file)) { continue; }
+    if (function_exists('imagecreatetruecolor')) {
+        $im = imagecreatetruecolor(240, 240);
+        imagefill($im, 0, 0, imagecolorallocate($im, $rgb[0], $rgb[1], $rgb[2]));
+        imagepng($im, $file);
+        imagedestroy($im);
+    } else {
+        // 1x1 PNG, so the path at least resolves where GD is absent
+        file_put_contents($file, base64_decode(
+            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg=='));
+    }
+}
+$galleryTargets = Product::where('store_id', $store->id)->orderBy('id')->limit(2)->get();
+foreach ($galleryTargets as $gp) {
+    $have = \App\Models\ProductImage::where('product_id', $gp->id)->count();
+    if ($have >= 3) { continue; }
+    foreach (array_keys($swatches) as $key) {
+        $path = 'uploads/' . $store->id . '/p2dev/swatch-' . $key . '.png';
+        if (\App\Models\ProductImage::where('product_id', $gp->id)->where('image_path', $path)->exists()) { continue; }
+        \App\Models\ProductImage::forceCreate([
+            'product_id' => $gp->id,
+            'image_path' => $path,
+            'image_url' => $path,
+            'store_id' => $store->id,
+        ]);
+    }
+}
+
 echo "seeded: merchant={$merchant->id} store={$store->id}"
     . " categories=" . \App\Models\Category::where("store_id", $store->id)->count()
     . " tags=" . \App\Models\Tag::where("store_id", $store->id)->count()
     . " products=" . Product::where('store_id', $store->id)->count()
    . " orders=" . Order::where('store_id', $store->id)->count()
    . " billing=" . DB::table('order_billing_details')->count()
-   . " notes=" . \App\Models\OrderNote::where('store_id', $store->id)->count() . "\n";
+   . " notes=" . \App\Models\OrderNote::where('store_id', $store->id)->count()
+   . " attrs=" . \App\Models\ProductAttribute::where('store_id', $store->id)->count()
+   . " attrOptions=" . \App\Models\ProductAttributeOption::where('store_id', $store->id)->count()
+   . " variants=" . \App\Models\ProductVariant::where('store_id', $store->id)->count()
+   . " images=" . \App\Models\ProductImage::where('store_id', $store->id)->count() . "\n";

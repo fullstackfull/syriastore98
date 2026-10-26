@@ -118,6 +118,16 @@ run_one verify-product-ownership-on-mysql \
   "PRODOWN_MYSQL_SOCKET=${SOCK}" "PRODOWN_MYSQL_HOST=${HOST}" "PRODOWN_MYSQL_PORT=${PORT}" \
   "PRODOWN_MYSQL_DATABASE=prodown_verify" "PRODOWN_MYSQL_USERNAME=${USER_NAME}" "PRODOWN_MYSQL_PASSWORD=${PASS}"
 
+# F58. `products.cost_price` was a GATE F column with no migration, so product CREATE was
+# impossible on any database built from this repository. The migration is reconciled against
+# production's own decimal(15,2) NOT NULL DEFAULT 0.00 and is a no-op where the column exists.
+# SQLite reports any decimal as `numeric` and stops enforcing scale and NOT NULL, so the type,
+# the scale, the INSERT-time NULL refusal and the production-shaped no-op can only be
+# established here.
+run_one verify-cost-price-migration-on-mysql \
+  "COSTPRICE_MYSQL_SOCKET=${SOCK}" "COSTPRICE_MYSQL_HOST=${HOST}" "COSTPRICE_MYSQL_PORT=${PORT}" \
+  "COSTPRICE_MYSQL_DATABASE=costprice_verify" "COSTPRICE_MYSQL_USERNAME=${USER_NAME}" "COSTPRICE_MYSQL_PASSWORD=${PASS}"
+
 run_one verify-coupon-code-matching-on-mysql \
   "COUPON_MYSQL_SOCKET=${SOCK}" "COUPON_MYSQL_HOST=${HOST}" "COUPON_MYSQL_PORT=${PORT}" \
   "COUPON_MYSQL_DATABASE=coupon_verify" "COUPON_MYSQL_USERNAME=${USER_NAME}" "COUPON_MYSQL_PASSWORD=${PASS}"

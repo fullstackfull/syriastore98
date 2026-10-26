@@ -294,6 +294,188 @@
         if (summary) { summary.focus(); }
     }
 
+    /* ---------------------------------------------- AJAX validation errors */
+
+    /* F70. The product editor posts by AJAX, so a failed save never re-renders the
+       page -- which means the server-rendered half of the error story (the summary
+       component, the inline messages, and a collapsed <details> opening because one
+       of its fields failed) could never fire. All the client got back was
+       `{flag, msg}`: one message, no field names. ProductController now also returns
+       `errors` keyed by field, and this applies it.
+
+       WHY THE SECTION-OPENING IS THE POINT. A merchant whose tax id is rejected was
+       being shown a toast while the box holding the tax id stayed shut. Marking the
+       field is not enough on its own, because the field is not on screen.
+
+       KEY SHAPES. Laravel keys the bag with dots -- `options.0.price` -- while the
+       control is named `options[0][price]`. Both spellings are tried, and so is the
+       bare id, because this editor names some controls by id only.
+
+       TEXT IS SET WITH textContent, NEVER innerHTML. These strings come back from the
+       server, and several of them interpolate merchant-entered values. */
+
+    var SS_ERR_NOTE = 'ss-invalid-note';
+
+    function errorKeyToSelectors(key) {
+        var bracket = String(key).replace(/\.(\d+)\./g, '[$1][').replace(/\.(\w+)$/, '[$1]');
+        var parts = String(key).split('.');
+        var out = [];
+        var push = function (sel) { if (out.indexOf(sel) === -1) { out.push(sel); } };
+
+        push('[name="' + key + '"]');
+        if (bracket !== key) { push('[name="' + bracket + '"]'); }
+        // `tax_id` in the bag, `tax_id[]` in the markup
+        push('[name="' + parts[0] + '[]"]');
+        push('[name="' + key + '[]"]');
+        // and some controls here are addressable only by id
+        push('#' + String(key).replace(/\./g, '_'));
+        return out;
+    }
+
+    function findControl(key, root) {
+        var selectors = errorKeyToSelectors(key);
+        for (var i = 0; i < selectors.length; i++) {
+            var el;
+            try { el = (root || document).querySelector(selectors[i]); } catch (e) { el = null; }
+            if (el) { return el; }
+        }
+        return null;
+    }
+
+    function clearFormErrors(root) {
+        var scope = root || document;
+        Array.prototype.forEach.call(scope.querySelectorAll('.is-invalid'), function (el) {
+            el.classList.remove('is-invalid');
+            el.removeAttribute('aria-invalid');
+            el.removeAttribute('aria-describedby');
+        });
+        Array.prototype.forEach.call(scope.querySelectorAll('.' + SS_ERR_NOTE), function (el) {
+            el.parentNode.removeChild(el);
+        });
+        Array.prototype.forEach.call(scope.querySelectorAll('[data-ss-advanced-error]'), function (el) {
+            el.removeAttribute('data-ss-advanced-error');
+            var badge = el.querySelector('.ss-advanced__badge');
+            if (badge && badge.getAttribute('data-ss-generated') === '1') {
+                badge.parentNode.removeChild(badge);
+            }
+        });
+        var summary = scope.querySelector('[data-ss-error-summary]');
+        if (summary && summary.getAttribute('data-ss-generated') === '1') {
+            summary.parentNode.removeChild(summary);
+        }
+    }
+
+    /* `errors` is `{field: [message, ...]}` or `{field: message}`. `opts.form` scopes
+       the work to one form; `opts.needsAttentionText` is the badge wording, passed in
+       because this file has no translator. */
+    function applyFormErrors(errors, opts) {
+        opts = opts || {};
+        var form = opts.form
+            ? (typeof opts.form === 'string' ? document.querySelector(opts.form) : opts.form)
+            : document.querySelector('form[data-ss-dirty-track]') || document.querySelector('form');
+        if (!errors || typeof errors !== 'object') { return 0; }
+
+        clearFormErrors(form || document);
+
+        var keys = Object.keys(errors);
+        var items = [];
+        var firstControl = null;
+
+        keys.forEach(function (key, index) {
+            var list = errors[key];
+            var message = Array.isArray(list) ? list[0] : list;
+            if (!message) { return; }
+
+            var control = findControl(key, form || document);
+            items.push({ key: key, message: String(message), control: control });
+
+            if (!control) { return; }
+            if (!firstControl) { firstControl = control; }
+
+            control.classList.add('is-invalid');
+            control.setAttribute('aria-invalid', 'true');
+
+            /* The inline message, next to the control. Placed after the control's
+               wrapper when the control itself is hidden by a widget (Choices and
+               select2 both set display:none on the native element), so the note is
+               not invisible alongside it. */
+            var noteId = 'ss-err-' + index + '-' + String(key).replace(/[^\w-]/g, '_');
+            var note = document.createElement('div');
+            note.className = SS_ERR_NOTE + ' invalid-feedback d-block';
+            note.id = noteId;
+            note.textContent = String(message);
+            var host = control;
+            var wrapped = control.closest('.choices') || control.closest('.select2-container');
+            if (wrapped) { host = wrapped; }
+            if (host.parentNode) { host.parentNode.insertBefore(note, host.nextSibling); }
+            control.setAttribute('aria-describedby', noteId);
+
+            /* AND OPEN THE SECTION IT LIVES IN. This is F70's actual requirement. */
+            var details = control.closest('details');
+            if (details) {
+                details.setAttribute('open', '');
+                details.setAttribute('data-ss-advanced-error', 'true');
+                var summaryEl = details.querySelector('summary');
+                if (summaryEl && !summaryEl.querySelector('.ss-advanced__badge')) {
+                    var badge = document.createElement('span');
+                    badge.className = 'ss-advanced__badge';
+                    badge.setAttribute('data-ss-generated', '1');
+                    badge.textContent = opts.needsAttentionText || 'Needs attention';
+                    summaryEl.appendChild(badge);
+                }
+            }
+        });
+
+        if (!items.length) { return 0; }
+
+        /* The summary. Reuses the server-rendered container when one is present, and
+           builds the same markup when it is not -- which on this editor is always,
+           because the component renders nothing when the bag is empty. */
+        var summary = (form || document).querySelector('[data-ss-error-summary]');
+        if (!summary) {
+            summary = document.createElement('div');
+            summary.className = 'ss-errorsummary';
+            summary.setAttribute('role', 'alert');
+            summary.setAttribute('tabindex', '-1');
+            summary.setAttribute('data-ss-error-summary', '');
+            summary.setAttribute('data-ss-generated', '1');
+            if (form && form.firstChild) { form.insertBefore(summary, form.firstChild); }
+            else if (form) { form.appendChild(summary); }
+        }
+        while (summary.firstChild) { summary.removeChild(summary.firstChild); }
+
+        var title = document.createElement('h2');
+        title.className = 'ss-errorsummary__title';
+        title.textContent = opts.titleText
+            || (items.length === 1
+                ? 'There is a problem with 1 field'
+                : 'There are problems with ' + items.length + ' fields');
+        summary.appendChild(title);
+
+        var list = document.createElement('ul');
+        list.className = 'ss-errorsummary__list';
+        items.forEach(function (item) {
+            var li = document.createElement('li');
+            if (item.control && item.control.id) {
+                var a = document.createElement('a');
+                a.className = 'ss-errorsummary__link';
+                a.setAttribute('href', '#' + item.control.id);
+                a.textContent = item.message;
+                li.appendChild(a);
+            } else {
+                li.textContent = item.message;
+            }
+            list.appendChild(li);
+        });
+        summary.appendChild(list);
+
+        if (summary.scrollIntoView) { summary.scrollIntoView({ block: 'center' }); }
+        if (summary.focus) { summary.focus(); }
+        else if (firstControl && firstControl.focus) { firstControl.focus(); }
+
+        return items.length;
+    }
+
     /* ------------------------------------------------------------ disclosure */
 
     /* The chart's accessible fallback, and any other "show the data as a
@@ -931,6 +1113,12 @@
         },
         // P2-06-3. Exposed so a screen that just marked a notification read can
         // refresh the header count without a reload.
-        updateNotificationBadge: updateNotificationBadge
+        updateNotificationBadge: updateNotificationBadge,
+        // F70. Applies an AJAX validation-failure payload to the form: marks each
+        // field, writes an inline message, OPENS the collapsed section a failed field
+        // lives in, and builds the summary. The editor posts by AJAX, so none of the
+        // server-rendered error story could ever fire without this.
+        applyFormErrors: applyFormErrors,
+        clearFormErrors: clearFormErrors
     };
 })();

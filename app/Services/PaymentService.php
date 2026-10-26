@@ -2683,17 +2683,39 @@ $products_weight_array[] = [
 
         $product_reward_point = 1;
 
+        /*
+         * F46. THE AUTHENTICATED CUSTOMER'S OWN ID, NEVER `$request->customer_id`.
+         *
+         * Both the reference and the ledger's `customer_id` were built from request input for a
+         * caller `auth('customers')->check()` had ALREADY authenticated -- so a signed-in shopper
+         * could attribute their order to anyone by posting another id, and because
+         * `orders.product_order_id` is a STRING column the posted value was carried whole into
+         * the reference that the merchant's order list renders. `config/database.php:55` sets
+         * `'strict' => false`, so the `unsignedBigInteger` `customer_id` coerced to 0 rather than
+         * rejecting a non-numeric value, which is why the obvious objection -- "the insert would
+         * refuse it" -- does not hold. The rendering half was fixed and pinned earlier
+         * (OrderListCellEscapingTest); this is the input half.
+         *
+         * THE GUEST PATH IS UNCHANGED, deliberately. For a guest there is no authenticated
+         * customer, and `$request->customer_id` there is the id of the Customer the handler found
+         * or created from the billing info -- which is legitimate and is what the P1-SEC-23/24
+         * comment above records. So the id is taken from the session ONLY on the branch where a
+         * session exists, and the guest branch keeps the value and the `'0'` reference prefix it
+         * had before. No payment behaviour, price or status changes.
+         */
+        $orderCustomerId = ! empty($request->customer_id) ? $request->customer_id : 0;
         $product_order_id = '0' . date('YmdHis');
         $is_guest = 1;
         if (auth('customers')->check()) {
-            $product_order_id = $request->customer_id . date('YmdHis');
+            $orderCustomerId = auth('customers')->id();
+            $product_order_id = $orderCustomerId . date('YmdHis');
             $is_guest = 0;
         }
         // add in  Order table  start
         $order = new Order();
         $order->product_order_id = $product_order_id;
         $order->order_date = date('Y-m-d H:i:s');
-        $order->customer_id = !empty($request->customer_id) ? $request->customer_id : 0;
+        $order->customer_id = $orderCustomerId;   // F46: the session's id when there is one
         $order->is_guest = $is_guest;
         $order->product_id = $prodduct_id_array;
         $order->product_json = json_encode($products);

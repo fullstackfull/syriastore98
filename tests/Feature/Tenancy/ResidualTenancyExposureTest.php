@@ -487,7 +487,12 @@ class ResidualTenancyExposureTest extends TestCase
             //   why the one model in this group that IS now scoped has no live bypass.
             'app/Models/Product.php:108',
             'app/Models/ProductAttribute.php:48',
-            'app/Models/Tag.php:47',
+            // :47 -> :76 when F62/F62b added the empty-slug guard and the non-null
+            //   fallthrough ABOVE this method in Tag::slugs(). The SET is unchanged -- same
+            //   method, same DB::table() call, and NO store predicate was added, so the
+            //   deliberate decision recorded above still stands. The line is only how a site
+            //   is named, exactly as the User.php note below says.
+            'app/Models/Tag.php:76',
             // :155 -> :160 when B4 added the `mobile_verified_at` cast above it. The SET is
             // unchanged -- same method, same DB::table() call, five lines down -- which is what
             // this census measures; the line is only how a site is named.

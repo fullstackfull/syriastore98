@@ -1286,6 +1286,127 @@ class ResidualSafetyCorrectionsTest extends SecurityTestCase
      *                                     path needs it, and removing it would invite the same
      *                                     mistake to be re-made inline.
      */
+    /**
+     * F46 — A SIGNED-IN SHOPPER CANNOT ATTRIBUTE THEIR ORDER TO SOMEBODY ELSE.
+     *
+     * `PaymentService` built both the order's reference and its `customer_id` from
+     * `$request->customer_id`, for a caller `auth('customers')->check()` had ALREADY
+     * authenticated. So a shopper could post another customer's id and the order landed on that
+     * customer's account; and because `orders.product_order_id` is a STRING column while
+     * `config/database.php` sets `'strict' => false`, a non-numeric value was carried whole into
+     * the reference the merchant's order list renders while the numeric column coerced to 0.
+     *
+     * THE SAME BLOCK EXISTED IN TEN PLACES across nine files and the finding had been recorded
+     * against one. All are fixed and `OrderAttributionRatchetTest` keeps them that way.
+     *
+     * THIS TEST DRIVES THE ONE ROUTE A TEST CAN REACH, and it is NOT the one F46 lived in -- see
+     * the note in the body. It is a regression guard on the already-correct `place-order` handler.
+     * The nine copies that F46 actually fixed sit behind the storefront web checkout and gateway
+     * callbacks, and their evidence is the static ratchet plus the identical shape of the fix.
+     *
+     * Three payloads, one authenticated shopper: another customer's real id, a non-numeric
+     * string, and the shopper's own id. All three must produce an order owned by the shopper.
+     */
+    public function test_a_signed_in_shopper_cannot_attribute_an_order_to_another_customer(): void
+    {
+        $recorded = [];
+
+        /* WHAT THIS DRIVES, AND WHAT IT CANNOT -- stated here because the first version of this
+           test was VACUOUS and looked fine.
+           `place-order` is `ApiController::place_order`, which creates the order ITSELF. It was
+           already safe: the P1-SEC-23/24 fix resolves `$customer_id` from the session far above.
+           So these cases are a REGRESSION GUARD on that earlier fix, not proof of F46's.
+           F46 itself lived in `PaymentService::getProductStatus()` and in eight gateway
+           controllers, and those are reached by the storefront WEB checkout and by gateway
+           callbacks -- not by any API route this fixture can call. Reverting the PaymentService
+           fix therefore leaves these cases green, which is exactly what the bite test showed.
+           `payment-sheet` was tried and is not the route either: it creates a Stripe
+           PaymentIntent and writes no order.
+           THE NINE UNDRIVEN COPIES ARE COVERED BY `OrderAttributionRatchetTest`, which names the
+           offending file and was bitten by reverting CinetPay. That is a static guarantee, and it
+           is the honest extent of the evidence.
+           AND THESE CASES CANNOT BITE THE SPELLING EITHER, which was measured rather than
+           assumed: reverting `place_order`'s own reference line to `$request->customer_id` STILL
+           produced the shopper's id, because `ModuleStorefrontInputGuard` (appended to the `web`
+           group, bootstrap/app.php:274) replaces `customer_id` with the authenticated customer's
+           id before the handler runs. So on this route the attribution is correct twice over, and
+           what these cases guard is the END STATE -- the order lands on the authenticated shopper
+           and no posted string reaches the reference -- not which of the two spellings the
+           handler uses.
+           WHAT IS THEREFORE NOT ESTABLISHED, and should not be claimed: whether the nine
+           web/gateway copies were reachable with a hostile `customer_id` at all. That guard is
+           per-route, and whether it covers the gateway callback routes was not determined. The
+           fix is defence in depth of undemonstrated reachability -- correct either way, and not
+           a proven exploit closure. */
+        foreach ([['place-order', 'other'], ['place-order', 'injection'], ['place-order', 'own']] as $spec) {
+            [$route, $case] = $spec;
+            $key = $route . '/' . $case;
+            [, $store, $shippingId] = $this->orderableTenant();
+            $shopper = $this->customerIn($store, 'f46a' . md5($key));
+            $victim = $this->customerIn($store, 'f46b' . md5($key));
+            $product = $this->productIn($store);
+            Cart::forceCreate([
+                'customer_id' => $shopper->id, 'product_id' => $product->id, 'variant_id' => 0,
+                'qty' => 1, 'price' => 100.00, 'store_id' => $store->id,
+            ]);
+
+            $posted = $case === 'other' ? $victim->id
+                : ($case === 'injection' ? '9<script>alert(1)</script>' : $shopper->id);
+
+            $this->callApi($store, $route, [
+                'customer_id' => $posted,
+                'billing_info' => $this->billing(),
+                'payment_type' => 'cod',
+                'delivery_id' => $shippingId,
+                'method_id' => $shippingId,
+            ], $shopper->createToken('t')->plainTextToken);
+
+            /* withoutGlobalScopes, because Order is NOT in scoped_models and a plain find would
+               answer against whichever tenant happens to be resolved. */
+            $order = \App\Models\Order::withoutGlobalScopes()
+                ->where('store_id', $store->id)->latest('id')->first();
+            if ($order === null) {
+                /* Not every route completes for every payload on this fixture, and a route that
+                   refused the request outright has told us nothing about attribution. Recorded
+                   as skipped rather than asserted, so the summary below cannot pass by finding
+                   no order at all. */
+                $recorded[$key] = ['completed' => false];
+                continue;
+            }
+
+            $recorded[$key] = [
+                'completed' => true,
+                'customer_id' => (int) $order->customer_id,
+                'is_shopper' => (int) $order->customer_id === (int) $shopper->id,
+                'is_victim' => (int) $order->customer_id === (int) $victim->id,
+                'reference_carries_posted' => str_contains((string) $order->product_order_id, '<script>'),
+                'reference_starts_with_shopper' => str_starts_with(
+                    (string) $order->product_order_id, (string) $shopper->id),
+            ];
+        }
+
+        /* A PREMISE. If no route completed, every assertion below is vacuous -- and this test
+           previously passed while proving nothing, so the premise is explicit. */
+        $completed = array_keys(array_filter($recorded, fn ($r) => $r['completed']));
+        $this->assertNotEmpty($completed, 'no route completed, so nothing was measured');
+        $this->assertCount(3, $completed,
+            'all three place-order cases must complete, or this is measuring a crash rather than '
+            . 'a control. Completed: ' . implode(', ', $completed));
+
+        foreach ($completed as $key) {
+            $r = $recorded[$key];
+            $this->assertTrue($r['is_shopper'],
+                $key . ': the order was attributed to ' . $r['customer_id'] . ' rather than to the '
+                . 'authenticated shopper. Before the fix the posted id won.');
+            $this->assertFalse($r['is_victim'], $key . ': the order landed on the OTHER account');
+            $this->assertFalse($r['reference_carries_posted'],
+                $key . ': the posted string reached orders.product_order_id, which the order list '
+                . 'renders');
+            $this->assertTrue($r['reference_starts_with_shopper'],
+                $key . ': the reference does not begin with the authenticated shopper\'s id');
+        }
+    }
+
     private function orderableTenant(bool $seedStockManagement = true): array
     {
         [$merchant, $store] = $this->makeTenant();

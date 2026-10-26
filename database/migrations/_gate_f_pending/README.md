@@ -1,5 +1,30 @@
 # GATE F — PROVISIONAL schema drafts. NOT ACTIVE. NOT REVIEWED AGAINST PRODUCTION.
 
+> **ONE DRAFT HAS BEEN PROMOTED AND IS NO LONGER HERE.**
+> `0004_draft_add_cost_price_to_products_table.php.draft` became
+> `database/migrations/2026_10_26_000100_add_cost_price_to_products_table.php` on **2026-10-26**,
+> on the owner's written approval of ledger finding **F58**, scoped to isolated development and
+> test environments with existing data preserved and no production migration run.
+>
+> It was promotable and the other eight are not, for the reason this README gives below: a
+> guarded migration "is safe when the definition is right and a silent trap when it is a guess".
+> `products.cost_price` was READ OFF the production schema on 2026-10-24
+> (`decimal(15,2) NOT NULL DEFAULT 0.00`, `docs/GATE-F-VERIFIED-SCHEMA.md:382`), so its
+> `hasColumn()` guard is a genuine no-op rather than a trap. The remaining drafts' types are
+> still not derivable from `$fillable`, so they stay here.
+>
+> What promoting it fixed: product CREATE was impossible on every database built from this
+> repository, because `store()` validates `cost_price` as required and writes it unconditionally.
+> Driven end to end afterwards, a create through the real UI with both images now succeeds
+> (`docs/development/phase-2/tools/check-product-create-live.cjs`, 9/9), and dropping the column
+> again reproduces the original error exactly.
+>
+> MySQL evidence is PREPARED BUT UNCOLLECTED:
+> `tests/Support/Security/bin/verify-cost-price-migration-on-mysql.php` establishes the type, the
+> enforced scale, the INSERT-time NULL refusal, the production-shaped no-op and the harmless
+> rollback — and the container this was written in has no MySQL server. Run it before anyone
+> calls F58 closed on MySQL.
+
 ## Why this directory is not `database/migrations/`
 
 Laravel discovers migrations with a **non-recursive** `glob($path . '/*_*.php')`, and nothing in
@@ -136,7 +161,7 @@ change: `ALTER TABLE` on a table that already exists, not `CREATE TABLE` for one
 
 | # | Draft | Target | Why it is here |
 |---|---|---|---|
-| 7 | `0007_draft_add_cost_price_to_products_table.php.draft` | `products.cost_price` | Read and written as money by live code, declared by no migration. **Sequence it BEFORE `store_order_financials` (0004)**: with no column, `OrderFinancialService.php:214` reads null, `?? 0` makes the unit cost zero, and every P&L row is all-margin. Creating the financials table first would begin recording confident, wrong profit. |
+| 7 | ~~`0007_draft_add_cost_price_to_products_table.php.draft`~~ **PROMOTED 2026-10-26, see the note at the top of this file** | `products.cost_price` | Read and written as money by live code, declared by no migration. **Sequence it BEFORE `store_order_financials` (0004)**: with no column, `OrderFinancialService.php:214` reads null, `?? 0` makes the unit cost zero, and every P&L row is all-margin. Creating the financials table first would begin recording confident, wrong profit. |
 | 8 | `0008_draft_add_commission_columns_to_delivery_boys_table.php.draft` | `delivery_boys.commission_percentage`, `.is_commission_enabled` | Both `$fillable`, both written unconditionally by `DeliveryBoyApiController` store() and update(), neither declared — so **both handlers 500 for everyone today**. **Promote at the same time as `delivery_earnings` (0005) or before it**, never after: `is_commission_enabled` is what gates the earning write, so creating 0005 first leaves the earnings subsystem silently dead in exactly the way this README warns about. |
 
 The same rule applies to both: the drafts are **inferences**, the production dump wins on every

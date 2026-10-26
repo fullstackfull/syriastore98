@@ -381,6 +381,33 @@ public function getFormattedSubTotalAttribute()
             if ($order->delivered_status == 5) $order_array['order_status_text'] = __('Picked Up');
             if ($order->delivered_status == 6) $order_array['order_status_text'] = __('Shipped');
             if ($order->delivered_status == 1) $order_array['order_status_text'] = __('Delivered');
+            /*
+             * F29. STATUSES 7 AND 8 FELL THROUGH AND THE API TOLD THE APP THEY WERE "PENDING".
+             *
+             * `order_status_text` is initialised to `__('Pending')` at :357 and the chain above
+             * covers 0, 1, 2, 3, 4, 5 and 6. `orders.delivered_status` holds NINE values, so 7
+             * (Partially Paid, a payment state) and 8 (Pre Order, an order type) kept the
+             * default -- and the shipped app renders that string. A merchant who had taken a
+             * part payment, and a customer who had pre-ordered, were both shown "Pending".
+             *
+             * THE NAMES ARE THE WEB'S OWN, not new ones. `OrderDataTable:191-192` renders exactly
+             * `__('Partially Paid')` and `__('Pre Order')` for the same two constants, so this
+             * makes the API agree with the panel rather than inventing a third vocabulary --
+             * which is the drift P2-04-4 found between the dashboard and the order list and
+             * fixed by giving both one source.
+             *
+             * NO BUSINESS RULE CHANGES AND NO CONTRACT BREAKS. `order_status` still carries the
+             * numeric 7 or 8 exactly as before, so any client that switches on the number is
+             * unaffected; only the human-readable string stops being wrong. Nothing here decides
+             * what a status MEANS or when it may change -- the owner's approval of F29 was
+             * explicitly for display and translation, not for the status rules.
+             */
+            if ($order->delivered_status == \App\Http\Controllers\HomeController::ORDER_STATUS_PARTIALLY_PAID) {
+                $order_array['order_status_text'] = __('Partially Paid');
+            }
+            if ($order->delivered_status == \App\Http\Controllers\HomeController::ORDER_STATUS_PRE_ORDER) {
+                $order_array['order_status_text'] = __('Pre Order');
+            }
             if ($order->delivered_status == 2) {
                 $order_array['order_status_text'] = __('Cancel');
                 $order_array['order_status_message'] = __('Your order has been canced.');

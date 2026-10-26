@@ -3008,5 +3008,8 @@
     "Taxes, brand, label, shipping and weight. These are usually set once for the whole catalogue.": "الضرائب والعلامة التجارية والعلامة والنقل والوزن. تُضبط عادةً مرة واحدة لكامل الكتالوج.",
     "Cost price is required.": "سعر التكلفة مطلوب.",
     "Cost price must not be greater than the regular price.": "يجب ألا يكون سعر التكلفة أكبر من السعر العادي.",
-    "Someone else saved this product while you were editing it. Your changes have not been saved. Reload the page to see the current version, then re-apply your changes.": "قام شخص آخر بحفظ هذا المنتج أثناء تعديلك له. لم يتم حفظ تغييراتك. أعد تحميل الصفحة لعرض النسخة الحالية، ثم أعد تطبيق تغييراتك."
+    "Someone else saved this product while you were editing it. Your changes have not been saved. Reload the page to see the current version, then re-apply your changes.": "قام شخص آخر بحفظ هذا المنتج أثناء تعديلك له. لم يتم حفظ تغييراتك. أعد تحميل الصفحة لعرض النسخة الحالية، ثم أعد تطبيق تغييراتك.",
+    "Please correct the highlighted fields": "يرجى تصحيح الحقول المظللة",
+    "The weight must be a number.": "يجب أن يكون الوزن رقماً.",
+    "The weight cannot be negative.": "لا يمكن أن يكون الوزن سالباً."
 }

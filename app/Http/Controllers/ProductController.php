@@ -131,6 +131,7 @@ class ProductController extends Controller
 'cost_price' => 'required|numeric|min:0|lte:price',
                         'brand_id' => 'nullable',
                         'label_id' => 'nullable',
+                        'product_weight' => 'nullable|numeric|min:0',   // F70, as in update()
 
                     ];
                 } else {
@@ -143,19 +144,40 @@ class ProductController extends Controller
                         'variant_product' => 'required',
                         'brand_id' => 'nullable',
                         'label_id' => 'nullable',
+                        'product_weight' => 'nullable|numeric|min:0',   // F70, as in update()
                     ];
                 }
 
                 $validator = \Validator::make($request->all(), $rules,[
                     'sale_price.lt' => __('The sale price must be less than the regular price.'),
     'cost_price.required' => __('Cost price is required.'),
-    'cost_price.lte' => __('Cost price must not be greater than the regular price.')
+    'cost_price.lte' => __('Cost price must not be greater than the regular price.'),
+    'product_weight.numeric' => __('The weight must be a number.'),
+    'product_weight.min' => __('The weight cannot be negative.')
                 ]);
                 $request->sale_price = $request->sale_price ? $request->sale_price : 0;
                 if ($validator->fails()) {
                     $messages = $validator->getMessageBag();
                     $msg['flag'] = 'error';
                     $msg['msg'] = $messages->first();
+                    /* F70. `errors` is ADDED, and `flag`/`msg` are untouched.
+                     *
+                     * The editor posts by AJAX and this response was the only thing it got back:
+                     * a flag and the FIRST message. With no field names the client could not
+                     * mark the offending control, could not render a summary, and -- the part
+                     * the owner asked for -- could not OPEN the collapsed section the failed
+                     * field lives in. So the section stayed shut over an error inside it.
+                     *
+                     * ADDITIVE ON PURPOSE, because the owner's approval requires Flutter and the
+                     * existing API contracts to keep working. Two independent reasons this is
+                     * safe: adding a key cannot break a reader that looks up `flag` and `msg`;
+                     * and the shipped app does not reach this handler at all -- it posts product
+                     * writes to `api/admin/addproduct` and `/updateproduct`
+                     * (`StoreSyria_app98/lib/utils/base_api.dart:3,57,85`), which are
+                     * `Api\DashboardController`, a different handler on a different route. The
+                     * web routes here are reached only by this editor's own jQuery.
+                     */
+                    $msg['errors'] = $messages->toArray();
 
                     return $msg;
                 }
@@ -1225,6 +1247,14 @@ $Product->cost_price = $request->cost_price;
                     'variant_product' => 'required',
                     'brand_id' => 'nullable',
                     'label_id' => 'nullable',
+                    /* F70. `product_weight` had NO rule, like the other five fields the
+                     * P2-03-8 disclosure holds -- which is why a validation error could
+                     * never open that section: nothing in it could fail. The column is
+                     * nullable, so `nullable` keeps an empty weight valid exactly as
+                     * before; what changes is that "abc" is now refused with a message
+                     * instead of being stored verbatim in a column the reporting path
+                     * reads as a number. */
+                    'product_weight' => 'nullable|numeric|min:0',
                   'price' => 'required|numeric|min:0',
 'sale_price' => 'nullable|numeric|min:0|lt:price',
 'cost_price' => 'required|numeric|min:0|lte:price',                ];
@@ -1237,18 +1267,29 @@ $Product->cost_price = $request->cost_price;
                     'variant_product' => 'required',
                     'brand_id' => 'nullable',
                     'label_id' => 'nullable',
+                    /* F70. `product_weight` had NO rule, like the other five fields the
+                     * P2-03-8 disclosure holds -- which is why a validation error could
+                     * never open that section: nothing in it could fail. The column is
+                     * nullable, so `nullable` keeps an empty weight valid exactly as
+                     * before; what changes is that "abc" is now refused with a message
+                     * instead of being stored verbatim in a column the reporting path
+                     * reads as a number. */
+                    'product_weight' => 'nullable|numeric|min:0',
                 ];
             }
 
             $validator = \Validator::make($request->all(), $rules,[
                  'sale_price.lt' => __('The sale price must be less than the regular price.'),
     'cost_price.required' => __('Cost price is required.'),
-    'cost_price.lte' => __('Cost price must not be greater than the regular price.')
+    'cost_price.lte' => __('Cost price must not be greater than the regular price.'),
+    'product_weight.numeric' => __('The weight must be a number.'),
+    'product_weight.min' => __('The weight cannot be negative.')
             ]);
             if ($validator->fails()) {
                 $messages = $validator->getMessageBag();
                 $msg['flag'] = 'error';
                 $msg['msg'] =  $messages->first();
+                $msg['errors'] = $messages->toArray();   // F70, see store() for the reasoning
                 return $msg;
             }
             $request->sale_price = $request->sale_price ? $request->sale_price : 0;

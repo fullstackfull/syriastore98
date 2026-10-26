@@ -41,6 +41,30 @@ not.
 
 ## 2. What changed since the last handoff, and why it matters
 
+### `[2026-10-26]` Four approved blockers closed, and a census that found ten copies of one
+
+The owner approved F58, F46, F70 and F29 in writing. All four are fixed; the two that keep a
+stated limit are in §3a-bis. Two things from this round are worth carrying forward:
+
+**A fix keyed on the one file somebody read is not a fix.** F46 was recorded against
+`PaymentService`. The same checkout block exists **byte for byte in nine files** — nine payment
+gateways plus the service — so fixing the recorded one would have left the control bypassable by
+choosing a different payment method, which is exactly what F50 records happening before. It is now
+ratcheted rather than fixed a tenth time, because three rounds of review in this phase have each
+found the previous round's siblings. Census before you fix, and enumerate your exemptions by name.
+
+**A test that cannot fail is worse than no test, and both of mine looked fine.** The F46 driven
+test passed with the fix reverted, because it drove a different handler; its replacement expected
+`payment-sheet` to reach the right one, and that endpoint writes no order. Both were caught by a
+bite and by an explicit premise assertion. Separately, two of the P2-03-8 tests from the previous
+commit could not fail at all — see F69. The pattern across all four: **the assertion was satisfied
+by something adjacent to what it meant to measure.**
+
+Also now true and worth knowing before you touch the editor: **product CREATE works** (it was
+impossible on any migration-built database until F58), **a validation error opens the collapsed
+section it belongs to** (F70), and the dev fixture finally has attributes, variants and gallery
+images — without them the media and variant halves of the editor cannot be driven at all.
+
 ### `[2026-10-26]` The product editor's "environmental" blocker was a 404, and the editor now saves
 
 This is the most useful thing to read if you are picking the phase up. The previous handoff left
@@ -102,7 +126,28 @@ configuration that exposed them.
 
 **B1 and B2 are cleared and are kept here only so the change is visible.**
 
-### 3a-bis. Two things escalated rather than fixed
+### 3a-bis. The escalations, and what the owner decided
+
+**[2026-10-26] THE OWNER APPROVED FOUR BLOCKERS IN WRITING** — F58, F46, F70 and F29 — scoped to
+engineering, fixing and testing inside isolated development and test environments, with existing
+data preserved. Explicitly NOT approved: production deployment, running a migration against the
+production database, merging to `main`, or rewriting Git history. All four are now fixed, with
+their evidence in `PHASE-02-TEST-EVIDENCE.md` 15-17 and their limits stated in the ledger. The
+two subsections below are kept because their reasoning is the record of why they were escalated
+rather than done quietly, and because each carries a limit that still stands:
+
+- **F58 is fixed but NOT CLOSED ON MySQL.** The migration's behaviour was proven on SQLite (fresh
+  add, idempotent re-run, production-shaped no-op, harmless rollback) and by driving a product
+  create end to end. `tests/Support/Security/bin/verify-cost-price-migration-on-mysql.php` is
+  written and registered, and this container has no MySQL server, so it has **not been run**.
+  SQLite reports any decimal as `numeric` and stops enforcing scale and NOT NULL.
+- **F46 is fixed in ten places, and its reachability was not demonstrated.** The finding named one
+  file; a census found the same block byte for byte in nine. All ten authenticated branches now
+  take the id from the session. But whether the nine web/gateway copies were reachable with a
+  hostile `customer_id` at all was NOT established — `ModuleStorefrontInputGuard` is per-route and
+  whether it covers the gateway callbacks was not determined. Defence in depth of undemonstrated
+  reachability, not a proven exploit closure.
+
 
 **F58 — a product cannot be CREATED on any database built from the migrations.**
 `ProductController::store()` validates `cost_price` as **required** and writes

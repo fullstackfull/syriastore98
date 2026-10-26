@@ -2367,3 +2367,261 @@ volatile-field exemption in the gate is exactly as advertised; and tab order, ta
 accessible naming and forced-colors all behave. It also noted the stated *mechanism* for claim 2
 is not the one in play — the editor never performs a native submit, so `serializeArray()`'s
 visibility-blindness is what carries it — which is now said in the component rather than implied.
+
+---
+
+## 15. `[2026-10-26]` F58 — the `products.cost_price` migration, and the create it unblocked
+
+The owner approved F58 in writing, scoped to isolated development and test environments, with
+existing data preserved and no production migration run. This records what was executed.
+
+### 15a. What F58 was, and why the suite could not see it
+
+`ProductController::store():131` validates `cost_price` as **required** and `:303` writes
+`$Product->cost_price` unconditionally, while `products.cost_price` was declared by no migration.
+So on every database built from this repository — a fresh install, CI, and the dev fixture —
+creating a product was impossible. Production was unaffected, because production has the column.
+
+The suite was structurally blind to it: no test creates a product through `store()`. Every one
+uses `Product::forceCreate([...])` and omits `cost_price`, and
+`ProductConcurrentEditTest::makeProduct()` even carries a comment explaining that the field is in
+the *payload* and not the fixture because the column does not exist on the test schema.
+
+### 15b. The migration, and the four safety properties — measured
+
+Promoted from `_gate_f_pending/0004_...draft` with production's own type, read off a restored copy
+on 2026-10-24: `decimal(15,2) NOT NULL DEFAULT 0.00`
+(`docs/GATE-F-VERIFIED-SCHEMA.md:382`, populated on all 45 products, 9 non-zero, summing 1170.65).
+
+| property | how it was established | result |
+|---|---|---|
+| a fresh environment gets the column | `migrate` on a throwaway SQLite | `numeric NOT NULL DEFAULT '0'`, `hasColumn` true |
+| it is idempotent | second `migrate` | *Nothing to migrate*, planted `7.25` intact |
+| **it is a no-op in production's shape** | column present, migration row deleted, then `migrate` | ran in **1.40ms**, planted **12.34** untouched, column unchanged |
+| **rollback destroys nothing** | `migrate:rollback --step=1` | ran in **0.14ms**, column still present, **12.34** still there |
+
+The third and fourth are the ones the approval turns on. `up()` returns early when the column
+exists, so the migration cannot alter production even if it were run there; `down()` is empty
+because an earlier version of it dropped the column whenever present and, against a restored copy
+of production, destroyed all 45 cost values in 30.28ms. An `up()` that creates nothing paired with
+a `down()` that drops regardless is the asymmetry, and it is why that body stays empty. The
+rollback plan is therefore "there is nothing to roll back", and the migration says so.
+
+The draft also **contradicted itself** and that is corrected in the promoted file: its header
+argued for `nullable, default null` — on the good ground that `NOT NULL DEFAULT 0.00` cannot
+express "cost unknown", and in the same dump 36 of 45 products read 0.00 while 89 of 92
+`store_order_financials` rows carry `product_cost = 0` and a `gross_profit` equal to full revenue —
+while its *code* used `->default(0)`. The reconciled production type ships, because this
+migration's job is to bring a fresh environment into line, not to redesign a live money column.
+Making it nullable remains the owner's call and is recorded, not silently taken.
+
+### 15c. Product CREATE, driven end to end
+
+`docs/development/phase-2/tools/check-product-create-live.cjs` — **9/9**. It fills the text
+fields, picks a category through its real Choices dropdown and a tag through select2, attaches a
+cover image to the file input, hands a gallery image to the live Dropzone instance via
+`addFile()`, saves through the sticky bar, and then finds the product in the list.
+
+**Bitten:** dropping the column from the fixture and re-running reproduces
+`SQLSTATE[HY000]: ... table products has no column named cost_price` verbatim and fails 3 of 9;
+re-running the migration restores 9/9. So the migration is demonstrably what unblocked it, rather
+than something else having changed.
+
+**Three harness defects had to be fixed first, and each produced a false reading:**
+
+- The category pick selected the **placeholder** `Select Category`, whose value is empty, so the
+  server answered *"The category id field is required."* — which read as a create failure when it
+  was the harness choosing nothing.
+- `request.postData()` returns **null** for a multipart body carrying a real file, so the harness
+  reported "no POST was issued" while the server's reply to that very POST was in hand. The
+  request is now tracked with its own flag and the persisted row is the proof.
+- `setInputFiles` on `[data-toggle="dropzone1"] input[type="file"]` hit a **decoy** input
+  (`#dropzone-1`, part of the preview *template*); Dropzone's real `hiddenFileInput` is appended
+  to `<body>`, detached from the element. So `dropzone.files` stayed empty behind a template
+  `.dz-preview` that made it look as though a file had landed, and the server refused with *"The
+  product image field is required."*
+
+### 15d. MySQL — prepared, and NOT collected
+
+`tests/Support/Security/bin/verify-cost-price-migration-on-mysql.php`, registered with
+`run-mysql-verifications.sh`, establishes the five things SQLite cannot answer: the exact
+`decimal(15,2)`, the engine-enforced scale (12.345 → 12.35), the INSERT-time
+`ER_BAD_NULL_ERROR (1048)`, the production-shaped no-op, and the harmless rollback. It creates and
+drops its own database and **refuses a database name containing neither `costprice` nor `verify`**
+— verified by pointing it at `production`, which it declined.
+
+**It has not been run.** This container has no `mysqld`, no `mariadbd` and no `mysql` client; the
+script exits 2 with *Connection refused*, which is the correct behaviour and not evidence. SQLite
+reports any decimal as `numeric` and stops enforcing scale and NOT NULL, and this project has been
+bitten twice by exactly that. **F58 is not closed on MySQL until this runs.**
+
+### 15e. The fixture gap that was blocking P2-03-4 as well
+
+Surveying the media and variant UX found `product_attributes`, `product_attribute_options`,
+`product_variants` and `product_images` all at **0 rows**, so the variant UI rendered an attribute
+picker with nothing in it and the gallery had nothing to show — neither half could be driven at
+all. Same class as the categories/Plan/permission gaps that blocked P2-03-3 (F33). The seeder now
+creates two attributes with five terms, six variants on a real variant product, and six gallery
+images with **real PNG files on disk**, because a broken `<img>` is indistinguishable from a
+missing affordance when surveying a screen.
+
+Its first attempt was **refused by a Phase 01 security control**, which is worth recording as a
+success: `StoredPathPolicy` (P1-SEC-28) rejected `uploads/p2dev/...` because the first segment
+under `uploads/` must be the owning store's folder. The fixture conforms now.
+
+And the survey itself had to be corrected twice before it told the truth — it read the **native**
+`<select>` that Choices.js empties, and so reported "no attributes are seeded" when both were
+present and offered; and its attribute pick was unscoped, so it clicked the *Category* dropdown
+and reported picking `"Select Category"`. Both are the documented Choices behaviour this
+repository already records, and the harness did not honour it.
+
+---
+
+## 16. `[2026-10-26]` F70 — the error now opens the section it belongs to
+
+Approved by the owner with the condition that Flutter and the existing API contracts keep working.
+
+### 16a. Why the gap existed, and why it had two halves
+
+The editor posts by AJAX, so a failed save never re-renders the page. The response was
+`{flag, msg}` — one message, no field names — so the client could not mark the offending control,
+could not build a summary, and could not open the collapsed section the failed field lives in. A
+merchant whose weight was rejected got a toast while the box holding the weight stayed shut.
+
+And **none of the six fields the P2-03-8 disclosure holds had a validation rule at all**, so
+nothing in that section could fail even in principle. Fixing only the plumbing would have left an
+untestable feature.
+
+### 16b. What changed, and why Flutter is not at risk
+
+1. `ProductController` adds `errors` (keyed by field) to both validation-failure responses.
+   **Additive**: `flag` and `msg` are byte-identical, so no existing reader changes behaviour.
+2. `StoreSyriaDS.applyFormErrors()` applies it — marks each control `is-invalid` and
+   `aria-invalid`, writes an inline message (placed after the Choices/select2 wrapper where one
+   owns the control, or the note would be invisible beside a `display:none` native element), sets
+   `aria-describedby`, builds the summary with `role="alert"`, and **opens the `<details>`**,
+   flagging it and appending the textual *Needs attention* badge. Text is set with `textContent`,
+   never `innerHTML`, because these strings interpolate merchant-entered values.
+3. `product_weight` gained `nullable`, `numeric` and `min:0` in all four rule sets. The column is
+   nullable, so an empty weight stays valid exactly as before; what changes is that a negative or
+   non-numeric weight is refused with a message instead of reaching a column the reporting path
+   reads as a number.
+
+**Flutter compatibility is measured, not assumed.** The shipped app posts product writes to
+`api/admin/addproduct` and `/updateproduct` (`StoreSyria_app98/lib/utils/base_api.dart:3,57,85`),
+which are `Api\DashboardController` — a different handler on a different route. The web routes
+changed here are reached only by this editor's own jQuery, and the Contract suite asserts nothing
+about them. Contract stayed at 26/26.
+
+### 16c. Driven, 28/28
+
+`docs/development/phase-2/tools/check-form-errors-live.cjs`. With the section **closed**, a
+negative weight is written and the save fired. Then:
+
+| | |
+|---|---|
+| response shape | `flag` unchanged, `msg` unchanged, `errors.product_weight` present |
+| the save | refused, page did not navigate |
+| **the section** | **opened**, flagged `data-ss-advanced-error`, textual badge appended and localised |
+| the field | `is-invalid`, `aria-invalid="true"`, `aria-describedby` → its own note, and **on screen** |
+| the summary | rendered, `role="alert"`, naming the problem |
+| the old path | the existing toast still fires — nothing regressed |
+| afterwards | a corrected value saves, every error marker is gone, and the section is closed again |
+
+**Bitten twice**, each failing exactly its own cases: removing the server's `errors` key, and
+neutering the section-opening in the DS module.
+
+### 16d. The harness defect worth recording
+
+The first attempt wrote `'abc'` into `product_weight` and the save **succeeded**. `product_weight`
+is `Form::number()`, and assigning a non-numeric string to an `<input type="number">` is
+**rejected by the browser** — the value stays empty, which `nullable` accepts. So the case proved
+nothing while looking like it had. `-5` is a value the input accepts and `min:0` refuses.
+
+The harness now also asserts that the invalid value really landed in the control before firing the
+save, and guards the post-save reads against an unexpected navigation — without that guard the run
+died on a null dereference instead of reporting which case failed.
+
+---
+
+## 17. `[2026-10-26]` F46 — the order's customer, and the census that made the fix ten times bigger
+
+Approved by the owner with security and integration tests and no regression in payments or orders.
+
+### 17a. The finding was recorded against one file. The block exists in ten places.
+
+`PaymentService` built both the order's reference and its `customer_id` from
+`$request->customer_id` for a caller `auth('customers')->check()` had **already authenticated**.
+A census for the same block found it byte for byte in nine files:
+
+| file | sites |
+|---|---|
+| `app/Services/PaymentService.php` | 1 |
+| `app/Http/Controllers/AuthorizeNetPaymnetController.php` | 1 |
+| `app/Http/Controllers/PaymentController.php` | **2** |
+| `PayUPaymentController`, `NMIPayController`, `KhaltiPaymnetController`, `EasebuzzController`, `PaiementProPaymentController`, `CinetPayController` | 1 each |
+
+Fixing only the file somebody had read would have left the control bypassable by choosing a
+different payment method — the exact mistake ledger finding F50 records about `payment_sheet`.
+All ten authenticated branches now take the id from the session. **The guest branch is untouched
+everywhere**, because there `$request->customer_id` is the id of the Customer the handler found or
+created from the billing info, which is legitimate and is what the P1-SEC-23/24 comment records.
+
+**Two sites are exempt, each verified rather than assumed:**
+
+- `PosController` authenticates the **merchant** (`auth()`, not `auth('customers')`), is gated on
+  `isAbleTo('Create Pos')`, and the merchant legitimately chooses whose counter sale it is.
+- `WishlistController` **replaces** the posted id with the session's — `$customer_id =
+  auth('customers')->user()->id ?? null;` then `$request->merge([...])` — before any use, and a
+  non-customer token yields null and fails validation closed. I nearly recorded this as a defect;
+  reading it refuted that.
+
+### 17b. Ratcheted, because three rounds of review each found the previous round's siblings
+
+`tests/Unit/Payments/OrderAttributionRatchetTest.php` — 4 tests. It enumerates the two exemptions
+**by name with their reason** (an exemption that is not enumerated is a hole), asserts the exempt
+files still match so a rename forces a re-read, and fails on any new copy in three independent
+ways. It would have caught all ten at once. **Bitten** by reverting `CinetPayController`, which it
+then named in all three assertions.
+
+Its own fourth assertion was corrected during the work: the first version demanded the literal
+`auth('customers')->id()` and flagged `Api/ApiController.php`, which is **correct code** — it uses
+a local resolved from the authenticated customer far above. Demanding one spelling of a correct
+thing is how a ratchet gets its expectations rubber-stamped. The invariant is "not request input".
+
+### 17c. Driven, and the limit of what that proves — stated rather than glossed
+
+A signed-in shopper posting (a) another customer's real id, (b) `9<script>alert(1)</script>`, and
+(c) their own id all produce an order owned by the shopper, with no posted string in
+`product_order_id`. 14 assertions.
+
+**That route cannot bite the spelling, and this was measured.** Reverting `place_order`'s own
+reference line to `$request->customer_id` *still* produced the shopper's id, because
+`ModuleStorefrontInputGuard` (appended to the `web` group at `bootstrap/app.php:274`) rewrites
+`customer_id` from the session before the handler runs. So on that route attribution is correct
+twice over, and what the cases guard is the **end state**, not which spelling the handler uses.
+
+Two earlier versions of this test were worse and are worth recording:
+
+- The first drove only `place-order` and **passed with the `PaymentService` fix reverted** — it was
+  proving a different handler. The bite caught it.
+- The second added `payment-sheet` expecting it to reach `PaymentService`; it does not — that
+  endpoint creates a Stripe PaymentIntent and writes no order. The explicit premise assertion
+  reported "the handler F46 actually lived in was not exercised" instead of passing quietly.
+
+**SO WHAT IS NOT ESTABLISHED, and is not claimed:** whether the nine web/gateway copies were
+reachable with a hostile `customer_id` at all. `ModuleStorefrontInputGuard` is per-route, and
+whether it covers the gateway callback routes was not determined. The fix is correct either way —
+**defence in depth of undemonstrated reachability, not a proven exploit closure.**
+
+### 17d. And one thing the census found that is not F46 — F71
+
+In `ApiController::ordersave()`, `:8944` sets the authenticated customer's reference inside the
+`auth('customers')->check()` branch and `:8948`, two lines later and **outside** it, overwrites it
+unconditionally with the guest form `'0' . date(...)`. So every `order-save` order carries the
+guest reference, signed in or not, while `is_guest` says otherwise. `place_order()` does it
+correctly at `:3786`, which is how the two drifted apart unnoticed.
+
+**Recorded, not fixed.** The reference is what a merchant and a customer both see, and three
+detail tables join on it. Changing its format for authenticated API orders is an order-behaviour
+change, which the owner's standing limits reserve.

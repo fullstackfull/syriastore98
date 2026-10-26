@@ -2979,5 +2979,8 @@
     "Taxes, brand, label, shipping and weight. These are usually set once for the whole catalogue.": "Taxes, brand, label, shipping and weight. These are usually set once for the whole catalogue.",
     "Cost price is required.": "Cost price is required.",
     "Cost price must not be greater than the regular price.": "Cost price must not be greater than the regular price.",
-    "Someone else saved this product while you were editing it. Your changes have not been saved. Reload the page to see the current version, then re-apply your changes.": "Someone else saved this product while you were editing it. Your changes have not been saved. Reload the page to see the current version, then re-apply your changes."
+    "Someone else saved this product while you were editing it. Your changes have not been saved. Reload the page to see the current version, then re-apply your changes.": "Someone else saved this product while you were editing it. Your changes have not been saved. Reload the page to see the current version, then re-apply your changes.",
+    "Please correct the highlighted fields": "Please correct the highlighted fields",
+    "The weight must be a number.": "The weight must be a number.",
+    "The weight cannot be negative.": "The weight cannot be negative."
 }
