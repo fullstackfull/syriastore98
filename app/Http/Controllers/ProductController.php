@@ -293,15 +293,34 @@ class ProductController extends Controller
                         $Product->shipping_id = $request->shipping_id;
                         $Product->product_weight = $request->product_weight;
                         $Product->variant_product = $request->variant_product;
-                        $Product->trending = $request->trending;
+                        // F61. `trending` is NOT in store()'s rules, and on an INSERT an
+                        // explicit NULL into a NOT NULL column is ER_BAD_NULL_ERROR on MySQL
+                        // whatever the sql_mode -- a column default does not rescue it, and
+                        // unlike update()'s UPDATE there is no silent coercion to fall back on.
+                        // The create form always posts it (hidden `trending=0` partner at
+                        // create.blade.php:270), so this is latent, not live. 0 is both the
+                        // column's default and what that partner sends.
+                        $Product->trending = $request->trending ?? 0;
                         $Product->status = $request->status;
                         $Product->description = $request->description;
                         $Product->specification = $request->specification;
                         $Product->detail = $request->detail;
                         $Product->price = $request->price;
-                        $Product->sale_price = $request->sale_price;
+                        // F61. `sale_price` is `float NOT NULL DEFAULT 0` and is validated
+                        // `nullable`, so an omitted or empty value reached a NOT NULL column.
+                        // On this INSERT path an explicit NULL is ER_BAD_NULL_ERROR on MySQL
+                        // whatever the sql_mode. 0 is the column's own default.
+                        $Product->sale_price = $request->sale_price ?? 0;
 $Product->cost_price = $request->cost_price;
-                        $Product->stock_status = $request->stock_status;
+                        // F61, and this is the INSERT twin of the update() case. `stock_status`
+                        // is `string NOT NULL DEFAULT '0'` and is in NEITHER rule set, so a
+                        // request without it wrote NULL -- a hard error here rather than the
+                        // silent coercion the UPDATE path got. `in_stock` is chosen because it
+                        // is exactly what the create form sends: create.blade.php renders the
+                        // three radios with `checked` on in_stock, so every browser caller
+                        // already posts this value and the handler now agrees with its only
+                        // real caller. Only a non-browser client reaches the coalesce.
+                        $Product->stock_status = $request->stock_status ?? 'in_stock';
                         $Product->attribute_id = $input['product_attributes'] ?? null;
                         $Product->product_attribute = $input['attribute_options'];
 
@@ -598,7 +617,7 @@ $Product->cost_price = $request->cost_price;
                         }
                         $product->product_stock = !empty($request->product_stock) ? $request->product_stock : 0;
                         $product->variant_product = $request->variant_product;
-                        $product->trending = $request->trending;
+                        $product->trending = $request->trending ?? 0;   // F61, as above
                         if (isset($request->track_stock) && $request->track_stock == 1) {
                             $product->track_stock = $request->track_stock;
                             $product->stock_order_status = $request->stock_order_status;
@@ -638,14 +657,22 @@ $Product->cost_price = $request->cost_price;
                                     $tag_data->name = $tag;
                                     // F62. `tags.slug` is NOT NULL with no default, and the two
                                     // non-variant siblings of this block (store():356,
-                                    // update():1521) already set it. These two variant branches
+                                    // update():1556) already set it. These two variant branches
                                     // never did, so a merchant-typed tag inserted here omitted
-                                    // the column: a 500 on SQLite, and on production MySQL
-                                    // (strict off) a row silently stored with slug = '', which
-                                    // collides with every other such row on the storefront tag
-                                    // routes. Reachable from the UI only since the F16 asset fix
-                                    // let select2 load, which turned the tag field into a
-                                    // free-text `tags: true` control.
+                                    // the column: a hard 500 on SQLite and on strict MySQL, and
+                                    // on production (strict off) a row silently stored with
+                                    // slug = ''. NOTHING READS `tags.slug` anywhere in app/,
+                                    // resources/, themes/, routes/ or packages/workdo/ -- the
+                                    // column is write-only today and its only consumer is
+                                    // Tag::slugs()'s own uniqueness probe -- so what the ''
+                                    // rows cost is a broken invariant, not a wrong read. The
+                                    // fix also closes a PARTIAL WRITE: here the Tag insert
+                                    // happens AFTER $product->save() and the ProductVariant
+                                    // saves, and update() has no transaction, so the 500 left
+                                    // the variants written while $product->tag_id and
+                                    // product_stock never were. Reachable from the UI only
+                                    // since the F16 asset fix let select2 load, which turned
+                                    // the tag field into a free-text `tags: true` control.
                                     $tag_data->slug = Tag::slugs($tag);
                                     $tag_data->store_id = getCurrentStore();
                                     $tag_data->created_by = \Auth::user()->id;
@@ -1353,7 +1380,15 @@ $Product->cost_price = $request->cost_price;
             $product->variant_product = $request->variant_product;
             $product->shipping_id = $request->shipping_id;
             $product->status = $request->status;
-            $product->trending = $request->trending;
+            // F61, third of its kind. `products.trending` is `integer NOT NULL DEFAULT '0'`
+            // and is in neither rule set. The edit form always posts it -- a hidden
+            // `trending=0` sits ahead of the checkbox, in a card outside both
+            // stock_management guards -- so the live path is covered by the VIEW and not by
+            // this handler, which is exactly why it survived F59 and F61. A hand-made PUT
+            // without the key wrote NULL. Coalesced to the stored value for the same reason
+            // as stock_status: the control is a checkbox with a hidden partner, so an absent
+            // key means "not posted", never "cleared".
+            $product->trending = $request->trending ?? $product->trending;
 
 
             /*
@@ -1486,7 +1521,12 @@ $Product->cost_price = $request->cost_price;
 
 
                 $product->price = $request->price;
-                $product->sale_price = $request->sale_price;
+                // F61. This was kept non-NULL only by `$request->sale_price = $request->sale_price
+                // ? ... : 0;` higher up, which works because neither Illuminate's Request nor
+                // Symfony's defines __set -- so it creates a dynamic property that later reads
+                // find before __get, and on PHP 8.3 that is a deprecation. The guard belongs on
+                // the line that writes the NOT NULL column, not three hundred lines away.
+                $product->sale_price = $request->sale_price ?? 0;
 
 
                 if ($request->track_stock == 0) {

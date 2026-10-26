@@ -8,10 +8,27 @@
  * NOT just field counts. Condition 2 adds that hiding a field must not prevent
  * submission or lose its value.
  *
- * A source grep cannot answer that. It misses controls injected by JS (variant rows,
- * attribute rows, Dropzone's hidden inputs) and it cannot see `disabled`, which is the
- * actual regression this slice risks: a control inside a collapsed section that gets
- * disabled is silently dropped from the POST body by the browser, with no error anywhere.
+ * A source grep cannot answer that. It cannot see `disabled`, which is the actual
+ * regression this slice risks -- a control inside a collapsed section that gets disabled is
+ * silently dropped from the POST body, with no error anywhere -- and it misses controls
+ * injected by JavaScript.
+ *
+ * WHAT THIS CAPTURES, EXACTLY, because the first version of this paragraph claimed more. It
+ * loads the page, lets the widgets settle, and reads. So it DOES cover Dropzone's hidden
+ * `files` inputs and every control the server rendered. It does NOT cover:
+ *
+ *   - VARIANT AND ATTRIBUTE ROWS. `add_more_choice_option()` in layouts/app.blade.php
+ *     appends `<select name="attribute_options_N[]" ... required>` only after a change on
+ *     `#attribute_id`, and this never checks `#enable_product_variant` or fires that change;
+ *     the edit target is a non-variant product. None of those controls is in either
+ *     snapshot. They land in `#attribute_options`, OUTSIDE the disclosure -- but it is the
+ *     standing required-inside-details invariant in the diff that establishes that, not this
+ *     capture.
+ *   - ANY FIELD THE FIXTURE'S SETTINGS DO NOT RENDER. With `stock_management` off, the
+ *     create page emits no `track_stock`, `product_stock`, `low_stock_threshold` or
+ *     `stock_order_status` at all, so they are absent from BOTH snapshots -- and "absent
+ *     from both" is silent, so collapsing the stock block would still report PASS. The
+ *     capture therefore PRINTS the settings that decide this.
  *
  * So this reads the real rendered page and emits a stable JSON inventory:
  *   - every form control's name, tag, type, value, disabled/required flags
@@ -115,10 +132,50 @@ if (process.argv[2] === '--diff') {
         }
         cases++;
         if (bf.inForm && !af.inForm) fail(`${page}: "${name}"[${i}] left the form element — it will not be submitted`);
+        // `readonly`, `tag` and `type` were CAPTURED AND NEVER COMPARED, which an independent
+        // review caught. readonly is a live axis on this page -- the variant toggle runs
+        // `$('.product_price input').prop('readOnly', true)` -- and without tag/type a
+        // <select name="brand_id"> swapped for <input type="hidden" name="brand_id"> with the
+        // same value passed the whole gate.
+        cases++;
+        if (bf.readonly !== af.readonly) fail(`${page}: "${name}"[${i}] readonly ${bf.readonly} -> ${af.readonly}`);
+        cases++;
+        if (bf.tag !== af.tag) fail(`${page}: "${name}"[${i}] element changed ${bf.tag} -> ${af.tag}`);
+        cases++;
+        if (bf.type !== af.type) fail(`${page}: "${name}"[${i}] input type changed ${bf.type} -> ${af.type}`);
+        cases++;
+        if (bf.multiple !== af.multiple) fail(`${page}: "${name}"[${i}] multiple ${bf.multiple} -> ${af.multiple}`);
       }
     }
 
-    // 4. report additions as information, not failure
+    // 4. STANDING INVARIANT, checked on the after-snapshot alone so it covers fields the
+    //    baseline never had. A `required` control inside a collapsed <details> is hidden from
+    //    the browser's constraint UI; the baseline-diff loops above only iterate names the
+    //    baseline already held, so a NEW field added inside the disclosure carrying `required`
+    //    was reported as an addition and PASSED.
+    for (const f of a.fields) {
+      cases++;
+      if (f.insideDetails && f.validation && f.validation.required) {
+        fail(`${page}: "${f.name}" is REQUIRED and inside a <details> — a closed disclosure hides it `
+             + `from the browser's constraint UI`);
+      }
+    }
+
+    // 5. a field that moved into or out of a disclosure is reported, because that is the
+    //    dimension this slice changes and the value/validation diff cannot see it
+    for (const [name, list] of bByName) {
+      const after_ = aByName.get(name);
+      if (!after_) { continue; }
+      for (let i = 0; i < Math.min(list.length, after_.length); i++) {
+        cases++;
+        if (list[i].insideDetails !== after_[i].insideDetails) {
+          console.log(`  note  ${page}: "${name}"[${i}] ${list[i].insideDetails ? 'left' : 'moved into'} a <details>`);
+        }
+      }
+    }
+
+    // 6. report additions as information, not failure -- but the invariant above still
+    //    applies to them
     for (const name of aByName.keys()) {
       if (!bByName.has(name)) console.log('  note  ' + page + ': field ADDED "' + name + '"');
     }
@@ -150,11 +207,22 @@ const COLLECT = () => {
   let form = document.querySelector('form:has(#submit-all)') ||
              forms.find((f) => f.querySelector('#submit-all')) ||
              forms.sort((a, b) => b.elements.length - a.elements.length)[0];
+  // `visible` is answered by checkVisibility, NOT by walking computed display.
+  // Chromium hides a closed <details> with content-visibility on ::details-content,
+  // which leaves a descendant's computed `display` as `block` and its offsetParent
+  // non-null -- so the walk below reported tax_status and product_weight as VISIBLE
+  // inside a closed section, and the four Choices-managed selects read correctly only
+  // because their widget sets display:none on them. check-advanced-fields-live.cjs had
+  // already been corrected for this; the two harnesses disagreed until now.
+  const isVisible = (el) => (typeof el.checkVisibility === 'function'
+    ? el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true, contentVisibilityAuto: true })
+    : el.offsetParent !== null);
+  // kept as diagnostics only: which ancestors carry an explicit hide
   const hiddenBy = (el) => {
     let n = el, chain = [];
     while (n && n !== document.documentElement) {
       const cs = getComputedStyle(n);
-      if (cs.display === 'none' || cs.visibility === 'hidden' || n.hidden) {
+      if (cs.display === 'none' || cs.visibility === 'hidden' || n.hidden || cs.contentVisibility === 'hidden') {
         chain.push((n.tagName || '').toLowerCase() + (n.id ? '#' + n.id : '') +
           (n.className && typeof n.className === 'string' ? '.' + n.className.trim().split(/\s+/).slice(0, 3).join('.') : ''));
       }
@@ -188,8 +256,14 @@ const COLLECT = () => {
         readonly: !!el.readOnly,
         multiple: !!el.multiple,
         inForm: !!(form && form.contains(el)),
-        visible: hid.length === 0,
+        visible: isVisible(el),
         hiddenBy: hid,
+        // WHERE the field lives. This slice is precisely a change of location, and a gate
+        // with no notion of location cannot see it: a NEW field added inside the
+        // disclosure carrying `required` was reported as an addition and passed.
+        insideDetails: !!(el.closest && el.closest('details')),
+        detailsId: el.closest && el.closest('details')
+          ? (el.closest('details').getAttribute('class') || 'details') : null,
         // what the client would enforce
         validation: {
           required: !!el.required,
@@ -227,6 +301,31 @@ const COLLECT = () => {
   await login(p);
 
   const out = { base: BASE, pages: {} };
+
+  /* The settings that decide which fields exist at all. Printed, not asserted: this harness
+     does not own the fixture, but a reader comparing two snapshots needs to know that
+     `stock_management: off` means four stock fields were in neither of them. */
+  await p.goto(BASE + '/product/create', { waitUntil: 'domcontentloaded' });
+  const coverage = await p.evaluate(() => ({
+    stockControlsRendered: !!document.querySelector('[name="track_stock"]'),
+    variantEnabled: !!(document.querySelector('#enable_product_variant') || {}).checked,
+    attributeRows: document.querySelectorAll('[name^="attribute_options_"]').length,
+    lang: document.documentElement.getAttribute('lang'),
+    dir: document.documentElement.getAttribute('dir') || 'ltr',
+  }));
+  out.coverage = coverage;
+  console.log('fixture coverage: stockControlsRendered=' + coverage.stockControlsRendered
+    + '  variantEnabled=' + coverage.variantEnabled
+    + '  attributeRows=' + coverage.attributeRows
+    + '  lang=' + coverage.lang + '/' + coverage.dir);
+  if (!coverage.stockControlsRendered) {
+    console.log('   note: stock_management is OFF here, so track_stock, product_stock,'
+      + ' low_stock_threshold and stock_order_status are in NEITHER snapshot');
+  }
+  if (coverage.attributeRows === 0) {
+    console.log('   note: no attribute/variant rows captured; the standing'
+      + ' required-inside-details invariant is what covers them');
+  }
 
   // the edit page needs a real product id
   await p.goto(BASE + '/product', { waitUntil: 'networkidle' });

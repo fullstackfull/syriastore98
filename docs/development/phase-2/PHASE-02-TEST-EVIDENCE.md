@@ -2179,15 +2179,15 @@ Not the DS's existing `[data-ss-disclose]` button/target pair, because:
 ### 14c. Preservation: 502/502, and not one of them is a field count
 
 `docs/development/phase-2/tools/inventory-product-fields.cjs` reads the **rendered DOM** and diffs,
-per control: name, value, `disabled`, `readonly`, form membership, the form's method and action, and
-six validation attributes (`required`, `min`, `max`, `step`, `minlength`, `maxlength`, `pattern`).
+per control: name, value, `disabled`, `readonly`, `tag`, `type`, `multiple`, form membership, `insideDetails`, the form's
+method and action, and six validation attributes (`required`, `min`, `max`, `step`, `minlength`, `maxlength`, `pattern`).
 A source grep cannot answer this — it misses controls injected by JS and it cannot see `disabled`,
 which is the actual regression the slice risks.
 
 ```
 create  44 named controls   POST /product        disabled=[none]  pageErrors=0  failedAssets=0
 edit    47 named controls   POST /product/32     disabled=[none]  pageErrors=0  failedAssets=0
-DIFF    PASS 502/502
+DIFF    PASS 1048/1048
 ```
 
 Taken with **the fixture held constant** and the baseline captured against the *committed* views, so
@@ -2195,7 +2195,7 @@ no save could drift it — the first attempt reported `tax_status "taxable" -> "
 because the behaviour check had saved a product in between, and that requirement is now written into
 the harness's own header.
 
-**Bitten eight ways.** Seven against the differ — a collapsed field `disabled`, removed, re-parented
+**Bitten eleven ways.** Ten against the differ — a collapsed field `disabled`, removed, re-parented
 out of the form, given a `required`, the submit path changed, a value silently lost, a volatile field
 emptied — and an eighth through the real browser, by putting `disabled` in the blade and
 re-capturing. Each produced exactly its own failure, and the clean pair still passed.
@@ -2215,6 +2215,9 @@ The other half of condition 2 is server-side and JS-free: a section whose field 
 renders `open` with a textual **Needs attention** badge, `tax_id[]` matching the `tax_id` error key.
 `tests/Feature/Merchant/AdvancedFieldsDisclosureTest.php` covers it in 14 tests, and both error
 cases fail when either the open-on-error condition or the key matching is removed.
+
+**That capability is NOT reachable on these two pages, and §14i says so** -- `ProductController`
+never calls `withErrors()`, and none of the six fields has a rule that can fail.
 
 That test also found a bug in itself worth recording: data passed to `Blade::render` is a local of
 the **outer** template, so a component rendered inside it never sees it. Production works because
@@ -2244,7 +2247,8 @@ them in a `finally`.
 Both ratios are computed in-browser from the resolved colours, not asserted from the token table.
 At **390px**, in both directions: no horizontal page overflow open **or** closed, the summary inside
 the viewport, and a tap target ≥24px (WCAG 2.5.8). RTL mirrors the collapsed chevron and both
-directions rotate it to point down when open. **78/78.**
+directions rotate it to point down when open, and both text nodes' contrast is measured, not
+just the summary's. **100/100.**
 
 `--ss-border-strong` is used rather than `--ss-border` because the latter measures **1.30:1** against
 the white card it sits in and **1.14:1** against its own fill — the box would have been very nearly
@@ -2291,3 +2295,75 @@ toast, so it cannot open a section for a *server*-rejected collapsed field — h
 no collapsed field has a validation rule, and recorded rather than hidden. `/attribute-option` and
 the Flash Sale modal (F65) were fixed at the path level, verified 404 → 200, and **not driven**: one
 500s on this fixture for lack of attribute data, the other needs its module enabled.
+
+### 14i. `[2026-10-26]` Reviewing this slice found a defect in the UI and five in the verification
+
+The independent review of P2-03-8 is the most productive one this phase has had, because almost
+everything it found was in the *safety nets* rather than in the change.
+
+**One user-visible defect — F68.** The disclosure's hint was failing AA **in the slice that
+measured contrast in four configurations**. `.ss-advanced__hint` is a `<p>`, and the host's dark
+stylesheet does `.dataTable-info, p { color: #808191 !important; }`, so the token lost and the
+hint computed to 3.85:1 on the dark card while the summary two lines above read 6.79:1. The DS
+file already carried both the mechanism and the warning — a block headed *Host override defence*
+listing the five classes that may sit on a `<p>`. The hint was a sixth and was not on it. My check
+sampled `getComputedStyle(summary).color` and nothing else: two text nodes in the component, one
+measured, and the result reported for the whole thing. Fixed (6.79:1 dark, 5.23:1 light), bitten,
+and the live harness now measures both nodes in all four configurations.
+
+**Two tests that could not fail — F69 (1) and (2).**
+
+- `slotOf()` returned the region starting at the component's **opening tag**, which carries
+  `:fields="['tax_id[]', 'tax_status', ...]"`. So all six names were in the string whether or not
+  a single control was inside the disclosure. Delete every field and the test still passed. The
+  helper strips Blade comments specifically so no assertion can be satisfied by the prose
+  explaining it — and was then satisfied by the component's own argument list.
+- `test_the_required_fields_stay_outside_the_disclosure` searched for the quoted PHP literal
+  `'category_id'`, but the create view writes that control as raw HTML `<select
+  name="category_id">`. So moving Category into the disclosure would have passed that test *and*
+  the required-attribute test beside it, leaving a server-side-required field collapsed: precisely
+  what it exists to prevent.
+
+Both now assert control **shapes** (`name="tax_id[]"`, `Form::select('tax_status'`) and both
+spellings of a field name, and both were bitten — deleting the `brand_id` control while leaving
+its name in `:fields` now fails, and planting a raw-HTML `name="category_id"` inside now fails.
+
+**Three blind spots in the gate — F69 (3), (4), (5).** It captured `readonly`, `tag`, `type` and
+`multiple` and compared none of them, so a `<select name="brand_id">` swapped for an
+`<input type="hidden">` with the same value passed the whole thing. It had no notion of *where* a
+field lives — the one dimension this slice changes — so a new field added inside the disclosure
+carrying `required` was printed as `note field ADDED` and passed. And the live harness hardcoded
+`newWeight = '7.77'` and then saved it, so the fixture came to hold 7.77 and that assertion passed
+on every later run regardless. All fixed; the gate went **502 → 1048 checks**.
+
+**Two harness honesty problems.** The language was never restored, and because
+`/change-language/ar` rewrites `SITE_RTL` *and* `layouts/app.blade.php:48-50` forces RTL whenever
+the language is `ar`, every admin page in the fixture rendered Arabic-RTL after any run while
+`read-preview-state.php` reported `light/ltr`. A restore that reports success while leaving the
+fixture switched is worse than none. Fixed, and the harness's claim that direction and language
+are independent settings is corrected — they are not, which also means English-with-RTL is
+reachable and untested. The rejected-save case counted *any* toast; it now asserts the message.
+
+**A gap against owner condition 2 — F70.** The server-side "open the section on error" path is
+built, tested and correct, and **cannot fire on either product page**: `ProductController` never
+calls `withErrors()` (it returns JSON for the AJAX handler), and four of the six fields have no
+rule while `brand_id`/`label_id` are `nullable`. Four comments stated it as live behaviour; all
+four are corrected. Closing it properly means the error response naming the failed field, which
+changes a response shape the Flutter app may read — so it is recorded, not quietly done.
+
+**And one fix that was tried, measured, and reverted.** The review asked for the one-line fix to
+the duplicate `id="tax_id"` (recorded long ago as P3-06). Measured: that duplicate is what has
+been keeping Choices.js **off** the `tax_status` control. A unique id makes Choices take it over —
+`display: none` on the native select, options moved into the widget. The submitted value is
+unaffected either way, but a field changing from a bare native select to a Choices widget is a
+visible change to a control, and this slice's contract is that nothing about a field changes except
+where it sits. Reverted, with the measurement recorded on P3-06 for its own slice.
+
+**What the review confirmed rather than refuted:** a closed `<details>` really does submit its
+contents, verified independently with variant mode on, with `.product-weight` hidden, and with
+stock management off; no `required` control can reach the inside in any state produced; every
+token the new CSS references resolves in both themes and nothing leaks outside the component; the
+volatile-field exemption in the gate is exactly as advertised; and tab order, tap target,
+accessible naming and forced-colors all behave. It also noted the stated *mechanism* for claim 2
+is not the one in play — the editor never performs a native submit, so `serializeArray()`'s
+visibility-blindness is what carries it — which is now said in the component rather than implied.

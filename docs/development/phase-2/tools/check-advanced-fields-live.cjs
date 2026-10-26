@@ -14,9 +14,21 @@
  *
  * Direction and theme are SERVER-side settings (`SITE_RTL`, `cust_darklayout`), so they are
  * flipped with set-preview-state.php rather than by setting an attribute the layout never
- * reads -- ledger finding F8 is that mistake, recorded twice. Language is a separate switch
- * through /change-language, and it is applied AFTER the direction for the same
- * order-dependence that made check-pinned-column-live.cjs read 57/58.
+ * reads -- ledger finding F8 is that mistake, recorded twice.
+ *
+ * DIRECTION AND LANGUAGE ARE NOT INDEPENDENT, and an earlier version of this comment said
+ * they were. Two couplings, both verified: `/change-language/<lang>` writes `users.language`
+ * AND updates the store's `SITE_RTL` setting (LanguageController:35-48), and then
+ * `layouts/app.blade.php:48-50` forces `SITE_RTL = 'on'` whenever the current language is
+ * `ar` or `he` REGARDLESS of the setting. So Arabic is always RTL and the `dir` argument to
+ * setState has no independent effect on the Arabic rows. The four configurations below are
+ * therefore theme x language, which is what they were always measuring; what is NOT covered
+ * is English-with-RTL, which is reachable (set SITE_RTL on, keep language en) and untested.
+ *
+ * THE LANGUAGE IS RESTORED TOO. It used to be left wherever the last iteration put it, which
+ * was `ar` -- so every admin page in the fixture rendered Arabic and RTL after any run, and
+ * `read-preview-state.php` reported `light/ltr` while the live page served `dir="rtl"`. A
+ * restore that reports success while leaving the fixture switched is worse than none.
  *
  * usage: node check-advanced-fields-live.cjs [baseUrl] [storeId]
  */
@@ -68,6 +80,21 @@ const ratio = (a, b) => { const la = lum(a), lb = lum(b); const hi = Math.max(la
 const parseRgb = (s) => { const m = String(s).match(/(\d+(?:\.\d+)?)/g); return m ? m.slice(0, 3).map(Number) : null; };
 
 const INITIAL = readState();
+
+/* The language the fixture was in when this started. It lives on `users.language`, not in the
+   settings table, so read-preview-state.php does not see it. */
+const INITIAL_LANG = (() => {
+    try {
+        return execFileSync('php', ['-r',
+            'require "vendor/autoload.php"; $a = require "bootstrap/app.php";'
+            + ' $a->make(Illuminate\\Contracts\\Console\\Kernel::class)->bootstrap();'
+            + ' echo (string) (\App\Models\User::where("email", "' + EMAIL + '")->value("language") ?: "en");'],
+            { cwd: REPO, stdio: 'pipe', env: PHPENV }).toString().trim() || 'en';
+    } catch (e) {
+        console.error('  note: could not read the fixture language -- ' + e.message);
+        return 'en';
+    }
+})();
 
 (async () => {
     const browser = await chromium.launch();
@@ -141,10 +168,40 @@ const INITIAL = readState();
                 const d = document.querySelector('details.ss-advanced');
                 return { open: d.hasAttribute('open'),
                          laidOut: Array.from(d.querySelectorAll('input[name],select[name]'))
-                             .filter((e) => e.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true, contentVisibilityAuto: true })).length };
+                             .filter((e) => e.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true, contentVisibilityAuto: true })).length,
+                         // RE-CHECKED with the section open. The load-time sample alone could
+                         // not see a control a widget marks `required` during its own init.
+                         requiredNow: Array.from(d.querySelectorAll('[required]')).map((e) => e.name || e.id) };
             });
             check(`[${label}] click opens it`, afterClick.open === true);
             check(`[${label}] open: advanced controls are laid out`, afterClick.laidOut > 0, 'laidOut=' + afterClick.laidOut);
+            check(`[${label}] still no required control inside once OPEN`, afterClick.requiredNow.length === 0,
+                  afterClick.requiredNow.join(','));
+
+            /* And after the variant toggle, which is what injects the `required`
+               attribute_options rows and runs $('.product-weight').hide(). Those rows land in
+               #attribute_options, outside the disclosure -- asserted here rather than assumed,
+               because it is the one state that creates required controls at runtime. */
+            const variantToggle = await p.$('#enable_product_variant');
+            if (variantToggle) {
+                await variantToggle.check().catch(() => {});
+                await p.waitForTimeout(900);
+                const afterVariant = await p.evaluate(() => {
+                    const d = document.querySelector('details.ss-advanced');
+                    return {
+                        requiredInside: Array.from(d.querySelectorAll('[required]')).map((e) => e.name || e.id),
+                        requiredOnPage: document.querySelectorAll('#choice_form [required]').length,
+                        stillInForm: Array.from(d.querySelectorAll('input[name],select[name]'))
+                            .filter((e) => document.querySelector('#choice_form').contains(e)).length,
+                    };
+                });
+                check(`[${label}] variant mode injects no required control INSIDE the disclosure`,
+                      afterVariant.requiredInside.length === 0, afterVariant.requiredInside.join(','));
+                check(`[${label}] variant mode leaves the six fields in the form`,
+                      afterVariant.stillInForm >= 6, 'inForm=' + afterVariant.stillInForm);
+                await variantToggle.uncheck().catch(() => {});
+                await p.waitForTimeout(400);
+            }
 
             /* keyboard: Enter on the summary is the native disclosure toggle */
             await p.focus('details.ss-advanced > summary');
@@ -199,13 +256,23 @@ const INITIAL = readState();
         await p.goto(BASE + '/product/32/edit', { waitUntil: 'networkidle' });
         await p.waitForTimeout(900);
 
-        const newWeight = '7.77';
         const before = await p.evaluate(() => ({
+            weight: document.querySelector('[name="product_weight"]').value,
             taxStatus: document.querySelector('[name="tax_status"]').value,
             price: document.querySelector('[name="price"]').value,
             open: document.querySelector('details.ss-advanced').hasAttribute('open'),
         }));
         check('[submit] the section is closed before the edit', before.open === false);
+
+        /* DERIVED FROM THE CURRENT VALUE, not hardcoded. The first version used a literal
+           '7.77', and since this harness SAVES that value the fixture came to hold it -- after
+           which `after.weight === newWeight` passed on every run whether or not the save wrote
+           the field at all. A case that cannot fail after its own first run. Caught by
+           independent review. The difference is asserted below, the same way tax_status's
+           already was. */
+        const newWeight = (Math.round((Number(before.weight || 0) + 1.25) * 100) / 100).toFixed(2);
+        check('[submit] the new weight differs from the stored one', newWeight !== before.weight,
+              'before=' + JSON.stringify(before.weight) + ' new=' + newWeight);
 
         /* Write to the two PLAIN controls inside the closed section. They are plain on
            purpose: this case is about whether a closed <details> submits, not about
@@ -287,6 +354,13 @@ const INITIAL = readState();
         });
         check('[submit] a rejected save is reported to the merchant', rejected.count > 0,
               JSON.stringify(rejected.text));
+        /* The COUNT alone was satisfied by any toast at all -- a concurrent-edit conflict, a
+           permission refusal -- so the text is asserted too. The message is the cost-price rule
+           the empty field above trips, and it is matched in either language because this
+           harness has just been through /change-language. */
+        const saysCost = rejected.text.some((t) => /cost price/i.test(t) || /التكلفة/.test(t));
+        check('[submit] the message is the one this rejection should produce', saysCost,
+              JSON.stringify(rejected.text));
         await ctx.close();
 
         /* ---------------- C. four configurations ---------------- */
@@ -336,11 +410,20 @@ const INITIAL = readState();
                 d.setAttribute('open', ''); await settle();
                 const openChev = chevNow();
                 d.removeAttribute('open'); await settle();
+                const hint = d.querySelector('.ss-advanced__hint');
                 return {
                     htmlDir: document.documentElement.getAttribute('dir') || 'ltr',
                     title: title ? title.textContent.trim() : null,
                     fg: getComputedStyle(sum).color,
                     bg: bgOf(sum),
+                    // The hint is a SECOND text node and was never sampled. It is a <p>, and
+                    // the host's dark stylesheet does `.dataTable-info, p { color: #808191
+                    // !important; }` -- so it computed to 3.85:1 on the dark card while the
+                    // summary beside it read 6.79:1, and measuring only the summary reported
+                    // the component as passing. Found by independent review.
+                    hintFg: hint ? getComputedStyle(hint).color : null,
+                    hintBg: hint ? bgOf(hint) : null,
+                    hintSize: hint ? getComputedStyle(hint).fontSize : null,
                     closedChev, openChev,
                     borderColor: getComputedStyle(d).borderTopColor,
                     cardBg: bgOf(d.parentElement),
@@ -356,6 +439,12 @@ const INITIAL = readState();
             const r = (fg && bg) ? ratio(fg, bg) : 0;
             check(`[${tag}] summary text contrast >= 4.5:1`, r >= 4.5, r.toFixed(2) + ':1  ' + m.fg + ' on ' + m.bg);
 
+            check(`[${tag}] the hint is present`, !!m.hintFg);
+            const hfg = parseRgb(m.hintFg), hbg = parseRgb(m.hintBg);
+            const hr = (hfg && hbg) ? ratio(hfg, hbg) : 0;
+            check(`[${tag}] hint text contrast >= 4.5:1`, hr >= 4.5,
+                  hr.toFixed(2) + ':1  ' + m.hintFg + ' on ' + m.hintBg + ' @' + m.hintSize);
+
             const bc = parseRgb(m.borderColor), cb = parseRgb(m.cardBg);
             const br = (bc && cb) ? ratio(bc, cb) : 0;
             check(`[${tag}] box border >= 3:1 against the card behind it`, br >= 3.0,
@@ -365,10 +454,18 @@ const INITIAL = readState();
                open state must differ from the closed one in every configuration */
             check(`[${tag}] open chevron differs from closed`, m.openChev !== m.closedChev,
                   'closed=' + m.closedChev + ' open=' + m.openChev);
+            /* BOTH directions are asserted. The RTL case alone said only "not none", which any
+               transform satisfies -- an RTL rule leaking into LTR would have been caught by
+               nothing, because `openChev !== closedChev` holds for 180 vs 90 too. */
             if (dir === 'rtl') {
-                check(`[${tag}] closed chevron is mirrored for RTL`, m.closedChev !== 'none',
+                check(`[${tag}] closed chevron is mirrored (180deg)`, m.closedChev === 'matrix(-1, 0, 0, -1, 0, 0)',
+                      'transform=' + m.closedChev);
+            } else {
+                check(`[${tag}] closed chevron is NOT transformed in LTR`, m.closedChev === 'none',
                       'transform=' + m.closedChev);
             }
+            check(`[${tag}] open chevron points down (90deg) in both directions`,
+                  m.openChev === 'matrix(0, 1, -1, 0, 0, 0)', 'transform=' + m.openChev);
             check(`[${tag}] no page errors`, cfgErrs.length === 0, cfgErrs.join(' | '));
             await ctx.close();
         }
@@ -405,9 +502,22 @@ const INITIAL = readState();
             await ctx.close();
         }
     } finally {
+        /* The language is restored BEFORE the browser closes, because it is changed through a
+           route and not through a setting -- and it has to be restored first, since the switch
+           rewrites SITE_RTL on its way through. */
+        try {
+            const ctxR = await browser.newContext();
+            const pR = await ctxR.newPage();
+            await login(pR);
+            await pR.goto(BASE + '/change-language/' + (INITIAL_LANG || 'en'), { waitUntil: 'domcontentloaded' });
+            await ctxR.close();
+            console.log('\n  (language restored to ' + (INITIAL_LANG || 'en') + ')');
+        } catch (e) {
+            console.error('  note: could not restore the language -- ' + e.message);
+        }
         await browser.close();
         if (INITIAL) {
-            try { setState(INITIAL.theme, INITIAL.dir); console.log('\n  (fixture state restored to ' + INITIAL.theme + '/' + INITIAL.dir + ')'); }
+            try { setState(INITIAL.theme, INITIAL.dir); console.log('  (fixture state restored to ' + INITIAL.theme + '/' + INITIAL.dir + ')'); }
             catch (e) { console.error('  note: could not restore fixture state -- ' + e.message); }
         }
     }

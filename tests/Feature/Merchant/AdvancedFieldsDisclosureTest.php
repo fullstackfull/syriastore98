@@ -17,15 +17,27 @@ use Tests\Feature\Security\SecurityTestCase;
  *
  * WHAT THIS FILE PROVES, and what it deliberately does not.
  *
- * It proves the SERVER-SIDE half of condition 2 -- that a failed field named by the section
- * renders the section `open`, with a textual badge, before a byte of JavaScript runs -- and the
- * STRUCTURAL invariants of the two product views: the six fields are inside the disclosure, and
- * `tag_id[]` and every other `required` control is outside it. That last one is not a style
- * point. A `required` control inside a CLOSED <details> is hidden from the browser's own
- * constraint UI, so Chrome refuses the submit and logs an unfocusable-control error: the Save
- * button stops working, with no message on the page and nothing in the server log. A static
- * assertion is the right shape for it because it has to hold for every future edit to the view,
- * not just for the state the fixture happens to be in.
+ * It proves the COMPONENT does the server-side half of condition 2 -- that a failed field named
+ * by the section renders it `open`, with a textual badge, before a byte of JavaScript runs -- and
+ * the STRUCTURAL invariants of the two product views: the six fields are inside the disclosure,
+ * and `tag_id[]` and every other `required` control is outside it.
+ *
+ * IT DOES NOT PROVE THAT A MERCHANT CAN EVER SEE THAT, and the distinction is the point.
+ * `$errors` is empty on both product pages: `ProductController` never calls `withErrors()` --
+ * `store()` and `update()` return `['flag' => 'error', 'msg' => ...]` as JSON for the AJAX
+ * handler to toast -- and of the six fields the section owns, four carry no validation rule at
+ * all and `brand_id`/`label_id` are `nullable`, so none of them can fail. The cases below hand
+ * the component a `ViewErrorBag` directly, which is exactly the shape that cannot tell a working
+ * capability from a reachable one. So: the capability is tested, and its unreachability is
+ * recorded as a gap in the ledger rather than papered over here. An independent review caught
+ * the earlier version of this paragraph claiming the stronger thing.
+ *
+ * The `required`-outside rule is likewise a GUARD and not a live bug. A `required` control inside
+ * a closed <details> is hidden from the browser's own constraint UI, so Chrome would refuse the
+ * submit and log an unfocusable-control error -- but `#submit-all` posts a hand-built FormData by
+ * AJAX, this editor has no native submit path, and `form.checkValidity()` is already false on
+ * page load while Save works anyway. A static assertion is still the right shape: it has to hold
+ * for every future edit to the view, and for the day a real submit is wired.
  *
  * It CANNOT prove that a collapsed field is actually submitted. That is a browser fact about
  * multipart assembly, and it is driven by
@@ -62,9 +74,21 @@ class AdvancedFieldsDisclosureTest extends SecurityTestCase
         }
     }
 
-    /** The region between the component's own tags, with Blade comments removed so that no
-     *  assertion below can be satisfied by the prose that explains it -- two assertions in an
-     *  earlier package passed against a comment. */
+    /**
+     * The SLOT CONTENT -- everything between the component's opening and closing tags, and
+     * deliberately NOT the opening tag itself.
+     *
+     * The first version of this returned the opening tag too, and the opening tag carries
+     * `:fields="['tax_id[]', 'tax_status', 'brand_id', 'label_id', 'shipping_id',
+     * 'product_weight']"`. So all six names were present in the slot string whether or not a
+     * single control was inside the disclosure, and
+     * `test_the_six_catalogue_fields_are_inside_the_disclosure` COULD NOT FAIL. Caught by
+     * independent review. The irony is on the record: the helper strips Blade comments
+     * specifically so no assertion can be satisfied by the prose explaining it, and was then
+     * satisfied by the component's own argument list instead.
+     *
+     * Blade comments are still stripped, for the original reason.
+     */
     private function slotOf(string $view): string
     {
         $src = file_get_contents(base_path('resources/views/product/' . $view . '.blade.php'));
@@ -75,7 +99,20 @@ class AdvancedFieldsDisclosureTest extends SecurityTestCase
         $this->assertNotFalse($open, $view . ': the disclosure is not used at all');
         $this->assertNotFalse($close, $view . ': the disclosure is not closed');
 
-        return substr($src, $open, $close - $open);
+        // past the end of the opening tag
+        $tagEnd = strpos($src, '>', $open);
+        $this->assertNotFalse($tagEnd, $view . ': the opening tag is unterminated');
+        $this->assertLessThan($close, $tagEnd, $view . ': the opening tag ends after the closing tag');
+
+        $slot = substr($src, $tagEnd + 1, $close - $tagEnd - 1);
+
+        // The premise that the bug above violated. If the opening tag ever creeps back in,
+        // every assertion below becomes satisfiable by the argument list and this says so.
+        $this->assertStringNotContainsString(':fields', $slot,
+            $view . ': the slot still contains the component\'s own :fields list, so the '
+            . 'assertions below could be satisfied by it rather than by any real control');
+
+        return $slot;
     }
 
     public function test_it_renders_collapsed_when_nothing_failed(): void
@@ -83,7 +120,9 @@ class AdvancedFieldsDisclosureTest extends SecurityTestCase
         $html = $this->render(['brand_id', 'tax_id[]']);
 
         $this->assertStringContainsString('class="ss-advanced"', $html);
-        $this->assertStringNotContainsString(' open', $html);
+        // The regex, not a bare ' open' substring: any future hint or slot text containing
+        // the word would trip that, and the sibling cases already use this shape.
+        $this->assertDoesNotMatchRegularExpression('/<details[^>]*\sopen\b/', $html);
         $this->assertStringNotContainsString('ss-advanced__badge', $html);
         $this->assertStringNotContainsString('data-ss-advanced-error', $html);
     }
@@ -142,14 +181,29 @@ class AdvancedFieldsDisclosureTest extends SecurityTestCase
         return [['create'], ['edit']];
     }
 
-    /** @dataProvider productViews */
+    /**
+     * Each field is matched by the SHAPE OF ITS CONTROL, not by its bare name appearing
+     * somewhere in the region -- a name can be present in a comment, an attribute or a label
+     * while the control itself has gone.
+     *
+     * @dataProvider productViews
+     */
     public function test_the_six_catalogue_fields_are_inside_the_disclosure(string $view): void
     {
         $slot = $this->slotOf($view);
 
-        foreach (['tax_id[]', 'tax_status', 'brand_id', 'label_id', 'shipping_id', 'product_weight'] as $field) {
-            $this->assertStringContainsString($field, $slot,
-                $view . ": {$field} is no longer inside the disclosure");
+        $controls = [
+            'tax_id[]'       => '/name="tax_id\[\]"/',
+            'tax_status'     => "/Form::select\('tax_status'/",
+            'brand_id'       => "/Form::select\('brand_id'/",
+            'label_id'       => "/Form::select\('label_id'/",
+            'shipping_id'    => "/Form::select\('shipping_id'/",
+            'product_weight' => "/Form::number\('product_weight'/",
+        ];
+
+        foreach ($controls as $field => $pattern) {
+            $this->assertMatchesRegularExpression($pattern, $slot,
+                $view . ": the {$field} CONTROL is no longer inside the disclosure");
         }
     }
 
@@ -172,9 +226,19 @@ class AdvancedFieldsDisclosureTest extends SecurityTestCase
 
         // These are `required` in ProductController's own rules. If one were collapsed, the
         // merchant could be refused a save over a field they cannot see.
+        //
+        // BOTH SPELLINGS ARE CHECKED. The first version looked only for the single-quoted PHP
+        // literal `'category_id'`, and create.blade.php writes that control as RAW HTML --
+        // `<select name="category_id" ...>` with no Form:: helper and no `required` attribute.
+        // So moving Category into the disclosure would have passed this test AND the
+        // required-attribute test above, leaving a server-side-required field collapsed:
+        // exactly what this exists to prevent. Caught by independent review.
         foreach (['name', 'category_id', 'cost_price'] as $field) {
             $this->assertStringNotContainsString("'" . $field . "'", $slot,
                 $view . ": {$field} is validated as required and must not be collapsed");
+            $this->assertDoesNotMatchRegularExpression('/name\s*=\s*"' . preg_quote($field, '/') . '"/', $slot,
+                $view . ": a control named {$field} is inside the disclosure, and it is "
+                . 'validated as required');
         }
     }
 

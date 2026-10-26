@@ -31,19 +31,47 @@
     hides the control from the browser's own constraint UI, so Chrome refuses
     to submit and logs "An invalid form control with name='...' is not
     focusable" -- a Save button that does nothing at all, with no message on
-    the page and nothing in the server log. In the product editor `tag_id[]`
-    carries `required` in the markup (while the server rules do not require
-    it), so it stays outside this component. The six fields that go in carry
-    no constraint attributes; `inventory-product-fields.cjs` records them, so
-    a future change that adds one to a collapsed field shows up as a
-    validation-attribute diff rather than as a dead button.
+    the page and nothing in the server log.
+
+    THAT RULE IS A GUARD AGAINST A BROWSER BEHAVIOUR THE PRODUCT EDITOR DOES
+    NOT CURRENTLY TRIP, and saying so is the honest version. `#submit-all` is
+    an <a href="#"> whose handler posts a hand-built FormData by AJAX, so the
+    editor has NO native submit path and native constraint validation never
+    runs on it: `form.checkValidity()` is already false on page load, because
+    `cost_price` is `required` and empty, and Save works anyway. The editor
+    also ALREADY hides a `required` control with `display:none` -- `cost_price`
+    sits in a `.product-weight` column, which variant mode hides -- and
+    `display:none` and a closed <details> have identical effects on constraint
+    validation. So the failure above would already be firing if it could. The
+    rule is kept because it costs nothing and because the day somebody wires a
+    real submit, it is already satisfied. `tag_id[]` carries `required` in the
+    markup and therefore stays outside.
+
+    `inventory-product-fields.cjs` diffs the validation attributes, so a
+    change that adds `required` to one of these SIX fields shows up there. It
+    does not currently record whether a field is inside the <details>, so a
+    NEW field added inside it carrying `required` is reported as an addition
+    and passes -- which is the likelier shape of the mistake. The static test
+    in `AdvancedFieldsDisclosureTest` is what covers that case.
 
     `fields` names the error-bag keys this section owns -- write them as they
-    appear in the markup, `tax_id[]` included, and the brackets are stripped
-    here. When any of them failed validation the section renders OPEN, from
-    the server, so a merchant who submits a bad tax id lands on the field
-    instead of on a closed box. That is owner condition 2 of 2026-10-26, and
-    it is done without JavaScript so there is no flash of the closed state.
+    appear in the markup, `tax_id[]` included; the brackets become the dots
+    Laravel uses, so `options[0][price]` matches `options.0.price`. When any of
+    them failed validation the section renders OPEN with a textual badge, from
+    the server, with no JavaScript and so no flash of the closed state.
+
+    IN THE PRODUCT EDITOR THAT PATH IS LATENT, NOT LIVE, and the comment said
+    otherwise before an independent review checked it. Two independent reasons:
+    `ProductController` NEVER calls `withErrors()` -- `store()` and `update()`
+    return `['flag' => 'error', 'msg' => ...]` as JSON for the AJAX handler to
+    toast, so `$errors` is empty on every render of these two pages -- and of
+    the six fields this section owns, four have no validation rule at all and
+    `brand_id`/`label_id` are `nullable`, so none of them can fail in the first
+    place. The capability is correct, tested, and waiting for the first section
+    that owns a validated field. What a merchant sees today when a save is
+    rejected is a `notifier` toast, with this section left closed; closing that
+    gap means wiring the AJAX error back to the section, which is recorded in
+    the ledger rather than claimed here.
 --}}
 @props([
     'title',

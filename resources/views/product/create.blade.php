@@ -75,11 +75,13 @@
                          behind one disclosure. NOTHING MOVED OUT OF THE FORM and no name, value
                          or validation rule changed -- a closed <details> still submits what is
                          inside it, which is why this is a <details> and not a hidden div or a
-                         disabled fieldset. `tag_id[]` is NOT in here: it carries `required` in
-                         the markup, and a required control inside a closed <details> makes
-                         Chrome refuse the submit with an unfocusable-control error, which would
-                         be a Save button that silently does nothing. It is moved up beside
-                         Category instead, where it belongs anyway -- both are classification. --}}
+                         disabled fieldset. `tag_id[]` is NOT in here: it carries `required`, and
+                         a required control inside a closed <details> is hidden from the
+                         browser's own constraint UI. That rule is a GUARD, not a bug report --
+                         this editor posts by AJAX from `#submit-all` and has no native submit
+                         path, so constraint validation never runs here today; see the component
+                         for the full reasoning. `tag_id[]` moves up beside Category, where it
+                         belongs anyway -- both are classification. --}}
                   <div class="col-12">
                     <x-ss.advanced-fields
                         :title="__('Advanced options')"
@@ -97,6 +99,20 @@
                       </div>
                       <div class="col-md-6 col-12">
                         {!! Form::label('', __('Tax Status'), ['class' => 'form-label']) !!}
+                        {{-- This `id` is 'tax_id', which DUPLICATES the tax multiselect above:
+                             invalid HTML, `getElementById` returns only the first, and
+                             `Form::label('tax_id', __('Taxs'))` labels the wrong one. It is
+                             already recorded as P3-06 in P2-03-3-RECONNAISSANCE.md and
+                             deliberately NOT fixed here. Giving it a unique
+                             id was tried and MEASURED: the duplicate is what has been keeping
+                             Choices.js OFF this control, so a unique id makes Choices take it
+                             over -- display:none on the native select, options moved into the
+                             widget. The submitted value is unaffected (verified: FormData still
+                             carries `tax_status=taxable`), but a field changing from a bare
+                             native select to a Choices widget is a VISIBLE change to a control,
+                             and this slice's contract is that nothing about a field changes
+                             except where it sits. It wants its own slice with screenshots in
+                             both directions. --}}
                         {!! Form::select('tax_status', $Tax_status, null, [
                             'class' => 'form-control',
                             'data-role' => 'tagsinput',

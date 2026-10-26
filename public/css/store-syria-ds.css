@@ -1063,6 +1063,7 @@
 .ss-field__hint,
 .ss-empty__body,
 .ss-feed__message,
+.ss-advanced__hint,
 .ss-dialog__body       { color: var(--ss-fg-muted) !important; }
 /* `.ss-feed__when` is the quietest text on the feed and still has to clear 4.5:1.
    `--ss-fg-muted`, NOT `--ss-fg-subtle`: the timestamp appears on TWO surfaces -- the plain one
@@ -2200,6 +2201,15 @@ a.ss-setup__item:focus-visible {
        panel that never moves is fine, a panel stuck off-screen is not. */
     .ss-panel, .ss-chip, .ss-switch__track, .ss-switch__track::after { transition: none; }
     .ss-spinner { animation: none; border-block-start-color: var(--ss-border-strong); }
+
+    /* P2-03-8. The disclosure chevron rotates on open. The rotation is kept --
+       the direction it points IS the state -- and only the animation between
+       the two is dropped, the same reasoning as the panel above. This list is
+       enumerated by name, so a new animated class has to be added to it; the
+       chevron was missed on its first pass, which made the file header's claim
+       that "everything is suppressed under prefers-reduced-motion below"
+       briefly untrue. */
+    .ss-advanced__chevron { transition: none; }
 }
 
 /* Windows High Contrast / forced colours: let the OS palette win, but keep
@@ -2704,7 +2714,10 @@ a.ss-setup__item:focus-visible {
        the white card this sits in and 1.14:1 against its own sunken fill, so
        the box would have been very nearly invisible in light mode and the
        grouping it exists to express would not have read at all.
-       --ss-border-strong is 3.16:1 light and 3.66:1 dark against the card. */
+       --ss-border-strong measures 3.03:1 light and 4.32:1 dark against the card this
+       actually sits in (rgb(249,250,251) / rgb(34,36,44)) -- above the 3:1 both ways,
+       but by 0.03 in light, so do not lighten it. The 3.16:1 figure first written here
+       was against --ss-surface, which is not the surface behind this box. */
     border: 1px solid var(--ss-border-strong);
     border-radius: var(--ss-radius-md);
     background: var(--ss-surface-sunken);
@@ -2762,14 +2775,26 @@ a.ss-setup__item:focus-visible {
 }
 .ss-advanced[data-ss-advanced-error="true"] { border-color: var(--ss-danger-fg); }
 
+/* The colour is NOT set here. `.ss-advanced__hint` is a <p>, and the host's dark
+   stylesheet does `.dataTable-info, p { color: #808191 !important; }` -- so a plain
+   declaration here loses. MEASURED before the fix: the hint computed to
+   rgb(128,129,145) on the dark card, 3.85:1 at 12px, below the 4.5:1 it needs, in both
+   dark configurations. It is now the sixth entry in the Host override defence list
+   above, which is the mechanism this file already had for exactly this. The slice's own
+   contrast check had missed it by sampling only the summary -- two text nodes, one
+   measured. */
 .ss-advanced__hint {
     margin: 0;
     padding: 0 var(--ss-space-3) var(--ss-space-2);
     font-size: var(--ss-text-xs);
-    color: var(--ss-fg-muted);
 }
 
-.ss-advanced__body { padding: 0 var(--ss-space-3) var(--ss-space-3); }
+/* BLOCK-END padding only. The horizontal half of this used to be `var(--ss-space-3)` and did
+   nothing: both call sites put a Bootstrap `.row` directly inside, whose `margin-inline: -12px`
+   cancels exactly 12px -- measured bodyLeft 293 / rowLeft 293 / colLeft 293 against
+   detailsLeft 292. The visible inner gutter comes from the column's own padding. Declaring a
+   value that is always cancelled invites someone to "fix" the gutter by changing it. */
+.ss-advanced__body { padding-block-end: var(--ss-space-3); }
 
 /* Forced colours: the border and the badge are the only things carrying state
    here, and both are repainted by the OS palette, so re-assert the border so

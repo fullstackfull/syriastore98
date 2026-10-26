@@ -95,8 +95,10 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                             </div>
                             {{-- P2-03-8. Mirrors create.blade.php: the six catalogue-level fields behind
                                  one disclosure. Nothing left the form, no name, value or rule changed. A
-                                 closed <details> still submits -- see the component for why that matters
-                                 and why `tag_id[]` (which carries `required`) is deliberately outside. --}}
+                                 closed <details> still submits -- see the component for why that matters,
+                                 why `tag_id[]` (which carries `required`) is deliberately outside, and
+                                 why that `required` rule is a guard against a browser behaviour this
+                                 AJAX-submitted editor does not currently trip. --}}
                             <div class="col-12">
                               <x-ss.advanced-fields
                                   :title="__('Advanced options')"
@@ -115,7 +117,7 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                                 <div class="col-md-6 col-12">
                                     {!! Form::label('', __('Tax Status'), ['class' => 'form-label']) !!}
                                     {!! Form::select('tax_status', $Tax_status, null, [ 'class' => 'form-control',
-                                    'data-role' => 'tagsinput', 'id' => 'tax_id', ]) !!}
+                                    'data-role' => 'tagsinput', 'id' => 'tax_id', ]) !!}   {{-- duplicate id: F68, see create.blade.php --}}
                                 </div>
                                 <div class=" col-sm-6 col-12" data_val='0'>
                                     {!! Form::label('', __('Brand'), ['class' => 'form-label']) !!}
