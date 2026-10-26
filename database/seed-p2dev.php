@@ -42,6 +42,14 @@ if (! $role) {
 }
 foreach ([
     'Manage Dashboard','Manage Order','Show Order','Manage Products','Create Product','Edit Product','Delete Product',
+    // THE PLURAL NAMES ARE THE ONES THE CONTROLLER ACTUALLY CHECKS, and the singular ones above are
+    // not synonyms for them. `ProductController::update()` gates on `isAbleTo('Edit Products')` and
+    // `destroy()` on `'Delete Products'` -- both defined in `app/Models/Utility.php` and granted to a
+    // real tenant owner there. The fixture held only `Edit Product` / `Delete Product`, so the
+    // merchant could open the editor and never save: the update answered a `redirect()->back()` from
+    // the permission gate, which the page showed as nothing at all. Measured, and the same class of
+    // fixture gap as F33 -- a missing permission reads exactly like a broken button.
+    'Edit Products','Delete Products',
     'Manage Product Category','Manage Product Brand','Manage Customer','Manage User','Manage Role',
     // P2-05-1 grants the EDIT permissions the four converted toggles now require, plus the
     // label and customer-status ones the lists gate their switches on. All five are seeded in
@@ -305,7 +313,135 @@ foreach (Order::where('store_id', $store->id)->get() as $ssNoteOrder) {
     }
 }
 
-echo "seeded: merchant={$merchant->id} store={$store->id} products=" . Product::where('store_id', $store->id)->count()
+/*
+ * A PLAN, because the product editor cannot save without one.
+ *
+ * `ProductController::store()` gates on the merchant's plan:
+ *
+ *     $plan = Plan::find(User::find($user->creatorId())->plan_id);
+ *     ... $total_products < $plan->max_products || $plan->max_products == -1
+ *
+ * The fixture merchant carries `plan_id = 1` and the `plans` table was EMPTY, so `$plan` was
+ * null and the save died with
+ *
+ *     {"flag":"error","msg":"Attempt to read property \"max_products\" on null"}
+ *
+ * -- store()'s own try/catch returning the exception text verbatim to the browser. Another
+ * fixture gap that reads exactly like a broken save button (the F33 lesson), and the last one
+ * standing between this fixture and a product that actually saves.
+ *
+ * `max_products = -1` is the unlimited sentinel the gate itself names, so the fixture does not
+ * silently cap itself at an arbitrary number.
+ */
+if (\App\Models\Plan::count() === 0) {
+    \App\Models\Plan::forceCreate([
+        'id' => 1,
+        'name' => 'P2 Dev Plan',
+        'price' => 0,
+        'duration' => 'Unlimited',
+        'themes' => '',
+        'max_stores' => -1,
+        'max_products' => -1,
+        'max_users' => -1,
+        'storage_limit' => '-1',
+        'enable_domain' => 0,
+        'enable_subdomain' => 0,
+        'trial' => 0,
+        'trial_days' => 0,
+        'is_disable' => 0,
+        'modules' => '',
+    ]);
+}
+
+/*
+ * CATEGORIES, TAGS AND A TAX, so the product editor can actually be SAVED.
+ *
+ * WHY THIS WAS MISSING AND WHAT IT COST. `ProductController::store()` validates
+ * `category_id` as required, and `create()` fills the picker from
+ * `Category::where('store_id', getCurrentStore())`. The fixture seeded 32 products but no
+ * categories, so the picker held nothing but its placeholder and EVERY attempt to create a
+ * product from the UI answered
+ *
+ *     {"flag":"error","msg":"The category id field is required."}
+ *
+ * which looks exactly like a broken save button. It is the F33 lesson again: the first browser
+ * run reported failures that were all fixture gaps, and reading them as product defects would
+ * have produced a wrong fix. `tags` and `taxes` were empty for the same reason -- `tag_id[]`
+ * carries the HTML `required` attribute on the create form with zero options to satisfy it.
+ *
+ * INVENTED DATA ONLY, like everything else in this file.
+ */
+$categories = [];
+foreach ([
+    ['name' => 'Textiles',  'slug' => 'textiles'],
+    ['name' => 'Soaps',     'slug' => 'soaps'],
+    ['name' => 'Homeware',  'slug' => 'homeware'],
+] as $row) {
+    $categories[] = \App\Models\Category::firstOrCreate(
+        ['slug' => $row['slug'], 'store_id' => $store->id],
+        [
+            'name' => $row['name'],
+            'parent_id' => 0,
+            'trending' => 0,
+            'status' => 1,
+            'store_id' => $store->id,
+        ]
+    );
+}
+
+/*
+ * `tags.slug` is NOT NULL, which was worth knowing beyond this fixture. Of the FOUR places
+ * ProductController creates a Tag from an unresolved posted value, two set the slug and two
+ * did not -- the two variant branches, store():639 and update():1696. Those two hit the same
+ * constraint this seeder did. They are now fixed (F62); the comment is kept because the
+ * asymmetry is the kind a later edit re-introduces, and because the earlier version of this
+ * note said "update() passes NO slug", which was true of one of its two tag blocks and false
+ * of the other.
+ */
+foreach (['handmade', 'damascus', 'cotton'] as $tagName) {
+    if (! \App\Models\Tag::where('name', $tagName)->where('store_id', $store->id)->exists()) {
+        /* forceCreate: `created_by` is NOT NULL and is not in the model's $fillable, so a
+           mass-assigned create drops it and the insert fails on the constraint. */
+        \App\Models\Tag::forceCreate([
+            'name' => $tagName,
+            'slug' => $tagName,
+            'store_id' => $store->id,
+            'created_by' => $merchant->id,
+        ]);
+    }
+}
+
+if (\Illuminate\Support\Facades\Schema::hasTable('taxes')
+    && \App\Models\Tax::where('store_id', $store->id)->count() === 0) {
+    /* Columns asserted against the live table rather than assumed: `taxes` has no `type` here,
+       and a seeder that guesses a schema fails the way this one first did. */
+    $taxColumns = \Illuminate\Support\Facades\Schema::getColumnListing('taxes');
+    $tax = array_filter([
+        'name' => 'Standard',
+        'rate' => 10,
+        'status' => 1,
+        'store_id' => $store->id,
+        'created_by' => $merchant->id,
+    ], static fn ($k) => in_array($k, $taxColumns, true), ARRAY_FILTER_USE_KEY);
+    \App\Models\Tax::forceCreate($tax);
+}
+
+/* Give the existing products a category, so the list's category column and its filter have
+   something to show and the fixture is self-consistent. */
+$catIds = array_map(static fn ($c) => $c->id, $categories);
+if ($catIds) {
+    foreach (\App\Models\Product::where('store_id', $store->id)->get() as $i => $p) {
+        if (empty($p->category_id)) {
+            $p->category_id = $catIds[$i % count($catIds)];
+            $p->save();
+        }
+    }
+}
+
+echo "seeded: merchant={$merchant->id} store={$store->id}"
+    . " categories=" . \App\Models\Category::where("store_id", $store->id)->count()
+    . " tags=" . \App\Models\Tag::where("store_id", $store->id)->count()
+    . " products=" . Product::where('store_id', $store->id)->count()
    . " orders=" . Order::where('store_id', $store->id)->count()
    . " billing=" . DB::table('order_billing_details')->count()
    . " notes=" . \App\Models\OrderNote::where('store_id', $store->id)->count() . "\n";

@@ -2684,3 +2684,97 @@ a.ss-setup__item:focus-visible {
 .ss-colvis-menu .dt-button.active > a::before {
     content: "\2713";              /* check mark */
 }
+
+/* ---- Advanced-fields disclosure (P2-03-8) ----
+
+   One control that collapses the fields a merchant sets once for the whole
+   catalogue, so the ones they set per product are not competing with them for
+   attention. The component is resources/views/components/ss/advanced-fields.blade.php
+   and it is a NATIVE <details>; the reasoning for that, and the rule against
+   putting a `required` control inside one, are written there.
+
+   NOTHING HERE HIDES A FIELD WITH `display: none` ON THE CONTROL ITSELF. The
+   browser's own details behaviour does the hiding, which is what keeps the
+   fields in the submitted form data. A rule that set `display: none` on a
+   descendant input would look identical and would still submit -- but it
+   would also survive the section being opened, so it is not a shortcut worth
+   taking. */
+.ss-advanced {
+    /* border-STRONG, not --ss-border. Measured: --ss-border is 1.30:1 against
+       the white card this sits in and 1.14:1 against its own sunken fill, so
+       the box would have been very nearly invisible in light mode and the
+       grouping it exists to express would not have read at all.
+       --ss-border-strong is 3.16:1 light and 3.66:1 dark against the card. */
+    border: 1px solid var(--ss-border-strong);
+    border-radius: var(--ss-radius-md);
+    background: var(--ss-surface-sunken);
+}
+
+/* The whole row is the hit target, not just the words. `list-style: none` plus
+   the ::-webkit-details-marker reset removes the UA triangle, because the
+   chevron below is the one that flips under RTL. */
+.ss-advanced__summary {
+    display: flex;
+    align-items: center;
+    gap: var(--ss-space-2);
+    padding: var(--ss-space-3);
+    cursor: pointer;
+    list-style: none;
+    font-size: var(--ss-text-sm);
+    font-weight: var(--ss-weight-medium);
+    color: var(--ss-fg-muted);
+    border-radius: var(--ss-radius-md);
+}
+.ss-advanced__summary::-webkit-details-marker { display: none; }
+
+.ss-advanced__summary:focus-visible {
+    outline: var(--ss-focus-width) solid var(--ss-focus-ring);
+    outline-offset: var(--ss-focus-offset);
+}
+
+/* Collapsed: pointing along the reading direction. Open: pointing down. The
+   base glyph is ti-chevron-right, so RTL needs the collapsed state mirrored --
+   there is no -rtl copy of this file, so it is done with a [dir] override as
+   everywhere else here. */
+.ss-advanced__chevron {
+    flex: 0 0 auto;
+    transition: transform var(--ss-duration-fast) var(--ss-ease);
+}
+[dir="rtl"] .ss-advanced__chevron { transform: rotate(180deg); }
+.ss-advanced[open] > .ss-advanced__summary > .ss-advanced__chevron,
+[dir="rtl"] .ss-advanced[open] > .ss-advanced__summary > .ss-advanced__chevron {
+    transform: rotate(90deg);
+}
+
+.ss-advanced__title { flex: 1 1 auto; }
+
+/* The error state is a WORD, not a colour: a merchant with no colour vision,
+   and a merchant who had already opened the section before submitting, both
+   need to be told in text that something in here failed. */
+.ss-advanced__badge {
+    flex: 0 0 auto;
+    padding: 0 var(--ss-space-2);
+    border-radius: var(--ss-radius-pill);
+    background: var(--ss-danger-bg);
+    color: var(--ss-danger-fg);
+    font-size: var(--ss-text-xs);
+    font-weight: var(--ss-weight-semibold);
+}
+.ss-advanced[data-ss-advanced-error="true"] { border-color: var(--ss-danger-fg); }
+
+.ss-advanced__hint {
+    margin: 0;
+    padding: 0 var(--ss-space-3) var(--ss-space-2);
+    font-size: var(--ss-text-xs);
+    color: var(--ss-fg-muted);
+}
+
+.ss-advanced__body { padding: 0 var(--ss-space-3) var(--ss-space-3); }
+
+/* Forced colours: the border and the badge are the only things carrying state
+   here, and both are repainted by the OS palette, so re-assert the border so
+   the box does not dissolve into the page. */
+@media (forced-colors: active) {
+    .ss-advanced { border: 1px solid CanvasText; }
+    .ss-advanced[data-ss-advanced-error="true"] { border: 2px solid CanvasText; }
+}

@@ -84,5 +84,5 @@
          layouts/app.blade.php: nothing outside the design system uses an
          `.ss-` class, so this file cannot restyle existing markup. See the
          note at app.blade.php for the one selector that qualifies that. --}}
-    <link rel="stylesheet" href="{{ asset('css/store-syria-ds.css') }}?v=p02-4">
+    <link rel="stylesheet" href="{{ asset('css/store-syria-ds.css') }}?v=p02-5">
 </head>

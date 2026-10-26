@@ -84,34 +84,6 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                                     @endforeach
                                 </select>
                             </div>
-                            <div class="col-md-6 col-12 switch-width">
-                                {{ Form::label('tax_id', __('Taxs'), ['class' => ' form-label']) }}
-                                <select name="tax_id[]" data-role="tagsinput" id="tax_id" multiple>
-                                    @foreach ($Tax as $Key => $tax)
-                                    <option @if (in_array($Key, $get_tax)) selected @endif value="{{ $Key }}">
-                                        {{ $tax }}</option>
-                                    @endforeach
-                                </select>
-                            </div>
-                            <div class="col-md-6 col-12">
-                                {!! Form::label('', __('Tax Status'), ['class' => 'form-label']) !!}
-                                {!! Form::select('tax_status', $Tax_status, null, [ 'class' => 'form-control',
-                                'data-role' => 'tagsinput', 'id' => 'tax_id', ]) !!}
-                            </div>
-                            <div class=" col-sm-6 col-12" data_val='0'>
-                                {!! Form::label('', __('Brand'), ['class' => 'form-label']) !!}
-                                <span>
-                                    {!! Form::select('brand_id', $brands, null, [ 'class' => 'form-control',
-                                    'data-role' => 'tagsinput', 'id' => 'brand-dropdown', ]) !!}
-                                </span>
-                            </div>
-                            <div class=" col-sm-6 col-12" data_val='0'>
-                                {!! Form::label('', __('Label'), ['class' => 'form-label']) !!}
-                                <span>
-                                    {!! Form::select('label_id', $labels, null, [ 'class' => 'form-control',
-                                    'data-role' => 'tagsinput', 'id' => 'label-dropdown', ]) !!}
-                                </span>
-                            </div>
                             <div class="col-md-6 col-12">
                                 {!! Form::label('', __('Tags'), ['class' => 'form-label']) !!}
                                 <select name="tag_id[]" class="select2 form-control" id="tag_id" multiple required>
@@ -121,18 +93,59 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                                     @endforeach
                                 </select>
                             </div>
-                            <div class="col-sm-6 col-12">
-                                {!! Form::label('', __('Shipping'), ['class' => 'form-label']) !!}
-                                {!! Form::select('shipping_id', $Shipping, null, [
-                                'class' => 'form-control',
-                                'data-role' => 'tagsinput',
-                                'id' => 'shipping_id',
-                                ]) !!}
-                            </div>
-                            <div class="col-sm-6 col-12 product-weight">
-                                {!! Form::label('', __('Weight(Kg)'), ['class' => 'form-label ']) !!}
-                                {!! Form::number('product_weight', null, ['class' => 'form-control', 'min' => '0',
-                                'step' => '0.01']) !!}
+                            {{-- P2-03-8. Mirrors create.blade.php: the six catalogue-level fields behind
+                                 one disclosure. Nothing left the form, no name, value or rule changed. A
+                                 closed <details> still submits -- see the component for why that matters
+                                 and why `tag_id[]` (which carries `required`) is deliberately outside. --}}
+                            <div class="col-12">
+                              <x-ss.advanced-fields
+                                  :title="__('Advanced options')"
+                                  :hint="__('Taxes, brand, label, shipping and weight. These are usually set once for the whole catalogue.')"
+                                  :fields="['tax_id[]', 'tax_status', 'brand_id', 'label_id', 'shipping_id', 'product_weight']">
+                                <div class="row row-gap">
+                                <div class="col-md-6 col-12 switch-width">
+                                    {{ Form::label('tax_id', __('Taxs'), ['class' => ' form-label']) }}
+                                    <select name="tax_id[]" data-role="tagsinput" id="tax_id" multiple>
+                                        @foreach ($Tax as $Key => $tax)
+                                        <option @if (in_array($Key, $get_tax)) selected @endif value="{{ $Key }}">
+                                            {{ $tax }}</option>
+                                        @endforeach
+                                    </select>
+                                </div>
+                                <div class="col-md-6 col-12">
+                                    {!! Form::label('', __('Tax Status'), ['class' => 'form-label']) !!}
+                                    {!! Form::select('tax_status', $Tax_status, null, [ 'class' => 'form-control',
+                                    'data-role' => 'tagsinput', 'id' => 'tax_id', ]) !!}
+                                </div>
+                                <div class=" col-sm-6 col-12" data_val='0'>
+                                    {!! Form::label('', __('Brand'), ['class' => 'form-label']) !!}
+                                    <span>
+                                        {!! Form::select('brand_id', $brands, null, [ 'class' => 'form-control',
+                                        'data-role' => 'tagsinput', 'id' => 'brand-dropdown', ]) !!}
+                                    </span>
+                                </div>
+                                <div class=" col-sm-6 col-12" data_val='0'>
+                                    {!! Form::label('', __('Label'), ['class' => 'form-label']) !!}
+                                    <span>
+                                        {!! Form::select('label_id', $labels, null, [ 'class' => 'form-control',
+                                        'data-role' => 'tagsinput', 'id' => 'label-dropdown', ]) !!}
+                                    </span>
+                                </div>
+                                <div class="col-sm-6 col-12">
+                                    {!! Form::label('', __('Shipping'), ['class' => 'form-label']) !!}
+                                    {!! Form::select('shipping_id', $Shipping, null, [
+                                    'class' => 'form-control',
+                                    'data-role' => 'tagsinput',
+                                    'id' => 'shipping_id',
+                                    ]) !!}
+                                </div>
+                                <div class="col-sm-6 col-12 product-weight">
+                                    {!! Form::label('', __('Weight(Kg)'), ['class' => 'form-label ']) !!}
+                                    {!! Form::number('product_weight', null, ['class' => 'form-control', 'min' => '0',
+                                    'step' => '0.01']) !!}
+                                </div>
+                                </div>
+                              </x-ss.advanced-fields>
                             </div>
                             <div class="col-md-6 col-12 product_price product-weight">
                                 {!! Form::label('', __('Price'), ['class' => 'form-label']) !!}<span

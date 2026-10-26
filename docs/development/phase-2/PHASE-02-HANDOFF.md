@@ -24,7 +24,7 @@
 | P2-00 discovery and reuse audit | — | **done** |
 | P2-01 shared layout and core components | A, F | **done** — components, panel, action bar, dirty guard, sidebar zones, workspace chip, collapsed rail. Concurrent-edit conflict handling arrived with P2-03. |
 | P2-02 merchant dashboard | C | **done.** P2-02-9's two list cards were the last row, and they were already BUILT — what was missing was any data in them: the fixture left `orders.product_id` at `'0'` while the controller plucks that column, so the best-selling card had only ever been seen in its empty state. Fixed, pinned (4 tests / 16 assertions, bitten three ways) and shot with rows in it in 8 configurations |
-| P2-03 products | D | **partial** — concurrent-edit conflict detection, the quick-preview panel, the variant column's missing translation and **the list filters** (status / stock / category / variants, with no JavaScript, 12 tests and 58 browser cases) are shipped and tested. Its **row actions** came with P2-04-4's sweep: the design system's quiet icon buttons, an `aria-label` on each (three had no accessible name at runtime), a `Form::close()` that was missing, an icon that had never painted a glyph, and the stock badges off white-on-brand (2.59:1) onto `ss-badge`. **P2-03-1 is now PARTIAL, not untouched**: the list's COLUMN SET and the reachability of its row actions are shipped, its DENSITY is not. The measurement reframed the slice — the table is a fixed 1250px (en) / 1168px (ar) at 1440, 1280, 992, 768 and 390 alike, the document never overflows, and with the pinned class removed a real click on Edit at the starting scroll position **navigated nowhere in all eight configurations, 1440 included**. So this was never a phone problem. The actions column is now sticky at the inline end and the already-bundled-but-unused `colvis` extension is wired into the shared helper, reaching all 68 tables with no `packages/workdo/` edit and persisting through the existing `stateSave`. 52 live cases, bitten five ways; the check itself was corrected twice by its own bites. Row density (55px everywhere, no control) is split out as **P2-03-10**. The full-page editor and media/variant UX are **not built**. |
+| P2-03 products | D | **partial** — concurrent-edit conflict detection, the quick-preview panel, the variant column's missing translation and **the list filters** (status / stock / category / variants, with no JavaScript, 12 tests and 58 browser cases) are shipped and tested. Its **row actions** came with P2-04-4's sweep: the design system's quiet icon buttons, an `aria-label` on each (three had no accessible name at runtime), a `Form::close()` that was missing, an icon that had never painted a glyph, and the stock badges off white-on-brand (2.59:1) onto `ss-badge`. **P2-03-1 is now PARTIAL, not untouched**: the list's COLUMN SET and the reachability of its row actions are shipped, its DENSITY is not. The measurement reframed the slice — the table is a fixed 1250px (en) / 1168px (ar) at 1440, 1280, 992, 768 and 390 alike, the document never overflows, and with the pinned class removed a real click on Edit at the starting scroll position **navigated nowhere in all eight configurations, 1440 included**. So this was never a phone problem. The actions column is now sticky at the inline end and the already-bundled-but-unused `colvis` extension is wired into the shared helper, reaching all 68 tables with no `packages/workdo/` edit and persisting through the existing `stateSave`. 52 live cases, bitten five ways; the check itself was corrected twice by its own bites. Row density (55px everywhere, no control) is split out as **P2-03-10**. **P2-03-10 (row density) and P2-03-8 (basic/advanced field organisation) are now DONE.** The full-page editor is **PARTIAL**: its save affordances (validation summary, sticky save, unsaved-change guard) and its field organisation are in on both create and edit, and an end-to-end **UPDATE** is proven through the real UI — which required fixing **F16** (two libraries 404ing on every admin page, the real cause of the "environmental" blocker the last handoff recorded), **F59**/**F61** (three NULL-into-NOT-NULL writes in `update()`) and three fixture gaps. **CREATE is blocked by F58 and escalated** (§3a-bis). Media/variant UX, contextual help and the status/stock indicators are **not built**. |
 | P2-04 orders | E | **partial** — the status breakdown is honest and reconciles, the **authorised quick preview** is shipped with its own guard entry and nine authorization tests, **F19 is fixed** (no more Unix epoch as a date), and **the list filters are shipped** (status, payment, date range; 14 tests, five controls bite-tested, 112 browser cases shared with the product list). **P2-04-4 is now done**: the status column off the vendored theme's classes (below AA in **44 of 56** readings, two of them unreadable at 1.03:1 and 1.12:1) onto one shared `OrderStatusTone` the dashboard reads too — the two surfaces had disagreed about four of the nine statuses — plus named, contrast-clean row actions and the reference pill fixed through F9's own `--ss-onbrand`. 84 live cases, bitten five ways. The independent review of that change then found a **stored XSS** on the line it edits (F42, fixed and pinned) and a preview harness that had been showing the opposite of production (F43). **P2-04-6 is PARTIAL**: its blocker was stale and is cleared, three blocks on that page had never held content (fixed in the fixture first), and the populated page then yielded four correctness defects — including **another tenant's downloadable file being linked** (F51, measured) — and six contrast failures, the worst being every address label and value at 1.10:1 in dark mode. 4 Feature tests and 112 live cases, all bitten. The design-system restyle of that page's shell is **not** done. Kanban and SAVED views are **not built**. |
 | P2-05 common merchant screens | J | **started** — **P2-05-1** is shipped: four state-changing GETs converted to POST, **three of which were also unauthorised cross-tenant writes** (no permission check, no ownership check, no tenant predicate, on models that carry no scope), plus a ratchet so the set of state-changing GETs cannot grow. The design-system pass over customers, stock, categories, staff and settings is **not built**. |
 | P2-06 search, notifications, preferences, onboarding | G, H, I | **done** — all four. **Global search** (per-section authorisation, per-query scoping, 11 tests); **onboarding** (the RTL hold settled at runtime); **persisted table preferences** across all 68 DataTables from the one shared helper; and **notifications**, against the same `store_notifications` rows the Flutter app already reads, authorised BY TYPE with 24 tests, two live defects and four weak tests of my own found by the independent review and fixed (F23–F28). No `packages/workdo/` file touched and no schema change in any of the four. |
@@ -40,6 +40,38 @@ Read those rows rather than a count here, because a count in prose goes stale an
 not.
 
 ## 2. What changed since the last handoff, and why it matters
+
+### `[2026-10-26]` The product editor's "environmental" blocker was a 404, and the editor now saves
+
+This is the most useful thing to read if you are picking the phase up. The previous handoff left
+**P2-03-3's end-to-end save unverified and blamed the environment** — `Dropzone is not defined` and
+`$(...).select2 is not a function`, present on the committed page too, so it looked like a missing
+deployment asset.
+
+**It was F16.** `partision/footerlink.blade.php` is *included by the admin layout*, and three of its
+scripts were addressed `asset('public/...')`, which doubles the docroot segment and 404s. So two
+libraries were missing on **every admin page**, and because `#submit-all`'s handler reaches for
+`Dropzone` in its first statements, **the product editor could not save at all**. Corrected; the
+editor now loads with zero page errors and zero failed asset requests, and an end-to-end UPDATE is
+proven through the sticky bar.
+
+Two lessons worth carrying:
+
+- **"Environmental" was a hypothesis, not a finding.** It had been recorded as a conclusion. One
+  measurement of the asset URLs would have settled it at any point.
+- **Asking what a fix makes newly *reachable* paid for itself.** The independent review of that
+  one-token change produced five more defects (F61–F65), the worst being **F62**: with select2
+  loading, the layout's global `tags: true` makes the product tag field free-text, and two of the
+  four `Tag` creation sites never set the NOT NULL `tags.slug`.
+
+**CREATE is still blocked by F58** — `products.cost_price` is a GATE F column with no migration, so
+`store()` cannot work on any migration-built database while production is fine. Applying the parked
+draft is a persistent migration and is **escalated, not done**. See §3a-bis.
+
+**P2-03-8 is done**: the editor's thirteen-control main card now puts six catalogue-level fields
+behind a native `<details>`, with every field's name, value, validation and submit path asserted
+unchanged (502/502) and the closed section's contents found in the real multipart body.
+
 
 The previous handoff was written under a blocker that no longer exists, and almost every claim in
 it was carrying that caveat.
@@ -70,7 +102,28 @@ configuration that exposed them.
 
 **B1 and B2 are cleared and are kept here only so the change is visible.**
 
-### 3a-bis. One thing escalated rather than fixed
+### 3a-bis. Two things escalated rather than fixed
+
+**F58 — a product cannot be CREATED on any database built from the migrations.**
+`ProductController::store()` validates `cost_price` as **required** and writes
+`$Product->cost_price` unconditionally, but `products.cost_price` is a **GATE F** column: it exists
+in production (`decimal(15,2) NOT NULL DEFAULT 0.00`, populated on all 45 products) and its
+migration is parked at
+`database/migrations/_gate_f_pending/0004_draft_add_cost_price_to_products_table.php.draft`.
+Driven, not reasoned: a full create through the real UI with every required field and both images
+answered `table products has no column named cost_price`, handed to the merchant as a raw SQL toast
+by `store()`'s own try/catch.
+
+**The suite is structurally blind to it.** No test creates a product through `store()` — every one
+uses `Product::forceCreate([...])` without `cost_price` — and `GateFReconciliation.php:270` even
+guards with `if (! $this->hasColumn('products','cost_price'))`. So a fresh install, CI and the dev
+fixture all share a product editor whose Create cannot work, while production is unaffected.
+
+**Why it is escalated:** the fix is to apply the parked draft, which is a **persistent migration**.
+CLAUDE.md §2 and the owner's standing instruction of 2026-10-26 both put that behind explicit
+approval. Nothing else in P2-03 needs it — UPDATE is proven end to end — so it blocks exactly one
+acceptance criterion and is recorded with its evidence rather than worked around.
+
 
 **F46 — the checkout path attributes an order from request input.**
 `PaymentService.php:2689` builds `product_order_id` as `$request->customer_id . date('YmdHis')`

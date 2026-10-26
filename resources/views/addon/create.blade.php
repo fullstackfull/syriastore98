@@ -11,7 +11,10 @@
     <li class="breadcrumb-item">{{ __('Add New Theme') }}</li>
 @endsection
 
-<link rel="stylesheet" href="{{ asset('public/assets/css/plugins/dropzone.css') }}" type="text/css" />
+{{-- F16: this was asset('public/...') and 404d. Not corrected but REMOVED: the admin
+     layout already serves dropzone.css at app.blade.php:117, and footerlink serves the JS
+     before @stack('custom-script') runs. Loading a second copy of the bundle here would
+     also re-set `Dropzone.autoDiscover` to true after footerlink disarms it. --}}
 
 @section('content')
     <div class="row justify-content-center">
@@ -35,7 +38,6 @@
 @endsection
 
 @push('custom-script')
-    <script src="{{ asset('public/assets/js/plugins/dropzone.js') }}"></script>
 
     <script>
         // Dropzone has been added as a global variable.

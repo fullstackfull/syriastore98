@@ -2974,5 +2974,10 @@
     "Delete this note": "Delete this note",
     "Choose columns": "Choose columns",
     "This language cannot be deleted: it is the default or the fallback language.": "This language cannot be deleted: it is the default or the fallback language.",
-    "Row density": "Row density"
+    "Row density": "Row density",
+    "Advanced options": "Advanced options",
+    "Taxes, brand, label, shipping and weight. These are usually set once for the whole catalogue.": "Taxes, brand, label, shipping and weight. These are usually set once for the whole catalogue.",
+    "Cost price is required.": "Cost price is required.",
+    "Cost price must not be greater than the regular price.": "Cost price must not be greater than the regular price.",
+    "Someone else saved this product while you were editing it. Your changes have not been saved. Reload the page to see the current version, then re-apply your changes.": "Someone else saved this product while you were editing it. Your changes have not been saved. Reload the page to see the current version, then re-apply your changes."
 }

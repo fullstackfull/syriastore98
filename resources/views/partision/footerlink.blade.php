@@ -64,18 +64,57 @@
 <script src="{{ asset('js/custom.js') }}{{ "?".time() }}"></script>
 <script src="{{ asset('js/jquery.form.js') }}"></script>
 <script src="{{ asset('js/jspdf.umd.min.js') }}"></script>
-<script src="{{ asset('public/assets/js/plugins/dropzone.min.js') }}"></script>
+{{--
+    F16, HERE. Three scripts were `asset('public/...')`, and `asset()` already prepends an
+    application url whose docroot IS `public/` -- so the segment doubled and every one of them
+    404d. MEASURED against the running application before and after:
+
+        /public/assets/js/plugins/dropzone.min.js   404      /assets/js/plugins/dropzone.min.js   200
+        /public/assets/js/plugins/select2.min.js    404      /assets/js/plugins/select2.min.js    200
+        /public/js/html2pdf.bundle.min.js           404      REMOVED, not corrected -- see below
+
+    This partial is included by `layouts/app.blade.php`, so the breakage was on EVERY admin page:
+    `Dropzone is not defined` and `$(...).select2 is not a function` on page load, which is why the
+    product editor's image dropzone and its tag/category pickers did nothing -- and why
+    `#submit-all`'s handler, whose first statements reach for Dropzone, could not save a product at
+    all. The same class of defect as the Arabic+dark stylesheet P2-A-01 fixed in the layout itself.
+
+    NO NEW DEPENDENCY AND NO REPLACED SERVICE: the same vendored files, addressed correctly.
+--}}
+<script src="{{ asset('assets/js/plugins/dropzone.min.js') }}"></script>
+{{--
+    The bundle ships `Dropzone.autoDiscover = true` and registers a DOMContentLoaded handler
+    that instantiates EVERY `.dropzone` element it finds. While the script 404d that flag did
+    not exist, so fixing the path above turned a dormant default into a live one on every admin
+    page. Measured: a bare `<div class="dropzone">` injected into /dashboard gains an instance
+    and the page throws an uncaught `No URL provided.`
+
+    Today nothing breaks -- all six real consumers (product create/edit, AuctionProduct
+    create/edit, addon/create, module/add) disarm it themselves in parse-time inline script --
+    but that makes correctness depend on each new view remembering an incantation. Turning it
+    off once, here, costs nothing because every consumer initialises explicitly anyway.
+--}}
+<script>Dropzone.autoDiscover = false;</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pickadate.js/3.5.3/picker.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pickadate.js/3.5.3/picker.date.js"></script>
 {{-- select2 --}}
 
-<script src="{{ asset('public/assets/js/plugins/select2.min.js') }}"></script>
+<script src="{{ asset('assets/js/plugins/select2.min.js') }}"></script>
 <script src="{{ asset('js/loader.js') }}"></script>
 <script src="{{ asset('js/emojionearea.min.js') }}"></script>
 <script src="{{ asset('js/calendar.js') }}"></script>
 <script src="{{ asset('js/moment/min/moment.min.js') }}"></script>
 
-<script type="text/javascript" src="{{ asset('public/js/html2pdf.bundle.min.js') }}"></script>
+{{--
+    html2pdf is NOT loaded here. It was `asset('public/js/html2pdf.bundle.min.js')` and 404d,
+    and correcting the path along with the two above would have put 469 KB on every admin page
+    for nothing: all nine call sites (order/view, order/script, support/edit, three reports,
+    AuctionProduct/auctionorder/view, ProductsPDF, LotteryPrizes) already load their own copy at
+    the correct path, several with `?time()`, so those screens would have downloaded it twice.
+    Verified by reading the bundle: it defines `window.html2pdf` and nothing else -- no
+    html2canvas, no jsPDF global, every prototype patch `||`-guarded, es6-promise's polyfill()
+    defined but never invoked -- so removing it from here changes no behaviour anywhere.
+--}}
 
 <script>
     feather.replace();

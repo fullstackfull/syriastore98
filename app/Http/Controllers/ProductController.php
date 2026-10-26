@@ -636,6 +636,17 @@ $Product->cost_price = $request->cost_price;
                                 if ($tag_id != $tag) {
                                     $tag_data = new Tag();
                                     $tag_data->name = $tag;
+                                    // F62. `tags.slug` is NOT NULL with no default, and the two
+                                    // non-variant siblings of this block (store():356,
+                                    // update():1521) already set it. These two variant branches
+                                    // never did, so a merchant-typed tag inserted here omitted
+                                    // the column: a 500 on SQLite, and on production MySQL
+                                    // (strict off) a row silently stored with slug = '', which
+                                    // collides with every other such row on the storefront tag
+                                    // routes. Reachable from the UI only since the F16 asset fix
+                                    // let select2 load, which turned the tag field into a
+                                    // free-text `tags: true` control.
+                                    $tag_data->slug = Tag::slugs($tag);
                                     $tag_data->store_id = getCurrentStore();
                                     $tag_data->created_by = \Auth::user()->id;
                                     $tag_data->save();
@@ -1273,7 +1284,15 @@ $Product->cost_price = $request->cost_price;
             $product->description = $request->description;
             $product->specification = $request->specification;
             $product->detail = $request->detail;
-            $product->stock_status = $request->stock_status;
+            // F61, the same class as F59. `products.stock_status` is `string NOT NULL
+            // DEFAULT '0'` and is NOT in the validator, and product/edit.blade.php renders
+            // the three radios with no `checked` fallback -- so a product created by a path
+            // that does not post it (ImportExport, Shopify, Api\DashboardController) opens
+            // with none selected, and a merchant who saves without clicking one posted
+            // nothing and wrote NULL into the column. A column default does not rescue an
+            // explicit NULL. Coalescing to the stored value cannot lose data: the radio
+            // group has no empty option, so absent means "not posted", never "cleared".
+            $product->stock_status = $request->stock_status ?? $product->stock_status;
             $product->product_weight = $request->product_weight;
             $tag_id = $request->tag;
             $product->category_id = $request->category_id;
@@ -1337,12 +1356,48 @@ $Product->cost_price = $request->cost_price;
             $product->trending = $request->trending;
 
 
+            /*
+             * `?? 0` / `!empty()`, taking the same SHAPE as store():309-316 -- not the same
+             * bytes. The two still diverge on `low_stock_threshold`, which store() sets to ''
+             * on both branches and this sets to 0; that divergence is pre-existing, and 0 is
+             * the correct value for an `integer NOT NULL DEFAULT 0` column, so it is left as
+             * it is rather than copied wrong for the sake of symmetry. The `?? 0` in the
+             * `== 1` branch below is likewise store()'s shape and not a guard: if
+             * `track_stock == 1` it cannot be null, so the coalesce never fires.
+             *
+             * `products.track_stock` is NOT NULL, and this assignment was unguarded on BOTH
+             * branches while `store()` guards both. The `else` branch is reached precisely when
+             * `track_stock` is not 1 -- which, on a store whose `stock_management` setting is off,
+             * means the control is never rendered and the request carries NOTHING. So every update
+             * on such a store wrote NULL into a NOT NULL column.
+             *
+             * MEASURED, end to end, by editing a product on a store with stock management off:
+             *
+             *     POST /product/32  ->  500
+             *     SQLSTATE[23000]: NOT NULL constraint failed: products.track_stock
+             *
+             * and `update()` has no try/catch, so the merchant got a bare 500 rather than a
+             * message. It is invisible on production today because `config/database.php:55` sets
+             * `'strict' => false`, and MySQL's UPDATE -- which is what this path issues, on a
+             * route-bound existing model -- then stores the column's implicit default, 0, for a
+             * NULL into NOT NULL, with a warning. That is the same 0 this guard now writes
+             * explicitly, so it changes no value production stores; it stops a crash on every
+             * connection that does not coerce (SQLite here, and any strict-mode MySQL, which is
+             * Laravel's own default).
+             *
+             * THAT IS TRUE OF UPDATE AND NOT OF INSERT. A single-row INSERT of NULL into a
+             * NOT NULL column fails with ER_BAD_NULL_ERROR whatever the sql_mode, which is
+             * presumably why store() was guarded from the start. Do not generalise the
+             * sentence above into "this connection coerces NULLs".
+             *
+             * The value written where a real one EXISTS is untouched.
+             */
             if ($request->track_stock == 1) {
-                $product->track_stock = $request->track_stock;
+                $product->track_stock = $request->track_stock ?? 0;
                 $product->stock_order_status = $request->stock_order_status;
                 $product->low_stock_threshold = !empty($request->low_stock_threshold) ? $request->low_stock_threshold : 0;
             } else {
-                $product->track_stock = $request->track_stock;
+                $product->track_stock = !empty($request->track_stock) ? $request->track_stock : 0;
                 $product->stock_order_status = '';
                 $product->low_stock_threshold = !empty($request->low_stock_threshold) ? $request->low_stock_threshold : 0;
             }
@@ -1437,7 +1492,10 @@ $Product->cost_price = $request->cost_price;
                 if ($request->track_stock == 0) {
                     $product->product_stock = 0;
                 } else {
-                    $product->product_stock = $request->product_stock;
+                    // F61, as above: `integer NOT NULL DEFAULT 0`. A browser posts '' here,
+                    // which coerces, but a client that omits the key with track_stock=1
+                    // wrote NULL.
+                    $product->product_stock = $request->product_stock ?? 0;
                 }
 
 
@@ -1670,6 +1728,7 @@ $Product->cost_price = $request->cost_price;
                             if ($tag_id != $tag) {
                                 $tag_data = new Tag();
                                 $tag_data->name = $tag;
+                                $tag_data->slug = Tag::slugs($tag);   // F62, as above
                                 $tag_data->store_id = getCurrentStore();
                                 $tag_data->created_by = \Auth::user()->id;
                                 $tag_data->save();

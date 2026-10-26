@@ -165,7 +165,8 @@
 @endsection
 
 @push('custom-script')
-    <script src="{{ asset('public/js/jquery-ui.min.js') }}"></script>
+    {{-- F16: was asset('public/js/...'), which 404s. --}}
+    <script src="{{ asset('js/jquery-ui.min.js') }}"></script>
     <script>
         $(function () {
             var $status = $('#ss-sort-status');

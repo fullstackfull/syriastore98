@@ -2065,3 +2065,229 @@ unresolved P2-03-1 reachability problem, now with one more control behind it. Th
 that a fifth button does **not** make that layout worse (it is right-anchored, so the group extends
 leftward and the required scroll *drops* from 159px to 93px), but the control is still unreachable
 there without dragging the table sideways. That belongs to the 390px row, not to this one.
+
+---
+
+## 13. `[2026-10-26]` F16 — the "environmental" blocker was a 404, and fixing it surfaced seven more findings
+
+### 13a. The previous session's blocker was not environmental
+
+P2-03-3 was left PARTIAL with its end-to-end save "NOT VERIFIED, and the reason is environmental,
+not a defect in this change": `Dropzone is not defined` and `$(...).select2 is not a function` on
+the product editor, present on the committed page too, so it read as a missing deployment asset.
+
+It was **F16**. `resources/views/partision/footerlink.blade.php` — a partial the admin layout
+*includes*, so on **every admin page** — addressed three scripts as `asset('public/...')`, and
+`asset()` already serves from `public/`, so the segment doubled:
+
+```
+/public/assets/js/plugins/dropzone.min.js   404      /assets/js/plugins/dropzone.min.js   200
+/public/assets/js/plugins/select2.min.js    404      /assets/js/plugins/select2.min.js    200
+/public/js/html2pdf.bundle.min.js           404      /js/html2pdf.bundle.min.js           200
+```
+
+Both 404s and both 200s measured against the running application. The consequence was not
+cosmetic: `#submit-all`'s handler reaches for `Dropzone` in its first statements, so **the product
+editor could not save at all**, and its tag and category pickers were inert.
+
+### 13b. End-to-end UPDATE, proven
+
+After the fix the editor loads with **zero page errors and zero failed js/css requests**, and
+`typeof Dropzone === 'function'` with `jQuery.fn.select2` present. A real edit, saved through the
+**sticky** bar with the page scrolled to the bottom and the header Save confirmed off-screen,
+reached `POST /product/32`, wrote the row, and the new name appeared in the product list:
+`PERSISTED AND LISTED: true`.
+
+Four blockers had to be cleared first. Three were fixture gaps of the F33 class, each measured
+rather than guessed — no categories (so `category_id` could never be satisfied), no Plan (so
+`$plan->max_products` was read on null), and `Edit Product` granted where the controller checks
+`Edit Products` (so update answered a silent `redirect()->back()`). The fourth was a real product
+defect: **F59**, `update()` writing NULL into the NOT NULL `products.track_stock`.
+
+### 13c. CREATE is still blocked, and not by anything in this change
+
+**F58.** `products.cost_price` is a GATE F column with no migration, while `store()` validates it
+as required and writes it unconditionally. A full create through the real UI answered
+`table products has no column named cost_price`. Applying the parked draft is a persistent
+migration, which CLAUDE.md §2 and the owner's standing instruction both put behind explicit
+approval, so it is recorded and **not acted on**.
+
+### 13d. What reviewing the F16 fix found
+
+Asked specifically what the fix made newly *reachable*, independent review produced five rows, and
+the question was the right one to ask:
+
+- **F62** — with select2 loading, the layout's global `tags: true` init turns the product tag field
+  into a free-text control, and two of the four `Tag` creation sites never set the NOT NULL
+  `tags.slug`. Measured: before, `#tag_id` accepted only its three seeded options; after, a typed
+  value serialises as `tag_id[]=zz-brand-new-tag`. Fixed, two lines.
+- **F63** — the fix armed `Dropzone.autoDiscover` on every admin page. Fixed with one
+  `autoDiscover = false`.
+- **F64** — correcting html2pdf's path would have put 469 KB on every admin page with no consumer
+  there. **Removed rather than corrected**, after reading the bundle to confirm it defines
+  `window.html2pdf` and nothing else.
+- **F65** — four more live admin screens carried the same defect. Fixed; `grep` now shows **zero**
+  live `asset('public/...')` on any view reaching `layouts.app`.
+- **F61** — two more NULL-into-NOT-NULL writes of F59's exact class survived in `update()`.
+  Fixed.
+
+**F60 was WITHDRAWN before it became a defect row.** Measuring a rejected save I found `toastr`
+undefined, `#toast-container` absent and `show_toastr()` producing no element, and was one step
+from recording "a rejected product save tells the merchant nothing" on every save. `custom.js:230`
+does not use toastr: it calls `notifier.show(...)`, and `div.notifier.danger.shown` **is** rendered
+with the message in it. A probe keyed on the library I expected found nothing and read as absence —
+the census mistake CLAUDE.md already names, in a new costume.
+
+**Also recorded, not fixed:** F66 (`required` + select2 on `/order/create` loses the browser's
+validation bubble — measured 535.5 × 41.375 before, **1 × 1** after) and F67 (the global
+`tags: true` gives four more controls free-text input).
+
+---
+
+## 14. `[2026-10-26]` P2-03-8 — basic and advanced field organisation
+
+### 14a. What moved, and the one field that deliberately did not
+
+The editor's main card held **thirteen** controls in one flat grid, so the six a merchant sets once
+for the whole catalogue competed for attention with the five they set on every product. The six —
+`tax_id[]`, `tax_status`, `brand_id`, `label_id`, `shipping_id`, `product_weight` — are now behind
+one disclosure. `name`, `slug`, `category_id`, `tag_id[]`, `price`, `sale_price` and `cost_price`
+stay exactly where they were.
+
+The advanced six were **not contiguous**: `tag_id[]` sat between them. It was moved up beside
+Category rather than collapsed, and the reason is technical, not aesthetic: **it carries `required`
+in the markup**, and a `required` control inside a closed `<details>` is hidden from the browser's
+own constraint UI, so Chrome refuses the submit and logs *an invalid form control with
+name='tag_id[]' is not focusable* — a Save button that does nothing, with no message on the page
+and nothing in the server log. (The same failure mode, by a different mechanism, is **F66**.)
+`required` is also what the component's own test asserts can never appear inside it.
+
+### 14b. It is a native `<details>`, and that is the whole design
+
+Not the DS's existing `[data-ss-disclose]` button/target pair, because:
+
+- **A closed `<details>` still submits the controls inside it.** That is the guarantee the slice
+  needs. `disabled` would drop them from the body silently, and because they would then be *absent*
+  rather than empty, a `nullable` rule would pass and the saved product would quietly lose its
+  brand and its tax.
+- It opens, closes and announces its state with **no JavaScript** — not hypothetical on this
+  codebase, where F16 had two libraries 404ing on every admin page.
+- `<summary>` is already a button to the accessibility tree with its expanded state exposed, so
+  there is **no hand-written `aria-expanded`**; a native details that also carries the attribute
+  reports its state twice and the two can disagree.
+
+### 14c. Preservation: 502/502, and not one of them is a field count
+
+`docs/development/phase-2/tools/inventory-product-fields.cjs` reads the **rendered DOM** and diffs,
+per control: name, value, `disabled`, `readonly`, form membership, the form's method and action, and
+six validation attributes (`required`, `min`, `max`, `step`, `minlength`, `maxlength`, `pattern`).
+A source grep cannot answer this — it misses controls injected by JS and it cannot see `disabled`,
+which is the actual regression the slice risks.
+
+```
+create  44 named controls   POST /product        disabled=[none]  pageErrors=0  failedAssets=0
+edit    47 named controls   POST /product/32     disabled=[none]  pageErrors=0  failedAssets=0
+DIFF    PASS 502/502
+```
+
+Taken with **the fixture held constant** and the baseline captured against the *committed* views, so
+no save could drift it — the first attempt reported `tax_status "taxable" -> "shipping_only"`
+because the behaviour check had saved a product in between, and that requirement is now written into
+the harness's own header.
+
+**Bitten eight ways.** Seven against the differ — a collapsed field `disabled`, removed, re-parented
+out of the form, given a `required`, the submit path changed, a value silently lost, a volatile field
+emptied — and an eighth through the real browser, by putting `disabled` in the blade and
+re-capturing. Each produced exactly its own failure, and the clean pair still passed.
+
+### 14d. Condition 2, proven on the wire
+
+With the section **closed**, `product_weight` and `tax_status` were changed and saved through the
+sticky bar. Both were found **in the multipart request body** and then in the reloaded row.
+
+Reading the body was necessary rather than fussy. `#submit-all` does not submit the form natively —
+it assembles a `FormData` from `$('#choice_form').serializeArray()` and posts it with
+`contentType: false` — so the body is multipart, and an earlier run that parsed it as urlencoded got
+`null` for *every* key and reported the collapsed fields as dropped when `new FormData(form)` showed
+them present. Two wrong readings in one case, both from the harness.
+
+The other half of condition 2 is server-side and JS-free: a section whose field failed validation
+renders `open` with a textual **Needs attention** badge, `tax_id[]` matching the `tax_id` error key.
+`tests/Feature/Merchant/AdvancedFieldsDisclosureTest.php` covers it in 14 tests, and both error
+cases fail when either the open-on-error condition or the key matching is removed.
+
+That test also found a bug in itself worth recording: data passed to `Blade::render` is a local of
+the **outer** template, so a component rendered inside it never sees it. Production works because
+`ShareErrorsFromSession` *shares* `$errors` globally. The test now shares it, which is also a
+statement about what the component depends on.
+
+And reviewing my own key mapping found a second: `rtrim($name, '[]')` is right for `tax_id[]` and
+silently wrong for a nested name — `options[0][price]` becomes `options[0][price` instead of
+Laravel's `options.0.price`. Six fields use the component today and only one is bracketed, so it
+would not have surfaced until a later slice collapsed a repeater field. Fixed, with its own test,
+bitten.
+
+### 14e. Condition 4, measured in all four configurations and on mobile
+
+Direction and theme are **server-side** settings (`SITE_RTL`, `cust_darklayout`), so
+`check-advanced-fields-live.cjs` flips them with `set-preview-state.php` rather than setting an
+attribute the layout never reads — ledger finding F8 is that mistake, recorded twice — and restores
+them in a `finally`.
+
+| configuration | summary title | summary text | box border |
+|---|---|---|---|
+| light / ltr / en | `Advanced options` | ≥4.5:1 | ≥3:1 |
+| light / rtl / ar | `خيارات متقدمة` | ≥4.5:1 | ≥3:1 |
+| dark / ltr / en | `Advanced options` | ≥4.5:1 | ≥3:1 |
+| dark / rtl / ar | `خيارات متقدمة` | ≥4.5:1 | ≥3:1 |
+
+Both ratios are computed in-browser from the resolved colours, not asserted from the token table.
+At **390px**, in both directions: no horizontal page overflow open **or** closed, the summary inside
+the viewport, and a tap target ≥24px (WCAG 2.5.8). RTL mirrors the collapsed chevron and both
+directions rotate it to point down when open. **78/78.**
+
+`--ss-border-strong` is used rather than `--ss-border` because the latter measures **1.30:1** against
+the white card it sits in and **1.14:1** against its own fill — the box would have been very nearly
+invisible in light mode, and the grouping it exists to express would not have read at all.
+`--ss-border-strong` is 3.16:1 light and 3.66:1 dark. The first draft also used a token that does not
+exist (`--ss-bg-subtle`), caught by checking every property against the file rather than trusting the
+name — the same class of mistake as `--ss-focus` in the previous slice.
+
+### 14f. Three measurements that were my harness, not the product
+
+Worth recording because each looked like a defect and was not:
+
+- **`offsetParent !== null` is not a visibility test inside a closed `<details>`.** Chromium hides
+  it with `content-visibility` on `::details-content`, which leaves a plain control's
+  `offsetParent` non-null — it reported `tax_status` and `product_weight` as laid out while
+  collapsed, and the four Choices-managed selects read correctly only because their widget sets
+  `display: none`. `checkVisibility({contentVisibilityAuto: true})` is the probe that answers it.
+- **The chevron transitions**, so `getComputedStyle` straight after toggling `open` returns the
+  value at t=0. In RTL that made closed and open both read `matrix(-1,0,0,-1,0,0)` and failed
+  against correct CSS; in LTR it happened to differ only because `none` → 90deg does not
+  interpolate the same way. Settled before measuring.
+- **The save "failed"** because the fixture product has no `cost_price`, which is
+  `required|numeric|min:0|lte:price` on update, so the server correctly refused it with
+  `{"flag":"error","msg":"Cost price is required."}` — in Arabic, which incidentally confirmed one
+  of the five strings added in this slice. The harness now satisfies that rule first.
+
+### 14g. Bilingual gaps closed
+
+Five strings added to **both** `en.json` and `ar.json`, with every pre-existing value left
+byte-identical and the key count asserted. Three of them are Phase 02's own untranslated messages,
+including the concurrent-edit warning from P2-03-5 — which an Arabic merchant met as a
+200-character wall of English. A test asserts both files carry all five, that none is empty, and
+that the Arabic values actually contain Arabic script rather than the English copied across.
+
+Recorded and **not** changed: `ar.json` translates `Shipping` as `النقل البحري` — *sea freight* —
+which is wrong for a shipping *class* field. It is a pre-existing WorkDo string used in many places,
+so changing it belongs to a translation pass, not here.
+
+### 14h. What this slice does not claim
+
+The editor was not rebuilt and the product engine was not touched. No field was renamed, no
+validation rule changed, no pricing or stock logic added. The AJAX error path reports through a
+toast, so it cannot open a section for a *server*-rejected collapsed field — harmless today because
+no collapsed field has a validation rule, and recorded rather than hidden. `/attribute-option` and
+the Flash Sale modal (F65) were fixed at the path level, verified 404 → 200, and **not driven**: one
+500s on this fixture for lack of attribute data, the other needs its module enabled.

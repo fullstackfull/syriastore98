@@ -3003,5 +3003,10 @@
     "Delete this note": "حذف هذه الملاحظة",
     "Choose columns": "اختيار الأعمدة",
     "This language cannot be deleted: it is the default or the fallback language.": "لا يمكن حذف هذه اللغة: فهي اللغة الافتراضية أو لغة الرجوع الاحتياطي.",
-    "Row density": "كثافة الصفوف"
+    "Row density": "كثافة الصفوف",
+    "Advanced options": "خيارات متقدمة",
+    "Taxes, brand, label, shipping and weight. These are usually set once for the whole catalogue.": "الضرائب والعلامة التجارية والعلامة والنقل والوزن. تُضبط عادةً مرة واحدة لكامل الكتالوج.",
+    "Cost price is required.": "سعر التكلفة مطلوب.",
+    "Cost price must not be greater than the regular price.": "يجب ألا يكون سعر التكلفة أكبر من السعر العادي.",
+    "Someone else saved this product while you were editing it. Your changes have not been saved. Reload the page to see the current version, then re-apply your changes.": "قام شخص آخر بحفظ هذا المنتج أثناء تعديلك له. لم يتم حفظ تغييراتك. أعد تحميل الصفحة لعرض النسخة الحالية، ثم أعد تطبيق تغييراتك."
 }

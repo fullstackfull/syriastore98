@@ -206,9 +206,11 @@
     </div>
     {!! Form::close() !!}
 
-    <link rel="stylesheet" href="{{ asset('public/assets/css/plugins/daterangepicker.css') }}">
-    <script src="{{ asset('public/assets/js/plugins/daterangepicker.js') }}"></script>
-    <script src="{{ asset('public/js/jquery-ui.min.js') }}"></script>
+    {{-- F16: these were `asset('public/...')`, which doubles the docroot segment and 404s.
+         The files exist and answer 200 at the unprefixed path. --}}
+    <link rel="stylesheet" href="{{ asset('assets/css/plugins/daterangepicker.css') }}">
+    <script src="{{ asset('assets/js/plugins/daterangepicker.js') }}"></script>
+    <script src="{{ asset('js/jquery-ui.min.js') }}"></script>
 
     <script>
         $(document).ready(function() {
