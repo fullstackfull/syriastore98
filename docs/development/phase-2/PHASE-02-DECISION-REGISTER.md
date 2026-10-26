@@ -129,7 +129,9 @@ apply a migration to production. And: *"if the path cannot be implemented safely
 additional unresolved commercial decision, document the decision point precisely and continue the
 other tasks. Do not invent financial behaviour."*
 
-**Status:** IN PROGRESS. Design inputs are being gathered first, as the owner required.
+**Status [updated 2026-10-26]:** **STEPS 1-3 DELIVERED, STEP 4 BLOCKED ON ONE QUESTION.** The design, the relations-and-production-schema review and the payment-and-stock impact are complete in `E13-CANCEL-AND-REPLACEMENT-DESIGN.md`, in the order the owner required. The decisive measurement: **cancellation reverses the money but does not restore stock**, while `return` does — so a replacement that takes stock again duplicates the movement, which this approval forbids. The engine already owns every primitive needed (atomic restore, a per-line idempotency marker, a database-level `UNIQUE (order_id)` on the financial row), but **no link column exists anywhere** — not in the model, not in any migration, not in the verified production schema — so one additive migration is required, dev/test only under this approval.
+
+**The one blocking question (Q1): may a replacement differ from the original at all?** Answer "identical lines only" and the recommended design is implementable immediately and the other two questions fall away; allow changed lines and stock deltas must move, which is a pricing-and-stock rule this approval does not cover. Documented rather than guessed, which is what the limit above requires.
 
 ## D-08 — E14: independent security and financial review of the payment callbacks
 
@@ -230,6 +232,89 @@ changes no rule, no threshold and no write. The one behavioural touch is the Val
 argument, which supplies the field **names** a message substitutes into `:attribute` — chosen over
 a global `validation.attributes` map precisely because the map would alter messages on every form
 in the platform, and that would have needed a decision.
+
+---
+
+## D-12 — the Paystack plan-activation gate, and what "provider verified" should mean (F87, F88)
+
+**Raised:** 2026-10-26 by the E14 review. **Status: open — the owner chooses.** Nothing changed.
+Evidence: `E14-PAYMENT-CALLBACK-REVIEW.md` §1.
+
+**What was measured.** Of the 18 providers `config/payments.php` classifies as
+`plan_activation_provider_verified`, seventeen gate on the **payment state** and one — Paystack —
+gates on the **API envelope** (`$result['status'] == true`, i.e. whether the verify *call*
+succeeded). The handler records the real state as `payment_status` and never tests it, has no
+`GuardsPlanActivation` kill switch, and calls none of the project's replay helpers. A failed or
+abandoned transaction's reference therefore activates a plan, repeatably.
+
+**Two options, and neither is a pure correction.**
+
+| | What it does | Cost |
+|---|---|---|
+| **E1** | Require `$result['data']['status'] === 'success'` at the gate | One line, almost certainly right — but it changes what a payment callback accepts, which the standing limits reserve |
+| **E2** | Move Paystack onto the existing fail-closed map (26 providers already there) | No new code, uses machinery already built and tested — but Paystack plan purchases then return **403**, which breaks the flow for any merchant actually subscribing through it |
+
+**And the durable half (F88).** `PlanPaymentPostureTest` asserts that each verified provider carries
+a verification *marker*, not that the marker describes an adequate check. Paystack's marker is
+accurate and describes a weak gate, so the test passes while the classification is wrong. Whatever
+is decided for Paystack, the question "what must be true for a provider to count as verified" is
+the one that stops the next weak gate being absorbed just as quietly.
+
+**Scope note.** Plan activation is **Phase 06**. This is reported because the owner authorised a
+security and financial review of the payment paths, not as a request to start Phase 06.
+
+---
+
+## D-13 — stock consumed without payment evidence on four gateway return paths (F90, F91, F92)
+
+**Raised:** 2026-10-26 by the E14 review. **Status: open.** Nothing changed.
+Evidence: `E14-PAYMENT-CALLBACK-REVIEW.md` §2.
+
+**The cross-cutting result of the review, stated with its bounds.** Replay resistance is largely
+**present** — every live customer-order writer holds a `claimGatewayReturn()` claim keyed on the
+checkout nonce — and the **money** axis is defended by Phase 01's inversion of
+`resolveOrderPaymentStatus()` to `Pending` when no verification record exists, so no merchant wallet
+is credited on the weak paths. What is **not** defended is stock: Khalti, PaiementPro, CinetPay and
+Easebuzz each decrement inside their cart loop, with an inline read-modify-write, before or without
+any payment evidence, and never give it back on any exit. The routes are anonymous and unthrottled.
+
+So the exposure is **denial of inventory**, repeatable with a fresh checkout each time, rather than
+free paid goods. That bound is why this is one decision and not four incidents.
+
+**Why it was not fixed.** The remedy is either to move each stock loop below verification or to
+adopt the `AppliesCartStockChanges` trait that `NMIPayController` already uses (atomic decrement
+plus `restoreStockDecrements` on every exit). Both change what a payment path does to stock, which
+the standing limits reserve. F92 (AuthorizeNet's captured amount never reconciled against the order
+total) is a one-line enrolment in `ENFORCED_PAYMENT_TYPES` and changes whether a payment is
+**accepted**, so it is reserved for the same reason.
+
+**One thing the owner should have measured before any of this is escalated as live:** Khalti and
+PaiementPro dereference `$plan->shipping_method` unguarded *before* the stock loop, having assigned
+`$plan` only inside `if ($user->type == 'admin')`. If the platform's first `admin` row has no
+resolvable plan, both handlers 500 before any stock moves and these two paths are latent. One query
+settles it. **NOT ESTABLISHED from the repository.**
+
+**F91 is listed here but is a different question.** `CyberSourceController` takes `store_id` from
+request input and uses it to choose **which merchant's gateway credentials sign the charge** — the
+caller-supplied tenant predicate, applied to credentials. It is bounded today only because the
+endpoint host is hardcoded to the CyberSource **sandbox**, which also means a real CyberSource
+shopper is never charged and still reaches the order writer. The decision there is what that path
+should do at all, not how to patch it.
+
+---
+
+## D-14 — F89 was fixed under existing authority, recorded for audit
+
+**Date:** 2026-10-26. **No owner decision required.** Recorded so the one code change this review
+made is explicit.
+
+A charged card ended in an HTTP 500 for any order containing a variant product
+(`NMIPayController:1328`, object syntax on an array), **after** the capture and after the order row
+committed. It is a crash, not a rule: it changes no settlement, refund, price or stock behaviour,
+and a crash is not gateway compatibility. Reproduced as a 500 with the capture recorded, fixed, and
+revert-checked — with two limits recorded rather than glossed: only the accessor is proven by the
+test, and the sibling writers are **not** affected because their basket is a shallow-cast array of
+objects, so object syntax is correct for them.
 
 ---
 
