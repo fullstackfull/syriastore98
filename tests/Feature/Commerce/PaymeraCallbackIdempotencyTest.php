@@ -211,6 +211,59 @@ class PaymeraCallbackIdempotencyTest extends TestCase
      *
      * It proves nothing about Paymera's own contract -- see the class docblock.
      */
+    /**
+     * F97. THE TRIGGER ROUTE IS BEHIND `auth`, SO THE GATEWAY CANNOT REACH IT — and the handler's
+     * own comment used to assert the opposite, in exactly the place a reviewer looks to decide
+     * whether the path is safe.
+     *
+     * `routes/web.php` declares `POST store/paymera/trigger/{orderId}` inside the
+     * `['auth','xss','setlocate','verified']` group that opens at :400 and closes at :1434, so a
+     * server-to-server poke from Paymera is redirected to /login and never reaches
+     * `handlePaymeraTrigger`. The CSRF exemption at `bootstrap/app.php:412` is real but does not
+     * help: exempting CSRF on a route behind `auth` only changes which refusal it gets.
+     *
+     * THIS TEST PINS TODAY'S MEASUREMENT, NOT A PREFERENCE. Whether the route should be moved out
+     * of the group is the functional half of F97 and an owner decision, because it changes a
+     * payment route's authentication. If that decision is taken, this test fails and names the
+     * comment that has to be revisited with it — which is the point. It reads the BOOTED ROUTER
+     * rather than grepping `routes/`, so a group prefix or dynamic registration is followed.
+     */
+    public function test_the_paymera_trigger_route_is_still_behind_auth(): void
+    {
+        $routes = \Illuminate\Support\Facades\Route::getRoutes();
+
+        $trigger = null;
+        $callback = null;
+
+        foreach ($routes as $route) {
+            $uri = $route->uri();
+            if ($uri === 'store/paymera/trigger/{orderId}') {
+                $trigger = $route;
+            }
+            if ($uri === 'store/paymera/callback/{orderId}') {
+                $callback = $route;
+            }
+        }
+
+        $this->assertNotNull($trigger, 'premise: the trigger route is registered at all');
+        $this->assertNotNull($callback, 'premise: the callback route is registered at all');
+
+        $triggerMiddleware = $trigger->gatherMiddleware();
+        $callbackMiddleware = $callback->gatherMiddleware();
+
+        $this->assertContains('auth', $triggerMiddleware,
+            'the Paymera TRIGGER route no longer carries `auth`. If that is deliberate, it is the '
+            . 'functional half of F97 and needs the owner decision it records — and the comment in '
+            . 'PaymentController::handlePaymeraTrigger, which now states that the gateway cannot '
+            . 'reach this route, must be corrected in the same change. Middleware found: '
+            . implode(', ', $triggerMiddleware));
+
+        $this->assertNotContains('auth', $callbackMiddleware,
+            'the Paymera CALLBACK route has gained `auth`. It is the only live Paymera entry '
+            . 'point; putting it behind authentication makes the gateway unable to confirm any '
+            . 'payment at all. Middleware found: ' . implode(', ', $callbackMiddleware));
+    }
+
     public function test_every_routed_paymera_entry_point_has_the_replay_guard(): void
     {
         $entryPoints = $this->paymeraEntryPointMethods();

@@ -1051,12 +1051,37 @@ public function handlePaymeraTrigger($orderId)
                 $freshRequest = Request::create('/', 'POST', $pending['request_data']);
 
                 /*
-                 * P1-ORD-13 FOLLOW-UP. This caller is the GATEWAY, not the buyer: the route is
-                 * anonymous and CSRF-exempt. The writer's session binding identifies the order it
-                 * created and is then dropped, so an anonymous POST cannot acquire a stranger's
-                 * order; and the order is named from the before/after difference rather than from
-                 * "the latest paymera order in this store", which recorded the OTHER buyer's order
-                 * whenever two Paymera payments ran at once in one store. See orderWrittenBy().
+                 * P1-ORD-13 FOLLOW-UP -- AND F97, WHICH IS A CORRECTION TO THIS COMMENT.
+                 *
+                 * THIS ROUTE IS NOT ANONYMOUS, THOUGH AN EARLIER VERSION OF THIS COMMENT SAID IT
+                 * WAS, AND THE SENTENCE SAT EXACTLY WHERE A REVIEWER LOOKS TO DECIDE WHETHER THE
+                 * PATH IS SAFE. Measured with `route:list -v`:
+                 *
+                 *   GET  store/paymera/callback/{orderId}  -> web
+                 *   POST store/paymera/trigger/{orderId}   -> web, Authenticate, XSS, SetLocate,
+                 *                                             EmailIsVerified
+                 *
+                 * `routes/web.php` declares the trigger inside the `['auth','xss','setlocate',
+                 * 'verified']` group that opens at :400 and closes at :1434. The CSRF half of the
+                 * old claim is right -- `bootstrap/app.php:412` exempts `store/paymera/trigger/*`
+                 * -- but exempting CSRF on a route behind `auth` only means the gateway's POST is
+                 * redirected to /login instead of being rejected for a missing token. Either way
+                 * it never reaches this method.
+                 *
+                 * SO THE REASONING BELOW DEFENDS A DOOR NOBODY CAN OPEN, and the only live Paymera
+                 * entry point is the anonymous GET callback. It is kept, not deleted, for two
+                 * reasons: it is correct as written, and it becomes load-bearing the moment the
+                 * route is moved out of the `auth` group -- which is the functional half of F97
+                 * and an owner decision, because it changes a payment route's authentication.
+                 * `PaymeraCallbackIdempotencyTest::test_the_paymera_trigger_route_is_still_behind_auth`
+                 * pins the measurement so this comment cannot drift back.
+                 *
+                 * What the reasoning says: the caller is meant to be the GATEWAY, not the buyer.
+                 * The writer's session binding identifies the order it created and is then
+                 * dropped, so an anonymous POST cannot acquire a stranger's order; and the order
+                 * is named from the before/after difference rather than from "the latest paymera
+                 * order in this store", which recorded the OTHER buyer's order whenever two
+                 * Paymera payments ran at once in one store. See orderWrittenBy().
                  */
                 $createdId = $this->orderWrittenBy(
                     fn () => $this->getProductStatus($freshRequest, $pending['slug']),
