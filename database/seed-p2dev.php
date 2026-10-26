@@ -142,6 +142,36 @@ foreach ([['New Arrival', 1], ['Clearance', 1], ['Limited', 0]] as [$lname, $lst
 
 foreach ([['Layla', 'Haddad', 1], ['Omar', 'Khalil', 1], ['Nour', 'Saleh', 0]] as [$first, $last, $cstatus]) {
     $email = strtolower($first . '.' . $last) . '@example.test';
+
+    /*
+     * RESTORE A SOFT-DELETED FIXTURE CUSTOMER rather than skip it, and the reason is a measured
+     * trap rather than tidiness.
+     *
+     * `withoutGlobalScopes()` drops the SoftDeletingScope along with StoreScope, so an ARCHIVED
+     * customer still satisfies `exists()` and the create below was skipped -- permanently. Driving
+     * the customer list's delete control archived all three fixture customers, and from then on
+     * every reseed left the screen empty while reporting success. A live browser check then
+     * measured an empty list and passed its accessible-name and contrast assertions **vacuously**,
+     * which is the exact failure mode CLAUDE.md warns about: the fixture was gone, not the defect
+     * fixed.
+     *
+     * `customers.deleted_at` is the only thing to undo -- `CustomerController::destroy` soft
+     * deletes -- so the row comes back with its own id, and anything referencing it still resolves.
+     */
+    $archived = \App\Models\Customer::withoutGlobalScopes()
+        ->where('email', $email)
+        ->whereNotNull('deleted_at')
+        ->first();
+
+    if ($archived !== null) {
+        \DB::table('customers')->where('id', $archived->id)->update([
+            'deleted_at' => null,
+            'status' => $cstatus,
+            'regiester_date' => $archived->regiester_date ?: now()->subDays(30),
+            'updated_at' => now(),
+        ]);
+    }
+
     if (! \App\Models\Customer::withoutGlobalScopes()->where('email', $email)->exists()) {
         /*
          * `regiester_date` (sic -- the column is misspelled in the schema) is REQUIRED for the

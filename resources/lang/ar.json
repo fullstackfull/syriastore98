@@ -3045,5 +3045,14 @@
     "Something went wrong. Please try again.": "حدث خطأ ما. يُرجى المحاولة مرة أخرى.",
     "The delivery boy could not be assigned.": "لم يتمكن النظام من تعيين مندوب التوصيل.",
     "You are not allowed to do this.": "لا تملك صلاحية تنفيذ هذا الإجراء.",
-    "Your session has expired. Please reload the page.": "انتهت صلاحية الجلسة. يُرجى تحديث الصفحة."
+    "Your session has expired. Please reload the page.": "انتهت صلاحية الجلسة. يُرجى تحديث الصفحة.",
+    "Activity timeline for :name": "سجل نشاط :name",
+    "Cart of :name": "سلة :name",
+    "Delete customer :name": "حذف الزبون :name",
+    "Account status for :name": "حالة حساب :name",
+    "Are you sure you want to delete this customer? This will archive the customer data.": "هل تريد حذف هذا الزبون؟ سيتم أرشفة بيانات الزبون.",
+    "Enter First Name": "أدخل الاسم الأول",
+    "Enter Last Name": "أدخل اسم العائلة",
+    "Mobile": "رقم الهاتف",
+    "Inactive": "غير نشط"
 }

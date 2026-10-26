@@ -45,6 +45,11 @@ class ArabicUiCoverageTest extends TestCase
     private const SURFACES = [
         'resources/views/product/*.blade.php',
         'resources/views/order/*.blade.php',
+        // P2-05-2. ADDED when this ratchet's own surface list proved too narrow: the customers
+        // screen's delete dialog rendered its body text in English under `lang=ar`, and nothing
+        // caught it because `resources/views/customer/` was not scanned. A coverage test is only
+        // as wide as its list, which is the one way this kind of check quietly stops working.
+        'resources/views/customer/*.blade.php',
         'resources/views/components/ss/*.blade.php',
         'resources/views/dashboard/*.blade.php',
         'resources/views/layouts/*.blade.php',

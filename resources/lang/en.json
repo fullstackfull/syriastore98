@@ -3016,5 +3016,14 @@
     "Something went wrong. Please try again.": "Something went wrong. Please try again.",
     "The delivery boy could not be assigned.": "The delivery boy could not be assigned.",
     "You are not allowed to do this.": "You are not allowed to do this.",
-    "Your session has expired. Please reload the page.": "Your session has expired. Please reload the page."
+    "Your session has expired. Please reload the page.": "Your session has expired. Please reload the page.",
+    "Activity timeline for :name": "Activity timeline for :name",
+    "Cart of :name": "Cart of :name",
+    "Delete customer :name": "Delete customer :name",
+    "Account status for :name": "Account status for :name",
+    "Are you sure you want to delete this customer? This will archive the customer data.": "Are you sure you want to delete this customer? This will archive the customer data.",
+    "Enter First Name": "Enter First Name",
+    "Enter Last Name": "Enter Last Name",
+    "Mobile": "Mobile",
+    "Inactive": "Inactive"
 }

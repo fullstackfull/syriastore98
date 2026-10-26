@@ -87,7 +87,41 @@ const PROBE = `(function () {
         return (el.getAttribute('title') || '').trim();
     }
 
-    var rows = [].slice.call(document.querySelectorAll('table tbody tr'));
+    /*
+     * REAL DATA ROWS ONLY. The selector "table tbody tr" also matches DataTables' own
+     * "No data available in table" row (a td.dataTables_empty), so an EMPTY list used to report a
+     * non-zero rowCount and satisfy the premise below -- after which every per-action assertion
+     * passed because there were no actions to measure.
+     *
+     * MEASURED, not hypothetical: driving the customer list's delete control archived all three
+     * fixture customers, and the next run of this file reported accessible names and icon contrast
+     * as PASSING on an empty table. emptyNotice is reported separately so the premise can refuse
+     * outright instead of quietly measuring nothing.
+     *
+     * NO BACKTICKS IN THIS COMMENT. PROBE is a template literal, so a backtick here ends the
+     * string and the file stops parsing. That trap has now bitten this project four times, which
+     * is why it is called out at the point where someone would reintroduce it.
+     */
+    var emptyNotice = document.querySelectorAll('td.dataTables_empty').length;
+
+    /*
+     * VISIBLE TABLES ONLY, and this is the second thing the row count got wrong.
+     *
+     * The customer index renders TWO tables of the same three customers: the live DataTable and a
+     * hidden alternate view (the grid/filter markup) that carries no row actions. Counting both
+     * gave rowCount 6 for 3 customers, so the delete assertion compared 3 against 6 and FAILED on
+     * a screen where every row really does have a delete control. A premise that over-counts
+     * invents defects exactly as readily as one that under-counts invents passes.
+     *
+     * offsetParent is null for an element in a display:none subtree, which is how the hidden view
+     * is hidden here.
+     */
+    var rows = [].slice.call(document.querySelectorAll('table'))
+        .filter(function (t) { return t.offsetParent !== null; })
+        .reduce(function (acc, t) {
+            return acc.concat([].slice.call(t.querySelectorAll('tbody tr')));
+        }, [])
+        .filter(function (tr) { return !tr.querySelector('td.dataTables_empty'); });
     var actions = [], badges = [], confirms = [];
 
     rows.forEach(function (tr, i) {
@@ -139,7 +173,7 @@ const PROBE = `(function () {
         });
     });
 
-    return { rowCount: rows.length, actions: actions, badges: badges, confirms: confirms };
+    return { rowCount: rows.length, emptyNotice: emptyNotice, actions: actions, badges: badges, confirms: confirms };
 })()`;
 
 (async () => {
@@ -147,7 +181,13 @@ const PROBE = `(function () {
     let pass = 0, fail = 0;
     const say = (ok, msg) => { ok ? pass++ : fail++; console.log(`  ${ok ? 'ok  ' : 'FAIL'}  ${msg}`); };
 
-    for (const screen of [{ name: 'orders', url: '/order' }, { name: 'products', url: '/product' }]) {
+    /*
+     * P2-05-2. `customers` is added here rather than in a new harness, deliberately: the
+     * accessible-name rule, the tooltip-plugin trap and the four-configuration contrast sweep are
+     * already encoded below, and a second file would be a second place for them to drift. The
+     * customers screen was measured by this harness the day it was added and failed on names.
+     */
+    for (const screen of [{ name: 'orders', url: '/order' }, { name: 'products', url: '/product' }, { name: 'customers', url: '/customer' }]) {
         for (const locale of ['en', 'ar']) {
             for (const theme of ['light', 'dark']) {
                 setServerState(theme, locale === 'ar' ? 'rtl' : 'ltr');
@@ -175,8 +215,21 @@ const PROBE = `(function () {
 
                 // PREMISE: there are rows, and they have actions. Every assertion below is
                 // satisfied for free by an empty list.
-                say(r.rowCount > 0, `${tag} — the list has rows (${r.rowCount})`);
+                /*
+                 * THE PREMISE REFUSES AN EMPTY LIST OUTRIGHT, rather than letting the per-action
+                 * assertions below pass for free. An empty table is a FIXTURE failure, and saying
+                 * so is the difference between a green run and a meaningless one.
+                 */
+                say(r.rowCount > 0 && r.emptyNotice === 0,
+                    `${tag} — the list has real data rows (${r.rowCount}`
+                    + (r.emptyNotice ? `, and DataTables is showing its "no data" notice — THE FIXTURE IS EMPTY, so nothing below means anything` : '')
+                    + ')');
                 say(r.actions.length >= r.rowCount, `${tag} — every row has at least one action (${r.actions.length})`);
+                if (r.rowCount === 0) {
+                    console.log(`  SKIP  ${tag} — no data rows, so the remaining checks are not run`);
+                    await ctx.close();
+                    continue;
+                }
                 /*
                  * BADGES ARE CHECKED WHEREVER THEY ARE, not where a screen name says to expect
                  * them -- and the first version of this check got that wrong in a way that read

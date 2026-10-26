@@ -119,6 +119,7 @@
                         @if ($customer->regiester_date != null)
                             <div class="form-check form-switch">
                                 <input class="form-check-input page-checkbox " id="{{ $customer->id }}"
+                                    aria-label="{{ __('Account status for :name', ['name' => $customer->name]) }}"
                                     type="checkbox" name="page_active" data-onstyle="success"
                                     data-offstyle="danger" data-toggle="toggle" data-on="off"
                                     data-off="on"

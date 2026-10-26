@@ -776,9 +776,63 @@ class NMIPayController extends Controller
                                     {
                                         if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_low_stock",json_decode($settings['notification'] ?? '[]')))
                                         {
+                                            /*
+                                             * F99. `(object)` AT FOUR CALL SITES, and it is the
+                                             * same array-vs-object migration miss as F89 -- found
+                                             * by the independent review of that fix, not by this
+                                             * handler's own tests.
+                                             *
+                                             * Both helpers' FIRST statement, outside their own
+                                             * try/catch, is
+                                             * `Product::find($product->product_id)`
+                                             * (Utility.php:3548 and :3360). `$product` here is a
+                                             * cart line from `storedCheckoutCartList()`, i.e. an
+                                             * ARRAY, so that read warns and Laravel promotes it to
+                                             * an ErrorException.
+                                             *
+                                             * THESE FOUR ARE WORSE PLACED THAN F89. They sit in
+                                             * the stock loop -- after `chargeSale()` captured
+                                             * (:327) and after the decrement -- but BEFORE
+                                             * `new Order()`. So the card is debited, the stock is
+                                             * gone, and there is no order row at all; and the
+                                             * checkout claim is already consumed, so the retry is
+                                             * refused too.
+                                             *
+                                             * REACHABLE ONLY WITH THE MERCHANT'S NOTIFICATION
+                                             * SETTINGS ON, which is why no test here had reached
+                                             * it: `stock_management` on, `enable_low_stock` or
+                                             * `enable_out_of_stock` in `notification`, and
+                                             * `twilio_setting_enabled` on. Reproduced as HTTP 500
+                                             * with the capture recorded, as a fifth case on
+                                             * test_a_charged_card_does_not_end_in_a_crash.
+                                             *
+                                             * ONLY THE FIRST OF THE FOUR IS COVERED BY A TEST,
+                                             * and that is measured rather than assumed: reverting
+                                             * this cast alone fails the new case, while the other
+                                             * three (`:792` out-of-stock variant, and both
+                                             * non-manage-stock legs) are not reached by it. Driving
+                                             * each would need a different stock figure and a
+                                             * different notification flag per case. They are fixed
+                                             * because they are the SAME expression in the same
+                                             * loop reading the same array -- but the test proves
+                                             * one, and saying so is the point.
+                                             *
+                                             * `(object)` RATHER THAN A DIFFERENT ARGUMENT, because
+                                             * it is behaviour-identical to what these call sites
+                                             * passed before the array migration. The helpers read
+                                             * exactly `->product_id` and `->name`, and the cart
+                                             * line carries both keys (Cart.php builds
+                                             * `product_id` and `name` on every line), so the cast
+                                             * restores the pre-migration object with the same two
+                                             * values and changes nothing downstream. Passing a
+                                             * loaded `Product` model instead would have made
+                                             * `->product_id` null and relied on the helpers'
+                                             * `!empty()` fallback -- a different value reaching a
+                                             * notification message, for no benefit.
+                                             */
                                             if(isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] =="on")
                                             {
-                                                Utility::variant_low_stock_threshold($product,$ProductStock,$settings);
+                                                Utility::variant_low_stock_threshold((object) $product,$ProductStock,$settings);
                                             }
 
                                         }
@@ -789,7 +843,7 @@ class NMIPayController extends Controller
                                         {
                                             if(isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] =="on")
                                             {
-                                                Utility::variant_out_of_stock($product,$ProductStock,$settings);
+                                                Utility::variant_out_of_stock((object) $product,$ProductStock,$settings);
                                             }
                                         }
                                     }
@@ -814,7 +868,7 @@ class NMIPayController extends Controller
                                         {
                                             if(isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] =="on")
                                             {
-                                                Utility::variant_low_stock_threshold($product,$datas,$settings);
+                                                Utility::variant_low_stock_threshold((object) $product,$datas,$settings);
                                             }
 
                                         }
@@ -825,7 +879,7 @@ class NMIPayController extends Controller
                                         {
                                             if(isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] =="on")
                                             {
-                                                Utility::variant_out_of_stock($product,$datas,$settings);
+                                                Utility::variant_out_of_stock((object) $product,$datas,$settings);
                                             }
                                         }
                                     }
@@ -1325,8 +1379,72 @@ class NMIPayController extends Controller
                             ]);
                         }
                     } else {
-                        $variant_data = ProductVariant::find($product->variant_id);
-                        $variationOptions = explode(',', $variant_data->variation_option);
+                        /*
+                         * F89. THE FOURTH POST-CHARGE CRASH, and the same family as the three the
+                         * `!empty()` sweep eighty lines up already fixed -- a different spelling,
+                         * which is why that sweep missed it.
+                         *
+                         * `$products` here is `storedCheckoutCartList()`, i.e.
+                         * `json_decode(json_encode($cartlist), true)` (GuardsGatewayReturn:599) --
+                         * an ARRAY. The sibling line in this very loop reads it correctly as
+                         * `$product['product_id']`; this one used `$product->variant_id`, object
+                         * syntax on an array, which yields null and raises a warning that Laravel
+                         * promotes to an ErrorException. `ProductVariant::find(null)` is then null
+                         * and `$variant_data->variation_option` raises again.
+                         *
+                         * It lands AFTER `chargeSale()` has captured and AFTER `$order->save()`
+                         * has committed, so the shopper is debited, the order exists, and they get
+                         * a stack trace instead of the thank-you page -- no
+                         * `OrderCompleteBinding::remember`, no reward-points event. Reproduced as
+                         * HTTP 500 with the capture recorded.
+                         *
+                         * Reached only when the PRODUCT's `variant_product` is not 0, which no
+                         * fixture in this file's suite had: `productIn()` hardcodes 0. Found by
+                         * the E14 payment-callback review, not by the suite.
+                         *
+                         * A null `$variant_data` now skips the note rather than crashing, and the
+                         * NULL GUARD IS LOAD-BEARING -- not merely defensive. An earlier version of
+                         * this comment claimed the stock loop above "already refuses a line whose
+                         * variant row is missing", so a null here could only mean the row vanished
+                         * mid-request. That was WRONG, and an independent review of this very fix
+                         * caught it. The refusal at `:751` sits inside TWO gates: `stock_management
+                         * == 'on'` (`:712`) and `!empty($variant_id) && $variant_id != 0` (`:714`).
+                         * So a null reaches here in two ordinary production states -- a store that
+                         * has not turned stock management on (the whole block is skipped, nothing
+                         * is ever variant-checked), and a variant product whose cart line carries
+                         * `variant_id = 0` (it takes the product branch at `:872`, then
+                         * `find(0)` is null). Skipping the note is still the right outcome; the
+                         * reason it is needed is different and worse than first recorded.
+                         *
+                         * Every other read in this block is already `!empty()`.
+                         *
+                         * ONE HONEST LIMIT ON THE TEST, which is a different statement from the
+                         * paragraph above: only the ACCESSOR is proven by it. Reverting
+                         * `['variant_id']` to `->variant_id` fails the new case; reverting the
+                         * `?? ''` guard alone does not, because that fixture's variant row exists.
+                         * The guard covers the two states named above, and no case here drives
+                         * either of them.
+                         *
+                         * THE SIBLING WRITERS ARE NOT AFFECTED, and the reason is worth recording
+                         * because a bare grep says otherwise: CinetPay, Easebuzz, AuthorizeNet,
+                         * Khalti, PaiementPro, PayU, PaymentController, PaymentService and
+                         * Api\ApiController all read `$product->variant_id` in the same kind of
+                         * loop -- ten sites, all checked. Their baskets are stdClass lines on both
+                         * the authenticated branch (`(array) $cartlist_response->getData()->data`,
+                         * a SHALLOW cast, so `product_list` stays an array of stdClass) and the
+                         * guest branch (`(array) json_decode(json_encode(Cart::cart_list_cookie(...)))->data`
+                         * -- a different expression, same conclusion). Object syntax is correct for
+                         * every one of them. Note that `AuthorizeNetPaymnetController:391` DOES
+                         * call `storedCheckoutCartList()`, but only for its pre-charge guards; its
+                         * loop basket is still the object one. So this handler is the only one that
+                         * took the array-returning reader for the LOOP itself, and this was a line
+                         * that migration missed. A one-file regression, not a shared defect class
+                         * -- but see F99 at the four `(object) $product` casts above: the same
+                         * migration missed four more sites in this same file, and those land before
+                         * the order row exists.
+                         */
+                        $variant_data = ProductVariant::find($product['variant_id'] ?? null);
+                        $variationOptions = explode(',', (string) ($variant_data->variation_option ?? ''));
                         $option = in_array('manage_stock', $variationOptions);
                         if ($option == true) {
                             OrderNote::order_note_data([
