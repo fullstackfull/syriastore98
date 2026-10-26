@@ -555,7 +555,15 @@ if ($variantProduct) {
    whose first segment under `uploads/` is not the owning store's folder, and it refused this
    fixture's first attempt at `uploads/p2dev/` -- the control working exactly as designed, on a
    fixture rather than on an attacker. */
-$uploadDir = __DIR__ . '/../public/uploads/' . $store->id . '/p2dev';
+/* THE FIXTURE MUST WRITE WHERE THE APPLICATION WRITES, or the dev environment is not faithful.
+   `Utility::upload_file()` stores through the `theme` disk, whose root is `base_path()` -- so a
+   real upload lands at `<repo>/uploads/<store>/...`, and all 337 tracked upload files in this
+   repository are at that same repo-root path (0 under `public/uploads/`). This line used
+   `public/uploads/`, so the SEEDED images resolved over HTTP while images the application itself
+   uploaded did not, and a harness checking "the new cover renders" failed against working code.
+   The stored DB path is unchanged -- `uploads/<store>/p2dev/...`, which is what `get_file()`
+   expects -- only the disk location is corrected to match it. */
+$uploadDir = dirname(__DIR__) . '/uploads/' . $store->id . '/p2dev';
 if (! is_dir($uploadDir)) { @mkdir($uploadDir, 0775, true); }
 $swatches = ['a' => [196, 164, 132], 'b' => [ 72, 101, 128], 'c' => [140, 120, 150]];
 foreach ($swatches as $key => $rgb) {

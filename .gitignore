@@ -1,4 +1,20 @@
-/public/uploads/
+# `/public/uploads` WITHOUT the trailing slash, so the rule covers a SYMLINK too.
+# With the slash it matched only a directory, and `artisan serve` serves `public/` while the
+# application's `theme` disk writes to the REPO ROOT `uploads/` (all 337 tracked upload files are
+# there, none under public/) -- so a dev environment needs `public/uploads -> ../uploads` to see
+# what the app uploaded, and that symlink was showing up as untracked and could have been
+# committed by a `git add -A`. The intent of this rule has always been "never track public
+# uploads"; this makes it hold for the symlink as well.
+/public/uploads
+
+# The DEV FIXTURE's own uploads. `database/seed-p2dev.php` creates store 1 and writes its images
+# to the repo-root `uploads/` where the application's `theme` disk really writes, and a browser
+# test that uploads a cover image lands there too. Store 1 exists only in a developer's local
+# database -- NOTHING under `uploads/1/` is tracked, while 407 files under other store ids are --
+# so these are regenerable test artefacts, not product content, and a `git add -A` must not sweep
+# them into a commit. Ignored by store id rather than by filename because the seeder and the
+# browser tests use different naming.
+/uploads/1/
 /vendor/
 /node_modules/
 

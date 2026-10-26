@@ -3001,5 +3001,20 @@
     "What the item costs you. Required, cannot exceed the price, and never shown to customers.": "What the item costs you. Required, cannot exceed the price, and never shown to customers.",
     "Used to work out shipping. Leave blank if your shipping does not depend on weight.": "Used to work out shipping. Leave blank if your shipping does not depend on weight.",
     "The product list shows Low stock at or below this number. Leave 0 to use the store default.": "The product list shows Low stock at or below this number. Leave 0 to use the store default.",
-    "That order status is not recognised.": "That order status is not recognised."
+    "That order status is not recognised.": "That order status is not recognised.",
+    "Cost Price": "Cost Price",
+    "Order Information": "Order Information",
+    "Select Customer": "Select Customer",
+    "Select Payment Method": "Select Payment Method",
+    "Delivery Price": "Delivery Price",
+    "Tax Price": "Tax Price",
+    "Final Price": "Final Price",
+    "Plan Name ": "Plan Name",
+    "No products found": "No products found",
+    "Additional Note": "Additional Note",
+    "Optional note...": "Optional note...",
+    "Something went wrong. Please try again.": "Something went wrong. Please try again.",
+    "The delivery boy could not be assigned.": "The delivery boy could not be assigned.",
+    "You are not allowed to do this.": "You are not allowed to do this.",
+    "Your session has expired. Please reload the page.": "Your session has expired. Please reload the page."
 }

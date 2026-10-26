@@ -3030,5 +3030,20 @@
     "What the item costs you. Required, cannot exceed the price, and never shown to customers.": "ما يكلّفك هذا المنتج. مطلوب، ولا يمكن أن يتجاوز السعر، ولا يُعرض للعملاء أبداً.",
     "Used to work out shipping. Leave blank if your shipping does not depend on weight.": "يُستخدم لحساب الشحن. اتركه فارغاً إذا كان الشحن لا يعتمد على الوزن.",
     "The product list shows Low stock at or below this number. Leave 0 to use the store default.": "تُظهر قائمة المنتجات \"مخزون منخفض\" عند هذا الرقم أو أقل. اتركه 0 لاستخدام الافتراضي للمتجر.",
-    "That order status is not recognised.": "حالة الطلب هذه غير معروفة."
+    "That order status is not recognised.": "حالة الطلب هذه غير معروفة.",
+    "Cost Price": "سعر التكلفة",
+    "Order Information": "معلومات الطلب",
+    "Select Customer": "اختر العميل",
+    "Select Payment Method": "اختر طريقة الدفع",
+    "Delivery Price": "سعر التوصيل",
+    "Tax Price": "قيمة الضريبة",
+    "Final Price": "السعر النهائي",
+    "Plan Name ": "اسم الخطة",
+    "No products found": "لا توجد منتجات",
+    "Additional Note": "ملاحظة إضافية",
+    "Optional note...": "ملاحظة اختيارية...",
+    "Something went wrong. Please try again.": "حدث خطأ ما. يُرجى المحاولة مرة أخرى.",
+    "The delivery boy could not be assigned.": "لم يتمكن النظام من تعيين مندوب التوصيل.",
+    "You are not allowed to do this.": "لا تملك صلاحية تنفيذ هذا الإجراء.",
+    "Your session has expired. Please reload the page.": "انتهت صلاحية الجلسة. يُرجى تحديث الصفحة."
 }

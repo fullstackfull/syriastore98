@@ -73,6 +73,49 @@ class ProductController extends Controller
 
         return $msg;
     }
+
+    /**
+     * P2-03-4. The field names `:attribute` substitutes into a validation message.
+     * =========================================================================
+     *
+     * MEASURED on the live form with `lang=ar`: an empty name rendered
+     * `"الحقل name مطلوب."` -- an Arabic sentence with the raw COLUMN name in it. Laravel
+     * resolves `:attribute` from `validation.attributes.<field>` and, finding nothing, falls
+     * back to the humanised key, which is the English column name.
+     *
+     * WHY THE VALIDATOR'S FOURTH ARGUMENT AND NOT `validation.attributes`. That map is global:
+     * an entry for `name` renames the field in every message on every form in the platform --
+     * category, brand, tax, coupon, shipping. Most would read correctly, but "most" is not a
+     * basis for a platform-wide change, and `ArabicValidationMessagesTest` asserts the map stays
+     * empty for exactly that reason. Passed here instead, the names apply to the product form
+     * and nowhere else.
+     *
+     * EACH LABEL IS THE ONE THE FORM ITSELF SHOWS, taken from the `Form::label` calls in
+     * `product/edit.blade.php` (:70, :132, :139, :154, :163, :169, :178) so that the message
+     * names the field the merchant is looking at. `__()` keeps English unchanged -- an absent
+     * `ar.json` key returns the key, which IS the English label.
+     *
+     * `variant_product` cannot fail from a browser (a hidden `0` partner sits beside the
+     * checkbox, edit.blade.php:294) but carries `required`, so it is named for the case where a
+     * non-browser client omits it.
+     *
+     * @return array<string,string>
+     */
+    private function ssProductFieldNames(): array
+    {
+        return [
+            'name' => __('Name'),
+            'category_id' => __('Category'),
+            'status' => __('Status'),
+            'variant_product' => __('Display Variants'),
+            'brand_id' => __('Brand'),
+            'label_id' => __('Label'),
+            'product_weight' => __('Weight'),
+            'price' => __('Price'),
+            'sale_price' => __('Sale Price'),
+            'cost_price' => __('Cost Price'),
+        ];
+    }
     /**
      * Display a listing of the resource.
      */
@@ -196,7 +239,7 @@ class ProductController extends Controller
     'cost_price.lte' => __('Cost price must not be greater than the regular price.'),
     'product_weight.numeric' => __('The weight must be a number.'),
     'product_weight.min' => __('The weight cannot be negative.')
-                ]);
+                ], $this->ssProductFieldNames());
                 $request->sale_price = $request->sale_price ? $request->sale_price : 0;
                 if ($validator->fails()) {
                     $messages = $validator->getMessageBag();
@@ -1351,7 +1394,7 @@ $Product->cost_price = $request->cost_price;
     'cost_price.lte' => __('Cost price must not be greater than the regular price.'),
     'product_weight.numeric' => __('The weight must be a number.'),
     'product_weight.min' => __('The weight cannot be negative.')
-            ]);
+            ], $this->ssProductFieldNames());
             if ($validator->fails()) {
                 $messages = $validator->getMessageBag();
                 $msg['flag'] = 'error';
