@@ -3011,5 +3011,12 @@
     "Someone else saved this product while you were editing it. Your changes have not been saved. Reload the page to see the current version, then re-apply your changes.": "قام شخص آخر بحفظ هذا المنتج أثناء تعديلك له. لم يتم حفظ تغييراتك. أعد تحميل الصفحة لعرض النسخة الحالية، ثم أعد تطبيق تغييراتك.",
     "Please correct the highlighted fields": "يرجى تصحيح الحقول المظللة",
     "The weight must be a number.": "يجب أن يكون الوزن رقماً.",
-    "The weight cannot be negative.": "لا يمكن أن يكون الوزن سالباً."
+    "The weight cannot be negative.": "لا يمكن أن يكون الوزن سالباً.",
+    "These images were not uploaded:": "لم يتم تحميل هذه الصور:",
+    "Drop files here to upload": "أفلت الملفات هنا للتحميل",
+    "Accepted formats": "الصيغ المقبولة",
+    "Up to :size per file": "حتى :size لكل ملف",
+    "Up to :total for all files together": "حتى :total لجميع الملفات معاً",
+    "That file is too large. The maximum is :max.": "هذا الملف كبير جداً. الحد الأقصى هو :max.",
+    "That file type is not accepted.": "هذه الصيغة غير مقبولة."
 }

@@ -31,6 +31,48 @@ use Illuminate\Http\Request;
 
 class ProductController extends Controller
 {
+
+    /**
+     * F75 -- gallery images the SERVER refused during this request, as `filename => reason`.
+     *
+     * A PROPERTY RATHER THAN A LOCAL, for a reason worth keeping. The three gallery loops sit in
+     * different branches (`store()` variant and non-variant, and `update()`), while the message the
+     * merchant actually receives is composed in ONE place per method, far below them -- `store()`
+     * at "Product saved successfully." and `update()` at "Product update successfully." -- each of
+     * which OVERWRITES anything set earlier. The first version of this fix appended the warning
+     * next to the loop and measured nothing, twice over: the guard it used (`isset($msg['msg'])`)
+     * was false there, because the earlier assignment only runs `if ($webhook)`, and even when that
+     * did run the final assignment replaced it. Measured: the response was
+     * `{"flag":"success","msg":"Product saved successfully."}` with the warning nowhere in it.
+     */
+    private array $ssRejectedImages = [];
+
+    /**
+     * F75 -- add the refusals to a SUCCESS response, because the product really was saved.
+     *
+     * `flag` stays `success` and `msg` keeps its existing text; what changes is that the merchant
+     * learns which files did not make it and why, in the same `text-danger` shape the webhook
+     * warning already uses. `rejected_images` is additive and machine-readable for the editor.
+     */
+    private function ssAppendRejectedImages(array $msg): array
+    {
+        if ($this->ssRejectedImages === []) {
+            return $msg;
+        }
+
+        $lines = [];
+        foreach ($this->ssRejectedImages as $name => $why) {
+            $lines[] = e((string) $name) . ' — ' . e((string) $why);
+        }
+
+        $msg['msg'] = (string) ($msg['msg'] ?? '')
+            . '<br> <span class="text-danger">'
+            . e(__('These images were not uploaded:')) . ' '
+            . implode('; ', $lines) . '</span>';
+        $msg['rejected_images'] = $this->ssRejectedImages;
+
+        return $msg;
+    }
     /**
      * Display a listing of the resource.
      */
@@ -466,6 +508,18 @@ $Product->cost_price = $request->cost_price;
                             if ($result == 1) {
                                 $fileName = rand(10, 100) . '_' . time() . "_" . $image->getClientOriginalName();
                                 $pathss = Utility::keyWiseUpload_file($request, 'product_image', $fileName, $dir, $key, []);
+                                /* F75. A REJECTED GALLERY IMAGE USED TO VANISH IN SILENCE. This helper returns
+                                   `['flag' => 0, 'msg' => ...]` when its `mimes:`/`max:` rules refuse the file, and
+                                   those rules come from platform settings -- defaulting to `jpg,jpeg,png,csv,svg,pdf`
+                                   -- so a GIF, a WebP or a mislabelled file is refused. The COVER image path checks
+                                   that flag and returns an error; this loop asked only `isset($pathss['url'])` and
+                                   SKIPPED the refusal. MEASURED: two files queued, one row written, no error and no
+                                   toast. The product IS created by then, so the refusals are collected and reported
+                                   beside the success rather than aborting a save that has already happened. */
+                                if (! isset($pathss['url'])) {
+                                    $this->ssRejectedImages[(string) $image->getClientOriginalName()] =
+                                        $pathss['msg'] ?? __('The file was not accepted.');
+                                }
                             } else {
                                 $msg['flag'] = 'error';
                                 $msg['msg'] =  $result;
@@ -762,6 +816,18 @@ $Product->cost_price = $request->cost_price;
                             if ($result == 1) {
                                 $fileName = rand(10, 100) . '_' . time() . "_" . $image->getClientOriginalName();
                                 $pathss = Utility::keyWiseUpload_file($request, 'product_image', $fileName, $dir, $key, []);
+                                /* F75. A REJECTED GALLERY IMAGE USED TO VANISH IN SILENCE. This helper returns
+                                   `['flag' => 0, 'msg' => ...]` when its `mimes:`/`max:` rules refuse the file, and
+                                   those rules come from platform settings -- defaulting to `jpg,jpeg,png,csv,svg,pdf`
+                                   -- so a GIF, a WebP or a mislabelled file is refused. The COVER image path checks
+                                   that flag and returns an error; this loop asked only `isset($pathss['url'])` and
+                                   SKIPPED the refusal. MEASURED: two files queued, one row written, no error and no
+                                   toast. The product IS created by then, so the refusals are collected and reported
+                                   beside the success rather than aborting a save that has already happened. */
+                                if (! isset($pathss['url'])) {
+                                    $this->ssRejectedImages[(string) $image->getClientOriginalName()] =
+                                        $pathss['msg'] ?? __('The file was not accepted.');
+                                }
                             } else {
                                 $msg['flag'] = 'error';
                                 $msg['msg'] =  $result;
@@ -919,7 +985,8 @@ $Product->cost_price = $request->cost_price;
 
                 $msg['flag'] = 'success';
                 $msg['msg'] =  __('Product saved successfully.');
-                return $msg;
+
+                return $this->ssAppendRejectedImages($msg);   // F75
             } catch (\Exception $e) {
                 \Log::info(['error' => $e]);
                 $msg['flag'] = 'error';
@@ -1540,6 +1607,18 @@ $Product->cost_price = $request->cost_price;
                     if ($result == 1) {
                         $fileName = rand(10, 100) . '_' . time() . "_" . $image->getClientOriginalName();
                         $pathss = Utility::keyWiseUpload_file($request, 'product_image', $fileName, $dir, $key, []);
+                        /* F75. A REJECTED GALLERY IMAGE USED TO VANISH IN SILENCE. This helper returns
+                           `['flag' => 0, 'msg' => ...]` when its `mimes:`/`max:` rules refuse the file, and
+                           those rules come from platform settings -- defaulting to `jpg,jpeg,png,csv,svg,pdf`
+                           -- so a GIF, a WebP or a mislabelled file is refused. The COVER image path checks
+                           that flag and returns an error; this loop asked only `isset($pathss['url'])` and
+                           SKIPPED the refusal. MEASURED: two files queued, one row written, no error and no
+                           toast. The product IS created by then, so the refusals are collected and reported
+                           beside the success rather than aborting a save that has already happened. */
+                        if (! isset($pathss['url'])) {
+                            $this->ssRejectedImages[(string) $image->getClientOriginalName()] =
+                                $pathss['msg'] ?? __('The file was not accepted.');
+                        }
                     } else {
                         $msg['flag'] = 'error';
                         $msg['msg'] =  $result;
@@ -1989,7 +2068,8 @@ $Product->cost_price = $request->cost_price;
             
             $msg['flag'] = 'success';
             $msg['msg'] =__('Product update successfully.');
-            return $msg;
+
+            return $this->ssAppendRejectedImages($msg);   // F75
         } else {
             return redirect()->back()->with('error', __('Permission denied.'));
         }

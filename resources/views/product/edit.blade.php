@@ -6,6 +6,12 @@
 
 @php
 $logo = asset(Storage::url('uploads/profile/'));
+
+/* P2-03-4 / F75. THE UPLOAD RULES THE SERVER WILL ACTUALLY APPLY -- see the same block in
+   create.blade.php. `UploadLimits` takes the MINIMUM of the platform setting and PHP's own
+   `upload_max_filesize`, because the setting said 2 GB, PHP allows 2 MB per file and 8 MB per
+   request, and the Dropzone was advertising its own 256 MB default. */
+$ssUpload = \App\Services\UploadLimits::forStore();
 @endphp
 
 @section('breadcrumb')
@@ -344,7 +350,18 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                                             <img src="{{ asset('assets/images/notification/upload_icon.png') }}"
                                                 alt="Upload Icon"
                                                 style="width: 50px; height: 50px; margin:0 auto 10px;">
-                                            <span>Drop files here to upload</span>
+                                            {{-- P2-03-4: this string was hardcoded English. --}}
+                                            <span>{{ __('Drop files here to upload') }}</span>
+                                            {{-- P2-03-4 / F75: state what the SERVER accepts. --}}
+                                            <span class="ss-upload-hint ss-upload-hint--on-light" id="ss-gallery-upload-hint"
+                                                data-ss-upload-hint>
+                                                @if (!empty($ssUpload['extensions']))
+                                                    {{ __('Accepted formats') }}:
+                                                    {{ strtoupper(implode(', ', $ssUpload['extensions'])) }}.
+                                                @endif
+                                                {{ __('Up to :size per file', ['size' => $ssUpload['max_label']]) }}.
+                                                {{ __('Up to :total for all files together', ['total' => $ssUpload['request_max_label']]) }}.
+                                            </span>
                                         </div>
 
                                         <div class="fallback">
@@ -413,10 +430,21 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                                     <label for="cover_image"
                                         class="form-label">{{ __('Upload Cover Image') }}</label><span
                                         class="text-danger">*</span>
+                                    {{-- P2-03-4 / F75: `accept` is the server's own configured list, verbatim --
+                                         narrowing it here would newly block a `pdf` or `csv` that works today. --}}
                                     <input type="file" name="cover_image" id="cover_image"
                                         class="form-control custom-input-file"
+                                        @if (!empty($ssUpload['accept'])) accept="{{ $ssUpload['accept'] }}" @endif
+                                        aria-describedby="ss-cover-upload-hint"
                                         onchange="document.getElementById('upcoverImg').src = window.URL.createObjectURL(this.files[0]);"
                                         multiple>
+                                    <span class="ss-upload-hint" id="ss-cover-upload-hint" data-ss-upload-hint>
+                                        @if (!empty($ssUpload['extensions']))
+                                            {{ __('Accepted formats') }}:
+                                            {{ strtoupper(implode(', ', $ssUpload['extensions'])) }}.
+                                        @endif
+                                        {{ __('Up to :size per file', ['size' => $ssUpload['max_label']]) }}.
+                                    </span>
                                     <img id="upcoverImg"
                                         src="{{ get_file($product->cover_image_path) }}" width="20%"
                                         class="mt-2" />
@@ -1078,9 +1106,20 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                     previewTemplate: n.html(),
                     maxFiles: 10,
                     parallelUploads: 10,
+                    /* P2-03-4 / F75. maxFilesize is MEGABYTES in Dropzone and its default is 256 --
+                       128x the real per-file ceiling. addRemoveLinks lets a merchant take a queued
+                       file back out, which was previously impossible without reloading the page. */
+                    maxFilesize: {{ max(1, (int) round($ssUpload['max_kb'] / 1024)) }},
+                    addRemoveLinks: true,
+                    dictRemoveFile: @json(__('Remove')),
+                    dictFileTooBig: @json(__('That file is too large. The maximum is :max.', ['max' => $ssUpload['max_label']])),
+                    dictInvalidFileType: @json(__('That file type is not accepted.')),
                     autoProcessQueue: false,
                     uploadMultiple: true,
-                    acceptedFiles: a ? null : "image/*",
+                    /* P2-03-4 / F75. WAS `a ? null : "image/*"`, and this element carries
+                       `data-dropzone-multiple`, so it took the `null` branch and accepted ANY file
+                       type while the server refuses everything outside its configured list. */
+                    acceptedFiles: @json($ssUpload['accept'] !== '' ? $ssUpload['accept'] : 'image/*'),
                     success: function(file, response) {
                         if (response.flag == "success") {
                             show_toastr('success', response.msg, 'success');
@@ -1228,6 +1267,18 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                         $('#loader').fadeOut();
                         if (data.flag == "success") {
                             $('#submit-all').attr('disabled', true);
+
+                            /* P2-03-4 / F75. THE DEFAULT SAVE PATH. There are TWO near-identical AJAX calls
+                               here, chosen by `module_is_active('CartQuantityControl')`, and THIS is the `else`
+                               -- the one that runs when that module is not enabled, which is the ordinary case.
+                               The first version of this fix patched only the other one and measured nothing:
+                               the server's warning was in the response (asserted separately as B1) and the
+                               merchant still saw no toast, because this branch navigated away without
+                               displaying `data.msg` at all.
+                               `edit.blade.php` had the same pair and the pre-existing `success_msg` write was
+                               likewise on the module-only branch, so by default an edit save showed the
+                               merchant nothing either. Both defaults now carry the message. */
+                            try { localStorage.setItem('success_msg', data.msg); } catch (e) { /* private mode */ }
                             window.location.href = "{{ route('product.index') }}" + '?id=2';
 
 

@@ -2625,3 +2625,432 @@ correctly at `:3786`, which is how the two drifted apart unnoticed.
 **Recorded, not fixed.** The reference is what a merchant and a customer both see, and three
 detail tables join on it. Changing its format for authenticated API orders is an order-behaviour
 change, which the owner's standing limits reserve.
+
+---
+
+## 18. `[2026-10-26]` F72 — a variant key that reaches the DOM as a selector
+
+### 18a. The key, and why a merchant produces a hostile one without trying
+
+`ProductController` builds a variant's key from the merchant's own attribute terms:
+
+```php
+$str .= '-' . str_replace(' ', '', $item);
+```
+
+**Only spaces are stripped.** `product_attribute_options.terms` is validated `required` and
+nothing else, so `M/L`, `Black/White` or `2.5"` is an ordinary thing to type into a size or
+colour list. The key then goes into the page as a class name, as an element `id`, and — this is
+the defect — into **selectors**.
+
+Two failures came out of that. They are different in kind and they needed different fixes, which
+is the part worth keeping.
+
+### 18b. (a) Selectors this code builds — jQuery throws and the handler aborts
+
+Four sites in `attribute_combinations_data.blade.php` and three in
+`attribute_combinations_edit.blade.php` concatenate the key straight into a class selector:
+
+```js
+$('.down_product_' + downProduct.attr('data-id')).removeClass('d-none');
+```
+
+Measured, with a `M/L-Natural` variant on the page:
+
+```
+Syntax error, unrecognized expression: .down_product_M/L-Natural
+```
+
+jQuery **throws**, so the rest of the handler never runs. The blast radius is wider than the odd
+variant: the downloadable / virtual / manage-stock toggles stopped working for **every** variant
+on the page.
+
+Fixed by escaping **at the call site**, not by sanitising:
+
+```js
+var ssSelectorKey = function (value) {
+    value = String(value === null || value === undefined ? '' : value);
+
+    return (window.CSS && CSS.escape)
+        ? CSS.escape(value)
+        : value.replace(/[^\w-]/g, '\\$&');
+};
+```
+
+Escaping rather than sanitising because **escaping cannot collide** — two distinct keys stay
+distinct. That matters, and F73 records what it costs where sanitising was unavoidable.
+
+### 18c. (b) An identifier Bootstrap resolves — and no escape of ours is reached
+
+```html
+data-bs-target="#collapseone_{{ $str }}"
+```
+
+Bootstrap's own collapse plugin passes that to `document.querySelector()`. Measured:
+
+```
+open attempt: {"threw":"Failed to execute 'querySelector' on 'Document':
+               '#collapseone_M/L' is not a valid selector.","tgt":"#collapseone_M/L"}
+```
+
+**The merchant could not open that variant's panel at all**, so its price, SKU and stock were
+unreachable. A call-site escape fixes nothing here, because the call site is inside Bootstrap —
+the **identifier itself** has to be CSS-safe. So the collapse trio (`id`, `data-bs-target`,
+`aria-controls`) now uses `$safe_str`.
+
+`$str` is untouched everywhere it is a **value**: request field names, `data-id`, and the label
+the merchant reads. Sanitising a value would change what is submitted and what is displayed.
+
+### 18d. The sibling view was already fixed — one of three
+
+`attribute_combinations.blade.php:21` has carried
+`$safe_str = preg_replace('/[^a-zA-Z0-9_-]/', '_', $str)` since **before** this change. So this
+defect was found once, fixed in **one of three** sibling views, and left in the other two — the
+shape of F46 (one file recorded, ten in the census) and F50 (a refusal on one endpoint, bypassed
+by using another). The fix here reuses that exact sanitiser character-for-character so there is one
+spelling of it rather than two.
+
+### 18e. The fourth site, and how dead code turns out to be live
+
+`attribute_combinations_data.blade.php` ships a document-delegated `.delete_option` handler and
+**renders no `.delete_option` button**. The file reads as self-consistently dead, which is why the
+first pass over it stopped at three sites.
+
+It is live:
+
+- `edit.blade.php:741` calls `attribute_option_data()` on `$(document).ready()`, so this view
+  loads on **every** edit page load. Measured: `POST /products/attribute_combination_data/edit`
+  fires unprompted, and the page carries `remove_option_M/L-Natural`.
+- The handler is bound to `document`. Replacing `.attribute_combination`'s `innerHTML` later —
+  which `update_attribute()` does — **does not unbind it**.
+- The button that fires it comes from the sibling view:
+  `attribute_combinations_edit.blade.php:48-49` renders `.delete_option` with
+  `data-id="{{ $str }}"`, the **raw** key, for any combination with no saved variant row.
+
+So both handlers run on one click, and the unescaped one throws.
+
+### 18f. Driven 8/8, by the merchant's own path
+
+`docs/development/phase-2/tools/check-variant-key-escaping-live.cjs`. Reaching the state needed
+real UI steps, and the harness refuses to measure without them — an earlier run called
+`update_attribute()` directly, got a 6,827-byte response that was only its own script tail, and its
+premise assertion reported `.delete_option keys: []` rather than passing on nothing.
+
+The path that works is the merchant's: touch the attribute picker (the page binds `change` on
+`#attribute_id` to load each attribute's terms), tick *enable variation*, choose the terms,
+regenerate.
+
+```
+  ok    the data view loaded on page ready (its handler is live)  [remove_option_ items=7]
+        terms chosen: ["S","M","L","M/L"]
+  ok    a term with a CSS-special character is really in play
+  ok    a REAL .delete_option button carries a CSS-special key  [["S","M","L","M/L"]]
+  ok    the collapse target is a VALID selector
+        open attempt: {"tgt":"#collapseone_M_L","shown":true}
+  ok    THE MERCHANT CAN OPEN the special-key variant's panel
+  ok    opening it throws nothing
+  ok    clicking it throws NOTHING
+  ok    and the combination is really removed from the page  [before=1 after=0 key="M/L"]
+PASS 8/8
+```
+
+Bitten twice, each failing only its own cases:
+
+| reverted | result |
+|---|---|
+| the CSS-safe identifier | `'#collapseone_M/L' is not a valid selector`; the panel will not open — **3 cases fail** |
+| the call-site escape | `Syntax error, unrecognized expression: .remove_option_M/L`, **and the combination is not removed** (`before=1 after=1`) — **2 cases fail** |
+
+A `M/L` term is now **permanent in the dev fixture** as a canary, so any future page-error check
+exercises this rather than rediscovering it.
+
+### 18g. The ratchet, and two versions of it that could not fail — F74
+
+`tests/Unit/Merchant/VariantKeySelectorSafetyTest.php` pins all three sibling views, because the
+ordinary next event is somebody pasting one of these blocks into a fourth.
+
+**It took three attempts, and the bite is the only thing that found the first two.**
+
+| version | rule | why it was wrong |
+|---|---|---|
+| 1 | the variable is assigned from `ssSelectorKey()` **anywhere in the file** | `downProductId` is declared at three sites, so reverting **one** left the other two to vouch for it. **Green against a live, browser-reproducible defect.** |
+| 2 | **every** assignment of that name must be safe | these are Blade files and the fourth site's variable is `id`, so `\bid\s*=` matched every HTML `id="…"` attribute. **Flagged nineteen innocent lines and failed the correct tree.** |
+| 3 | the **nearest preceding `var`/`let`/`const` declaration** must be safe | what JavaScript actually resolves. The keyword excludes the HTML attributes; "nearest preceding" stops a sibling site vouching for a reverted one. |
+
+Version 3 bitten five ways, all five failing, restored passing:
+
+```
+BITE 1 — collapse identifier, edit view ............... 1 failed, 2 passed
+BITE 2 — ONE of three escapes (defeated version 1) .... 1 failed, 2 passed
+BITE 3 — the LAST of three ............................ 1 failed, 2 passed
+BITE 4 — the fourth site's own escape ................. 1 failed, 2 passed
+BITE 5 — create view's sanitiser -> $safe_str = $str .. 1 failed, 2 passed
+RESTORED .............................................. 3 passed
+```
+
+Bite 5 matters on its own: it proves the create view's exemption is conditional on it really
+performing a `preg_replace`, not on the file's name.
+
+**This is the project's stricter TDD rule earning its place for the third time this phase** — after
+F69 (two P2-03-8 tests that could not fail) and the F46 attribution test (vacuous twice). In all
+three the test was written after the fix and looked right, and reverting the fix is the only thing
+that told a ratchet from a rubber stamp.
+
+---
+
+## 19. `[2026-10-26]` Two regressions my own previous commit caused, and how they were found
+
+`0f53e1db` was pushed with Unit green and the Feature suite still running. The committed-tree run
+came back **13 failed**, of which **2 are the manifest's accepted failures** and **11 were mine**.
+Recording this because the mechanism is the same both times and it will happen again.
+
+### 19a. Eleven at once: a fixture that stood in for missing schema
+
+```
+SQLSTATE[HY000]: General error: 1 duplicate column name: cost_price
+  (SQL: alter table "products" add column "cost_price" numeric not null default '0')
+tests/Feature/Commerce/GateFReconciliationReportTest.php:79
+```
+
+That file **created `products.cost_price` itself**, with a comment explaining that the column is
+GATE F draft 0004 and nothing in version control creates it. F58 promoted the draft, so the
+unguarded `Schema::table()` collided with the migration and took **all ten tests in the file**
+down.
+
+Fixed with a `Schema::hasColumn()` guard rather than by deleting the block, so the file still runs
+against a tree without that migration, and the comment now states the opposite of what it used to —
+the column **is** managed. `GateFReconciliation` itself already asks the same question at
+`tests/Support/Security/GateFReconciliation.php:270`.
+
+**This is the second time in this phase that promoting a parked schema draft broke a fixture that
+had been standing in for the absent schema.** Worth checking before promoting the next one.
+
+### 19b. Twelve rows: a line-keyed inventory and a diff that could not see one of them
+
+`SecurityLogInventoryTest` keys every security log line by `path:line`. F46 inserted a five-line
+block at ten sites and F29 added two mappings to `Order.php`, so eleven rows drifted:
+
+```
+app/Services/PaymentService.php:2998  -> :3020
+app/Models/Order.php:794              -> :821
+app/Http/Controllers/PaymentController.php:4410 -> :4422
+...
+```
+
+The test's own docblock anticipates exactly this and the document's header names the repair tool.
+**I wrote my own script first and it was weaker than the tool it was told to use.** Matching by
+`(file, message)` and then diffing by key, it refused with "NOT a pure move" on one pair —
+because `PaymentController.php:3500` existed in **both** the source and the document while
+carrying **different messages**, so the key-diff could not see it at all:
+
+| | 3478 | 3494 | 3500 | 3506 |
+|---|---|---|---|---|
+| document | no bot token | Telegram refused | could not be sent | — |
+| source | — | no bot token | Telegram refused | could not be sent |
+
+A positional remap per file — verify the ordered message sequences are identical, then rewrite
+the numbers — found **twelve** rows, not eleven. The twelfth would have left the document
+asserting a wrong message at a right line, which **the gate does not check**: it compares keys in
+both directions and never compares the message of a key present in both.
+
+Then the documented tool was run from HEAD for comparison:
+
+```
+rows re-pointed : 12
+rows unchanged  : 117
+IDENTICAL -- the documented tool handles this case and my hand-edit matched it.
+```
+
+So `resync-observability-inventory.py --write` was right all along — it re-points **all** rows in a
+`(file, message)` group by order rather than diffing by key first, which is precisely the case my
+script tripped on. The repair in the commit is the tool's output, byte for byte, not a hand-edit.
+**Read the header before writing a replacement for the thing it points at.**
+
+---
+
+## 20. `[2026-10-26]` P2-03-4 — media: the rules the merchant is told, and the refusal they were not
+
+### 20a. Three upload limits, none of them the one that bites
+
+| source | value |
+|---|---|
+| what the editor told the merchant | **256 MB** (Dropzone's own default) |
+| `local_storage_max_upload_size` setting | **2,048,000 KB** (≈2 GB) |
+| PHP `upload_max_filesize` | **2 MB** |
+| PHP `post_max_size` | **8 MB** per request |
+
+The one that bites first is PHP's, and exceeding it produces no clear message: over
+`upload_max_filesize` PHP drops the file before Laravel sees it, so the gallery loop never receives
+it; over `post_max_size` PHP discards the **entire body**, so `$_POST` is empty and the save fails
+with "the name field is required" on a form the merchant filled in.
+
+Type was worse than size. `Utility::upload_file()` and `keyWiseUpload_file()` build
+`mimes:`/`max:` from platform settings, and `Utility::Setting()` supplies
+`jpg,jpeg,png,csv,svg,pdf`. The editor advertised none of it:
+
+```js
+acceptedFiles: a ? null : "image/*",   // and `a` is true for the gallery element
+```
+
+`a` is `void 0 !== e.data("dropzone-multiple")`, and the gallery element carries that attribute —
+so it took the **`null`** branch and accepted **any file type at all**, while the code's own
+single-file intent was `image/*`. `cover_image`, `downloadable_product` and `preview_video` carried
+no `accept`. And the prompt "Drop files here to upload" was hardcoded English.
+
+`App\Services\UploadLimits` now reads the same settings and takes the **minimum against PHP's own
+ceiling**, so one place answers "what will actually be accepted":
+
+```
+  extensions        = jpg,jpeg,png,csv,svg,pdf
+  setting_max_kb    = 2048000        <- what the setting claims
+  php_max_kb        = 2048           <- what PHP allows
+  max_kb            = 2048           <- the minimum, which is what the editor states
+  request_max_kb    = 8192
+  accept            = .jpg,.jpeg,.png,.csv,.svg,.pdf
+  max_label         = 2 MB
+  request_max_label = 8 MB
+```
+
+The list is passed through **verbatim** rather than filtered to image types: `pdf` and `csv` really
+are accepted today, and narrowing it client-side would newly block a file that works.
+
+### 20b. And a refusal that was never reported
+
+`ProductController`'s **cover** image path checks the returned flag and errors. Its **gallery**
+loop, at all three call sites, asked only:
+
+```php
+$pathss = Utility::keyWiseUpload_file($request, 'product_image', $fileName, $dir, $key, []);
+if (isset($pathss['url'])) {          // a refusal has no 'url', so this is just SKIPPED
+    $ProductImage = new ProductImage(); ... save();
+}
+```
+
+while `$msg['msg']` had already been set to "Product Successfully Created" above it. Measured on the
+real database:
+
+```
+  product id=36  cover_image_path='uploads/1/17_1793016628_good.png'
+  gallery rows: 1  (TWO files were queued)
+    uploads/uploads/1/90_1793016629_accepted.png
+```
+
+One row, nothing on disk for the other, no error and no toast. The merchant is told it worked and
+the image is gone.
+
+### 20c. Driven 17/17, in two independent halves
+
+`docs/development/phase-2/tools/check-gallery-upload-feedback-live.cjs`. A and B fail separately,
+so they are asserted separately.
+
+```
+  == A. the editor states the rules, and refuses what the server would refuse ==
+  ok    an upload hint is rendered for the gallery and the cover
+  ok    the hints name the accepted formats
+  ok    the hints state the REAL per-file limit, not 256 MB or 2 GB
+  ok    the cover input filters the OS picker
+  ok    and points at its hint for assistive technology
+        dropzone: {"acceptedFiles":".jpg,.jpeg,.png,.csv,.svg,.pdf","maxFilesize":2,
+                   "status":"error","accepted":0,"removeLink":true}
+  ok    A GIF IS REFUSED BEFORE ANY UPLOAD
+  ok    a queued file can be removed again
+
+  == B. a file that passes the client guard and the server still refuses ==
+  ok    both files passed the CLIENT guard (so the server half is reachable)
+  ok    B1 — the SERVER response names the refused file and why
+  ok    B1b — and `flag` is still success, because the product WAS saved
+  ok    B2 — THE MERCHANT IS TOLD AN IMAGE WAS REFUSED
+  ok    and the good image is NOT reported as refused
+PASS 17/17
+```
+
+B uses a **text file named `.png`**: `acceptedFiles` matches on extension so the client lets it
+through, and the server guesses from **content** and refuses it — which is also exactly what a
+corrupted or mislabelled file looks like. Verified independently:
+
+```
+  client mime claim : image/png
+  server-guessed    : text/plain
+  guessExtension()  : 'txt'
+  mimes rule        : REFUSES: The f must be a file of type: jpg, jpeg, png, csv, svg, pdf.
+```
+
+What the merchant now reads:
+
+> Product saved successfully. **These images were not uploaded: mislabelled.png — The product image
+> must be a file of type: jpg, jpeg, png, csv, svg, pdf.**
+
+Three fixes, each bitten alone:
+
+| reverted | result |
+|---|---|
+| `acceptedFiles` back to `null` | the GIF is queued and accepted — **2 cases fail** |
+| the server-side capture (all 3 sites) | response is `{"flag":"success","msg":"Product saved successfully."}` — **B1 and B2 fail** |
+| the message carry on the default save branch | toast empty, body has nothing — **B2 fails** |
+
+### 20d. Two attempts at the server half that measured nothing
+
+Worth recording, because both looked right and the harness is the only reason they did not ship.
+
+**The first** appended the warning beside the loop, guarded by `isset($msg['msg'])`. That guard is
+false there: the earlier message assignment runs only `if ($webhook)` — i.e. when the store has a
+webhook configured — and the **final** assignment, far below, would have overwritten it anyway. The
+captured response was `{"flag":"success","msg":"Product saved successfully."}` with the warning
+nowhere in it. The fix was to collect into a property and report where the message is actually
+composed, once per method.
+
+**The second** fixed the server and the merchant still saw nothing. `create.blade.php` has **two
+near-identical save handlers**, chosen by `module_is_active('CartQuantityControl')`, and I patched
+the module-only one; the default path navigated away without displaying `data.msg` at all. Splitting
+the assertion into B1 (what the server returns) and B2 (what the merchant sees) is what localised
+it — before the split, one red case could have meant either.
+
+`edit.blade.php` has the same pair, and its **pre-existing** `localStorage.setItem('success_msg',
+…)` sits on the same module-only branch — so by default an **edit** save had been showing the
+merchant no message at all. Both defaults now carry it.
+
+That is the third time this phase that a fix landed on one of N identical siblings: F46 (one file
+recorded, ten in the census), F72 (one of three views), and now this.
+
+### 20e. Contrast found a third defect — F76
+
+| configuration | gallery hint | cover hint |
+|---|---|---|
+| ltr/light | 5.94 pass | 5.69 pass |
+| ltr/dark | **2.18 FAIL** `rgb(167,178,177)` on `rgb(255,255,255)` | 7.11 pass |
+| rtl/light | 5.94 pass | 5.69 pass |
+| rtl/dark | **2.18 FAIL** | 7.11 pass |
+
+Same class, same token, two different surfaces. `.dropzone` computes
+`background-color: rgb(255, 255, 255)` in **both** themes — the host's dark stylesheet never themes
+that panel — so the theme-switching `--ss-fg-muted` (`#a7b2b1` in dark) lands light-grey on white,
+while the cover hint on the real card was fine. **The F8 lesson for the third time: AA on one
+surface is not AA on another.**
+
+Fixed with a modifier pinned to `--ss-grey-600`, a **primitive** defined once at `:root` and never
+redefined for dark, which is `5.94:1` on white in every configuration — exactly what light mode
+already measured. A hardcoded hex would behave identically while hiding from the token audit.
+
+```
+56 measured, 0 below AA.
+```
+
+The panel ignoring dark mode is **F76**, recorded and not fixed: `.dropzone` is the upload surface
+for every module in the platform, so theming it changes screens far outside this editor and needs
+its own contrast pass over all of them.
+
+### 20f. Bilingual, both themes, phone and desktop — 26/26
+
+`check-upload-hint-bilingual-live.cjs`, over ar/rtl × light/dark × 1440/390 plus en/ltr dark:
+
+```
+  الصيغ المقبولة: JPG, JPEG, PNG, CSV, SVG, PDF. حتى 2 MB لكل ملف. حتى 8 MB لجميع الملفات معاً.
+  Accepted formats: JPG, JPEG, PNG, CSV, SVG, PDF. Up to 2 MB per file. Up to 8 MB for all files together.
+PASS 26/26
+```
+
+It asserts the **absence of a leaked placeholder**, because that was a real defect in the first
+version of the markup: `{{ __('Up to :size per file') }}: {{ $value }}` is a translation call with
+no replacement array, so the page would have read "Up to :size per file: 2 MB" with `:size`
+showing. A test that only asked whether the hint existed would have passed. Eight strings were added
+to both `en.json` and `ar.json`, each verified to contain Arabic script in the Arabic file.

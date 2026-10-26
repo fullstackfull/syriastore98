@@ -126,13 +126,22 @@ const PROBE = `
     measure('filter label', '.ss-filterbar .ss-label');
     measure('filter select', '.ss-filterbar .ss-select');
     measure('filter hint', '.ss-filterbar__hint');
+
+    /* P2-03-4's upload hints (F75). Two of them, on DIFFERENT surfaces: the gallery one sits
+       inside the dropzone's own panel and the cover one on the plain card. That distinction is
+       the F8 lesson and the feed-timestamp lesson above -- a token pair that clears AA on one
+       surface does not clear it on another by implication, so both are read rather than one
+       standing in for the pair. They are also the quietest text on the editor, which is the
+       sort of element that lands under AA without anyone noticing. */
+    measure('upload hint (gallery)', '#ss-gallery-upload-hint');
+    measure('upload hint (cover)', '#ss-cover-upload-hint');
     return out;
 })()
 `;
 
 /* The screens measured, in order. The bell lives in the header, so it is measured on the feed
    page where it is also populated. */
-const PAGES = ['/order', '/merchant-notifications', '/product'];
+const PAGES = ['/order', '/merchant-notifications', '/product', '/product/create'];
 
 (async () => {
     const browser = await chromium.launch();

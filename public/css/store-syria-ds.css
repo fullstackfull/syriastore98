@@ -1064,6 +1064,7 @@
 .ss-empty__body,
 .ss-feed__message,
 .ss-advanced__hint,
+.ss-upload-hint,
 .ss-dialog__body       { color: var(--ss-fg-muted) !important; }
 /* `.ss-feed__when` is the quietest text on the feed and still has to clear 4.5:1.
    `--ss-fg-muted`, NOT `--ss-fg-subtle`: the timestamp appears on TWO surfaces -- the plain one
@@ -2803,3 +2804,33 @@ a.ss-setup__item:focus-visible {
     .ss-advanced { border: 1px solid CanvasText; }
     .ss-advanced[data-ss-advanced-error="true"] { border: 2px solid CanvasText; }
 }
+
+
+/* ---- Upload hint (P2-03-4 / F75) ----
+   The rules the SERVER will actually apply, stated where the merchant chooses the file. It joins
+   the Host override defence list above for the same reason `.ss-advanced__hint` did (F68): a quiet
+   grey set without `!important` was overridden to 3.42:1 on the dark card. `--ss-fg-muted` is the
+   quietest token that still clears 4.5:1 on BOTH the plain and the sunken surface.
+   `display: block` because it sits between an <input> and an <img> inside the dropzone's own
+   flex column, where an inline span collapsed onto the prompt line. */
+.ss-upload-hint {
+    display: block;
+    margin-block-start: var(--ss-space-2, 0.5rem);
+    font-size: var(--ss-font-size-sm, 0.8125rem);
+    line-height: 1.5;
+}
+
+/* ---- ...and the one that sits on an ALWAYS-LIGHT surface ----
+   MEASURED, not assumed: `.dropzone` computes `background-color: rgb(255, 255, 255)` in BOTH
+   themes -- the host's dark stylesheet never themes that panel. So a hint inside it that uses the
+   theme-switching `--ss-fg-muted` becomes #a7b2b1 on white in dark mode, which the contrast probe
+   read as **2.18:1** in ltr/dark and rtl/dark alike while the cover hint, on the real card, read a
+   healthy 7.11:1. Same class, same token, two different surfaces -- the F8 lesson and the
+   feed-timestamp lesson for the third time.
+   `--ss-grey-600` is the fix because it is a PRIMITIVE: defined once at :root and never
+   redefined for dark, so it stays #5b6665 in every configuration, and that is 5.94:1 on white --
+   exactly what light mode already measured. A hardcoded hex would do the same thing while hiding
+   from the token audit; this does not.
+   The panel ignoring dark mode is recorded separately as F76: fixing the panel itself would change
+   a surface shared by every upload screen in the platform, which is not this slice's business. */
+.ss-upload-hint--on-light { color: var(--ss-grey-600) !important; }

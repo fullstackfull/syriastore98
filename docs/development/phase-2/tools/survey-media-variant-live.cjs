@@ -132,7 +132,14 @@ const SURVEY_VARIANT = () => {
     await login(p);
     const report = { base: BASE, pages: {} };
 
-    for (const [label, url] of [['create', '/product/create'], ['edit', '/product/32/edit']]) {
+    /* THE EDIT TARGET MATTERS AND IT IS NOT ARBITRARY. The first runs of this survey drove
+       product 32, which is NOT a variant product and has NO gallery rows -- so it reported an
+       empty variant block and `existingImages.count = 1` and read as "there is no media UX
+       here", when the truth was that the page had nothing to show. `database/seed-p2dev.php`
+       makes the LOWEST-id product the variant one and gives it gallery images, so the target is
+       resolved from the data rather than hardcoded. */
+    const editId = process.env.P2_EDIT_PRODUCT_ID || '1';
+    for (const [label, url] of [['create', '/product/create'], ['edit', '/product/' + editId + '/edit']]) {
         await p.goto(BASE + url, { waitUntil: 'networkidle' });
         await p.waitForTimeout(1500);
 

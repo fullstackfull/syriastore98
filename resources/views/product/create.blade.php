@@ -23,6 +23,13 @@
   $plan = \App\Models\Plan::find(\Auth::user()->plan_id);
   $stock_management = \App\Models\Utility::GetValueByName('stock_management');
   $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold');
+  /* P2-03-4 / F75. THE UPLOAD RULES THE SERVER WILL ACTUALLY APPLY, so the editor can state them
+     instead of accepting anything and letting the save refuse it. `UploadLimits` reads the same
+     platform settings `Utility::upload_file()` reads and then takes the MINIMUM against PHP's own
+     `upload_max_filesize` -- which is what a merchant really hits. Measured in this container:
+     the setting says 2 GB, PHP allows 2 MB per file and 8 MB per request, and the Dropzone was
+     advertising its own 256 MB default. Three numbers, none of them the real one. */
+  $ssUpload = \App\Services\UploadLimits::forStore();
 @endphp
 @section('content')
   {{-- P2-03-3. `data-ss-dirty-track` opts this form into StoreSyriaDS.wireDirtyTracking, which
@@ -335,7 +342,17 @@
                             <!-- Dropzone message with icon -->
                             <div class="dz-message d-flex flex-column mb-2">
                                 <img src="{{ asset('assets/images/notification/upload_icon.png') }}" alt="Upload Icon" style="width: 50px; height: 50px; margin:0 auto 10px;">
-                                <span>Drop files here to upload</span>
+                                {{-- P2-03-4: this string was hardcoded English and is now translated. --}}
+                                <span>{{ __('Drop files here to upload') }}</span>
+                                {{-- P2-03-4 / F75: state what the SERVER accepts. `aria-describedby` on the
+                                     dropzone points here, so the rules are announced rather than only seen. --}}
+                                <span class="ss-upload-hint ss-upload-hint--on-light" id="ss-gallery-upload-hint" data-ss-upload-hint>
+                                    @if (!empty($ssUpload['extensions']))
+                                        {{ __('Accepted formats') }}: {{ strtoupper(implode(', ', $ssUpload['extensions'])) }}.
+                                    @endif
+                                    {{ __('Up to :size per file', ['size' => $ssUpload['max_label']]) }}.
+                                    {{ __('Up to :total for all files together', ['total' => $ssUpload['request_max_label']]) }}.
+                                </span>
                             </div>
 
                             <div class="fallback">
@@ -372,9 +389,21 @@
                     </div>
                     <div class="col-12">
                       <label for="cover_image" class="form-label">{{ __('Upload Cover Image') }}</label><span class="text-danger">*</span>
+                      {{-- P2-03-4 / F75: `accept` filters the OS picker to what the server will take, so an
+                           unsupported file is not chosen in the first place. It is the server's own configured
+                           list, verbatim -- narrowing it here would newly block a `pdf` or `csv` that works
+                           today. An empty value means nothing is configured, which correctly imposes nothing. --}}
                       <input type="file" name="cover_image" id="cover_image" class="form-control custom-input-file"
+                        @if (!empty($ssUpload['accept'])) accept="{{ $ssUpload['accept'] }}" @endif
+                        aria-describedby="ss-cover-upload-hint"
                         onchange="document.getElementById('upcoverImg').src = window.URL.createObjectURL(this.files[0]);"
                         multiple>
+                      <span class="ss-upload-hint" id="ss-cover-upload-hint" data-ss-upload-hint>
+                          @if (!empty($ssUpload['extensions']))
+                              {{ __('Accepted formats') }}: {{ strtoupper(implode(', ', $ssUpload['extensions'])) }}.
+                          @endif
+                          {{ __('Up to :size per file', ['size' => $ssUpload['max_label']]) }}.
+                      </span>
                       <img id="upcoverImg" src="" width="20%" class="mt-2" />
                     </div>
 
@@ -895,9 +924,22 @@
           previewTemplate: n.html(),
           maxFiles: 10,
           parallelUploads: 10,
+          /* P2-03-4 / F75. maxFilesize is MEGABYTES in Dropzone and its default is 256, which was
+             128x the real per-file ceiling. addRemoveLinks lets a merchant take a queued file back
+             out -- before this there was no way to undo a mistaken drop except reloading the page
+             and losing the rest of the form. */
+          maxFilesize: {{ max(1, (int) round($ssUpload['max_kb'] / 1024)) }},
+          addRemoveLinks: true,
+          dictRemoveFile: @json(__('Remove')),
+          dictFileTooBig: @json(__('That file is too large. The maximum is :max.', ['max' => $ssUpload['max_label']])),
+          dictInvalidFileType: @json(__('That file type is not accepted.')),
           autoProcessQueue: false,
           uploadMultiple: true,
-          acceptedFiles: a ? null : "image/*",
+          /* P2-03-4 / F75. WAS `a ? null : "image/*"`, and this element carries
+             `data-dropzone-multiple`, so it took the `null` branch and accepted ANY file type while
+             the server refuses everything outside its configured list. Now both branches advertise
+             the server's own list; the fallback keeps the original intent when nothing is set. */
+          acceptedFiles: @json($ssUpload['accept'] !== '' ? $ssUpload['accept'] : 'image/*'),
           success: function(file, response) {
             if (response.flag == "success") {
               show_toastr('success', response.msg, 'success');
@@ -999,6 +1041,16 @@
               if (data.flag == "success") {
                 $('#submit-all').attr('disabled', true);
 
+                /* P2-03-4 / F75. THE SUCCESS BRANCH NAVIGATES IMMEDIATELY AND SHOWED `data.msg`
+                   NOWHERE, so the server's own warning -- "These images were not uploaded: ..." --
+                   was appended to a message nothing displayed. Measured: a refused gallery image
+                   produced no toast and no text on either page.
+                   `edit.blade.php` already solved this by handing the message to
+                   `product/index.blade.php` through localStorage (`success_msg`, read at
+                   index.blade.php:67 and list.blade.php:169), so the same mechanism is used here
+                   rather than a second one invented beside it. */
+                try { localStorage.setItem('success_msg', data.msg); } catch (e) { /* private mode */ }
+
                 window.location.href = "{{ route('product.index') }}" + '?id=1';
 
               } else {
@@ -1046,6 +1098,18 @@
             if (data.flag == "success") {
               $('#submit-all').attr('disabled', true);
               
+
+              /* P2-03-4 / F75. THE DEFAULT SAVE PATH. There are TWO near-identical AJAX calls
+                 here, chosen by `module_is_active('CartQuantityControl')`, and THIS is the `else`
+                 -- the one that runs when that module is not enabled, which is the ordinary case.
+                 The first version of this fix patched only the other one and measured nothing:
+                 the server's warning was in the response (asserted separately as B1) and the
+                 merchant still saw no toast, because this branch navigated away without
+                 displaying `data.msg` at all.
+                 `edit.blade.php` had the same pair and the pre-existing `success_msg` write was
+                 likewise on the module-only branch, so by default an edit save showed the
+                 merchant nothing either. Both defaults now carry the message. */
+              try { localStorage.setItem('success_msg', data.msg); } catch (e) { /* private mode */ }
               window.location.href = "{{ route('product.index') }}" + '?id=1';
 
             } else {

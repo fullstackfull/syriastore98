@@ -2982,5 +2982,12 @@
     "Someone else saved this product while you were editing it. Your changes have not been saved. Reload the page to see the current version, then re-apply your changes.": "Someone else saved this product while you were editing it. Your changes have not been saved. Reload the page to see the current version, then re-apply your changes.",
     "Please correct the highlighted fields": "Please correct the highlighted fields",
     "The weight must be a number.": "The weight must be a number.",
-    "The weight cannot be negative.": "The weight cannot be negative."
+    "The weight cannot be negative.": "The weight cannot be negative.",
+    "These images were not uploaded:": "These images were not uploaded:",
+    "Drop files here to upload": "Drop files here to upload",
+    "Accepted formats": "Accepted formats",
+    "Up to :size per file": "Up to :size per file",
+    "Up to :total for all files together": "Up to :total for all files together",
+    "That file is too large. The maximum is :max.": "That file is too large. The maximum is :max.",
+    "That file type is not accepted.": "That file type is not accepted."
 }

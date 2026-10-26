@@ -457,7 +457,15 @@ if ($catIds) {
  * ------------------------------------------------------------------------------------------ */
 
 $attrSpec = [
-    'Size'   => ['S', 'M', 'L'],
+    /* `M/L` IS A DELIBERATE CANARY, not a typo. F72: the variant key the application builds from
+       these terms becomes a jQuery class SELECTOR, and only spaces are stripped -- so a term
+       containing any CSS-special character (`/`, `.`, `#`, `:`) produced
+       `.down_product_M/L-Natural`, an invalid selector that THREW and aborted the handler, so the
+       downloadable / virtual / manage-stock toggles stopped working for every variant on the page.
+       `product_attribute_options.terms` is validated `required` and nothing else, so this is an
+       ordinary thing for a merchant to type. Keeping one in the fixture means any future page-error
+       check exercises it instead of discovering it again. */
+    'Size'   => ['S', 'M', 'L', 'M/L'],
     'Colour' => ['Natural', 'Indigo'],
 ];
 $attrIds = [];
@@ -492,7 +500,12 @@ foreach ($attrSpec as $attrName => $terms) {
 /* A product that really is a variant product, so the combination table has something to
  * render. `variant`, `sku` and `price` are NOT NULL with no default on product_variants. */
 $variantProduct = Product::where('store_id', $store->id)->orderBy('id')->first();
-if ($variantProduct && (int) $variantProduct->variant_product !== 1) {
+if ($variantProduct) {
+    /* The flag and the rows are seeded INDEPENDENTLY. An earlier version wrapped both in
+       `if ((int) $variantProduct->variant_product !== 1)`, so once the flag was set a re-run
+       skipped the variant ROWS entirely -- and after the rows were deleted to correct their
+       separator, re-seeding reported `variants=0` and the variant UI had nothing to show again.
+       A fixture has to be idempotent per THING, not per flag. */
     $optionRows = [];
     foreach ($attrSpec as $attrName => $terms) {
         $id = $attrIds[$attrName];
@@ -511,7 +524,12 @@ if ($variantProduct && (int) $variantProduct->variant_product !== 1) {
     $i = 0;
     foreach ($attrSpec['Size'] as $size) {
         foreach ($attrSpec['Colour'] as $colour) {
-            $label = $size . '/' . $colour;
+            /* THE SEPARATOR IS THE APPLICATION'S OWN, NOT A GUESS. ProductController builds the
+               variant key as `$str .= '-' . str_replace(' ', '', $item)` (`:1766-1768`), so a
+               Size/Colour product really is `S-Natural`. The first version of this fixture used
+               `/` and produced a page error the UI could never have caused -- a jQuery selector
+               `.down_product_S/Natural`. An unfaithful fixture manufactures its own defects. */
+            $label = $size . '-' . $colour;
             $exists = \App\Models\ProductVariant::where('product_id', $variantProduct->id)
                 ->where('variant', $label)->exists();
             if ($exists) { continue; }

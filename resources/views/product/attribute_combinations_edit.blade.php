@@ -18,6 +18,22 @@
                                     $sku .= '-' . str_replace(' ', '', $item);
                                 }
                             }
+                            /* F72, THE COLLAPSE TARGET. `data-bs-target` is read by BOOTSTRAP's own
+                               collapse plugin, which passes it to `document.querySelector()` -- so a
+                               variant key containing a CSS-special character made `#collapseone_M/L`
+                               and threw `'#collapseone_M/L' is not a valid selector`. MEASURED: the
+                               merchant could not OPEN that variant's panel at all, so its price,
+                               SKU and stock were unreachable.
+                               Escaping at the call site cannot fix this one -- the selector is built
+                               inside Bootstrap, not here -- so the IDENTIFIER itself has to be
+                               CSS-safe. This is the same `$safe_str` the sibling view already uses
+                               (attribute_combinations.blade.php:21), kept identical on purpose so
+                               there is one spelling of this fix rather than two. `$str` stays the
+                               key everywhere it is a VALUE (request names, `data-id`, the label the
+                               merchant reads); only the id is sanitised. Its one cost is recorded as
+                               F73: two terms differing solely in a special character collapse to the
+                               same id. */
+                            $safe_str = preg_replace('/[^a-zA-Z0-9_-]/', '_', $str);
                         @endphp
                         <div class="form-group accordion accordion-flush" id="payment-gateways">
                             <div id="" class="accordion-item card attribute_options_datas">
@@ -33,8 +49,8 @@
                                         <h2 class="accordion-header" id="COD">
                                             <button class="accordion-button collapsed according-delete-input"
                                                 type="button" data-bs-toggle="collapse"
-                                                data-bs-target="#collapseone_{{ $str }}" aria-expanded="false"
-                                                aria-controls="collapseone_{{ $str }}">
+                                                data-bs-target="#collapseone_{{ $safe_str }}" aria-expanded="false"
+                                                aria-controls="collapseone_{{ $safe_str }}">
                                                 <span class="d-flex align-items-center">
                                                     <i class="ti ti-credit-card me-2"></i>{{ $str }}
                                                     @if (!empty($ProductVariantData->id))
@@ -54,7 +70,7 @@
                                             </button>
                                         </h2>
 
-                                        <div id="collapseone_{{ $str }}" class="accordion-collapse collapse"
+                                        <div id="collapseone_{{ $safe_str }}" class="accordion-collapse collapse"
                                             aria-labelledby="COD" data-bs-parent="#accordionExample">
                                             <div class="accordion-body">
                                                 <div class="row">
@@ -287,6 +303,28 @@
 <script src="{{ asset('public/js/jquery-3.6.0.min.js') }}"></script>
 
 <script>
+    /* F72. ESCAPE THE KEY BEFORE IT BECOMES A SELECTOR.
+    `data-id` holds the variant key the application itself builds from the
+    merchant's own attribute TERMS -- `$str .= '-' . str_replace(' ', '', $item)`
+    in ProductController -- and only SPACES are stripped. So a term containing any
+    character that is special in a CSS selector (`/`, `.`, `#`, `:`, `"`) produces
+    e.g. `.down_product_M/L`, which is not a valid selector: jQuery THROWS
+    `Syntax error, unrecognized expression` and the handler aborts, so the
+    downloadable / virtual / manage-stock toggles silently stop working for every
+    variant on the page. `terms` is validated `required` and nothing else, so
+    `Black/White` or `2.5"` is an ordinary thing for a merchant to type.
+    The class ATTRIBUTE is fine -- class names may contain these characters -- so
+    the markup is unchanged and only the selector is escaped. Note the request-key
+    suffixes nearby already carry `str_replace('.', '_', $str)`: somebody met the
+    `.` case and patched it there, and not here. */
+    var ssSelectorKey = function (value) {
+        value = String(value === null || value === undefined ? '' : value);
+
+        return (window.CSS && CSS.escape)
+            ? CSS.escape(value)
+            : value.replace(/[^\w-]/g, '\\$&');
+    };
+
     $(document).on('click', '.delete_option', function(event) {
         event.preventDefault();
 
@@ -382,7 +420,7 @@
 
             $('.download-product').each(function() {
                 var downProduct = $(this);
-                var downProductId = downProduct.attr('data-id');
+                var downProductId = ssSelectorKey(downProduct.attr('data-id'));
                 var downloadableCheckbox = downProduct.closest('.accordion-item').find(
                     '.downloadable');
                 if (downloadableCheckbox.prop('checked') == true) {
@@ -395,7 +433,7 @@
             // Handle virtual product checkbox
             $('.weight-div').each(function() {
                 var downProduct = $(this);
-                var downProductId = downProduct.attr('data-id');
+                var downProductId = ssSelectorKey(downProduct.attr('data-id'));
                 var downloadableCheckbox = downProduct.closest('.accordion-item').find(
                     '.virtual_product');
                 if (downloadableCheckbox.prop('checked') == true) {
@@ -408,7 +446,7 @@
             // Handle manage stock checkbox
             $('.enable_manage_stock').each(function() {
                 var downProduct = $(this);
-                var downProductId = downProduct.attr('data-id');
+                var downProductId = ssSelectorKey(downProduct.attr('data-id'));
                 var downloadableCheckbox = downProduct.closest('.accordion-item').find(
                     '.manage_stock');
                 if (downloadableCheckbox.prop('checked') == true) {
