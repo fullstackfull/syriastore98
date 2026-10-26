@@ -192,7 +192,7 @@ option is chosen rather than patched in isolation.
 
 ---
 
-## D-10 — the printed receipt's return policy: AWAITING OWNER TEXT (F85)
+## D-10 — the printed receipt's return policy: DECIDED AND IMPLEMENTED (F85)
 
 **Raised:** 2026-10-26, by the Arabic `__()`-coverage sweep. **Status: open — the owner supplies
 the text.** Nothing changed.
@@ -207,12 +207,39 @@ rewriting it means authoring the real policy; deleting the paragraph leaves the 
 return policy at all. Covered directly by the owner's instruction *"ولا تغيّر قواعد التسوية أو رد
 الأموال دون ضرورة مثبتة ومراجعة مستقلة"*.
 
-**Needed from the owner:** the real return-policy text in Arabic and English, **or** authorisation
-to remove the paragraph.
+**DECIDED [2026-10-26]:** the owner authorised **removing** the paragraph and explicitly forbade
+substituting one — *"لا تستبدله بسياسة إرجاع أو استرداد جديدة من عندك"*. He allowed a **real**
+approved policy stored in the store's settings to be shown instead, safely and translated, after
+verification.
 
-Until then it is the single declared exemption in `ArabicUiCoverageTest`, which asserts the
-exemption list holds exactly one entry **and** that the string is still present in the receipt —
-so the exemption is deleted along with the string, not left behind as dead permission.
+**IMPLEMENTED, and the "if one exists" branch was measured rather than assumed.** There is no such
+setting: **zero** rows in `settings` match `polic`, `refund` or `invoice_term`; no
+`return_policy`/`refund_policy`/`invoice_terms` setting appears in any migration or any reader in
+`app/`; and the one candidate — the storefront route `return-policy` — resolves to
+`TestimonialController::return_policy()`, which renders `other_page.privacy`, a generic privacy
+page and not a store setting. So the footer renders **nothing**, because a placeholder would be a
+policy statement by implication.
+
+**No actual return or refund rule changed.** The paragraph was display text on a printed document;
+nothing read it and no handler branched on it.
+
+**Pinned by `ReceiptReturnPolicyTest` (3 tests) at the RENDERED level, not the source**, because
+the explanatory Blade comment left in that view quotes the brand name to record what was removed,
+and Blade strips comments at compile time — so a source grep would pass while the paragraph was
+live, or fail while it was correctly gone, depending only on comment wording. It asserts the
+rendered receipt carries **no refund-policy language at all** (about meaning, not the one removed
+string), that the comment really is stripped while remaining in the source, and that no
+policy-shaped setting exists yet — so the day somebody adds one, the test fails and they must
+decide deliberately whether the receipt shows it. **Revert-checked in both directions:** restoring
+the WorkDo paragraph fails it, and so does a well-meant substitute (*"Items may not be returned
+after 14 days. All sales are final."*), which is the case the owner forbade by name.
+
+The `ArabicUiCoverageTest` exemption went with the string, exactly as its old docblock said it
+would; the list is now asserted **empty**, kept as a named constant so adding one is a visible edit.
+
+**Still outstanding and not something a view can answer:** the owner asked that any mandatory
+invoice-content requirement be checked before release. Recorded in the ledger as an open release
+gate.
 
 ---
 
@@ -315,6 +342,133 @@ and a crash is not gateway compatibility. Reproduced as a 500 with the capture r
 revert-checked — with two limits recorded rather than glossed: only the accessor is proven by the
 test, and the sibling writers are **not** affected because their basket is a shallow-cast array of
 objects, so object syntax is correct for them.
+
+---
+
+## D-15 — E13: the limited replacement path is approved CONDITIONALLY (owner, 2026-10-26)
+
+**Status: approved in principle, conditional on proof.** The owner's words matter here more than a
+paraphrase, because the approval is narrower than "A1 is approved" would suggest:
+
+> أعتمد مبدئياً مسار الاستبدال المحدود الذي يحافظ على البنود والكميات والأسعار الأصلية دون تغيير.
+> لكن موافقتي مشروطة بإثبات سلامة الدفع والمخزون، وليست موافقة على افتراض أن الإلغاء يرد أموال
+> العميل تلقائياً.
+
+**And he corrected the framing I had offered.** My write-up implied that answering Q1 with
+"identical lines only" would settle the settlement and stock questions. It does not:
+
+> لا تفترض أن اختيار "نفس البنود" يحسم تلقائياً جميع مسائل التسوية والمخزون.
+
+### The nine binding conditions, as given
+
+1. No change to products, quantities or prices in the replacement, within this slice.
+2. No replacement order that causes the amount to be collected twice.
+3. **Explicitly distinguish reversing the MERCHANT's balance from a real refund to the CUSTOMER
+   through the payment provider.** These are not the same event and must not be conflated.
+4. **Do not treat the original order as having consumed stock without evidence from the real
+   processing path.**
+5. **Do not use a "stock already decremented" marker on an order whose decrement is not proven.**
+6. Refuse or disable the automatic replacement path for partial payments, and for collected
+   payments whose refund or transfer is not provably correct.
+7. Use the existing order, stock and payment services. No parallel engine.
+8. Safe under failure, repetition and concurrency, with independent tests for each case.
+9. The link migration may be prepared and run in **isolated development and test environments
+   only**.
+
+> إن تعذّر إثبات سلامة أحد السيناريوهات، اتركه BLOCKED مع سببه، واستكمل السيناريوهات الآمنة.
+
+**Scope:** E13 stays part of Phase 02. Replacement with different products or quantities, and the
+advanced returns system, stay in **Phase 04**.
+
+**Consequence for the design already written.** `E13-CANCEL-AND-REPLACEMENT-DESIGN.md` proposed S1 —
+the replacement carries the original's stock via the existing per-line marker. Conditions 4 and 5
+put that behind a proof obligation the design did not discharge: it assumed the original consumed
+stock because its payment path normally does. Whether a durable record exists that distinguishes
+"this order decremented stock" from "this order did not" is now the gating question, and S1 is
+**not implementable** until it is answered. That is being established before any code is written.
+
+---
+
+## D-16 — D-09: design A1 approved (owner, 2026-10-26)
+
+**Approved.** Edit existing variants **in place**, without rebuilding every variant when a price,
+stock or SKU changes.
+
+Binding conditions:
+
+- An ordinary save must **not** delete variants that were not sent, and must **not** zero financial
+  values the merchant did not intend to change.
+- The **attribute-configuration change** path stays **separate** from the **daily-values edit**
+  path. Two paths, not one with a flag.
+- Test store permissions, concurrency, partial edits and data integrity.
+- **F82 and F83 close only after real saving is proven, with no unintended deletion or zeroing.**
+
+This supersedes the open decision recorded at D-09, where both options were costed. A1 was the
+recommendation and is now the instruction.
+
+---
+
+## D-17 — D-12: Paystack treated as an isolated security fix (owner, 2026-10-26)
+
+**Approved**, and explicitly **not** as the start of Phase 06:
+
+> أوافق على معالجة مشكلة F87 وF88 كتصحيح أمني معزول، وليس كبداية لأعمال Phase 06.
+
+Required:
+
+- A successful API call must **not** by itself activate a SaaS plan.
+- Verify the real payment status; match transaction, amount, currency, plan and user **where the
+  provider's contracts support it** — i.e. match what can actually be matched, not an invented
+  contract.
+- Prevent the same reference being processed more than once.
+- Tests for **failure, cancellation, success and callback replay**.
+- If verification safety cannot be proven, use the **existing** fail-closed mechanism in the
+  development environment, and document the impact of disabling the payment method and any release
+  decision that follows.
+- No subscription activated without valid payment evidence. **No production change before release
+  review.**
+
+---
+
+## D-18 — D-13: inventory security on the four named paths (owner, 2026-10-26)
+
+**Approved** for Khalti, PaiementPro, CinetPay and Easebuzz. The objective as stated: prevent stock
+being drained without a payment, or without a legitimate and proven stock reservation.
+
+Required **in this order**:
+
+1. **Verify actual reachability of each path first**, including Plan conditions and any dependency
+   that might prevent reaching the decrement code. (This is the `$plan->shipping_method` unguarded
+   dereference recorded as NOT ESTABLISHED — it may make two of the four latent rather than live.)
+2. Then use the existing `ProductStockService` and `AppliesCartStockChanges` mechanisms **where
+   appropriate**, with tests proving no unauthorised decrement, restoration on failure, and no
+   duplication.
+3. **Do not conflate** verified electronic payment with COD and external-payment paths, which have
+   different rules.
+
+**Also in scope for triage:** F91 (a caller-supplied `store_id` selecting which merchant's gateway
+credentials sign a charge), F92 (AuthorizeNet's capture never reconciled against the order total),
+F96 (the Paymera lock's 10-second TTL held across SMTP and SMS) and F97 (a gateway's
+server-to-server route behind `auth`, with the code's own comment asserting the opposite). For each:
+decide whether it needs an urgent fix or an independent decision.
+
+---
+
+## D-19 — Phase 02 continuation authority (owner, 2026-10-26)
+
+After the safe security remediations: **P2-05-3 through P2-05-8, then P2-06 and P2-07, then the
+remainder of P2-01 and P2-04, and finally P2-08.**
+
+> نفّذ كل المهام الروتينية المعتمدة دون موافقة جديدة لكل شريحة.
+
+So no per-slice approval is needed for approved routine work. Test, review, record the evidence,
+commit and push to the designated branches, and continue. Preserve Flutter, Lynomia Chat and WorkDo
+compatibility. Complete the real isolated MySQL tests where necessary. Keep the Decision Register,
+Task Ledger, Test Evidence and Handoff updated, and **treat nothing as DONE without appropriate
+testing**.
+
+Unchanged prohibitions: no merge to `main`, no production deployment, no production migration, no
+rewriting Git history, no Phase 2.5.
 
 ---
 

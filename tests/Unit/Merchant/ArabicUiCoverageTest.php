@@ -56,22 +56,25 @@ class ArabicUiCoverageTest extends TestCase
     ];
 
     /**
-     * THE ONE EXEMPT STRING, and why it is not translated.
+     * THE EXEMPTION LIST IS NOW EMPTY, and that is the end of a decision rather than an oversight.
      *
-     * A WorkDo demo return policy hard-coded into the PRINTED CUSTOMER RECEIPT
-     * (`order/receipt.blade.php:262`). It names an unrelated brand ("a Milo Showroom"), and it
-     * is truncated mid-sentence -- it ends "and sales c". Translating it would publish a refund
-     * policy that is not Store Syria's, in Arabic, on every printed receipt. Removing or
-     * rewriting it states a refund rule, which is a commercial decision and reserved
-     * ("ولا تغيّر قواعد التسوية أو رد الأموال دون ضرورة مثبتة ومراجعة مستقلة").
+     * It held exactly one string: a WorkDo demo return policy hard-coded into the PRINTED CUSTOMER
+     * RECEIPT, naming an unrelated brand ("a Milo Showroom") and truncated mid-sentence on the
+     * words "and sales c". It was exempt because every available action stated a refund rule --
+     * translating it would publish a policy that is not Store Syria's, rewriting it means
+     * authoring one, deleting it leaves the receipt with none -- and that was reserved to the
+     * owner.
      *
-     * It is recorded as a decision point in
-     * `docs/development/phase-2/P2-03-4-VARIANT-PERSISTENCE-DECISION.md`; the owner supplies the
-     * real text or authorises dropping the paragraph, and then this exemption goes away.
+     * The owner decided it (D-10): remove the paragraph, do not substitute a policy. So the string
+     * is gone from `order/receipt.blade.php` and the exemption went with it, exactly as the old
+     * docblock said it would. `ReceiptReturnPolicyTest` now pins the removal at the RENDERED
+     * level, which a source grep cannot do because the explanatory Blade comment left in that view
+     * quotes the brand name.
+     *
+     * KEPT AS AN EMPTY ARRAY rather than deleted, so that adding an exemption is a visible edit to
+     * a named constant with this history attached, instead of a new mechanism someone invents.
      */
-    private const EXEMPT = [
-        'Merchandise may not be returned for refund at any time. Power bases cannot be',
-    ];
+    private const EXEMPT = [];
 
     private static function root(): string
     {
@@ -185,17 +188,13 @@ class ArabicUiCoverageTest extends TestCase
      * exempts. Both halves matter: the first stops a second exemption being added quietly, the
      * second means the exemption disappears once the string does.
      */
-    public function test_the_exemption_list_is_exactly_the_one_declared_string(): void
+    public function test_the_exemption_list_is_empty(): void
     {
-        $this->assertCount(1, self::EXEMPT,
-            'a second exemption was added -- read the EXEMPT docblock; an untranslated string is '
-            . 'exempt only when translating it would state a commercial rule');
-
-        $receipt = file_get_contents(self::root() . '/resources/views/order/receipt.blade.php');
-        $this->assertNotFalse($receipt);
-        $this->assertStringContainsString(self::EXEMPT[0], $receipt,
-            'the exempt string is no longer in the receipt, so the exemption should be deleted '
-            . 'along with it');
+        $this->assertSame([], self::EXEMPT,
+            'An exemption was added. Read the EXEMPT docblock: a string is exempt from translation '
+            . 'only when translating it would state a commercial rule the owner has not decided, '
+            . 'and the one that ever qualified was decided and removed (D-10). Anything else '
+            . 'untranslated on a Phase 02 surface belongs in ar.json, not here.');
     }
 
     private function oneLine(string $value): string

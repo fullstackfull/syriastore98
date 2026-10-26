@@ -815,13 +815,27 @@ class KhaltiPaymnetController extends Controller
          * and PaymentService (:2594) already use. This was the literal `'Paid'`, with nothing
          * between the shopper's browser and this line having asked a gateway whether money moved.
          *
-         * NO BEHAVIOUR CHANGES TODAY: this payment type is not in
-         * PaymentVerificationService::ENFORCED_PAYMENT_TYPES, so the call returns exactly the 'Paid'
-         * the literal did. What it buys is that the unverified write is LOGGED -- the exposure
-         * becomes measurable -- and that enforcing this gateway later is a one-line change in that
-         * service instead of another edit here. Flipping the posture is the owner's call, because
-         * recording every gateway order as Pending stops merchant wallets being credited; see the
-         * blocker in docs/security/P01-SECURITY-WORK-QUEUE.md.
+         * THIS PARAGRAPH USED TO SAY THE OPPOSITE OF WHAT THE CODE DOES, and the correction matters
+         * because it is the paragraph a reviewer reads to decide whether this path is safe. It said:
+         * "NO BEHAVIOUR CHANGES TODAY: this payment type is not in ENFORCED_PAYMENT_TYPES, so the call
+         * returns exactly the 'Paid' the literal did", and that flipping the posture was still the
+         * owner's to choose.
+         *
+         * Both were true when written and are now false. The owner CHOSE it -- the Phase 01 final
+         * execution directive, "any unverified gateway payment must remain Pending, never Paid" -- and
+         * resolveOrderPaymentStatus() now returns STATUS_PENDING on its no-record branch. That service's
+         * own docblock quotes the superseded sentence and says so.
+         *
+         * WHAT ACTUALLY HAPPENS HERE, and it is the opposite of the sentence above in BOTH of its
+         * clauses: khalti IS in ENFORCED_PAYMENT_TYPES, and this handler DOES record a verification (see
+         * the paragraph below). So an order here is Paid only when a verification exists for this
+         * checkout AND the captured amount reconciles against the order total -- the enforced-type
+         * comparison in PaymentVerificationService. Without a record it is PENDING. This gateway is the
+         * best-guarded of its family on amount, which is why the stale claim that nothing changes here
+         * was the most misleading of the seven copies.
+         * Pinned by tests/Feature/Commerce/PaymentStatusDerivationTest.php and
+         * tests/Feature/Commerce/UnverifiedGatewayStaysPendingTest.php, so the claim above is checkable
+         * rather than another comment to trust.
          */
         /*
          * RECORDING IS WHAT MAKES A VERIFIED KHALTI ORDER PAID AGAIN. Until this line Khalti

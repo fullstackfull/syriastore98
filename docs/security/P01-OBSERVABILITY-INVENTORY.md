@@ -40,7 +40,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | line | message |
 |---|---|
 | `app/Http/Controllers/Concerns/AppliesCartStockChanges.php:111` | Insufficient stock on an order path that cannot refuse; order kept, stock oversold |
-| `app/Http/Controllers/KhaltiPaymnetController.php:1160` | Khalti order written for RECONCILIATION: the gateway could not be asked whether money moved |
+| `app/Http/Controllers/KhaltiPaymnetController.php:1174` | Khalti order written for RECONCILIATION: the gateway could not be asked whether money moved |
 | `app/Http/Controllers/PaymentController.php:469` | Paymera status poll ABANDONED: no API credential is configured |
 | `app/Http/Controllers/PaymentController.php:580` | Paymera callback REJECTED: the payment status could not be established |
 | `app/Http/Controllers/PaymentController.php:840` | Paymera callback REJECTED: inbound signature not verified |
@@ -74,9 +74,9 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:133` | Gateway return refused: no server-stored checkout state. |
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:282` | Gateway return carries no claimable identity; falling back to the session control alone. |
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:296` | Gateway return refused: already claimed. |
-| `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:813` | Gateway return refused: basket names a product from another store. |
-| `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:849` | Gateway return refused: the gateway request could not be built. |
-| `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:866` | Gateway return refused: basket holds a non-positive quantity. |
+| `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:823` | Gateway return refused: basket names a product from another store. |
+| `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:859` | Gateway return refused: the gateway request could not be built. |
+| `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:876` | Gateway return refused: basket holds a non-positive quantity. |
 | `app/Http/Controllers/Concerns/GuardsPlanActivation.php:85` | Plan activation refused: provider is disabled pending verification. |
 | `app/Http/Controllers/Concerns/ResolvesPendingPartialPayment.php:135` | Pending partial payment lookup failed; the payment is refused. |
 | `app/Http/Controllers/Customer/Auth/CustomerLoginController.php:716` | customer login: refused a social row still holding its module-assigned password |

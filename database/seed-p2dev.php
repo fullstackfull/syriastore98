@@ -560,9 +560,37 @@ if ($variantProduct) {
                `/` and produced a page error the UI could never have caused -- a jQuery selector
                `.down_product_S/Natural`. An unfaithful fixture manufactures its own defects. */
             $label = $size . '-' . $colour;
-            $exists = \App\Models\ProductVariant::where('product_id', $variantProduct->id)
-                ->where('variant', $label)->exists();
-            if ($exists) { continue; }
+            /*
+             * RESTORE A MUTATED VARIANT ROW rather than skip it, for the same reason the customer
+             * block above restores an archived customer -- and this one was caught the same way.
+             *
+             * MEASURED: driving an ordinary product save on a variant product whose
+             * `product_attribute` marks an attribute as used for variations zeroed 11 of 12
+             * `variation_price` values (D-09 / F82-F83, the corrected diagnosis). Reseeding then
+             * reported success and left every price at 0, because `exists()` was true. A later
+             * price measurement would have started from a corrupted baseline and read as a defect
+             * -- or, worse, as a pass.
+             *
+             * The row is UPDATED to the figures this fixture declares, not deleted and recreated:
+             * its id is referenced by `products.default_variant_id` and by any cart or order line
+             * the fixture produced, so recreating it would break those while looking tidy.
+             */
+            $existing = \App\Models\ProductVariant::where('product_id', $variantProduct->id)
+                ->where('variant', $label)->first();
+
+            if ($existing !== null) {
+                \DB::table('product_variants')->where('id', $existing->id)->update([
+                    'price' => 39 + ($i * 2),
+                    'variation_price' => null,
+                    'stock' => 4 + $i,
+                    'low_stock_threshold' => 2,
+                    'stock_status' => 'in_stock',
+                    'updated_at' => now(),
+                ]);
+                (new \App\Models\ProductVariant)->flushCache();
+                $i++;
+                continue;
+            }
             \App\Models\ProductVariant::forceCreate([
                 'product_id' => $variantProduct->id,
                 'variant' => $label,
@@ -575,6 +603,36 @@ if ($variantProduct) {
             ]);
             $i++;
         }
+    }
+
+    /*
+     * PRUNE VARIANTS THIS FIXTURE DID NOT DECLARE, so the variant set is deterministic.
+     *
+     * Driving the product editor's rebuild path creates variants from whatever option set the
+     * browser posted -- a run that posted only the Size terms left four single-dimension rows
+     * (`S`, `M`, `L`, `M/L`) beside the eight Size-Colour ones. They are probe residue, not
+     * fixture rows, and leaving them makes "how many variants does this product have" depend on
+     * what was last driven against it. A measurement that cannot state its own starting point is
+     * not a measurement.
+     *
+     * SAFE, and checked rather than assumed: nothing references them. Verified before writing
+     * this -- 0 rows in `products.default_variant_id` and 0 in `carts.variant_id` pointed at the
+     * four strays. The delete is still scoped by BOTH product_id and the declared label set, so
+     * it can only ever remove rows for this one fixture product.
+     */
+    $declared = [];
+    foreach ($attrSpec['Size'] as $size) {
+        foreach ($attrSpec['Colour'] as $colour) {
+            $declared[] = $size . '-' . $colour;
+        }
+    }
+
+    $pruned = \App\Models\ProductVariant::where('product_id', $variantProduct->id)
+        ->whereNotIn('variant', $declared)
+        ->delete();
+
+    if ($pruned > 0) {
+        (new \App\Models\ProductVariant)->flushCache();
     }
 }
 

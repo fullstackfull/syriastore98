@@ -929,13 +929,29 @@ class CinetPayController extends Controller
              * and PaymentService (:2594) already use. This was the literal `'Paid'`, with nothing
              * between the shopper's browser and this line having asked a gateway whether money moved.
              *
-             * NO BEHAVIOUR CHANGES TODAY: this payment type is not in
-             * PaymentVerificationService::ENFORCED_PAYMENT_TYPES, so the call returns exactly the 'Paid'
-             * the literal did. What it buys is that the unverified write is LOGGED -- the exposure
-             * becomes measurable -- and that enforcing this gateway later is a one-line change in that
-             * service instead of another edit here. Flipping the posture is the owner's call, because
-             * recording every gateway order as Pending stops merchant wallets being credited; see the
-             * blocker in docs/security/P01-SECURITY-WORK-QUEUE.md.
+             * THIS PARAGRAPH USED TO SAY THE OPPOSITE OF WHAT THE CODE DOES, and the correction
+             * matters because it is the paragraph a reviewer reads to decide whether this path is
+             * safe. It said: "NO BEHAVIOUR CHANGES TODAY: this payment type is not in
+             * ENFORCED_PAYMENT_TYPES, so the call returns exactly the 'Paid' the literal did."
+             *
+             * That was true when it was written and is now false. The owner's Phase 01 final
+             * execution directive -- "any unverified gateway payment must remain Pending, never
+             * Paid" -- INVERTED the default: PaymentVerificationService::resolveOrderPaymentStatus()
+             * returns STATUS_PENDING when no verification record exists
+             * (PaymentVerificationService.php, the `$verification === null` branch), and that
+             * service's own docblock records that it superseded the very sentence quoted above.
+             *
+             * SO WHAT ACTUALLY HAPPENS HERE: nothing records a verification for this gateway, so
+             * every order this handler writes is PENDING. `OrderObserver::created()` credits a
+             * merchant wallet only for an order already Paid at creation, so no wallet is credited
+             * -- which is the bound that keeps this handler's unverified-stock exposure (F90) from
+             * being free paid goods. A merchant who confirms the capture with the provider marks it
+             * Paid through the existing status workflow, and `OrderObserver::updated()` syncs the
+             * wallet then.
+             *
+             * The behaviour is pinned by tests/Feature/Commerce/PaymentStatusDerivationTest.php and
+             * tests/Feature/Commerce/UnverifiedGatewayStaysPendingTest.php, so the claim above is
+             * checkable rather than another comment to trust.
              */
             $order->payment_status = $this->gatewayReturnPaymentStatus(
                 $requests_data['payment_type'] ?? null,

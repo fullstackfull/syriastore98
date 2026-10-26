@@ -2990,11 +2990,43 @@ class ReportController extends Controller
         $products = Product::where('store_id', getCurrentStore())
             ->get();
 
+        /*
+         * P2-05-3. The fallback threshold, resolved FROM THE SAME STORE AS THE PRODUCTS ABOVE.
+         * P1-SEC-26 recorded why the explicit store argument matters and the sibling
+         * getOutOfStockProducts() already carries that fix: a no-argument getAdminAllSetting()
+         * resolves from the CALLER, and for a staff member it walks up to created_by and reads the
+         * OWNER's current_store -- so a staff member whose owner is in another store would judge
+         * this store's stock by that other store's threshold. This report had no fallback at all,
+         * so it had no such bug to fix; introducing the fallback introduces the hazard, and it is
+         * closed in the same line that creates it.
+         */
+        $lowStockFallback = \App\DataTables\ProductDataTable::stockFallbackThreshold(
+            getAdminAllSetting(null, getCurrentStore())
+        );
+
         $low_stock_products = [];
 
         foreach ($products as $product) {
             if ($product->variant_product == 0) {
-                if ($product->track_stock == 1 && $product->product_stock != 0 && $product->product_stock > 0 && $product->product_stock <= $product->low_stock_threshold) {
+                /*
+                 * P2-05-3. ONE RULE, SHARED WITH THE PRODUCT LIST. This was
+                 * `$product->product_stock <= $product->low_stock_threshold` -- a direct
+                 * comparison with NO FALLBACK -- while the product list treats a per-product
+                 * threshold of 0 as UNSET and falls back to the store's out_of_stock_threshold
+                 * (ProductDataTable::trackedStockState, shared with the list's own filter so the
+                 * badge and the filter cannot disagree).
+                 *
+                 * MEASURED CONSEQUENCE, with low_stock_threshold = 0, stock = 3 and a store
+                 * threshold of 5: the product list said LOW STOCK, this report OMITTED the product
+                 * (3 <= 0 is false), and the out-of-stock report LISTED it as out. Three answers
+                 * for one row of one table. StockReportPredicateTest drives all three.
+                 */
+                if ($product->track_stock == 1
+                    && \App\DataTables\ProductDataTable::trackedStockState(
+                        (int) $product->product_stock,
+                        $product->low_stock_threshold,
+                        $lowStockFallback
+                    ) === 'low') {
                     $low_stock_product = [
                         'product_name' => $product->name,
                         'stock_status' => $product->stock_order_status,
@@ -3010,7 +3042,20 @@ class ReportController extends Controller
                 foreach ($product_stocks as $stock) {
                     $variationOptions = explode(',', $stock->variation_option);
 
-                    if (in_array('manage_stock', $variationOptions) && $stock->stock != 0 && $stock->stock > 0 && $stock->stock <= $stock->low_stock_threshold) {
+                    /*
+                     * P2-05-3, the variant twin. `manage_stock` in `variation_option` is the
+                     * variant's equivalent of the parent's `track_stock`, so it stays; the
+                     * comparison moves onto the shared rule with the SAME fallback. The product
+                     * list renders "In Variant" for a variant product -- it makes no stock claim
+                     * at the parent row and defers to the variant -- so the variant row is the
+                     * authority here, judged by the same predicate.
+                     */
+                    if (in_array('manage_stock', $variationOptions)
+                        && \App\DataTables\ProductDataTable::trackedStockState(
+                            (int) $stock->stock,
+                            $stock->low_stock_threshold,
+                            $lowStockFallback
+                        ) === 'low') {
                         $low_stock_product = [
                             'product_name' => $product->name . '(' . $stock->variant . ')',
                             'category' => $product->ProductData->name,
@@ -3051,9 +3096,37 @@ class ReportController extends Controller
         // staff member whose owner is currently in another store judged this store's stock by that other store's threshold.
         $settings = getAdminAllSetting(null, getCurrentStore());
 
+        /*
+         * P2-05-3. The same fallback the product list uses, off the store-scoped settings above --
+         * and IT DOES NOT AFFECT THIS REPORT'S VERDICT, which is worth stating so that nobody
+         * later "fixes" an out-of-stock complaint by tuning this setting.
+         *
+         * `trackedStockState()` returns 'out' on `$stock <= 0` alone; the threshold only moves the
+         * 'low' boundary. MEASURED: forcing this value to 99 changes nothing -- all five cases in
+         * StockReportPredicateTest still pass -- while forcing the LOW report's fallback to 0 fails
+         * it. So it is passed for one shared call shape across both reports, not because the out
+         * verdict depends on it. The setting is a low-stock fallback; reading it as an
+         * out-of-stock LEVEL is exactly the defect this slice removed.
+         */
+        $outStockFallback = \App\DataTables\ProductDataTable::stockFallbackThreshold($settings);
+
         foreach ($products as $product) {
             if ($product->variant_product == 0) {
-                if ($product->track_stock == 1 && isset($settings['out_of_stock_threshold']) && $product->product_stock <= $settings['out_of_stock_threshold']) {
+                /*
+                 * P2-05-3. THE SAME SHARED RULE, and this leg was wrong in the OPPOSITE direction
+                 * to the low-stock report. It used the store's out_of_stock_threshold as the OUT
+                 * boundary, so a product with 3 units against a threshold of 5 was reported out of
+                 * stock -- while the product list calls a tracked product out only at ZERO and
+                 * calls that one LOW. The setting is a LOW-stock fallback in the list's rule, not
+                 * an out-of-stock level, and reading it as one is what produced a product listed
+                 * simultaneously as low on the catalogue and out in the report.
+                 */
+                if ($product->track_stock == 1
+                    && \App\DataTables\ProductDataTable::trackedStockState(
+                        (int) $product->product_stock,
+                        $product->low_stock_threshold,
+                        $outStockFallback
+                    ) === 'out') {
                     $out_of_stock_product = [
                         'product_name' => $product->name,
                         'stock_status' => $product->stock_order_status,
@@ -3068,7 +3141,13 @@ class ReportController extends Controller
 
                 foreach ($product_stocks as $stock) {
                     $variationOptions = explode(',', $stock->variation_option);
-                    if (in_array('manage_stock', $variationOptions) && isset($settings['out_of_stock_threshold']) && $stock->stock <= $settings['out_of_stock_threshold']) {
+                    /* P2-05-3, the variant twin of the leg above. Same rule, same fallback. */
+                    if (in_array('manage_stock', $variationOptions)
+                        && \App\DataTables\ProductDataTable::trackedStockState(
+                            (int) $stock->stock,
+                            $stock->low_stock_threshold,
+                            $outStockFallback
+                        ) === 'out') {
                         $out_of_stock_product = [
                             'product_name' => $product->name . '(' . $stock->variant . ')',
                             'stock_status' => $stock->stock_order_status,

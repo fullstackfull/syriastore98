@@ -456,17 +456,27 @@ trait GuardsGatewayReturn
      * between the shopper's browser and that assignment having asked a gateway whether money
      * moved.
      *
-     * WIRING IT CHANGES NO BEHAVIOUR TODAY, and that is deliberate. None of these payment types is
-     * in PaymentVerificationService::ENFORCED_PAYMENT_TYPES, so resolveOrderPaymentStatus()
-     * returns exactly the 'Paid' the literal did. What it buys is the two things the service was
-     * built for: every unverified Paid write is now LOGGED, so the residual exposure is
-     * measurable instead of invisible, and enforcing a gateway later becomes a one-line change in
-     * that service rather than another edit to six controllers.
+     * THESE TWO PARAGRAPHS USED TO SAY THE OPPOSITE OF WHAT THE CODE DOES. They said wiring the
+     * service "changes no behaviour today" because none of these payment types is in
+     * ENFORCED_PAYMENT_TYPES "so resolveOrderPaymentStatus() returns exactly the 'Paid' the literal
+     * did", and that flipping the posture was still the owner's to choose.
      *
-     * The service's own docblock states the reason the posture is preserved rather than flipped:
-     * recording every gateway order as Pending would stop merchant wallets being credited for 51
-     * live payment methods -- a business change, not a security fix. Choosing that is the owner's,
-     * and it is the blocker recorded for these six.
+     * Both were true when written and are now false. The owner CHOSE it -- the Phase 01 final
+     * execution directive, "any unverified gateway payment must remain Pending, never Paid" -- and
+     * `resolveOrderPaymentStatus()` now returns STATUS_PENDING on its `$verification === null`
+     * branch. That service's own docblock quotes the superseded sentence and says so.
+     *
+     * WHAT THE WIRING BUYS, CORRECTLY STATED: every handler using this trait that has no
+     * verification producer writes its orders **Pending**, not Paid. The order still exists with
+     * its lines, total and billing record -- the reconciliation path the directive asks for -- and
+     * no merchant wallet is credited, because `OrderObserver::created()` credits only an order
+     * already Paid at creation. A merchant confirms the capture with the provider and marks it Paid
+     * through the existing status workflow.
+     *
+     * This is load-bearing for the E14 review: it is the single bound that makes the unverified
+     * stock decrements on four of these handlers (F90) inventory damage rather than free paid
+     * goods. Pinned by tests/Feature/Commerce/PaymentStatusDerivationTest.php and
+     * tests/Feature/Commerce/UnverifiedGatewayStaysPendingTest.php.
      */
     protected function gatewayReturnVerifier(): \App\Services\PaymentVerificationService
     {

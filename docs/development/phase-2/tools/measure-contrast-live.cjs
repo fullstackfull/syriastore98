@@ -152,7 +152,11 @@ const PROBE = `
 
 /* The screens measured, in order. The bell lives in the header, so it is measured on the feed
    page where it is also populated. */
-const PAGES = ['/order', '/merchant-notifications', '/product', '/product/create'];
+const PAGES = ['/order', '/merchant-notifications', '/product', '/product/create',
+    // P2-05-2 and P2-05-3: the customers list and the stock report, added as those slices
+    // landed. The stock report renders its three tabs in one document, so one visit covers
+    // the low-stock, out-of-stock and most-stocked panels.
+    '/customer', '/stock-report'];
 
 (async () => {
     const browser = await chromium.launch();

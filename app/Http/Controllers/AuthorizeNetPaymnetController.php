@@ -1068,13 +1068,26 @@ class AuthorizeNetPaymnetController extends Controller
                      * and PaymentService (:2594) already use. This was the literal `'Paid'`, with nothing
                      * between the shopper's browser and this line having asked a gateway whether money moved.
                      *
-                     * NO BEHAVIOUR CHANGES TODAY: this payment type is not in
-                     * PaymentVerificationService::ENFORCED_PAYMENT_TYPES, so the call returns exactly the 'Paid'
-                     * the literal did. What it buys is that the unverified write is LOGGED -- the exposure
-                     * becomes measurable -- and that enforcing this gateway later is a one-line change in that
-                     * service instead of another edit here. Flipping the posture is the owner's call, because
-                     * recording every gateway order as Pending stops merchant wallets being credited; see the
-                     * blocker in docs/security/P01-SECURITY-WORK-QUEUE.md.
+                     * THIS PARAGRAPH USED TO SAY THE OPPOSITE OF WHAT THE CODE DOES, and the correction matters
+                     * because it is the paragraph a reviewer reads to decide whether this path is safe. It said:
+                     * "NO BEHAVIOUR CHANGES TODAY: this payment type is not in ENFORCED_PAYMENT_TYPES, so the call
+                     * returns exactly the 'Paid' the literal did", and that flipping the posture was still the
+                     * owner's to choose.
+                     *
+                     * Both were true when written and are now false. The owner CHOSE it -- the Phase 01 final
+                     * execution directive, "any unverified gateway payment must remain Pending, never Paid" -- and
+                     * resolveOrderPaymentStatus() now returns STATUS_PENDING on its no-record branch. That service's
+                     * own docblock quotes the superseded sentence and says so.
+                     *
+                     * WHAT ACTUALLY HAPPENS HERE, and it is half right in a way that hides a real defect: this
+                     * handler DOES record a verification, so its orders get past the no-record branch and are written
+                     * Paid. But 'authorizenet' is NOT in ENFORCED_PAYMENT_TYPES, so the amount reconciliation is
+                     * never reached -- and this handler captures serverPayableAmount() from the state frozen at
+                     * checkout while writing final_price from a FRESH cart read. The two are never compared. That is
+                     * F92, and it is an open decision rather than something this comment should imply is fine.
+                     * Pinned by tests/Feature/Commerce/PaymentStatusDerivationTest.php and
+                     * tests/Feature/Commerce/UnverifiedGatewayStaysPendingTest.php, so the claim above is checkable
+                     * rather than another comment to trust.
                      */
                     /*
                      * P1-PAY-03. THIS HANDLER VERIFIED AND RECORDED NOTHING, so after the

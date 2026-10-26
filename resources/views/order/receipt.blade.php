@@ -256,15 +256,39 @@
             <!--End Table-->
         </div>
         <!--End InvoiceBot-->
-        <div class="footer pt-2">
-            <center>
-                <p class="text-dark p-2">
-                    {{ __('Merchandise may not be returned for refund at any time. Power bases cannot be
-                                        exchanged and are non-refundable. For purchases made in a Milo Showroom, no refunds are available
-                                        and sales c') }}
-                </p>
-            </center>
-        </div>
+        {{--
+            D-10 — the WorkDo demo return policy is REMOVED and deliberately not replaced.
+
+            WHAT WAS HERE, on every printed customer receipt: a hard-coded paragraph stating that
+            merchandise may not be returned for refund at any time, that "power bases" cannot be
+            exchanged, and that no refunds are available for purchases made in "a Milo Showroom" —
+            an unrelated brand — and it ended mid-sentence, on the words "and sales c". WorkDo demo
+            boilerplate, shipped as if it were Store Syria's refund policy.
+
+            WHY NOTHING TAKES ITS PLACE, which is the owner's instruction and not an omission:
+            "لا تستبدله بسياسة إرجاع أو استرداد جديدة من عندك" — do not replace it with a return or
+            refund policy of your own. Writing one would be inventing a commercial rule.
+
+            HE ALSO ALLOWED a real policy to be shown if one is approved and stored in the store's
+            settings. There is none, measured rather than assumed:
+              - zero rows in `settings` whose name matches "polic" or "return";
+              - no `return_policy` / `refund_policy` / `invoice_terms` setting in any migration or
+                any reader in app/;
+              - the one candidate, the storefront route `return-policy`, resolves to
+                `TestimonialController::return_policy()`, which renders `other_page.privacy` — a
+                generic privacy page, not a return policy, and not a store setting.
+            So there is nothing to render, and a placeholder would be a policy statement by
+            implication.
+
+            TO ADD ONE LATER: store the text per-store as a setting, pass it into this view (which
+            today receives only `$order`, `$documentLocale`, `$documentRtl` and `$invoice_logo` and
+            reads no settings at all), escape it, and translate it. The owner also asked that any
+            mandatory invoice-content requirement be checked before release; that check is recorded
+            in the ledger as outstanding and is not something this view can answer.
+
+            NO ACTUAL RETURN OR REFUND RULE IS CHANGED by this removal. The paragraph was display
+            text on a printed document; nothing read it, and no handler branches on it.
+        --}}
     </div>
     <script>
         window.print();
