@@ -3000,5 +3000,6 @@
     "The discounted price customers pay. It must be lower than the price.": "The discounted price customers pay. It must be lower than the price.",
     "What the item costs you. Required, cannot exceed the price, and never shown to customers.": "What the item costs you. Required, cannot exceed the price, and never shown to customers.",
     "Used to work out shipping. Leave blank if your shipping does not depend on weight.": "Used to work out shipping. Leave blank if your shipping does not depend on weight.",
-    "The product list shows Low stock at or below this number. Leave 0 to use the store default.": "The product list shows Low stock at or below this number. Leave 0 to use the store default."
+    "The product list shows Low stock at or below this number. Leave 0 to use the store default.": "The product list shows Low stock at or below this number. Leave 0 to use the store default.",
+    "That order status is not recognised.": "That order status is not recognised."
 }

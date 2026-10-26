@@ -3288,3 +3288,247 @@ The **product editor only**. Workstream I2's wording is "contextual field help",
 merchant screens — orders, customers, inventory, the ~20 settings panels — still have none. The
 component and the ratchet are reusable and the ratchet's field list is per-screen, so extending it
 is additive; P2-06-10 is recorded as done for this screen and open for Workstream I.
+
+---
+
+## 23. `[2026-10-26]` P2-04-14 / E11 — order lines cannot be edited, and a half-vacuous test
+
+### 23a. The rule, and where the lines actually live
+
+> **E11 acceptance:** a server-side guard, not a hidden control; an attempt is refused and logged.
+
+There is no line-item table. `orders.product_json` holds the lines, `orders.product_id` a comma
+list, `orders.product_price` their subtotal — **and all three are in `Order::$fillable`**, which is
+what makes the question real rather than academic.
+
+A census established how the rule is currently held, before any test was written:
+
+- **No route accepts a product list.** The order-mutating routes are assign, status-change,
+  payment-status, update-status, return, return-request and the refund set. Each handler assigns
+  the **one** named field it is about — `$order->payment_status = $request->input('payment_status')`
+  — never the request wholesale.
+- **No handler mass-assigns.** The only `$order->update([...])` in the codebase
+  (`OrderRefundController:359`) passes a literal array.
+- The two post-creation writers of `product_json` are legitimate and neither changes products or
+  quantities: `Order::product_return()` adds the P1-INV-05 restock marker, and
+  `StoreCurrencyConversionService` rewrites **prices** on a currency change — which is E14's
+  question, not E11's.
+
+### 23b. The test posts the edit directly, at all six endpoints
+
+The acceptance says "not a hidden control", so this does not check that the UI omits anything. It
+posts `product_json`, `product_id`, `product_price`, `qty`, `quantity` and a `products` array to
+every order-mutating endpoint and reads the row back. The response is deliberately *not* asserted
+beyond reach: a handler that refuses and one that succeeds at its own job while ignoring the extra
+fields both satisfy E11; one that **writes** them does not, whatever it answers.
+
+Plus a ratchet: no handler may `update`/`fill`/`forceFill` an order from `$request`. That is the one
+change that would break every case at once, and an easy thing to write while adding an endpoint.
+
+Bitten twice:
+
+| introduced | result |
+|---|---|
+| one handler applies the posted `product_json` | that endpoint's case **and** the sequence case fail; the other five still pass |
+| `$order->update($request->all())` | the ratchet fails and names the file |
+
+### 23c. The first version was half vacuous — this is the useful part
+
+It posted a guessed payload and asserted only that the lines were unchanged. Measured, three of six
+endpoints never reached their handler:
+
+```
+    /order-status-change/1   -> 500   the payload used `status`; the handler reads `delivered`
+    /order-assign            -> 302   its validation wants `delivery_boy`, not `deliveryboy_id`
+    /update-final-price/1    -> 403   it needs `Manage Order Refund Request`
+```
+
+So for half the endpoints it was asserting that a request which never ran changed nothing. Every
+row now carries a **reach marker** — `json-success`, `json-any` or `not-403` — and a case whose
+marker fails is a failure, not a quiet pass.
+
+### 23d. Two diagnoses the reach markers forced
+
+**`/order-assign` then answered 500 for a real reason:** it deletes from `delivery_earnings`, a
+**GATE F table with no migration**, so it does not exist in the test database while existing in
+production with live data. The fixture creates it from `GATE-F-VERIFIED-SCHEMA.md:161`'s measured
+DDL, **guarded by `hasTable`** — the F58 lesson, where an unguarded `Schema::create` standing in for
+absent schema collided with the migration that later supplied it and took ten tests down.
+
+**And the 500 on an unrecognised status was a defect in its own right** — F81, below.
+
+---
+
+## 24. `[2026-10-26]` F81 — an unrecognised order status answered 500, on three endpoints
+
+### 24a. A method that could return null, and three callers that dereference it
+
+`Order::order_status_change()` is a chain of `if ($order_status == '...')` arms, each returning. An
+order that **exists** with a status matching no arm fell off the end and returned `null`. All three
+callers dereference the result with no guard:
+
+```php
+OrderController::order_status_change():1345   if ($responce['status'] == 'success')
+Api\ApiController:7449                        if ($date['status'] == 'success')
+Api\DashboardController::statusChange         $responce['order_status'] = ...
+```
+
+→ `Trying to access array offset on null`. Measured as a **500** on the web route. The two API
+callers read the value straight out of the request (`$request->order_status`,
+`$request->delivered`), so any client can produce it.
+
+**It needed no hostile caller.** The `pre_order` arm is gated on `module_is_active('PreOrder')`, so
+a caller sending that perfectly legitimate value — `orders.delivered_status` 8, which **F29** added
+to the API's own status vocabulary — fell through whenever that module is off, which is the default.
+
+### 24b. One default return, not three guards
+
+Nothing is written on that path, and that was verified rather than assumed: the order is read at
+the top and every arm that touches it returns, so an unmatched status had **already** changed
+nothing. What was wrong was only the report. So the fix is a default return in the shape of the
+`Order not found.` arm beside it, and the three callers handle it through code they already have.
+
+Seven tests assert both halves — a clean refusal **and** an untouched row — across four values
+including the realistic `pre_order`-with-the-module-off case, plus a contract test that the method
+always returns an array. Bitten: removing the default return puts all four back to 500 and fails
+the contract test.
+
+### 24c. A hypothesis this refuted, kept because the method matters more than the conclusion
+
+The first reading of `order_status_change` found six handled values by grepping
+`\$order_status == '[a-z_]+'`. The order page's dropdown (`order/view.blade.php:101-143`) offers
+`confirmed`, `pickedup`, `shipped`, **`delivered`**, `cancel`, `return` — and `delivered` was not
+in that list, while `pre_order` was handled and never offered. That read as **"a merchant cannot
+mark an order delivered"**: a serious defect on the most-used merchant screen.
+
+Driving all six through the real endpoint:
+
+```
+    confirmed    -> 200  {"status":"success","order_status":"Confirmed"...
+    pickedup     -> 200  {"status":"success","order_status":"Pickedup"...
+    shipped      -> 200  {"status":"success","order_status":"Shipped"...
+    delivered    -> 200  {"status":"success","order_status":"Delivered"...
+    cancel       -> 200  {"status":"success","order_status":"Cancel"...
+    return       -> 200  {"status":false,"message":"Your order has not been deliver...
+```
+
+The arm is written `if ($order_status ==  'delivered')` — **two spaces** — which the regex's single
+space missed. **A grep is a hypothesis, not a finding.** A test now asserts all six dropdown values
+answer success, so if one ever stops being handled, that genuinely serious case is caught.
+
+---
+
+## 25. `[2026-10-26]` P2-04-15 / E12 — the half of "only authorised changes" nothing tested
+
+### 25a. Gap analysis, not a failure
+
+> **E12 acceptance:** delivery assignment and order notes are writable only by a principal holding
+> the matching permission **and** owning the store.
+> **Required:** a cross-tenant **and** an unpermitted-principal case for each write, bite-tested.
+
+**Order notes: both halves already existed.** `OrderNoteAuthorizationTest` drives nine cases across
+the API and the web — cross-tenant create refused, cross-tenant delete refused, own store works,
+platform admin may write anywhere, unknown note type refused, and
+`test_web_note_create_still_requires_the_permission`. The handler matches:
+`OrderNoteController` delegates to `OrderNotePolicy` (permission, operator, and **fails closed when
+no tenant resolves**) and writes `$note->store_id = $order->store_id` — the **order's** store, not
+`getCurrentStore()`.
+
+**Delivery assignment: the tenancy half existed; the permission half did not.**
+
+| existing case | varies | grants |
+|---|---|---|
+| `OrderMutationTest::test_merchant_cannot_assign_another_stores_order` | a foreign **order** | `Manage Order` |
+| `DeliveryBoyScopeTest::test_an_order_cannot_be_assigned_to_another_stores_driver` | a foreign **driver** | `Manage Order` |
+| `DeliveryBoyScopeTest::test_the_merchants_own_driver_passes_the_guard...` | the positive case | `Manage Order` |
+
+Every one grants the permission and varies only the tenancy. So **nothing asserted the permission
+was required at all**: `OrderPolicy::assign()` delegating to `allow($actor, $order, 'Manage Order')`
+was a reading of the code, and changing that one method to `return true` would have been caught by
+no test in the suite.
+
+### 25b. Three cases, and why the third is not padding
+
+1. A merchant whose **store, order and driver are all their own**, lacking only the permission →
+   **403, nothing written**.
+2. The **same** principal, once the permission is granted → not refused. Without this, a test that
+   refused for any reason at all would pass.
+3. The **platform operator**, without the permission → not refused.
+
+The third exists because `OrderPolicy::allow()` checks the platform admin **first**, and its own
+comment records why: `isAbleTo()` running ahead of it locked the operator out of assign entirely,
+since on a database built from source no role holds `Manage Order`. A permission test that happened
+to use an operator would measure that bypass instead of the permission, so the two are asserted
+separately.
+
+Bitten three ways, each failing exactly its own case:
+
+| introduced | result |
+|---|---|
+| `assign()` returns `true` | **only** the unpermitted case fails |
+| the admin check moved **after** `isAbleTo` — the regression the comment warns about | **only** the operator case fails |
+| `assign()` returns `false` | the positive **and** operator cases fail |
+
+### 25c. The GATE F table, handled the way the codebase already handles it
+
+`delivery_earnings` has no migration, so the handler's own write to it cannot complete in the test
+database. The authorization is asserted **unconditionally** and only the assignment's completion is
+read behind `Schema::hasTable` — the pattern `OrderMutationTest:155-160` establishes, with its
+reasoning stated there: skipping the whole case would drop a tenant-isolation guarantee for a
+reason unrelated to it.
+
+That is a different choice from the one §23d describes for `OrderLineImmutabilityTest`, and
+deliberately so. That file needs the handler to **complete** in order to show it ignores hostile
+fields, so it creates the table from the verified DDL; this one only needs the refusal, so it
+asserts that and reads the rest conditionally.
+
+---
+
+## 26. `[2026-10-26]` E13 and E14 — what is already true, and what is a decision
+
+Neither row needed code. Both needed finding out what the codebase already holds, which is
+recorded here so the next reader does not repeat the search.
+
+### 26a. E13 — one clause measured, one clause has nothing to measure
+
+> **E13 acceptance:** the UI offers no in-place product correction; it offers cancel-and-replace,
+> and the replacement is linked to the original.
+
+**First clause: satisfied, and more strongly than it asks.** §23 posts the edit at all six
+order-mutating endpoints and reads the row back unchanged, with a ratchet against mass assignment.
+"No in-place correction" is asserted against the server, not against the markup.
+
+**Second clause: nothing exists to verify.** Measured — `orders` has 38 columns and **no parent,
+replacement, original or linked-order column**; only `return_price`, `return_status`, `return_date`
+and `cancel_date`. A grep across `app/`, `routes/` and the order views for replacement, reorder or
+duplicate-order workflows returns nothing but unrelated PreOrder hits. Cancellation sets
+`cancel_date` and `delivered_status = 2` and stops.
+
+So there is no replacement order to link and no link to assert. Building it needs a schema change,
+a new order-creation path that copies a cancelled order's lines, and a rule for the original's
+payment and stock — and CLAUDE.md puts **returns** in Phase 04 Commerce. Recorded as a decision
+request with three options; none acted on.
+
+### 26b. E14 — the stock half was already done, thoroughly
+
+`RefundStockIdempotencyTest` holds eleven cases: first restock credits, a replay does not credit
+twice, repeated replays cannot inflate, the restock is a **durable marker**, a second refund on the
+same order can still be restocked, stock returns to the variant the order records, an ambiguous
+variant is skipped rather than guessed, another store's variant is untouched, and a negative refund
+quantity cannot subtract.
+
+The mechanism is `Order::LINE_STOCK_RESTORED`, a **per-line** marker, and P1-INV-15 (E) records why
+per-line rather than per-order: two endpoints could credit a returned line's stock and **neither
+knew about the other** — `Order::product_return()` marks one line,
+`OrderController::restoreReturnedStock()` loops every line — so the ordinary two-step merchant
+workflow credited that line twice. Each endpoint had its own replay guard and each was correct
+about itself.
+
+**The payment half is partial**: one gateway's callback (`PaymeraCallbackIdempotencyTest`) plus the
+refund and COD state machines. What is not established is the same property across the other
+gateways' callbacks — and F46's census already found that block to be byte-identical in nine files,
+so the work is a census and one ratchet, not nine tests. The "and replacement" clause is not
+applicable for the reason above.
+
+Recorded with the gap named rather than marked done. It is money-path work and deserves its own
+slice.

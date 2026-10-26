@@ -136,8 +136,8 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Middleware/LotteryDrawOwnershipGuard.php:260` | lottery draw refused |
 | `app/Http/Middleware/ModuleOrderMutationGuard.php:378` | module order mutation refused |
 | `app/Http/Middleware/ModuleResourceOwnershipGuard.php:374` | module resource mutation refused |
-| `app/Models/Order.php:821` | Order return refused: the order carries no readable product_json |
-| `app/Models/Order.php:832` | Order return refused: the order lines are not in a shape this workflow can return |
+| `app/Models/Order.php:849` | Order return refused: the order carries no readable product_json |
+| `app/Models/Order.php:860` | Order return refused: the order lines are not in a shape this workflow can return |
 | `app/Models/Utility.php:2174` | New Order webhook skipped: no store could be resolved for the order |
 | `app/Models/Utility.php:2184` | New Order webhook skipped: the resolved store does not exist |
 | `app/Providers/PackageServiceProvider.php:80` | addon loader: the dynamic add-on pass failed, so some modules are not loaded |

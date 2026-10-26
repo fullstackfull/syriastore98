@@ -685,6 +685,34 @@ if ($order_status == 'cancel') {
                 $return = \Workdo\PreOrder\app\Models\PreOrder::ManageOrderStatus($date);
                 return $return;
             }
+
+            /*
+             * F81. AN UNRECOGNISED STATUS USED TO FALL OFF THE END AND RETURN NULL, and all three
+             * callers dereference the result without a guard:
+             *
+             *   OrderController::order_status_change():1345   if ($responce['status'] == 'success')
+             *   Api\ApiController:7449                        if ($date['status'] == 'success')
+             *   Api\DashboardController::statusChange         $responce['order_status'] = ...
+             *
+             * so the answer was `Trying to access array offset on null` -- a 500. MEASURED on the
+             * web route. The two API callers take the value straight from the request
+             * (`$request->order_status`, `$request->delivered`), so any client can produce it.
+             *
+             * AND IT IS REACHABLE WITHOUT A CRAFTED REQUEST: the branch above is gated on
+             * `module_is_active('PreOrder')`, so a caller sending the perfectly legitimate
+             * `pre_order` -- `orders.delivered_status` value 8, which F29 added to the API's own
+             * status vocabulary -- falls through here whenever that module is off.
+             *
+             * NOTHING IS WRITTEN on this path, and that is why the fix is a return rather than a
+             * guard at each caller: the order is read at the top and every branch that touches it
+             * returns, so an unmatched status has already changed nothing. What was wrong was only
+             * the REPORT. The shape matches the "Order not found." arm below, so the three callers
+             * handle it through the code they already have.
+             */
+            $return['status'] = 'error';
+            $return['message'] = __('That order status is not recognised.');
+
+            return $return;
         } else {
             $return['status'] = 'error';
             $return['message'] = 'Order not found.';
