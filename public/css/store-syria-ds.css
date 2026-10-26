@@ -2490,6 +2490,58 @@ a.ss-setup__item:focus-visible {
    own row.
    ========================================================================== */
 
+/* --------------------------------------------------------- row density (P2-03-10)
+
+   COMPACT IS THE ONLY RULE HERE, and that is deliberate. "Comfortable" is the
+   ABSENCE of the attribute, so a table nobody has touched -- and every page
+   where the behaviour script does not run -- renders byte-for-byte as before.
+   Writing a comfortable rule would mean hard-coding the vendored theme's own
+   11.2px into this file, which is what `--ss-dt-card-bg` already has to do and
+   is worth not doing twice.
+
+   4px, DERIVED NOT PICKED. Measured on the running product and order lists, the
+   tallest thing in a row is the 32px row-action control group (`span.d-flex` in
+   the last cell); nothing else reaches 32. So the row is `32 + 2 * padding`:
+
+       comfortable   32 + 2 * 11.2 + 1  = 55.4  ->  55px  (measured at all 5 widths)
+       compact       32 + 2 * 4    + 1  =          41px  (measured)
+
+   THE +1 IS THE CELL'S OWN BOTTOM BORDER, and it is in the sum because the `td`
+   is `content-box`: `border-bottom: 1px` sits outside the declared height. The
+   first version of this comment said 40px from `32 + 2 * 4` and the browser
+   check reported 41 -- the measurement was right and the arithmetic was short a
+   border.
+
+   The 32px control is deliberately left alone: the acceptance asks for a 24px
+   touch target at the compact height, and shrinking the control to win a few
+   more pixels would spend the requirement to buy rows.
+
+   `padding-block`, so there is nothing to mirror in RTL -- the logical property
+   is the inline axis's business and this rule never touches it.
+
+   THE PINNED COLUMN IS INCLUDED ON PURPOSE. `td.ss-col-pinned` is `position:
+   sticky` with an opaque background copied from the host card; if its padding
+   stayed at 11.2px while its neighbours went to 4px, the sticky cell would be
+   taller than its own row and paint over the border beneath it. */
+[data-ss-density="compact"] table.dataTable > tbody > tr > td,
+[data-ss-density="compact"] table.dataTable > tbody > tr > th {
+    padding-block: 4px;
+}
+
+/* The toggle's own pressed state, drawn WITHOUT COLOUR as the only signal: the
+   inset shadow and the border both change, so it reads as pressed in a
+   high-contrast or forced-colours context too, and on a merchant whose brand
+   colour happens to match the surface. Same reasoning as the column menu's
+   selection indicator (P2-03-1 follow-up). */
+.ss-density[aria-pressed="true"] {
+    box-shadow: inset 0 0 0 2px currentColor;
+}
+
+.ss-density:focus-visible {
+    outline: 2px solid var(--ss-focus, #2563eb);
+    outline-offset: 2px;
+}
+
 .ss-dt-card-body { --ss-dt-card-bg: #ffffff; }
 [data-ss-theme="dark"] .ss-dt-card-body { --ss-dt-card-bg: #292a33; }
 @media (prefers-color-scheme: dark) {

@@ -584,6 +584,145 @@
         return data;
     }
 
+    /* --------------------------------------------------- row density (P2-03-10)
+
+       THE HALF OF P2-03-1 THAT WAS NOT DONE. The merchant lists are 55px per
+       row at every width with no way to change it -- MEASURED at 1440, 1280,
+       992, 768 and 390, all five identical.
+
+       WHAT SETS THE FLOOR, measured rather than assumed. 55px is not the text:
+       the cell is 14px/21px type with 11.2px of block padding, which comes to
+       43.4px. The extra 11.6 is the ROW ACTIONS -- a 32px control group in the
+       last cell (`span.d-flex`), on the order list as well as the product list,
+       and nothing in either row is taller. So the row height is
+       `32 + 2 * padding-block`, and the only honest way to compact it is to cut
+       the padding and leave the control alone:
+
+           comfortable   32 + 2 * 11.2  = 54.4  -> 55px   (the theme's own value)
+           compact       32 + 2 * 4     = 40px
+
+       That is a 27% reduction, and the 32px control is untouched -- still well
+       past the 24px touch target the acceptance asks for, with 8px to spare.
+       Shrinking the control to buy more would trade the requirement for rows.
+
+       THE CHOICE RIDES THE STATE THAT ALREADY EXISTS. P2-06-4 gave every table
+       `stateSave` with `stateDuration: 0` (localStorage, no expiry), and
+       DataTables persists whatever keys are on the state object -- its default
+       `stateSaveCallback` is `JSON.stringify(data)`. So density is one more key
+       beside the column set and the page length, stored and restored by the
+       same mechanism, rather than a second preference store with its own bugs.
+
+       COMFORTABLE IS THE ABSENCE OF THE ATTRIBUTE, not a value of it. The
+       stylesheet only has a rule for `compact`, so a table that has never been
+       touched -- and a page where this script does not run at all -- renders
+       exactly as it did before. */
+
+    var DENSITIES = ['comfortable', 'compact'];
+
+    /* THE AUTHORITATIVE VALUE, per table, keyed by the table's id -- one page can
+       carry several tables (the dashboard carries two) and a single variable
+       would give the second one the first one's choice.
+
+       IT IS THE SOURCE OF TRUTH, AND THE DOM IS ITS PROJECTION. This started out
+       as a one-shot stash that `stateSaveParams` ignored in favour of reading the
+       attribute off the container, and that was a real bug the browser check
+       caught: DataTables saves state DURING init, BEFORE `initComplete` runs, so
+       the container had no `data-ss-density` yet, `compact` read back as
+       `comfortable`, and the save clobbered the stored choice. The DOM looked
+       right for that one page view -- the attribute was applied a moment later --
+       and the NEXT reload came back comfortable, which is the shape of bug that
+       survives a careless manual test. Reading the map first removes the ordering
+       hazard instead of trying to sequence around it. */
+    var densityState = {};
+
+    function densityKey(api) {
+        try {
+            var node = api.table().node();
+            return (node && node.id) || '';
+        } catch (e) { return ''; }
+    }
+
+    function densityHost(api) {
+        try {
+            return api.table().container() || null;
+        } catch (e) { return null; }
+    }
+
+    function currentDensity(host) {
+        if (!host) { return 'comfortable'; }
+        var v = host.getAttribute('data-ss-density');
+        return DENSITIES.indexOf(v) === -1 ? 'comfortable' : v;
+    }
+
+    function applyDensity(host, density) {
+        if (!host) { return; }
+        if (DENSITIES.indexOf(density) === -1) { density = 'comfortable'; }
+        host.setAttribute('data-ss-density', density);
+
+        /* The control is a toggle, so it carries its own state for a screen
+           reader. `aria-pressed` and not a class: the pressed look is the
+           stylesheet's business, the pressed FACT is the button's. */
+        var btn = host.querySelector('.ss-density');
+        if (btn) {
+            btn.setAttribute('aria-pressed', density === 'compact' ? 'true' : 'false');
+        }
+    }
+
+    /* stateSaveParams: put the authoritative value on the object DataTables is
+       about to store -- the map first, the DOM only as a fallback for a table
+       this module never initialised. See the note on `densityState` for why the
+       order matters. */
+    function saveDensityState(settings, data) {
+        if (!data || typeof data !== 'object') { return data; }
+        try {
+            var api = new window.jQuery.fn.dataTable.Api(settings);
+            var k = densityKey(api);
+            var known = k ? densityState[k] : null;
+            data.ssDensity = DENSITIES.indexOf(known) !== -1
+                ? known
+                : currentDensity(densityHost(api));
+        } catch (e) { /* a table built outside the admin layout */ }
+        return data;
+    }
+
+    /* stateLoadParams: DataTables hands us the stored object BEFORE the table is
+       built, so the value is stashed and applied by initComplete -- the
+       container does not exist yet at this point. */
+    function loadDensityState(settings, data) {
+        if (!data || typeof data !== 'object') { return data; }
+        try {
+            var api = new window.jQuery.fn.dataTable.Api(settings);
+            var k = densityKey(api);
+            if (k && DENSITIES.indexOf(data.ssDensity) !== -1) {
+                densityState[k] = data.ssDensity;
+            }
+        } catch (e) { /* as above */ }
+        return data;
+    }
+
+    function initTableDensity(api) {
+        var host = densityHost(api);
+        if (!host) { return; }
+        var k = densityKey(api);
+        var density = (k && densityState[k]) || 'comfortable';
+        if (k) { densityState[k] = density; }
+        applyDensity(host, density);
+    }
+
+    function toggleTableDensity(api) {
+        var host = densityHost(api);
+        if (!host) { return; }
+        var k = densityKey(api);
+        var now = (k && densityState[k]) || currentDensity(host);
+        var next = now === 'compact' ? 'comfortable' : 'compact';
+        if (k) { densityState[k] = next; }
+        applyDensity(host, next);
+        /* Persist immediately. Without this the choice survives only until the
+           next event that happens to save state, and a reload would lose it --
+           which is the one thing the acceptance asks for by name. */
+        try { api.state.save(); } catch (e) { /* no state on this table */ }
+    }
+
     /* ------------------------------------------- notification badge (P2-06-3)
 
        ONE FETCH, ONE NUMBER. The bell is a plain link to the notifications
@@ -672,6 +811,15 @@
         // that `buildDataTable()` puts on every merchant table, so the rule
         // lives in one place rather than inlined 68 times.
         sanitizeTableState: sanitizeTableState,
+        // P2-03-10. The four hooks `buildDataTable()` wires for row density, so
+        // the rule lives here with its measurements rather than inlined.
+        tableDensity: {
+            save: saveDensityState,
+            load: loadDensityState,
+            init: initTableDensity,
+            toggle: toggleTableDensity,
+            current: currentDensity
+        },
         // P2-06-3. Exposed so a screen that just marked a notification read can
         // refresh the header count without a reload.
         updateNotificationBadge: updateNotificationBadge

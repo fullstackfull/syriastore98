@@ -2973,5 +2973,6 @@
     "Download :name": "Download :name",
     "Delete this note": "Delete this note",
     "Choose columns": "Choose columns",
-    "This language cannot be deleted: it is the default or the fallback language.": "This language cannot be deleted: it is the default or the fallback language."
+    "This language cannot be deleted: it is the default or the fallback language.": "This language cannot be deleted: it is the default or the fallback language.",
+    "Row density": "Row density"
 }

@@ -1852,3 +1852,124 @@ $ php tests/Support/Security/bin/verify-menu-render-parity.php
 changed no Feature outcome. The manifest was not touched. The first Feature run of this slice was
 **discarded rather than reported**: it was started before the review fixes landed and the tree
 changed underneath it, so its verdict would not have been about any single state of the code.
+
+---
+
+## 12. `[2026-10-26]` P2-03-10 — row density, and the bug the check found
+
+### 12a. What makes a merchant row 55px, measured rather than assumed
+
+The ledger recorded "55px at every one of 1440 / 1280 / 992 / 768 / 390, with no control to change
+it". Re-measured on the running product list, all five widths identical:
+
+```
+ 1440px  rowH=55  td padding-block=11.2px/11.2px  line-height=21px  font=14px  action=32x32
+ 1280px  rowH=55  ... identical ...
+  992px  rowH=55
+  768px  rowH=55
+  390px  rowH=55
+```
+
+**The text is not what makes it 55.** 21px of line box inside 2×11.2px of padding is 43.4px. The
+rest is the **row-action control group** — a 32px `span.d-flex` in the last cell. Measured per cell
+on both the product and order lists, nothing else in a row reaches 32:
+
+```
+/product  rowH=55  tallest: col 9 span.ss-badge 22px · col 11 span.d-flex 32px
+/order    rowH=55  tallest: col 1 div.d-flex 28px · col 7 span.ss-badge 22px · col 8 span.d-flex 32px
+```
+
+So the row is `32 + 2*padding + 1px border` — the border counts because the `td` is `content-box`
+(`border-bottom: 1px`, verified by reading the computed style, not the stylesheet):
+
+```
+comfortable   32 + 2 * 11.2 + 1  =  55.4  ->  55px
+compact       32 + 2 * 4    + 1  =          41px
+```
+
+**The first arithmetic in the commit said 40px and the browser said 41.** The measurement was right
+and the sum was short a border. The expectation was corrected, not the code — and the +1 is now in
+the stylesheet's own comment so the next reader does not repeat it.
+
+**The 32px control is deliberately left alone.** The acceptance asks for a 24px touch target at the
+compact height; the control clears it with 8px to spare. Shrinking it to win a few more pixels
+would spend the requirement to buy rows.
+
+### 12b. The defect the browser check found, which a manual test would have passed
+
+First run: **27 of 35**. Eight failures, and the interesting ones were not the height:
+
+```
+FAIL  it is stored in the SAME DataTables state as the column set and page length
+      [stored={"k":"DataTables_product-table_/product","d":"comfortable"}]
+FAIL  switching BACK to comfortable persists as well  [density=compact rowH=41]
+```
+
+**DataTables saves state DURING init, before `initComplete` runs.** The save hook read the live
+density off `data-ss-density` on the container — which does not carry the attribute yet at that
+moment — so it read `comfortable` and **wrote it over the stored `compact`**. The page then applied
+compact a moment later, so the DOM looked correct for that view and only the NEXT reload came back
+comfortable. That is the shape of bug a careless manual test passes.
+
+Fixed by making a per-table map the source of truth and the DOM its projection, rather than trying
+to sequence around the ordering. Keyed by table id, because one page can carry several tables.
+
+### 12c. 35/35, and bitten three ways
+
+```
+$ node docs/development/phase-2/tools/check-row-density-live.cjs http://127.0.0.1:8899 1
+  35 of 35 cases passed                                                    exit 0
+```
+
+Covering, item by item against the ledger's acceptance: the toggle renders; the table opens
+comfortable at 55px; clicking switches to compact at 41px with 4px padding; `aria-pressed` tracks
+it; the pressed state is an inset ring rather than a colour; the actions still measure 32×32 and
+**Edit is really clicked, not merely measured**; the choice survives a reload; it is stored in the
+same `DataTables_*` localStorage entry as the column set and page length; **a different table is
+unaffected and opens comfortable** (the acceptance says "per table"); switching back persists too;
+and both densities in all four LTR/RTL × light/dark configurations, with the accessible name
+asserted as Arabic on the RTL legs and non-Arabic on the LTR ones.
+
+Bite-tested, each removal failing exactly its own cases and no others:
+
+```
+remove the compact padding rule          ->  8 of 35 FAILED   (rowH back to 55)
+save reads the DOM instead of the map    ->  2 of 35 FAILED   (reproduces the original defect)
+drop aria-pressed                        ->  3 of 35 FAILED   (incl. the non-colour indicator)
+```
+
+`RowDensityTest` — 4 tests / 24 assertions on the wiring — bitten two ways: removing the button
+from the helper fails 2 cases, and collapsing the two state hooks back into one shared function
+(the P2-06-4 shape) fails exactly the case that exists for it.
+
+### 12d. Screenshots
+
+8, in `docs/development/phase-2/screenshots/p2-03-density/`, both densities × LTR/RTL ×
+light/dark at 1440, each stamped with its measured row height at capture time:
+
+```
+comfortable-{ltr,rtl}-{light,dark}-1440.png   row=55px
+compact-{ltr,rtl}-{light,dark}-1440.png       row=41px
+```
+
+Reviewed, not merely captured: the RTL/dark compact shot shows nine rows where LTR/light
+comfortable shows six, the toggle is present and visibly pressed, the row actions and status
+badges are intact, and BulkDelete's select-all column is rendering — so the module really was
+enabled for the capture.
+
+### 12e. Suites, on the final tree
+
+```
+Unit      375 passed (2051 assertions)                                  exit 0
+Feature   2 failed, 17 skipped, 5925 passed (30079 assertions)          exit 1 (the 2 declared)
+          gate: 5944 testcases, 2 failures (declares 2), 0 errors,
+                17 skips (declares 17) -- outcome set matches exactly   exit 0
+Contract  26 passed (83 assertions)                                     exit 0
+verify-menu-render-parity.php
+          ALL FIXTURES AND SELECTORS MATCH                              exit 0
+```
+
+5925 is 5921 + the 4 new wiring tests; no existing Feature outcome moved, and the manifest was not
+touched. The parity script matters here specifically: it `eval`s `menuTree()` straight out of
+`app/Helper/helper.php`, which this slice edits, so it is a real check on this change rather than a
+formality.

@@ -2874,6 +2874,21 @@ if (! function_exists('buildDataTable')) {
                                 return $(this).attr(\'title\') || undefined;
                             })
                             .attr(\'aria-haspopup\', \'true\');
+
+                        /* P2-03-10. Apply the stored density, then name the toggle off its own
+                           `title` -- the same route the column button takes, and for the same
+                           measured reason (Buttons 1.3.1 drops `attr`). `aria-pressed` is set by
+                           `applyDensity` inside init, so the control is never announced as a
+                           toggle without a state. */
+                        if (window.StoreSyriaDS && window.StoreSyriaDS.tableDensity) {
+                            window.StoreSyriaDS.tableDensity.init(table.api());
+                        }
+
+                        $(table.api().table().container())
+                            .find(\'.ss-density\')
+                            .attr(\'aria-label\', function () {
+                                return $(this).attr(\'title\') || undefined;
+                            });
                     }');
 
         $exportButtonConfig = [];
@@ -2928,10 +2943,43 @@ if (! function_exists('buildDataTable')) {
              */
         ];
 
+        /*
+         * P2-03-10 -- ROW DENSITY, the half of P2-03-1 that was not done.
+         *
+         * Here for the same reason the column menu is: this helper builds all 68 merchant tables,
+         * so one button reaches every one of them and no `packages/workdo/` file is touched to
+         * reach the vendored 29.
+         *
+         * A TOGGLE, NOT A MENU. There are exactly two densities, so a menu would be a list of two
+         * with an extra click and a popup to manage. The pressed state is carried by
+         * `aria-pressed`, which `StoreSyriaDS.tableDensity` keeps in step with the attribute it
+         * sets -- and the stylesheet draws it with an inset ring rather than a colour, so it reads
+         * as pressed against a merchant's own brand colour and under forced colours.
+         *
+         * `action` RATHER THAN A CLICK HANDLER BOUND LATER. Buttons owns this node and re-renders
+         * it on a redraw; a jQuery handler bound in `initComplete` would be lost the first time
+         * the table paged. The action is Buttons' own seam and survives that.
+         *
+         * NO `attr` KEY, and the reason is the measured one from P2-03-1: Buttons 1.3.1 accepts
+         * `attr` and silently drops it, so the accessible name is set in `initComplete` where it
+         * can be read back off the DOM.
+         */
+        $densityButtonConfig = [
+            'text' => '<i class="ti ti-line-height" aria-hidden="true"></i>',
+            'titleAttr' => __('Row density'),
+            'className' => 'btn btn-light-primary ss-density',
+            'action' => 'function (e, dt) {
+                if (window.StoreSyriaDS && window.StoreSyriaDS.tableDensity) {
+                    window.StoreSyriaDS.tableDensity.toggle(dt);
+                }
+            }',
+        ];
+
         $buttonsConfig = array_merge([
             $exportButtonConfig,
             $bulkdeleteButtonConfig,
             $colvisButtonConfig,
+            $densityButtonConfig,
             [
                 'text' => '<i class="ti ti-arrow-back-up" data-bs-toggle="tooltip" title="'.__("Reset").'" data-bs-original-title="'.__("Reset").'"></i>',
                 'extend' => 'reset',
@@ -2973,11 +3021,39 @@ if (! function_exists('buildDataTable')) {
             }
         }';
 
+        /*
+         * P2-03-10. The two directions are NOT symmetrical, which is why they are no longer the
+         * same function. Saving writes the live density onto the object DataTables is about to
+         * store; loading reads it back BEFORE the table exists, so it is stashed and applied by
+         * `initComplete`. Giving both legs `$sanitizeState` -- as the single shared hook did --
+         * would have stored no density at all and restored nothing.
+         *
+         * The sanitiser still runs on both legs, unchanged: the search term and the page number
+         * are stripped in each direction exactly as P2-06-4 left them.
+         */
+        $stateSaveParams = 'function (settings, data) {
+            if (window.StoreSyriaDS && window.StoreSyriaDS.sanitizeTableState) {
+                window.StoreSyriaDS.sanitizeTableState(data);
+            }
+            if (window.StoreSyriaDS && window.StoreSyriaDS.tableDensity) {
+                window.StoreSyriaDS.tableDensity.save(settings, data);
+            }
+        }';
+
+        $stateLoadParams = 'function (settings, data) {
+            if (window.StoreSyriaDS && window.StoreSyriaDS.sanitizeTableState) {
+                window.StoreSyriaDS.sanitizeTableState(data);
+            }
+            if (window.StoreSyriaDS && window.StoreSyriaDS.tableDensity) {
+                window.StoreSyriaDS.tableDensity.load(settings, data);
+            }
+        }';
+
         $dataTable->parameters([
             'stateSave' => true,
             'stateDuration' => 0,
-            'stateSaveParams' => $sanitizeState,
-            'stateLoadParams' => $sanitizeState,
+            'stateSaveParams' => $stateSaveParams,
+            'stateLoadParams' => $stateLoadParams,
             "dom" =>  "
         <'dataTable-top'<'dataTable-dropdown page-dropdown'l><'dataTable-botton table-btn dataTable-search tb-search  d-flex justify-content-end gap-1'Bf>>
         <'dataTable-container'<'col-sm-12'tr>>
