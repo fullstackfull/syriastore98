@@ -146,6 +146,26 @@ const PROBE = `
        three times: the measurements came back as this comment's text.) */
     measure('field help (slug)', '#slug-help');
     measure('field help (weight, in the disclosure)', '#product_weight-help');
+
+    /* P2-05-3's stock report. Its tab rail is a NEW surface -- nav-pills styled as list-group
+       items, with an active state that changes both colours at once -- and the three stock badge
+       tones are the figures this slice put there, replacing an empty column and a raw Bootstrap
+       pill.
+       ON WHERE THE TONE READINGS COME FROM, stated because the dedupe makes it matter: this file
+       keeps one reading per config and element, first screen wins, so a tone may be measured on
+       the product list rather than on the report. That is legitimate here and not a gap -- both
+       screens render the same ss-badge tokens on the same card surface, which is exactly the
+       equivalence the dedupe exists to exploit. What is NOT equivalent, and so is measured
+       separately, is a token pair on a DIFFERENT surface: the F8 lesson, and the reason the feed
+       timestamps and upload hints above are each read twice.
+       NO BACKTICKS IN THIS COMMENT. It lives inside a template literal, so a backtick ends the
+       probe. This file's own notes record that happening three times; a fourth occurred in a
+       sibling harness the same day. */
+    measure('stock report tab (inactive)', '#pills-tab .nav-link:not(.active)');
+    measure('stock report tab (active)', '#pills-tab .nav-link.active');
+    measure('stock badge (low)', '.ss-badge--warning');
+    measure('stock badge (out)', '.ss-badge--danger');
+    measure('stock badge (in stock)', '.ss-badge--success');
     return out;
 })()
 `;

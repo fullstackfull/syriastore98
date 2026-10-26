@@ -155,10 +155,11 @@ gateways. The review covers that population, not nine.
 
 ---
 
-## D-09 — variant price and stock persistence: AWAITING OWNER DECISION (F82, F83, F84)
+## D-09 — variant price and stock persistence: DECIDED (D-16) AND IMPLEMENTED (F82, F83, F84, F105)
 
-**Raised:** 2026-10-26, by driving the product edit page. **Status: open — the owner chooses.**
-**Nothing in the code has been changed.** Full evidence:
+**Raised:** 2026-10-26, by driving the product edit page. **Decided by the owner as D-16 (A1)
+and implemented on 2026-10-26** — see "How A1 was actually built" at the end of this entry, which
+also records that **this entry's original diagnosis was wrong** and how. Full evidence:
 `P2-03-4-VARIANT-PERSISTENCE-DECISION.md` §2.
 
 **What was measured.** A variant price or stock edit made on the edit page is **silently
@@ -189,6 +190,75 @@ selling at the old price is a commercial defect either way.
 delete and the zeroing, plus a static ratchet on the delete sites — mutation-checked both ways.
 F84 (an unguarded `visible_attribute_<no>` read, not UI-reachable) is recorded against whichever
 option is chosen rather than patched in isolation.
+
+### How A1 was actually built, and the two things that had to be unlearned first
+
+**THE DIAGNOSIS ABOVE IS WRONG WHERE IT SAYS THE EDIT PAGE DOES NOT POST THE GATE'S KEYS.** It
+does. The page calls `attribute_option_data()` from `$(document).ready`, which injects the values
+panel — carrying `options_datas[]` — into the form before the merchant has touched anything.
+Driving the real form produced **154 named parts carrying all three gate keys**; the probe that
+reported otherwise matched only the FIRST occurrence of a repeated multipart name. So the edit
+was never "discarded for want of a key": it reached a writer that overwrote it. That is also why
+F105 exists — an ordinary save with no field touched was already running the rebuild.
+
+**THE OBVIOUS IMPLEMENTATION OF THE OWNER'S EXTRA CONDITION WAS DRAFTED AND REFUTED.** The
+condition is that an ordinary save must stop opening the rebuild merely because `for_variation=1`
+sits in the stored product data. The natural reading — compare the posted attribute configuration
+against the stored `products.product_attribute` and rebuild only on a difference — was designed
+in full and then independently refuted. Three findings killed it:
+
+- That column holds **at least four incompatible shapes**: `store()` writes the terms verbatim,
+  `update()` writes resolved option ids, the degenerate `[""]`, and the literal string `'NULL'`
+  that `edit.blade.php` already tests for. `product_attribute_options.terms` is an unconstrained
+  varchar, so a numeric term is indistinguishable from an option id. The comparison would have
+  read "changed" on the first save of most products and fired the very rebuild it was added to
+  prevent.
+- The same draft gated the write of `product_attribute` on that comparison. That column is the
+  **only** store for the "Visible on the product page" flag, so the toggle would have become
+  unsavable; and it is `''` on every simple product, so enabling variations on one would have
+  been **permanently locked out** — first save false, nothing written, still `''`, forever.
+- Its test plan would have passed against unfixed code, because the values panel echoes each
+  stored price back.
+
+**What was built instead.** Two independent halves, neither of which touches
+`products.product_attribute`:
+
+1. **The writer is non-destructive.** `ssVariantValue()` replaces
+   `!empty($request[k]) ? $request[k] : DEFAULT` on every per-variant column: an absent or blank
+   key leaves an existing column alone and only takes the default on a row being created, and a
+   posted `"0"` is stored as 0 — which `!empty("0") === false` made impossible before. The `sku`
+   write, which was unconditional and recomputed from the product name, now only fires when the
+   merchant actually typed a token.
+2. **The destructive delete is left exactly as it was** — and that is the second thing that had
+   to be unlearned. A set-difference guard over `product_variants.variant` was built for it and
+   then refuted by review of my own change: `whereNotIn('variant', $com)` already deletes exactly
+   the rows in `array_diff(existing, posted)`, so such a guard is a restatement of "this delete
+   has something to delete" and can never change an outcome. A `store_id` predicate added
+   alongside it was worse — it bought nothing the ownership check does not already give, and it
+   would have silently stopped the **platform operator's** cleanup, because `getCurrentStore()`
+   returns the literal 1 for an admin with no `current_store`. Both are removed and recorded as
+   **F113**, with the reasoning left at the delete so they are not re-added.
+
+The gate itself still opens on `for_variation_N == 1`; what it can no longer do is damage
+anything, because the writer no longer overwrites a column the merchant did not send. What
+protects an ordinary save from the delete is not a new guard: it is that the values panel is
+built FROM the variant rows, so an ordinary save posts the set that already exists and the delete
+matches nothing — plus the pre-existing `ss_last_seen_at` conflict guard for the stale-form race.
+**That is thinner than a guard would be, and it is stated here rather than dressed up:** what a
+deliberate narrowing should do is a commercial decision, recorded as D-20 below.
+
+**Against the binding conditions.** No deletion or zeroing on an ordinary save: proven, and six
+of twelve tests across the two variant files fail when the controller is reverted.
+Configuration path separate from the daily-values path: the destructive operation now requires a
+genuine set difference, which only the configuration panel produces. Permissions: unchanged —
+the path sits behind `update()`'s existing operator-first ownership check, which was reviewed
+rather than assumed. Partial edits: covered (absent key, blank key, typed `"0"`). **Concurrency
+is NOT covered by a test and must not be read as if it were** — the suite runs SQLite
+`:memory:` with `CACHE_STORE=array`, so `Cache::lock` is process-local and no Feature test can
+stage two merchants saving one product; what exists is the pre-existing `ss_last_seen_at`
+conflict guard, unchanged by this work. **F82, F83 and F105 are closed; F84 remains recorded.**
+Six further defects found while reading this code are recorded as **F107–F112** and deliberately
+**not** fixed here.
 
 ---
 
@@ -389,7 +459,7 @@ stock because its payment path normally does. Whether a durable record exists th
 
 ---
 
-## D-16 — D-09: design A1 approved (owner, 2026-10-26)
+## D-16 — D-09: design A1 approved (owner, 2026-10-26) — IMPLEMENTED 2026-10-26
 
 **Approved.** Edit existing variants **in place**, without rebuilding every variant when a price,
 stock or SKU changes.
@@ -486,3 +556,37 @@ Reaffirmed by the owner on 2026-10-26 and in force for all of Phase 02:
 - **No new or duplicate commercial engines.** Reuse the existing product, order, payment and stock
   services.
 - **No weakening of CI and no manufactured results.** Green CI is necessary evidence, not proof.
+
+## D-20 — what a deliberate narrowing of an attribute's option set should do to the variants it no longer covers: DECISION REQUESTED
+
+**Raised:** 2026-10-26, out of the D-09 implementation. **Nothing has been changed; today's
+behaviour is preserved exactly.**
+
+**What happens today.** When a merchant removes a term from an attribute — so the posted
+combination set is narrower than the variants that exist — the uncovered variant rows are
+**hard-deleted**. Not soft-deleted: a raw table read cannot see them either. Measured: a product
+with 8 variants saved with a 4-combination option set came back with 4 rows and the other 4 gone,
+with their prices, SKUs and stock.
+
+**Why it is now a question.** D-09 removed the case where this fired by **accident** — the writer
+no longer overwrites untouched columns, so an ordinary save is harmless. What remains is the
+deliberate case, and there the delete is doing exactly what it was written to do. The owner's
+D-16 condition was that an ordinary save must not delete unsent variants; it is silent on what a
+*deliberate* narrowing should do, and inventing an answer would be inventing a merchant-facing
+rule.
+
+**The two answers, and what each costs.**
+
+| | What the merchant sees | Cost |
+|---|---|---|
+| **Keep the hard delete** (today) | Removing a term removes its variants, silently. | Irreversible. A merchant who removes a term to re-add a renamed one loses every price and SKU under it, with no warning and no undo. |
+| **Refuse and name what would be lost** | The save is rejected with "this would delete S-Red, M-Red (…) — confirm to proceed", and a confirmed save then deletes. | One extra round trip and a confirmation key on the configuration path. Reversible, which a hard delete is not. |
+
+**Recommendation: refuse and name.** A refusal can be undone by pressing the button again; a hard
+delete of priced rows cannot be undone at all. But this is a decision about what the product does,
+not a defect, so it waits.
+
+**Not blocking anything.** F82, F83 and F105 are closed either way; this governs only the
+configuration path, which is unchanged.
+
+---

@@ -2984,6 +2984,46 @@ class ReportController extends Controller
         ]);
     }
 
+    /*
+     * P2-05-3. THE STOCK BADGE A REPORT ROW SHOWS, derived from the one shared rule.
+     * ============================================================================
+     *
+     * MEASURED on the live report before this existed. The status column -- header
+     * "Stock status" -- was EMPTY on the low-stock and most-stocked tabs for every row, and the
+     * out-of-stock tab showed a raw Bootstrap `bg-light-danger` pill. The other two were blank
+     * because the partials gated on `stock_order_status` being one of four values and the products
+     * carry NULL; had it read `allow`, the LOW-STOCK report would have shown a badge reading
+     * **"In stock"** on every low row. Either way the column answered a different question from
+     * the tab it sits in.
+     *
+     * `stock_order_status` is the merchant's BACKORDER POLICY (allow / not_allow), not a stock
+     * level. Reading it as a level is the same category error as the two predicates this slice
+     * already corrected: the setting means one thing and the screen said another.
+     *
+     * So the state is computed HERE, once, by `ProductDataTable::trackedStockState()` -- the same
+     * function the product list's badge and the list's own filter use -- and handed to the view as
+     * `stock_state`. The view stays dumb. `stock_status` is left in the payload untouched, because
+     * the datatables column definitions still reference it and this slice removes no functionality.
+     *
+     * `stock_effective_low` repeats the rule in a figure, so the badge's title can state the
+     * threshold the verdict was reached against rather than leaving the merchant to infer it --
+     * exactly what `ProductDataTable` does for its own badge.
+     *
+     * @param  array<string,mixed>  $row
+     * @return array<string,mixed>
+     */
+    private function withStockState(array $row, int $stock, $lowThreshold, int $fallback): array
+    {
+        $row['stock_state'] = \App\DataTables\ProductDataTable::trackedStockState(
+            $stock,
+            $lowThreshold,
+            $fallback
+        );
+        $row['stock_effective_low'] = (int) ($lowThreshold ?: 0) ?: $fallback;
+
+        return $row;
+    }
+
     public function getLowStockProducts(Request $request)
     {
         session()->put('stock_active_tab', 'pills-low-stock-tab');
@@ -3034,7 +3074,12 @@ class ReportController extends Controller
                         'category' => $product->ProductData->name,
                         'product_id' => $product->id,
                     ];
-                    $low_stock_products[] = $low_stock_product;
+                    $low_stock_products[] = $this->withStockState(
+                        $low_stock_product,
+                        (int) $product->product_stock,
+                        $product->low_stock_threshold,
+                        $lowStockFallback
+                    );
                 }
             } else {
                 $product_stocks = ProductVariant::where('product_id', $product->id)->get();
@@ -3070,7 +3115,12 @@ class ReportController extends Controller
 
                         $low_stock_product['stock'] = $stock->stock;
 
-                        $low_stock_products[] = $low_stock_product;
+                        $low_stock_products[] = $this->withStockState(
+                            $low_stock_product,
+                            (int) $stock->stock,
+                            $stock->low_stock_threshold,
+                            $lowStockFallback
+                        );
                     }
                 }
             }
@@ -3134,7 +3184,12 @@ class ReportController extends Controller
                         'category' => $product->ProductData->name,
                         'product_id' => $product->id,
                     ];
-                    $out_of_stock_products[] = $out_of_stock_product;
+                    $out_of_stock_products[] = $this->withStockState(
+                        $out_of_stock_product,
+                        (int) $product->product_stock,
+                        $product->low_stock_threshold,
+                        $outStockFallback
+                    );
                 }
             } else {
                 $product_stocks = ProductVariant::where('product_id', $product->id)->get();
@@ -3155,7 +3210,12 @@ class ReportController extends Controller
                             'category' => $product->ProductData->name,
                             'product_id' => $product->id,
                         ];
-                        $out_of_stock_products[] = $out_of_stock_product;
+                        $out_of_stock_products[] = $this->withStockState(
+                            $out_of_stock_product,
+                            (int) $stock->stock,
+                            $stock->low_stock_threshold,
+                            $outStockFallback
+                        );
                     }
                 }
             }
@@ -3178,16 +3238,29 @@ class ReportController extends Controller
         $most_stocked_products = [];
         $product_data = [];
 
+        /*
+         * P2-05-3. The same fallback the other two tabs and the product list use, resolved from the
+         * SAME store as the products -- see getLowStockProducts() for why the explicit store
+         * argument is load-bearing (P1-SEC-26).
+         *
+         * This report's MEMBERSHIP is deliberately NOT changed: it ranks by quantity and takes the
+         * top ten, which is a different question from "is this low". Only the status BADGE moves
+         * onto the shared rule, because that badge was empty for every row.
+         */
+        $mostStockedFallback = \App\DataTables\ProductDataTable::stockFallbackThreshold(
+            getAdminAllSetting(null, getCurrentStore())
+        );
+
         foreach ($products as $product) {
             if ($product->variant_product == 0) {
                 if ($product->track_stock == 1 && $product->product_stock != 0 && $product->product_stock > 0) {
-                    $product_data[] = [
+                    $product_data[] = $this->withStockState([
                         'product_name' => $product->name,
                         'stock_status' => $product->stock_order_status,
                         'stock' => $product->product_stock, // Use product_stock here
                         'category' => $product->ProductData->name,
                         'product_id' => $product->id,
-                    ];
+                    ], (int) $product->product_stock, $product->low_stock_threshold, $mostStockedFallback);
                 }
             } else {
                 $product_stocks = ProductVariant::where('product_id', $product->id)->get();
@@ -3207,6 +3280,19 @@ class ReportController extends Controller
                         }
 
                         $product_data[count($product_data) - 1]['stock'] = $stock->stock; // Use stock here
+
+                        /*
+                         * P2-05-3. Decorated AFTER the index mutations above, not at the push: this
+                         * leg builds the row and then adds `stock_status` and `stock` by index, so
+                         * decorating at the push would hand the helper a row without its quantity
+                         * and the badge's title would read a zero it never measured.
+                         */
+                        $product_data[count($product_data) - 1] = $this->withStockState(
+                            $product_data[count($product_data) - 1],
+                            (int) $stock->stock,
+                            $stock->low_stock_threshold,
+                            $mostStockedFallback
+                        );
                     }
                 }
             }

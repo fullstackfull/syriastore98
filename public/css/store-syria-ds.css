@@ -2834,3 +2834,29 @@ a.ss-setup__item:focus-visible {
    The panel ignoring dark mode is recorded separately as F76: fixing the panel itself would change
    a surface shared by every upload screen in the platform, which is not this slice's business. */
 .ss-upload-hint--on-light { color: var(--ss-grey-600) !important; }
+
+/* ---- Vertical tab rail: the active pill's text contrast ----
+   P2-05-3. MEASURED 2.59:1 in all four configurations -- white on the host's brand green
+   #10B77F -- against the 4.5:1 text minimum. The badge tones beside it measure 7.1 to 9.81, so
+   the rail was the one thing on that screen below AA, and it is the element that tells the
+   merchant which of the three stock tabs they are reading.
+
+   WHY SCOPED TO A CLASS RATHER THAN APPLIED TO THE SHARED SELECTOR. The rail markup
+   (`.addon-set-tab` with `#pills-tab`) is used by FOUR views -- reports/stock_report,
+   module/index, country/index and language/index -- and three of those belong to other slices.
+   The precedent in this file is F76's: a surface shared across slices is recorded rather than
+   changed from inside one of them. But F76 was a dark-mode cosmetic and this is an accessibility
+   failure the slice's own acceptance names, so the resolution is both: the fix lands here, scoped
+   to the one screen that owns it, and the other three are recorded as the same failure in F106
+   so they are not silently left behind.
+
+   `--ss-green-700` rather than a hand-picked hex: white on it measures 5.36:1, it is already a DS
+   primitive, and a hardcoded value would pass the eye while hiding from the token audit. The
+   brand green itself is untouched -- it is the host's, used in dozens of places, and darkening it
+   globally would be a visual change to the whole product for one pill's text. */
+.ss-tabrail .nav-link.active,
+.ss-tabrail .list-group-item-action.active {
+    background: var(--ss-green-700) !important;
+    border-color: var(--ss-green-700) !important;
+    color: #fff !important;
+}

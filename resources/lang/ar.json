@@ -3054,5 +3054,7 @@
     "Enter First Name": "أدخل الاسم الأول",
     "Enter Last Name": "أدخل اسم العائلة",
     "Mobile": "رقم الهاتف",
-    "Inactive": "غير نشط"
+    "Inactive": "غير نشط",
+    "Level unknown": "المستوى غير معروف",
+    "This row reached the report without a stock level, which is a defect rather than a state.": "وصل هذا السطر إلى التقرير بدون مستوى مخزون، وهذا عيب لا حالة."
 }

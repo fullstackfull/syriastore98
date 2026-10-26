@@ -3532,3 +3532,111 @@ applicable for the reason above.
 
 Recorded with the gap named rather than marked done. It is money-path work and deserves its own
 slice.
+
+---
+
+## 27. `[2026-10-26]` P2-05-3 — the stock report, and a screenshot that refuted its own evidence
+
+### 27a. Three defects found, a fourth found by looking at the picture
+
+F106 records three, all measured live: the status column **empty on five of five low-stock rows
+and ten of ten most-stocked rows** (the partials gated on `stock_order_status`, which is the
+merchant's backorder policy, not a stock level — had it held `allow`, the low-stock report would
+have rendered a badge reading "In stock"); the row actions with **no accessible name at all**
+(`title` on the inner `<i>`, which Bootstrap then moved to `data-bs-original-title` and blanked);
+and the **active tab pill at 2.59:1** in all four configurations.
+
+The fourth is the interesting one. After fixing those three and generating the screenshots that
+were to be the slice's evidence, **the action column was not in the picture**. Measured: the table
+is 905px against an 803px wrapper at 1440 and a 320px one at 390, and the action column is 99px —
+so it sat entirely outside the visible box at scroll 0, on all three tabs. A real click at the
+anchor's centre hit something else in all eight configurations. That is **F107**, and the test
+that proved the actions were named passes either way, because it reads rendered HTML, not layout.
+
+**"Named" and "reachable" are different claims and need different instruments.** The fix reuses
+P2-03-1's `ss-col-pinned` rather than inventing a second mechanism; after it, a real click
+navigates in all eight.
+
+### 27b. The contrast harness did not cover the screen it was asked about
+
+Adding `/stock-report` to `measure-contrast-live.cjs` produced **zero readings for it**. The
+harness keeps one reading per `(config, element)` and the first screen wins, so a new page
+contributes nothing unless it introduces new element labels. The first "64 measured, 0 below AA"
+run did not cover this screen at all. Five new targets were added; the run then reported 84
+measured, 0 below AA, with the active pill at **5.36:1** in each of the four configurations.
+
+### 27c. What the slice's evidence is, and one thing it deliberately leaves behind
+
+12 screenshots and a README in `docs/development/phase-2/evidence/p2-05-3/`, regenerable by
+`docs/development/phase-2/tools/shoot-stock-report-live.cjs`, which prints the pill ratio, the
+badge tone per row and the computed accessible name per action from the same run that takes the
+pictures. `StockReportPredicateTest` is at 10 tests and compares report membership against
+`ProductDataTable::trackedStockState()` **called directly**.
+
+The tab rail is shared by four views; three belong to other slices and still carry the 2.59:1
+pill. The fix is scoped by a new `ss-tabrail` class and the others are recorded in F106 as
+unfixed. They must not be read as done.
+
+---
+
+## 28. `[2026-10-26]` D-09 / F105 — two guards built, two guards refuted, and only the writer shipped
+
+### 28a. The owner's literal test passes against the defect
+
+The case given was twelve variants with non-zero prices, saved without touching a field, with
+every price, quantity and the variant count required to survive. **That test passes on unfixed
+code**, because the values panel echoes each stored price back into the form and the rebuild
+writes the same number. A test asserting only what was asked would have reported success against
+the defect it was written to catch.
+
+The assertions that bite are the columns the panel **cannot** echo faithfully: `sku`, rewritten
+unconditionally from the product name (so a hand-typed `SKU-0001` became `Scarf-S-Red` on every
+save); and `weight`, `stock_order_status` and `stock_status`, which are NULL in the row and were
+written `0` or `''`. Both halves are in the test, labelled, so the owner's condition is checked
+**and** the check has teeth.
+
+Three further wrong-reason traps were avoided deliberately and are recorded in the fixture:
+the dev data stores the variation flag as `"on"`, and `"on" == 1` is **false** on PHP 8.3
+(executed), so a product copied from it does not reproduce the defect; `ProductVariant` is
+`Cachable`, so a `DB::table` fixture leaves the handler's own `first()` reading stale; and
+`product_variants.sku` and `.price` are NOT NULL, so a fixture omitting them does not build.
+
+### 28b. Two designs, both refuted, neither visible from the happy path
+
+**Design one** compared the posted attribute configuration against stored
+`products.product_attribute`. Refuted: that column holds **at least four incompatible shapes**
+(terms verbatim from `store()`, option ids from `update()`, the degenerate `[""]`, the literal
+`'NULL'`), and `product_attribute_options.terms` is an unconstrained varchar so a numeric term is
+indistinguishable from an option id — the comparison would have fired the rebuild it was
+preventing. Worse, it gated the write of `product_attribute`, which is the **only** store for the
+"Visible on the product page" flag and is `''` on every simple product — making that toggle
+unsavable and locking out enabling variations permanently.
+
+**Design two** replaced it with a set difference over `product_variants.variant` and shipped into
+the working tree. Refuted by review **of my own change**: `whereNotIn('variant', $com)` already
+deletes exactly the rows in `array_diff(existing, posted)`, so the guard restates "this delete has
+something to delete" and cannot change an outcome; it also read the existing set after the upsert
+loop, making half the comparison dead code. The `store_id` predicate added beside it was worse
+than useless — it bought nothing the ownership check does not give, and would have silently
+stopped the **platform operator's** cleanup, because `getCurrentStore()` returns the literal 1 for
+an admin with no `current_store`, leaving removed combinations live and purchasable on the
+merchant's storefront.
+
+Both removed before commit; recorded as **F113**.
+
+### 28c. What shipped, and what is honestly not covered
+
+The writer, and only the writer: `ssVariantValue()` in place of
+`!empty($request[k]) ? $request[k] : DEFAULT` on every per-variant column, plus the conditional
+`sku`. Six of twelve tests across `ProductVariantOrdinarySaveGuardTest` and the **converted**
+`ProductVariantPersistenceTest` fail when the controller is reverted; the two old tests that
+pinned the defective behaviour were converted rather than deleted, and the test that pinned the
+removed gate was replaced by one pinning the writer.
+
+**Concurrency is not covered and must not be read as if it were.** Tests run SQLite `:memory:`
+with `CACHE_STORE=array`, so `Cache::lock` is process-local and no Feature test can stage two
+merchants saving one product. What exists is the pre-existing `ss_last_seen_at` conflict guard,
+unchanged by this work.
+
+**What a deliberate narrowing should do** — hard-delete, as today, or refuse and name the variants
+that would be lost — is an open commercial decision (**D-20**), not an engineering one.

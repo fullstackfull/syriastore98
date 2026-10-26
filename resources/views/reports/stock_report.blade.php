@@ -119,7 +119,11 @@
         <div class="col-xl-3">
             <div class="sticky-top " style="top:60px">
                 <div class="list-group list-group-flush addon-set-tab" id="useradd-sidenav">
-                    <ul class="nav nav-pills flex-column w-100 gap-2" id="pills-tab" role="tablist">
+                    {{-- P2-05-3. `ss-tabrail` scopes the active pill's AA fix to THIS screen. The pill measured
+                             2.59:1 (white on the brand green) in all four configurations, and the rail markup is
+                             shared with three other screens that belong to other slices -- see the DS rule and
+                             F106 for why the fix is scoped rather than applied to the shared selector. --}}
+                    <ul class="nav nav-pills flex-column w-100 gap-2 ss-tabrail" id="pills-tab" role="tablist">
                         <li class="nav-item " role="presentation">
                             <a href="#LowStock_Setting"
                                 class="nav-link @if(isset($stock_active_tab) && ($stock_active_tab == 'pills-low-stock-tab')) active @endif list-group-item list-group-item-action rounded-1 text-center f-w-600"
@@ -166,7 +170,7 @@
                                     </div>
                                 </div>
                                 <div class="row mt-3 g-0">
-                                    <div class="card-body table-border-style">
+                                    <div class="card-body table-border-style ss-dt-card-body">
                                         <div class="table-responsive ecom-data-table">
                                             <table class="table" id="low-stock-table" style="width:100%">
                                                 <thead>
@@ -196,7 +200,7 @@
                                     </div>
                                 </div>
                             </div>
-                            <div class="card-body table-border-style">
+                            <div class="card-body table-border-style ss-dt-card-body">
                                 <div class="table-responsive ecom-data-table">
                                     <table class="table" id="out-of-stock-table" style="width:100%">
                                         <thead>
@@ -225,7 +229,7 @@
                                     </div>
                                 </div>
                             </div>
-                            <div class="card-body table-border-style">
+                            <div class="card-body table-border-style ss-dt-card-body">
                                 <div class="table-responsive ecom-data-table">
                                     <table class="table" id="most-stocked-table" style="width:100%">
                                         <thead>
@@ -266,7 +270,7 @@
                         }
                     },
                     { data: 'stock', name: 'stock' },
-                    {data: 'action', name: 'action', orderable: false, searchable: false}
+                    {data: 'action', name: 'action', orderable: false, searchable: false, className: 'text-center ss-col-locked ss-col-pinned'}
                 ],
                 initComplete: function(settings, json) {
                     removeSortingOrderFromHeader();
@@ -329,7 +333,7 @@
                         return data;  // Render stock_status as HTML
                     } },
                     { data: 'stock', name: 'stock' },
-                    {data: 'action', name: 'action', orderable: false, searchable: false}
+                    {data: 'action', name: 'action', orderable: false, searchable: false, className: 'text-center ss-col-locked ss-col-pinned'}
                 ],
                 initComplete: function(settings, json) {
                     removeSortingOrderFromHeader();
@@ -392,7 +396,7 @@
                         return data;  // Render stock_status as HTML
                     } },
                     { data: 'stock', name: 'stock' },
-                    { data: 'action', name: 'action', orderable: false, searchable: false}
+                    { data: 'action', name: 'action', orderable: false, searchable: false, className: 'text-center ss-col-locked ss-col-pinned'}
                 ],
                 initComplete: function(settings, json) {
                     removeSortingOrderFromHeader();

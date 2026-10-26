@@ -75,6 +75,55 @@ class ProductController extends Controller
     }
 
     /**
+     * What a per-variant value column should become on a save -- owner decision D-09 (A1).
+     *
+     * The product edit page renders the variant values panel on load, with no interaction, and
+     * the panel echoes a BLANK field for every column that is currently NULL. The writer this
+     * replaces read that blank through `!empty()` and wrote the column's DEFAULT, so an ordinary
+     * save turned NULL into 0 across prices, stock, weight and thresholds on variants the
+     * merchant had not touched (ledger F105), and made a deliberate "0" impossible to store at
+     * all, because `!empty("0")` is false (F83).
+     *
+     * The rule, in one place so the gate and the writer cannot disagree about it:
+     *
+     *   - key ABSENT            -> an existing row keeps its value; a new row takes $default
+     *   - key PRESENT and blank -> the same, UNLESS $blankIsAValue, which is set for the columns
+     *                              where a blank is a real choice a merchant can make: a cleared
+     *                              description, the shipping select's prepended "Same as parent",
+     *                              and the stock-status select's "Select option"
+     *   - key PRESENT           -> written exactly as posted, "0" included
+     *
+     * Note it does NOT validate. The posted value reaches the column as the request supplied it,
+     * which is what the writer did before; typing is enforced by the column, and on SQLite that
+     * means it is not enforced at all, so a numeric guarantee here would be a false one. See
+     * `tests/Support/Security/bin/` for the MySQL-backed pattern this project uses instead.
+     *
+     * @param  mixed  $current  the column's value on the row being updated
+     * @param  mixed  $default  what a newly created row gets when the key is absent
+     * @return mixed
+     */
+    private function ssVariantValue(Request $request, string $key, $current, $default, bool $isNew, bool $blankIsAValue = false)
+    {
+        if (! $request->has($key)) {
+            return $isNew ? $default : $current;
+        }
+
+        $posted = $request->input($key);
+
+        /* `$posted === []` is here for parity with the `!empty()` it replaced: an empty array is
+           not expressible in a form body, but a JSON caller can send one, and letting it through
+           binds an array to a numeric column and fails at PDO. Everything else the old idiom
+           passed through -- a non-empty array included -- still passes through, so this narrows
+           nothing a real caller relies on. */
+        if (! $blankIsAValue && (is_null($posted) || $posted === []
+            || (is_string($posted) && trim($posted) === ''))) {
+            return $isNew ? $default : $current;
+        }
+
+        return $posted;
+    }
+
+    /**
      * P2-03-4. The field names `:attribute` substitutes into a validation message.
      * =========================================================================
      *
@@ -1984,7 +2033,8 @@ $Product->cost_price = $request->cost_price;
                                 $str = $item;
 
                                 $product_stock = ProductVariant::where('product_id', $product->id)->where('variant', $str)->first();
-                                if ($product_stock == null) {
+                                $ssIsNewVariant = ($product_stock == null);
+                                if ($ssIsNewVariant) {
                                     $product_stock = new ProductVariant;
                                     $product_stock->product_id = $product->id;
                                 }
@@ -2004,43 +2054,91 @@ $Product->cost_price = $request->cost_price;
                                 }
 
 
-                                $var_option = "";
-                                $variation_option = !empty($request['variation_option_' . str_replace('.', '_', $str)]) ? $request['variation_option_' . str_replace('.', '_', $str)] : '';
-
-                                if (is_array($variation_option)) {
-                                    foreach ($variation_option as $option) {
-                                        $var_option .= $option . ",";
-                                    }
-                                }
-
-                                $sku = str_replace(' ', '_', $request->name) . $request['product_sku_' . str_replace('.', '_', $str)];
+                                /* P2-03-4 / ledger F105, F82, F83 -- owner decision D-09 (A1).
+                                   EVERY COLUMN BELOW USED TO BE WRITTEN THROUGH
+                                   `!empty($request[k]) ? $request[k] : DEFAULT`, and that one
+                                   idiom produced three separate defects.
+                                   The product edit page renders the values panel ON LOAD, with no
+                                   interaction, and the panel echoes a BLANK field for every column
+                                   that is currently NULL. So an ordinary save -- a merchant
+                                   changing a description and pressing Save -- re-posts a blank for
+                                   each of them, `!empty('')` is false, and the column is written
+                                   its default: NULL became 0 on prices, stock, weight and
+                                   thresholds, and a NULL `stock_status` became ''. That is F105,
+                                   measured on 12 variants the merchant had not touched. The same
+                                   idiom makes a deliberate zero unstorable, because `!empty('0')`
+                                   is false (F83), and it is why a price typed into this panel
+                                   reported success and did not persist (F82).
+                                   `ssVariantValue()` replaces it with the rule the owner set: an
+                                   absent or blank key leaves an EXISTING column alone and only
+                                   takes the default on a row being created, and a posted "0" is
+                                   written as 0. */
+                                $ssKey = str_replace('.', '_', $str);
                                 $product_stock->variant = $str;
 
+                                /* `variation_option` is four checkboxes, so when none is checked
+                                   the key is absent -- which previously wrote "" over whatever was
+                                   stored. */
+                                $ssVariationOption = $this->ssVariantValue($request, 'variation_option_' . $ssKey, null, '', $ssIsNewVariant);
+                                if (is_array($ssVariationOption)) {
+                                    $var_option = "";
+                                    foreach ($ssVariationOption as $option) {
+                                        $var_option .= $option . ",";
+                                    }
+                                    $product_stock->variation_option = $var_option;
+                                } elseif ($ssIsNewVariant) {
+                                    $product_stock->variation_option = '';
+                                }
+
+                                /* `track_stock` is read off the model but `product_variants` has no
+                                   such column (ledger F107), so this is always the else branch.
+                                   Left standing rather than removed: it is the shape the WorkDo
+                                   writer has, and deleting a dead branch is not this slice. */
                                 if ($product_stock->track_stock == 1) {
                                     $product_stock->stock_status = '';
                                 } else {
-
-                                    $product_stock->stock_status = !empty($request['stock_status_' . str_replace('.', '_', $str)]) ? $request['stock_status_' . str_replace('.', '_', $str)] : '';
+                                    /* The panel renders this select only when the row's
+                                       stock_status is non-NULL, so a NULL row posts no key at all;
+                                       and a blank IS a value here, the select's "Select option". */
+                                    $product_stock->stock_status = $this->ssVariantValue($request, 'stock_status_' . $ssKey, $product_stock->stock_status, '', $ssIsNewVariant, true);
                                 }
 
-                                $product_stock->variation_option = $var_option;
+                                $product_stock->price = $this->ssVariantValue($request, 'product_sale_price_' . $ssKey, $product_stock->price, 0, $ssIsNewVariant);
+                                $product_stock->variation_price = $this->ssVariantValue($request, 'product_variation_price_' . $ssKey, $product_stock->variation_price, 0, $ssIsNewVariant);
+                                $product_stock->stock = $this->ssVariantValue($request, 'product_stock_' . $ssKey, $product_stock->stock, 0, $ssIsNewVariant);
+                                $product_stock->low_stock_threshold = $this->ssVariantValue($request, 'low_stock_threshold_' . $ssKey, $product_stock->low_stock_threshold, 0, $ssIsNewVariant);
+                                $product_stock->weight = $this->ssVariantValue($request, 'product_weight_' . $ssKey, $product_stock->weight, 0, $ssIsNewVariant);
+                                $product_stock->stock_order_status = $this->ssVariantValue($request, 'stock_order_status_' . $ssKey, $product_stock->stock_order_status, 0, $ssIsNewVariant);
 
-                                $product_stock->price = !empty($request['product_sale_price_' . str_replace('.', '_', $str)]) ? $request['product_sale_price_' . str_replace('.', '_', $str)] : 0;
+                                /* A description is text a merchant may legitimately clear, so a
+                                   posted blank IS the new value here. */
+                                $product_stock->description = $this->ssVariantValue($request, 'product_description_' . $ssKey, $product_stock->description, '', $ssIsNewVariant, true);
 
-                                $product_stock->variation_price = !empty($request['product_variation_price_' . str_replace('.', '_', $str)]) ? $request['product_variation_price_' . str_replace('.', '_', $str)] : 0;
-                                $product_stock->sku = $sku;
+                                /* The shipping select's first entry is the prepended '' meaning
+                                   "Same as parent", so a blank is a real choice here too -- it just
+                                   stores as the literal the rest of the application reads. */
+                                $ssShipping = $this->ssVariantValue($request, 'shipping_id_' . $ssKey, $product_stock->shipping, 'same_as_parent', $ssIsNewVariant, true);
+                                $product_stock->shipping = ($ssShipping === '' || $ssShipping === null) ? 'same_as_parent' : $ssShipping;
 
-                                $product_stock->stock = !empty($request['product_stock_' . str_replace('.', '_', $str)]) ? $request['product_stock_' . str_replace('.', '_', $str)] : 0;
-
-                                $product_stock->low_stock_threshold = !empty($request['low_stock_threshold_' . str_replace('.', '_', $str)]) ? $request['low_stock_threshold_' . str_replace('.', '_', $str)] : 0;
-
-                                $product_stock->weight = !empty($request['product_weight_' . str_replace('.', '_', $str)]) ? $request['product_weight_' . str_replace('.', '_', $str)] : 0;
-
-                                $product_stock->stock_order_status = !empty($request['stock_order_status_' . str_replace('.', '_', $str)]) ? $request['stock_order_status_' . str_replace('.', '_', $str)] : 0;
-
-                                $product_stock->description = !empty($request['product_description_' . str_replace('.', '_', $str)]) ? $request['product_description_' . str_replace('.', '_', $str)] : '';
-
-                                $product_stock->shipping = !empty($request['shipping_id_' . str_replace('.', '_', $str)]) ? $request['shipping_id_' . str_replace('.', '_', $str)] : 'same_as_parent';
+                                /* THE SKU IS THE ONE COLUMN THIS WRITER CHANGED ON EVERY SINGLE
+                                   SAVE, whatever the panel echoed. It is built from the PRODUCT
+                                   NAME plus the posted token, and the on-load panel posts
+                                   `'-' . $variant` as that token -- so a merchant's hand-typed
+                                   `SKU-001` was silently replaced by `Scarf-S-Red` the first time
+                                   they pressed Save for any reason at all. That also makes it the
+                                   detector the tests assert on, because it is the only column that
+                                   moves on a rebuild regardless of what was echoed back.
+                                   An existing row now keeps its SKU unless the merchant actually
+                                   typed one, i.e. unless the posted token differs from the panel's
+                                   own echo. */
+                                $ssPostedSku = $request->input('product_sku_' . $ssKey);
+                                if ($ssIsNewVariant) {
+                                    $product_stock->sku = str_replace(' ', '_', $request->name) . $ssPostedSku;
+                                } elseif ($request->has('product_sku_' . $ssKey)
+                                    && trim((string) $ssPostedSku) !== ''
+                                    && (string) $ssPostedSku !== '-' . $str) {
+                                    $product_stock->sku = str_replace(' ', '_', $request->name) . $ssPostedSku;
+                                }
 
                                 $product_stock->store_id = getCurrentStore();
 
@@ -2060,6 +2158,46 @@ $Product->cost_price = $request->cost_price;
                                     $is_in_stock = true;
                                 }
                             }
+                            /* P2-03-4 / ledger F105, F113 -- owner decision D-09.
+                               THIS DELETE IS UNCHANGED, AND THE TWO GUARDS THAT WERE TRIED HERE
+                               WERE BOTH REMOVED BECAUSE REVIEW PROVED THEM WORSE THAN NOTHING.
+                               They are recorded rather than silently dropped, because both look
+                               obviously right and the second looked like plain hygiene.
+
+                               A SET-DIFFERENCE GATE IN FRONT OF THIS DELETE CANNOT CHANGE ITS
+                               OUTCOME. `whereNotIn('variant', $com)` already removes exactly the
+                               rows in `array_diff(existing, posted)`, so "the posted set differs
+                               from the stored one" is only a restatement of "this delete has
+                               something to delete". The version that shipped first also read the
+                               existing set AFTER the upsert loop, which made the other half of
+                               the comparison dead code as well. A guard that cannot change an
+                               outcome is untestable by outcomes and reads as a protection that
+                               is not there -- that is the defect, not the wasted query.
+
+                               `->where('store_id', getCurrentStore())` ON THE DELETE IS A
+                               REGRESSION, not hardening. It buys nothing: the delete is already
+                               confined by `product_id`, and the product has passed the
+                               operator-first ownership check at the top of `update()`, so no
+                               caller can reach another store's variants through it. What it
+                               COSTS is real. `getCurrentStore()` returns the literal 1 for a
+                               platform admin with no `current_store` (helper.php:636), so an
+                               operator editing a merchant's product would match no row and the
+                               cleanup would silently stop -- leaving the removed combinations
+                               live and purchasable on that merchant's storefront, because
+                               `HomeController`'s price range and the cart's variant check read
+                               them without a store filter. It would also spare any row whose
+                               `store_id` is NULL, which `product_variants` permits and which the
+                               `choice_no` path above creates.
+
+                               WHAT ACTUALLY PROTECTS AN ORDINARY SAVE is therefore not here. It
+                               is (a) the writer above, which no longer overwrites a column the
+                               merchant did not send, (b) the values panel being built FROM the
+                               variant rows, so an ordinary save posts the set that already
+                               exists and this delete matches nothing, and (c) the existing
+                               `ss_last_seen_at` conflict guard for the stale-form race.
+                               WHAT A DELIBERATE NARROWING SHOULD DO -- hard-delete, as here, or
+                               refuse and name the variants that would be lost -- is an open
+                               commercial decision (D-20), not an engineering one. */
                             ProductVariant::where('product_id', $product->id)
                                 ->whereNotIn('variant', $com)
                                 ->delete();

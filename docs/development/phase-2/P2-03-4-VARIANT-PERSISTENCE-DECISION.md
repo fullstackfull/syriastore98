@@ -223,3 +223,91 @@ P2-03-4 moves to **PARTIAL**, not DONE: four of the owner's five items are verif
 (تجربة المتغيرات) is BLOCKED on decision point A. It is not closed, and no requirement has been
 dropped or narrowed — which is the condition the owner set:
 "ولا تختصر أي متطلب دون قرار موثق."
+
+---
+
+## 7. RESOLVED — decision point A was decided (D-16) and implemented, 2026-10-26
+
+The owner approved **A1** and added a binding condition: it is not enough to build an in-place
+edit path, the ordinary save must also stop opening the rebuild merely because `for_variation=1`
+sits in the stored product data, with the F105 case tested literally — twelve variants, a save
+touching no field, every price, quantity and the variant count surviving.
+
+### Two designs were built and both were refuted before anything shipped
+
+**The first** compared the posted attribute configuration against the stored
+`products.product_attribute` and rebuilt only on a difference. Independent review killed it on
+three counts, none visible from the happy path:
+
+- That column holds **at least four incompatible shapes** — `store()` writes the terms verbatim,
+  `update()` writes resolved option ids, the degenerate `[""]`, and the literal string `'NULL'`
+  that `edit.blade.php` already tests for. `product_attribute_options.terms` is an unconstrained
+  varchar, so a numeric term cannot be distinguished from an option id. The comparison would have
+  read "changed" on the first save of most products and fired the very rebuild it was preventing.
+- Its step 6 gated the write of `product_attribute` on that comparison. That column is the
+  **only** store for the "Visible on the product page" flag, so the toggle would have become
+  unsavable — and it is `''` on every simple product, so enabling variations on one would have
+  been **permanently locked out**: first save false, nothing written, still `''`, forever.
+- Its test plan would have passed against unfixed code, because the values panel echoes each
+  stored price straight back.
+
+**The second** replaced it with a set difference over `product_variants.variant` — one
+well-defined shape — and gated the delete on it. That shipped into the working tree and was then
+refuted by review of my own change: `whereNotIn('variant', $com)` already deletes exactly the rows
+in `array_diff(existing, posted)`, so the guard is a restatement of "this delete has something to
+delete" and **cannot change an outcome**. It also read the existing set after the upsert loop,
+which made half the comparison dead code. A `store_id` predicate added to the delete at the same
+time was worse than useless: it bought nothing the ownership check does not already give, and it
+would have silently stopped the platform operator's cleanup, because `getCurrentStore()` returns
+the literal 1 for an admin with no `current_store`. Both removed; recorded as **F113**.
+
+### What actually shipped
+
+**The writer, and only the writer.** Every per-variant column went through
+`!empty($request[k]) ? $request[k] : DEFAULT`; it now goes through `ssVariantValue()`:
+
+- key **absent** → an existing row keeps its value; a new row takes the default
+- key **present and blank** → the same, except on the columns where a blank is a real choice
+  (a cleared description, "Same as parent" shipping, "Select option" stock status)
+- key **present** → written as posted, `"0"` included — which `!empty("0") === false` made
+  impossible before
+
+and `sku`, which was recomputed from the product name on every save (so a hand-typed `SKU-0001`
+became `Scarf-S-Red`), is now only written when the merchant actually typed a token.
+
+**The delete is unchanged.** What protects an ordinary save from it is that the values panel is
+built FROM the variant rows, so an ordinary save posts the set that already exists and the delete
+matches nothing, plus the pre-existing `ss_last_seen_at` conflict guard. That is thinner than a
+guard and is stated rather than dressed up; what a *deliberate* narrowing should do is **D-20**,
+open.
+
+### The diagnosis in §2 of this document was wrong, in a way worth keeping
+
+§2 says the edit page posts neither gate's keys. It posts all three. The page calls
+`attribute_option_data()` from `$(document).ready`, which injects the values panel — carrying
+`options_datas[]` — into the form before the merchant touches anything. Driving the real form
+produced **154 named parts carrying all three keys**; the original probe matched only the FIRST
+occurrence of a repeated multipart name. So the edit was never discarded for want of a key: it
+reached a writer that overwrote it. That is also why F105 exists.
+
+### Evidence
+
+`tests/Feature/Merchant/ProductVariantOrdinarySaveGuardTest.php` (6 tests) and the **converted**
+`ProductVariantPersistenceTest.php` (6 tests). Six of the twelve fail when the controller is
+reverted. The two old tests that pinned the defective behaviour were converted rather than
+deleted, as the owner required; the test that pinned the removed gate was replaced by one pinning
+the writer.
+
+**The literal F105 case is tested, and so is the reason it would otherwise pass for the wrong
+reason:** the panel echoes each stored price back, so a test asserting only prices, quantities and
+the row count passes against the unfixed writer. The assertions that bite are the columns the
+panel cannot echo — `sku`, and `weight` / `stock_order_status` / `stock_status`, which are NULL
+and were written `0` or `''`.
+
+**Concurrency is not covered by a test and must not be read as if it were.** The suite runs SQLite
+`:memory:` with `CACHE_STORE=array`, so `Cache::lock` is process-local and no Feature test can
+stage two merchants saving one product. What exists is the pre-existing `ss_last_seen_at` guard,
+unchanged by this work.
+
+**F82, F83 and F105 are closed. F84 remains recorded.** Eight further defects found while reading
+this code are recorded as **F107–F114** and deliberately not fixed here.

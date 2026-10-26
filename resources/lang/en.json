@@ -3025,5 +3025,7 @@
     "Enter First Name": "Enter First Name",
     "Enter Last Name": "Enter Last Name",
     "Mobile": "Mobile",
-    "Inactive": "Inactive"
+    "Inactive": "Inactive",
+    "Level unknown": "Level unknown",
+    "This row reached the report without a stock level, which is a defect rather than a state.": "This row reached the report without a stock level, which is a defect rather than a state."
 }
