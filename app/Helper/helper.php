@@ -95,7 +95,7 @@ if (!function_exists('menuTree')) {
 
         $nodes = [];
         foreach ($filteredItems as $item) {
-            if ($item['name'] == 'mobilescreensetting' && env('IS_MOBILE') != 'yes') {
+            if ($item['name'] == 'mobilescreensetting' && config('platform.is_mobile') != 'yes') {
                 continue;
             }
 
@@ -2547,7 +2547,7 @@ if (!function_exists('generateSideMenu')) {
         });
         foreach ($filteredItems as $item) {
             if (isset($item['is_enable']) && $item['is_enable'] == 'on') {
-                if ($item['name'] == 'mobilescreensetting' && env('IS_MOBILE') != 'yes') {
+                if ($item['name'] == 'mobilescreensetting' && config('platform.is_mobile') != 'yes') {
                     continue;
                 }
                 /*

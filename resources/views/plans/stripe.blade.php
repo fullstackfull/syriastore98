@@ -3407,7 +3407,7 @@
             "publicKey": "{{ isset($admin_payments_details['khalti_public_key']) ? $admin_payments_details['khalti_public_key'] : '' }}",
             "productIdentity": "1234567890",
             "productName": "demo",
-            "productUrl": "{{env('APP_URL')}}",
+            "productUrl": {!! json_encode(config('app.url')) !!},
             "paymentPreference": [
                 "KHALTI",
                 "EBANKING",

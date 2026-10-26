@@ -1702,3 +1702,153 @@ Slow (~25 min), and it succeeds.
   commits at HEAD changed. The other eleven live harnesses were not re-run in this session, so
   §9e/§9f/§9g remain evidence for the commits they were measured on.
 - **No screenshots were retaken.** The 200 committed PNGs are still from their original runs.
+
+---
+
+## 11. `[2026-10-26]` R2 / F48 — the `env()`-in-Blade sweep, and what reviewing it found
+
+### 11a. The census this row carried was wrong, and its own arithmetic said so
+
+The ledger claimed **29 calls over three variables: `IS_MOBILE` x12, `APP_URL` x11, `APP_NAME` x4**.
+That sums to **27**. Re-measured at `f15ef5fd`, keyed on the call rather than on a file list:
+
+```
+resources/views/   31 occurrences, 30 LIVE
+                   IS_MOBILE        x12   (all in AppSetting/mobile_content.blade.php)
+                   APP_URL          x10 live  (+1 inside the {{-- --}} comment on
+                                               order/view.blade.php:38 that documents this defect)
+                   APP_NAME         x4
+                   default_language x4    <-- A FOURTH VARIABLE THE ROW MISSED ENTIRELY
+packages/workdo/   45 live calls — NOT TOUCHED (vendored; CLAUDE.md)
+```
+
+Three PHP sites had to move with them, or the two halves of each flag would disagree under cache:
+`app/Helper/helper.php:98`, `:2550` (`IS_MOBILE`) and `LanguageController:386` (`default_language`).
+`app/` holds 92 `env()` calls in total; sweeping all of them is **not** this slice, and R2's declared
+scope is the Blade views.
+
+### 11b. The defect, measured rather than reasoned
+
+R2 said plainly that what had been measured was "the 29 call sites and the framework's documented
+behaviour" — **not** that the values actually come back null. With the flags set in `.env`:
+
+| read | no cache | **with `config:cache`** |
+|---|---|---|
+| `env('IS_MOBILE')` | `'yes'` | **`NULL`** |
+| `config('platform.is_mobile')` | `'yes'` | `'yes'` |
+| `env('default_language')` | `'ar'` | **`NULL`** |
+| `config('platform.default_language')` | `'ar'` | `'ar'` |
+| `env('APP_URL')` | `'http://localhost'` | **`NULL`** |
+| `config('app.url')` | `'http://localhost'` | `'http://localhost'` |
+| `env('APP_NAME')` | `'Laravel'` | **`NULL`** |
+
+All four were returning NULL on any deployment that caches config. The finding is now executed, not
+inferred. **Still NOT measured:** whether this particular deployment runs `config:cache`.
+
+### 11c. The ratchet, and the seven forms it was bitten on
+
+`tests/Unit/Config/NoEnvCallsInFirstPartyBladeTest.php` — 3 cases. It **failed before the sweep**
+(28 offender lines for 30 calls, two sharing a line) and passes after. Bitten by planting each form
+in `themes/stylique/views/` and confirming the verdict flipped:
+
+```
+CAUGHT   env('X')                     CAUGHT   $_ENV['X']
+CAUGHT   getenv('X')                  CAUGHT   $_SERVER['X']
+CAUGHT   Env::get('X')                CAUGHT   env( split across two lines
+CAUGHT   env('X') inside @php
+ok       my_env('X')          -- not flagged, correctly
+ok       a {{-- --}} comment  -- not flagged, correctly
+```
+
+### 11d. Independent review found four things. All four are fixed.
+
+**(1) I had shipped a break, and no gate in this repository would ever have reported it.**
+`tests/Support/Security/bin/verify-menu-render-parity.php` does not copy `menuTree()` — it
+`file_get_contents`es `app/Helper/helper.php`, regex-extracts the function body and `eval`s it, *so
+that it cannot drift from the shipped function*. It also runs deliberately with **no Laravel**,
+hand-stubbing `route()`, `__()`, `__t()` and `env()`. Moving `helper.php:98` to `config()` therefore
+made the eval'd body fatal:
+
+```
+PHP Fatal error: Uncaught Error: Call to undefined function config() in
+  verify-menu-render-parity.php(133) : eval()'d code:11      === EXIT CODE: 255 ===
+```
+
+255 is outside the script's own `0 = match / 1 = diverge / 2 = not found` contract, and it died on
+the one fixture that exercises the predicate — `&&` short-circuits on the name for every other row,
+so the first four fixtures still passed and the failure looked selective. **`grep -rn 'Security/bin'
+.github/` returns nothing**: CI does not run these scripts and they are in no PHPUnit testsuite, so
+"Unit is 374 passed" did not cover it. Fixed with a `config()` stub that `require`s the real
+`config/platform.php` — for the same reason `menuTree()` is eval'd, so a changed default reaches the
+script. It now reports `ALL FIXTURES AND SELECTORS MATCH`, exit 0.
+
+**(2) `config('app.name')` would have put "Laravel" on a customer's receipt.** The four `APP_NAME`
+sites read `env('APP_NAME') ?? 'Ecommercego saas'`, so the shipped brand was the fallback whenever
+`APP_NAME` was absent — and always, on a cached deployment. `config('app.name')` cannot reproduce
+that: `config/app.php:16` defaults it to `'Laravel'`. Two of the four sites have no fallback at all
+(`order/receipt.blade.php:12`, a customer-facing receipt title, and `email/test_mail.blade.php:200`,
+the mail a merchant sends to check SMTP). Fixed with a `brand_name` key. Verified:
+
+```
+APP_NAME absent   -> 'Ecommercego saas'   (cached AND uncached)
+APP_NAME=MyShop   -> 'MyShop'
+```
+
+**(3) The sweep changed which language can be deleted, and the guard was a hidden button.**
+`language/index.blade.php:8,22` hides the delete control for `config('platform.default_language')`.
+Before the sweep a cached deployment read `null` there and so always protected `'en'`; now it
+protects whatever `.env` says, so a deployment with `default_language=ar` would have started
+offering `'en'`. And `destroyLang()` had **no server-side guard whatsoever** — it computed
+`$default_lang` and used it only to reassign users, so `destroyLang($default_lang)` would
+`delete_directory()` the default language and then reassign every affected user **to the directory
+it had just removed**. The route is a plain code-in-the-url, so the view's guard was one crafted URL
+away. The hole is pre-existing; the sweep changed which language was exposed to it, which is reason
+enough to close it rather than note it. `destroyLang()` now refuses the default **and**
+`config('app.fallback_locale')` (they can differ, and deleting the fallback breaks translation
+resolution platform-wide), with the message added to both `en.json` and `ar.json`.
+
+**(4) My own ratchet was weaker than it read.** It reported **wrong line numbers** — stripping Blade
+comments removed their newlines, measured at 56 lines of drift in `order/view.blade.php` alone, so a
+failure message sent the reader to the wrong place; it is now blanked to its own newline count, with
+a case asserting the line count is unchanged. It **missed** `getenv(` (which returns `false`, not
+null, with `.env` unloaded), `Env::get()`, `$_ENV[` and `$_SERVER[`, and any `env(` split across
+lines. It carried a **dead variable** that a reader would take for a check. And it did not scan
+`themes/` — which `ViewServiceProvider:101,128` puts in `view.paths`, so the three committed themes
+(44 blades) are first-party rendered views; currently clean, and now covered.
+
+### 11e. Recorded, not fixed
+
+**F55** — `packages/workdo/SidebarCustomization/.../super-admin/index.blade.php:178` carries the
+byte-identical `IS_MOBILE` predicate and is now the stale half: with `IS_MOBILE=yes` the real sidebar
+shows the `mobilescreensetting` row while the screen that configures it still hides it. Vendored, so
+not edited. **F56** — `config('app.url')` defaults to `http://localhost`, so an absent `APP_URL` now
+emits a bogus absolute url rather than an empty one; a release-checklist item, not a code fix.
+**F57** — `$footer_text` at `layouts/guest.blade.php:95` is dead, which makes R2's change at that one
+site unobservable.
+
+### 11f. Suites
+
+```
+$ php artisan test --testsuite=Unit
+  Tests:  375 passed (2051 assertions)                                  exit 0
+          (372 before this slice; +3 ratchet cases)
+
+$ php artisan test --testsuite=Feature --log-junit ... --log-teamcity ...
+  Tests:  2 failed, 17 skipped, 5921 passed (30055 assertions)
+  Duration: 1159.58s                                                    exit 1 (the 2 declared)
+
+$ php .github/scripts/assert-known-test-outcomes.php ...
+  testcases observed   : 5940  (manifest floor 1000)
+  failures observed    : 2  (manifest declares 2)
+  errors observed      : 0  (always expected: 0)
+  skips observed       : 17  (manifest declares 17)
+  OK: the observed outcome set matches the manifest exactly               exit 0
+
+$ php tests/Support/Security/bin/verify-menu-render-parity.php
+  ALL FIXTURES AND SELECTORS MATCH -- the DOM contract is preserved.     exit 0
+```
+
+**Identical to the pre-slice baseline** (§10a: 5921 passed / 2 / 17, 5940 testcases), so this slice
+changed no Feature outcome. The manifest was not touched. The first Feature run of this slice was
+**discarded rather than reported**: it was started before the review fixes landed and the tree
+changed underneath it, so its verdict would not have been about any single state of the code.

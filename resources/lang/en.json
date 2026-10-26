@@ -2972,5 +2972,6 @@
     "Copy the public link to this order": "Copy the public link to this order",
     "Download :name": "Download :name",
     "Delete this note": "Delete this note",
-    "Choose columns": "Choose columns"
+    "Choose columns": "Choose columns",
+    "This language cannot be deleted: it is the default or the fallback language.": "This language cannot be deleted: it is the default or the fallback language."
 }

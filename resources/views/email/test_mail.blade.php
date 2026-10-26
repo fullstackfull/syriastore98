@@ -197,7 +197,7 @@
                                                         <td align="left" style="font-size:0px;padding:0px 25px 0px 25px;padding-top:0px;padding-right:50px;padding-bottom:0px;padding-left:50px;word-break:break-word;">
                                                             <div style="font-family:Open Sans, Helvetica, Arial, sans-serif;font-size:13px;line-height:22px;text-align:left;color:#797e82;">
                                                                 <p style="margin: 10px 0;"><i style="font-style:normal"><b style="font-weight:700">{{__('Regards,')}}</b></i></p>
-                                                                <p style="margin: 10px 0;"><i style="font-style:normal"><b style="font-weight:700">{{ env('APP_NAME') }}</b></i></p>
+                                                                <p style="margin: 10px 0;"><i style="font-style:normal"><b style="font-weight:700">{{ config('platform.brand_name') }}</b></i></p>
                                                             </div>
                                                         </td>
                                                     </tr>

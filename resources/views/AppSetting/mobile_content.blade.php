@@ -25,7 +25,7 @@
                 <div class="list-group list-group-flush app-seeting-tab" id="useradd-sidenav">
                     <ul class="nav nav-pills w-100 row store-setting-tab" id="pills-tab" role="tablist">
                         <li class="nav-item col-xxl-2 col-xl-3 col-md-4 col-sm-6  col-12 text-center" role="presentation">
-                            @if (env('IS_MOBILE') == 'yes')
+                            @if (config('platform.is_mobile') == 'yes')
                                 <a href="#api_url"
                                     class="nav-link btn-sm f-w-600 @if (isset($app_setting_tab) && $app_setting_tab == 'pills-home-tab') active @endif"
                                     id="pills-home-tab" data-bs-toggle="pill" data-bs-target="#pills-home" type="button"
@@ -35,7 +35,7 @@
                             @endif
                         </li>
                         <li class="nav-item col-xxl-2 col-xl-3 col-md-4 col-sm-6  col-12 text-center" role="presentation">
-                            @if (env('IS_MOBILE') == 'yes')
+                            @if (config('platform.is_mobile') == 'yes')
                                 <a href="#App_Setting"
                                     class="nav-link btn-sm f-w-600 @if (isset($app_setting_tab) && $app_setting_tab == 'pills-profile-tab') active @endif"
                                     id="pills-profile-tab" data-bs-toggle="pill" data-bs-target="#pills-profile"
@@ -45,7 +45,7 @@
                             @endif
                         </li>
                         <li class="nav-item col-xxl-2 col-xl-3 col-md-4 col-sm-6  col-12 text-center" role="presentation">
-                            @if (env('IS_MOBILE') == 'yes')
+                            @if (config('platform.is_mobile') == 'yes')
                                 <a href="#Firebase_setting"
                                     class="nav-link btn-sm f-w-600 @if (isset($app_setting_tab) && $app_setting_tab == 'pills-firebase-tab') active @endif"
                                     id="pills-firebase-tab" data-bs-toggle="pill" data-bs-target="#pills-firebase"
@@ -55,7 +55,7 @@
                             @endif
                         </li>
                         <li class="nav-item col-xxl-2 col-xl-3 col-md-4 col-sm-6  col-12 text-center" role="presentation">
-                            @if (env('IS_MOBILE') == 'yes')
+                            @if (config('platform.is_mobile') == 'yes')
                                 <a href="#Main_Page_Content"
                                     class="nav-link btn-sm f-w-600 @if (isset($app_setting_tab) && $app_setting_tab == 'pills-main-tab') active @endif"
                                     id="pills-main-tab" data-bs-toggle="pill" data-bs-target="#pills-main" type="button"
@@ -65,7 +65,7 @@
                             @endif
                         </li>
                         <li class="nav-item col-xxl-2 col-xl-3 col-md-4 col-sm-6  col-12 text-center" role="presentation">
-                            @if (env('IS_MOBILE') == 'yes')
+                            @if (config('platform.is_mobile') == 'yes')
                                 <a href="#Product_Page_Content"
                                     class="nav-link btn-sm f-w-600 @if (isset($app_setting_tab) && $app_setting_tab == 'pills-product-tab') active @endif"
                                     id="pills-product-tab" data-bs-toggle="pill" data-bs-target="#pills-product"
@@ -75,7 +75,7 @@
                             @endif
                         </li>
                         <li class="nav-item col-xxl-2 col-xl-3 col-md-4 col-sm-6  col-12 text-center" role="presentation">
-                            @if (env('IS_MOBILE') == 'yes')
+                            @if (config('platform.is_mobile') == 'yes')
                                 <a href="#loyality_program_json"
                                     class="nav-link btn-sm f-w-600 @if (isset($app_setting_tab) && $app_setting_tab == 'pills-loyal-tab') active @endif"
                                     id="pills-loyal-tab" data-bs-toggle="pill" data-bs-target="#pills-loyal" type="button"
@@ -93,7 +93,7 @@
             <div class="tab-content" id="pills-tabContent">
                 <div class="tab-pane fade show @if (isset($app_setting_tab) && $app_setting_tab == 'pills-home-tab') active show @endif" id="pills-home"
                     role="tabpanel" aria-labelledby="pills-home-tab">
-                    @if (env('IS_MOBILE') == 'yes')
+                    @if (config('platform.is_mobile') == 'yes')
                         <div id="api_url">
                             <div class="card">
                                 <div class="card-header">
@@ -121,7 +121,7 @@
                 </div>
                 <div class="tab-pane fade @if (isset($app_setting_tab) && $app_setting_tab == 'pills-profile-tab') active show @endif" id="pills-profile"
                     role="tabpanel" aria-labelledby="pills-profile-tab">
-                    @if (env('IS_MOBILE') == 'yes')
+                    @if (config('platform.is_mobile') == 'yes')
                         <div id="App_Setting">
                             <div class="card">
                                 <div class="card-header">
@@ -154,7 +154,7 @@
                 </div>
                 <div class="tab-pane fade @if (isset($app_setting_tab) && $app_setting_tab == 'pills-firebase-tab') active show @endif" id="pills-firebase"
                     role="tabpanel" aria-labelledby="pills-firebase-tab">
-                    @if (env('IS_MOBILE') == 'yes')
+                    @if (config('platform.is_mobile') == 'yes')
                         <div id="Firebase_setting">
                             <div class="card">
                                 {{ Form::open(['route' => 'firebase.settings', 'method' => 'post', 'enctype' => 'multipart/form-data']) }}
@@ -192,7 +192,7 @@
                 </div>
                 <div class="tab-pane fade @if (isset($app_setting_tab) && $app_setting_tab == 'pills-main-tab') active show @endif" id="pills-main"
                     role="tabpanel" aria-labelledby="pills-main-tab">
-                    @if (env('IS_MOBILE') == 'yes')
+                    @if (config('platform.is_mobile') == 'yes')
                         <div id="Main_Page_Content">
                             <div class="card">
                                 <div class="card-header">
@@ -564,7 +564,7 @@
                 </div>
                 <div class="tab-pane fade @if (isset($app_setting_tab) && $app_setting_tab == 'pills-product-tab') active show @endif" id="pills-product" role="tabpanel"
                     aria-labelledby="pills-product-tab">
-                    @if (env('IS_MOBILE') == 'yes')
+                    @if (config('platform.is_mobile') == 'yes')
                         <div id="Product_Page_Content">
                             <div class="card">
                                 <div class="card-header">
@@ -944,7 +944,7 @@
                 </div>
                 <div class="tab-pane fade @if (isset($app_setting_tab) && $app_setting_tab == 'pills-loyal-tab') active show @endif" id="pills-loyal"
                     role="tabpanel" aria-labelledby="pills-loyal-tab">
-                    @if (env('IS_MOBILE') == 'yes')
+                    @if (config('platform.is_mobile') == 'yes')
                         <div id="loyality_program_json">
                             <div class="col-md-12">
                                 <div class="card">

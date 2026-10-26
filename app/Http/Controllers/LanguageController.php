@@ -383,7 +383,42 @@ class LanguageController extends Controller
     {        
         if(auth()->user() && auth()->user()->isAbleTo('Delete Language'))
         {
-            $default_lang = env('default_language') ?? 'en';
+            $default_lang = config('platform.default_language') ?? 'en';
+
+            /*
+             * REFUSE THE DEFAULT AND THE FALLBACK, SERVER-SIDE.
+             *
+             * The only guard on this destructive action used to be the view: `language/index.blade.php`
+             * hides the delete control for `$default_lang` (:8 and :22). A hidden button is not a
+             * control -- this route is a plain GET/DELETE by language code, so the protection was one
+             * crafted URL away, and the handler itself happily deleted the language it then reassigned
+             * every affected user TO (`User::where('language', 'LIKE', $lang)->update(['language' =>
+             * $default_lang])` below), leaving those users pointing at a directory that no longer exists.
+             *
+             * `fallback_locale` is refused as well as the default, because they can differ:
+             * `config/app.php:83` is `env('APP_FALLBACK_LOCALE', 'en')`, and deleting whatever it names
+             * breaks translation resolution platform-wide, not just for the users reassigned.
+             *
+             * Surfaced by independent review of F48/R2. That change moved this method's
+             * `env('default_language')` to `config('platform.default_language')`, which on a cached
+             * deployment changes the value from `null` (so 'en' was always the protected one) to
+             * whatever `.env` says -- so a deployment with `default_language=ar` would have started
+             * offering 'en' for deletion. The hole is pre-existing; the change altered which language
+             * was exposed to it, which is reason enough to close it here rather than note it.
+             */
+            $protected = array_filter(array_unique([
+                $default_lang,
+                config('app.fallback_locale'),
+            ]));
+
+            if(in_array($lang, $protected, true))
+            {
+                return redirect()->back()->with(
+                    'error',
+                    __('This language cannot be deleted: it is the default or the fallback language.')
+                );
+            }
+
             $langDir      = base_path() . '/resources/lang/';
             if(is_dir($langDir))
             {

@@ -92,7 +92,7 @@
         }
     }
 
-    $footer_text = $setting['footer_text'] ?? (env('APP_NAME') ?? 'Ecommercego saas');
+    $footer_text = $setting['footer_text'] ?? config('platform.brand_name');
     $menusettings = \Workdo\LandingPage\Entities\OwnerMenuSetting::where('created_by', 1)->first();
     //$menusettings = null;
 
@@ -118,7 +118,7 @@
 
     <!-- Open Graph / Facebook -->
     <meta property="og:type" content="website">
-    <meta property="og:url" content="{{ env('APP_URL') }}">
+    <meta property="og:url" content="{{ config('app.url') }}">
     <meta property="og:title" content="{{ isset($setting['metatitle']) ? $setting['metatitle'] : 'EcommerceGo' }}">
     <meta property="og:description"
         content="{{ isset($setting['metadesc']) ? $setting['metadesc'] : 'Discover the efficiency of EcommerceGo, a user-friendly web application by Workdo.io.' }} ">
@@ -127,7 +127,7 @@
 
     <!-- Twitter -->
     <meta property="twitter:card" content="summary_large_image">
-    <meta property="twitter:url" content="{{ env('APP_URL') }}">
+    <meta property="twitter:url" content="{{ config('app.url') }}">
     <meta property="twitter:title"
         content="{{ isset($setting['metatitle']) ? $setting['metatitle'] : 'EcommerceGo' }}">
     <meta property="twitter:description"

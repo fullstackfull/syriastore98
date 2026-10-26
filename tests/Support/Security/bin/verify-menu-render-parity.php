@@ -37,8 +37,23 @@
 $repo = dirname(__DIR__, 4);
 
 // ---------------------------------------------------------------- stubs
-// The two helpers the old builder calls out to, plus env(). Both
+// The two helpers the old builder calls out to, plus env() AND config(). Both
 // implementations get the SAME stubs, so any difference is the renderers'.
+//
+// WHY config() IS HERE, AND WHY IT READS THE REAL FILE. menuTree() is not copied into
+// this script -- it is extracted from app/Helper/helper.php and eval'd below, so that it
+// cannot drift from the shipped function. That is the point of the design and it means
+// this script runs whatever the shipped function calls. F48/R2 moved helper.php:98's
+// `env('IS_MOBILE')` to `config('platform.is_mobile')`, and with no config() defined the
+// eval'd body died with `Call to undefined function config()` -- exit 255, outside this
+// script's own 0/1/2 contract, on the one fixture that exercises the predicate (`&&`
+// short-circuits on the name for every other row, so the first four fixtures still
+// passed and the failure looked selective). Nothing reported it: CI does not run
+// tests/Support/Security/bin/ and these scripts are in no PHPUnit testsuite.
+//
+// The stub REQUIRES config/platform.php rather than hard-coding 'no', for the same
+// reason menuTree() is eval'd: a changed default must reach this script. That file's own
+// `env('IS_MOBILE', 'no')` resolves through the env() stub defined just below.
 function route($name, $p = null) { return '/' . $name; }
 // ONE translator for both implementations: the real menuTree() calls __(),
 // the copied old builder calls __t(), and if they differed any mismatch would
@@ -46,6 +61,21 @@ function route($name, $p = null) { return '/' . $name; }
 function __($s, $replace = [], $locale = null) { return $s; }
 function __t($s) { return __($s); }
 function env($k, $d = null) { return $k === 'IS_MOBILE' ? 'no' : $d; }
+function config($key, $default = null)
+{
+    static $values = null;
+    if ($values === null) {
+        $values = ['platform' => require dirname(__DIR__, 4) . '/config/platform.php'];
+    }
+    $cursor = $values;
+    foreach (explode('.', $key) as $segment) {
+        if (! is_array($cursor) || ! array_key_exists($segment, $cursor)) {
+            return $default;
+        }
+        $cursor = $cursor[$segment];
+    }
+    return $cursor;
+}
 function e_($v) { return htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8'); }
 
 function hasChildren($menuItems, $name)

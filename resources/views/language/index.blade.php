@@ -5,7 +5,7 @@
 @section('action-button')
 @if (auth()->user()->type == 'super admin')
 <div class="lang-setting">
-    @if($currantLang != (!empty(env('default_language')) ? env('default_language') : 'en'))
+    @if($currantLang != (!empty(config('platform.default_language')) ? config('platform.default_language') : 'en'))
         <div class="form-check form-switch custom-switch-v1">
             <input type="hidden" name="disable_lang" value="off">
             <input type="checkbox" class="form-check-input input-primary" name="disable_lang" data-bs-placement="top" title="{{ __('Enable/Disable') }}" id="disable_lang" data-bs-toggle="tooltip" {{ !in_array($currantLang,$disabledLang) ? 'checked':'' }} >
@@ -19,7 +19,7 @@
         </a>
     </div>
 
-    @if($currantLang != (!empty(env('default_language')) ? env('default_language') : 'en'))
+    @if($currantLang != (!empty(config('platform.default_language')) ? config('platform.default_language') : 'en'))
     {!! Form::open(['method' => 'DELETE', 'route' => ['lang.destroy', $currantLang], 'class' => 'd-inline']) !!}
     <button type="button" class="btn btn-sm btn-danger show_confirm"  data-confirm="{{ __('Are You Sure?') }}"
     data-text="{{ __('This action can not be undone. Do you want to continue?') }}" data-text-yes="{{ __('Yes') }}" data-text-no="{{ __('No') }}" >
