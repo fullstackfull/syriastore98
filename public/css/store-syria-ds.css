@@ -2499,9 +2499,10 @@ a.ss-setup__item:focus-visible {
    11.2px into this file, which is what `--ss-dt-card-bg` already has to do and
    is worth not doing twice.
 
-   4px, DERIVED NOT PICKED. Measured on the running product and order lists, the
-   tallest thing in a row is the 32px row-action control group (`span.d-flex` in
-   the last cell); nothing else reaches 32. So the row is `32 + 2 * padding`:
+   4px, DERIVED NOT PICKED -- ON ROWS WHOSE TALLEST CONTENT IS THE ROW ACTIONS.
+   Measured on the running product and order lists, the tallest thing in such a
+   row is the 32px row-action control group (`span.d-flex` in the last cell).
+   So the row is `32 + 2 * padding`:
 
        comfortable   32 + 2 * 11.2 + 1  = 55.4  ->  55px  (measured at all 5 widths)
        compact       32 + 2 * 4    + 1  =          41px  (measured)
@@ -2516,6 +2517,17 @@ a.ss-setup__item:focus-visible {
    touch target at the compact height, and shrinking the control to win a few
    more pixels would spend the requirement to buy rows.
 
+   THE 27% IS NOT UNIVERSAL, and review was right to flag the first version of
+   this comment for implying it is. Ten host tables render an `<img>` in a body
+   row, and `ProductDataTable.php:120` emits `<img width="100">` with NO height,
+   so a real store whose products have square photographs has rows nearer 122px
+   (100 + 22.4 + 1). Compact takes the same 14.4px off those -- about 12%, not
+   27% -- and nothing clips. The p2dev fixture's products carry no images, which
+   is why the headline figure came out of the best case. Constraining those
+   images at the compact height would buy the rest, but that is a design
+   decision about what a compact product list shows, not a correction, and it is
+   not taken here.
+
    `padding-block`, so there is nothing to mirror in RTL -- the logical property
    is the inline axis's business and this rule never touches it.
 
@@ -2528,18 +2540,41 @@ a.ss-setup__item:focus-visible {
     padding-block: 4px;
 }
 
-/* The toggle's own pressed state, drawn WITHOUT COLOUR as the only signal: the
-   inset shadow and the border both change, so it reads as pressed in a
-   high-contrast or forced-colours context too, and on a merchant whose brand
-   colour happens to match the surface. Same reasoning as the column menu's
-   selection indicator (P2-03-1 follow-up). */
+/* The toggle's own pressed state, drawn so it does not depend on colour alone:
+   an inset ring in the normal case, an OUTLINE under forced colours.
+
+   THE SECOND RULE IS NOT BELT AND BRACES. An earlier version of this block
+   claimed the ring "reads as pressed in a high-contrast or forced-colours
+   context too", and independent review measured that false: `box-shadow` is
+   forced to `none` by CSS Color Adjust in forced-colors mode, so the ring
+   vanished and the ONLY remaining difference between pressed and unpressed was
+   `background-color` -- colour, the one signal the comment said it avoided.
+   (The same comment also claimed a border change; the rule changes no border.)
+   `outline` survives forced colours, so the pressed state is carried there by
+   an outline instead. Measured, not reasoned, and the comment now says what the
+   rules do. */
 .ss-density[aria-pressed="true"] {
     box-shadow: inset 0 0 0 2px currentColor;
 }
 
+@media (forced-colors: active) {
+    .ss-density[aria-pressed="true"] {
+        outline: 2px solid currentColor;
+        outline-offset: -4px;
+    }
+}
+
+/* THE DESIGN SYSTEM'S OWN FOCUS TOKENS, not a hand-rolled blue. This read
+   `var(--ss-focus, #2563eb)` -- and `--ss-focus` is not defined anywhere in this
+   file, so every focus ring on this control was the hard-coded fallback: the one
+   blue ring in a teal admin, and 2.77:1 against the dark card `#292a33`, under
+   WCAG 2.2 SC 1.4.11's 3:1 for a focus indicator. The real tokens are
+   `--ss-focus-ring` / `--ss-focus-width` / `--ss-focus-offset`, which switch to
+   teal-400 in dark mode (8.42:1) and are the trio every other focus rule in this
+   file already uses. Found by review; nothing catches a dangling `var(--ss-*)`. */
 .ss-density:focus-visible {
-    outline: 2px solid var(--ss-focus, #2563eb);
-    outline-offset: 2px;
+    outline: var(--ss-focus-width) solid var(--ss-focus-ring);
+    outline-offset: var(--ss-focus-offset);
 }
 
 .ss-dt-card-body { --ss-dt-card-bg: #ffffff; }

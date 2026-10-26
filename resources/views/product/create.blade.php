@@ -25,7 +25,15 @@
   $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold');
 @endphp
 @section('content')
-  {{ Form::open(['route' => 'product.store', 'method' => 'post', 'id' => 'choice_form', 'enctype' => 'multipart/form-data']) }}
+  {{-- P2-03-3. `data-ss-dirty-track` opts this form into StoreSyriaDS.wireDirtyTracking, which
+     arms on the first real input (not on focus) and is what reveals the unsaved-changes marker in
+     the action bar below. `ss-has-actionbar` is the scroll offset the sticky bar needs so it
+     cannot cover a focused field -- WCAG 2.2 "Focus Not Obscured". --}}
+{{ Form::open(['route' => 'product.store', 'method' => 'post', 'id' => 'choice_form', 'enctype' => 'multipart/form-data', 'data-ss-dirty-track' => true, 'class' => 'ss-has-actionbar']) }}
+
+  {{-- The validation summary complements the inline field errors; it never replaces them, and
+       StoreSyriaDS moves focus here after a failed submit. --}}
+  <x-ss.error-summary :errors="$errors" class="mb-3" />
   <div class="row product-page-info">
     <div class="col-md-12">
       <div class="row">
@@ -479,6 +487,32 @@
     </div>
   </div>
 
+
+  {{--
+      P2-03-3 -- STICKY SAVE.
+
+      MEASURED, not assumed. The only Save on this screen is `#submit-all`, an anchor in the page
+      header OUTSIDE this form. Scrolled to the bottom of the create form it sits at
+
+          1440px   page 2172px, viewport 900   ->  Save at y = -1175   off-screen
+           390px   page 4161px, viewport 900   ->  Save at y = -3131   off-screen
+
+      so a merchant who has just filled the form cannot see or reach it without scrolling back to
+      the top -- over three thousand pixels on a phone.
+
+      THIS BUTTON DOES NOT SUBMIT. `create.blade.php` binds ~120 lines of FormData assembly to
+      `#submit-all`'s click, and a second handler would be a second submit path to keep in step.
+      `data-ss-click-proxy` clicks the existing control instead, so there is exactly one
+      implementation and a change to it reaches both controls.
+  --}}
+  <x-ss.actionbar :label="__('Save or discard your changes')">
+    <a href="#" class="btn btn-primary ss-btn"
+       data-ss-click-proxy="#submit-all"
+       data-title="{{ __('Create Product') }}">
+      <i class="ti ti-device-floppy" aria-hidden="true"></i>
+      <span class="ms-2 me-2">{{ __('Save') }}</span>
+    </a>
+  </x-ss.actionbar>
 
   {!! Form::close() !!}
 @endsection

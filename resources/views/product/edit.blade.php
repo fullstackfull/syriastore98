@@ -25,7 +25,14 @@ $stock_management = \App\Models\Utility::GetValueByName('stock_management');
 $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold');
 @endphp
 @section('content')
-{{ Form::model($product, ['route' => ['product.update', $product->id], 'method' => 'PUT', 'enctype' => 'multipart/form-data', 'id' => 'choice_form', 'class' => 'choice_form_edit']) }}
+{{-- P2-03-3. `data-ss-dirty-track` opts this form into StoreSyriaDS.wireDirtyTracking, which
+     arms on the first real input and reveals the unsaved-changes marker in the action bar below.
+     `ss-has-actionbar` is the scroll offset that keeps the sticky bar off a focused field (WCAG
+     2.2 "Focus Not Obscured"). The existing `choice_form_edit` class is KEPT: `edit.blade.php`
+     selects on it. --}}
+{{ Form::model($product, ['route' => ['product.update', $product->id], 'method' => 'PUT', 'enctype' => 'multipart/form-data', 'id' => 'choice_form', 'class' => 'choice_form_edit ss-has-actionbar', 'data-ss-dirty-track' => true]) }}
+
+  <x-ss.error-summary :errors="$errors" class="mb-3" />
 {{--
     P2-03-5. THE CONCURRENT-EDIT TOKEN.
 
@@ -688,6 +695,25 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
       </div>
     </div>
   </div>
+  {{--
+      P2-03-3 -- STICKY SAVE, for the same measured reason as the create form: the only Save is
+      `#submit-all` in the page header, outside this form, and it scrolls off the top.
+
+      IT CLICKS THE EXISTING CONTROL rather than submitting. `edit.blade.php` binds its own
+      FormData assembly to `#submit-all` -- including the `ss_last_seen_at` concurrency token
+      P2-03-5 added -- and a second submit path would have to keep that in step. Proxying means
+      there is one implementation and the conflict detection cannot be bypassed by using the new
+      button instead of the old one.
+  --}}
+  <x-ss.actionbar :label="__('Save or discard your changes')">
+    <a href="#" class="btn btn-primary ss-btn"
+       data-ss-click-proxy="#submit-all"
+       data-title="{{ __('Update Product') }}">
+      <i class="ti ti-device-floppy" aria-hidden="true"></i>
+      <span class="ms-2 me-2">{{ __('Save') }}</span>
+    </a>
+  </x-ss.actionbar>
+
 {!! Form::close() !!}
 @endsection
 

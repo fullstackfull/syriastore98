@@ -584,6 +584,44 @@
         return data;
     }
 
+    /* ------------------------------------------- proxy click (P2-03-3)
+
+       A SECOND CONTROL FOR ONE ACTION, WITHOUT A SECOND IMPLEMENTATION.
+
+       The product editor's Save is an anchor in the page header
+       (`#submit-all`), and `product/create.blade.php` binds ~120 lines of
+       FormData assembly to its click. MEASURED, which is why the sticky bar
+       exists at all: with the form scrolled to the bottom that control sits at
+       y = -1175 at 1440px and y = -3131 at 390px -- entirely off-screen, so a
+       merchant who has just filled the form cannot see or reach Save without
+       scrolling back to the top.
+
+       The sticky bar's button therefore does not submit. It CLICKS THE EXISTING
+       CONTROL, so there is exactly one submit path and the two can never drift:
+       a change to the handler reaches both, and a bug in it is one bug. Copying
+       the assembly into a second handler is the "parallel engine" the brief
+       forbids, in miniature.
+
+       `preventDefault` because the proxy is itself an anchor; the guard against
+       proxying to itself is there because `data-ss-click-proxy="#submit-all"`
+       on `#submit-all` would otherwise recurse until the stack gave out. */
+
+    function wireClickProxy(node) {
+        if (node.hasAttribute('data-ss-click-proxy-wired')) { return; }
+        node.setAttribute('data-ss-click-proxy-wired', 'true');
+
+        node.addEventListener('click', function (event) {
+            var selector = node.getAttribute('data-ss-click-proxy');
+            if (!selector) { return; }
+
+            var target = document.querySelector(selector);
+            if (!target || target === node) { return; }
+
+            event.preventDefault();
+            target.click();
+        });
+    }
+
     /* --------------------------------------------------- row density (P2-03-10)
 
        THE HALF OF P2-03-1 THAT WAS NOT DONE. The merchant lists are 55px per
@@ -623,6 +661,13 @@
        carry several tables (the dashboard carries two) and a single variable
        would give the second one the first one's choice.
 
+       THE KEYING IS NOT OBSERVABLE TODAY, and the first version of this comment
+       justified it with a table that does not exist -- "the dashboard carries
+       two". Measured by review: `/dashboard` carries ZERO helper-built
+       DataTables; its two `table.dataTable` elements are hand-written, with no
+       id and no wrapper. No view in the repository renders two `<x-datatable>`.
+       The map is still right, but for the reason below and not that one.
+
        IT IS THE SOURCE OF TRUTH, AND THE DOM IS ITS PROJECTION. This started out
        as a one-shot stash that `stateSaveParams` ignored in favour of reading the
        attribute off the container, and that was a real bug the browser check
@@ -661,7 +706,9 @@
 
         /* The control is a toggle, so it carries its own state for a screen
            reader. `aria-pressed` and not a class: the pressed look is the
-           stylesheet's business, the pressed FACT is the button's. */
+           stylesheet's business, the pressed FACT is the button's.
+           `role="button"` is set with it -- see `wireDensityButton` for why that
+           is required rather than optional here. */
         var btn = host.querySelector('.ss-density');
         if (btn) {
             btn.setAttribute('aria-pressed', density === 'compact' ? 'true' : 'false');
@@ -700,12 +747,51 @@
         return data;
     }
 
+    /* THE PROMISE `aria-pressed` MAKES, KEPT.
+
+       DataTables Buttons 1.3.1 renders every button as an `<a href="#">` and
+       binds only `click` and `keyup` on Enter. MEASURED on the rendered control
+       by independent review: its computed role is `link`, so
+       `getByRole('button', {pressed:false})` matches NOTHING -- the pressed
+       state was announced to no one, and `aria-pressed` is not even a permitted
+       attribute on `role=link`. Pressing Space scrolled the page by 400px
+       instead of toggling.
+
+       So the state was a promise the control did not keep, which is the F38/F39
+       lesson one level up: a name or a state that looks set and is not is worse
+       than none. `role="button"` makes the role match the behaviour, and the
+       Space handler supplies the keystroke an anchor does not fire on its own.
+       (P2-03-1 deliberately did NOT set `role="button"` on the column-visibility
+       button, and that was right: it is a one-shot menu trigger with no state to
+       convey and no Space contract to keep. The difference is `aria-pressed`.)
+
+       AND FOCUS IS RETURNED. Buttons calls `blur()` on its own control inside
+       the click handler, so after every toggle focus landed on `<body>` --
+       measured -- which loses the state change for a screen-reader user and
+       makes them traverse the page again to toggle back. */
+    function wireDensityButton(host) {
+        if (!host) { return; }
+
+        var btn = host.querySelector('.ss-density');
+        if (!btn || btn.hasAttribute('data-ss-density-wired')) { return; }
+        btn.setAttribute('data-ss-density-wired', 'true');
+        btn.setAttribute('role', 'button');
+
+        btn.addEventListener('keydown', function (event) {
+            if (event.key === ' ' || event.key === 'Spacebar' || event.keyCode === 32) {
+                event.preventDefault();
+                btn.click();
+            }
+        });
+    }
+
     function initTableDensity(api) {
         var host = densityHost(api);
         if (!host) { return; }
         var k = densityKey(api);
         var density = (k && densityState[k]) || 'comfortable';
         if (k) { densityState[k] = density; }
+        wireDensityButton(host);
         applyDensity(host, density);
     }
 
@@ -717,6 +803,22 @@
         var next = now === 'compact' ? 'comfortable' : 'compact';
         if (k) { densityState[k] = next; }
         applyDensity(host, next);
+
+        /* Buttons blurs its own control inside the click handler, so without
+           this a keyboard user is dropped on <body> after every toggle and
+           never hears the state change.
+
+           DEFERRED BY A TICK, and that is measured rather than stylistic: a
+           synchronous focus() here ran BEFORE Buttons' blur() and was simply
+           undone -- the check reported `activeElement=theme-3`, i.e. <body>,
+           with the focus call in place. Queuing it puts it after. */
+        var btn = host.querySelector('.ss-density');
+        if (btn) {
+            window.setTimeout(function () {
+                try { btn.focus(); } catch (e) { /* detached */ }
+            }, 0);
+        }
+
         /* Persist immediately. Without this the choice survives only until the
            next event that happens to save state, and a reload would lose it --
            which is the one thing the acceptance asks for by name. */
@@ -787,6 +889,10 @@
             document.querySelectorAll('form[data-ss-dirty-track]'),
             wireDirtyTracking
         );
+        Array.prototype.forEach.call(
+            document.querySelectorAll('[data-ss-click-proxy]'),
+            wireClickProxy
+        );
         focusErrorSummary();
         updateNotificationBadge();
     }
@@ -807,6 +913,8 @@
         closePanel: closePanel,
         loadPanel: loadPanel,
         wireDirtyTracking: wireDirtyTracking,
+        // P2-03-3. One action, two controls, one implementation.
+        wireClickProxy: wireClickProxy,
         // P2-06-4. Called from the `stateSaveParams`/`stateLoadParams` options
         // that `buildDataTable()` puts on every merchant table, so the rule
         // lives in one place rather than inlined 68 times.
@@ -818,7 +926,8 @@
             load: loadDensityState,
             init: initTableDensity,
             toggle: toggleTableDensity,
-            current: currentDensity
+            current: currentDensity,
+            wire: wireDensityButton
         },
         // P2-06-3. Exposed so a screen that just marked a notification read can
         // refresh the header count without a reload.

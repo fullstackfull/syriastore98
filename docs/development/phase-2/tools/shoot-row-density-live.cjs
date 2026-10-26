@@ -27,6 +27,25 @@ const OUT = process.argv[4] || path.join(__dirname, '..', 'screenshots', 'p2-03-
 const REPO = path.join(__dirname, '..', '..', '..', '..');
 const EMAIL = 'merchant@example.test', PASSWORD = 'password';
 
+/* The fixture's state when this run started, read with its own reader so there is one
+   definition of what the state is, and restored by the `finally` below. */
+const INITIAL = (() => {
+    try {
+        return JSON.parse(execFileSync('php',
+            [path.join(__dirname, 'read-preview-state.php'), STORE],
+            { cwd: REPO, stdio: 'pipe',
+              env: Object.assign({}, process.env, {
+                  DB_CONNECTION: 'sqlite',
+                  DB_DATABASE: path.join(REPO, 'database', 'p2dev.sqlite'),
+                  CACHE_STORE: 'file',
+              }) }).toString().trim());
+    } catch (e) {
+        /* Say so rather than guess: a wrong restore is worse than none. */
+        console.error('  note: could not read the fixture state to restore it -- ' + e.message);
+        return { theme: 'light', dir: 'ltr' };
+    }
+})();
+
 function setServerState(theme, dir) {
     execFileSync('php', [path.join(__dirname, 'set-preview-state.php'), STORE, theme, dir], {
         cwd: REPO,
@@ -90,7 +109,11 @@ function setServerState(theme, dir) {
             }
         }
     } finally {
-        setServerState('light', 'rtl');
+        /* RESTORE WHAT WE FOUND. This ended on a hard-coded setServerState('light','rtl')
+           regardless of the state it started from, which silently left the dev fixture in
+           RTL for whoever worked next -- review of P2-03-10 found the store sitting that way
+           for exactly this reason. A restore that does not read is a reset. */
+        setServerState(INITIAL.theme, INITIAL.dir);
         await browser.close();
     }
 

@@ -27,6 +27,25 @@ function check(label, cond, detail) {
   else { failures.push(label); console.error('  FAIL  ' + label + (detail === undefined ? '' : '  [' + detail + ']')); }
 }
 
+/* The fixture's state when this run started, read with its own reader so there is one
+   definition of what the state is, and restored by the `finally` below. */
+const INITIAL = (() => {
+    try {
+        return JSON.parse(execFileSync('php',
+            [path.join(__dirname, 'read-preview-state.php'), STORE],
+            { cwd: REPO, stdio: 'pipe',
+              env: Object.assign({}, process.env, {
+                  DB_CONNECTION: 'sqlite',
+                  DB_DATABASE: path.join(REPO, 'database', 'p2dev.sqlite'),
+                  CACHE_STORE: 'file',
+              }) }).toString().trim());
+    } catch (e) {
+        /* Say so rather than guess: a wrong restore is worse than none. */
+        console.error('  note: could not read the fixture state to restore it -- ' + e.message);
+        return { theme: 'light', dir: 'ltr' };
+    }
+})();
+
 function setServerState(theme, dir) {
   execFileSync('php', [path.join(REPO, 'docs/development/phase-2/tools/set-preview-state.php'), STORE, theme, dir], {
     cwd: REPO,
@@ -107,6 +126,37 @@ async function run() {
       check('the toggle is now announced as pressed', m.pressed === 'true', 'aria-pressed=' + m.pressed);
       check('the pressed state is drawn WITHOUT colour as its only signal (an inset ring)',
         !!m.btnShadow && m.btnShadow !== 'none' && m.btnShadow.indexOf('inset') !== -1, 'box-shadow=' + m.btnShadow);
+
+      /* THE PROMISE aria-pressed MAKES. Buttons renders an <a href="#">, whose computed role is
+         `link` -- and `aria-pressed` is not conveyed on a link at all, so the state was announced
+         to nobody. Asserted through the ACCESSIBILITY TREE rather than the attribute, because the
+         attribute was present and inert the whole time. */
+      const asButton = await page.getByRole('button', { name: m.aria, pressed: true }).count();
+      check('the toggle is a BUTTON in the accessibility tree, with its pressed state conveyed',
+        asButton === 1, 'getByRole(button,{pressed:true}) count=' + asButton);
+
+      /* SPACE. An anchor does not fire click on Space -- it scrolls the page, measured at 400px
+         before this was wired. A control carrying aria-pressed must honour the keystroke. */
+      const beforeSpace = await page.evaluate(() => ({
+        y: Math.round(window.scrollY),
+        d: document.querySelector('[data-ss-density]').getAttribute('data-ss-density'),
+      }));
+      await page.focus('.dt-buttons .ss-density');
+      await page.keyboard.press(' ');
+      await page.waitForTimeout(400);
+      const afterSpace = await page.evaluate(() => ({
+        y: Math.round(window.scrollY),
+        d: document.querySelector('[data-ss-density]').getAttribute('data-ss-density'),
+        focused: document.activeElement ? (document.activeElement.className || document.activeElement.tagName) : null,
+      }));
+      check('Space toggles the density instead of scrolling the page',
+        afterSpace.d !== beforeSpace.d && afterSpace.y === beforeSpace.y,
+        JSON.stringify({ beforeSpace, afterSpace }));
+      check('focus is returned to the toggle after it fires (Buttons blurs it)',
+        String(afterSpace.focused).indexOf('ss-density') !== -1, 'activeElement=' + afterSpace.focused);
+
+      // put it back to compact for the cases that follow
+      if (afterSpace.d !== 'compact') { await page.click('.dt-buttons .ss-density'); await page.waitForTimeout(400); }
 
       /* THE ACCEPTANCE'S OWN NUMBER. */
       check('the row actions still clear a 24px touch target at the compact height',
@@ -190,8 +240,12 @@ async function run() {
       }
     }
   } finally {
-    setServerState('light', 'rtl');
-    await browser.close();
+      /* RESTORE WHAT WE FOUND. This ended on a hard-coded setServerState('light','rtl')
+         regardless of the state it started from, which silently left the dev fixture in
+         RTL for whoever worked next -- review of P2-03-10 found the store sitting that way
+         for exactly this reason. A restore that does not read is a reset. */
+      setServerState(INITIAL.theme, INITIAL.dir);
+      await browser.close();
   }
 
   console.log('');

@@ -3022,14 +3022,28 @@ if (! function_exists('buildDataTable')) {
         }';
 
         /*
-         * P2-03-10. The two directions are NOT symmetrical, which is why they are no longer the
-         * same function. Saving writes the live density onto the object DataTables is about to
-         * store; loading reads it back BEFORE the table exists, so it is stashed and applied by
-         * `initComplete`. Giving both legs `$sanitizeState` -- as the single shared hook did --
-         * would have stored no density at all and restored nothing.
+         * P2-03-10. Saving writes the live density onto the object DataTables is about to store,
+         * so that leg is the sanitiser PLUS one call. Restoring is NOT the mirror of it and must
+         * not be put on `stateLoadParams`.
          *
-         * The sanitiser still runs on both legs, unchanged: the search term and the page number
-         * are stripped in each direction exactly as P2-06-4 left them.
+         * WHY `stateLoaded` AND NOT `stateLoadParams`, read out of the shipped
+         * `public/vendor/datatables/datatables.min.js` rather than assumed. The load path is:
+         *
+         *     g = A(a,"aoStateLoadParams","stateLoadParams",[a,b]);
+         *     if (-1===f.inArray(!1,g) && (g=a.iStateDuration,
+         *         !(0<g && b.time < +new Date-1E3*g || b.columns && h.length !== b.columns.length)))
+         *            { ...apply...; A(a,"aoStateLoaded","stateLoaded",[a,b]); }
+         *
+         * `stateLoadParams` fires BEFORE both acceptance checks, so stashing there restores a
+         * density out of state DataTables has decided to throw away -- a state whose column count
+         * no longer matches (the guard that stops a module being enabled applying the wrong
+         * column's visibility), or an expired one if `stateDuration` ever stops being 0. The
+         * column set and the page length would expire and the density would not.
+         *
+         * `stateLoaded` runs only on the accepted branch, and still before `initComplete`, which
+         * is where the value is applied. Found by independent review; the first version of this
+         * block claimed the two legs "are NOT symmetrical", and they only had to diverge because
+         * the restore was on the wrong hook. `stateLoadParams` goes back to the plain sanitiser.
          */
         $stateSaveParams = 'function (settings, data) {
             if (window.StoreSyriaDS && window.StoreSyriaDS.sanitizeTableState) {
@@ -3040,10 +3054,7 @@ if (! function_exists('buildDataTable')) {
             }
         }';
 
-        $stateLoadParams = 'function (settings, data) {
-            if (window.StoreSyriaDS && window.StoreSyriaDS.sanitizeTableState) {
-                window.StoreSyriaDS.sanitizeTableState(data);
-            }
+        $stateLoaded = 'function (settings, data) {
             if (window.StoreSyriaDS && window.StoreSyriaDS.tableDensity) {
                 window.StoreSyriaDS.tableDensity.load(settings, data);
             }
@@ -3053,7 +3064,8 @@ if (! function_exists('buildDataTable')) {
             'stateSave' => true,
             'stateDuration' => 0,
             'stateSaveParams' => $stateSaveParams,
-            'stateLoadParams' => $stateLoadParams,
+            'stateLoadParams' => $sanitizeState,
+            'stateLoaded' => $stateLoaded,
             "dom" =>  "
         <'dataTable-top'<'dataTable-dropdown page-dropdown'l><'dataTable-botton table-btn dataTable-search tb-search  d-flex justify-content-end gap-1'Bf>>
         <'dataTable-container'<'col-sm-12'tr>>

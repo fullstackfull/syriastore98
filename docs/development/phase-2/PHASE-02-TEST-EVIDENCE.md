@@ -1970,6 +1970,98 @@ verify-menu-render-parity.php
 ```
 
 5925 is 5921 + the 4 new wiring tests; no existing Feature outcome moved, and the manifest was not
-touched. The parity script matters here specifically: it `eval`s `menuTree()` straight out of
-`app/Helper/helper.php`, which this slice edits, so it is a real check on this change rather than a
-formality.
+touched.
+
+**One claim in this section was an overclaim, and review caught it.** It read: "the parity script
+matters here specifically ... so it is a real check on this change rather than a formality." It is
+not. `verify-menu-render-parity.php` extracts **`menuTree()`** out of `helper.php`
+(`:156-160`) and never touches `buildDataTable()`, so it would have matched whatever this slice
+did. It is a guard on the file being parseable and on `menuTree()` being unmoved -- worth running
+when `helper.php` changes, which is why it is listed -- but it is not evidence about the density
+work.
+
+### 12f. Independent review of P2-03-10, and the eight things it found
+
+`helper.php` builds all 68 merchant tables, so the brief requires independent review for it. The
+review drove the running application rather than reading only, and found eight real items. All
+eight are fixed or corrected; none was waved off.
+
+**The one that would have shipped broken.** `layouts/app.blade.php` loads the design-system assets
+with hand-set cache-busting versions — `css/store-syria-ds.css?v=p02-2`, `js/store-syria-ds.js?v=p02-3`
+— and the opt-in partial's own comment says in as many words *"Bump `?v=` when store-syria-ds.css
+changes."* This slice changed **both** files and bumped **neither**. On deploy, a merchant who used
+the admin yesterday serves the OLD JS and CSS from cache while the server renders the new button:
+`StoreSyriaDS.tableDensity` is undefined, both state hooks and the action no-op, and the compact
+rule does not exist — **a new control that does nothing at all** until the cache expires. And a
+Playwright context always starts cold, so `check-row-density-live.cjs` is *structurally incapable*
+of seeing it. Five references bumped to `p02-4`.
+
+**The pressed state was announced to nobody.** Buttons 1.3.1 renders every control as an
+`<a href="#">`. Measured on the rendered DOM: the computed role is `link`,
+`getByRole('button', {pressed:false})` matched **nothing**, and `aria-pressed` is not a permitted
+attribute on `role=link`. Space scrolled the page 400px instead of toggling, and Buttons' own
+`blur()` dropped focus to `<body>` after every toggle. So the control carried a state it did not
+convey — the F38/F39 lesson one level up. Now `role="button"`, a Space handler, and a focus return
+**deferred by a tick** (a synchronous `focus()` ran *before* Buttons' `blur()` and was simply
+undone — measured as `activeElement=theme-3`). The live check now asserts this through the
+**accessibility tree**, not the attribute, because the attribute was present and inert throughout.
+
+**The non-colour indicator was colour-only where it mattered.** `box-shadow` is forced to `none` in
+forced-colors mode, so the inset ring vanished and the only remaining difference between pressed
+and unpressed was `background-color` — the one signal the comment claimed to avoid. (It also
+claimed a border change; the rule changes no border.) A `@media (forced-colors: active)` outline
+carries it there, and the comment now says what the rules do.
+
+**The focus ring read a token that does not exist.** `var(--ss-focus, #2563eb)` — and `--ss-focus`
+is defined nowhere in the stylesheet, so every focus ring on this control was the hard-coded blue:
+the only blue ring in a teal admin, and **2.77:1** against the dark card `#292a33`, under WCAG 2.2
+SC 1.4.11's 3:1. The design system's tokens are `--ss-focus-ring` / `--ss-focus-width` /
+`--ss-focus-offset`, used by fifteen other rules in the same file; they give 8.42:1 in dark. Nothing
+catches a dangling `var(--ss-*)`.
+
+**The restore was on the wrong hook.** Read out of the shipped `datatables.min.js`,
+`stateLoadParams` fires *before* DataTables checks the stored state's column count and age — so
+density was being restored out of state DataTables had decided to discard. Moved to `stateLoaded`,
+which runs only on the accepted branch. That also removed a dead `$sanitizeState` variable and
+restored the symmetry the previous comment claimed was impossible: the two legs only diverged
+because the restore was in the wrong place.
+
+**Two of my own claims were wrong in the reassuring direction.** The 27% reduction holds only on
+rows whose tallest content is the row-action group; `ProductDataTable.php:120` emits
+`<img width="100">` with no height, so a real store with product photographs has ~122px rows where
+compact saves ~12%. And the state map was justified by "the dashboard carries two tables" —
+measured, `/dashboard` carries **zero** helper-built DataTables, and no view in the repository
+renders two. The map is still right, for the ordering bug it fixed; the reason written down was
+not. Both corrected in place.
+
+**Two test assertions passed on prose.** `test_the_stylesheet_and_the_behaviour_module_carry_the_rule`
+read both files with comments intact, so a comment mentioning the symbol satisfied it — and these
+files' comments do mention `tableDensity`, `densityState` and `applyDensity`. Comment the rule out,
+keep the commentary, and it stayed green. Comments are now stripped first, and the fix is
+bite-tested against exactly that scenario. The action assertion was two separate substrings, both
+of which survive the failure they exist to catch; it is one regex now.
+
+**Harness hygiene.** Both tools ended on a hard-coded `setServerState('light','rtl')` regardless of
+what they found, silently leaving the dev fixture in RTL for whoever worked next — the review found
+the store sitting that way. They now read the state first (`read-preview-state.php`, new) and put
+it back. Verified: `dark/ltr` before → 38/38 → `dark/ltr` after.
+
+**What the review confirmed clean**, with evidence rather than assertion: the CSS attribute lands
+only on the DataTables wrapper, which holds exactly one `table.dataTable` on every screen, and no
+DataTable in the 68 renders a nested table; the pinned column is correct at the compact height in
+light, dark and RTL; the state map holds under duplicate ids, missing ids, re-initialisation and
+navigation (none of which occur); **no new tenant or personal data is stored** — the key is
+`DataTables_<tableId>_<pathname>` as before, and the one new value is the literal
+`"comfortable"`/`"compact"`; a poisoned `ssDensity` in localStorage cannot inject, because both legs
+validate against `DENSITIES` before `setAttribute`; and pre-slice stored states are backward
+compatible. It also **refuted one of my premises**: there are no `buildDataTable()` tables outside
+the admin layout at all, so the "visible button, inert hooks" degradation has no reachable instance
+today — the deploy-day cache case above is the reachable version of it.
+
+**Left open, deliberately, and recorded rather than fixed:** the table header does not compact (it
+stays 49px while body rows go to 41px); the rule's `> th` limb is dead, since DataTables builds body
+cells as `td`; and at 390px in English the toggle sits 225px beyond the visible strip — the
+unresolved P2-03-1 reachability problem, now with one more control behind it. The review measured
+that a fifth button does **not** make that layout worse (it is right-anchored, so the group extends
+leftward and the required scroll *drops* from 159px to 93px), but the control is still unreachable
+there without dragging the table sideways. That belongs to the 390px row, not to this one.

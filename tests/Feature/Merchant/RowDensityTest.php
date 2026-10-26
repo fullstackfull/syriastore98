@@ -86,49 +86,74 @@ class RowDensityTest extends SecurityTestCase
         $script = (string) $this->table()->generateScripts();
 
         /*
+         * ONE REGEX, NOT TWO SUBSTRINGS, and that is a correction. This asserted
+         * `"action":function` and `tableDensity` separately, and review showed both survive the
+         * failure they exist to catch: `bulkDeleteForm()` also emits an `action` function, so the
+         * first stops being about THIS button the moment a test base activates BulkDelete; and if
+         * the density action were emitted as a quoted string, the second still passes, because
+         * the quoted literal contains the word `tableDensity`. Tying them together is what makes
+         * it a test of this button being real JavaScript.
+         *
          * yajra decides string-vs-JS by `Helper::isJavascript()`, which only treats a value as
          * raw JS when it starts with `function` / `$` / `$.`. A quoted action would appear as
-         * `"action":"function …"` and DataTables would ignore it -- the button present and
-         * inert, which is exactly the failure mode this assertion exists for.
+         * `"action":"function …"` and DataTables would ignore it -- the button present and inert.
          */
-        $this->assertStringContainsString('"action":function', $script,
-            'the density action was emitted as a STRING, so the button will do nothing');
+        $this->assertMatchesRegularExpression(
+            '/"action":function \(e, dt\) \{\s*if \(window\.StoreSyriaDS/',
+            $script,
+            'the density action is not an unquoted function reaching StoreSyriaDS -- either it was '
+            . 'emitted as a string (DataTables will ignore it) or it no longer calls the module'
+        );
 
-        $this->assertStringContainsString('tableDensity', $script,
-            'the action does not reach StoreSyriaDS.tableDensity');
+        $this->assertStringContainsString('tableDensity.toggle', $script,
+            'the action does not reach StoreSyriaDS.tableDensity.toggle');
     }
 
-    public function test_the_two_state_hooks_are_distinct_and_both_carry_density(): void
+    public function test_density_is_saved_with_the_state_and_restored_only_from_an_accepted_one(): void
     {
         $options = $this->table()->getOptions();
 
         $save = (string) ($options['stateSaveParams'] ?? '');
         $load = (string) ($options['stateLoadParams'] ?? '');
+        $loaded = (string) ($options['stateLoaded'] ?? '');
 
-        $this->assertNotSame('', $save);
-        $this->assertNotSame('', $load);
+        // Saving: the sanitiser AND the density, on the object DataTables is about to store.
+        $this->assertStringContainsString('sanitizeTableState', $save);
+        $this->assertStringContainsString('tableDensity.save', $save);
+
+        // The sanitiser still runs on the way IN, unchanged from P2-06-4.
+        $this->assertStringContainsString('sanitizeTableState', $load);
 
         /*
-         * THEY USED TO BE THE SAME FUNCTION, and that is why this case is here. P2-06-4 gave
-         * both legs one shared sanitiser, which is right for the search term -- it is stripped
-         * in both directions -- but wrong for density, where saving WRITES the live value and
-         * loading READS a stored one. Sharing one hook stored no density at all.
+         * THE RESTORE MUST BE ON `stateLoaded`, NOT `stateLoadParams`, and this case exists
+         * because it was on the wrong one. Read out of the shipped datatables.min.js,
+         * `stateLoadParams` fires BEFORE DataTables checks the state's column count and age, so a
+         * restore there resurrects a density out of state DataTables has decided to discard --
+         * the column set and the page length would expire and the density would not.
+         * `stateLoaded` runs only on the accepted branch.
          */
-        $this->assertNotSame($save, $load,
-            'both state hooks are the same function again, so one of the two directions is wrong');
-
-        $this->assertStringContainsString('tableDensity.save', $save);
-        $this->assertStringContainsString('tableDensity.load', $load);
-
-        // The sanitiser must survive on BOTH legs: density was added beside it, not instead.
-        $this->assertStringContainsString('sanitizeTableState', $save);
-        $this->assertStringContainsString('sanitizeTableState', $load);
+        $this->assertNotSame('', $loaded, 'there is no stateLoaded hook, so the restore is elsewhere');
+        $this->assertStringContainsString('tableDensity.load', $loaded);
+        $this->assertStringNotContainsString('tableDensity.load', $load,
+            'the density restore is back on stateLoadParams, which fires before DataTables has '
+            . 'decided whether the stored state is acceptable at all');
     }
 
     public function test_the_stylesheet_and_the_behaviour_module_carry_the_rule(): void
     {
-        $css = (string) file_get_contents(base_path('public/css/store-syria-ds.css'));
-        $js = (string) file_get_contents(base_path('public/js/store-syria-ds.js'));
+        /*
+         * COMMENTS STRIPPED FIRST, and that is a correction rather than tidiness. These
+         * assertions read both files whole, and review pointed out that every one of them is
+         * satisfiable by a COMMENT that mentions the symbol -- and the comments in these files do
+         * mention `tableDensity`, `densityState` and `applyDensity`. Comment the rule out, keep
+         * the commentary, and the test stayed green. `DesignSystemStylesheetScopeTest` strips
+         * `/* ... *` . `/` before parsing for exactly this reason.
+         */
+        $strip = static fn (string $source): string
+            => (string) preg_replace('#/\*.*?\*/#s', '', $source);
+
+        $css = $strip((string) file_get_contents(base_path('public/css/store-syria-ds.css')));
+        $js = $strip((string) file_get_contents(base_path('public/js/store-syria-ds.js')));
 
         /*
          * COMPACT IS THE ONLY RULE. "Comfortable" must stay the absence of the attribute, so a
