@@ -3120,5 +3120,14 @@
     "Product Sales Summary": "ملخص مبيعات المنتجات",
     "Order value over the selected period.": "قيمة الطلبات خلال الفترة المحددة.",
     "Items ordered": "الأصناف المطلوبة",
-    "How many units were ordered, not how many were delivered or paid for.": "عدد الوحدات المطلوبة، لا المُسلَّمة ولا المدفوعة."
+    "How many units were ordered, not how many were delivered or paid for.": "عدد الوحدات المطلوبة، لا المُسلَّمة ولا المدفوعة.",
+    "Sales summary": "ملخص المبيعات",
+    "Order value, before discounts": "قيمة الطلبات قبل الخصومات",
+    "The total value of orders before any coupon was applied. This is not payments received, and not profit.": "إجمالي قيمة الطلبات قبل تطبيق أي قسيمة. ليست مبالغ محصّلة، وليست ربحاً.",
+    "Shipping charged": "رسوم الشحن المحتسبة",
+    "Coupon value applied": "قيمة القسائم المطبّقة",
+    "The amount discounted by coupons, already deducted from order value.": "المبلغ المخصوم بالقسائم، وهو مخصوم أصلاً من قيمة الطلبات.",
+    "Order value before and after discounts": "قيمة الطلبات قبل الخصومات وبعدها",
+    "Orders placed against units ordered, day by day.": "الطلبات المُنشأة مقابل الوحدات المطلوبة، يوماً بيوم.",
+    "Order value before and after discounts, day by day.": "قيمة الطلبات قبل الخصومات وبعدها، يوماً بيوم."
 }

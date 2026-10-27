@@ -19,12 +19,17 @@
         </div>
     </div>
     <div class="col-xxl-12">
-        {{-- See the note in `order_product_chart`: the series is still ApexCharts and still has
-             no accessible representation, which is recorded as outstanding rather than
-             half-done. --}}
+        {{-- See `order_product_chart`: the series the handler already returned to the browser
+             now reach the view, so the chart ships a real table. --}}
         <x-ss.card :title="__('Category Sales Summary')"
-                   :note="__('Order value over the selected period.') . ' ' . $periodLabel">
-            <div class="traffic-chart" aria-hidden="true"></div>
+                   :note="__('Order value over the selected period.')">
+            <x-ss.bar-chart
+                :labels="$labels ?? []"
+                :values="array_map('intval', $netSeries ?? [])"
+                :title="__('Category Sales Summary')"
+                :value-label="__('Order value')"
+                :column-label="__('Day')"
+                :period="$periodLabel" />
         </x-ss.card>
     </div>
 </div>

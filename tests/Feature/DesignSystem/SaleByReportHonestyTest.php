@@ -115,20 +115,103 @@ class SaleByReportHonestyTest extends TestCase
     }
 
     /**
-     * THE CHART IS STILL AN APEXCHARTS CONTAINER WITH NO TABLE, and that is recorded rather than
-     * hidden: converting these three series needs the controller to pass them through, and the
-     * MySQL-only queries around them make that untestable here. What it must NOT do meanwhile is
-     * be announced as content — an empty div with no accessible name is worse than a hidden one.
+     * THE CHART SHIPS ITS NUMBERS. The series the handler already returned to the browser now
+     * reach the view, so each of these three charts is a real table rather than an ApexCharts
+     * container with nothing behind it — which is what they were when this file was first
+     * written, and what its earlier case asserted was at least HIDDEN rather than announced
+     * empty. That case is replaced rather than kept beside this one: an assertion that a
+     * container is politely hidden is worthless once the container holds the data.
      */
-    public function test_the_unconverted_chart_is_hidden_rather_than_announced_empty(): void
+    public function test_the_chart_ships_its_numbers(): void
     {
         $html = $this->partial('reports.order_product_chart', [
             'currency' => '$', 'Totalsale' => '1.00', 'PurchasedItem' => 1,
             'periodLabel' => 'Last 7 days',
+            'labels' => ['21-Oct', '22-Oct'],
+            'netSeries' => [10, 20],
+            'itemSeries' => [1, 2],
         ]);
 
-        $this->assertStringContainsString('<div class="traffic-chart" aria-hidden="true">', $html,
-            'the chart container has no accessible representation yet, so it must not be '
-            . 'announced as if it had one');
+        $this->assertStringContainsString('<div class="ss-chart" aria-hidden="true">', $html,
+            'the bars are a picture of the table and must not be announced twice');
+        $this->assertStringContainsString('<caption', $html);
+        $this->assertStringContainsString('>Order value</th>', $html);
+        $this->assertStringContainsString('>Items ordered</th>', $html);
+        $this->assertStringContainsString('>20</td>', $html, 'the series values are in the table');
+        $this->assertStringContainsString('>21-Oct</th>', $html, 'the labels are in the table');
+    }
+
+    /**
+     * THE SALES REPORT PRINTED A COUNT AS MONEY. `order_chart_data` rendered
+     * `{{ $currency }}{{ $TotalOrder }}` — "$7" for seven orders — and the same for the item
+     * count, beside four figures that really are money. Two of its six cards were labelled
+     * "in this period" with no period named anywhere on the card.
+     */
+    public function test_the_sales_report_separates_counts_from_money(): void
+    {
+        $html = $this->partial('reports.order_chart_data', [
+            'currency' => '$', 'TotalgrossSale' => '120.00', 'TotalNetSale' => '100.00',
+            'TotalOrder' => 7, 'PurchasedProductItemTotal' => 9,
+            'TotalShippingCharge' => '5.00', 'TotalCouponAmount' => '20.00',
+            'periodLabel' => 'Last 7 days',
+            'labels' => ['21-Oct'], 'grossSeries' => [120], 'netSeries' => [100], 'orderSeries' => [7],
+        ]);
+
+        $this->assertSame(6, substr_count($html, 'ss-stat__value'), 'Premise: all six figures render.');
+        $this->assertSame(array_fill(0, 6, 'Last 7 days'), $this->periods($html),
+            'every figure must carry the period, including the two whose labels used to SAY '
+            . '"in this period" without naming one');
+
+        $this->assertStringNotContainsString('$7', $html, 'the order COUNT is being printed as money');
+        $this->assertStringNotContainsString('$9', $html, 'the item COUNT is being printed as money');
+        /* Whitespace-normalised: the component renders the value on its own line inside the
+           span, so a tight `>7</span>` never matches. */
+        $this->assertStringContainsString('ss-stat__value"> 7 </span>',
+            preg_replace('/\s+/', ' ', $html), 'Premise: the order count renders.');
+        $this->assertStringContainsString('$120.00', $html, 'Premise: the money figures still render.');
+
+        $this->assertStringNotContainsString('Net sale in this period', $html,
+            'this sums final_price; the dashboard calls it order value and this must not invent '
+            . 'a second vocabulary');
+    }
+
+    /**
+     * THE TWO ORDER-REPORT BODIES RENDER THE SAME SIX FIGURES, and each had its own copy of the
+     * markup, so each carried the same defects independently. They share one partial now, and
+     * this drives the OTHER body through it — a shared partial is only shared while both
+     * callers still use it.
+     */
+    public function test_the_bar_chart_body_shares_the_same_honest_figures(): void
+    {
+        $html = $this->partial('reports.order_bar_chart_data', [
+            'currency' => '$', 'TotalgrossSale' => '120.00', 'TotalNetSale' => '100.00',
+            'TotalOrder' => 7, 'PurchasedProductItemTotal' => 9,
+            'TotalShippingCharge' => '5.00', 'TotalCouponAmount' => '20.00',
+            'periodLabel' => 'This year (2026)',
+            'labels' => ['21-Oct'], 'grossSeries' => [120], 'netSeries' => [100],
+            'orderSeries' => [7], 'itemSeries' => [9],
+        ]);
+
+        $this->assertSame(6, substr_count($html, 'ss-stat__value'));
+        $this->assertSame(array_fill(0, 6, 'This year (2026)'), $this->periods($html));
+        $this->assertStringNotContainsString('$7', $html, 'the order COUNT is being printed as money');
+
+        /* Both charts ship their numbers. */
+        $this->assertSame(2, substr_count($html, '<table'));
+        $this->assertStringNotContainsString('radialbar-charts', $html,
+            'a radial bar of two values is a bar chart that is harder to read, and it had no '
+            . 'accessible representation at all');
+    }
+
+    /** An empty series renders the empty state rather than a chart of nothing. */
+    public function test_an_absent_series_renders_the_empty_state(): void
+    {
+        $html = $this->partial('reports.order_brand_chart', [
+            'currency' => '$', 'NetSalesofbrand' => ['Shoes' => 1.0],
+            'periodLabel' => 'Last 7 days',
+        ]);
+
+        $this->assertStringContainsString('No data for this period yet', $html,
+            'a partial rendered without its series must say so, not draw an empty frame');
     }
 }

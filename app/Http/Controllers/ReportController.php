@@ -883,7 +883,19 @@ class ReportController extends Controller
         }
 
         $html = '';
-        $html = view('reports.order_chart_data', compact('TotalOrder', 'PurchasedProductItemTotal', 'TotalgrossSale', 'currency', 'TotalNetSale', 'TotalCouponAmount', 'TotalShippingCharge'))->render();
+        [$periodLabel] = $this->chartPeriodLabels($request);
+
+        /* The series go into the view too, so the charts can ship their numbers as tables. They
+           were already being returned to the browser below; the view simply never saw them. */
+        $html = view('reports.order_chart_data', compact(
+            'TotalOrder', 'PurchasedProductItemTotal', 'TotalgrossSale', 'currency',
+            'TotalNetSale', 'TotalCouponAmount', 'TotalShippingCharge', 'periodLabel'
+        ) + [
+            'labels' => $monthList ?? [],
+            'grossSeries' => $GrossSaleTotal ?? [],
+            'netSeries' => $NetSaleTotal ?? [],
+            'orderSeries' => $TotalOrderCount ?? [],
+        ])->render();
 
         $return['html'] = $html;
 
@@ -1366,7 +1378,18 @@ class ReportController extends Controller
         }
 
         $html = '';
-        $html = view('reports.order_bar_chart_data', compact('TotalOrder', 'PurchasedProductItemTotal', 'TotalgrossSale', 'currency', 'TotalNetSale', 'TotalCouponAmount', 'TotalShippingCharge'))->render();
+        [$periodLabel] = $this->chartPeriodLabels($request);
+
+        $html = view('reports.order_bar_chart_data', compact(
+            'TotalOrder', 'PurchasedProductItemTotal', 'TotalgrossSale', 'currency',
+            'TotalNetSale', 'TotalCouponAmount', 'TotalShippingCharge', 'periodLabel'
+        ) + [
+            'labels' => $monthList ?? [],
+            'grossSeries' => $GrossSaleTotal ?? [],
+            'netSeries' => $NetSaleTotal ?? [],
+            'orderSeries' => $TotalOrderCount ?? [],
+            'itemSeries' => $PurchasedItemTotal ?? [],
+        ])->render();
 
         $return['html'] = $html;
 
@@ -1779,7 +1802,11 @@ class ReportController extends Controller
         }
         $html = '';
         [$periodLabel] = $this->chartPeriodLabels($request);
-        $html = view('reports.order_product_chart', compact('currency', 'Totalsale', 'PurchasedItem', 'periodLabel'))->render();
+        /* The SERIES go into the view as well, so the chart can ship a real table instead of
+           an ApexCharts container with nothing behind it. They were already being returned to
+           the browser in the JSON below; the view simply never saw them. */
+        $html = view('reports.order_product_chart', compact('currency', 'Totalsale', 'PurchasedItem', 'periodLabel')
+            + ['labels' => $monthList ?? [], 'netSeries' => $NetSaleTotal ?? [], 'itemSeries' => $PurchasedItemTotal ?? []])->render();
 
         $return['html'] = $html;
 
@@ -2233,7 +2260,8 @@ class ReportController extends Controller
         }
         $html = '';
         [$periodLabel] = $this->chartPeriodLabels($request);
-        $html = view('reports.order_category_chart', compact('currency', 'NetSalesofcategory', 'periodLabel'))->render();
+        $html = view('reports.order_category_chart', compact('currency', 'NetSalesofcategory', 'periodLabel')
+            + ['labels' => $monthList ?? [], 'netSeries' => $NetSaleTotal ?? []])->render();
 
         $return['html'] = $html;
 
@@ -2687,7 +2715,8 @@ class ReportController extends Controller
             $monthList = $dayList; // Use dayList to represent the selected date range
         }
         [$periodLabel] = $this->chartPeriodLabels($request);
-        $html = view('reports.order_brand_chart', compact('currency', 'NetSalesofbrand', 'periodLabel'))->render();
+        $html = view('reports.order_brand_chart', compact('currency', 'NetSalesofbrand', 'periodLabel')
+            + ['labels' => $monthList ?? [], 'netSeries' => $NetSaleTotal ?? []])->render();
 
         $return = [
             'html' => $html,

@@ -31,14 +31,21 @@
         </div>
     </div>
     <div class="col-xxl-12">
-        {{-- The ApexCharts series is still built by the screen's own script; this is the
-             container it draws into. It is `aria-hidden` because it has no accessible
-             representation of its own — converting these three series to `<x-ss.bar-chart>`
-             needs the controller to pass the series through, which the MySQL-only queries
-             around them make untestable here. Recorded as outstanding rather than half-done. --}}
+        {{-- The series the handler already returned to the browser now reach the view too, so
+             the chart ships its numbers as a real table rather than being an ApexCharts
+             container with nothing behind it. Values are rounded to whole units: the table is
+             read, and two decimal places of order value per day is noise, not precision. --}}
         <x-ss.card :title="__('Product Sales Summary')"
-                   :note="__('Order value over the selected period.') . ' ' . $periodLabel">
-            <div class="traffic-chart" aria-hidden="true"></div>
+                   :note="__('Order value over the selected period.')">
+            <x-ss.bar-chart
+                :labels="$labels ?? []"
+                :values="array_map('intval', $netSeries ?? [])"
+                :values2="array_map('intval', $itemSeries ?? [])"
+                :title="__('Product Sales Summary')"
+                :value-label="__('Order value')"
+                :value-label2="__('Items ordered')"
+                :column-label="__('Day')"
+                :period="$periodLabel" />
         </x-ss.card>
     </div>
 </div>

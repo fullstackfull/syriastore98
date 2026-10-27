@@ -3091,5 +3091,14 @@
     "Product Sales Summary": "Product Sales Summary",
     "Order value over the selected period.": "Order value over the selected period.",
     "Items ordered": "Items ordered",
-    "How many units were ordered, not how many were delivered or paid for.": "How many units were ordered, not how many were delivered or paid for."
+    "How many units were ordered, not how many were delivered or paid for.": "How many units were ordered, not how many were delivered or paid for.",
+    "Sales summary": "Sales summary",
+    "Order value, before discounts": "Order value, before discounts",
+    "The total value of orders before any coupon was applied. This is not payments received, and not profit.": "The total value of orders before any coupon was applied. This is not payments received, and not profit.",
+    "Shipping charged": "Shipping charged",
+    "Coupon value applied": "Coupon value applied",
+    "The amount discounted by coupons, already deducted from order value.": "The amount discounted by coupons, already deducted from order value.",
+    "Order value before and after discounts": "Order value before and after discounts",
+    "Orders placed against units ordered, day by day.": "Orders placed against units ordered, day by day.",
+    "Order value before and after discounts, day by day.": "Order value before and after discounts, day by day."
 }
