@@ -285,3 +285,41 @@ screen, and which silently dropped two of Workstream J's seven areas.
 | K16 | Loading, empty and error states | **MISSING** | — | loading, empty and error states in the app: no row |
 | K17 | Secure authentication behavior | **MISSING** | — | secure authentication behaviour in the app: no row |
 
+
+---
+
+## Correction, 2026-10-27 — Workstream J now has a row per screen
+
+**The table above is a dated snapshot and is left as it was written.** This section records what
+has changed since, in the same terms, because the audit's own warning applies to itself: *a stale
+coverage check reads exactly like a current one.*
+
+The J rows were the audit's headline complaint — one ledger row (P2-05-2) covering five of seven
+screens, with reports and integrations covered by nothing. The same change that published this
+audit split that row, and the work has since been done:
+
+| # | Subject | Was | Now | Ledger row |
+|---|---|---|---|---|
+| J1 | Customers | PARTIAL → P2-05-2 | **TRACKED** | P2-05-2 (DONE) |
+| J2 | Inventory views | PARTIAL → P2-05-2 | **TRACKED** | P2-05-3 (DONE) |
+| J3 | Categories and attributes | PARTIAL → P2-05-2 | **TRACKED** | P2-05-4 (DONE) |
+| J4 | Staff and permissions | PARTIAL → P2-05-2 | **TRACKED** | P2-05-5 (DONE) |
+| J5 | Reports | **MISSING** | **TRACKED** | P2-05-6 (DONE) |
+| J6 | Store settings | PARTIAL → P2-05-2 | **TRACKED** | P2-05-7 |
+| J7 | Integrations | **MISSING** | **TRACKED** | P2-05-8 |
+
+So Workstream J's MISSING count goes from 2 to 0 and its PARTIAL count from 5 to 0. The headline
+table's totals are NOT restated here, because the other workstreams have not been re-traced and a
+partially-updated total would be worse than a stale one that says its own date.
+
+**WHAT THIS SECTION DOES NOT CLAIM.** This audit asks only whether a row exists. Two of the seven
+rows above are not finished work:
+
+- **P2-05-7 and P2-05-8** have their design-system migration, their credential masking and their
+  measured AA complete across all 31 panels in four configurations — and they carry three findings
+  recorded for the owner rather than closed: **F141** (no way to clear a stored gateway secret),
+  **F142** (the payment screen's required-field validation has never run) and **F143**
+  (`paiementpro_mode` is written empty on every save). None of those is a coverage gap; each is a
+  decision that changes behaviour beyond what the slice was asked to do.
+- Every "DONE" above means engineering done on this branch. It does not mean reviewed, released,
+  or accepted, and nothing here waives the Phase 01 closure gates or security incident #120.
