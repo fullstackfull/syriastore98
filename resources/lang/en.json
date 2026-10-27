@@ -3162,5 +3162,7 @@
     "Enable WhatsApp support": "Enable WhatsApp support",
     "No pixels yet": "No pixels yet",
     "No webhooks yet": "No webhooks yet",
-    "Sending…": "Sending…"
+    "Sending…": "Sending…",
+    "Strictly Cookie Title": "Strictly Cookie Title",
+    "Put any of these tokens in your message and they are replaced when it is sent.": "Put any of these tokens in your message and they are replaced when it is sent."
 }

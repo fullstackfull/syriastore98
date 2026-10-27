@@ -770,6 +770,28 @@
     cursor: pointer;
 }
 
+/* A reference list of template tokens: term on one side, the token on the other. A `<dl>`
+   rather than paragraphs, so assistive technology can move through it as pairs. The grid
+   mirrors in RTL because the columns follow `direction`. Added for the WhatsApp message panel
+   (P2-05-7). */
+.ss-vars {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: var(--ss-space-1) var(--ss-space-3);
+    margin: 0 0 var(--ss-space-4);
+    font-size: var(--ss-text-sm);
+}
+.ss-vars__term { color: var(--ss-fg-muted); }
+.ss-vars__def { margin: 0; text-align: end; }
+.ss-vars__def code {
+    font-size: var(--ss-text-xs);
+    color: var(--ss-brand);
+    background: var(--ss-brand-subtle);
+    padding-inline: var(--ss-space-1);
+    border-radius: var(--ss-radius-sm);
+    unicode-bidi: isolate;
+}
+
 /* ---- Choice: a radio or checkbox with its label ----
    The control and its label, side by side, with the label clickable because it carries `for`.
    A GROUP of these belongs in a `<fieldset>` with a `<legend>`: a `<label>` can name one

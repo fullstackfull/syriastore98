@@ -3191,5 +3191,7 @@
     "Enable WhatsApp support": "تفعيل دعم واتساب",
     "No pixels yet": "لا توجد بكسلات بعد",
     "No webhooks yet": "لا توجد Webhooks بعد",
-    "Sending…": "جارٍ الإرسال…"
+    "Sending…": "جارٍ الإرسال…",
+    "Strictly Cookie Title": "عنوان الكوكيز الضرورية",
+    "Put any of these tokens in your message and they are replaced when it is sent.": "ضع أياً من هذه الرموز في رسالتك وتُستبدَل عند الإرسال."
 }
