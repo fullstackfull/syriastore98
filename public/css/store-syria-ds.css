@@ -700,6 +700,18 @@
 
 .ss-card {
     background: var(--ss-surface);
+    /* F140 — A SURFACE THAT OWNS ITS BACKGROUND MUST OWN ITS FOREGROUND.
+       Without this, anything inside a card that carries no `.ss-` class of its own inherits from
+       `body`, and the vendored admin theme's `--bs-body-color: #293240` is BYTE-IDENTICAL in all
+       four of its stylesheets, the dark one included (verified: style.css:71, style-dark.css:71,
+       style-rtl.css:71, rtl-style-dark.css:71). So the host's dark theme flips backgrounds and
+       never flips body text. MEASURED on the running application: every currency row's header
+       and cells, and all 52 payment gateway names, at 1.02:1 in dark mode -- text the same
+       colour as what it sits on.
+       The vendored sheets are not ours to edit, so the fix belongs here. Measured again after:
+       24 failures to 0 on the currency tab, 52 to 0 on payment, and 0 to 0 in LIGHT, where
+       nothing was wrong and nothing changed. */
+    color: var(--ss-fg);
     border: 1px solid var(--ss-border);
     border-radius: var(--ss-radius-lg);
     box-shadow: var(--ss-shadow-xs);
@@ -900,6 +912,30 @@
 
    Logical properties throughout, so the affix lands on the trailing edge in both directions
    without a per-direction rule. */
+/* ---- Bootstrap's accordion, inside a design-system card ----
+   INHERITANCE IS NOT ENOUGH HERE, which is why this rule exists beside the `.ss-card` colour
+   above rather than being covered by it: `.accordion-button` sets its OWN `color` from
+   `--bs-accordion-btn-color`, and an element with its own colour ignores the one it would have
+   inherited. Measured: adding `color` to `.ss-card` took the currency tab from 24 contrast
+   failures to 0 and left the payment tab at 52, all of them accordion headers. Only after this
+   rule did payment reach 0.
+
+   The payment screen is 52 of these and is the only place the admin's accordion meets a design
+   system card, so the rule is scoped to that meeting rather than applied globally. The collapsed
+   state keeps a transparent background so the card's own surface shows through; the open state
+   takes the sunken surface, which is what the rest of the system uses to mark an opened region.
+   `box-shadow: none` removes Bootstrap's own focus-coloured inset, which is drawn in a brand
+   colour the design system does not control. */
+.ss-card .accordion-button {
+    color: var(--ss-fg);
+    background-color: transparent;
+}
+.ss-card .accordion-button:not(.collapsed) {
+    color: var(--ss-fg);
+    background-color: var(--ss-surface-sunken);
+    box-shadow: none;
+}
+
 /* ---- A payment gateway's logo, with the picker over it ----
    Replaces `style="top:5px; right:5px;"` on the upload button, which pinned it to the RIGHT edge
    in both directions -- so in Arabic it sat over the image instead of in the corner. Logical
