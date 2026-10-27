@@ -3066,20 +3066,38 @@ class ReportController extends Controller
 
         $total = Order::where('store_id', getCurrentStore())->count();
 
+        /* TWO NUMBERS THAT COUNT DIFFERENT THINGS USED TO SIT SIDE BY SIDE WITH NO EXPLANATION.
+           `$total` is every order the store has taken. `$billingData` counts only orders that
+           have a billing-detail row whose country resolves — so the per-country figures sum to
+           something at or below `$total`, and the card showed "Total Order Is: N" beside a chart
+           that did not add up to N. A merchant reading that concludes either the chart is broken
+           or their orders are missing. Both numbers are now named for what they are, and the
+           difference is stated rather than left to be inferred. */
+        $withCountry = (int) $billingData->sum('total_orders');
+
         $formattedData = [];
+        $unmapped = 0;
         foreach ($billingData as $data) {
             $countryCode = $countryCodeMap[$data->country_name] ?? null;
             if ($countryCode) {
                 $formattedData[$countryCode] = ['pageviews' => $data->total_orders];
+                continue;
             }
+
+            /* A country the hardcoded map does not know used to be dropped with no `else` at
+               all, so its orders vanished from the map and from any sum taken off it. It is
+               counted here instead: the map still cannot draw it, but the reader is told it
+               exists. */
+            $unmapped += (int) $data->total_orders;
         }
-        // Convert to JSON (optional if you are passing to a view)
-        $jsonFormattedData = json_encode($formattedData);
 
         return view('reports.order_country_Report', [
             'total' => $total,
+            'withCountry' => $withCountry,
+            'unmapped' => $unmapped,
             'billingData' => $billingData,
-            'formattedData' => $formattedData
+            'formattedData' => $formattedData,
+            'periodLabel' => __('All time'),
         ]);
     }
 

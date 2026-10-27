@@ -3099,5 +3099,12 @@
     "New guests": "زوّار جدد",
     "All time": "كل الفترات",
     "Total orders": "إجمالي الطلبات",
-    "Every order the store has taken, grouped by its delivery status. Counts orders, not value.": "كل طلب استلمه المتجر، مُجمَّعاً حسب حالة التسليم. يُحصي عدد الطلبات، لا قيمتها."
+    "Every order the store has taken, grouped by its delivery status. Counts orders, not value.": "كل طلب استلمه المتجر، مُجمَّعاً حسب حالة التسليم. يُحصي عدد الطلبات، لا قيمتها.",
+    "Orders by country": "الطلبات حسب البلد",
+    "Counts orders that carry a billing country. Counts orders, not value.": "يُحصي الطلبات التي تحمل بلد فوترة. يُحصي عدد الطلبات، لا قيمتها.",
+    "Orders with a billing country": "طلبات تحمل بلد فوترة",
+    "total orders": "إجمالي الطلبات",
+    "The rest have no billing country recorded.": "الباقي لا يحمل بلد فوترة مُسجّلاً.",
+    "A picture of the same figures. The table above is the readable version.": "صورة للأرقام نفسها. الجدول أعلاه هو النسخة القابلة للقراءة.",
+    "orders are in countries this map cannot draw. They are in the table, not on the map.": "طلب في بلدان لا تستطيع هذه الخريطة رسمها. هي موجودة في الجدول، لا على الخريطة."
 }

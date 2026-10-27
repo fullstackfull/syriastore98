@@ -1,20 +1,20 @@
-<!-- HTML -->
-
 @extends('layouts.app')
 
 @section('page-title')
-    {{ __('Order Country Report') }}
+    {{ __('Top Selling By Country Report') }}
 @endsection
 
 @section('breadcrumb')
-    <li class="breadcrumb-item" aria-current="page">{{ __('Order Country Report') }}</li>
+    <li class="breadcrumb-item" aria-current="page">{{ __('Top Selling By Country Report') }}</li>
 @endsection
 
 @section('action-button')
     <div class="text-end">
-        <a href="#" class="btn btn-sm btn-primary btn-icon" onclick="saveAsPDF()"  data-bs-toggle="tooltip"  data-bs-original-title="{{ __('Download') }}">
-            <i class="ti ti-download"></i>
-        </a>
+        <button type="button" class="btn btn-sm btn-primary btn-icon" onclick="saveAsPDF()"
+                title="{{ __('Download') }}" data-bs-toggle="tooltip" data-bs-placement="top">
+            <i class="ti ti-download" aria-hidden="true"></i>
+            <span class="ss-visually-hidden">{{ __('Download') }}</span>
+        </button>
     </div>
 @endsection
 
@@ -23,171 +23,107 @@
 @endpush
 
 @section('content')
-<div class="row" id="printableArea">
-    <!-- Card 1 with Chart -->
-    <div class="col-md-6 mb-4">
-        <div class="card h-100 m-0">
-            <div class="card-header">
-                <h5 class="card-title"><b>{{ __('Top Selling By Country Report') }}</b></h5>
-            </div>
-            <div class="card-body" style="overflow-x: overlay;">
-                <div id="topSellingProductsChart"></div>
-            </div>
-        </div>
-    </div>
+    @include('layouts.includes.store-syria-ds')
 
-    <div class="col-md-6 mb-4">
-        <div class="card h-100 m-0">
-            <div class="card-header">
-                <h5 class="card-title"><b>{{ __('Top Selling By Country Report') }}</b></h5>
-            </div>
-            <div class="card-body">
-                <div id="BarchartOfStatus"></div>
+    {{--
+        TWO NUMBERS THAT COUNT DIFFERENT THINGS, PRINTED SIDE BY SIDE.
+        =========================================================================================
 
-            </div>
-        </div>
-    </div>
-    <div class="col-md-6 mb-4">
-        <div class="card h-100 m-0">
-            <div class="card-header">
-                <h5 class="card-title"><b>{{ __('Top Selling By Country Report') }}</b></h5>
-            </div>
-            <div class="card-body">
-                <div id="orderLineStatusChart"></div>
-            </div>
-        </div>
-    </div>
+        The header read `{{ __('Total Order Is') }} : {{ $total }}` beside a per-country chart —
+        but `$total` is every order the store has taken, while the chart counts only orders with
+        a billing-detail row whose country resolves. The columns therefore sum to something at or
+        below the printed total, with nothing saying why, and a merchant reading it concludes
+        either the chart is broken or their orders have gone missing.
 
-    <div class="col-md-6 mb-4">
-        <div class="card h-100 m-0">
-            <div class="card-header" style="display: flex; justify-content: space-between;">
-                <h5 class="card-title"><b>{{ __('Countries') }}</b></h5>
-                <h4 class="text-dark" style="text-align: end; margin: 0px; font-size: initial;">{{__('Total Order Is')}} : {{$total}}</h4>
-            </div>
-            <div class="card-body">
-                <div id="map"></div>
-            </div>
+        Both numbers are named for what they are now, and the gap between them is stated rather
+        than left to be inferred. A country the hardcoded map does not know is counted too: it
+        used to be dropped with no `else` at all, so its orders vanished from the map and from
+        any sum taken off it.
+
+        AND THE SAME THREE-CARDS-ONE-HEADING SHAPE AS THE STATUS REPORT: a pie, a bar and an area
+        chart of the same series, all three titled "Top Selling By Country Report", none with any
+        accessible representation. One bar chart with a real table, plus the map — which is kept
+        because geography is a genuinely different reading of the data, and marked `aria-hidden`
+        because the table beside it says the same thing better.
+    --}}
+    <div class="row" id="printableArea">
+        <div class="col-xl-7 mb-4">
+            <x-ss.card :title="__('Orders by country')"
+                       :note="__('Counts orders that carry a billing country. Counts orders, not value.')">
+                <x-ss.bar-chart
+                    :labels="$billingData->pluck('country_name')->all()"
+                    :values="$billingData->pluck('total_orders')->all()"
+                    :title="__('Orders by country')"
+                    :value-label="__('Orders')"
+                    :column-label="__('Country')"
+                    :period="$periodLabel" />
+
+                <x-slot:footer>
+                    <p class="ss-field__hint" style="margin:0">
+                        {{ __('Orders with a billing country') }}:
+                        <span class="ss-num">{{ number_format($withCountry) }}</span>
+                        {{ __('of') }}
+                        <span class="ss-num">{{ number_format($total) }}</span>
+                        {{ __('total orders') }} ({{ $periodLabel }}).
+                        @if ($total > $withCountry)
+                            {{ __('The rest have no billing country recorded.') }}
+                        @endif
+                    </p>
+                </x-slot:footer>
+            </x-ss.card>
+        </div>
+
+        <div class="col-xl-5 mb-4">
+            <x-ss.card :title="__('Countries')"
+                       :note="__('A picture of the same figures. The table above is the readable version.')">
+                {{-- The map is a picture of the table in the card beside it, so it is hidden from
+                     assistive technology for the same reason the bars are. --}}
+                <div id="map" aria-hidden="true"></div>
+
+                @if ($unmapped > 0)
+                    <p class="ss-field__hint">
+                        <span class="ss-num">{{ number_format($unmapped) }}</span>
+                        {{ __('orders are in countries this map cannot draw. They are in the table, not on the map.') }}
+                    </p>
+                @endif
+            </x-ss.card>
         </div>
     </div>
 @endsection
 
 @push('custom-script')
     <script src="{{ asset('js/html2pdf.bundle.min.js') }}"></script>
-        <script>
-            function saveAsPDF() {
-                var element = document.getElementById('printableArea');
-                var opt = {
-                    margin: 0.3,
-                    filename: "Country Report",
-                    image: {type: 'jpeg', quality: 1},
-                    html2canvas: {scale: 4, dpi: 72, letterRendering: true},
-                    jsPDF: {unit: 'in', format: 'A2'}
-                };
-                html2pdf().set(opt).from(element).save();
-            }
-        </script>
     <script>
-        var options = {
-            series: @json($billingData->pluck('total_orders')),
-            chart: {
-                width: 500,
-                type: 'pie',
-            },
-            labels: @json($billingData->pluck('country_name'))
-        };
+        function saveAsPDF() {
+            var element = document.getElementById('printableArea');
+            var opt = {
+                margin: 0.3,
+                filename: @json(__('Top Selling By Country Report')),
+                image: {type: 'jpeg', quality: 1},
+                html2canvas: {scale: 4, dpi: 72, letterRendering: true},
+                jsPDF: {unit: 'in', format: 'A2'}
+            };
 
-        var chart = new ApexCharts(document.querySelector("#topSellingProductsChart"), options);
-        chart.render();
-    </script>
+            /* Open the numbers before capturing, or the PDF is a picture of bars with no values. */
+            var data = element.querySelectorAll('details.ss-chart-data');
+            var wasOpen = [];
+            data.forEach(function (d, i) { wasOpen[i] = d.open; d.open = true; });
 
-    <script>
-        var colors = ['#33FF57']; // Example color array
-        var options = {
-            series: [{
-                data: @json($billingData->pluck('total_orders'))
-            }],
-            chart: {
-                height: 350,
-                type: 'bar',
-                events: {
-                    click: function(chart, w, e) {
-                    }
-                }
-            },
-            colors: colors,
-            plotOptions: {
-                bar: {
-                    columnWidth: '45%',
-                    distributed: true,
-                }
-            },
-            dataLabels: {
-                enabled: false
-            },
-            legend: {
-                show: false
-            },
-            xaxis: {
-                categories:@json($billingData->pluck('country_name')),
-                labels: {
-                    style: {
-                        colors: ["#000000"],
-                        fontSize: '12px'
-                    }
-                }
-            }
-        };
-
-        var chart = new ApexCharts(document.querySelector("#BarchartOfStatus"), options);
-        chart.render();
-    </script>
-
-    <script>
-        var options = {
-            series: [{
-                name: 'Orders',
-                data: @json($billingData->pluck('total_orders'))
-            }],
-            chart: {
-                type: 'area',
-                height: 350,
-            },
-            xaxis: {
-                categories: @json($billingData->pluck('country_name')),
-                title: {
-                    text: 'Country Name'
-                }
-            },
-            yaxis: {
-                title: {
-                    text: 'Total Orders'
-                }
-            },
-            stroke: {
-                curve: 'smooth'
-            },
-            dataLabels: {
-                enabled: false
-            },
-            markers: {
-                size: 5
-            }
-        };
-
-        var chart = new ApexCharts(document.querySelector("#orderLineStatusChart"), options);
-        chart.render();
+            html2pdf().set(opt).from(element).save().then(function () {
+                data.forEach(function (d, i) { d.open = wasOpen[i]; });
+            });
+        }
     </script>
 
     <script src="{{ asset('assets/js/svgMap.min.js') }}"></script>
-
     <script>
         new svgMap({
             targetElementID: 'map',
             data: {
                 data: {
                     pageviews: {
-                        name: '',
-                        format: '{0} Orders',
+                        name: @json(__('Orders')),
+                        format: '{0} ' + @json(__('Orders')),
                         thousandSeparator: ',',
                     },
                 },

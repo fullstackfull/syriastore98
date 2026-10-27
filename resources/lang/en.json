@@ -3070,5 +3070,12 @@
     "New guests": "New guests",
     "All time": "All time",
     "Total orders": "Total orders",
-    "Every order the store has taken, grouped by its delivery status. Counts orders, not value.": "Every order the store has taken, grouped by its delivery status. Counts orders, not value."
+    "Every order the store has taken, grouped by its delivery status. Counts orders, not value.": "Every order the store has taken, grouped by its delivery status. Counts orders, not value.",
+    "Orders by country": "Orders by country",
+    "Counts orders that carry a billing country. Counts orders, not value.": "Counts orders that carry a billing country. Counts orders, not value.",
+    "Orders with a billing country": "Orders with a billing country",
+    "total orders": "total orders",
+    "The rest have no billing country recorded.": "The rest have no billing country recorded.",
+    "A picture of the same figures. The table above is the readable version.": "A picture of the same figures. The table above is the readable version.",
+    "orders are in countries this map cannot draw. They are in the table, not on the map.": "orders are in countries this map cannot draw. They are in the table, not on the map."
 }
