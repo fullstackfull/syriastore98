@@ -100,11 +100,96 @@ foreach ([
     'Create Product Category','Edit Product Category','Delete Product Category',
     'Manage Attributes','Create Attributes','Edit Attributes','Delete Attributes',
     'Manage Attributes Option','Create Attributes Option','Edit Attributes Option','Delete Attributes Option',
+    /*
+     * P2-05-5. THE STAFF AND ROLE WRITE PERMISSIONS, and the live check is what demanded them.
+     *
+     * The fixture held only `Manage User` / `Manage Role` -- enough to OPEN both lists, not enough
+     * to act on a row. Once P2-05-5 gated the row actions to match their handlers
+     * (`UserController::edit` on `Edit User`, `::destroy` on `Delete User`, and the role
+     * equivalents), `check-row-actions-live.cjs` reported **0 actions per row on the staff list in
+     * all four configurations**. That was the gate working, not breaking: the handler would have
+     * refused this merchant anyway, so the controls correctly vanished.
+     *
+     * All seven are granted to the `admin` role -- a real tenant owner -- in `Utility.php`, so
+     * this brings the fixture in line with production rather than loosening it. Same shape as
+     * F127: a fixture that cannot reach the thing under test turns every assertion about it into
+     * a free pass or, here, a confusing failure.
+     */
+    'Create User','Edit User','Delete User','Reset Password',
+    'Create Role','Edit Role','Delete Role',
 ] as $name) {
     $p = Permission::firstOrCreate(['name' => $name], ['display_name' => $name]);
     if (! $role->hasPermission($name)) { $role->givePermission($p); }
 }
 if (! $merchant->hasRole($role->name)) { $merchant->addRole($role); }
+
+/*
+ * STAFF AND A SECOND ROLE, so the two screens P2-05-5 converts have something on them.
+ *
+ * Measured before adding this: the fixture had **0 users of type `staff` and 1 role**, so the
+ * staff list rendered an empty table and the roles list a single row. Every per-row assertion in
+ * a live check is satisfied for free by an empty table -- that is F102/F103 exactly, where a
+ * harness reported names and contrast as PASSING on a table the delete tests had emptied. A
+ * premise that cannot be met is worse than a missing check, because it reads as a pass.
+ *
+ * BOTH STATES OF THE LOGIN TOGGLE ARE SEEDED, so neither arm of `users/action.blade.php` goes
+ * unrendered and unmeasured.
+ *
+ * AND THE THIRD STATE THE VIEW USED TO BRANCH ON DOES NOT EXIST. That view tested
+ * `is_enable_login == 0 && $user->password == null`, and `users.password` is `string` NOT NULL as
+ * migrated (`create_users_table:21`, no later migration relaxes it) -- the insert here refused
+ * with "NOT NULL constraint failed: users.password" when this fixture first tried to create such
+ * a user. So that condition was unsatisfiable, not merely duplicated. Scoped claim: that is true
+ * of the MIGRATED schema; production's is not verified here, and CLAUDE.md's standing warning is
+ * that the migrations are not the schema. The branch was collapsed on the independent ground
+ * that it was byte-identical to its `@else`, which holds either way.
+ */
+$staffRole = Role::where('name', 'p2dev-staff')->first();
+if (! $staffRole) {
+    $staffRole = Role::forceCreate([
+        'name' => 'p2dev-staff', 'display_name' => 'Shop Assistant', 'guard_name' => 'web',
+        'created_by' => $merchant->id, 'store_id' => $store->id,
+    ]);
+}
+foreach (['Manage Dashboard', 'Manage Order', 'Show Order', 'Manage Products'] as $name) {
+    $p = Permission::firstOrCreate(['name' => $name], ['display_name' => $name]);
+    if (! $staffRole->hasPermission($name)) { $staffRole->givePermission($p); }
+}
+
+foreach ([
+    ['email' => 'staff.rami@example.test',  'name' => 'Rami Haddad',  'login' => 1],
+    ['email' => 'staff.lina@example.test',  'name' => 'Lina Khoury',  'login' => 0],
+    ['email' => 'staff.jad@example.test',   'name' => 'Jad Mansour',  'login' => 1],
+] as $row) {
+    $member = User::firstOrCreate(['email' => $row['email']], [
+        'name' => $row['name'],
+        'type' => 'staff',
+        'password' => Hash::make('password'),
+        'is_active' => 1,
+        'email_verified_at' => now(),
+        'created_by' => $merchant->id,
+        'current_store' => $store->id,
+        'language' => 'en',
+    ]);
+
+    /*
+     * SET UNCONDITIONALLY, AND THAT IS NOT BELT-AND-BRACES. The first version guarded this with
+     * `if ((int) $member->is_enable_login !== (int) $row['login'])` and the guard was always
+     * FALSE on a freshly created row: `firstOrCreate()` does not read column defaults back into
+     * the model instance, so `$member->is_enable_login` was NULL in memory -- `(int) null === 0`
+     * -- while the database row carried the column's own default of '1'. Every staff member came
+     * out enabled and the seeder reported success.
+     *
+     * Caught by querying the raw table rather than trusting the seeder's own output: the Eloquent
+     * read and the `DB::table()` read AGREED here, so this was a stale in-memory attribute rather
+     * than the `Cachable` trap -- but it is the same family of false reading, and checking the
+     * table is what separates them.
+     */
+    $member->is_enable_login = $row['login'];
+    $member->save();
+
+    if (! $member->hasRole($staffRole->name)) { $member->addRole($staffRole); }
+}
 $merchant->flushCache();
 
 // Products, with a deliberate mix of stock states so the list shows real badges.

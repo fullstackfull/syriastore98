@@ -3070,5 +3070,7 @@
     "Disable login for :name": "تعطيل دخول :name",
     "Enable login for :name": "تفعيل دخول :name",
     "Edit role :name": "تعديل الدور :name",
-    "Delete role :name": "حذف الدور :name"
+    "Delete role :name": "حذف الدور :name",
+    "Show all permissions for :name": "عرض كل صلاحيات :name",
+    "Show fewer permissions for :name": "عرض صلاحيات أقل لـ :name"
 }

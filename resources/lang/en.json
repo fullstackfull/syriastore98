@@ -3041,5 +3041,7 @@
     "Disable login for :name": "Disable login for :name",
     "Enable login for :name": "Enable login for :name",
     "Edit role :name": "Edit role :name",
-    "Delete role :name": "Delete role :name"
+    "Delete role :name": "Delete role :name",
+    "Show all permissions for :name": "Show all permissions for :name",
+    "Show fewer permissions for :name": "Show fewer permissions for :name"
 }

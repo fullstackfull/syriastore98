@@ -193,7 +193,15 @@ const PROBE = `(function () {
      * names -- two unnamed controls per row on each, plus an unnamed primary "Add" button in the
      * page header, all of them carrying a `title` the tooltip plugin had already blanked.
      */
-    for (const screen of [{ name: 'orders', url: '/order' }, { name: 'products', url: '/product' }, { name: 'customers', url: '/customer' }, { name: 'categories', url: '/category' }, { name: 'attributes', url: '/product-attributes' }]) {
+    for (const screen of [{ name: 'orders', url: '/order' }, { name: 'products', url: '/product' }, { name: 'customers', url: '/customer' }, { name: 'categories', url: '/category' }, { name: 'attributes', url: '/product-attributes' }, { name: 'staff', url: '/user-list' }, { name: 'roles', url: '/roles' }]) {
+        /*
+         * P2-05-5 adds `staff` and `roles`. NOTE THE STAFF URL: `/user-list`, not `/users`.
+         * `/users` renders a CARD GRID (`delivery-user-cards`) with its own inline controls and
+         * no table at all, so pointing this harness at it would meet the "has real data rows"
+         * premise with zero and skip every assertion below. `/user-list` is the DataTable that
+         * renders `users/action.blade.php`, which is the partial this slice converted. The card
+         * grid's controls are a separate surface and are covered by the shoot harness.
+         */
         for (const locale of ['en', 'ar']) {
             for (const theme of ['light', 'dark']) {
                 setServerState(theme, locale === 'ar' ? 'rtl' : 'ltr');
