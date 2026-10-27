@@ -4476,6 +4476,44 @@ html[data-ss-theme="dark"] body label {
     color: #9DA3B4 !important;
 }
 
+/* --------------------------------------------------------------------------
+   P2-05-4 — A LIGHT-SCOPED SUBTREE KEEPS ITS OWN FOREGROUND.
+   --------------------------------------------------------------------------
+   The rule above ends in a BARE ELEMENT SELECTOR -- `html[data-ss-theme="dark"]
+   body label` -- so it paints EVERY label in the admin `#9DA3B4` whenever dark
+   mode is on. That is right for the sidebar and the DataTables chrome it was
+   written for, and wrong everywhere the surface under the label is not dark.
+
+   The host's Bootstrap modal is exactly that: `#commanModel .modal-content`
+   stays WHITE in dark mode -- measured `rgb(255, 255, 255)` with
+   `data-ss-theme="dark"` on <html> -- so `#9DA3B4` on it measures **2.52:1**
+   against the 4.5:1 body text needs.
+
+   THIS PREDATES THE DESIGN-SYSTEM CONVERSION and is not caused by it. The
+   previous markup used `<label class="form-label">`, which is still a `label`
+   and was matched by the same rule: six of them on the create-category form
+   alone, all at 2.52:1. The conversion did not introduce the defect, it
+   measured it.
+
+   WHAT IS FIXED HERE IS ONLY THE SCOPED CASE. A container carrying
+   `data-ss-theme="light"` has declared which surface it is on, so its labels
+   take the design system's foreground for that surface. Specificity 0,3,2
+   beats the 0,2,1 above; both are `!important`, so specificity decides.
+
+   WHAT IS NOT FIXED, and is recorded as a ledger finding rather than widened
+   into this slice: every OTHER modal in the admin -- roughly sixty forms
+   across the host and seventy vendored modules -- still renders its labels at
+   2.52:1 in dark mode. Fixing that means either narrowing the rule above to
+   the chrome it was written for and re-measuring the sidebar and tables it
+   was added to fix, or marking every modal's surface. Both need their own
+   measurement pass.
+   -------------------------------------------------------------------------- */
+html[data-ss-theme="dark"] body [data-ss-theme="light"] label,
+html[data-ss-theme="dark"] body [data-ss-theme="light"] .ss-label {
+    color: var(--ss-fg) !important;
+}
+
+
 /* The table body is the other 3.71:1 surface. Bootstrap drives it through a custom property
    rather than a colour declaration, so the property is what has to move. */
 html[data-ss-theme="dark"] body .table {

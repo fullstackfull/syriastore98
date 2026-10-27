@@ -3344,8 +3344,26 @@ if (! function_exists('buildCategoryTree')) {
         foreach ($categories as $category) {
             if ($category->parent_id == $parentId && ! isset($seen[$category->id])) {
                 $tree[] = [
+                    /*
+                     * P2-05-4. `$prefix` is deliberate markup -- `&nbsp;` per level, which is how
+                     * the parent-category select shows hierarchy -- and `$category->name` is
+                     * merchant input. The two were concatenated unescaped into a value that EIGHT
+                     * views print with `{!! !!}`: category/{create,edit}, testimonial/{create,edit},
+                     * product/{create,edit}, and product-review/{create,edit} in the vendored
+                     * ProductReview package. A category named `<img src=x onerror=...>` therefore
+                     * executed in every one of those forms, for every user of the store who opened
+                     * one -- the owner included. Same class as F98, reachable by anyone holding
+                     * `Create Product Category`.
+                     *
+                     * Escaped HERE rather than at the eight call sites because this is the only
+                     * place the two kinds of string are still distinguishable: escaping at the
+                     * point of printing would turn the indent into a literal "&nbsp;". It is also
+                     * the only fix that reaches the two vendored views, which must not be edited.
+                     * Checked before changing it: no consumer prints this value with `{{ }}` and
+                     * none re-escapes it, so none now double-encodes.
+                     */
                     'id' => $category->id,
-                    'name' => $prefix.$category->name,
+                    'name' => $prefix.e($category->name),
                 ];
                 $tree = array_merge($tree, buildCategoryTree($categories, $category->id, $prefix.'&nbsp;&nbsp;&nbsp;', $seen + [$category->id => true]));
             }

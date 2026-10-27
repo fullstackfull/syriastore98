@@ -123,7 +123,29 @@
    these and you have changed the design system's contract.
    -------------------------------------------------------------------------- */
 
-:root {
+/*
+ * `:root` AND `[data-ss-theme="light"]`, declared together so the light palette exists in one
+ * place and can also be scoped to a container.
+ *
+ * WHY THE SECOND SELECTOR EXISTS (P2-05-4). The dark block below has always been documented as
+ * working "on <html> or on any container", and it does -- but only in ONE DIRECTION. The light
+ * palette lived on `:root` alone, which matches `<html>` and nothing else, so a subtree inside a
+ * dark page could never be returned to light.
+ *
+ * That is not hypothetical. The host's Bootstrap modal (`#commanModel`) keeps a WHITE
+ * `.modal-content` in dark mode -- measured `rgb(255, 255, 255)` with `data-ss-theme="dark"` on
+ * <html> -- so every design-system component placed inside one resolved its DARK tokens onto a
+ * white surface. The category form's hint text measured **2.18:1** that way, in both en and ar.
+ * The same class of defect as F8 and as the pinned data-table cell: a design-system token is
+ * correct only against the surface it was solved for, and the host does not always paint the
+ * surface the global theme implies.
+ *
+ * A container that carries `data-ss-theme="light"` now re-declares these on itself, and custom
+ * properties inherit from the nearest declaring ancestor, so the subtree goes back to light
+ * regardless of what <html> says.
+ */
+:root,
+[data-ss-theme="light"] {
     /* Surfaces */
     --ss-bg:            var(--ss-grey-50);
     --ss-surface:       var(--ss-grey-0);

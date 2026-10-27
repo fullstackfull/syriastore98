@@ -187,7 +187,13 @@ const PROBE = `(function () {
      * already encoded below, and a second file would be a second place for them to drift. The
      * customers screen was measured by this harness the day it was added and failed on names.
      */
-    for (const screen of [{ name: 'orders', url: '/order' }, { name: 'products', url: '/product' }, { name: 'customers', url: '/customer' }]) {
+    /*
+     * P2-05-4 adds `categories` and `attributes` for the same reason, and with the same result:
+     * both screens were measured by this harness the day they were added and both failed on
+     * names -- two unnamed controls per row on each, plus an unnamed primary "Add" button in the
+     * page header, all of them carrying a `title` the tooltip plugin had already blanked.
+     */
+    for (const screen of [{ name: 'orders', url: '/order' }, { name: 'products', url: '/product' }, { name: 'customers', url: '/customer' }, { name: 'categories', url: '/category' }, { name: 'attributes', url: '/product-attributes' }]) {
         for (const locale of ['en', 'ar']) {
             for (const theme of ['light', 'dark']) {
                 setServerState(theme, locale === 'ar' ? 'rtl' : 'ltr');
@@ -211,6 +217,31 @@ const PROBE = `(function () {
                 await page.waitForTimeout(900);
 
                 const tag = `${screen.name} ${locale}/${theme}`;
+
+                /*
+                 * PREMISE ZERO: WE ARE ON THE SCREEN WE ASKED FOR.
+                 *
+                 * Added by P2-05-4, because its absence produced a whole screen's worth of
+                 * confidently wrong output. `/product-attributes` refuses a user without
+                 * `Manage Attributes` with `redirect()->back()`, which landed on the PREVIOUS
+                 * screen in this very loop -- so the harness measured the category list, labelled
+                 * every line `attributes`, and reported contrast failures naming `#ORD-2047`, an
+                 * order reference, on a screen that has no orders on it.
+                 *
+                 * Note which way that failed: it did NOT pass vacuously, it FAILED LOUDLY about
+                 * the wrong page. A redirect is indistinguishable from the real screen to every
+                 * assertion below, so the check has to be made before any of them.
+                 */
+                const landed = new URL(page.url()).pathname;
+                say(landed === screen.url,
+                    `${tag} — the browser is actually on ${screen.url}`
+                    + (landed === screen.url ? '' : ` — it was redirected to ${landed}, so NOTHING below would be measuring this screen (missing permission? the fixture user needs the Manage permission for it)`));
+                if (landed !== screen.url) {
+                    console.log(`  SKIP  ${tag} — not on the requested screen, remaining checks not run`);
+                    await ctx.close();
+                    continue;
+                }
+
                 const r = await page.evaluate(PROBE);
 
                 // PREMISE: there are rows, and they have actions. Every assertion below is

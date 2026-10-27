@@ -3027,5 +3027,12 @@
     "Mobile": "Mobile",
     "Inactive": "Inactive",
     "Level unknown": "Level unknown",
-    "This row reached the report without a stock level, which is a defect rather than a state.": "This row reached the report without a stock level, which is a defect rather than a state."
+    "This row reached the report without a stock level, which is a defect rather than a state.": "This row reached the report without a stock level, which is a defect rather than a state.",
+    "Edit category :name": "Edit category :name",
+    "Delete category :name": "Delete category :name",
+    "Edit attribute :name": "Edit attribute :name",
+    "Delete attribute :name": "Delete attribute :name",
+    "Configure terms of :name": "Configure terms of :name",
+    "Show this category in Trending": "Show this category in Trending",
+    "Attribute not found.": "Attribute not found."
 }

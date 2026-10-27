@@ -5,6 +5,20 @@ use Illuminate\Support\Facades\{DB, Hash};
 // NO REAL CUSTOMER DATA. Every value below is invented; the brief forbids production
 // data in screenshots and the #120 dump is not on this branch.
 
+/*
+ * AND THE "DEV-ONLY" PART IS NOW ENFORCED RATHER THAN DOCUMENTED. This file creates a
+ * `super admin` with the password `password` a few lines below; it is only ever invoked by hand
+ * against `database/p2dev.sqlite`, so the risk is theoretical today, but a claim that holds only
+ * because nobody has run it elsewhere is the kind this project has been bitten by. Raised by the
+ * independent review of P2-05-4.
+ */
+if (! app()->environment(['local', 'testing'])) {
+    throw new \RuntimeException(
+        'seed-p2dev.php is a development fixture and refuses to run outside local/testing. '
+        . 'It creates a super-admin account with a known password.'
+    );
+}
+
 $op = User::firstOrCreate(['email' => 'operator@example.test'], [
     'name' => 'Platform Operator', 'type' => 'super admin', 'password' => Hash::make('password'),
     'is_active' => 1, 'email_verified_at' => now(), 'created_by' => null, 'language' => 'en',
@@ -65,6 +79,27 @@ foreach ([
     // rather than loosening it. Measured: `isAbleTo('Manage Order Note')` was false for the
     // fixture merchant while `Show Order` was true, which is why the page opened at all.
     'Manage Order Note','Create Order Note','Delete Order Note',
+    /*
+     * P2-05-4. THE FIXTURE COULD NOT REACH EITHER SCREEN THIS SLICE CONVERTS, and it failed in
+     * the most misleading way available.
+     *
+     * `Manage Attributes` was absent, so `/product-attributes` answered `redirect()->back()` --
+     * which landed on the PREVIOUS screen in the harness's own loop. The run then measured the
+     * category list while labelling every line `attributes`, and reported contrast failures
+     * naming `#ORD-2047`, an order reference, on a screen with no orders on it. The harness now
+     * asserts the URL it landed on before anything else; this closes the other half.
+     *
+     * The Edit/Delete permissions were absent too, which matters now that the row actions are
+     * gated to match their handlers: without them the live check sees zero controls and cannot
+     * measure the thing it exists to measure.
+     *
+     * All eleven are granted to the `admin` role -- a real tenant owner -- in
+     * `app/Models/Utility.php:3080ff`, so this brings the dev fixture in line with production
+     * rather than loosening anything.
+     */
+    'Create Product Category','Edit Product Category','Delete Product Category',
+    'Manage Attributes','Create Attributes','Edit Attributes','Delete Attributes',
+    'Manage Attributes Option','Create Attributes Option','Edit Attributes Option','Delete Attributes Option',
 ] as $name) {
     $p = Permission::firstOrCreate(['name' => $name], ['display_name' => $name]);
     if (! $role->hasPermission($name)) { $role->givePermission($p); }
@@ -418,6 +453,26 @@ foreach ([
         ]
     );
 }
+
+/*
+ * A CHILD CATEGORY, so the parent-category select actually has a hierarchy in it.
+ *
+ * P2-05-4 needs it to demonstrate a property that only exists once a category has a parent:
+ * `buildCategoryTree()` emits `&nbsp;` indent markup AND the merchant-written name into one
+ * string that eight views print raw, so the name has to be escaped while the indent stays live.
+ * With three flat categories the live check reported "4 options, 0 indented" -- every assertion
+ * about the indent passing because there was no indent to get wrong.
+ */
+\App\Models\Category::firstOrCreate(
+    ['slug' => 'textiles-scarves', 'store_id' => $store->id],
+    [
+        'name' => 'Scarves & Shawls',
+        'parent_id' => $categories[0]->id,
+        'trending' => 0,
+        'status' => 1,
+        'store_id' => $store->id,
+    ]
+);
 
 /*
  * `tags.slug` is NOT NULL, which was worth knowing beyond this fixture. Of the FOUR places

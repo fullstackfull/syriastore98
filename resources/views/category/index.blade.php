@@ -13,9 +13,18 @@
                 @include('import-export::export.maincategory_export', ['module' => 'maincategory'])
             @endpermission
         @endif
-        <a href="#" class="btn btn-sm btn-primary" data-ajax-popup="true" data-size="md" data-title="{{ __('Add Category')}}"
-            data-url="{{ route('category.create') }}" data-bs-toggle="tooltip" title="{{ __('Add Category') }}">
-            <i class="ti ti-plus"></i>
+        {{-- P2-05-4. Was an icon-only <a> whose only name was `title`, which Bootstrap's
+             tooltip MOVES to data-bs-original-title and blanks on initialisation -- so after
+             page load the primary action on this screen was an unnamed control wrapping an
+             unlabelled <i>. The visible label follows the pilot screen
+             (attribute_option/index), which the acceptance names as the reference for this
+             area; it also removes the need for the name to come from a tooltip at all. --}}
+        <a href="#" class="ss-btn ss-btn--primary ss-btn--sm" data-ajax-popup="true" data-size="md"
+            data-title="{{ __('Add Category') }}"
+            data-url="{{ route('category.create') }}"
+            data-bs-placement="top" data-bs-toggle="tooltip" title="{{ __('Add Category') }}">
+            <i class="ti ti-plus" aria-hidden="true"></i>
+            <span>{{ __('Add Category') }}</span>
         </a>
     </div>
     @endpermission

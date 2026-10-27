@@ -479,6 +479,35 @@ where both functions exist — and running it here is not evidence that it works
 described the *observation*, never the behaviour. Recorded as F53; the double-counting the same
 query does to `orders.final_price` is F54, with the half that is unverified marked as unverified.
 
+## 4m. A design-system token is only correct against the surface it was solved for
+
+The third time this phase has paid for the same lesson, and the first time it was the design
+system's own scoping that was incomplete rather than a host colour being mis-assumed.
+
+P2-05-4 put design-system components into the host's Bootstrap modal. The modal keeps a **white**
+`.modal-content` in dark mode — measured `rgb(255, 255, 255)` while `data-ss-theme="dark"` sits on
+`<html>` — so every token resolved for a dark surface was drawn on white. The hint text measured
+**2.18:1**.
+
+The fix was not a colour. The dark block has always been documented as working "on `<html>` or on
+any container", and it does — **but only in one direction**: the light palette lived on `:root`
+alone, which matches `<html>` and nothing else, so a subtree inside a dark page could never be
+returned to light. A claim in a comment that is true one way and false the other, exactly the
+failure mode CLAUDE.md records about the skills section being "wrong in both directions".
+
+And measuring that turned up something larger that is **not** this slice's doing:
+`custom.css:4482` carries `html[data-ss-theme="dark"] body label { color: #9DA3B4 !important }` —
+a **bare element selector**, added for the sidebar and DataTables chrome, which catches every
+label in the application. On the white modal that is **2.52:1**, and the previous
+`<label class="form-label">` markup was matched by it just as the converted markup is. So the
+conversion did not introduce it; the conversion is simply the first thing that measured it.
+Roughly sixty other modal forms still carry it (ledger **F126**).
+
+**The rule to carry forward:** before putting a design-system component on a surface the host
+paints, measure that surface. `--ss-*` tokens follow `data-ss-theme`; the host's chrome does not,
+and the two disagree inside modals, pinned table cells (see `components/datatable.blade.php`) and
+anywhere else the host sets its own background.
+
 ## 5. What a successor should do first
 
 1. **Read [`PHASE-02-MASTER-EXECUTION-PROMPT.md`](PHASE-02-MASTER-EXECUTION-PROMPT.md)**, not a
@@ -487,8 +516,12 @@ query does to `orders.final_price` is F54, with the half that is unverified mark
    is worth trusting was measured there.
 3. **Do not re-litigate the settled holds.** P2-06-1's RTL duplication was the preview harness,
    measured eight ways in the real application. B2 is cleared. F8 and F9 are resolved.
-4. **Start with P2-03's list and editor**, which is the largest untouched surface and the one
-   whose absence is most visible to a merchant. After that, **all of P2-05** is still at zero.
+4. **Resume at P2-05-5 (staff and permissions).** P2-05-4 closed on 2026-10-27; P2-05-1 through
+   P2-05-4 are DONE. The remaining order the owner set is **P2-05-5 → P2-05-8, then P2-06,
+   P2-07 (Flutter), the rest of P2-01/P2-03/P2-04, and P2-08 last**. D-21 is delivered; **D-13
+   remains NOT DONE with `$plan` suspended**, D-20 stays **PARTIAL**, and **D-22/F121** (a deleted
+   product or variant 500s a payment return, with `PayUPaymentController:507` a known site) has
+   not been started.
 5. **F20 is the one sweep worth proposing to the owner.** `Utility::dateFormat(null)` renders the
    Unix epoch at 64 call sites, 28 of them vendored, and F22 says the same helper also prints
    English month names inside the Arabic admin. One line inside it fixes both — and changes output

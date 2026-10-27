@@ -3859,3 +3859,83 @@ mistake for the fix. The lost-update property they buy cannot be driven in this 
 `OrderStockConcurrencyTest` proves it against the service, and these tests prove only the thing
 that would silently undo it. The gateway decrements still precede payment verification: D-13's
 open half, needing E13's durable evidence, which is BLOCKED.
+
+## 32. P2-05-4 — categories and attributes (2026-10-27)
+
+| | |
+|---|---|
+| `shoot-categories-attributes-live.cjs` | **74 cases, 74 passed, 0 failed** — 16 screenshots |
+| `check-row-actions-live.cjs` (now five screens × four configurations) | **260 cases, 260 passed, 0 failed** |
+| `CategoryAttributeRowActionsTest` | 7 tests, 17 assertions |
+| `CategoryTreeEscapingTest` | 4 tests, 8 assertions |
+| `CategoryParentValidationTest`, `MerchantCategoryOwnershipTest`, `AttributeOptionAndCustomerBoundaryTest` | 45 tests, 157 assertions — unchanged |
+
+### 32a. The escaping fix is pinned by the tension it has to resolve
+
+`buildCategoryTree()` builds one string out of two kinds of content: a `&nbsp;` indent prefix that
+MUST stay live markup, and a merchant-written name that must not. Eight views print the result
+with `{!! !!}`, two of them in vendored `packages/workdo/ProductReview`.
+
+`CategoryTreeEscapingTest` asserts both halves, because a fix that satisfies only one is wrong in
+a way the other would not catch: escape the whole string and the select loses its hierarchy;
+escape nothing and a category name executes. It also pins that an ampersand in a real name
+(`&nbsp;Sneakers`) cannot forge the indent's entity, and that quotes are escaped — the value is
+printed inside an `<option>`.
+
+**Revert-checked:** 3 of the 4 fail against the unfixed helper. The fourth — the indent — passes
+before and after, deliberately: it is there to stop the fix going too far, not to prove it
+happened.
+
+### 32b. The gates are asserted in both directions
+
+`CategoryAttributeRowActionsTest` renders the row-action partials directly, because the full page
+additionally renders `partision/header.blade.php`, which reads `->slug` on the user's Store and
+500s when a test user has none — driving the page would measure that fixture gap rather than this
+change.
+
+Positive: a user holding Edit and Delete sees both controls, each named for the record
+(`aria-label="Edit category Scarves"`). Negative: a user holding only `Manage Product Category`
+sees **neither**, and `category.destroy` does not appear in the markup at all. Separating: Edit
+alone does not reveal Delete. That negative direction is what substantiates "no functionality
+removed" — the handler already refused those users, so what disappeared is a control that never
+worked for them.
+
+**Bite-tested:** removing one `aria-label` returns 1 failure; removing one `@permission` returns 2.
+
+### 32c. What the live checks caught that no server-side test could
+
+Three runs were green, or loudly red, **about the wrong thing** before this one. Each is now a
+premise rather than a lesson:
+
+1. **The wrong screen.** `/product-attributes` refuses a user without `Manage Attributes` with
+   `redirect()->back()`, landing on the previous screen in the harness's own loop. A full run
+   measured the category list, labelled every line `attributes`, and reported contrast failures
+   naming `#ORD-2047` on a screen with no orders. Both harnesses now assert the landed URL first.
+2. **The wrong scope.** The modal probe read `document.querySelector('.modal.show') || document`,
+   so a failed click measured the list page — "every label resolves to a control (5)" passing
+   against page chrome. The modal is a hard premise now, with no fallback.
+3. **The wrong question.** A 66/66 run reported success while two switch captions were visibly
+   dimmer than the fields above them: the probe checked that labels RESOLVE, never that they can
+   be READ, and the acceptance for this slice is AA in all four configurations. Contrast and
+   dialog-overflow measurement were added and found 2.18:1 and 2.52:1 immediately.
+
+### 32d. The contrast finding, and what it is NOT
+
+Measured over the effective background with alpha compositing: the host's Bootstrap modal keeps a
+**white** `.modal-content` in dark mode (`rgb(255, 255, 255)` with `data-ss-theme="dark"` on
+`<html>`), and `custom.css`'s bare `html[data-ss-theme="dark"] body label` rule paints every label
+in the application `#9DA3B4` — **2.52:1** on that white surface.
+
+**This is not caused by the design-system conversion**, and that was checked rather than assumed:
+the previous markup used `<label class="form-label">`, which is still a `label` and was matched by
+the same rule — six of them on the create-category form alone. The conversion measured the defect;
+it did not introduce it.
+
+The second cause was the design system's own: its light palette lived on `:root` alone, so the
+dark block's documented "on `<html>` or on any container" scoping worked in one direction only and
+a subtree inside a dark page could never be returned to light. Fixed by declaring the light
+palette on `:root, [data-ss-theme="light"]`.
+
+**Not fixed, and named as such:** roughly sixty other modal forms across the host and the seventy
+vendored modules still render their labels at 2.52:1 in dark mode. Narrowing the bare rule means
+re-measuring the sidebar and tables it was added to fix (ledger **F126**).

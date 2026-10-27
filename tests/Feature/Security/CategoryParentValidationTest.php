@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\DB;
  * ==================================================================================================================
  *
  * CategoryController::store() and ::update() wrote `parent_id` straight from request input. The value is rendered back through an unscoped
- * relation (`Category::parent_category()` is a plain belongsTo; CategoryDataTable prints `optional($category->parent_category)->name`), so a
+ * relation (`Category::parent_category()` is a plain belongsTo; CategoryDataTable prints the parent's name into a raw column -- `e($parent->name)` since P2-05-4, which also added the same-store comparison beside it), so a
  * merchant who PUT their own category with `parent_id=N` and opened /category was shown store B's category name in the Parent column -
  * incrementing N walks the whole catalogue taxonomy of the platform. The create/edit dropdown is store-scoped so the UI never offers a foreign
  * id, but that is obscurity: the POST is hand-craftable. The same missing rule admits `parent_id = own id` (or any loop), which sends

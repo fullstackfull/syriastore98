@@ -3056,5 +3056,12 @@
     "Mobile": "رقم الهاتف",
     "Inactive": "غير نشط",
     "Level unknown": "المستوى غير معروف",
-    "This row reached the report without a stock level, which is a defect rather than a state.": "وصل هذا السطر إلى التقرير بدون مستوى مخزون، وهذا عيب لا حالة."
+    "This row reached the report without a stock level, which is a defect rather than a state.": "وصل هذا السطر إلى التقرير بدون مستوى مخزون، وهذا عيب لا حالة.",
+    "Edit category :name": "تعديل التصنيف :name",
+    "Delete category :name": "حذف التصنيف :name",
+    "Edit attribute :name": "تعديل الخاصية :name",
+    "Delete attribute :name": "حذف الخاصية :name",
+    "Configure terms of :name": "ضبط قيم الخاصية :name",
+    "Show this category in Trending": "إظهار هذا التصنيف ضمن الرائج",
+    "Attribute not found.": "الخاصية غير موجودة."
 }
