@@ -75,6 +75,136 @@ class ProductController extends Controller
     }
 
     /**
+     * D-20. REFUSE A NARROWING THAT WOULD DESTROY VARIANTS, NAME WHAT WOULD BE LOST, AND MAKE THE
+     * DELETE A SEPARATE, CONFIRMED ACT.
+     *
+     * Removing a term from an attribute makes the posted combination set narrower than the rows
+     * that exist, and the rebuild then hard-deleted every uncovered row — not soft-deleted, so a
+     * raw table read could not see it either. Measured in the browser: a product with 8 variants
+     * saved with a 4-combination option set came back with 4 rows, the other 4 gone with their
+     * prices, SKUs and stock. The owner's ruling is to refuse, name the data, and require an
+     * independent confirmation.
+     *
+     * CONDITION 4 — "check the references that could make a delete dangerous" — IS THE PART THAT
+     * CANNOT BE FULLY SATISFIED, and the honest answer shapes the whole design. Only `carts` and
+     * `wishlists` carry a `variant_id` COLUMN. An order records what it contained in
+     * `orders.product_json`, and the storefront writer's line shape has **no `variant_id` key at
+     * all** — measured on the development fixture, all 14 order lines carry
+     * `final_price, name, price, product_id, qty, total_orignal_price` and nothing else. So
+     * "this variant appears in no order" is **not provable**, and by condition 5 an unprovable
+     * delete must be refused rather than performed silently.
+     *
+     * Hence two different refusals, and the difference matters to the merchant:
+     *   - a reference we CAN see (a cart or wishlist row, or an order line that does carry the
+     *     id) is a hard refusal — confirming does not make it safe;
+     *   - otherwise the merchant is told exactly which variants would go and what they carry, and
+     *     must come back with an explicit confirmation. The confirmation is not a rubber stamp:
+     *     it is the acknowledgement that order history may reference what is about to be deleted
+     *     and cannot be checked.
+     *
+     * It returns the handler's own `['flag' => 'error', 'msg' => ...]` shape, which
+     * `edit.blade.php`'s success handler renders, and `null` to proceed.
+     *
+     * @param  \Illuminate\Support\Collection  $removed  the variant rows the posted set no longer covers
+     * @return array<string,mixed>|null
+     */
+    private function ssRefuseVariantRemoval(Request $request, $product, $removed): ?array
+    {
+        if ($removed->isEmpty()) {
+            return null;
+        }
+
+        $names = $removed->pluck('variant')->map(fn ($v) => (string) $v)->all();
+        $ids = $removed->pluck('id')->map(fn ($v) => (int) $v)->all();
+
+        /* --- condition 4: the references that ARE checkable ------------------------------- */
+        $blockers = [];
+
+        $inCarts = \App\Models\Cart::withoutGlobalScopes()->whereIn('variant_id', $ids)->count();
+        if ($inCarts > 0) {
+            $blockers[] = __(':count shopper cart line(s)', ['count' => $inCarts]);
+        }
+
+        /* The Eloquent model, not `DB::table('wishlists')`. The raw form works, but
+           `RawQueryTenancyInventoryTest` counts raw entry points against tenant-discriminated
+           tables and a new one fails three of its assertions — correctly, because a raw query is
+           exactly where a tenant predicate goes missing. `Wishlist` carries no StoreScope either,
+           so this is not a scoping claim; it is staying inside the shape the inventory can see. */
+        $inWishlists = \App\Models\Wishlist::withoutGlobalScopes()->whereIn('variant_id', $ids)->count();
+        if ($inWishlists > 0) {
+            $blockers[] = __(':count wishlist entry(ies)', ['count' => $inWishlists]);
+        }
+
+        /* An order line only sometimes carries the id; when it does, it is a real reference and
+           this finds it. When it does not, nothing here can — which is what the confirmation
+           below exists to acknowledge rather than paper over. */
+        $inOrders = 0;
+        foreach (\App\Models\Order::withoutGlobalScopes()
+            ->where('store_id', getCurrentStore())
+            ->whereNotNull('product_json')
+            ->pluck('product_json') as $json) {
+            $lines = json_decode((string) $json, true);
+
+            if (! is_array($lines)) {
+                continue;
+            }
+
+            foreach ($lines as $line) {
+                if (is_array($line) && ! empty($line['variant_id']) && in_array((int) $line['variant_id'], $ids, true)) {
+                    $inOrders++;
+                    break;
+                }
+            }
+        }
+
+        if ($inOrders > 0) {
+            $blockers[] = __(':count order(s)', ['count' => $inOrders]);
+        }
+
+        if ($blockers !== []) {
+            return [
+                'flag' => 'error',
+                'msg' => __('These variants cannot be removed because they are still referenced: :names. Referenced by: :refs. Remove or complete those references first.', [
+                    'names' => implode(', ', $names),
+                    'refs' => implode('; ', $blockers),
+                ]),
+            ];
+        }
+
+        /* --- condition 3: a deliberate delete is a separate, confirmed act ----------------- */
+        if (! $request->boolean('ss_confirm_variant_removal')) {
+            /* Condition 2: the names, the count, and what each one carries, so the merchant is
+               deciding about real data rather than about a number. */
+            $detail = $removed->map(function ($v) {
+                return trim(sprintf(
+                    '%s (%s)',
+                    (string) $v->variant,
+                    implode(', ', array_filter([
+                        $v->sku !== null && $v->sku !== '' ? __('SKU :sku', ['sku' => $v->sku]) : null,
+                        $v->variation_price !== null ? __('price :price', ['price' => $v->variation_price]) : null,
+                        __('stock :stock', ['stock' => (int) $v->stock]),
+                    ]))
+                ));
+            })->all();
+
+            return [
+                'flag' => 'error',
+                'msg' => __('This change would permanently delete :count variant(s): :detail. Their prices, SKUs and stock would be lost, and order history may still refer to them — that cannot be checked, because an order line does not always record which variant it was. Nothing has been changed. To proceed, confirm the removal explicitly.', [
+                    'count' => count($names),
+                    'detail' => implode(' | ', $detail),
+                ]),
+                'ss_variant_removal' => [
+                    'variants' => $names,
+                    'count' => count($names),
+                    'confirm_with' => 'ss_confirm_variant_removal',
+                ],
+            ];
+        }
+
+        return null;
+    }
+
+    /**
      * What a per-variant value column should become on a save -- owner decision D-09 (A1).
      *
      * The product edit page renders the variant values panel on load, with no interaction, and
@@ -2025,6 +2155,42 @@ $Product->cost_price = $request->cost_price;
                 }
                 if ($attribute_option) {
                     if (count($attribute_option[0]) > 0) {
+                        /*
+                         * D-20. THE REMOVAL CHECK RUNS BEFORE ANY VARIANT IS WRITTEN, which is the
+                         * owner's condition 6 ("no data loss on failure") taken literally: a
+                         * refusal here leaves every variant row exactly as it was, rather than
+                         * half-upserting the surviving rows and then refusing.
+                         *
+                         * The existing set is read HERE, before the upsert loop, and that
+                         * placement is load-bearing. An earlier version of a different guard read
+                         * it AFTER the loop, by which time every posted combination already had a
+                         * row — so the posted set was always a subset of the existing one and half
+                         * the comparison was dead code.
+                         */
+                        $ssPostedCombinations = [];
+
+                        foreach ($attribute_option as $ssCom) {
+                            foreach ((array) $ssCom as $ssItem) {
+                                $ssPostedCombinations[] = (string) $ssItem;
+                            }
+                        }
+
+                        $ssPostedCombinations = array_values(array_unique($ssPostedCombinations));
+
+                        $ssRemovedVariants = ProductVariant::where('product_id', $product->id)
+                            ->where('store_id', getCurrentStore())
+                            ->get(['id', 'variant', 'sku', 'variation_price', 'price', 'stock'])
+                            ->reject(function ($ssRow) use ($ssPostedCombinations) {
+                                return in_array((string) $ssRow->variant, $ssPostedCombinations, true);
+                            })
+                            ->values();
+
+                        $ssRemovalRefusal = $this->ssRefuseVariantRemoval($request, $product, $ssRemovedVariants);
+
+                        if ($ssRemovalRefusal !== null) {
+                            return $ssRemovalRefusal;
+                        }
+
                         $product->variant_product = 1;
                         $is_in_stock = false;
                         foreach ($attribute_option as $key => $com) {
@@ -2195,9 +2361,15 @@ $Product->cost_price = $request->cost_price;
                                variant rows, so an ordinary save posts the set that already
                                exists and this delete matches nothing, and (c) the existing
                                `ss_last_seen_at` conflict guard for the stale-form race.
-                               WHAT A DELIBERATE NARROWING SHOULD DO -- hard-delete, as here, or
-                               refuse and name the variants that would be lost -- is an open
-                               commercial decision (D-20), not an engineering one. */
+                               WHAT A DELIBERATE NARROWING DOES IS NOW DECIDED (D-20) AND IS
+                               ENFORCED ABOVE, NOT HERE. `ssRefuseVariantRemoval()` runs BEFORE the
+                               upsert loop and returns early, so by the time this delete is
+                               reached either nothing is uncovered or the merchant has explicitly
+                               confirmed the removal and no checkable reference blocks it. This
+                               statement therefore deletes only what the merchant agreed to lose.
+                               Keeping the check up there rather than wrapping this line is the
+                               owner's "no data loss on failure": a refusal must leave every row
+                               untouched, not half-upsert the survivors first. */
                             ProductVariant::where('product_id', $product->id)
                                 ->whereNotIn('variant', $com)
                                 ->delete();

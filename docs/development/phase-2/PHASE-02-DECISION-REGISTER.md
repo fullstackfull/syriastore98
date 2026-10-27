@@ -676,7 +676,7 @@ Reaffirmed by the owner on 2026-10-26 and in force for all of Phase 02:
   services.
 - **No weakening of CI and no manufactured results.** Green CI is necessary evidence, not proof.
 
-## D-20 — what a deliberate narrowing of an attribute's option set should do: **ANSWERED (owner, 2026-10-27) — refuse, name what would be lost, confirm separately**
+## D-20 — what a deliberate narrowing of an attribute's option set should do: **ANSWERED AND IMPLEMENTED 2026-10-27 — (owner, 2026-10-27) — refuse, name what would be lost, confirm separately**
 
 **Raised:** 2026-10-26, out of the D-09 implementation. **Nothing has been changed; today's
 behaviour is preserved exactly.**
@@ -731,6 +731,43 @@ conditions, verbatim in substance:
 And a scope limit: *"لا تغيّر آلية الطلبات أو تضف نظام أرشفة جديداً دون ضرورة مثبتة"* — do not
 change the order mechanism or introduce a new archiving system without proven necessity. The goal
 is preventing unintended loss and preserving data, not building a new subsystem.
+
+---
+
+### How it was built, and the condition that could not be fully met
+
+`ProductController::ssRefuseVariantRemoval()` runs **before the upsert loop**, not around the
+delete. That placement is the owner's condition 6 taken literally — a refusal leaves every variant
+row exactly as it was, rather than half-upserting the survivors and then refusing.
+
+**Condition 4 is the one that cannot be fully met, and F122 records why.** Only `carts` and
+`wishlists` carry a `variant_id` column. An order records its contents in `orders.product_json`,
+and the storefront writer's line shape has **no `variant_id` key at all** — measured, all 14 order
+lines in the fixture carry `final_price, name, price, product_id, qty, total_orignal_price` and
+nothing else. So a search of order history can find *some* references and can never establish
+their *absence*.
+
+The implementation therefore splits the refusal, and the split is the whole point:
+
+- **a reference it CAN see** — a cart row, a wishlist row, or an order line that does carry the id
+  — is a **hard refusal**; confirming does not make it safe, and the message names what holds it;
+- **everything else** is refused until the merchant confirms explicitly, and the message says
+  plainly that order history may still refer to these variants and **that this cannot be checked**.
+
+Reporting "no references found" would have been true of the query and misleading about the world.
+The deeper fix — recording the variant on every order line — is order-schema work the owner's own
+scope limit excludes.
+
+**Tested:** refusal names the count, the variant names and what each carries; a confirmed
+narrowing removes exactly the uncovered rows and nothing else; a cart reference blocks it even
+with confirmation; a merchant without `Edit Products` cannot remove variants by posting the
+confirmation flag (a request field is never an authorisation); and the stale-form guard still
+refuses a confirmed narrowing from an out-of-date form, which is the realistic shape of the
+concurrency hazard here — a merchant confirming a list another session has already changed. Three
+of those fail when the refusal is disabled, verified by executing that mutation.
+
+**Not covered, and stated rather than implied:** true concurrency. `CACHE_STORE=array` makes
+`Cache::lock` process-local, so no Feature test can stage two merchants saving one product.
 
 ---
 

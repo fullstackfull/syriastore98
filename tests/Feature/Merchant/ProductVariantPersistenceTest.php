@@ -165,33 +165,28 @@ class ProductVariantPersistenceTest extends SecurityTestCase
     }
 
     /**
-     * THE CONFIGURATION PATH STILL REBUILDS, AND STILL DELETES -- deliberately preserved by
-     * D-09, which removed the accidental case, not the intentional one.
+     * THE CONFIGURATION PATH STILL REBUILDS — BUT UNDER D-20 IT NO LONGER DELETES WITHOUT ASKING.
      *
-     * The posted set here names ONE of the two combinations while both exist, so it genuinely
-     * differs from the rows on disk. That is what a merchant narrowing an attribute's option set
-     * produces, and the uncovered row is deleted exactly as before. What no longer happens is
-     * the same delete firing on a save that posted the set it already had, which is the case the
-     * edit page produces on every ordinary save.
+     * This test used to assert the hard delete and was correct to: that WAS the behaviour, and
+     * pinning it is what made the owner's decision possible. The ruling changed it, so the test
+     * changed with it rather than being deleted.
      *
-     * (What SHOULD happen to an uncovered variant on a deliberate narrowing -- hard delete, or a
-     * refusal naming the rows that would be lost -- is a commercial decision and is recorded as
-     * open in the decision document. This test pins today's answer so a change to it is
-     * deliberate.)
+     * The posted set here names ONE of the two combinations while both exist — the shape a
+     * merchant produces by removing a term from an attribute. It is a real configuration change,
+     * the handler must recognise it, and it must now be REFUSED with the uncovered variant named.
+     * An ordinary save (the set it already has) is untouched by any of this and is covered above.
      */
-    public function test_the_rebuild_path_persists_the_posted_variant_and_hard_deletes_the_rest(): void
+    public function test_a_narrowing_is_refused_and_names_the_variant_that_would_be_lost(): void
     {
         [$merchant, $product, $categoryId] = $this->arrange();
 
         $this->assertNotNull($this->readVariant($product->id, 'M-Red'),
-            'premise: the variant that the rebuild will not cover exists first');
+            'premise: the variant the narrowing would remove exists first');
 
         $payload = $this->payload($categoryId, [
             'attribute_no' => [1],
-            // F84: `$input['visible_attribute_' . $no]` at :1668/:1762 is an UNGUARDED array read,
-            // so posting `attribute_no` without this key is a 500. A browser always sends it (a
-            // hidden `0` partner beside the checkbox, edit.blade.php:592), so it is not reachable
-            // from the UI -- the same shape as `trending` in ProductUpdateNullGuardsTest.
+            // F84: `$input['visible_attribute_' . $no]` is an UNGUARDED array read, so posting
+            // `attribute_no` without this key is a 500. A browser always sends it.
             'visible_attribute_1' => 0,
             'for_variation_1' => 1,
             'options_datas' => ['S-Red'],          // only ONE of the two combinations
@@ -202,17 +197,19 @@ class ProductVariantPersistenceTest extends SecurityTestCase
 
         $response = $this->actingAs($merchant)->put(route('product.update', $product->id), $payload);
         $response->assertOk();
-        $this->assertSame('success', $response->json('flag'), json_encode($response->json()));
 
-        $covered = $this->readVariant($product->id, 'S-Red');
-        $this->assertNotNull($covered);
-        $this->assertEquals(99.50, $covered['variation_price'],
-            'the posted price persists once the gate is open -- this is the only path that writes');
-        $this->assertEquals(3, $covered['stock']);
+        $this->assertSame('error', $response->json('flag'),
+            'the narrowing was performed instead of refused: ' . json_encode($response->json()));
+        $this->assertStringContainsString('M-Red', (string) $response->json('msg'),
+            'the refusal must name the variant that would be lost');
 
-        $this->assertNull($this->readVariant($product->id, 'M-Red'),
-            'F83: a variant absent from `options_datas` is deleted by :2021 -- a raw read, so this '
-            . 'is a hard delete, not a soft one');
+        $this->assertNotNull($this->readVariant($product->id, 'M-Red'),
+            'D-20: a narrowing must not delete the uncovered variant without an explicit '
+            . 'confirmation. This is the assertion that used to require the opposite.');
+
+        /* And nothing else was half-written either — the check runs before any variant write. */
+        $this->assertEquals(40, $this->readVariant($product->id, 'S-Red')['variation_price'],
+            'the posted price was applied despite the refusal, so the save was partly performed');
     }
 
     /**

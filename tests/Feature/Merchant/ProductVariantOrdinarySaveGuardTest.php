@@ -324,22 +324,65 @@ class ProductVariantOrdinarySaveGuardTest extends SecurityTestCase
     }
 
     /**
-     * THE PREMISE TEST, without which every "nothing changed" assertion above is vacuous: a
-     * guard that simply disabled the rebuild in all cases would satisfy both tests above.
+     * THE PREMISE TEST, without which every "nothing changed" assertion above is vacuous: a guard
+     * that simply disabled the rebuild in all cases would satisfy both tests above.
      *
-     * A DELIBERATE narrowing of the posted combination set is still a configuration change and
-     * must still rebuild -- including the delete of the rows the new set no longer covers. That
-     * is the behaviour this slice deliberately preserves; what it removes is the same delete
-     * firing on a save that posted the set it already had.
+     * A DELIBERATE narrowing must still be RECOGNISED as a configuration change — and under the
+     * owner's D-20 ruling it is now REFUSED rather than performed, with the variants that would
+     * be lost named. The two halves are asserted separately because they fail for different
+     * reasons: "the handler noticed" and "the handler refused".
      */
-    public function test_a_deliberately_narrower_combination_set_still_rebuilds_and_deletes(): void
+    public function test_a_deliberately_narrower_combination_set_is_refused_and_names_what_would_be_lost(): void
     {
         [$merchant, $product, $categoryId, $variants] = $this->arrangeTwelve();
 
         $kept = ['S-Red', 'M-Red'];
         $payload = $this->ordinarySavePayload($product, $categoryId, $variants);
         $payload['options_datas'] = $kept;
-        $payload['product_variation_price_S-Red'] = '99.50';
+
+        $response = $this->actingAs($merchant)->put(route('product.update', $product->id), $payload);
+        $response->assertOk();
+
+        $this->assertSame('error', $response->json('flag'),
+            'a narrowing that would destroy ten variants was accepted: ' . json_encode($response->json()));
+
+        $msg = (string) $response->json('msg');
+
+        $this->assertStringContainsString('10', $msg,
+            'the refusal must state HOW MANY variants would be lost');
+
+        foreach (['L-Sand', 'XL-Indigo'] as $lost) {
+            $this->assertStringContainsString($lost, $msg,
+                "the refusal must NAME the variants that would be lost; `$lost` is missing");
+        }
+
+        $this->assertStringContainsString('SKU-', $msg,
+            'the refusal must say what each variant carries, not just its name — the merchant is '
+            . 'deciding about real data');
+
+        /* CONDITION 6: nothing lost on failure. The check runs before any variant is written, so
+           a refusal must leave all twelve rows byte-identical. */
+        $after = $this->readAll($product->id);
+        $this->assertCount(12, $after, 'a refused narrowing deleted rows anyway');
+
+        foreach ($this->readAll($product->id) as $variant => $row) {
+            $this->assertNotNull($row, "variant $variant vanished on a refusal");
+        }
+    }
+
+    /**
+     * AND THE CONFIRMED NARROWING STILL WORKS — condition 3. Without this, the refusal above
+     * could be satisfied by a handler that refuses every narrowing forever, which would make the
+     * attribute editor unusable rather than safe.
+     */
+    public function test_a_confirmed_narrowing_removes_exactly_the_uncovered_variants(): void
+    {
+        [$merchant, $product, $categoryId, $variants] = $this->arrangeTwelve();
+
+        $kept = ['S-Red', 'M-Red'];
+        $payload = $this->ordinarySavePayload($product, $categoryId, $variants);
+        $payload['options_datas'] = $kept;
+        $payload['ss_confirm_variant_removal'] = 1;
 
         $response = $this->actingAs($merchant)->put(route('product.update', $product->id), $payload);
         $response->assertOk();
@@ -347,9 +390,46 @@ class ProductVariantOrdinarySaveGuardTest extends SecurityTestCase
 
         $after = $this->readAll($product->id);
         $this->assertSame($kept, array_keys($after),
-            'a narrower posted set is a configuration change: the uncovered rows are deleted');
-        $this->assertEquals(99.50, $after['S-Red']['variation_price'],
-            'and the posted price is written, which is the path that always did persist');
+            'a CONFIRMED narrowing must remove exactly the uncovered variants and nothing else');
+    }
+
+    /**
+     * CONDITION 4 — a reference that CAN be seen is a hard refusal, and confirming does not make
+     * it safe. A cart line holding one of the variants about to be deleted is exactly that.
+     */
+    public function test_a_variant_still_in_a_cart_cannot_be_removed_even_with_confirmation(): void
+    {
+        [$merchant, $product, $categoryId, $variants] = $this->arrangeTwelve();
+
+        $doomed = $this->readAll($product->id)['L-Sand'];
+
+        \DB::table('carts')->insert([
+            'customer_id' => 1,
+            'product_id' => $product->id,
+            'variant_id' => $doomed['id'],
+            'qty' => 1,
+            'price' => 10,
+            'store_id' => $product->store_id,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $payload = $this->ordinarySavePayload($product, $categoryId, $variants);
+        $payload['options_datas'] = ['S-Red', 'M-Red'];
+        $payload['ss_confirm_variant_removal'] = 1;
+
+        $response = $this->actingAs($merchant)->put(route('product.update', $product->id), $payload);
+        $response->assertOk();
+
+        $this->assertSame('error', $response->json('flag'),
+            'a variant sitting in a shopper cart was deleted on a confirmed narrowing');
+        $this->assertStringContainsString('L-Sand', (string) $response->json('msg'),
+            'the refusal must name the referenced variant');
+        $this->assertStringContainsString('cart', strtolower((string) $response->json('msg')),
+            'the refusal must say WHAT references it, or the merchant cannot clear the block');
+
+        $this->assertCount(12, $this->readAll($product->id),
+            'a blocked narrowing still deleted rows');
     }
 
     /**
@@ -423,6 +503,74 @@ class ProductVariantOrdinarySaveGuardTest extends SecurityTestCase
         $this->assertNull($rows['S-Red']['variation_price'],
             'and a blank field must leave the column as it was -- this is the half that fails '
             . 'against the `!empty()` writer, and so the half that makes the test bite');
+    }
+
+    /**
+     * CONDITION 6 — PERMISSIONS. A merchant without `Edit Products` must not be able to delete
+     * variants by narrowing, confirmed or not. Asserted because "confirmed" is a request field
+     * and a request field is never an authorisation.
+     */
+    public function test_a_merchant_without_edit_products_cannot_remove_variants(): void
+    {
+        [$merchant, $product, $categoryId, $variants] = $this->arrangeTwelve();
+
+        /* There is no revokePermission() helper, so the grant made by arrangeTwelve() is
+           removed the way grantPermission() made it: detach the role it created, then flush the
+           user's model cache — `User` is `Cachable`, and without the flush `isAbleTo()` answers
+           from the pre-revocation copy and the test passes for the wrong reason. */
+        $role = \App\Models\Role::where('name', 'granted-role-' . $merchant->id)->first();
+        $this->assertNotNull($role, 'premise: arrangeTwelve() granted the permission through a role');
+        $merchant->removeRole($role->name);
+        $merchant->flushCache();
+        $merchant->refresh();
+
+        $this->assertFalse($merchant->isAbleTo('Edit Products'),
+            'premise: the permission really is gone. Without this the assertion below would pass '
+            . 'for a merchant who still has it and simply posted something the handler refused '
+            . 'for an unrelated reason.');
+
+        $payload = $this->ordinarySavePayload($product, $categoryId, $variants);
+        $payload['options_datas'] = ['S-Red'];
+        $payload['ss_confirm_variant_removal'] = 1;
+
+        $this->actingAs($merchant)->put(route('product.update', $product->id), $payload);
+
+        $this->assertCount(12, $this->readAll($product->id),
+            'a merchant without Edit Products removed eleven variants by posting a narrower set '
+            . 'with the confirmation flag. The flag is request input, not an authorisation.');
+    }
+
+    /**
+     * CONCURRENCY — what is covered and what is NOT, stated rather than implied.
+     *
+     * The owner's condition names concurrency. It cannot be driven here: the suite runs SQLite
+     * `:memory:` with `CACHE_STORE=array`, so `Cache::lock` is process-local and no Feature test
+     * can stage two merchants saving one product. What DOES exist is the pre-existing
+     * `ss_last_seen_at` conflict guard, which refuses a save whose form was rendered before
+     * someone else's save — the stale-form race, which is the realistic shape of this hazard for
+     * a narrowing (a merchant confirms a removal list that another session has already changed).
+     * This asserts the guard is still wired, so the one protection that exists cannot be removed
+     * silently.
+     */
+    public function test_the_stale_form_guard_still_covers_a_narrowing(): void
+    {
+        [$merchant, $product, $categoryId, $variants] = $this->arrangeTwelve();
+
+        $payload = $this->ordinarySavePayload($product, $categoryId, $variants);
+        $payload['options_datas'] = ['S-Red', 'M-Red'];
+        $payload['ss_confirm_variant_removal'] = 1;
+        /* A token from before the product's current state. */
+        $payload['ss_last_seen_at'] = $product->updated_at->copy()->subMinutes(5)->toISOString();
+
+        $response = $this->actingAs($merchant)->put(route('product.update', $product->id), $payload);
+        $response->assertOk();
+
+        $this->assertSame('error', $response->json('flag'),
+            'a confirmed narrowing from a stale form was accepted, so the merchant confirmed a '
+            . 'list of variants that may no longer be the list that gets deleted');
+
+        $this->assertCount(12, $this->readAll($product->id),
+            'the stale save deleted variants anyway');
     }
 
     /**
