@@ -3330,3 +3330,40 @@ a.ss-setup__item:focus-visible {
 }
 
 .ss-command__addcurrent:hover { background: var(--ss-surface-hover); }
+
+/* =================================================================================================
+   P2-06-8 — the action bar for the selected search result.
+
+   It shares the shortcuts block's sunken surface, because both are the palette's "below the
+   list" register, and its text sets `--ss-fg` explicitly: a bare `a` in this dialog would
+   otherwise take the host's link colour, and the host's dark stylesheet forces several bare
+   elements to #808191 (measured at 3.85:1 on this surface for the group heading above).
+   ============================================================================================== */
+.ss-command__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--ss-space-2);
+    padding: var(--ss-space-2) var(--ss-space-3);
+    border-top: 1px solid var(--ss-border);
+    background: var(--ss-surface-sunken);
+}
+
+/* A real target, not a text link: WCAG 2.5.5, and this sits beside a list the keyboard drives. */
+.ss-command__action {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2.75rem;
+    padding: var(--ss-space-2) var(--ss-space-3);
+    border: 1px solid var(--ss-border);
+    border-radius: var(--ss-radius-sm);
+    background: var(--ss-surface);
+    color: var(--ss-fg) !important;
+    font-size: var(--ss-text-sm);
+    text-decoration: none;
+}
+
+.ss-command__action:hover,
+.ss-command__action:focus-visible {
+    background: var(--ss-surface-hover);
+    color: var(--ss-fg) !important;
+}

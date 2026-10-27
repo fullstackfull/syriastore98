@@ -3203,5 +3203,8 @@
     "That page is not available to you.": "That page is not available to you.",
     "That could not be saved. Please try again.": "That could not be saved. Please try again.",
     "You can keep up to :count favourites. Remove one first.": "You can keep up to :count favourites. Remove one first.",
-    "No store is selected, so favourites cannot be saved.": "No store is selected, so favourites cannot be saved."
+    "No store is selected, so favourites cannot be saved.": "No store is selected, so favourites cannot be saved.",
+    "Edit product": "Edit product",
+    "Open customer": "Open customer",
+    "No actions are available for this result.": "No actions are available for this result."
 }

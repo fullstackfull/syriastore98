@@ -3232,5 +3232,8 @@
     "That page is not available to you.": "هذه الصفحة غير متاحة لك.",
     "That could not be saved. Please try again.": "لم يتم الحفظ. يُرجى المحاولة مرة أخرى.",
     "You can keep up to :count favourites. Remove one first.": "يمكنك الاحتفاظ بـ :count من المفضلات. أزل واحدة أولاً.",
-    "No store is selected, so favourites cannot be saved.": "لا يوجد متجر محدد، لذا لا يمكن حفظ المفضلة."
+    "No store is selected, so favourites cannot be saved.": "لا يوجد متجر محدد، لذا لا يمكن حفظ المفضلة.",
+    "Edit product": "تعديل المنتج",
+    "Open customer": "فتح العميل",
+    "No actions are available for this result.": "لا توجد إجراءات متاحة لهذه النتيجة."
 }

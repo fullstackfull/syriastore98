@@ -536,6 +536,9 @@
 
     function cmdNote(text) {
         cmdShortcuts(true);
+        // No selection means no actions: a bar left behind would offer the previous result's
+        // action while the list beside it says "Nothing found".
+        cmdActions(null);
         cmd.list.innerHTML = '';
         var li = document.createElement('li');
         li.className = 'ss-command__note';
@@ -620,6 +623,12 @@
                     a.appendChild(meta);
                 }
 
+                /* P2-06-8. The actions ride ON the option element rather than in a parallel
+                   array, so they cannot drift out of step with the selection index. They are
+                   NOT rendered inside the row -- see `cmdActions()`. */
+                a.ssActions = Array.isArray(item.actions) ? item.actions : [];
+                a.ssTitle = title.textContent;
+
                 li.appendChild(a);
                 cmd.list.appendChild(li);
                 cmd.items.push(a);
@@ -629,6 +638,61 @@
         cmd.input.setAttribute('aria-expanded', cmd.items.length ? 'true' : 'false');
         cmd.status.textContent = String(cmd.items.length);
         if (cmd.items.length) { cmdActivate(0); }
+    }
+
+    /**
+     * P2-06-8 -- the actions for the SELECTED result, rendered OUTSIDE the listbox.
+     *
+     * AND OUTSIDE IS THE WHOLE POINT, not a layout preference. The results are a `listbox` and
+     * each row is an `option`; an `option` is a LEAF in ARIA and must not contain interactive
+     * descendants, so putting buttons in a row would break the one pattern P2-06-2 was careful
+     * to get right -- `aria-activedescendant` moving a selection while the caret stays in the
+     * input. A separate group keeps that intact and gives one predictable place for the actions
+     * instead of a control that moves with the cursor.
+     *
+     * THE GROUP NAMES ITS SUBJECT. `aria-label` is "Actions for <result>", so a user who Tabs
+     * into it from the input lands somewhere self-describing rather than on a bare "Edit".
+     *
+     * IT DECIDES NOTHING. The server sent exactly the actions this principal may perform; an
+     * empty list renders an empty bar. Nothing here is filtered, hidden or re-checked, because a
+     * client-side filter would mean the full action list had been sent to every caller.
+     */
+    function cmdActions(option) {
+        var box = document.getElementById('ss-command-actions');
+        if (!box) { return; }
+
+        box.innerHTML = '';
+
+        var actions = (option && option.ssActions) || [];
+
+        if (!actions.length) {
+            box.hidden = true;
+            box.removeAttribute('aria-label');
+            return;
+        }
+
+        box.hidden = false;
+        box.setAttribute('aria-label',
+            (box.getAttribute('data-ss-actions-label') || 'Actions') + ': ' + (option.ssTitle || ''));
+
+        actions.forEach(function (action) {
+            var a = document.createElement('a');
+            a.className = 'ss-command__action';
+            a.href = action.href || '#';
+            a.textContent = action.label == null ? '' : String(action.label);
+
+            /* An action may open a PANEL instead of navigating -- the order preview does, and it
+               reuses the exact contract the result row already uses (`data-ss-panel-open` /
+               `data-ss-panel-url`) rather than a second mechanism for the same job. Without this
+               the server's `panel` key was silently ignored and the action became a full page
+               load to a read-only surface meant to open in place. */
+            if (action.panel) {
+                a.setAttribute('data-ss-panel-open', action.panel);
+                a.setAttribute('data-ss-panel-url', action.href || '');
+            }
+
+            box.appendChild(a);
+        });
     }
 
     function cmdActivate(i) {
@@ -643,6 +707,7 @@
            keep typing while the selection moves. */
         cmd.input.setAttribute('aria-activedescendant', el.id);
         if (el.scrollIntoView) { el.scrollIntoView({ block: 'nearest' }); }
+        cmdActions(el);
     }
 
     function cmdSearch() {

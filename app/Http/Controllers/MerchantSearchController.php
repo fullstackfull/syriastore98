@@ -38,6 +38,34 @@ use Illuminate\Http\Request;
  * customers gets orders and no customers -- not a 403 for the whole box, which would make the
  * feature useless for staff.
  *
+ * P2-06-8 -- AN ACTION IS A FINER QUESTION THAN A SECTION, which is the whole reason the actions
+ * are not simply inherited from the section gate. `Manage Products` lets a merchant FIND a
+ * product; `Edit Products` lets them change it (`ProductController::update`). `Manage Customer`
+ * lets them find a customer; `Show Customer` lets them open one (`CustomerController::show`).
+ * Offering an Edit button to a principal holding only the list permission is an affordance that
+ * 403s, and a palette is the worst place to learn that.
+ *
+ * SO EACH ACTION CARRIES ITS OWN GRANT, COMPUTED ONCE PER REQUEST and never per row -- a
+ * `may()` call inside a `map()` would re-ask Laratrust for every hit.
+ *
+ * ORDERS GATE ON `Show Order`, NOT ON THE SECTION'S `Manage Order`, and this correction is worth
+ * recording because the first version of this change asserted the opposite in a comment -- "this
+ * application has no narrower order permission" -- and that was simply false. `Show Order`
+ * exists, `OrderController::order_view` gates on it through `mayUseOrderScreen('Show Order')`,
+ * and P2-06-3 had already met this exact problem on the notification screen and recorded the
+ * answer: "the notification gates on `Manage Order`; the preview gates on `Show Order`. A caller
+ * can hold the first and not the second, and without this the button answered 403."
+ * `MerchantNotificationController:122` is that decision in code. This reuses it rather than
+ * inventing a second answer -- and because a principal really can hold `Manage Order` alone, an
+ * order row offered to them must not carry a preview affordance that refuses them.
+ *
+ * NOTHING DESTRUCTIVE IS OFFERED. `product.destroy` exists and a principal may hold
+ * `Delete Products`, so "the actions the principal may perform" could be read to include it. It
+ * is deliberately absent: a delete one keystroke from a search box, in a list where arrow keys
+ * move the selection, is a misclick that destroys a record, and the confirmation that makes it
+ * safe lives on the record's own screen. The palette offers ways IN to a record; the record's own
+ * page offers the ways to change it.
+ *
  * AND A SECTION THE CALLER MAY NOT SEE IS ABSENT, NOT EMPTY. An empty "Customers (0)" heading
  * tells a staff member that customers exist and they are not allowed to see them; it is a
  * smaller leak than the rows, but it is still an answer to a question they did not get to ask.
@@ -109,11 +137,17 @@ class MerchantSearchController extends Controller
 
         $sections = [];
 
+        /* P2-06-8. The action grants, resolved ONCE. Each is a separate permission from the
+           section's, except where the application has no narrower one -- see the class note. */
+        $mayEditProduct = $this->may($user, $isOperator, 'Edit Products');
+        $mayShowCustomer = $this->may($user, $isOperator, 'Show Customer');
+        $mayShowOrder = $this->may($user, $isOperator, 'Show Order');
+
         if ($this->may($user, $isOperator, 'Manage Products')) {
             $sections[] = [
                 'key' => 'products',
                 'label' => __('Products'),
-                'items' => $this->products($term, $storeId, $isOperator),
+                'items' => $this->products($term, $storeId, $isOperator, $mayEditProduct),
             ];
         }
 
@@ -121,7 +155,7 @@ class MerchantSearchController extends Controller
             $sections[] = [
                 'key' => 'orders',
                 'label' => __('Orders'),
-                'items' => $this->orders($term, $storeId, $isOperator),
+                'items' => $this->orders($term, $storeId, $isOperator, $mayShowOrder),
             ];
         }
 
@@ -129,7 +163,7 @@ class MerchantSearchController extends Controller
             $sections[] = [
                 'key' => 'customers',
                 'label' => __('Customers'),
-                'items' => $this->customers($term, $storeId, $isOperator),
+                'items' => $this->customers($term, $storeId, $isOperator, $mayShowCustomer),
             ];
         }
 
@@ -175,7 +209,7 @@ class MerchantSearchController extends Controller
         return '%' . $this->strip($term) . '%';
     }
 
-    private function products(string $term, $storeId, bool $isOperator): array
+    private function products(string $term, $storeId, bool $isOperator, bool $mayEdit): array
     {
         $query = Product::query()
             ->whereNull('product_type')
@@ -191,10 +225,16 @@ class MerchantSearchController extends Controller
                 'title' => $p->name,
                 'meta' => $p->product_stock !== null ? __(':n in stock', ['n' => $p->product_stock]) : null,
                 'href' => route('product.edit', $p->id),
+                'actions' => $mayEdit ? [[
+                    'key' => 'product.edit',
+                    'label' => __('Edit product'),
+                    // Built from the record the query already authorised, never from input.
+                    'href' => route('product.edit', $p->id),
+                ]] : [],
             ])->all();
     }
 
-    private function orders(string $term, $storeId, bool $isOperator): array
+    private function orders(string $term, $storeId, bool $isOperator, bool $mayOpen): array
     {
         $query = Order::query()
             ->where('product_order_id', 'LIKE', $this->like($term));
@@ -211,12 +251,26 @@ class MerchantSearchController extends Controller
                 // The PREVIEW, not the full page: it is the read-only surface, and its own
                 // uri is registered in OrderDocumentAccessGuard, which answers again on that
                 // request. Nothing here is taken as authorisation for that one.
-                'href' => route('order.preview', $o->id),
-                'panel' => 'ss-order-preview-panel',
+                /* THE ROW ITSELF IS GATED, not only the action, and that is the part a
+                   "quick actions" change could easily have missed. A principal holding
+                   `Manage Order` and not `Show Order` reaches this section -- the section gate
+                   is `Manage Order` -- and the preview panel refuses them. It fails CLOSED
+                   (`OrderDocumentAccessGuard` answers again on that request, and nothing here is
+                   taken as authorisation for it), so this is the same usability fix P2-06-3 made
+                   on the notification screen, not a hole being closed. Such a principal gets a
+                   row that goes to the orders list they can actually open. */
+                'href' => $mayOpen ? route('order.preview', $o->id) : route('order.index'),
+                'panel' => $mayOpen ? 'ss-order-preview-panel' : null,
+                'actions' => $mayOpen ? [[
+                    'key' => 'order.preview',
+                    'label' => __('View order'),
+                    'href' => route('order.preview', $o->id),
+                    'panel' => 'ss-order-preview-panel',
+                ]] : [],
             ])->all();
     }
 
-    private function customers(string $term, $storeId, bool $isOperator): array
+    private function customers(string $term, $storeId, bool $isOperator, bool $mayShow): array
     {
         /*
          * `withoutGlobalScopes()` is deliberately NOT used. Customer IS scoped, and the explicit
@@ -252,6 +306,15 @@ class MerchantSearchController extends Controller
                 'title' => trim(($c->first_name ?? '') . ' ' . ($c->last_name ?? '')) ?: ($c->email ?? ''),
                 'meta' => $c->email,
                 'href' => route('customer.index'),
+                /* `Show Customer`, NOT `Manage Customer`. `CustomerController::show` gates on the
+                   former (operator first), so a principal with only the latter would be handed a
+                   link that refuses them. The row itself still goes to the LIST, which is what
+                   `Manage Customer` actually grants. */
+                'actions' => $mayShow ? [[
+                    'key' => 'customer.show',
+                    'label' => __('Open customer'),
+                    'href' => route('customer.show', $c->id),
+                ]] : [],
             ])->all();
     }
 }

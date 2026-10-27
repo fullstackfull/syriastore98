@@ -45,6 +45,21 @@
         aria-label="{{ __('Search results') }}"></ul>
 
     {{--
+        P2-06-8 — the actions for the selected result.
+
+        OUTSIDE THE LISTBOX, and that is an ARIA requirement rather than a layout choice: an
+        `option` is a leaf and must not contain interactive descendants, so a button inside a row
+        would break the `aria-activedescendant` pattern above — the one that lets a selection move
+        while the caret stays in the input. A `role="group"` sibling keeps that intact.
+
+        EMPTY IS THE DEFAULT AND THE COMMON CASE. The server sends only the actions the principal
+        may actually perform, so a merchant who may list products but not edit them gets a result
+        with no actions and this bar stays hidden. It is never populated client-side.
+    --}}
+    <div class="ss-command__actions" id="ss-command-actions" role="group"
+         data-ss-actions-label="{{ __('Actions') }}" hidden></div>
+
+    {{--
         P2-06-7 — favourite pages and recent pages.
 
         HERE, AND NOT IN SIXTY-NINE PAGE HEADERS. The toggle and the lists belong to the same
