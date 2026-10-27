@@ -2846,6 +2846,21 @@ if (! function_exists('buildDataTable')) {
             ->initComplete('function() {
                         var table = this;
 
+                        /* P2-06-6. THE KEYBOARD PATH FOR COLUMN REORDER, wired here because
+                           ColReorder 1.5.4 has none: measured, it binds `mousedown` and
+                           `touchstart` and contains zero occurrences of `keydown`, `tabindex`
+                           or `aria-`. Pointer-only is a WCAG 2.1.1 failure for the function
+                           itself, and 2.5.7 for requiring a drag with no alternative.
+
+                           The extension is vendored UNMODIFIED, with its licence, so the
+                           keyboard path is built on its own `colReorder.move()` API instead --
+                           one mover, two ways to reach it, and an upgrade stays a file swap.
+                           Guarded so a page that loads the design-system script without
+                           ColReorder (the theme and guest layouts) does not throw. */
+                        if (window.StoreSyriaDS && window.StoreSyriaDS.wireColumnReorderKeys) {
+                            window.StoreSyriaDS.wireColumnReorderKeys(table.api().table().node());
+                        }
+
                         var searchInput = $(\'#\'+table.api().table().container().id+\' label input[type="search"]\');
                         searchInput.removeClass(\'form-control form-control-sm\');
                         searchInput.addClass(\'dataTable-input\');
@@ -3060,7 +3075,49 @@ if (! function_exists('buildDataTable')) {
             }
         }';
 
+        /*
+         * P2-06-6 — COLUMN ORDER AS A SAVED PREFERENCE, with the columns that must not move
+         * held in place.
+         *
+         * IT RIDES `stateSave`, which is the whole reason this is a small change: ColReorder
+         * writes its order through DataTables' own `_fnStateSave`, so the preference persists in
+         * the mechanism P2-06-4 already built and inherits its guards -- including the
+         * `columns.length` check that makes DataTables DISCARD a saved state when the column set
+         * changes, so enabling a module cannot leave a table applying the wrong column's
+         * position. Nothing is added to `sanitizeTableState`: column order is presentation, the
+         * same class as visibility and sort, and carries no tenant data.
+         *
+         * THE LOCKED COLUMNS ARE HELD BY INDEX, and the counts come from how
+         * `buildDataTableColumns()` assembles them rather than from a guess:
+         *
+         *   index 0         the hidden `id` column, always first;
+         *   index 1         the bulk-delete checkbox, when the screen has one;
+         *   ...             the data columns;
+         *   LAST            `action`, always appended last.
+         *
+         * `iFixedColumnsRight => 1` is the one that matters. The action column is
+         * `ss-col-pinned`, which is `position: sticky; inset-inline-end: 0` -- it is pinned to
+         * the TRAILING EDGE. Dragged anywhere else it would still stick to that edge while
+         * sitting in the middle of the table, overlapping whatever scrolled under it, and the
+         * Edit and Delete controls that P2-03-1 measured as unreachable without the pin would
+         * be unreachable again. Holding it is not a nicety; it is the condition under which
+         * reordering is safe at all.
+         *
+         * `iFixedColumnsLeft` holds the hidden id (and the checkbox where there is one) for a
+         * duller reason: a hidden column has no header to drag, so letting it be a reorder
+         * target only creates index positions nothing can occupy.
+         *
+         * COUNTED FROM THE INDEX, NOT FROM THE SCREEN, which is why one value serves both
+         * directions: ColReorder's "right" is the END of the column array, and the action column
+         * is the last element whether the table paints left-to-right or right-to-left.
+         */
+        $fixedLeft = 1 + (bulkDeleteCloneCheckboxColumn() ? 1 : 0);
+
         $dataTable->parameters([
+            'colReorder' => [
+                'iFixedColumnsLeft' => $fixedLeft,
+                'iFixedColumnsRight' => 1,
+            ],
             'stateSave' => true,
             'stateDuration' => 0,
             'stateSaveParams' => $stateSaveParams,

@@ -1088,6 +1088,166 @@
     /* A tiny public surface, so a screen can drive a panel from its own
        script -- the orders list opens the preview panel after its fetch
        resolves, for instance. */
+
+    /* ------------------------------------------------- column reorder (P2-06-6)
+
+       COLREORDER 1.5.4 HAS NO KEYBOARD PATH AT ALL. Measured, not assumed: the
+       file binds `mousedown` and `touchstart` and contains zero occurrences of
+       `keydown`, `keyup`, `keypress`, `tabindex` or `aria-`. So the feature it
+       provides is reachable by pointer only, which for the function "reorder a
+       column" is a WCAG 2.1.1 failure outright, and a 2.5.7 one for requiring a
+       dragging movement with no single-pointer alternative.
+
+       THE EXTENSION IS NOT PATCHED. It is vendored unmodified, with its licence,
+       so an upgrade is a file swap. The keyboard path is built HERE, on the
+       `colReorder.move()` API the extension already registers, so the two never
+       disagree about the order — there is one mover and the keyboard calls it.
+
+       Alt+Arrow, not a bare arrow: the header is already a sort control that
+       responds to Enter and Space, and bare arrows scroll the table region. Alt
+       is free and is the modifier the host's own shortcuts leave alone.
+
+       A MOVE IS ANNOUNCED, or a keyboard user has no way to know it happened —
+       the only feedback the drag path gives is visual. The live region is the
+       one the design system already owns. */
+    function reorderableHeaders(table) {
+        var api = window.jQuery && window.jQuery.fn.dataTable
+            && window.jQuery.fn.dataTable.isDataTable(table)
+            ? window.jQuery(table).DataTable() : null;
+        if (!api) { return null; }
+
+        var settings = api.settings()[0];
+        var cr = settings && settings._colReorder;
+        if (!cr) { return null; }
+
+        return {
+            api: api,
+            /* The held columns, read from ColReorder's OWN state rather than from
+               a copy of the option: `s.fixed` is the leading count and
+               `s.fixedRight` the trailing one, and those are what the drag path
+               honours. Reading the same values means the keyboard path cannot
+               permit a move the mouse path forbids — which for the action column
+               is the whole guard. */
+            first: cr.s.fixed,
+            last: api.columns().count() - 1 - cr.s.fixedRight
+        };
+    }
+
+    function announceColumnMove(message) {
+        var region = document.getElementById('ss-live-region');
+        if (!region) {
+            region = document.createElement('div');
+            region.id = 'ss-live-region';
+            region.className = 'ss-visually-hidden';
+            region.setAttribute('role', 'status');
+            region.setAttribute('aria-live', 'polite');
+            document.body.appendChild(region);
+        }
+        region.textContent = '';
+        // A repeated identical string is not re-announced; the blank frame is
+        // what makes two moves in the same direction both audible.
+        window.setTimeout(function () { region.textContent = message; }, 50);
+    }
+
+    function wireColumnReorderKeys(table) {
+        if (!table || table.getAttribute('data-ss-colreorder-keys') === 'on') { return; }
+        table.setAttribute('data-ss-colreorder-keys', 'on');
+
+        table.addEventListener('keydown', function (e) {
+            if (!e.altKey || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) { return; }
+
+            var th = e.target && e.target.closest ? e.target.closest('th') : null;
+            if (!th || th.closest('table') !== table) { return; }
+
+            var ctx = reorderableHeaders(table);
+            if (!ctx) { return; }
+
+            /* THE HEADER'S COLUMN INDEX COMES FROM THE API, NOT FROM ITS DOM POSITION, and
+               the difference is a real off-by-one rather than pedantry: the hidden `id` column
+               is column 0 and renders NO `<th>` at all, so the twelve headers in the DOM are
+               columns 1..12. Measured — with `indexOf()` the first reorderable header resolved
+               to the wrong column, the ACTION header became focusable, and `move()` was handed
+               indexes that moved nothing. `column(node).index()` is DataTables' own mapping and
+               cannot drift from it. */
+            var from = ctx.api.column(th).index();
+            if (typeof from !== 'number' || from < ctx.first || from > ctx.last) { return; }
+
+            /* VISUAL DIRECTION, NOT INDEX DIRECTION. In RTL the leftward arrow
+               moves a column to a HIGHER index, because the first column paints
+               on the right. Without this the keys would work in English and feel
+               reversed in Arabic — the same class of defect as a hard-coded
+               `right` in CSS. */
+            var rtl = (document.documentElement.getAttribute('dir') || '').toLowerCase() === 'rtl';
+            var forward = (e.key === 'ArrowRight') !== rtl;
+            var to = forward ? from + 1 : from - 1;
+
+            if (to < ctx.first || to > ctx.last) { return; }
+
+            e.preventDefault();
+
+            /* `drop = true` MARKS THIS A FINAL REORDER, NOT A LIVE ONE, and the state is saved
+               BY HAND because the extension's own API does not do it. Measured, on a clean
+               profile: `move(from, to)` and `move(from, to, true)` both reorder the header and
+               both leave the saved `ColReorder` array at the identity order, so the move was
+               lost on the next page load. The extension's mouse path does it in two steps --
+               `fnColReorder(from, to, true)` then `oApi._fnSaveState(...)` (dataTables.colReorder
+               1.5.4 lines 1109 and 1119) -- and `colReorder.move()` is only the first of them.
+               `state.save()` is the public spelling of the second, and it is what makes
+               `stateSave` carry a keyboard move the way it already carries a drag. */
+            ctx.api.colReorder.move(from, to, true);
+            ctx.api.state.save();
+
+            /* Focus follows the ELEMENT, not the position — otherwise a second keypress would
+               move whichever column had slid into the old slot. The node is re-read after the
+               move because ColReorder rebuilds the header row. */
+            var moved = ctx.api.column(to).header();
+            if (moved) {
+                if (!moved.hasAttribute('tabindex')) { moved.setAttribute('tabindex', '0'); }
+                moved.focus();
+            }
+
+            /* POSITION AMONG THE MOVABLE COLUMNS, not the raw column index. The first version
+               announced `to + 1` out of `ctx.last + 1`, which read as "3 / 12" on a table with
+               thirteen columns of which ten can move — two numbers that describe neither the
+               table nor the range the user is moving within. Here both sides count the same
+               thing. */
+            var span = ctx.last - ctx.first + 1;
+
+            announceColumnMove(
+                (th.textContent || '').trim() + ': ' + (to - ctx.first + 1) + ' / ' + span
+            );
+        });
+
+        /* The headers have to be reachable before they can be driven. ColReorder
+           adds no tabindex of its own, and a `th` is not focusable by default. */
+        var ctx = reorderableHeaders(table);
+        if (!ctx) { return; }
+
+        /* Focusable only where a move is actually permitted, and keyed on the COLUMN index for
+           the same reason as above. Making the action header focusable would promise a
+           keyboard affordance that then refuses to do anything. */
+        ctx.api.columns().every(function () {
+            var i = this.index();
+            var header = this.header();
+
+            /* VISIBLE columns only. `column(i).header()` returns a node for a HIDDEN column too
+               -- the hidden `id` column has one, detached from the rendered header row -- and
+               giving that a `tabindex` would promise a focus target that does not exist.
+
+               The guard is ours to keep; the `tabindex` the live check saw on column 0 is NOT.
+               DataTables core puts one on every SORTABLE column's header, hidden or not
+               (`!1!==f.bSortable&&(d.attr("tabindex",a.iTabIndex)...)`, `iTabIndex: 0`), which
+               is why the checkbox and action headers have none -- both are `bSortable: false`.
+               This loop could not have set it either way: it starts at `s.fixed`, which is 2 on
+               the product table. */
+            if (!this.visible()) { return; }
+
+            if (header && i >= ctx.first && i <= ctx.last && !header.hasAttribute('tabindex')) {
+                header.setAttribute('tabindex', '0');
+            }
+        });
+    }
+
     window.StoreSyriaDS = {
         openCommandPalette: cmdOpen,
         closeCommandPalette: cmdClose,
@@ -1119,6 +1279,9 @@
         // lives in, and builds the summary. The editor posts by AJAX, so none of the
         // server-rendered error story could ever fire without this.
         applyFormErrors: applyFormErrors,
-        clearFormErrors: clearFormErrors
+        clearFormErrors: clearFormErrors,
+        // P2-06-6. ColReorder is pointer-only; this is the keyboard path, built on
+        // its own `colReorder.move()` so there is one mover and two ways to reach it.
+        wireColumnReorderKeys: wireColumnReorderKeys
     };
 })();
