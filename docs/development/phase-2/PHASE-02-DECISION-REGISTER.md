@@ -563,7 +563,7 @@ existing rows, which is production data.
 
 ---
 
-## D-18 — D-13: inventory security on the four named paths (owner, 2026-10-26) — FIRST HALF IMPLEMENTED 2026-10-27, SECOND HALF BLOCKED
+## D-18 — D-13: inventory security on the four named paths (owner, 2026-10-26) — **NOT DONE.** Atomicity and accounting landed 2026-10-27; the security dependency is OPEN
 
 **Approved** for Khalti, PaiementPro, CinetPay and Easebuzz. The objective as stated: prevent stock
 being drained without a payment, or without a legitimate and proven stock reservation.
@@ -586,6 +586,26 @@ server-to-server route behind `auth`, with the code's own comment asserting the 
 decide whether it needs an urgent fix or an independent decision.
 
 ---
+
+### OWNER RULING, 2026-10-27: THIS IS NOT DONE, AND SAYING SO IS THE POINT
+
+> ما تم إنجازه من تحويل عمليات الخصم إلى ProductStockService هو تحسين مهم للذرّية والمحاسبة، لكنه
+> ليس إثباتاً لمنع استنزاف المخزون… لا تعتبر D-13 DONE لمجرد وجود خصم ذرّي أو استعادة دفاعية لم
+> يصل إليها اختبار فعلي.
+
+Recorded verbatim because it corrects something this register was drifting towards. The atomicity
+and the accounting are real and are kept; neither is evidence that an unverified decrement cannot
+drain stock, and the restoration added at the three in-loop exits is **defensive code no test has
+reached** (F121). **D-13 stays OPEN.**
+
+**The `$plan` fix stays suspended**, and the owner has narrowed the condition for lifting it:
+
+> لا يشترط إكمال E13 بكامل واجهة الاستبدال لإصلاح `$plan`، لكن يشترط إغلاق الاعتماد الأمني الخاص
+> بالمخزون أولاً.
+
+So E13's **full replacement path is not a prerequisite** — only the stock-security dependency is.
+`$plan` may then land as its own reviewed commit, with tests proving no illegitimate decrement
+path was opened. That is a materially easier bar than "finish E13", and it is the one to aim at.
 
 ### What was implemented, and the half that was not
 
@@ -656,7 +676,7 @@ Reaffirmed by the owner on 2026-10-26 and in force for all of Phase 02:
   services.
 - **No weakening of CI and no manufactured results.** Green CI is necessary evidence, not proof.
 
-## D-20 — what a deliberate narrowing of an attribute's option set should do to the variants it no longer covers: DECISION REQUESTED
+## D-20 — what a deliberate narrowing of an attribute's option set should do: **ANSWERED (owner, 2026-10-27) — refuse, name what would be lost, confirm separately**
 
 **Raised:** 2026-10-26, out of the D-09 implementation. **Nothing has been changed; today's
 behaviour is preserved exactly.**
@@ -692,7 +712,29 @@ configuration path, which is unchanged.
 
 ---
 
-## D-21 — the five stock writers D-18 does not cover: DECISION REQUESTED
+### The owner's answer, 2026-10-27
+
+Approved: **refusal with the data named, then an independent confirmation.** Six binding
+conditions, verbatim in substance:
+
+1. **Do not delete variants on an ordinary save.**
+2. **Show the affected variants' names and counts**, and state that their prices, SKUs and
+   associated stock may be lost.
+3. **A deliberate delete is a SEPARATE operation requiring explicit confirmation.**
+4. **Before permitting the delete, check the references and links** that could make removing a
+   variant dangerous for orders or commercial data.
+5. **If the delete's safety is not established, refuse with a clear message. No silent hard
+   delete.**
+6. **Test** permissions, concurrency, that unaffected variants are preserved, and that nothing is
+   lost on failure.
+
+And a scope limit: *"لا تغيّر آلية الطلبات أو تضف نظام أرشفة جديداً دون ضرورة مثبتة"* — do not
+change the order mechanism or introduce a new archiving system without proven necessity. The goal
+is preventing unintended loss and preserving data, not building a new subsystem.
+
+---
+
+## D-21 — the stock writers D-18 does not cover: **APPROVED (owner, 2026-10-27) — inventory first, then independent slices**
 
 **Raised:** 2026-10-26, out of the E13 least-change review
 (`E13-STOCK-EVIDENCE-ANALYSIS.md`). **Nothing has been changed.**
@@ -726,3 +768,61 @@ an API-behaviour change, which the standing limits reserve.
 PayU) on the same terms as D-18, and treat the two API writers as their own slice with a Flutter
 contract check. **No answer is needed to continue D-13**, which is confined to the four D-18 names.
 
+### The owner's answer, 2026-10-27
+
+Approved, within a defined engineering and security scope. **Inventory every path first** — its
+success conditions, its failure conditions and its resend/replay behaviour — **then implement
+independent slices**, in this order:
+
+- `OrderController::store`
+- `AuthorizeNetPaymnetController`
+- `PayUPaymentController`
+- the two `Api/ApiController` paths
+- `Api/DashboardController::createOrderViaApi`
+
+Binding conditions:
+
+- Reuse the **existing** stock services. Prevent lost updates and double decrements. Preserve the
+  current payment and stock rules as far as possible.
+- **On paths that run after a card has been charged, the stock fix must not produce an error after
+  capture without a settlement or restoration mechanism.** A refusal that strands a paid customer
+  is worse than the defect.
+- **FLUTTER HAS ITS OWN CONDITION, and it is the sharpest one here:** do not change API responses,
+  HTTP status codes, or logout behaviour without testing compatibility against the shipped app —
+  *"خاصةً لا تحوّل حالات رفض العمليات إلى 401 غير مبررة"*. A new 401 forces a logout in the shipped
+  client (`lib/network/network.dart`), so turning a refusal into one is a user-visible regression,
+  not a hardening.
+- If a path needs an unresolved commercial behaviour change, **document it precisely and continue
+  with the other independent paths** rather than stopping.
+
+---
+
+## D-22 — F121: the deleted product or variant that 500s a payment return — APPROVED as its own slice (owner, 2026-10-27)
+
+**Approved**, and scoped by the owner:
+
+> افتح شريحة إصلاح مستقلة لمعالجة حالة المنتج أو المتغير المحذوف الذي يؤدي إلى HTTP 500 أثناء عودة
+> الدفع. اختبر ما قبل الخصم وما بعد التحصيل، بحيث لا يضيع طلب مدفوع أو يُطلب من العميل الدفع مجدداً
+> نتيجة خطأ في السلّة. لا تعتمد على اختبارات تمر حتى بعد التراجع عن الإصلاح.
+
+**What is established.** A cart line whose product or variant row no longer exists makes
+`Cart::cart_list_cookie()` dereference null — `Cart.php:531` (`$cart_product_data->id`) and
+`:537` (`ProductVariant::find(...)->variant`) — and the gateway return answers **HTTP 500**. The
+same unguarded shape repeats at roughly a dozen sites in that file, so the authenticated path has
+it too. `GuardsGatewayReturn::basketHasForeignProduct()` deliberately passes such lines through on
+the grounds that "every one of these loops already has a 'Product not found' path for it" — and
+the crash means the loop never gets to use it.
+
+**The two halves the owner named, and they pull in opposite directions:**
+
+- **Before the decrement**, a missing row should produce a clean refusal, not a 500.
+- **After the capture**, a refusal is the wrong answer entirely: the customer has paid. The fix
+  must not lose a paid order or ask the customer to pay again.
+
+So this is not one null-guard. It needs the handler to distinguish "we have not charged yet" from
+"the money is taken", and that distinction is exactly what these handlers are weakest at.
+
+**The last line is a direct instruction about method**, and it is answered by the discipline that
+found F121 in the first place: the behavioural test written for D-13's restoration passed, then
+passed again against the unfixed code, and was deleted. Any test for this slice must be shown to
+fail on revert before it is claimed.

@@ -543,6 +543,23 @@ migrations do not create, and every page 500s without it.
   critical incident. It is live on `main` (commit `3935dee8`, `storesyria_ecommercego.sql`) and
   deliberately **absent from this branch** — which is why this branch must never be brought up to
   date by merging `main` without removing it first. No Phase 02 work touches the incident.
+
+  **MEASURED 2026-10-27, and the measurement settles the synchronisation question for good.**
+  `git diff --name-only <merge-base> origin/main` returns **exactly one path**, and it is that
+  dump. So of `main`'s 156 commits since the fork point, the entire net content difference is the
+  dump: **`main` holds no code, test, config or document this branch lacks.** Three things follow:
+
+  1. A **fast-forward is impossible** — this branch carries 56 commits of its own, so neither side
+     is an ancestor of the other.
+  2. A **merge is unsafe**: its only effect would be to import a 20,470,785-byte phpMyAdmin dump
+     carrying **198 `CREATE TABLE` and 482 `INSERT INTO` statements** into this branch, which the
+     standing limits forbid outright ("Never commit secrets, dumps, or real customer data").
+  3. A merge is also **unnecessary**, which is the part that was not previously established. The
+     branch is not behind on any work; it is behind on one file nobody wants.
+
+  So the correct action on "sync the branch" is **do neither, and say why**. That remains true
+  until the dump is removed from `main`'s tree and its history, which is incident work and not
+  Phase 02's to perform.
 - **Phase 01's release gates remain open and separately tracked** in
   `docs/development/phase-1/PHASE-01-CLOSURE-EXECUTION.md`.
 - Green CI is necessary evidence, not proof of production readiness. The Feature suite's accepted
