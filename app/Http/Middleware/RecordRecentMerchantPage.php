@@ -26,8 +26,16 @@ use Symfony\Component\HttpFoundation\Response;
  *     straight back to a failure.
  *   - not AJAX/JSON: the table reloads, the search endpoint and the notification poll are all
  *     GETs against named routes, and none of them is a page the merchant navigated to.
- *   - authenticated only, implicitly: `MerchantPageDirectory::available()` returns `[]` with no
- *     principal, so a guest records nothing.
+ *   - a MERCHANT-SIDE principal only, and this one is not implicit enough to leave unsaid.
+ *     `MerchantPageDirectory::available()` returns `[]` with no principal, so a guest records
+ *     nothing -- but it also returns `[]` for a principal that is not an `App\Models\User`, and
+ *     THAT is the condition this middleware made load-bearing. `Menu::permits()` calls
+ *     `isAbleTo()`, which `App\Models\Customer` does not have, so a Customer reaching the
+ *     directory is a FATAL rather than a refusal -- and because this runs on every web request,
+ *     the fatal lands on the storefront. Measured: 112 storefront security tests returned 500
+ *     before the `instanceof` guard was added. "A customer leaves the web guard empty" is true of
+ *     `CustomAuth` and false of `actingAs($customer)`, which puts a Customer on `web` because
+ *     Laravel does not type-check the model against the guard's provider.
  *
  * COST, stated honestly: resolving the directory fires the navigation menu event, which the
  * sidebar on these same pages already fires once per render. This adds a second one on HTML page
