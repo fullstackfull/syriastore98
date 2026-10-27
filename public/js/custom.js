@@ -227,6 +227,51 @@ function comman_function() {
     }
 }
 
+/**
+ * P2-06-9 -- the transient feedback surface, now announced to assistive technology.
+ *
+ * THE TOAST WAS SILENT FOR A SCREEN READER, and it is the merchant admin's main feedback
+ * channel: `layouts/app.blade.php` calls this for every flashed `success` and `error`, and 59
+ * files call it besides. `public/assets/js/plugins/notifier.js` contains ZERO `aria-*`
+ * attributes -- measured, and pinned by a premise test -- so a merchant using a screen reader
+ * saved a product and was told nothing at all.
+ *
+ * MIRRORED, NOT REPLACED. The visual toast and all 59 call sites are untouched; the message is
+ * additionally written into a live region. Rewriting the toast would have been a far larger
+ * change for no accessibility gain.
+ *
+ * AND IT CANNOT GO THROUGH `window.StoreSyriaDS`. The flash calls in `layouts/app.blade.php` are
+ * BARE INLINE SCRIPTS -- not wrapped in a ready handler -- so they run during parsing, while
+ * `store-syria-ds.js` is `defer`red and has not executed yet. `window.StoreSyriaDS` is undefined
+ * at that moment, so this is self-contained and converges on the SAME region ids the design
+ * system uses, rather than creating a second set that would compete with them.
+ *
+ * ERRORS ARE ASSERTIVE, SUCCESSES ARE POLITE, and they are two elements because one cannot be
+ * both. A failed save announced politely can wait for a pause in speech that never comes; a
+ * successful one announced assertively interrupts whatever the merchant was reading.
+ */
+function ss_announce_transient(message, assertive) {
+    if (!message) { return; }
+
+    var id = assertive ? 'ss-live-region-assertive' : 'ss-live-region';
+    var region = document.getElementById(id);
+
+    if (!region) {
+        region = document.createElement('div');
+        region.id = id;
+        region.className = 'ss-visually-hidden';
+        region.setAttribute('role', assertive ? 'alert' : 'status');
+        region.setAttribute('aria-live', assertive ? 'assertive' : 'polite');
+        region.setAttribute('aria-atomic', 'true');
+        document.body.appendChild(region);
+    }
+
+    /* Cleared first, then set on a later frame: an identical string written twice is not
+       re-announced, and two saves in a row produce the same "Saved successfully" both times. */
+    region.textContent = '';
+    window.setTimeout(function () { region.textContent = String(message); }, 50);
+}
+
 function show_toastr(title, message, type) {
     var o, i;
     var icon = '';
@@ -238,6 +283,9 @@ function show_toastr(title, message, type) {
         cls = 'danger';
         notifier.show('Error', message, 'danger', site_url + '/public/assets/images/notification/high_priority-48.png', 4000);
     }
+
+    // The toast is visual only; this is the same message for anyone who cannot see it.
+    ss_announce_transient(message, type != 'success');
 }
 
 document.addEventListener('DOMContentLoaded', function () {
