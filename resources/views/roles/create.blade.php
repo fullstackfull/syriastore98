@@ -55,15 +55,19 @@
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            @php
-                                                $permissions = get_permission_by_module($module);
-                                                $m_permissions = array_column($permissions->toArray(), 'name');
-                                                $module_list = [];
-                                                foreach ($m_permissions as $key => $value) {
-                                                    array_push($module_list, strtok($value, ' '));
-                                                }
-                                                $module_list = array_unique($module_list);
-                                            @endphp
+                                            {{-- P2-05-5. A first raw-PHP block here recomputed `$permissions`,
+                                                 `$m_permissions` and `$module_list` and was IMMEDIATELY overwritten
+                                                 by the block below, which recomputes all three and additionally
+                                                 applies the P1-SEC-02 `$grantable` filter. Dead code that looked
+                                                 load-bearing, and dangerous to leave beside a security filter: a
+                                                 later edit could easily have deleted the FILTERED copy and kept the
+                                                 unfiltered one.
+
+                                                 NOTE FOR WHOEVER EDITS THIS COMMENT: do not write the raw-PHP
+                                                 directive name here literally. Blade extracts those blocks BEFORE it
+                                                 strips comments, so the word inside a comment opens a real PHP block
+                                                 and swallows markup up to the next closing directive. Writing it
+                                                 cost a 500 on this exact screen. --}}
                                             @php
                                                 $permissions = get_permission_by_module($module);
                                                 $m_permissions = array_column($permissions->toArray(), 'name');
@@ -86,7 +90,14 @@
                                                             onclick="CheckModule('module_checkbox_{{ $mkey }}_{{ $list }}_{{ strtolower($module) }}')"
                                                             id="module_checkbox_{{ $mkey }}_{{ $list }}_{{ strtolower($module) }}">
                                                     </td>
-                                                    <td>{{ Form::label('module_checkbox_' . $mkey . '_' . $list . '_' . $module, $list, ['class' => 'form-check-label pointer']) }}
+                                                    {{-- P2-05-5 / F134: `strtolower($module)`, matching the checkbox's own id
+                                                         three lines above. Without it the `for` read
+                                                         `module_checkbox_0_order_General` while the input was
+                                                         `..._general`, and HTML id matching is case-sensitive -- so the
+                                                         label named nothing. Measured in the running modal: 13 of 59
+                                                         labels broken. `roles/edit.blade.php:77` ALREADY had the
+                                                         strtolower(); only this copy drifted. --}}
+                                                    <td>{{ Form::label('module_checkbox_' . $mkey . '_' . $list . '_' . strtolower($module), $list, ['class' => 'form-check-label pointer']) }}
                                                     </td>
                                                     <td
                                                         class="module_checkbox_{{ $mkey }}_{{ $list }}_{{ strtolower($module) }}">
