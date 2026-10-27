@@ -16,7 +16,7 @@ no force push, no migration, no deployment.
 |---|---|
 | **F117** | **CLOSED.** All sixteen credential fields converted, display and persistence together. The exposure ratchet's list is EMPTY and still bites. |
 | **P2-05-6 (Reports)** | **DONE.** 11 of 11 screens on the design system, every figure carrying its period, every chart shipping its numbers as a real table. 244 live browser checks, 32 screenshots in four genuinely different configurations. |
-| **P2-05-7 / P2-05-8** | **PARTIAL.** The credential half is done and asserted. The panel POST contract is pinned. Five of ~31 panels migrated. |
+| **P2-05-7 / P2-05-8** | **PARTIAL.** The credential half is done and asserted. The panel POST contract is pinned. **24 of 31 panels migrated**, each verified in the running application. |
 
 Four defects found by independent review, three of them created by the F117 change itself,
 are described in `PHASE-02-TEST-EVIDENCE.md` §34f. The most serious — a staff member being able
@@ -27,7 +27,11 @@ to make the server authenticate to a host they choose using the merchant's store
 
 ## 2. Pick this up first
 
-**P2-05-7's remaining ~26 settings panels.** Everything needed to do it safely now exists:
+**P2-05-7's remaining 3 settings panels** — `brand_setting` (358 lines), `currency_setting`
+(301) and `otp_setting` (434) — plus `storage_setting` and `setting/index.blade.php`, which are
+partly converted, and `payment_partials/payment_gateway.blade.php`, which is a slice of its own
+(every gateway's field set differs and each needs its POST contract pinned before its
+credentials can be masked). Everything needed to do it safely now exists:
 
 - `tests/Unit/Ui/SettingsPanelContractTest.php` pins each panel's POST target and field names, so
   a migration that renames a field or moves a form fails immediately instead of silently
@@ -40,9 +44,23 @@ to make the server authenticate to a host they choose using the merchant's store
 - `resources/views/setting/*` is now in `ArabicUiCoverageTest::SURFACES`, so a new English string
   fails the Unit suite. Add the Arabic in the same change.
 
-**Look for the empty label.** Every integration panel had
-`<label class="custom-control-label" for="…"></label>` — a toggle with no accessible name. It is
-the house pattern in this directory; assume the next panel has it too.
+**Look for the label that names nothing.** It is the house defect in this directory, in four
+distinct shapes, and every panel migrated so far had at least one:
+
+- `<label class="custom-control-label" for="…"></label>` — present but EMPTY (every integration
+  panel, the refund rows, the email-notification rows, once per template);
+- `Form::label('', …)` — an empty `for`, associated with nothing (four controls on the tax panel,
+  the only control on the loyalty panel, the Meta Image label);
+- `<label for="storejs">` over `whatsapp_item_variable`, `<label for="name">` over `id="mobile"`,
+  `Form::label('content', …)` over `whatsapp_content` — a `for` naming a control that is not
+  there, which is SILENT because the label still looks attached;
+- no label at all (the PWA toggle, the cache-size readout, the payment search).
+
+Four more of the same family, found while migrating and worth expecting again: the system panel
+opened a `<form>` inside a `<form>`; the webhook table put `<tbody>` inside the `@foreach` so it
+had no `<tr>` at all; three SEO `@error` blocks named fields that do not exist, so those
+validation messages could never render; and the cookie toggle's `onclick` called a function that
+is not defined anywhere in the repository.
 
 ---
 
@@ -107,8 +125,9 @@ Feature   6176+ testcases, 2 declared failures, 17 declared skips, 0 errors
 Live       244 browser checks over 4 report screens x 4 configurations, 0 failed
 ```
 
-**RUN AT THE END OF THE ROUND, ON THE FINAL TREE:** `Feature` 6179 testcases, 2 declared
-failures, 17 declared skips, 0 errors — `assert-known-test-outcomes.php` reports the observed
+**RUN TWICE, AT THE END OF EACH HALF OF THE ROUND.** After the reports work, and again after
+24 settings panels were migrated: `Feature` 6179 testcases both times, 2 declared failures, 17
+declared skips, 0 errors — `assert-known-test-outcomes.php` reports the observed
 outcome set matches the manifest exactly. That is not "the suite is green": it is the suite
 failing and skipping exactly what the project has recorded, for the reasons it has recorded.
 
