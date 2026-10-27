@@ -45,10 +45,12 @@
                         id="google_recaptcha_key">
                 </div>
                 <div class="col-lg-6 col-md-6 col-sm-6 form-group">
-                    <label for="google_recaptcha_secret" class="form-label">{{ __('Google Recaptcha Secret') }}</label>
-                    <input class="form-control " placeholder="{{ __('Enter Google Recaptcha Secret') }}"
-                        name="google_recaptcha_secret" type="text" value="{{ $setting['NOCAPTCHA_SECRET'] ?? '' }}"
-                        id="google_recaptcha_secret">
+                    {{-- F117: the stored credential never reaches the page; the handler keeps it when
+                         this box posts empty. Both halves, because either alone is a defect. --}}
+                    <x-ss.secret-field
+                        name="google_recaptcha_secret"
+                        :label="__('Google Recaptcha Secret')"
+                        :stored="$setting['NOCAPTCHA_SECRET'] ?? null" />
                 </div>
             </div>
         </div>

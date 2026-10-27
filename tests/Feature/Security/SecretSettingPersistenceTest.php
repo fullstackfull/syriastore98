@@ -210,4 +210,73 @@ class SecretSettingPersistenceTest extends SecurityTestCase
         $this->assertSame('15550000000', $this->stored('twilio_from'),
             'the refusal must leave the whole panel alone, not just the secrets');
     }
+
+    /**
+     * THE OTHER CONVERTED PANELS, driven the same way: a save that does not touch the secret box
+     * must keep the credential, and must still write the non-secret field beside it.
+     *
+     * Each is a separate route with its own validator, and the validator is the half that bites:
+     * these panels mark their secret `required` while the integration is enabled, so masking the
+     * input made them IMPOSSIBLE TO SAVE until the rule became "required only when nothing is
+     * stored". The `assertSame` on the non-secret field is what proves the save actually
+     * happened — without it, a refused request would look exactly like a preserved credential.
+     *
+     * @dataProvider convertedPanels
+     */
+    public function test_each_converted_panel_keeps_its_credential_on_a_blank_save(
+        string $route,
+        string $secretName,
+        string $storageName,
+        array $payload,
+        string $witnessField,
+        string $witnessValue
+    ): void {
+        $merchant = $this->makeMerchant();
+        $this->grantPermission($merchant, 'Manage Store Setting');
+
+        $store = \App\Models\Store::create([
+            'name' => 'Panel Store', 'email' => 'panel@example.test',
+            'slug' => 'panel-store-' . uniqid(), 'theme_id' => 'stylique',
+            'created_by' => $merchant->id, 'is_active' => 1, 'default_language' => 'en',
+        ]);
+        $merchant->current_store = $store->id;
+        $merchant->save();
+        $this->storeId = $store->id;
+
+        Setting::forceCreate([
+            'name' => $storageName, 'value' => 'INVENTED-' . $storageName,
+            'store_id' => $store->id, 'created_by' => $merchant->id,
+        ]);
+
+        $this->actingAs($merchant)->post($route, array_merge($payload, [$secretName => '']));
+
+        $this->assertSame('INVENTED-' . $storageName, $this->stored($storageName),
+            $storageName . ' was erased by a save that did not touch its box');
+
+        $this->assertSame($witnessValue, $this->stored($witnessField),
+            'the save did not happen at all, so the preserved credential proves nothing — the '
+            . 'panel is probably refusing on its own validator');
+    }
+
+    /** @return array<string, array{0:string,1:string,2:string,3:array,4:string,5:string}> */
+    public static function convertedPanels(): array
+    {
+        return [
+            /* `shopify_store_url` is a DNS LABEL, not a URL — P1-SEC-06 restricts it to the shop
+               name only, because a value like `169.254.169.254#` would end the host and comment
+               out the `.myshopify.com` suffix in the thirteen URLs built from it. The first
+               version of this case posted a full URL under the wrong field name and the panel
+               refused; the witness assertion is what reported that rather than a false pass. */
+            'shopify' => [
+                '/shopify-settings', 'shopify_access_token', 'shopify_access_token',
+                ['shopify_setting_enabled' => 'on', 'shopify_store_url' => 'invented-shop'],
+                'shopify_store_url', 'invented-shop',
+            ],
+            'woocommerce' => [
+                '/woocommerce-settings', 'woocommerce_consumer_secret', 'woocommerce_consumer_secret',
+                ['woocommerce_setting_enabled' => 'on', 'woocommerce_store_url' => 'https://invented2.example.test', 'woocommerce_consumer_key' => 'INVENTED-KEY'],
+                'woocommerce_store_url', 'https://invented2.example.test',
+            ],
+        ];
+    }
 }

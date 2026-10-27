@@ -29,15 +29,12 @@
                 </div>
             </div>
             <div class="col-lg-12 form-group">
-                {!! Form::label('shopify_access_token', __('Shopify access token'), ['class' => 'form-label']) !!}
-                {!! Form::text(
-                'shopify_access_token',
-                !empty($setting['shopify_access_token']) ? $setting['shopify_access_token'] : '',
-                [
-                'class' => 'form-control',
-                'placeholder' => 'Shopify Access Token',
-                ],
-                ) !!}
+                {{-- F117: the stored credential never reaches the page; the handler keeps it when
+                     this box posts empty. Both halves, because either alone is a defect. --}}
+                <x-ss.secret-field
+                    name="shopify_access_token"
+                    :label="__('Shopify access token')"
+                    :stored="$setting['shopify_access_token'] ?? null" />
             </div>
         </div>
     </div>

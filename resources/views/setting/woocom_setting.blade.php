@@ -41,12 +41,12 @@
                 ) !!}
             </div>
             <div class="col-lg-12 form-group">
-                {!! Form::label('woocommerce_consumer_secret', __('Consumer Secret'), ['class' => 'form-label']) !!}
-                {!! Form::text(
-                'woocommerce_consumer_secret',
-                !empty($setting['woocommerce_consumer_secret']) ? $setting['woocommerce_consumer_secret'] : '',
-                ['class' => 'form-control', 'placeholder' => 'Woocommerce consumer secret'],
-                ) !!}
+                {{-- F117: the stored credential never reaches the page; the handler keeps it when
+                     this box posts empty. Both halves, because either alone is a defect. --}}
+                <x-ss.secret-field
+                    name="woocommerce_consumer_secret"
+                    :label="__('Consumer Secret')"
+                    :stored="$setting['woocommerce_consumer_secret'] ?? null" />
             </div>
 
         </div>

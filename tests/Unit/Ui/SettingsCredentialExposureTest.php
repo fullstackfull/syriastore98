@@ -50,8 +50,8 @@ class SettingsCredentialExposureTest extends TestCase
      * so the count matches the fields a reader will actually find in the file.
      */
     /*
-     * F117 IS BEING PAID DOWN PANEL BY PANEL, and this list shrinks as it is. The two Twilio
-     * entries left on 2026-10-27 when that panel moved to `<x-ss.secret-field>` plus
+     * F117 IS BEING PAID DOWN PANEL BY PANEL, and this list shrinks as it is. Twilio, Shopify, WhatsApp, reCAPTCHA and WooCommerce
+     * left on 2026-10-27 when that panel moved to `<x-ss.secret-field>` plus
      * `SecretSetting::resolve()` on its save path — both halves together, because masking the
      * display over an unconditional `$post[$k] = $request->$k` erases the credential on the next
      * save of anything else on the same panel.
@@ -66,15 +66,11 @@ class SettingsCredentialExposureTest extends TestCase
         'resources/views/setting/email_fields.blade.php:168 mail_encryption',
         'resources/views/setting/email_fields.blade.php:173 mail_encryption',
         'resources/views/setting/index.blade.php:251 delivery_syria_token',
-        'resources/views/setting/recaptcha_setting.blade.php:49 google_recaptcha_secret',
-        'resources/views/setting/shopify_setting.blade.php:33 shopify_access_token',
         'resources/views/setting/storage_setting.blade.php:74 s3_secret',
         'resources/views/setting/storage_setting.blade.php:152 wasabi_secret',
         'resources/views/setting/test_mail.blade.php:8 mail_password',
         'resources/views/setting/test_mail.blade.php:9 mail_encryption',
         'resources/views/setting/test_whatsappmessage.blade.php:6 whatsapp_access_token',
-        'resources/views/setting/whatsapp_notify_setting.blade.php:27 whatsapp_access_token',
-        'resources/views/setting/woocom_setting.blade.php:45 woocommerce_consumer_secret',
     ];
 
     /**

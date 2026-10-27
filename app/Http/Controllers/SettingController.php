@@ -758,9 +758,27 @@ $u->save();
         session()->put(['setting_tab' => 'recaptcha_setting']);
         if (\Auth::user()->type == 'super admin') {
             $user = Auth::user();
+            /*
+             * F117. THE SECRET'S RULE IS CONDITIONAL and the secret itself is kept when the box
+             * posts empty. Once the input stops carrying the value, an ordinary save of the site
+             * key — or of the module toggle — posts the secret box EMPTY, so a flat `required`
+             * would make this panel impossible to save and the unconditional assignment below
+             * would overwrite a live secret with ''.
+             *
+             * Note the NAME CHANGE across the boundary: the field posts as
+             * `google_recaptcha_secret` and is stored as `NOCAPTCHA_SECRET`, so the stored value
+             * must be looked up under the STORAGE name, not the field name. Getting that wrong
+             * would read nothing, resolve to '', and silently restore the erase.
+             */
+            $storedRecaptchaSecret = Setting::where('store_id', getCurrentStore())
+                ->where('name', 'NOCAPTCHA_SECRET')
+                ->value('value');
+
             $rules = [];
             $rules['google_recaptcha_key']      = 'required|string|max:50';
-            $rules['google_recaptcha_secret']   = 'required|string|max:50';
+            $rules['google_recaptcha_secret']   = \App\Support\SecretSetting::isSet($storedRecaptchaSecret)
+                ? 'nullable|string|max:50'
+                : 'required|string|max:50';
             $validator = \Validator::make($request->all(), $rules);
             if ($validator->fails()) {
                 return redirect()->back()->with('error', $validator->getMessageBag()->first());
@@ -768,7 +786,7 @@ $u->save();
             $data_recaptcha = [
                 'RECAPTCHA_MODULE'  => (isset($request->recaptcha_module)  ? 'yes' : 'no') ?? 'no',
                 'NOCAPTCHA_SITEKEY' => $request->google_recaptcha_key,
-                'NOCAPTCHA_SECRET'  => $request->google_recaptcha_secret,
+                'NOCAPTCHA_SECRET'  => \App\Support\SecretSetting::resolve($request->google_recaptcha_secret, $storedRecaptchaSecret),
                 'NOCAPTCHA_VERSON'  => $request->google_recaptcha_version ?? 'v2',
             ];
 
@@ -946,7 +964,10 @@ $u->save();
                         }
                     }],
                     'woocommerce_consumer_key' => 'required|string',
-                    'woocommerce_consumer_secret' => 'required|string',
+                    /* F117: conditional, because a masked box posts empty on every ordinary save — a flat
+                       `required` would make the panel impossible to save once the input stops
+                       carrying the value. Required only when nothing is stored yet. */
+                    'woocommerce_consumer_secret' => $this->secretRule('woocommerce_consumer_secret'),
                 ]
             );
             if ($validator->fails()) {
@@ -958,7 +979,8 @@ $u->save();
 
         $post['woocommerce_store_url'] = $request->woocommerce_store_url;
         $post['woocommerce_consumer_key'] = $request->woocommerce_consumer_key;
-        $post['woocommerce_consumer_secret'] = $request->woocommerce_consumer_secret;
+        /* F117: keep the stored credential when the masked box posts empty. */
+        $post['woocommerce_consumer_secret'] = $this->keepStoredSecret('woocommerce_consumer_secret', $request->woocommerce_consumer_secret);
         $settingQuery = Setting::query();
         foreach ($post as $key => $data) {
             $status = (clone $settingQuery)->updateOrCreate(
@@ -1010,7 +1032,10 @@ $u->save();
                             $fail(__('The Shopify store name must be the shop name only -- letters, digits and hyphens, with no dots, scheme or slashes.'));
                         }
                     }],
-                    'shopify_access_token' => 'required|string',
+                    /* F117: conditional, because a masked box posts empty on every ordinary save — a flat
+                       `required` would make the panel impossible to save once the input stops
+                       carrying the value. Required only when nothing is stored yet. */
+                    'shopify_access_token' => $this->secretRule('shopify_access_token'),
                 ]
             );
             if ($validator->fails()) {
@@ -1021,7 +1046,8 @@ $u->save();
 
 
         $post['shopify_store_url'] = $request->shopify_store_url;
-        $post['shopify_access_token'] = $request->shopify_access_token;
+        /* F117: keep the stored credential when the masked box posts empty. */
+        $post['shopify_access_token'] = $this->keepStoredSecret('shopify_access_token', $request->shopify_access_token);
         $settingQuery = Setting::query();
         foreach ($post as $key => $data) {
             $status = (clone $settingQuery)->updateOrCreate(
@@ -1278,7 +1304,10 @@ $u->save();
             $request->all(),
             [
                 'whatsapp_phone_number_id' => 'required|string',
-                'whatsapp_access_token' => 'required|string',
+                /* F117: conditional, because a masked box posts empty on every ordinary save — a flat
+                       `required` would make the panel impossible to save once the input stops
+                       carrying the value. Required only when nothing is stored yet. */
+                'whatsapp_access_token' => $this->secretRule('whatsapp_access_token'),
             ]
         );
         if ($validator->fails()) {
@@ -1287,7 +1316,8 @@ $u->save();
         }
 
         $post['whatsapp_phone_number_id'] = $request->whatsapp_phone_number_id;
-        $post['whatsapp_access_token'] = $request->whatsapp_access_token;
+        /* F117: keep the stored credential when the masked box posts empty. */
+        $post['whatsapp_access_token'] = $this->keepStoredSecret('whatsapp_access_token', $request->whatsapp_access_token);
         $settingQuery = Setting::query();
         foreach ($post as $key => $data) {
             (clone $settingQuery)->updateOrCreate(
@@ -1330,6 +1360,9 @@ $u->save();
             [
                 'mobile' => 'required',
                 'whatsapp_phone_number_id' => 'required',
+                /* NOT relaxed: this is the TEST-SEND handler, which needs a usable token in the
+                   request to actually send. It does not persist anything, so there is no stored
+                   value to fall back on and nothing for an empty box to erase. */
                 'whatsapp_access_token' => 'required',
             ]
         );
@@ -1380,6 +1413,46 @@ $u->save();
         } catch (\Exception $e) {
             return redirect()->back()->with('error', $e->getMessage());
         }
+    }
+
+    /**
+     * The stored value of one credential, from the SAME store row a save would write.
+     * =============================================================================================
+     *
+     * F117. Every settings panel here writes EVERY field on EVERY save, so once a credential's
+     * input stops carrying its value (which is the point of `<x-ss.secret-field>`), an ordinary
+     * save of an unrelated field on the same panel posts that box EMPTY and the unconditional
+     * `$post[$k] = $request->$k` writes an empty string over a live credential.
+     *
+     * This reads through `getCurrentStore()` deliberately — the same expression the
+     * `updateOrCreate` below uses — so the value read and the row written are the same row even
+     * when no tenant resolves. Reading `$setting[...]` instead would be an undefined variable in
+     * these POST handlers: `$setting` is built only in the GET ones.
+     */
+    /**
+     * `required` for a credential only while none is stored.
+     *
+     * F117: once a secret's input stops carrying its value, every ordinary save of the panel
+     * posts that box EMPTY — so a flat `required` rule turns the whole panel into something that
+     * cannot be saved at all. Relaxing it is therefore part of the masking change, not a
+     * weakening of validation: a FIRST-TIME setup still has to supply the value.
+     */
+    private function secretRule(string $name, string $extra = 'string'): string
+    {
+        $stored = Setting::where('store_id', getCurrentStore())
+            ->where('name', $name)
+            ->value('value');
+
+        return (\App\Support\SecretSetting::isSet($stored) ? 'nullable' : 'required') . '|' . $extra;
+    }
+
+    private function keepStoredSecret(string $name, $submitted): string
+    {
+        $stored = Setting::where('store_id', getCurrentStore())
+            ->where('name', $name)
+            ->value('value');
+
+        return \App\Support\SecretSetting::resolve($submitted, $stored);
     }
 
     public function TwilioSettings(Request $request)

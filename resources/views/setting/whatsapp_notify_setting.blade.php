@@ -23,12 +23,12 @@
                     ]) !!}
                 </div>
                 <div class="col-lg-6 form-group">
-                    {!! Form::label('whatsapp_access_token', __('WhatsApp Access Token'), ['class' => 'form-label']) !!}
-                    {!! Form::text('whatsapp_access_token', $setting['whatsapp_access_token'] ?? '', [
-                    'class' => 'form-control',
-                    'placeholder' => 'WhatsApp Access Token',
-                    'id' => 'whatsapp_access_token',
-                    ]) !!}
+                    {{-- F117: the stored credential never reaches the page; the handler keeps it when
+                         this box posts empty. Both halves, because either alone is a defect. --}}
+                    <x-ss.secret-field
+                        name="whatsapp_access_token"
+                        :label="__('WhatsApp Access Token')"
+                        :stored="$setting['whatsapp_access_token'] ?? null" />
                 </div>
 
                 @foreach ($WhatsappNotification as $notification)
