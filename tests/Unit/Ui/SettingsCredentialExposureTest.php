@@ -112,8 +112,37 @@ class SettingsCredentialExposureTest extends TestCase
      *
      * @return list<array{0:int,1:string}> [offset, tag]
      */
+    /**
+     * Blade comments removed, because a source-text scan that reads them matches its OWN
+     * DOCUMENTATION. This project has been bitten by that three times in this phase alone — an
+     * `@php` written inside a `{{-- --}}`, a component tag inside a JavaScript comment, and a
+     * `role="tablist"` quoted in a note — and the docblocks in this very class quote `<input …>`
+     * fragments while explaining what they used to look like. None of those fragments carries a
+     * `name` today, so nothing is currently mis-reported; stripping them is what keeps the next
+     * explanatory comment from becoming a finding or, worse, from satisfying a ratchet.
+     */
+    private function withoutBladeComments(string $text): string
+    {
+        /*
+         * BLANKED, NOT DELETED, and the difference matters: one caller turns an input's offset
+         * into a LINE NUMBER with `substr_count(substr($text, 0, $offset), "\n")`. Deleting the
+         * comments shortens the string, so every reported line number would be too low —
+         * silently, and worst in exactly the files with the most explanation. Each comment is
+         * replaced by the same number of bytes, with its newlines kept, so offsets and line
+         * numbers are unchanged.
+         */
+        return (string) preg_replace_callback(
+            '/\{\{--.*?--\}\}/s',
+            static fn (array $m): string => str_repeat(' ', strlen($m[0]) - substr_count($m[0], "\n"))
+                . str_repeat("\n", substr_count($m[0], "\n")),
+            $text,
+        );
+    }
+
     private function inputTags(string $text): array
     {
+        $text = $this->withoutBladeComments($text);
+
         $out = [];
         $i = 0;
 
@@ -299,11 +328,20 @@ class SettingsCredentialExposureTest extends TestCase
      *
      *   - `otp_setting.blade.php api_secret` — the original precedent, guarded by
      *     `$request->filled('api_secret')` in OtpIntegrationController. Asserted as a pair below.
-     *   - `setting/index.blade.php api_key[]`, twice — the add-a-row templates for the ChatGPT
-     *     key repeater. They are JavaScript string literals cloned into the DOM on click, so
-     *     Blade never renders them and a Blade component cannot be used. They carry no stored
-     *     value by construction (a cloned row is always a NEW key), so there is no persistence
-     *     half to pair: the F117 risk they carry is only shoulder-surfing a key being typed.
+     *   - `setting/index.blade.php api_key[]`, ONCE — the add-a-row template for the ChatGPT key
+     *     repeater. It is a JavaScript string literal cloned into the DOM on click, so Blade
+     *     never renders it and a Blade component cannot be used. It carries no stored value by
+     *     construction (a cloned row is always a NEW key), so there is no persistence half to
+     *     pair: the F117 risk it carries is only shoulder-surfing a key being typed.
+     *
+     * IT USED TO BE LISTED TWICE, and that was the finding rather than a quirk of the count: the
+     * repeater was implemented TWICE in `index.blade.php`, each copy with its own `fieldHTML`.
+     * The first bound with `$('.add_button').click(...)` on document-ready, when the settings
+     * form has not been fetched and `.add_button` matches nothing, so it bound to zero elements
+     * and never ran. Two templates for one control is how one of them came to keep injecting
+     * `class="form-control"` after the panel moved to the design system. The dead copy is gone,
+     * so this list has one entry — which is exactly the direction of change this assertion is
+     * built to make somebody read.
      */
     public function test_the_masked_credential_pattern_exists_and_is_the_one_to_copy(): void
     {
@@ -331,7 +369,6 @@ class SettingsCredentialExposureTest extends TestCase
 
         $this->assertSame(
             [
-                'resources/views/setting/index.blade.php api_key[]',
                 'resources/views/setting/index.blade.php api_key[]',
                 'resources/views/setting/otp_setting.blade.php api_secret',
             ],
@@ -391,5 +428,140 @@ class SettingsCredentialExposureTest extends TestCase
                 "`$name` must still be treated as a credential — the exemption is for one exact "
                 . 'field name, not for a keyword');
         }
+    }
+
+    /**
+     * THE BLIND SPOT THAT HID THE LARGEST EXPOSURE OF ALL, now closed.
+     *
+     * Every other assertion in this class works by reading a field's NAME and deciding whether
+     * it sounds like a credential. `payment_partials/payment_gateway.blade.php` defeated that
+     * completely: it is rendered once per gateway from
+     * `SettingController::paymentSettingArray()`, and its input was
+     *
+     *     <input type="text" name="{{ $field['key'] }}" value="{{ $setting[$field['key']] ?? '' }}">
+     *
+     * The name is an EXPRESSION, so `isCredentialName()` was asked whether `{{ $field['key'] }}`
+     * sounds like a secret and said no — for all 108 fields, 58 of them secrets, across 52
+     * providers. The whole payment screen was invisible to a test written to find exactly this,
+     * and it stayed invisible through every run that reported the exposure list empty.
+     *
+     * So the property asserted here is different in kind: an input whose name is a Blade
+     * EXPRESSION cannot be classified by name at all, and if it also renders a value it is an
+     * unclassifiable disclosure risk. Every such input must be listed below with a reason. The
+     * list is asserted exactly, in both directions, like the others.
+     *
+     * A LOOPED FIELD IS NOT BANNED, only unexamined ones. The payment partial still loops; it
+     * now branches on the field's own `'secret'` flag and hands the secret case to
+     * `<x-ss.secret-field>`, which renders no value.
+     *
+     * WHAT THIS TEST IS, STATED EXACTLY, because it is easy to read it as more than it is. It is
+     * an INVENTORY, not a guard. It reads SOURCE TEXT, so it sees one `<input>` in the loop
+     * whether that loop guards it or not — breaking the guard (`@if (false)`) leaves the source
+     * with the same single dynamic input and this test still passes. MEASURED, by doing exactly
+     * that. What it buys is that a NEW looped input rendering stored values cannot appear
+     * unreviewed, and that the reviewed ones are written down.
+     *
+     * The guard itself is asserted two other ways, both of which do bite:
+     * `test_the_payment_partial_branches_on_the_secret_flag` below, structurally, and
+     * `shoot-settings-live.cjs`, which reads the rendered DOM and fails on any credential-named
+     * field carrying a value.
+     */
+    public function test_an_input_whose_name_is_an_expression_renders_no_value(): void
+    {
+        $dynamic = [];
+
+        foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($this->repoPath(self::VIEW_ROOT))) as $file) {
+            if (! $file->isFile() || ! str_ends_with($file->getFilename(), '.blade.php')) {
+                continue;
+            }
+
+            $text = (string) file_get_contents($file->getPathname());
+
+            foreach ($this->inputTags($text) as [$offset, $tag]) {
+                $name = $this->attribute($tag, 'name');
+                $value = $this->attribute($tag, 'value');
+
+                // Only inputs whose NAME is a Blade expression -- those are the ones no
+                // name-based rule can judge. A literal name is covered by the assertions above.
+                if ($name === null || ! str_contains($name, '{{')) {
+                    continue;
+                }
+
+                /*
+                 * Only a value read from STORED settings can disclose a credential. A radio
+                 * whose `value` is its own loop variable -- `{{ $mode }}` over the gateway's
+                 * `mode_options` -- renders `sandbox` or `live`, which is a constant set
+                 * written in the source, not anything a merchant saved. Matching every dynamic
+                 * value instead would report that radio and teach the reader to skim the list.
+                 */
+                if ($value === null || ! str_contains($value, '$setting[')) {
+                    continue;
+                }
+
+                $dynamic[] = str_replace($this->repoPath() . '/', '', $file->getPathname())
+                    . ' ' . trim($name);
+            }
+        }
+
+        sort($dynamic);
+
+        $this->assertSame(
+            [
+                /*
+                 * The PUBLIC branch of the payment partial's field loop, and it is public by an
+                 * explicit per-field decision rather than by a guess at its name:
+                 * `paymentSettingArray()` marks each of the 108 fields `'secret' => true|false`,
+                 * the secret ones never reach this branch, and
+                 * `PaymentGatewayFieldContractTest` fails if any field omits the flag. A
+                 * merchant id or a region is meant to be readable, so this one renders its
+                 * value on purpose.
+                 *
+                 * It stays on the list rather than being filtered out, because the list is the
+                 * record of which looped inputs somebody has actually looked at. If the branch
+                 * ever stops checking the flag, this entry is where the reader is already
+                 * looking.
+                 */
+                "resources/views/setting/payment_partials/payment_gateway.blade.php {{ \$field['key'] }}",
+            ],
+            $dynamic,
+            "these inputs take BOTH their name and their value from a Blade expression, so no "
+            . "name-based rule can tell whether they render a credential:\n  "
+            . implode("\n  ", $dynamic)
+            . "\n\nThis is how the payment screen's 58 gateway secrets stayed invisible to this "
+            . 'test. Either render no value (use `<x-ss.secret-field>`), or branch on an explicit '
+            . "flag the way `payment_gateway.blade.php` now branches on `\$field['secret']`.",
+        );
+    }
+
+    /**
+     * The payment partial's secret branch exists and is driven by the flag.
+     *
+     * This is the assertion that bites when the guard is removed. The inventory above does not:
+     * source text contains the same looped `<input>` whether the branch checks the flag or not,
+     * which was measured by setting the condition to `@if (false)` and watching it still pass.
+     *
+     * Three things are required and each has failed somewhere in this codebase before:
+     * the branch must read `$field['secret']`; the secret case must go through
+     * `<x-ss.secret-field>` rather than a hand-rolled `type="password"` (which ships without the
+     * hint and without the `autocomplete="new-password"`); and the default for a missing flag
+     * must be SECRET, so a field added without one is masked rather than exposed.
+     */
+    public function test_the_payment_partial_branches_on_the_secret_flag(): void
+    {
+        $path = $this->repoPath(self::VIEW_ROOT) . '/payment_partials/payment_gateway.blade.php';
+        $text = (string) file_get_contents($path);
+
+        $this->assertMatchesRegularExpression(
+            "/@if\s*\(\s*\\\$field\['secret'\]\s*\?\?\s*true\s*\)/",
+            $text,
+            'the payment partial no longer branches on each field\'s `secret` flag with a '
+            . 'default of TRUE. Without the branch every gateway credential is rendered into the '
+            . 'page again (F117\'s largest exposure, 58 secrets across 52 providers); without '
+            . 'the `?? true` default a field added with no flag is exposed rather than masked.',
+        );
+
+        $this->assertStringContainsString('<x-ss.secret-field', $text,
+            'the secret branch must render through the component, which carries the '
+            . '"blank keeps it" hint and the `autocomplete="new-password"` with it');
     }
 }

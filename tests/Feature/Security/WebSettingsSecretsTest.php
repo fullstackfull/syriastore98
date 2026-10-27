@@ -126,13 +126,43 @@ class WebSettingsSecretsTest extends SecurityTestCase
     // reads
     // ---------------------------------------------------------------------------------------------
 
-    public function test_premise_the_owner_gets_the_payment_tab_with_the_gateway_secret_in_it(): void
+    /**
+     * THE PREMISE CHANGED WHEN F117 WAS FIXED, and the change is the point.
+     *
+     * This used to assert that the payment tab CONTAINS the stored Stripe secret — which it did,
+     * because the gateway partial rendered every field as `type="text" value="…"`. That was the
+     * premise for "an unauthorised principal is refused this tab": refusing a tab that holds
+     * nothing proves nothing.
+     *
+     * The tab no longer carries the secret: the 58 secret fields now render through
+     * `<x-ss.secret-field>`, which emits no value. So the premise is rewritten to the thing that
+     * is still true and still makes the refusals below meaningful — the tab renders, and it
+     * renders the gateway's CONFIGURATION, including the input that would hold the secret and
+     * the public key beside it. An attacker refused this tab is refused the screen where
+     * credentials are entered and the store's gateway setup is visible, which is what the
+     * permission is protecting now.
+     *
+     * The assertion that the secret is ABSENT is kept here too, so this test also fails if the
+     * exposure is reinstated — the two properties are measured in one place because they are the
+     * same page.
+     */
+    public function test_premise_the_owner_gets_the_payment_tab_and_it_no_longer_carries_the_secret(): void
     {
         $response = $this->actingAs($this->merchant)->post('/setting-form', ['tab_type' => 'payment_setting']);
 
         $response->assertOk();
         $this->assertTrue((bool) json_decode($response->getContent(), true)['is_success'], 'Premise: the tab did not render. ' . substr($response->getContent(), 0, 200));
-        $this->assertStringContainsString(self::STRIPE_SECRET, $this->tabHtml($response), "Premise: the payment tab does not carry the gateway secret, so 'refused' below proves nothing.");
+
+        $html = $this->tabHtml($response);
+
+        $this->assertStringContainsString('name="stripe_secret_key"', $html,
+            'Premise: the payment tab does not carry the gateway configuration at all, so '
+            . "'refused' below proves nothing.");
+        $this->assertStringContainsString('name="stripe_publishable_key"', $html,
+            'Premise: the payment tab does not carry the gateway configuration at all.');
+
+        $this->assertStringNotContainsString(self::STRIPE_SECRET, $html,
+            'F117 regression: the payment tab renders the stored gateway secret again.');
     }
 
     public function test_staff_without_the_permission_are_not_handed_the_settings_tabs(): void
@@ -154,7 +184,15 @@ class WebSettingsSecretsTest extends SecurityTestCase
         $response = $this->actingAs($this->staff)->post('/setting-form', ['tab_type' => 'payment_setting']);
 
         $response->assertOk();
-        $this->assertStringContainsString(self::STRIPE_SECRET, $this->tabHtml($response));
+
+        /* The positive half of the pair above: with the permission the tab IS served. It is
+           asserted on the gateway's field names rather than on the secret's value, because the
+           secret is no longer rendered to anyone — see the premise test's docblock. */
+        $this->assertStringContainsString('name="stripe_secret_key"', $this->tabHtml($response),
+            'a staff member WITH the permission was not served the payment tab, so the refusal '
+            . 'above is not evidence that the permission is what refuses them');
+        $this->assertStringNotContainsString(self::STRIPE_SECRET, $this->tabHtml($response),
+            'F117 regression: the payment tab renders the stored gateway secret to staff');
     }
 
     public function test_the_operator_still_gets_the_tabs(): void

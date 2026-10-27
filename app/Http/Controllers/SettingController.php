@@ -2216,6 +2216,46 @@ elseif ($tabType == 'otp_setting') {
         return $gateways;
     }
 
+    /**
+     * The payment gateways and their fields, as the settings screen renders them.
+     *
+     * EVERY FIELD CARRIES `'secret'`, AND IT IS NOT OPTIONAL. F117's last and largest exception
+     * lived here: `payment_partials/payment_gateway.blade.php` rendered all 108 fields as
+     * `type="text" value="{{ $setting[$field['key']] }}"`, so opening the Payment tab put every
+     * configured gateway's live secret key into the DOM at once -- 52 providers' credentials on
+     * one screen. The other sixteen F117 fields were named one by one in a view; these are
+     * generated from this array, so the array is where the decision belongs.
+     *
+     * HOW EACH FLAG WAS SET, stated so it can be checked rather than trusted. A field is PUBLIC
+     * when its name says so (`publishable`, `public`) or when it is an identifier the provider
+     * publishes and the merchant needs to read back: `_merchant_id`, `_client_id`, `_store_id`,
+     * `_profile_id`, `_shop_id`, `_site_id`, `_vendor_id`, `_app_id`, `_login_id`,
+     * `_integration_id`, `_category_code`, `_country_iso`, `_region`, `_industry_type`,
+     * `_chat_id`, `_number`, `_email`, `_enviroment_name`, `_production_url`, `_Service_Type`,
+     * Paymera's terminal id and username, Mollie's partner id, PhonePe's client version, and
+     * Cashfree's `cashfree_key` (its App ID). Everything else is secret: 58 fields.
+     *
+     * AMBIGUOUS NAMES ARE MASKED, deliberately and asymmetrically. `ozow_pay_Site_key` and
+     * `esewa_merchant_key` are probably the provider's public code rather than a secret, and
+     * they are masked anyway, because the two errors are not equal: masking a public value costs
+     * a merchant the ability to read it back from this screen, while failing to mask a secret
+     * discloses it to anyone who can see the page. Each is one `'secret' => false` away from
+     * being readable again if the owner decides differently.
+     *
+     * THE FLAG ALONE WOULD BE A DEFECT. A masked box posts empty when the merchant does not
+     * retype it, and `PaymentSettingController::processGateway()` wrote
+     * `!empty($request->$field) ? $request->$field : ''` -- the empty string, over the stored
+     * credential. Display and persistence changed together: that method now keeps the stored
+     * value for a secret field that posts empty, proven on the real route by
+     * `PaymentGatewaySecretPersistenceTest`. `tests/Unit/Ui/PaymentGatewayFieldContractTest.php`
+     * asserts every field here carries the flag, so a new gateway cannot be added without the
+     * decision being made.
+     *
+     * `validateGatewayFields()` was adjusted in the same change so a required secret that is
+     * already stored is `nullable` rather than `required` -- but THAT METHOD HAS NO EFFECT
+     * TODAY and the adjustment is currently inert. See the note on it; it is pinned by
+     * `PaymentGatewayValidationIsDeadTest` rather than repaired here.
+     */
     private function paymentSettingArray()
     {
         return [
@@ -2248,8 +2288,8 @@ elseif ($tabType == 'otp_setting') {
                 'is_only_admin' => false,
                 'image_default' => 'uploads/payment/stripe.png',
                 'fields' => [
-                    ['key' => 'stripe_publishable_key', 'label' => __('Stripe Publishable Key')],
-                    ['key' => 'stripe_secret_key', 'label' => __('Stripe Secret Key')],
+                    ['key' => 'stripe_publishable_key', 'label' => __('Stripe Publishable Key'), 'secret' => false],
+                    ['key' => 'stripe_secret_key', 'label' => __('Stripe Secret Key'), 'secret' => true],
                 ],
             ],
 
@@ -2264,8 +2304,8 @@ elseif ($tabType == 'otp_setting') {
                 'is_only_admin' => false,
                 'image_default' => 'uploads/payment/paymera.png',
                 'fields' => [
-                    ['key' => 'PAYMERA_TERMINAL_ID', 'label' => __('PAYMERA_TERMINAL_ID')],
-                    ['key' => 'PAYMERA_USERNAME', 'label' => __('PAYMERA_USERNAME')],
+                    ['key' => 'PAYMERA_TERMINAL_ID', 'label' => __('PAYMERA_TERMINAL_ID'), 'secret' => false],
+                    ['key' => 'PAYMERA_USERNAME', 'label' => __('PAYMERA_USERNAME'), 'secret' => false],
                 ],
             ],
 
@@ -2280,8 +2320,8 @@ elseif ($tabType == 'otp_setting') {
                 'is_only_admin' => false,
                 'image_default' => 'uploads/payment/paystack.png',
                 'fields' => [
-                    ['key' => 'paystack_public_key', 'label' => __('Paystack Public Key')],
-                    ['key' => 'paystack_secret_key', 'label' => __('Paystack Secret Key')],
+                    ['key' => 'paystack_public_key', 'label' => __('Paystack Public Key'), 'secret' => false],
+                    ['key' => 'paystack_secret_key', 'label' => __('Paystack Secret Key'), 'secret' => true],
                 ],
             ],
             [
@@ -2293,8 +2333,8 @@ elseif ($tabType == 'otp_setting') {
                 'is_only_admin' => false,
                 'image_default' => 'uploads/payment/razorpay.png',
                 'fields' => [
-                    ['key' => 'razorpay_public_key', 'label' => __('Razorpay Public Key')],
-                    ['key' => 'razorpay_secret_key', 'label' => __('Razorpay Secret Key')],
+                    ['key' => 'razorpay_public_key', 'label' => __('Razorpay Public Key'), 'secret' => false],
+                    ['key' => 'razorpay_secret_key', 'label' => __('Razorpay Secret Key'), 'secret' => true],
                 ],
             ],
             [
@@ -2307,7 +2347,7 @@ elseif ($tabType == 'otp_setting') {
                 'image_default' => 'uploads/payment/mercado.png',
                 'mode_options' => ['sandbox' => __('Sandbox'), 'live' => __('Live')],
                 'fields' => [
-                    ['key' => 'mercado_access_token', 'label' => __('Mercado Access Token')],
+                    ['key' => 'mercado_access_token', 'label' => __('Mercado Access Token'), 'secret' => true],
                 ],
             ],
             [
@@ -2319,7 +2359,7 @@ elseif ($tabType == 'otp_setting') {
                 'is_only_admin' => false,
                 'image_default' => 'uploads/payment/skrill.png',
                 'fields' => [
-                    ['key' => 'skrill_email', 'label' => __('Skrill Email')],
+                    ['key' => 'skrill_email', 'label' => __('Skrill Email'), 'secret' => false],
                 ],
             ],
             [
@@ -2331,8 +2371,8 @@ elseif ($tabType == 'otp_setting') {
                 'is_only_admin' => false,
                 'image_default' => 'uploads/payment/paymentwall.png',
                 'fields' => [
-                    ['key' => 'paymentwall_public_key', 'label' => __('PaymentWall Public Key')],
-                    ['key' => 'paymentwall_private_key', 'label' => __('PaymentWall Private Key')],
+                    ['key' => 'paymentwall_public_key', 'label' => __('PaymentWall Public Key'), 'secret' => false],
+                    ['key' => 'paymentwall_private_key', 'label' => __('PaymentWall Private Key'), 'secret' => true],
                 ],
             ],
             [
@@ -2345,8 +2385,8 @@ elseif ($tabType == 'otp_setting') {
                 'image_default' => 'uploads/payment/paypal.png',
                 'mode_options' => ['sandbox' => __('Sandbox'), 'live' => __('Live')],
                 'fields' => [
-                    ['key' => 'paypal_client_id', 'label' => __('Paypal Client Key')],
-                    ['key' => 'paypal_secret_key', 'label' => __('Paypal Secret Key')],
+                    ['key' => 'paypal_client_id', 'label' => __('Paypal Client Key'), 'secret' => false],
+                    ['key' => 'paypal_secret_key', 'label' => __('Paypal Secret Key'), 'secret' => true],
                 ],
             ],
             [
@@ -2358,8 +2398,8 @@ elseif ($tabType == 'otp_setting') {
                 'is_only_admin' => false,
                 'image_default' => 'uploads/payment/flutterwave.png',
                 'fields' => [
-                    ['key' => 'flutterwave_public_key', 'label' => __('Flutterwave Public Key')],
-                    ['key' => 'flutterwave_secret_key', 'label' => __('Flutterwave Secret Key')],
+                    ['key' => 'flutterwave_public_key', 'label' => __('Flutterwave Public Key'), 'secret' => false],
+                    ['key' => 'flutterwave_secret_key', 'label' => __('Flutterwave Secret Key'), 'secret' => true],
                 ],
             ],
             [
@@ -2372,9 +2412,9 @@ elseif ($tabType == 'otp_setting') {
                 'image_default' => 'uploads/payment/paytm.png',
                 'mode_options' => ['local' => __('Local'), 'production' => __('Production')],
                 'fields' => [
-                    ['key' => 'paytm_merchant_id', 'label' => __('Merchant ID')],
-                    ['key' => 'paytm_merchant_key', 'label' => __('Merchant Key')],
-                    ['key' => 'paytm_industry_type', 'label' => __('Industry Type')],
+                    ['key' => 'paytm_merchant_id', 'label' => __('Merchant ID'), 'secret' => false],
+                    ['key' => 'paytm_merchant_key', 'label' => __('Merchant Key'), 'secret' => true],
+                    ['key' => 'paytm_industry_type', 'label' => __('Industry Type'), 'secret' => false],
                 ],
             ],
             [
@@ -2386,9 +2426,9 @@ elseif ($tabType == 'otp_setting') {
                 'is_only_admin' => false,
                 'image_default' => 'uploads/payment/mollie.png',
                 'fields' => [
-                    ['key' => 'mollie_api_key', 'label' => __('Mollie Api Key')],
-                    ['key' => 'mollie_profile_id', 'label' => __('Mollie Profile ID')],
-                    ['key' => 'mollie_partner_id', 'label' => __('Mollie Partner ID')],
+                    ['key' => 'mollie_api_key', 'label' => __('Mollie Api Key'), 'secret' => true],
+                    ['key' => 'mollie_profile_id', 'label' => __('Mollie Profile ID'), 'secret' => false],
+                    ['key' => 'mollie_partner_id', 'label' => __('Mollie Partner ID'), 'secret' => false],
                 ],
             ],
             [
@@ -2401,7 +2441,7 @@ elseif ($tabType == 'otp_setting') {
                 'image_default' => 'uploads/payment/coingate.png',
                 'mode_options' => ['sandbox' => __('Sandbox'), 'live' => __('Live')],
                 'fields' => [
-                    ['key' => 'coingate_auth_token', 'label' => __('CoinGate Auth Token')],
+                    ['key' => 'coingate_auth_token', 'label' => __('CoinGate Auth Token'), 'secret' => true],
                 ],
             ],
             [
@@ -2413,8 +2453,8 @@ elseif ($tabType == 'otp_setting') {
                 'is_only_admin' => false,
                 'image_default' => 'uploads/payment/sspay.png',
                 'fields' => [
-                    ['key' => 'sspay_secret_key', 'label' => __('Secret Key')],
-                    ['key' => 'sspay_category_code', 'label' => __('Category Code')],
+                    ['key' => 'sspay_secret_key', 'label' => __('Secret Key'), 'secret' => true],
+                    ['key' => 'sspay_category_code', 'label' => __('Category Code'), 'secret' => false],
                 ],
             ],
             [
@@ -2426,8 +2466,8 @@ elseif ($tabType == 'otp_setting') {
                 'is_only_admin' => false,
                 'image_default' => 'uploads/payment/toyyibpay.png',
                 'fields' => [
-                    ['key' => 'toyyibpay_secret_key', 'label' => __('Secret Key')],
-                    ['key' => 'toyyibpay_category_code', 'label' => __('Category Code')],
+                    ['key' => 'toyyibpay_secret_key', 'label' => __('Secret Key'), 'secret' => true],
+                    ['key' => 'toyyibpay_category_code', 'label' => __('Category Code'), 'secret' => false],
                 ],
             ],
             [
@@ -2439,9 +2479,9 @@ elseif ($tabType == 'otp_setting') {
                 'is_only_admin' => false,
                 'image_default' => 'uploads/payment/paytabs.png',
                 'fields' => [
-                    ['key' => 'paytabs_profile_id', 'label' => __('Profile ID')],
-                    ['key' => 'paytabs_server_key', 'label' => __('Paytab Server Key')],
-                    ['key' => 'paytabs_region', 'label' => __('Paytab Region')],
+                    ['key' => 'paytabs_profile_id', 'label' => __('Profile ID'), 'secret' => false],
+                    ['key' => 'paytabs_server_key', 'label' => __('Paytab Server Key'), 'secret' => true],
+                    ['key' => 'paytabs_region', 'label' => __('Paytab Region'), 'secret' => false],
                 ],
             ],                        
             [
@@ -2454,8 +2494,8 @@ elseif ($tabType == 'otp_setting') {
                 'image_default' => 'uploads/payment/iyzipay.png',
                 'mode_options' => ['sandbox' => __('Sandbox'), 'live' => __('Live')],
                 'fields' => [
-                    ['key' => 'iyzipay_private_key', 'label' => __('Private Key')],
-                    ['key' => 'iyzipay_secret_key', 'label' => __('Secret Key')],
+                    ['key' => 'iyzipay_private_key', 'label' => __('Private Key'), 'secret' => true],
+                    ['key' => 'iyzipay_secret_key', 'label' => __('Secret Key'), 'secret' => true],
                 ],
             ],
             [
@@ -2468,9 +2508,9 @@ elseif ($tabType == 'otp_setting') {
                 'image_default' => 'uploads/payment/payfast.png',
                 'mode_options' => ['sandbox' => __('Sandbox'), 'live' => __('Live')],
                 'fields' => [
-                    ['key' => 'payfast_merchant_id', 'label' => __('Merchant ID')],
-                    ['key' => 'payfast_merchant_key', 'label' => __('Merchant Key')],
-                    ['key' => 'payfast_salt_passphrase', 'label' => __('Salt Passphrase')],
+                    ['key' => 'payfast_merchant_id', 'label' => __('Merchant ID'), 'secret' => false],
+                    ['key' => 'payfast_merchant_key', 'label' => __('Merchant Key'), 'secret' => true],
+                    ['key' => 'payfast_salt_passphrase', 'label' => __('Salt Passphrase'), 'secret' => true],
                 ],
             ],
             [
@@ -2482,8 +2522,8 @@ elseif ($tabType == 'otp_setting') {
                 'is_only_admin' => false,
                 'image_default' => 'uploads/payment/benefit.png',
                 'fields' => [
-                    ['key' => 'benefit_private_key', 'label' => __('Benefit Key')],
-                    ['key' => 'benefit_secret_key', 'label' => __('Benefit Secret Key')],
+                    ['key' => 'benefit_private_key', 'label' => __('Benefit Key'), 'secret' => true],
+                    ['key' => 'benefit_secret_key', 'label' => __('Benefit Secret Key'), 'secret' => true],
                 ],
             ],
             [
@@ -2495,8 +2535,8 @@ elseif ($tabType == 'otp_setting') {
                 'is_only_admin' => false,
                 'image_default' => 'uploads/payment/cashfree.png',
                 'fields' => [
-                    ['key' => 'cashfree_key', 'label' => __('Cashfree Key')],
-                    ['key' => 'cashfree_secret_key', 'label' => __('Cashfree Secret Key')],
+                    ['key' => 'cashfree_key', 'label' => __('Cashfree Key'), 'secret' => false],
+                    ['key' => 'cashfree_secret_key', 'label' => __('Cashfree Secret Key'), 'secret' => true],
                 ],
             ],
             [
@@ -2508,9 +2548,9 @@ elseif ($tabType == 'otp_setting') {
                 'is_only_admin' => false,
                 'image_default' => 'uploads/payment/aamarpay.png',
                 'fields' => [
-                    ['key' => 'aamarpay_store_id', 'label' => __('Store ID')],
-                    ['key' => 'aamarpay_signature_key', 'label' => __('Signature Key')],
-                    ['key' => 'aamarpay_description', 'label' => __('Aamarpay Description')],
+                    ['key' => 'aamarpay_store_id', 'label' => __('Store ID'), 'secret' => false],
+                    ['key' => 'aamarpay_signature_key', 'label' => __('Signature Key'), 'secret' => true],
+                    ['key' => 'aamarpay_description', 'label' => __('Aamarpay Description'), 'secret' => false],
                 ],
             ],
             [
@@ -2522,8 +2562,8 @@ elseif ($tabType == 'otp_setting') {
                 'is_only_admin' => true,
                 'image_default' => 'uploads/payment/telegram.png',
                 'fields' => [
-                    ['key' => 'telegram_access_token', 'label' => __('Telegram Access Token')],
-                    ['key' => 'telegram_chat_id', 'label' => __('Telegram Chat ID')],
+                    ['key' => 'telegram_access_token', 'label' => __('Telegram Access Token'), 'secret' => true],
+                    ['key' => 'telegram_chat_id', 'label' => __('Telegram Chat ID'), 'secret' => false],
                 ],
             ],
             [
@@ -2535,7 +2575,7 @@ elseif ($tabType == 'otp_setting') {
                 'is_only_admin' => true,
                 'image_default' => 'uploads/payment/whatsapp.png',
                 'fields' => [
-                    ['key' => 'whatsapp_number', 'label' => __('Whatsapp Number')],
+                    ['key' => 'whatsapp_number', 'label' => __('Whatsapp Number'), 'secret' => false],
                 ],
             ],
             [
@@ -2547,9 +2587,9 @@ elseif ($tabType == 'otp_setting') {
                 'is_only_admin' => false,
                 'image_default' => 'uploads/payment/paytr.png',
                 'fields' => [
-                    ['key' => 'paytr_merchant_id', 'label' => __('Merchant ID')],
-                    ['key' => 'paytr_merchant_key', 'label' => __('Merchant Key')],
-                    ['key' => 'paytr_salt_key', 'label' => __('Salt Passphrase')],
+                    ['key' => 'paytr_merchant_id', 'label' => __('Merchant ID'), 'secret' => false],
+                    ['key' => 'paytr_merchant_key', 'label' => __('Merchant Key'), 'secret' => true],
+                    ['key' => 'paytr_salt_key', 'label' => __('Salt Passphrase'), 'secret' => true],
                 ],
             ],
             // RETIRED (RetiredGateways::PROVIDERS). Entry KEPT on purpose: deleting it would
@@ -2564,8 +2604,8 @@ elseif ($tabType == 'otp_setting') {
                 'is_only_admin' => false,
                 'image_default' => 'uploads/payment/yookassa.png',
                 'fields' => [
-                    ['key' => 'yookassa_shop_id_key', 'label' => __('Shop ID Key')],
-                    ['key' => 'yookassa_secret_key', 'label' => __('Secret Key')],
+                    ['key' => 'yookassa_shop_id_key', 'label' => __('Shop ID Key'), 'secret' => false],
+                    ['key' => 'yookassa_secret_key', 'label' => __('Secret Key'), 'secret' => true],
                 ],
             ],
             [
@@ -2577,8 +2617,8 @@ elseif ($tabType == 'otp_setting') {
                 'is_only_admin' => false,
                 'image_default' => 'uploads/payment/xendit.png',
                 'fields' => [
-                    ['key' => 'Xendit_api_key', 'label' => __('Xendit Api Key')],
-                    ['key' => 'Xendit_token_key', 'label' => __('Xendit Token Key')],
+                    ['key' => 'Xendit_api_key', 'label' => __('Xendit Api Key'), 'secret' => true],
+                    ['key' => 'Xendit_token_key', 'label' => __('Xendit Token Key'), 'secret' => true],
                 ],
             ],
             [
@@ -2590,7 +2630,7 @@ elseif ($tabType == 'otp_setting') {
                 'is_only_admin' => false,
                 'image_default' => 'uploads/payment/midtrans.png',
                 'fields' => [
-                    ['key' => 'midtrans_secret_key', 'label' => __('Secret Key')],
+                    ['key' => 'midtrans_secret_key', 'label' => __('Secret Key'), 'secret' => true],
                 ],
             ],
             [
@@ -2603,8 +2643,8 @@ elseif ($tabType == 'otp_setting') {
                 'image_default' => 'uploads/payment/nepalste.png',
                 'mode_options' => ['sandbox' => __('Sandbox'), 'live' => __('Live')],
                 'fields' => [
-                    ['key' => 'nepalste_public_key', 'label' => __('Public Key')],
-                    ['key' => 'nepalste_secret_key', 'label' => __('Secret Key')],
+                    ['key' => 'nepalste_public_key', 'label' => __('Public Key'), 'secret' => false],
+                    ['key' => 'nepalste_secret_key', 'label' => __('Secret Key'), 'secret' => true],
                 ],
             ],
             // RETIRED (RetiredGateways::PROVIDERS). Entry KEPT -- see the note on 'yookassa'.
@@ -2618,10 +2658,10 @@ elseif ($tabType == 'otp_setting') {
                 'image_default' => 'uploads/payment/payhere.png',
                 'mode_options' => ['sandbox' => __('Sandbox'), 'live' => __('Live')],
                 'fields' => [
-                    ['key' => 'payhere_merchant_id', 'label' => __('Merchant ID')],
-                    ['key' => 'payhere_merchant_secret', 'label' => __('Merchant Secret')],
-                    ['key' => 'payhere_app_id', 'label' => __('App ID')],
-                    ['key' => 'payhere_app_secret', 'label' => __('App Secret')],
+                    ['key' => 'payhere_merchant_id', 'label' => __('Merchant ID'), 'secret' => false],
+                    ['key' => 'payhere_merchant_secret', 'label' => __('Merchant Secret'), 'secret' => true],
+                    ['key' => 'payhere_app_id', 'label' => __('App ID'), 'secret' => false],
+                    ['key' => 'payhere_app_secret', 'label' => __('App Secret'), 'secret' => true],
                 ],
             ],
             [
@@ -2633,8 +2673,8 @@ elseif ($tabType == 'otp_setting') {
                 'is_only_admin' => false,
                 'image_default' => 'uploads/payment/khalti.png',
                 'fields' => [
-                    ['key' => 'khalti_public_key', 'label' => __('Public Key')],
-                    ['key' => 'khalti_secret_key', 'label' => __('Secret Key')],
+                    ['key' => 'khalti_public_key', 'label' => __('Public Key'), 'secret' => false],
+                    ['key' => 'khalti_secret_key', 'label' => __('Secret Key'), 'secret' => true],
                 ],
             ],
             [
@@ -2647,8 +2687,8 @@ elseif ($tabType == 'otp_setting') {
                 'image_default' => 'uploads/payment/authorizenet.png',
                 'mode_options' => ['sandbox' => __('Sandbox'), 'live' => __('Live')],
                 'fields' => [
-                    ['key' => 'authorizenet_login_id', 'label' => __('Merchant Login ID')],
-                    ['key' => 'authorizenet_transaction_key', 'label' => __('Merchant Transaction Key')],
+                    ['key' => 'authorizenet_login_id', 'label' => __('Merchant Login ID'), 'secret' => false],
+                    ['key' => 'authorizenet_transaction_key', 'label' => __('Merchant Transaction Key'), 'secret' => true],
                 ],
             ],
             [
@@ -2660,7 +2700,7 @@ elseif ($tabType == 'otp_setting') {
                 'is_only_admin' => false,
                 'image_default' => 'uploads/payment/tap.png',
                 'fields' => [
-                    ['key' => 'tap_secret_key', 'label' => __('Secret Key')],
+                    ['key' => 'tap_secret_key', 'label' => __('Secret Key'), 'secret' => true],
                 ],
             ],
             [
@@ -2673,9 +2713,9 @@ elseif ($tabType == 'otp_setting') {
                 'image_default' => 'uploads/payment/phonepe.png',
                 'mode_options' => ['sandbox' => __('Sandbox'), 'live' => __('Live')],
                 'fields' => [
-                    ['key' => 'phonepe_client_id', 'label' => __('Client ID')],
-                    ['key' => 'phonepe_client_secret', 'label' => __('Client Secret')],
-                    ['key' => 'phonepe_client_version', 'label' => __('Version')],
+                    ['key' => 'phonepe_client_id', 'label' => __('Client ID'), 'secret' => false],
+                    ['key' => 'phonepe_client_secret', 'label' => __('Client Secret'), 'secret' => true],
+                    ['key' => 'phonepe_client_version', 'label' => __('Version'), 'secret' => false],
                 ],
             ],
             [
@@ -2688,9 +2728,9 @@ elseif ($tabType == 'otp_setting') {
                 'image_default' => 'uploads/payment/paddle.png',
                 'mode_options' => ['sandbox' => __('Sandbox'), 'live' => __('Live')],
                 'fields' => [
-                    ['key' => 'paddle_vendor_id', 'label' => __('Vendor ID')],
-                    ['key' => 'paddle_vendor_auth_code', 'label' => __('Vendor Auth Code')],
-                    ['key' => 'paddle_public_key', 'label' => __('Public Key')],
+                    ['key' => 'paddle_vendor_id', 'label' => __('Vendor ID'), 'secret' => false],
+                    ['key' => 'paddle_vendor_auth_code', 'label' => __('Vendor Auth Code'), 'secret' => true],
+                    ['key' => 'paddle_public_key', 'label' => __('Public Key'), 'secret' => false],
                 ],
             ],
             [
@@ -2702,7 +2742,7 @@ elseif ($tabType == 'otp_setting') {
                 'is_only_admin' => false,
                 'image_default' => 'uploads/payment/paiementpro.png',
                 'fields' => [
-                    ['key' => 'paiementpro_merchant_id', 'label' => __('Merchant ID')],
+                    ['key' => 'paiementpro_merchant_id', 'label' => __('Merchant ID'), 'secret' => false],
                 ],
             ],
             [
@@ -2715,8 +2755,8 @@ elseif ($tabType == 'otp_setting') {
                 'image_default' => 'uploads/payment/fedpay.png',
                 'mode_options' => ['sandbox' => __('Sandbox'), 'live' => __('Live')],
                 'fields' => [
-                    ['key' => 'fedpay_public_key', 'label' => __('Public Key')],
-                    ['key' => 'fedpay_secret_key', 'label' => __('Secret Key')],
+                    ['key' => 'fedpay_public_key', 'label' => __('Public Key'), 'secret' => false],
+                    ['key' => 'fedpay_secret_key', 'label' => __('Secret Key'), 'secret' => true],
                 ],
             ],
             [
@@ -2729,9 +2769,9 @@ elseif ($tabType == 'otp_setting') {
                 'image_default' => 'uploads/payment/cinet.png',
                 'mode_options' => ['sandbox' => __('Sandbox'), 'live' => __('Live')],
                 'fields' => [
-                    ['key' => 'cinet_pay_site_id', 'label' => __('CinetPay Site ID')],
-                    ['key' => 'cinet_pay_api_key', 'label' => __('CinetPay Api Key')],
-                    ['key' => 'cinet_pay_secret_key', 'label' => __('CinetPay Secret Key')],
+                    ['key' => 'cinet_pay_site_id', 'label' => __('CinetPay Site ID'), 'secret' => false],
+                    ['key' => 'cinet_pay_api_key', 'label' => __('CinetPay Api Key'), 'secret' => true],
+                    ['key' => 'cinet_pay_secret_key', 'label' => __('CinetPay Secret Key'), 'secret' => true],
                 ],
             ],
             [
@@ -2744,8 +2784,8 @@ elseif ($tabType == 'otp_setting') {
                 'image_default' => 'uploads/payment/senang.png',
                 'mode_options' => ['sandbox' => __('Sandbox'), 'live' => __('Live')],
                 'fields' => [
-                    ['key' => 'senang_pay_merchant_id', 'label' => __('SenangPay Merchant ID')],
-                    ['key' => 'senang_pay_secret_key', 'label' => __('SenangPay Secret Key')],
+                    ['key' => 'senang_pay_merchant_id', 'label' => __('SenangPay Merchant ID'), 'secret' => false],
+                    ['key' => 'senang_pay_secret_key', 'label' => __('SenangPay Secret Key'), 'secret' => true],
                 ],
             ],
             [
@@ -2757,9 +2797,9 @@ elseif ($tabType == 'otp_setting') {
                 'is_only_admin' => false,
                 'image_default' => 'uploads/payment/cybersource.png',
                 'fields' => [
-                    ['key' => 'cybersource_pay_merchant_id', 'label' => __('CyberSource Merchant ID')],
-                    ['key' => 'cybersource_pay_secret_key', 'label' => __('CyberSource Secret Key')],
-                    ['key' => 'cybersource_pay_api_key', 'label' => __('CyberSource Api Key')],
+                    ['key' => 'cybersource_pay_merchant_id', 'label' => __('CyberSource Merchant ID'), 'secret' => false],
+                    ['key' => 'cybersource_pay_secret_key', 'label' => __('CyberSource Secret Key'), 'secret' => true],
+                    ['key' => 'cybersource_pay_api_key', 'label' => __('CyberSource Api Key'), 'secret' => true],
                 ],
             ],
             [
@@ -2772,9 +2812,9 @@ elseif ($tabType == 'otp_setting') {
                 'image_default' => 'uploads/payment/ozow.png',
                 'mode_options' => ['sandbox' => __('Sandbox'), 'live' => __('Live')],
                 'fields' => [
-                    ['key' => 'ozow_pay_Site_key', 'label' => __('Ozow Site Key')],
-                    ['key' => 'ozow_pay_private_key', 'label' => __('Ozow Private Key')],
-                    ['key' => 'ozow_pay_api_key', 'label' => __('Ozow Api Key')],
+                    ['key' => 'ozow_pay_Site_key', 'label' => __('Ozow Site Key'), 'secret' => true],
+                    ['key' => 'ozow_pay_private_key', 'label' => __('Ozow Private Key'), 'secret' => true],
+                    ['key' => 'ozow_pay_api_key', 'label' => __('Ozow Api Key'), 'secret' => true],
                 ],
             ],
             [
@@ -2787,8 +2827,8 @@ elseif ($tabType == 'otp_setting') {
                 'image_default' => 'uploads/payment/myfatoorah.png',
                 'mode_options' => ['sandbox' => __('Sandbox'), 'live' => __('Live')],
                 'fields' => [
-                    ['key' => 'myfatoorah_pay_api_key', 'label' => __('MyFatoorah Api Key')],
-                    ['key' => 'myfatoorah_pay_country_iso', 'label' => __('MyFatoorah Country ISO')],
+                    ['key' => 'myfatoorah_pay_api_key', 'label' => __('MyFatoorah Api Key'), 'secret' => true],
+                    ['key' => 'myfatoorah_pay_country_iso', 'label' => __('MyFatoorah Country ISO'), 'secret' => false],
                 ],
             ],
             [
@@ -2801,9 +2841,9 @@ elseif ($tabType == 'otp_setting') {
                 'image_default' => 'uploads/payment/easebuzz.png',
                 'mode_options' => ['sandbox' => __('Sandbox'), 'live' => __('Live')],
                 'fields' => [
-                    ['key' => 'easebuzz_merchant_key', 'label' => __('Easebuzz Merchant Key')],
-                    ['key' => 'easebuzz_salt_key', 'label' => __('Easebuzz Salt Key')],
-                    ['key' => 'easebuzz_enviroment_name', 'label' => __('Easebuzz Enviroment Name')],
+                    ['key' => 'easebuzz_merchant_key', 'label' => __('Easebuzz Merchant Key'), 'secret' => true],
+                    ['key' => 'easebuzz_salt_key', 'label' => __('Easebuzz Salt Key'), 'secret' => true],
+                    ['key' => 'easebuzz_enviroment_name', 'label' => __('Easebuzz Enviroment Name'), 'secret' => false],
                 ],
             ],
             [
@@ -2815,7 +2855,7 @@ elseif ($tabType == 'otp_setting') {
                 'is_only_admin' => false,
                 'image_default' => 'uploads/payment/nmi.png',
                 'fields' => [
-                    ['key' => 'nmi_api_private_key', 'label' => __('NMI Api Private Key')],
+                    ['key' => 'nmi_api_private_key', 'label' => __('NMI Api Private Key'), 'secret' => true],
                 ],
             ],
             [
@@ -2828,8 +2868,8 @@ elseif ($tabType == 'otp_setting') {
                 'image_default' => 'uploads/payment/payu.png',
                 'mode_options' => ['sandbox' => __('Sandbox'), 'live' => __('Live')],
                 'fields' => [
-                    ['key' => 'payu_merchant_key', 'label' => __('Merchant Key')],
-                    ['key' => 'payu_salt_key', 'label' => __('Salt Key')],
+                    ['key' => 'payu_merchant_key', 'label' => __('Merchant Key'), 'secret' => true],
+                    ['key' => 'payu_salt_key', 'label' => __('Salt Key'), 'secret' => true],
                 ],
             ],
             [
@@ -2842,9 +2882,9 @@ elseif ($tabType == 'otp_setting') {
                 'image_default' => 'uploads/payment/paynow.png',
                 'mode_options' => ['sandbox' => __('Sandbox'), 'live' => __('Live')],
                 'fields' => [
-                    ['key' => 'paynow_pay_integration_id', 'label' => __('Paynow Integration ID')],
-                    ['key' => 'paynow_pay_integration_key', 'label' => __('Paynow Integration Key')],
-                    ['key' => 'paynow_pay_merchant_email', 'label' => __('Paynow Merchant Email')],
+                    ['key' => 'paynow_pay_integration_id', 'label' => __('Paynow Integration ID'), 'secret' => false],
+                    ['key' => 'paynow_pay_integration_key', 'label' => __('Paynow Integration Key'), 'secret' => true],
+                    ['key' => 'paynow_pay_merchant_email', 'label' => __('Paynow Merchant Email'), 'secret' => false],
                 ],
             ],
             [
@@ -2856,8 +2896,8 @@ elseif ($tabType == 'otp_setting') {
                 'is_only_admin' => false,
                 'image_default' => 'uploads/payment/sofort.png',
                 'fields' => [
-                    ['key' => 'sofort_publishable_key', 'label' => __('Sofort Publishable Key')],
-                    ['key' => 'sofort_secret_key', 'label' => __('Sofort Secret Key')],
+                    ['key' => 'sofort_publishable_key', 'label' => __('Sofort Publishable Key'), 'secret' => false],
+                    ['key' => 'sofort_secret_key', 'label' => __('Sofort Secret Key'), 'secret' => true],
                 ],
             ],
             [
@@ -2870,7 +2910,7 @@ elseif ($tabType == 'otp_setting') {
                 'image_default' => 'uploads/payment/esewa.png',
                 'mode_options' => ['sandbox' => __('Sandbox'), 'live' => __('Live')],
                 'fields' => [
-                    ['key' => 'esewa_merchant_key', 'label' => __('ESewa Merchant ID')],
+                    ['key' => 'esewa_merchant_key', 'label' => __('ESewa Merchant ID'), 'secret' => true],
                 ],
             ],
             [
@@ -2882,8 +2922,8 @@ elseif ($tabType == 'otp_setting') {
                 'is_only_admin' => false,
                 'image_default' => 'uploads/payment/dpo.png',
                 'fields' => [
-                    ['key' => 'dpo_pay_Company_Token', 'label' => __('Company Token')],
-                    ['key' => 'dpo_pay_Service_Type', 'label' => __('Service Type')],
+                    ['key' => 'dpo_pay_Company_Token', 'label' => __('Company Token'), 'secret' => true],
+                    ['key' => 'dpo_pay_Service_Type', 'label' => __('Service Type'), 'secret' => false],
                 ],
             ],
             [
@@ -2896,9 +2936,9 @@ elseif ($tabType == 'otp_setting') {
                 'image_default' => 'uploads/payment/braintree.png',
                 'mode_options' => ['sandbox' => __('Sandbox'), 'live' => __('Live')],
                 'fields' => [
-                    ['key' => 'braintree_pay_merchant_id', 'label' => __('Braintree Merchant ID')],
-                    ['key' => 'braintree_pay_public_key', 'label' => __('Braintree Public Key')],
-                    ['key' => 'braintree_pay_private_key', 'label' => __('Braintree Private Key')],
+                    ['key' => 'braintree_pay_merchant_id', 'label' => __('Braintree Merchant ID'), 'secret' => false],
+                    ['key' => 'braintree_pay_public_key', 'label' => __('Braintree Public Key'), 'secret' => false],
+                    ['key' => 'braintree_pay_private_key', 'label' => __('Braintree Private Key'), 'secret' => true],
                 ],
             ],
             [
@@ -2911,9 +2951,9 @@ elseif ($tabType == 'otp_setting') {
                 'image_default' => 'uploads/payment/powertranz.png',
                 'mode_options' => ['sandbox' => __('Sandbox'), 'live' => __('Live')],
                 'fields' => [
-                    ['key' => 'powertranz_pay_merchant_id', 'label' => __('PowerTranz Merchant ID')],
-                    ['key' => 'powertranz_pay_processing_password', 'label' => __('PowerTranz Processing Password')],
-                    ['key' => 'powertranz_pay_production_url', 'label' => __('PowerTranz Production url')],
+                    ['key' => 'powertranz_pay_merchant_id', 'label' => __('PowerTranz Merchant ID'), 'secret' => false],
+                    ['key' => 'powertranz_pay_processing_password', 'label' => __('PowerTranz Processing Password'), 'secret' => true],
+                    ['key' => 'powertranz_pay_production_url', 'label' => __('PowerTranz Production url'), 'secret' => false],
                 ],
             ],
             [
@@ -2926,8 +2966,8 @@ elseif ($tabType == 'otp_setting') {
                 'image_default' => 'uploads/payment/sslcommerz.png',
                 'mode_options' => ['sandbox' => __('Sandbox'), 'live' => __('Live')],
                 'fields' => [
-                    ['key' => 'sslcommerz_pay_store_id', 'label' => __('SSLCommerz Store ID')],
-                    ['key' => 'sslcommerz_pay_secret_key', 'label' => __('SSLCommerz Secret Key')],
+                    ['key' => 'sslcommerz_pay_store_id', 'label' => __('SSLCommerz Store ID'), 'secret' => false],
+                    ['key' => 'sslcommerz_pay_secret_key', 'label' => __('SSLCommerz Secret Key'), 'secret' => true],
                 ],
             ]
         ];

@@ -100,8 +100,31 @@ class PaymentSettingController extends Controller
             // Set gateway as enabled
             $this->post[$enableKey] = 'on';
             
-            // Store gateway fields
+            // Store gateway fields.
+            //
+            // F117. This was `!empty($request->$field) ? $request->$field : ''` -- a field that
+            // posts nothing wrote the EMPTY STRING over whatever was stored. That was harmless
+            // only while every field rendered its value back, so "nothing posted" could not
+            // happen for a configured gateway. The settings screen now MASKS the 58 secret
+            // fields, so a save of anything else on this screen posts them empty, and this line
+            // would have wiped every gateway credential the merchant had.
+            //
+            // `SecretSetting::resolve()` keeps the stored value when nothing was typed. It is
+            // applied to the secret fields only: a public field (a merchant id, a mode, a
+            // description) is still rendered with its value, so an empty post there really does
+            // mean the merchant cleared it.
+            $secretFields = $this->secretFieldsFor();
+
             foreach ($gateway['fields'] as $field) {
+                if (in_array($field, $secretFields, true)) {
+                    $this->post[$field] = \App\Support\SecretSetting::resolve(
+                        $request->$field,
+                        $this->storedValue($field),
+                    );
+
+                    continue;
+                }
+
                 $this->post[$field] = !empty($request->$field) ? $request->$field : '';
             }
             
@@ -134,13 +157,48 @@ class PaymentSettingController extends Controller
     }
 
     /**
-     * Validate required fields for a gateway
+     * Validate required fields for a gateway.
+     *
+     * THIS METHOD HAS NO EFFECT, and saying so here is the point. `processGateway()` calls it as
+     * a statement and DISCARDS its return value, while the only thing it does on failure is
+     * `return redirect()->back()` -- constructing a response object that nobody sends. MEASURED:
+     * a POST to `/payment-setting` enabling Stripe with `stripe_publishable_key` and
+     * `stripe_secret_key` both empty and nothing stored writes `is_stripe_enabled = 'on'` and
+     * the description, exactly as if the rules did not exist.
+     *
+     * IT IS LEFT DEAD DELIBERATELY. Making it live would start REFUSING saves that succeed
+     * today -- any gateway a merchant has enabled without filling a field the array calls
+     * required would stop saving -- which is a change to what the payment screen accepts, not
+     * part of masking its credentials. `PaymentGatewayValidationIsDeadTest` pins the current
+     * behaviour so it cannot change by accident, and the ledger carries it as a finding for the
+     * owner to decide.
+     *
+     * The rule below is still correct for the day it is made live, and is written now because
+     * the masking is what creates the trap: with the secret boxes masked, a flat `required`
+     * would refuse every save of an already-configured gateway.
      */
     private function validateGatewayFields(Request $request, $gateway)
     {
+        /*
+         * A REQUIRED SECRET THAT IS ALREADY STORED MUST NOT BE DEMANDED AGAIN. Its box is masked
+         * and posts empty when the merchant leaves it alone, so a flat `required` would refuse
+         * every save of an already-configured gateway -- the merchant would have to retype their
+         * Stripe secret key to change the gateway's description. The rule is `required` only
+         * while nothing is stored.
+         */
+        $secretFields = $this->secretFieldsFor();
+
+        $fieldRules = [];
+        foreach ($gateway['required_fields'] as $field) {
+            $alreadyStored = in_array($field, $secretFields, true)
+                && \App\Support\SecretSetting::isSet($this->storedValue($field));
+
+            $fieldRules[$field] = $alreadyStored ? 'nullable' : 'required';
+        }
+
         $rules = array_merge(
             ['is_' . $gateway['id'] . '_enabled' => 'required'],
-            array_fill_keys($gateway['required_fields'], 'required')
+            $fieldRules
         );
         
         $validator = Validator::make($request->all(), $rules);
@@ -149,6 +207,72 @@ class PaymentSettingController extends Controller
             $messages = $validator->getMessageBag();
             return redirect()->back()->with('error', $messages->first());
         }
+    }
+
+    /**
+     * The field names this gateway treats as secrets, taken from the ONE place that decides:
+     * `SettingController::paymentSettingArray()`, whose `'secret'` flag the settings screen also
+     * renders from. Reading it here rather than keeping a second list is the point -- this
+     * controller already carries its own copy of each gateway's field names, and the two lists
+     * use different ids for the same gateway (`cod` here, `COD` there), which is exactly how a
+     * second copy of the secret flags would drift.
+     *
+     * Matched on the FIELD NAME, not the gateway id, for that reason -- which is why this takes
+     * no gateway argument at all. Field names are globally unique across the 52 gateways (they
+     * are `settings` rows, so they have to be), so a name match needs no id match and cannot be
+     * defeated by the casing difference.
+     *
+     * A field this controller knows and that array does not is treated as NOT secret, which is
+     * the pre-existing behaviour for it; `PaymentGatewayFieldContractTest` asserts the two lists
+     * agree, so that case is a test failure rather than a silent exposure.
+     */
+    private function secretFieldsFor(): array
+    {
+        static $cache = null;
+
+        if ($cache === null) {
+            $cache = [];
+            $method = new \ReflectionMethod(SettingController::class, 'paymentSettingArray');
+            $method->setAccessible(true);
+
+            foreach ($method->invoke(app(SettingController::class)) as $definition) {
+                foreach ($definition['fields'] ?? [] as $field) {
+                    // Absent means secret, matching the view's `?? true`: a field added without
+                    // the flag is protected rather than exposed.
+                    if ($field['secret'] ?? true) {
+                        $cache[] = $field['key'];
+                    }
+                }
+            }
+        }
+
+        return $cache;
+    }
+
+    /**
+     * The value currently stored for a setting in THIS store.
+     *
+     * READ WITH THE SAME PREDICATE THE WRITE USES, which is the whole point.
+     * `saveSettings()` does `updateOrCreate(['name' => $key, 'store_id' => $this->store_id])`,
+     * so this is `where('name')->where('store_id', $this->store_id)` and nothing else: the row
+     * read is provably the row written, and no value can cross a store boundary.
+     *
+     * NOT `getAdminAllSetting()`, which also filters on `created_by = <tenant root>` and
+     * resolves its own store from `$user->current_store`. Where those two disagree -- a staff
+     * member whose `current_store` has drifted from their employer's -- the screen would show
+     * one store's settings while the save wrote another's, and a "keep what is stored" read
+     * taken from the screen's copy would write store B's secret into store A's row.
+     *
+     * (An earlier version of this comment justified the direct query as avoiding the model
+     * cache. That was wrong and is corrected rather than left standing: `Setting` is `Cachable`,
+     * so `Setting::where(...)->first()` goes through the cached builder exactly like any other
+     * Eloquent read. The reason is the predicate, not the cache.)
+     */
+    private function storedValue(string $name): ?string
+    {
+        $row = Setting::where('name', $name)->where('store_id', $this->store_id)->first();
+
+        return $row?->value;
     }
 
     /**

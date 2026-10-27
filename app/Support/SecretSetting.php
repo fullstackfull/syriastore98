@@ -19,10 +19,21 @@ namespace App\Support;
  * So `display()` decides what the page may show and `resolve()` decides what a save may write,
  * and a caller that uses one without the other is the bug this class exists to prevent.
  *
- * HOW A SECRET IS CLEARED, since "blank means keep" removes the obvious way: through the panel's
- * own enable toggle, which the handlers already honour — `twilio_setting_enabled == 'off'` blanks
- * the four Twilio values at `SettingController:1419-1423`, and the other panels have the same
- * shape. That is a deliberate, named action rather than a side effect of leaving a box empty.
+ * HOW A SECRET IS CLEARED, since "blank means keep" removes the obvious way: on most panels,
+ * through the panel's own enable toggle, which the handlers honour — `twilio_setting_enabled ==
+ * 'off'` blanks the four Twilio values at `SettingController:1419-1423`. That is a deliberate,
+ * named action rather than a side effect of leaving a box empty, and
+ * `SecretSettingPersistenceTest::test_disabling_the_integration_still_clears_the_credentials`
+ * holds it.
+ *
+ * THE PAYMENT PANEL IS AN EXCEPTION AND HAS NO CLEARING PATH AT ALL. An earlier version of this
+ * paragraph said "the other panels have the same shape"; that was wrong once the payment screen
+ * was converted. `PaymentSettingController::processGateway()` skips every field write when a
+ * gateway is switched off — deliberately, so switching a gateway off and on again keeps its
+ * keys — so on that screen blank means keep and `off` means keep too. A merchant can ROTATE a
+ * gateway credential but cannot REMOVE one. Making the toggle erase them would change behaviour
+ * for 52 providers at once, so the gap is recorded for the owner rather than closed here. Found
+ * by review, not by a test, which is itself the reason it is written down.
  */
 final class SecretSetting
 {

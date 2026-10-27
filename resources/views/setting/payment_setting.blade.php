@@ -1,13 +1,24 @@
 {{--
-    Payment gateways, on the design system — the SHELL only.
+    Payment gateways, on the design system — the shell; the cards are in `payment_partials/`.
     =============================================================================================
 
-    THE GATEWAY CARDS THEMSELVES ARE `setting/payment_partials/payment_gateway.blade.php`, and
-    they still render every stored gateway credential into their inputs. That is the documented
-    exception to F117's claim: "no credential reaches a settings page" holds for the eleven
-    converted panels and NOT for this tab, which is `StoreSettingsAccess::permits()`-gated and is
-    not among F117's sixteen. Converting that partial is a slice of its own, because every
-    gateway's field set is different and the POST contract for each would need pinning first.
+    THE EXCEPTION THIS FILE USED TO DOCUMENT IS CLOSED. It said the gateway cards
+    (`setting/payment_partials/payment_gateway.blade.php`) still rendered every stored credential
+    into their inputs, and that converting them was a slice of its own because each gateway's
+    field set differs and the POST contract would need pinning first. Both halves have since been
+    done: `SettingController::paymentSettingArray()` marks each of the 108 fields
+    `'secret' => true|false`, the partial branches on that flag into `<x-ss.secret-field>`, and
+    `PaymentSettingController::processGateway()` keeps the stored value when a masked box posts
+    empty. The contract is pinned by `tests/Unit/Ui/PaymentGatewayFieldContractTest.php` and the
+    persistence by `tests/Feature/Security/PaymentGatewaySecretPersistenceTest.php`.
+
+    ONE GAP REMAINS AND IS NOT A COMMENT'S TO HIDE: there is now NO WAY TO CLEAR a stored gateway
+    secret from this screen. Blank means keep, and unlike the other converted panels the enable
+    toggle does not blank the fields — `processGateway()` deliberately leaves stored rows alone
+    when a gateway is switched off. So a merchant can rotate a credential but not remove one.
+    Making the off-toggle erase them would change behaviour for 52 providers (today a gateway can
+    be switched off and on again with its keys intact), so it is recorded for the owner rather
+    than decided here.
 
     The header carried an EMPTY `<div class="badge bg-success p-2 px-3 rounded"></div>` — a
     coloured chip with no text, which a screen reader announces as nothing and a sighted reader

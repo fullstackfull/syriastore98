@@ -889,6 +889,41 @@
 
    Logical properties throughout, so the affix lands on the trailing edge in both directions
    without a per-direction rule. */
+/* ---- A payment gateway's logo, with the picker over it ----
+   Replaces `style="top:5px; right:5px;"` on the upload button, which pinned it to the RIGHT edge
+   in both directions -- so in Arabic it sat over the image instead of in the corner. Logical
+   properties put it on the trailing edge either way. */
+.ss-gateway-image {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--ss-space-3);
+    border: 1px solid var(--ss-border);
+    border-radius: var(--ss-radius-md);
+    background: var(--ss-surface-sunken);
+    min-block-size: 7rem;
+}
+.ss-gateway-image__pick {
+    position: absolute;
+    inset-block-start: var(--ss-space-2);
+    inset-inline-end: var(--ss-space-2);
+}
+.ss-gateway-image__img {
+    max-block-size: 100px;
+    max-inline-size: 100%;
+    inline-size: auto;
+}
+
+/* ---- The settings screen's tab filter ----
+   Replaces `style="max-width: 300px; background: transparent;"` on `#tab-search`. The inline
+   `background: transparent` was the actual problem: it let the page behind show through the box,
+   so in dark mode the input had no surface of its own and its border was the only thing marking
+   it. `.ss-input` already supplies a themed surface; only the width needed saying. */
+.ss-setting-search {
+    max-inline-size: 300px;
+}
+
 .ss-input-group {
     display: flex;
     align-items: stretch;
