@@ -936,6 +936,37 @@
     box-shadow: none;
 }
 
+/* ---- The "filters are on" receipt above a filter bar (P2-06-5) ----
+   An ATTENTION surface rather than a neutral one: its whole job is to be noticed, because a
+   restored filter that goes unnoticed is the "my orders are gone" ticket the feature was designed
+   around. Tokens on both axes so it flips with the theme, and logical properties so it mirrors. */
+.ss-filterbar__summary {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--ss-space-2);
+    inline-size: 100%;
+    padding: var(--ss-space-2) var(--ss-space-3);
+    margin-block-end: var(--ss-space-3);
+    border: 1px solid var(--ss-border);
+    border-radius: var(--ss-radius-md);
+    /* The REAL warning tokens -- `--ss-warning-bg` / `--ss-warning-fg`, which exist in all three
+       theme blocks. An earlier draft wrote `--ss-warning-subtle` and `--ss-warning-border` with
+       fallbacks; neither token exists, so the rule read as if it used the warning palette while
+       silently painting the neutral one in every theme. A fallback chain that always falls back
+       is a comment pretending to be code. */
+    background: var(--ss-warning-bg);
+    color: var(--ss-warning-fg);
+}
+.ss-filterbar__summary-text {
+    margin: 0;
+    font-size: var(--ss-text-sm);
+}
+.ss-filterbar__summary-list {
+    font-weight: var(--ss-weight-medium);
+}
+
 /* ---- A payment gateway's logo, with the picker over it ----
    Replaces `style="top:5px; right:5px;"` on the upload button, which pinned it to the RIGHT edge
    in both directions -- so in Arabic it sat over the image instead of in the corner. Logical

@@ -3199,5 +3199,11 @@
     "Search settings": "بحث في الإعدادات",
     "Storage Driver": "مُشغّل التخزين",
     "Where uploaded files are kept, and what may be uploaded": "أين تُحفظ الملفات المرفوعة، وما الذي يُسمح برفعه",
-    "Only these file extensions may be uploaded": "يُسمح برفع هذه الامتدادات فقط"
+    "Only these file extensions may be uploaded": "يُسمح برفع هذه الامتدادات فقط",
+    "We kept the filters you were using.": "أبقينا المرشّحات التي كنت تستخدمها.",
+    "Filters are on.": "المرشّحات مُفعّلة.",
+    "Show all products": "عرض كل المنتجات",
+    "Show all orders": "عرض كل الطلبات",
+    "With variants": "بمتغيّرات",
+    "Without variants": "بدون متغيّرات"
 }

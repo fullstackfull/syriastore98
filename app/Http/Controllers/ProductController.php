@@ -363,6 +363,36 @@ class ProductController extends Controller
     public function index(Request $request,ProductDataTable $dataTable)
     {
         if (auth()->user() && auth()->user()->isAbleTo('Manage Products')) {
+            /*
+             * P2-06-5 — the merchant's filter selection survives navigation and reload.
+             *
+             * INSIDE THE PERMISSION GATE, deliberately: a caller who may not see this list never
+             * reads or writes the memory, and never learns from a redirect that one exists.
+             *
+             * The restore is a 302 rather than a client-side form fill, because the DataTable's
+             * `ajax.url` is `url()->full()` evaluated when the page is RENDERED. Filling the
+             * controls, or rewriting the query with `history.replaceState`, would leave the
+             * table's second leg still requesting the unfiltered url — the page would look
+             * filtered and the rows would not be. A redirect makes a restored request
+             * byte-identical to a typed one.
+             */
+            if ($request->has(\App\Services\TableFilterMemory::CLEAR)) {
+                \App\Services\TableFilterMemory::forget('product');
+
+                return redirect()->route('product.index');
+            }
+
+            if (\App\Services\TableFilterMemory::shouldRestore($request)) {
+                $remembered = \App\Services\TableFilterMemory::recall('product');
+
+                if ($remembered !== []) {
+                    return redirect()->route('product.index', $remembered)
+                        ->with('ss_filters_restored', true);
+                }
+            }
+
+            \App\Services\TableFilterMemory::remember($request, 'product');
+
             $products = Product::where('product_type', null)->where('store_id', getCurrentStore())->orderBy('id', 'desc')->get();
             $settings = Setting::where('store_id', getCurrentStore())->pluck('value', 'name')->toArray();
 

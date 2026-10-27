@@ -42,6 +42,16 @@
 <form method="GET" action="{{ route('order.index') }}" data-ss-order-filters
       class="ss-scope ss-filterbar" role="search" aria-label="{{ __('Filter orders') }}">
 
+    {{-- P2-06-5. The receipt renders whenever filters are in force, not only after a restore:
+         the "we kept these" flash survives one request, so a RELOAD of a restored page would
+         otherwise be the silently-narrowed screen this exists to prevent. --}}
+    <x-ss.filter-summary
+        :filters="\App\Services\TableFilterMemory::describe(request(), 'order', [])"
+        :clear-url="route('order.index', ['ss_clear' => 1])"
+        :clear-label="__('Show all orders')"
+        :restored="(bool) session('ss_filters_restored')" />
+
+
     <div class="ss-filterbar__field">
         <label class="ss-label" for="ss-filter-order-status">{{ __('Order Status') }}</label>
         <select class="ss-select" id="ss-filter-order-status" name="ss_status">
@@ -95,13 +105,25 @@
     </div>
 
     <div class="ss-filterbar__actions">
-        <button type="submit" class="ss-btn ss-btn--primary">{{ __('Apply filters') }}</button>
+        {{-- `name="ss_apply"`: its PRESENCE is what writes the filter memory (P2-06-5). Without it,
+             any url carrying an `ss_` parameter -- a bookmark, a link in an email, a url pasted
+             between colleagues -- would silently become this merchant's new default. --}}
+        <button type="submit" name="ss_apply" value="1" class="ss-btn ss-btn--primary">{{ __('Apply filters') }}</button>
 
-        @if (request()->query('ss_status') !== null || request()->query('ss_payment') !== null
-            || request()->query('ss_from') !== null || request()->query('ss_to') !== null)
-            {{-- A link, not `type="reset"`: reset restores the form's initial values, which on a
-                 filtered page are the filters themselves. Clearing means the unfiltered url. --}}
-            <a class="ss-btn ss-btn--ghost" href="{{ route('order.index') }}">{{ __('Clear filters') }}</a>
+        {{-- NON-EMPTY, NOT MERELY PRESENT, and the old test was a real defect: a GET form
+             submits every control, so Apply with every select on "Any" yields
+             `?ss_status=&ss_stock=&...`, where `query('ss_status')` is `''` -- which is
+             `!== null`. So an UNFILTERED list showed a "Clear filters" button, and the button
+             that is meant to be the honest signal that something is on was on when nothing was.
+
+             `?ss_clear=1` rather than the bare url, because the bare url is exactly what a
+             restore re-decorates: without a distinct forget signal, Clear would hop to
+             `/order`, the memory would fire, and the merchant would be returned to the
+             filters they just asked to leave. --}}
+        @if (\App\Services\TableFilterMemory::describe(request(), 'order', []) !== [])
+            {{-- A LINK, not `type="reset"`: reset restores the form's initial values, which on a
+                 filtered page are the filters themselves. --}}
+            <a class="ss-btn ss-btn--ghost" href="{{ route('order.index', ['ss_clear' => 1]) }}">{{ __('Clear filters') }}</a>
         @endif
     </div>
 </form>

@@ -481,6 +481,31 @@ public function store(Request $request)
     public function index(Request $request, OrderDataTable $dataTable)
     {
         if ($this->mayUseOrderScreen('Manage Order')) {
+            /*
+             * P2-06-5 — see the twin in `ProductController::index()` for why this is a 302 and
+             * not a client-side form fill, and `App\Services\TableFilterMemory` for why the
+             * store is the server session.
+             *
+             * INSIDE THE PERMISSION GATE: a caller who may not see orders never reads or writes
+             * the memory.
+             */
+            if ($request->has(\App\Services\TableFilterMemory::CLEAR)) {
+                \App\Services\TableFilterMemory::forget('order');
+
+                return redirect()->route('order.index');
+            }
+
+            if (\App\Services\TableFilterMemory::shouldRestore($request)) {
+                $remembered = \App\Services\TableFilterMemory::recall('order');
+
+                if ($remembered !== []) {
+                    return redirect()->route('order.index', $remembered)
+                        ->with('ss_filters_restored', true);
+                }
+            }
+
+            \App\Services\TableFilterMemory::remember($request, 'order');
+
             return $dataTable->render('order.index');
         } else {
             return redirect()->back()->with('error', __('Permission denied.'));
