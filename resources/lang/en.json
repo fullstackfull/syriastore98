@@ -3159,5 +3159,7 @@
     "Send an email when": "Send an email when",
     "Enable the PWA": "Enable the PWA",
     "Search payment gateway": "Search payment gateway",
-    "Enable WhatsApp support": "Enable WhatsApp support"
+    "Enable WhatsApp support": "Enable WhatsApp support",
+    "No pixels yet": "No pixels yet",
+    "No webhooks yet": "No webhooks yet"
 }
