@@ -60,18 +60,24 @@ class SettingsCredentialExposureTest extends TestCase
      * does a fixed one left in the list. That second direction is what forced this edit, and it
      * is the half that keeps the list honest.
      */
-    private const KNOWN_EXPOSED = [
-        'resources/views/setting/chatgpt_setting.blade.php:36 api_key[]',
-        'resources/views/setting/email_fields.blade.php:163 mail_password',
-        'resources/views/setting/email_fields.blade.php:168 mail_encryption',
-        'resources/views/setting/email_fields.blade.php:173 mail_encryption',
-        'resources/views/setting/index.blade.php:251 delivery_syria_token',
-        'resources/views/setting/storage_setting.blade.php:74 s3_secret',
-        'resources/views/setting/storage_setting.blade.php:152 wasabi_secret',
-        'resources/views/setting/test_mail.blade.php:8 mail_password',
-        'resources/views/setting/test_mail.blade.php:9 mail_encryption',
-        'resources/views/setting/test_whatsappmessage.blade.php:6 whatsapp_access_token',
+    /**
+     * FIELDS THE PATTERN MATCHES THAT ARE NOT CREDENTIALS, named one at a time with the reason.
+     *
+     * `CREDENTIAL_PATTERN` includes `encryption` because `encryption_key` really is a secret.
+     * `mail_encryption` is not: it is the transport mode, `tls` or `ssl` or empty. Carrying it in
+     * `KNOWN_EXPOSED` was dishonest in both directions — it inflated the count of credentials
+     * still owed, and it invited the next person to "fix" it by masking a field whose whole
+     * purpose is to show which mode is selected. A masked `tls` helps nobody and hides nothing.
+     *
+     * This list is deliberately per-FIELD rather than a pattern change: narrowing the pattern
+     * would also stop it catching a future `payment_encryption_secret`.
+     */
+    private const NOT_A_CREDENTIAL = [
+        // The SMTP transport mode: `tls`, `ssl`, or empty. Not a secret, and useful to see.
+        'mail_encryption',
     ];
+
+    private const KNOWN_EXPOSED = [];
 
     /**
      * The repository root, derived from this file's own location rather than from `base_path()`.
@@ -79,6 +85,20 @@ class SettingsCredentialExposureTest extends TestCase
      * This is a pure unit test: it reads files and parses text, and booting the framework to ask
      * for a path it already knows would be the only reason it needed an application at all.
      */
+    /**
+     * A field name that looks like a credential AND is not on the declared exemption list.
+     */
+    private static function isCredentialName(string $name): bool
+    {
+        $bare = rtrim($name, '[]');
+
+        if (in_array($bare, self::NOT_A_CREDENTIAL, true)) {
+            return false;
+        }
+
+        return (bool) preg_match(self::CREDENTIAL_PATTERN, $name);
+    }
+
     private function repoPath(string $relative = ''): string
     {
         $root = dirname(__DIR__, 3);
@@ -148,7 +168,7 @@ class SettingsCredentialExposureTest extends TestCase
             foreach ($this->inputTags($text) as [$offset, $tag]) {
                 $name = $this->attribute($tag, 'name');
 
-                if ($name === null || ! preg_match(self::CREDENTIAL_PATTERN, $name)) {
+                if ($name === null || ! self::isCredentialName($name)) {
                     continue;
                 }
 
@@ -171,7 +191,7 @@ class SettingsCredentialExposureTest extends TestCase
                 PREG_OFFSET_CAPTURE
             )) {
                 foreach ($matches[1] as $k => [$name, $_]) {
-                    if (! preg_match(self::CREDENTIAL_PATTERN, $name)) {
+                    if (! self::isCredentialName($name)) {
                         continue;
                     }
 
@@ -265,13 +285,25 @@ class SettingsCredentialExposureTest extends TestCase
      *
      * BOTH HALVES ARE THE PATTERN. Masking the field alone would be worse than the exposure,
      * because these panels post every field on every save: an empty box plus an unchanged save
-     * path wipes the credential the first time anyone presses Save on an unrelated setting. The
-     * sixteen fields in KNOWN_EXPOSED should be migrated to exactly this shape, display and
-     * persistence together, as the body of P2-05-7 / P2-05-8.
+     * path wipes the credential the first time anyone presses Save on an unrelated setting.
      *
-     * This test pins the precedent so it cannot be removed while the sixteen still point at it,
-     * and it fails when a SECOND field adopts the pattern — at which point that field comes off
-     * KNOWN_EXPOSED and goes on here, and the ratchet has tightened by one.
+     * The sixteen fields that were in KNOWN_EXPOSED have now been migrated, display and
+     * persistence together, and the list is empty. They did NOT copy this precedent's raw markup:
+     * they went to `<x-ss.secret-field>` with `SecretSetting::resolve()` on the save path, which
+     * is the same contract in one place instead of sixteen. This test's job is therefore no
+     * longer "there is one precedent to copy" but "these are the only RAW masked inputs left" —
+     * a new one appearing means somebody hand-rolled the pattern instead of using the component,
+     * which is how the display half ends up shipped without the persistence half.
+     *
+     * Two are expected, and neither can be the component:
+     *
+     *   - `otp_setting.blade.php api_secret` — the original precedent, guarded by
+     *     `$request->filled('api_secret')` in OtpIntegrationController. Asserted as a pair below.
+     *   - `setting/index.blade.php api_key[]`, twice — the add-a-row templates for the ChatGPT
+     *     key repeater. They are JavaScript string literals cloned into the DOM on click, so
+     *     Blade never renders them and a Blade component cannot be used. They carry no stored
+     *     value by construction (a cloned row is always a NEW key), so there is no persistence
+     *     half to pair: the F117 risk they carry is only shoulder-surfing a key being typed.
      */
     public function test_the_masked_credential_pattern_exists_and_is_the_one_to_copy(): void
     {
@@ -288,7 +320,7 @@ class SettingsCredentialExposureTest extends TestCase
                 $name = $this->attribute($tag, 'name');
 
                 if ($name !== null
-                    && preg_match(self::CREDENTIAL_PATTERN, $name)
+                    && self::isCredentialName($name)
                     && $this->attribute($tag, 'type') === 'password') {
                     $masked[] = str_replace($this->repoPath() . '/', '', $file->getPathname()) . " $name";
                 }
@@ -298,12 +330,19 @@ class SettingsCredentialExposureTest extends TestCase
         sort($masked);
 
         $this->assertSame(
-            ['resources/views/setting/otp_setting.blade.php api_secret'],
+            [
+                'resources/views/setting/index.blade.php api_key[]',
+                'resources/views/setting/index.blade.php api_key[]',
+                'resources/views/setting/otp_setting.blade.php api_secret',
+            ],
             $masked,
-            'the set of MASKED credential fields has changed. If a field was added, move it off '
-            . 'KNOWN_EXPOSED in the same change and confirm its controller guards the write with '
-            . '`$request->filled(...)`, or the save will erase the stored secret. If the OTP one '
-            . 'was removed, the only working precedent in the codebase has gone with it.'
+            'the set of RAW masked credential inputs has changed. A new entry means a credential '
+            . 'field was hand-rolled as `type="password"` instead of going through '
+            . '`<x-ss.secret-field>`: use the component, which carries the hint and the '
+            . '`autocomplete="new-password"` with it, and pair it with '
+            . '`SecretSetting::resolve()` on the save path — a masked box over an unguarded save '
+            . 'ERASES the stored credential. A removed entry means one of the three documented '
+            . 'exceptions is gone; read the docblock before accepting that.'
         );
 
         /* The display half is worthless without the persistence half, so the precedent is
@@ -322,5 +361,35 @@ class SettingsCredentialExposureTest extends TestCase
 
         $this->assertStringContainsString('Leave empty to keep current secret', $view,
             'the placeholder that tells the merchant an empty field is not a deletion');
+    }
+
+    /**
+     * THE EXEMPTION IS EXACT, so it cannot quietly swallow a real credential.
+     *
+     * `NOT_A_CREDENTIAL` exists because `mail_encryption` is a transport mode, not a secret. The
+     * risk of any such list is that it grows a pattern and starts hiding things: this asserts the
+     * match is on the whole field name, so a field whose name merely CONTAINS the exempt one —
+     * or which shares its keyword — is still caught.
+     */
+    public function test_the_not_a_credential_exemption_matches_whole_names_only(): void
+    {
+        $method = new \ReflectionMethod(self::class, 'isCredentialName');
+        $method->setAccessible(true);
+
+        $this->assertFalse($method->invoke(null, 'mail_encryption'),
+            'the declared exemption must apply');
+
+        foreach ([
+            'payment_encryption_secret',
+            'mail_encryption_key',
+            'encryption_key',
+            'mail_password',
+            's3_secret',
+            'api_key[]',
+        ] as $name) {
+            $this->assertTrue($method->invoke(null, $name),
+                "`$name` must still be treated as a credential — the exemption is for one exact "
+                . 'field name, not for a keyword');
+        }
     }
 }

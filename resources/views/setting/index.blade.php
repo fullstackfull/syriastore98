@@ -247,9 +247,15 @@ $activeTab = session()->get('setting_tab') ?? 'email_setting';
             <div class="row">
                 <div class="col-md-12">
                     <div class="form-group">
-                        <label class="form-label">{{ __('Delivery Syria Secret Token') }}</label>
-                        <input type="text" name="delivery_syria_token" class="form-control" 
-                               value="{{auth()->user()->	deliverysyria_secret}}">
+                        {{-- F117: the stored token never reaches the page. It lives on the USER row
+                             (`users.deliverysyria_secret`), not in `settings`, so the handler falls back to the
+                             model rather than to `Setting` — the same rule, a different store. --}}
+                        <x-ss.secret-field
+                            name="delivery_syria_token"
+                            :label="__('Delivery Syria Secret Token')"
+                            :stored="auth()->user()->deliverysyria_secret" />
+                    </div>
+                </div>
             </div>
             <div class="col-md-12 text-right">
                 <button type="submit" class="btn btn-primary">{{ __('Save Changes') }}</button>
@@ -279,7 +285,7 @@ $activeTab = session()->get('setting_tab') ?? 'email_setting';
         var addButton = $('.add_button'); //Add button selector
         var wrapper = $('.field_wrapper'); //Input field wrapper
         var fieldHTML =
-            '<div class="d-flex gap-1 mb-4"><input type="text" class="form-control" placeholder="{{__('Enter Chatgpt Key Here')}}" name="api_key[]" value=""/><a href="javascript:void(0);" class="remove_button btn btn-danger"><i class="ti ti-trash"></i></a></div>'; //New input field html
+            '<div class="d-flex gap-1 mb-4"><input type="password" class="form-control" autocomplete="new-password" spellcheck="false" aria-label="{{__('Chat GPT Key')}}" placeholder="{{__('Enter Chatgpt Key Here')}}" name="api_key[]" value=""/><a href="javascript:void(0);" class="remove_button btn btn-danger" title="{{__('Remove field')}}"><i class="ti ti-trash" aria-hidden="true"></i></a></div>'; //New input field html
         var x = 1; //Initial field counter is 1
 
         //Once add button is clicked
@@ -638,8 +644,8 @@ $activeTab = session()->get('setting_tab') ?? 'email_setting';
         var maxField = 100;
         var fieldHTML = 
             '<div class="d-flex gap-1 mb-4">' + 
-                '<input type="text" class="form-control" name="api_key[]" value="" placeholder="{{__('Enter Chatgpt Key Here')}}"/>' + 
-                '<a href="javascript:void(0);" class="remove_button btn btn-danger"><i class="ti ti-trash"></i></a>' + 
+                '<input type="password" class="form-control" autocomplete="new-password" spellcheck="false" aria-label="{{__('Chat GPT Key')}}" name="api_key[]" value="" placeholder="{{__('Enter Chatgpt Key Here')}}"/>' + 
+                '<a href="javascript:void(0);" class="remove_button btn btn-danger" title="{{__('Remove field')}}"><i class="ti ti-trash" aria-hidden="true"></i></a>' + 
             '</div>';
         var x = 1; // Reset counter if needed
 

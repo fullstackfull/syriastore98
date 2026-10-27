@@ -5,7 +5,9 @@
     <input type="hidden" name="mail_host" value="{{$data['mail_host']}}" />
     <input type="hidden" name="mail_port" value="{{$data['mail_port']}}" />
     <input type="hidden" name="mail_username" value="{{$data['mail_username']}}" />
-    <input type="hidden" name="mail_password" value="{{$data['mail_password']}}" />
+    {{-- F117: the SMTP password is NOT posted back through the browser. It used to sit here in a
+         hidden input carrying the stored value. The send handler resolves it: what the merchant
+         typed if they typed one, otherwise the stored value — never published to the page. --}}
     <input type="hidden" name="mail_encryption" value="{{$data['mail_encryption']}}" />
     <input type="hidden" name="mail_from_address" value="{{$data['mail_from_address']}}" />
     <input type="hidden" name="mail_from_name" value="{{$data['mail_from_name']}}" />

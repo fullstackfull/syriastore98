@@ -159,8 +159,11 @@
 
 
         <div class="form-group col-md-4">
-            <label for="mail_password" class="form-label">{{ __('Mail Password') }}</label>
-            {{ Form::text('mail_password',  isset($setting['MAIL_PASSWORD']) ? $setting['MAIL_PASSWORD'] : null,  ['class' => 'form-control', 'placeholder' => __('Enter Mail Password'), 'id' => 'mail_password']) }}
+            {{-- F117: the stored credential never reaches the page; the handler keeps it when this box posts empty. Note the NAME CHANGE: the field posts as `mail_password` and is stored as `MAIL_PASSWORD`. --}}
+            <x-ss.secret-field
+                name="mail_password"
+                :label="__('Mail Password')"
+                :stored="$setting['MAIL_PASSWORD'] ?? null" />
         </div>
         @if ($email_setting == 'custom')
         <div class="form-group col-md-4">

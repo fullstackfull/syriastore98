@@ -277,6 +277,47 @@ class SecretSettingPersistenceTest extends SecurityTestCase
                 ['woocommerce_setting_enabled' => 'on', 'woocommerce_store_url' => 'https://invented2.example.test', 'woocommerce_consumer_key' => 'INVENTED-KEY'],
                 'woocommerce_store_url', 'https://invented2.example.test',
             ],
+
+            /* ADDED [2026-10-27] AFTER AN INDEPENDENT REVIEW FOUND THESE THREE PANELS UNSAVEABLE.
+               Their fields were masked and their saves were converted, but their validators were
+               left at a flat `required`, so an ordinary save of the panel failed with "The mail
+               password field is required" and `keepStoredSecret()` below was never reached. It
+               fails CLOSED — nothing is erased — but the panel cannot be saved without retyping
+               the secret, and nothing in the suite drove either route, so the whole thing shipped
+               past a green run. The provider covering only two of the five converted panels is
+               the actual defect here; these three close it.
+
+               NOTE the field/storage split for mail: the input posts `mail_password`, the row is
+               `MAIL_PASSWORD`. */
+            'email (SMTP)' => [
+                '/email-settings', 'mail_password', 'MAIL_PASSWORD',
+                [
+                    'email_setting' => 'SMTP', 'mail_driver' => 'smtp', 'mail_host' => 'smtp.invented.test',
+                    'mail_port' => '587', 'mail_username' => 'mailer', 'mail_encryption' => 'tls',
+                    'mail_from_address' => 'shop@invented.test', 'mail_from_name' => 'Invented',
+                ],
+                'MAIL_HOST', 'smtp.invented.test',
+            ],
+            'storage (S3)' => [
+                '/storage-settings', 's3_secret', 's3_secret',
+                [
+                    'storage_setting' => 's3', 's3_key' => 'INVENTED-KEY', 's3_region' => 'eu-west-1',
+                    's3_bucket' => 'invented-bucket', 's3_url' => 'https://s3.invented.test',
+                    's3_endpoint' => 'https://s3.invented.test', 's3_max_upload_size' => '2048',
+                    's3_storage_validation' => ['jpg', 'png'],
+                ],
+                's3_bucket', 'invented-bucket',
+            ],
+            'storage (Wasabi)' => [
+                '/storage-settings', 'wasabi_secret', 'wasabi_secret',
+                [
+                    'storage_setting' => 'wasabi', 'wasabi_key' => 'INVENTED-KEY', 'wasabi_region' => 'eu-central-1',
+                    'wasabi_bucket' => 'invented-bucket-w', 'wasabi_url' => 'https://wasabi.invented.test',
+                    'wasabi_root' => 'root', 'wasabi_max_upload_size' => '2048',
+                    'wasabi_storage_validation' => ['jpg', 'png'],
+                ],
+                'wasabi_bucket', 'invented-bucket-w',
+            ],
         ];
     }
 }

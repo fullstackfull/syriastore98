@@ -29,6 +29,11 @@ use Illuminate\Support\Facades\Schema;
  * here, and the operator control below proves the tab really rendered.
  *
  * Sentinels carry `FIXTURE` so the CI secret scan's generic-assigned-secret rule exempts them.
+ *
+ * [2026-10-27] F117 went further than this finding did: the key no longer reaches the page for
+ * ANY principal, the operator included, so the operator control below asserts the row and the
+ * "a value is saved" hint instead of the value. The refusals are unchanged — a merchant and
+ * their staff still get 403 from the READ handler, which is what P1-SEC-19 was about.
  */
 class ChatgptKeyDisclosureTest extends SecurityTestCase
 {
@@ -92,16 +97,44 @@ class ChatgptKeyDisclosureTest extends SecurityTestCase
         return (string) (json_decode($response->getContent(), true)['data']['content'] ?? '');
     }
 
-    /** THE PREMISE: the tab renders, and the key is in it, for the principal who is meant to see it. */
-    public function test_the_operator_still_gets_the_key_tab(): void
+    /**
+     * THE PREMISE, RE-BASED BY F117 [2026-10-27].
+     *
+     * This used to assert that the operator's copy of the tab CONTAINED the key — the premise
+     * that made the merchant and staff refusals below mean something. F117 removed the value
+     * from the page for every principal, the operator included, so that assertion now fails
+     * against the correct behaviour and the premise has to be carried by something else.
+     *
+     * It is carried by the ROW, not the value: the tab must still render, must still list the
+     * key the operator manages (its field is `api_key[e<id>]`, keyed on the row id precisely
+     * because the value can no longer identify it), and must still say a value is saved. What it
+     * must NOT contain is the key itself.
+     *
+     * Deleting this test instead would have been the cheap move and the wrong one — then
+     * `test_a_merchant_does_not_receive_the_platform_keys` would pass against a tab that renders
+     * nothing at all, which is the exact failure mode the original premise existed to rule out.
+     */
+    public function test_the_operator_still_gets_the_key_tab_without_the_key_in_it(): void
     {
         $operator = $this->operatorWithKey();
+        $row = ApikeySetiings::where('created_by', $operator->id)->firstOrFail();
 
         $response = $this->tab($operator, 'chat_gpt_setting');
 
         $response->assertOk();
         $this->assertTrue((bool) json_decode($response->getContent(), true)['is_success'], 'Premise: the tab did not render. ' . substr($response->getContent(), 0, 200));
-        $this->assertStringContainsString(self::PLATFORM_KEY, $this->content($response), 'The operator must still see the platform keys they manage.');
+
+        $content = $this->content($response);
+
+        $this->assertStringContainsString('api_key[e' . $row->id . ']', $content,
+            'the operator must still see the row for the key they manage — if the tab stops '
+            . 'listing it, the refusal tests below start passing for the wrong reason');
+        $this->assertStringContainsString('A value is saved', $content,
+            'the masked box must say a value is saved, or an operator cannot tell a configured '
+            . 'key from an empty one');
+
+        $this->assertStringNotContainsString(self::PLATFORM_KEY, $content,
+            'F117: the stored key must not reach the page for ANY principal, the operator included');
     }
 
     public function test_a_merchant_does_not_receive_the_platform_keys(): void

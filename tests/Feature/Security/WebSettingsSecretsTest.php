@@ -173,12 +173,46 @@ class WebSettingsSecretsTest extends SecurityTestCase
         $this->assertStringNotContainsString(self::SMTP_SECRET, $response->getContent());
     }
 
-    public function test_the_owner_gets_the_email_fields_with_the_password(): void
+    /**
+     * THE PREMISE, RE-BASED BY F117 [2026-10-27].
+     *
+     * This used to assert that the owner's copy of the SMTP fields CONTAINED the password — the
+     * premise that made the 403 above matter, because an endpoint that hands out nothing is not
+     * worth refusing. F117 took the password out of the payload for everyone, so the premise is
+     * now carried by the fields that are NOT secret: the host and username the owner is editing
+     * must still arrive, and the password must not.
+     *
+     * The assertion above (`assertStringNotContainsString(SMTP_SECRET)` on the staff response)
+     * is consequently no longer load-bearing — it would pass for the owner too. The 403 is what
+     * that test asserts now, and it is left in place because it is still the right thing to be
+     * true.
+     */
+    public function test_the_owner_gets_the_email_fields_without_the_password(): void
     {
         $response = $this->actingAs($this->merchant)->post('/get-email-fields', ['emailsetting' => 'SMTP']);
 
         $response->assertOk();
-        $this->assertStringContainsString(self::SMTP_SECRET, $response->getContent(), 'Premise: the fields carry the password.');
+
+        /* Decode first: the fields come back as JSON-escaped HTML under `html`, so a raw-body
+           `value="587"` never matches — the body holds `value=\"587\"`. */
+        $body = (string) (json_decode($response->getContent(), true)['html'] ?? '');
+
+        $this->assertNotSame('', $body, 'Premise: the response carried no `html` key at all.');
+
+        /* The witnesses are the stored NON-secret values this partial actually renders. It
+           carries the driver, port, encryption and the two From fields — not the host or the
+           username, which are stored but have no input here. Picking a value the partial never
+           renders would have made this premise unsatisfiable rather than strict, and the first
+           draft did exactly that. */
+        $this->assertStringContainsString('shop@example.test', $body,
+            'Premise: the owner must still receive the SMTP fields they are editing. If the '
+            . 'endpoint starts returning nothing, the staff refusal above passes for the wrong '
+            . 'reason.');
+        $this->assertStringContainsString('value="587"', $body,
+            'Premise: the stored port is read back, so the handler really loaded this store\'s settings.');
+
+        $this->assertStringNotContainsString(self::SMTP_SECRET, $body,
+            'F117: the stored SMTP password must not reach the page, for the owner either');
     }
 
     // ---------------------------------------------------------------------------------------------

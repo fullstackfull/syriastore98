@@ -3995,3 +3995,185 @@ That is the same lesson as F123's exit detector, which keyed on one spelling of 
 missed two post-capture exits. Recorded twice because it has now cost a real defect twice: **a
 source-text check is only as wide as the spellings it knows, and the one it does not know is where
 the bug lives.**
+
+---
+
+## 34. F117 — the credential migration, and the four false readings it produced
+
+Sixteen credential fields across eleven settings panels rendered their stored value into the page.
+All sixteen are now converted and the exposure ratchet's list is **empty**. What follows is not
+the change — the diff is the change — but the things the diff could not have shown.
+
+### 34a. The ratchet had to go to zero AND still bite
+
+An empty allowlist is the easiest kind of test to break without noticing: delete the scanner's
+body and it passes forever. So the empty list was bitten. Reinstating the exact markup that was
+removed from the ChatGPT panel —
+
+```blade
+<input type="text" name="api_key[]" value="{{ $key_data->key }}">
+```
+
+— turns `test_no_settings_screen_newly_echoes_a_stored_credential` red, and removing it turns it
+green again. Executed in both directions before the list was trusted.
+
+Three raw `type="password"` inputs remain, and each is a documented exception rather than an
+oversight: `otp_setting.blade.php api_secret` (the original precedent, paired with
+`OtpIntegrationController`'s `filled()` guard) and the two **JavaScript string templates** the
+ChatGPT add-a-row button clones into the DOM. Blade never renders those two, so a Blade component
+cannot be used; they carry no stored value by construction — a cloned row is always a new key —
+so there is no persistence half to pair, and the only F117 risk they carry is shoulder-surfing a
+key as it is typed. The precedent test now pins that set of three rather than a single entry, so a
+fourth hand-rolled masked input fails it.
+
+### 34b. Resolving at the save would have been too late — for one field
+
+`delivery_syria_token` is **posted to an external verifier before it is stored**. A merchant
+re-syncing their shipping zones leaves the masked box alone, so resolving only at the save would
+have sent the empty string to `deliverysyria.com`, failed verification against a token that is
+valid and still stored, and dropped the merchant into *"Token updated but verification failed"*
+with no way to tell why. The resolve happens before the call, and the proof is not the save
+assertion — it is `Http::assertSent(fn ($r) => $r->data()['secret'] === …)`.
+
+Two more things about that handler, found because the test had to drive it:
+
+- Its route carried `auth` and **no permission at all**, so any logged-in member of the store
+  could rewrite the store's shipping zones, its per-zone costs and the owner's courier token. It
+  now goes through `StoreSettingsAccess::permits()` — the same operator-first decision point the
+  other integration handlers use — and the refusal lands *before* the outbound call, so an
+  unprivileged user cannot make the server post to a third party either. `Http::assertNothingSent()`.
+- Its `catch (\Exception)` reports **every** exception as *"Could not connect to verification
+  server"*. A foreign-key failure writing `shipping_zones` is indistinguishable, to the merchant
+  and to a test, from the courier being down. That is left as-is (changing a user-facing error
+  message is not this slice's work) but it is why the fixture seeds `countries`/`states` — see
+  34d.
+
+### 34c. A masked repeater needs an identity, and the old one was the value
+
+The ChatGPT keys are rows in `apikey_setiings`, and the old save used the posted **value** as the
+row's identity: `updateOrCreate(['key' => $posted])` then `whereNotIn('key', $posted)->delete()`.
+A masked box posts nothing that identifies a row, so each saved key now posts its own row id as
+`api_key[e<id>]`, while a row the add-button JS clones keeps the bare `api_key[]` and arrives
+under an integer key. PHP merges the two shapes in one array, which is why the field names do not
+have to be renumbered client-side.
+
+The row id now travels in the request, so it is **caller-supplied input**: it is resolved as
+`where('created_by', $owner)->find($id)`, never `find($id)` alone, and a forged id belonging to
+another operator reaches nothing. The reconciling delete gained the `created_by` predicate it
+never had. That is forced by the masking rather than a widening of scope: the form now lists only
+the caller's rows, so an unscoped delete would wipe every other operator's keys on the first save.
+
+### 34d. Four false readings, and one wrong story written into three docblocks
+
+Every case carries a witness assertion on a non-secret field, because **a refused request looks
+exactly like a preserved credential**. The witnesses earned their place four times:
+
+| What looked like a pass | What was actually happening |
+|---|---|
+| Twilio secrets "survived" | `current_store` was set but no `Store` row existed, so `getCurrentStore()` was NULL and the handler wrote nothing at all |
+| Shopify secrets "survived" | the payload used the wrong field name — `shopify_store_url` is a DNS **label** under P1-SEC-06, not a URL — so validation refused the request |
+| the Delivery Syria token "survived" | `shipping_zones` has FKs onto `countries` and `states` and the handler hard-codes country 215; `ShippingZone::create()` threw, the `catch` returned 302, and the save was never reached |
+| a deleted ChatGPT key "survived" | `ApikeySetiings` is `Cachable`; under `CACHE_STORE=array` the model cache served a row the query-builder delete had already removed. The table is read with `DB::table(...)` now |
+
+The fourth is the documented `Cachable` trap in `CLAUDE.md`, met for the third time in this
+project — and the first time in a *negative* assertion, where stale data reads as "still there"
+rather than "not yet applied".
+
+**And one claim was simply wrong.** The first draft of the ledger row and of three docblocks said
+that masking the ChatGPT boxes under the legacy save would have *deleted every key on the first
+blank submit*. It would not. `ConvertEmptyStringsToNull` runs before the handler, so a blank box
+arrives as **NULL, not `''`**, and `whereNotIn('key', [null])` is SQL three-valued logic: it
+matches no row, so the legacy delete silently stopped reconciling instead of over-deleting. The
+over-delete is real but needs the opposite input — every box filled, where the unscoped delete
+removed 2 of 2 rows belonging to another operator (executed against the legacy code).
+
+The wrong story was plausible, was written in three places, and was caught only because the
+legacy-code bite test reported `deleted: 0` where the story predicted `deleted: all`. It is
+recorded here because the failure mode is not carelessness: it is reasoning about a save path
+without executing the middleware stack in front of it.
+`test_an_empty_box_arrives_as_null_and_resolve_treats_it_as_absent` now pins the premise, in the
+test file rather than in prose, so the next person inherits the measurement instead of the story.
+
+### 34e. What is not claimed
+
+- **MySQL.** These are string columns and the decision is in PHP, but nothing here has been
+  executed against MySQL and it is not claimed to be. SQLite's type affinity is why P01-SEC-13
+  survived a green suite.
+- **A full Feature-suite gate run on this tree.** Owed at the next integration milestone. Unit
+  (442) and the two F117 feature classes (18) are green; that is evidence about those tests, not
+  about the project.
+
+### 34f. What the independent review found — three of the four defects were mine
+
+`tenant-authz-reviewer` was run on the diff before it was committed, and it is the reason this
+slice is not shipping with a credential-exfiltration path in it. Four findings, all verified
+against the source before being acted on, three of them **created by the F117 change itself**.
+
+**1 — HIGH, new. A staff member could have exfiltrated the store's SMTP password.** Masking a
+field is not only a display change: every handler that falls back to the stored value becomes a
+handler that **will use a secret the caller does not know**. On a save path that is harmless —
+the value goes back where it came from. On a *send* path it is not, because the caller chooses
+where it goes. `testSendMail` merges the resolved `MAIL_PASSWORD` into the request and hands the
+whole request to `SetConfigEmail()`, which sets `mail.host`, `mail.username` and `mail.password`
+from it. Its route carries `auth, xss, setlocate, verified` and **no permission check**.
+
+Before F117 that was survivable: the settings tab 403s a staff member without `Manage Setting`
+(P1-SEC-18 F5), so they could not learn the password, and the handler made them supply one. After
+F117 the server supplies it — so `mail_host=smtp.attacker.example` with the password box left
+empty would have had the application authenticate to a caller-chosen host with the merchant's
+saved credential. **This re-opened P1-SEC-18 F5 through a different door**, and no test in the
+repository would have noticed, because every F117 test drove a principal who was allowed.
+
+`testSendMail` and `TestMail` now go through the same `StoreSettingsAccess::permits()` that
+guards the tab the credential came from, so the two doors cannot drift apart again. The assertion
+is on `config('mail.password')` after the request, not on a delivered email: what the SMTP
+handshake then does is the attacker's business, and the defect is that the application loaded the
+secret into a transport at all.
+
+**2 — MEDIUM-HIGH, new. The same shape in `testSendwhatsappmassage`**, with a smaller loss: the
+Bearer token goes to the literal `graph.facebook.com` and the phone-number id is interpolated
+*after* the authority, so the token cannot be redirected to another host. What an unprivileged
+caller gained was use of the merchant's WhatsApp account against an arbitrary number. Same gate,
+on the send handler and on the modal that opens it.
+
+**3 — HIGH availability, live. Three converted panels were left unsaveable.** Their fields were
+masked and their saves were converted, but their *validators* were left at a flat `required`:
+`mail_password` in `saveEmailSettings`, `s3_secret` and `wasabi_secret` in `StorageSettings`. An
+ordinary save of the panel failed with "The mail password field is required" and
+`keepStoredSecret()` below was never reached. It fails **closed** — nothing is erased — but the
+panel cannot be saved without retyping the secret.
+
+This is the defect class the slice had already identified, written up and fixed *twice* on other
+panels, and it still shipped past a green suite — because `convertedPanels()` covered only two of
+the five converted panels, and the two it covered were the two that had been fixed. **A data
+provider is a coverage claim, and nothing was checking that claim against the list of panels
+actually converted.** All five are in it now.
+
+**4 — MEDIUM. Two of the new tests could pass against a refusal.** `ChatgptSettings` returns the
+*same* redirect on refusal as on success, so `assertRedirect()` accepts both, and a case whose
+only assertion is "the other operator's key is still there" passes just as well against a handler
+that did nothing. Both flagged cases — and the three others in the file that had the same shape —
+now call `assertTheKeySaveRan()`, which checks the non-secret `chat_gpt_model` row the success
+path writes. Verified by making the handler refuse everyone: **seven of eleven cases go red**,
+where before the fix only four did.
+
+**5 — LOW, not acted on.** Scoping the ChatGPT panel's read to `created_by = auth()->user()->id`
+means that with more than one operator account — or with legacy rows owned by a different one —
+the panel can show "No value is saved yet" while a key is live and billing, because
+`AITemplateController`'s platform fallback picks the lowest-id key owned by **any** `super admin`.
+It is a visibility problem and not a hole: the scoped delete leaves the invisible rows alone
+(checked specifically for the `$keptIds === []` branch), so no principal gains anything. Matching
+the read to `AITemplateController`'s wider predicate would widen the *save's* blast radius, which
+is the wrong trade inside F117. Recorded here rather than changed.
+
+**And one scope correction.** "No credential reaches a settings page" is accurate for the eleven
+converted panels and **not** for the payment tab, which still renders every gateway credential
+into its inputs — deliberately, as `SettingController` says at the top of that handler. That tab
+is gated by `permits()`, so it is not a staff-reachable leak, but the claim must not be read more
+broadly than it is. The payment tab is not in F117's sixteen and is not closed by this slice.
+
+**The pattern across all four:** every one lives at the *edge* of the change rather than inside
+it. The resolver is correct, the component is correct, the save paths are correct — and the
+defects were in a send handler the slice touched in passing, in three validators it did not
+touch, and in a data provider that silently defined what "covered" meant. A review that only read
+the lines that changed would have found none of them.

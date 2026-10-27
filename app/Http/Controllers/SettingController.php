@@ -42,12 +42,28 @@ public function saveDeliverySyria(Request $request)
     $currentStoreId = getCurrentStore();
     $post = $request->all();
 
- 
+    /* The route carries only `auth` — no permission at all — so any logged-in member of the
+       store could post it and rewrite the store's shipping zones, its per-zone costs and the
+       owner's Delivery Syria token. `StoreSettingsAccess::permits()` is the decision point the
+       other integration handlers already use: operator first (Laratrust refuses the operator on
+       its own), then the tenant owner, then `Manage Setting`. */
+    $u = auth()->user();
+
+    if (! \App\Services\StoreSettingsAccess::permits($u)) {
+        return redirect()->back()->with('error', __('Permission denied.'));
+    }
+
+    /* F117. The token box is masked, so a merchant who is only re-syncing the zones posts it
+       empty. Resolve the effective token BEFORE the verification call: sending the empty string
+       would fail verification against a token that is perfectly valid and still stored. It lives
+       on the USER row (`users.deliverysyria_secret`), not in `settings`, so the fallback reads the
+       model rather than `Setting` — the same rule, a different store. */
+    $token = \App\Support\SecretSetting::resolve($request->delivery_syria_token, $u->deliverysyria_secret);
 
     // 2. إرسال الطلب إلى الـ API الخارجي
     try {
         $response = Http::post('https://deliverysyria.com/api/secret/cheack', [
-            'secret' => $request->delivery_syria_token// القيمة القادمة من الفورم
+            'secret' => $token // القيمة الفعّالة: المُدخلة الآن أو المحفوظة سابقاً
         ]);
 
      if ($response->successful()) {
@@ -93,8 +109,7 @@ public function saveDeliverySyria(Request $request)
 }
 
 
-$u=auth()->user();
-$u->deliverysyria_secret=$request->delivery_syria_token;
+$u->deliverysyria_secret = $token;
 $u->save();
     
     return redirect()->back()->with('success', __('Delivery Syria data updated successfully.'));
@@ -109,11 +124,21 @@ $u->save();
     }
 }
 
+/** Unrouted (no `Route::` declaration names it). Kept in step with saveDeliverySyria so that
+ *  routing it later cannot reintroduce either the missing permission check or the F117 erase. */
 public function saveDeliverySyria1(Request $request)
 {
 
 $u=auth()->user();
-$u->deliverysyria_secret=$request->delivery_syria_token;
+
+if (! \App\Services\StoreSettingsAccess::permits($u)) {
+    return redirect()->back()->with('error', __('Permission denied.'));
+}
+
+/* F117. The stored token is kept when the masked box posts empty. It lives on the USER row here
+   (`users.deliverysyria_secret`), not in `settings`, so the fallback reads the model rather than
+   `Setting` — the same rule, a different store. */
+$u->deliverysyria_secret = \App\Support\SecretSetting::resolve($request->delivery_syria_token, $u->deliverysyria_secret);
 $u->save();
     
     return redirect()->back()->with('success', __('Delivery Syria token updated successfully.'));
@@ -213,7 +238,11 @@ $u->save();
             $request->validate(
                 [
                     's3_key' => 'required',
-                    's3_secret' => 'required',
+                    /* F117: conditional. The box is masked, so an ordinary save of this panel posts
+                       it empty; a flat `required` makes the panel impossible to save without
+                       retyping the secret. `required` only while nothing is stored, so first-time
+                       setup still demands it. */
+                    's3_secret' => $this->secretRule('s3_secret'),
                     's3_region' => 'required',
                     's3_bucket' => 'required',
                     's3_url' => 'required',
@@ -225,7 +254,8 @@ $u->save();
 
             $post['storage_setting'] = $request->storage_setting;
             $post['s3_key'] = $request->s3_key;
-            $post['s3_secret'] = $request->s3_secret;
+            /* F117: keep the stored key when the masked box posts empty. */
+            $post['s3_secret'] = $this->keepStoredSecret('s3_secret', $request->s3_secret);
             $post['s3_region'] = $request->s3_region;
             $post['s3_bucket'] = $request->s3_bucket;
             $post['s3_url'] = $request->s3_url;
@@ -239,7 +269,7 @@ $u->save();
             $request->validate(
                 [
                     'wasabi_key' => 'required',
-                    'wasabi_secret' => 'required',
+                    'wasabi_secret' => $this->secretRule('wasabi_secret'),
                     'wasabi_region' => 'required',
                     'wasabi_bucket' => 'required',
                     'wasabi_url' => 'required',
@@ -250,7 +280,8 @@ $u->save();
             );
             $post['storage_setting'] = $request->storage_setting;
             $post['wasabi_key'] = $request->wasabi_key;
-            $post['wasabi_secret'] = $request->wasabi_secret;
+            /* F117: keep the stored key when the masked box posts empty. */
+            $post['wasabi_secret'] = $this->keepStoredSecret('wasabi_secret', $request->wasabi_secret);
             $post['wasabi_region'] = $request->wasabi_region;
             $post['wasabi_bucket'] = $request->wasabi_bucket;
             $post['wasabi_url'] = $request->wasabi_url;
@@ -537,7 +568,11 @@ $u->save();
                 'mail_host' => 'required|string|max:50',
                 'mail_port' => 'required|string|max:50',
                 'mail_username' => 'required|string|max:50',
-                'mail_password' => 'required|string|max:50',
+                /* F117: conditional. The box is masked, so an ordinary save of this panel posts
+                   it empty; a flat `required` makes the panel impossible to save without
+                   retyping the secret. `required` only while nothing is stored, so first-time
+                   setup still demands it. */
+                'mail_password' => $this->secretRule('MAIL_PASSWORD', 'string|max:50'),
                 'mail_encryption' => 'required|string|max:50',
                 'mail_from_address' => 'required|string|max:50',
                 'mail_from_name' => 'required|string|max:50',
@@ -556,7 +591,10 @@ $u->save();
         $post['MAIL_HOST'] = $request->mail_host ?? "";
         $post['MAIL_PORT'] = $request->mail_port?? "";
         $post['MAIL_USERNAME'] = $request->mail_username ?? "";
-        $post['MAIL_PASSWORD'] = $request->mail_password ?? "" ;
+        /* F117: the field posts as `mail_password` and is STORED as `MAIL_PASSWORD`, so the
+           stored value is looked up under the storage name. Keying it on the field name would
+           read nothing, resolve to '', and silently restore the erase this fix prevents. */
+        $post['MAIL_PASSWORD'] = $this->keepStoredSecret('MAIL_PASSWORD', $request->mail_password);
         $post['MAIL_ENCRYPTION'] = $request->mail_encryption ?? "";
         $post['MAIL_FROM_NAME'] = $request->mail_from_name?? "";
         $post['MAIL_FROM_ADDRESS'] = $request->mail_from_address ?? "";
@@ -585,6 +623,12 @@ $u->save();
 
     public function TestMail(Request $request)
     {
+        /* The modal is the door to the send handlers gated below; refusing here too keeps an
+           unprivileged user from being handed the store's settings array at all. */
+        if (! \App\Services\StoreSettingsAccess::permits(auth()->user())) {
+            abort(403);
+        }
+
         $email_setting = $request->all();
         $settings = Setting::where('store_id', getCurrentStore())->pluck('value', 'name')->toArray();
         $user = auth()->user();
@@ -594,7 +638,13 @@ $u->save();
         $data['mail_host'] = $request->mail_host;
         $data['mail_port'] = $request->mail_port;
         $data['mail_username'] = $request->mail_username;
-        $data['mail_password'] = $request->mail_password;
+        /*
+         * F117. NO `mail_password` HERE. The test-mail modal put it in a HIDDEN INPUT, so the
+         * stored SMTP password sat in the DOM of anyone who opened "send a test mail" — a hidden
+         * field is hidden from the layout, not from the reader. The send handler resolves it
+         * instead: what the merchant typed if they typed one, otherwise the stored value, which
+         * keeps "test the password I just entered" working without ever publishing the saved one.
+         */
         $data['mail_encryption'] = $request->mail_encryption;
         $data['mail_from_address'] = $request->mail_from_address;
         $data['mail_from_name'] = $request->mail_from_name;
@@ -605,6 +655,18 @@ $u->save();
     public function testSendMail(Request $request)
     {
         session()->put(['setting_tab' => 'email_setting']);
+
+        /* P1-SEC-18 F5, re-closed. This handler now substitutes the STORED credential when the
+           masked box posts blank, which turns an ungated test-send into a way to make the server
+           authenticate to a caller-chosen host with the merchant's saved secret. The read side
+           (settingForm) has always refused anyone failing permits(); the send side has to as
+           well, or the masking hands the credential to exactly the principal the tab refuses.
+           JSON with is_success:false, not a 403 — that is this handler's existing failure shape
+           and the only one its caller understands. */
+        if (! \App\Services\StoreSettingsAccess::permits(auth()->user())) {
+            return response()->json(['is_success' => false, 'message' => __('Permission denied.')]);
+        }
+
         $validator = \Validator::make(
             $request->all(),
             [
@@ -612,7 +674,10 @@ $u->save();
                 'mail_host' => 'required',
                 'mail_port' => 'required',
                 'mail_username' => 'required',
-                'mail_password' => 'required',
+                /* F117: conditional. The modal no longer carries the stored password, so an
+                   ordinary test-send posts this box empty and a flat `required` would make the
+                   test button unusable for everyone who has a password saved. */
+                'mail_password' => $this->secretRule('MAIL_PASSWORD', 'string'),
                 'mail_from_address' => 'required',
                 'mail_from_name' => 'required',
                 'email' => 'required|email',
@@ -628,6 +693,18 @@ $u->save();
                 ]
             );
         }
+
+        /*
+         * Resolve the password before anything reads it off the request: `SetConfigEmail()` and
+         * `TestMail` both take the whole request, so merging is what keeps them untouched.
+         * Typed wins, stored is the fallback, and the stored one never went to the browser.
+         */
+        $request->merge([
+            'mail_password' => \App\Support\SecretSetting::resolve(
+                $request->mail_password,
+                Setting::where('store_id', getCurrentStore())->where('name', 'MAIL_PASSWORD')->value('value')
+            ),
+        ]);
 
         try {
             SetConfigEmail($request);
@@ -822,17 +899,57 @@ $u->save();
     {
         session()->put(['setting_tab' => 'chatgpt_setting']);
         if (auth()->user()->type == 'super admin') {
-            $key_arr = $request->api_key;
-            foreach ($key_arr as  $data) {
-                if ($data != '' && !empty($data)) {
-                    ApikeySetiings::updateOrCreate([
-                        'key' => $data,
-                        'created_by' => auth()->user()->id
-                    ]);
+            /* F117. The key boxes no longer carry their stored value, so the posted VALUE can no
+               longer be the row's identity. Each saved row posts under `api_key[e<id>]`; a row the
+               add-button JS cloned posts under the bare `api_key[]` and arrives with an integer
+               key. A blank existing row means KEEP, not delete.
+
+               WHY THE OLD SYNC COULD NOT CARRY A MASKED BOX, measured rather than assumed. It was
+               `updateOrCreate(['key' => $posted])` then `whereNotIn('key', $posted)->delete()`,
+               so a box that posts nothing identifies nothing. `ConvertEmptyStringsToNull` turns a
+               blank box into NULL before the handler sees it, and `whereNotIn('key', [null])` is
+               SQL three-valued logic: it matches no row, so the list silently stops reconciling
+               the moment ANY box is blank — the removed rows just stay. Fill every box and the
+               opposite happens: the delete had no `created_by` predicate, so it removed every
+               OTHER operator's keys. (Both executed against the legacy code: the delete returns
+               2 of 2 rows for a filled post, 0 for a blank one.)
+
+               So the delete is now scoped to this operator's own rows. That is forced by the
+               masking, not a separate widening: the form lists only the caller's rows, so an
+               unscoped delete would wipe everyone else's on the first save. `created_by` is
+               already the identity AITemplateController reads these by. */
+            $owner = auth()->user()->id;
+            $submitted = $request->input('api_key', []);
+            $submitted = is_array($submitted) ? $submitted : [];
+            $keptIds = [];
+
+            foreach ($submitted as $formKey => $data) {
+                $data = is_string($data) ? trim($data) : '';
+
+                if (is_string($formKey) && preg_match('/^e(\d+)$/', $formKey, $m)) {
+                    /* An existing row. Never resolve it from the request: load it by id AND owner,
+                       so a forged `api_key[e<someone-elses-id>]` reaches nothing. */
+                    $row = ApikeySetiings::where('created_by', $owner)->find((int) $m[1]);
+                    if (! $row) {
+                        continue;
+                    }
+                    if ($data !== '') {
+                        $row->key = $data;
+                        $row->save();
+                    }
+                    $keptIds[] = $row->id;
+                    continue;
+                }
+
+                if ($data !== '') {
+                    $row = ApikeySetiings::firstOrCreate(['key' => $data, 'created_by' => $owner]);
+                    $keptIds[] = $row->id;
                 }
             }
 
-            ApikeySetiings::whereNotIn('key', $key_arr)->delete();
+            ApikeySetiings::where('created_by', $owner)
+                ->when($keptIds !== [], fn ($q) => $q->whereNotIn('id', $keptIds))
+                ->delete();
 
             if (!empty($request->chat_gpt_model)) {
                 $post = [];
@@ -1339,15 +1456,30 @@ $u->save();
 
     public function Testwhatsappmassage(Request $request)
     {
+        /* The modal is the door to the send handlers gated below; refusing here too keeps an
+           unprivileged user from being handed the store's settings array at all. */
+        if (! \App\Services\StoreSettingsAccess::permits(auth()->user())) {
+            abort(403);
+        }
+
         $email_setting = $request->all();
         $settings = Setting::where('store_id', getCurrentStore())->pluck('value', 'name')->toArray();
 
         $user = auth()->user();
 
+        /*
+         * F117. THE ACCESS TOKEN NO LONGER TRAVELS TO THE PAGE. The test-send modal used to
+         * receive it and put it in a HIDDEN INPUT, so the stored WhatsApp token sat in the DOM of
+         * anyone who opened "send a test message" — readable in page source, by any extension,
+         * and in any screenshot of it. A hidden field is not hidden from the reader; it is hidden
+         * from the LAYOUT.
+         *
+         * Nothing is lost by withholding it: the send handler now reads the token from the
+         * store's own settings, which is where it was going to end up anyway. The round trip
+         * through the browser only ever added exposure.
+         */
         $data = [];
         $data['whatsapp_phone_number_id'] = $request->whatsapp_phone_number_id;
-        $data['whatsapp_access_token'] = $request->whatsapp_access_token;
-
 
         return view('setting.test_whatsappmessage', compact('email_setting', 'settings', 'data'));
     }
@@ -1355,20 +1487,48 @@ $u->save();
     public function testSendwhatsappmassage(Request $request)
     {
         session()->put(['setting_tab' => 'whatsapp_notify_setting']);
+
+        /* P1-SEC-18 F5, re-closed. This handler now substitutes the STORED credential when the
+           masked box posts blank, which turns an ungated test-send into a way to make the server
+           send on the merchant's WhatsApp account to a caller-chosen number. The read side
+           (settingForm) has always refused anyone failing permits(); the send side has to as
+           well, or the masking hands the merchant's account to exactly the principal the tab refuses.
+           JSON with is_success:false, not a 403 — that is this handler's existing failure shape
+           and the only one its caller understands. */
+        if (! \App\Services\StoreSettingsAccess::permits(auth()->user())) {
+            return response()->json(['is_success' => false, 'message' => __('Permission denied.')]);
+        }
+
         $validator = \Validator::make(
             $request->all(),
             [
                 'mobile' => 'required',
                 'whatsapp_phone_number_id' => 'required',
-                /* NOT relaxed: this is the TEST-SEND handler, which needs a usable token in the
-                   request to actually send. It does not persist anything, so there is no stored
-                   value to fall back on and nothing for an empty box to erase. */
-                'whatsapp_access_token' => 'required',
             ]
         );
         if ($validator->fails()) {
             $messages = $validator->getMessageBag();
             return redirect()->back()->with('error', $messages->first());
+        }
+
+        /*
+         * F117. THE TOKEN COMES FROM STORAGE, NOT FROM THE REQUEST.
+         *
+         * It used to be validated as `required` and taken from `$request->whatsapp_access_token`,
+         * which the modal supplied from a hidden input — so the stored token was published into
+         * the DOM on every "send a test message", and the route would equally send with ANY token
+         * a caller chose to post.
+         *
+         * Reading the store's own value removes both. A caller can still trigger a test send,
+         * which is the point of the screen; they can no longer read the credential out of the
+         * page, nor substitute one.
+         */
+        $whatsappAccessToken = (string) Setting::where('store_id', getCurrentStore())
+            ->where('name', 'whatsapp_access_token')
+            ->value('value');
+
+        if (! \App\Support\SecretSetting::isSet($whatsappAccessToken)) {
+            return redirect()->back()->with('error', __('Save a WhatsApp access token before sending a test message.'));
         }
         try {
 
@@ -1387,7 +1547,7 @@ $u->save();
             );
 
             $headers = array(
-                'Authorization: Bearer ' . $request->whatsapp_access_token,
+                'Authorization: Bearer ' . $whatsappAccessToken,
                 'Content-Type: application/json'
             );
 
@@ -1867,7 +2027,10 @@ $currencyRates = CurrencyRate::where('store_id', getCurrentStore())
                     ], 403);
                 }
 
-                $ai_key_settings = ApikeySetiings::get();
+                /* F117. Scoped to the caller, to match the save: the panel now renders each row's
+                   id, and the save only touches rows this operator owns. Listing another
+                   operator's rows would show boxes that silently do nothing. */
+                $ai_key_settings = ApikeySetiings::where('created_by', auth()->user()->id)->orderBy('id')->get();
                 $view = view($views[$tabType], compact('setting', 'ai_key_settings'));
             } elseif ($tabType == 'tax_opt_setting') {
                 // $emailTemplates = EmailTemplate::all();

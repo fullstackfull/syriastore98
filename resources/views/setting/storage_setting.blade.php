@@ -70,10 +70,11 @@
                     </div>
                     <div class="col-lg-6">
                         <div class="form-group">
-                            <label class="form-label" for="s3_secret">{{ __('S3 Secret') }}</label>
-                            <input type="text" name="s3_secret" class="form-control"
-                                value="{{ !isset($setting['s3_secret']) || is_null($setting['s3_secret']) ? '' : $setting['s3_secret'] }}"
-                                placeholder="{{ __('S3 Secret') }}">
+                            {{-- F117: the stored credential never reaches the page; the handler keeps it when this box posts empty. --}}
+                            <x-ss.secret-field
+                                name="s3_secret"
+                                :label="__('S3 Secret')"
+                                :stored="$setting['s3_secret'] ?? null" />
                         </div>
                     </div>
                     <div class="col-lg-6">
@@ -148,10 +149,11 @@
                     </div>
                     <div class="col-lg-6">
                         <div class="form-group">
-                            <label class="form-label" for="s3_secret">{{ __('Wasabi Secret') }}</label>
-                            <input type="text" name="wasabi_secret" class="form-control"
-                                value="{{ !isset($setting['wasabi_secret']) || is_null($setting['wasabi_secret']) ? '' : $setting['wasabi_secret'] }}"
-                                placeholder="{{ __('Wasabi Secret') }}">
+                            {{-- F117: the stored credential never reaches the page; the handler keeps it when this box posts empty. And a second defect in the same lines: this label said `for="s3_secret"` while labelling the WASABI field, cross-linking two different credentials' inputs. --}}
+                            <x-ss.secret-field
+                                name="wasabi_secret"
+                                :label="__('Wasabi Secret')"
+                                :stored="$setting['wasabi_secret'] ?? null" />
                         </div>
                     </div>
                     <div class="col-lg-6">

@@ -3,7 +3,9 @@
     @csrf
 
     <input type="hidden" name="whatsapp_phone_number_id" value="{{ $data['whatsapp_phone_number_id'] }}" />
-    <input type="hidden" name="whatsapp_access_token" value="{{ $data['whatsapp_access_token'] }}" />
+    {{-- F117: the access token is NOT posted back through the browser. It used to sit here in a
+         hidden input carrying the stored value, which put the credential in the DOM of anyone who
+         opened this modal. The send handler reads it from the store's settings instead. --}}
     <div class="row">
         <div class="col-md-12 mb-3">
             <label for="name" class="form-label">{{ __('Mobile No')}}</label>
