@@ -1,38 +1,70 @@
-<div class="card" id="Pwa_Setting">
+{{--
+    PWA, on the design system.
+    =============================================================================================
+
+    THE ENABLE TOGGLE HAD NO LABEL AT ALL — not an empty one, as in the other panels, but none:
+    a bare `<input type="checkbox" name="pwa_store">` in a `<div class="custom-control">`. Even
+    the panels with an empty label at least had an element to fill.
+
+    AND THE TWO COLOUR PICKERS SAID `placeholder="18761234567"`. A phone number, copied in from
+    another panel's SMS field, on an `<input type="color">` — where a placeholder does nothing at
+    all, because a colour input always has a value. Removed rather than translated; that string
+    was one of the 49 the Arabic ratchet flagged on these screens, and translating a phone number
+    into Arabic to sit invisibly on a colour picker would have been the wrong fix.
+--}}
+<div class="ss-card" id="Pwa_Setting">
     {{ Form::model($store_settings, ['route' => ['pwa.setting', $store_settings->id], 'method' => 'POST', 'enctype' => 'multipart/form-data']) }}
-    <div class="card-header d-flex justify-content-between ">
-        <h5>{{ __('PWA Settings') }}</h5>
-        <div class="custom-control form-switch ps-0">
-            <input type="checkbox" class="form-check-input enable_pwa_store" name="pwa_store" id="pwa_store"
-                {{ ($store_settings->enable_pwa_store ?? '') == 'on' ? 'checked=checked' : '' }}>
-        </div>
-    </div>
-    <div class="card-body">
 
+    <div class="ss-card__header">
+        <div class="ss-page-header__text">
+            <h2 class="ss-card__title">{{ __('PWA Settings') }}</h2>
+        </div>
+        <x-ss.switch name="pwa_store" id="pwa_store" value="on"
+                     :label="__('Enable the PWA')"
+                     :checked="($store_settings->enable_pwa_store ?? '') == 'on'"
+                     class="enable_pwa_store" />
+    </div>
+
+    <div class="ss-card__body">
         <div class="row">
-            <div class="form-group col-md-6 pwa_is_enable">
-                {{ Form::label('pwa_app_title', __('App Title'), ['class' => 'form-label']) }}
-                {{ Form::text('pwa_app_title', !empty($pwa_data->name) ? $pwa_data->name : '', ['class' => 'form-control', 'placeholder' => __('App Title')]) }}
+            <div class="col-md-6 pwa_is_enable">
+                <div class="ss-field">
+                    <label class="ss-label" for="pwa_app_title">{{ __('App Title') }}</label>
+                    <input type="text" class="ss-input" id="pwa_app_title" name="pwa_app_title"
+                           value="{{ $pwa_data->name ?? '' }}" placeholder="{{ __('App Title') }}">
+                </div>
             </div>
 
-            <div class="form-group col-md-6 pwa_is_enable">
-                {{ Form::label('pwa_app_name', __('App Name'), ['class' => 'form-label']) }}
-                {{ Form::text('pwa_app_name', !empty($pwa_data->short_name) ? $pwa_data->short_name : '', ['class' => 'form-control', 'placeholder' => __('App Name')]) }}
+            <div class="col-md-6 pwa_is_enable">
+                <div class="ss-field">
+                    <label class="ss-label" for="pwa_app_name">{{ __('App Name') }}</label>
+                    <input type="text" class="ss-input" id="pwa_app_name" name="pwa_app_name"
+                           value="{{ $pwa_data->short_name ?? '' }}" placeholder="{{ __('App Name') }}">
+                </div>
             </div>
 
-            <div class="form-group col-md-6 pwa_is_enable">
-                {{ Form::label('pwa_app_background_color', __('App Background Color'), ['class' => 'form-label']) }}
-                {{ Form::color('pwa_app_background_color', !empty($pwa_data->background_color) ? $pwa_data->background_color : '', ['class' => 'form-control color-picker', 'placeholder' => __('18761234567')]) }}
+            <div class="col-md-6 pwa_is_enable">
+                <div class="ss-field">
+                    <label class="ss-label" for="pwa_app_background_color">{{ __('App Background Color') }}</label>
+                    <input type="color" class="ss-input ss-input--color color-picker"
+                           id="pwa_app_background_color" name="pwa_app_background_color"
+                           value="{{ $pwa_data->background_color ?? '#ffffff' }}">
+                </div>
             </div>
 
-            <div class="form-group col-md-6 pwa_is_enable">
-                {{ Form::label('pwa_app_theme_color', __('App Theme Color'), ['class' => 'form-label']) }}
-                {{ Form::color('pwa_app_theme_color', !empty($pwa_data->theme_color) ? $pwa_data->theme_color : '', ['class' => 'form-control color-picker', 'placeholder' => __('18761234567')]) }}
+            <div class="col-md-6 pwa_is_enable">
+                <div class="ss-field">
+                    <label class="ss-label" for="pwa_app_theme_color">{{ __('App Theme Color') }}</label>
+                    <input type="color" class="ss-input ss-input--color color-picker"
+                           id="pwa_app_theme_color" name="pwa_app_theme_color"
+                           value="{{ $pwa_data->theme_color ?? '#ffffff' }}">
+                </div>
             </div>
         </div>
     </div>
-    <div class="card-footer d-flex justify-content-end flex-wrap ">
-        <input type="submit" value="{{ __('Save Changes') }}" class="btn-submit btn btn-primary btn-badge">
+
+    <div class="ss-card__footer ss-card__footer--end">
+        <button type="submit" class="ss-btn ss-btn--primary btn-submit">{{ __('Save Changes') }}</button>
     </div>
     {{ Form::close() }}
 </div>

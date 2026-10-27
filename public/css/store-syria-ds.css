@@ -761,6 +761,15 @@
     gap: var(--ss-space-3);
 }
 
+/* A colour input sized like a control rather than a full-width text box: a 100%-wide swatch
+   reads as a banner, not a picker. Added for the PWA panel (P2-05-7). */
+.ss-input--color {
+    inline-size: 4rem;
+    block-size: 2.5rem;
+    padding: 0.125rem;
+    cursor: pointer;
+}
+
 /* ---- Choice: a radio or checkbox with its label ----
    The control and its label, side by side, with the label clickable because it carries `for`.
    A GROUP of these belongs in a `<fieldset>` with a `<legend>`: a `<label>` can name one

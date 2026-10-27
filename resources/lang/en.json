@@ -3153,5 +3153,9 @@
     "Enable the loyalty program": "Enable the loyalty program",
     "Reward points per :amount spent": "Reward points per :amount spent",
     "Enter Point": "Enter Point",
-    "Enable Stock Management": "Enable Stock Management"
+    "Enable Stock Management": "Enable Stock Management",
+    "Cache size": "Cache size",
+    "right now": "right now",
+    "Send an email when": "Send an email when",
+    "Enable the PWA": "Enable the PWA"
 }

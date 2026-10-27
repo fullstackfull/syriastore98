@@ -3182,5 +3182,9 @@
     "Enable the loyalty program": "تفعيل برنامج الولاء",
     "Reward points per :amount spent": "نقاط المكافأة لكل :amount من الإنفاق",
     "Enter Point": "أدخل عدد النقاط",
-    "Enable Stock Management": "تفعيل إدارة المخزون"
+    "Enable Stock Management": "تفعيل إدارة المخزون",
+    "Cache size": "حجم ذاكرة التخزين المؤقت",
+    "right now": "الآن",
+    "Send an email when": "أرسل بريداً إلكترونياً عند",
+    "Enable the PWA": "تفعيل تطبيق الويب التقدّمي"
 }
