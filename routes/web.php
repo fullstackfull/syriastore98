@@ -1171,6 +1171,21 @@ Route::get(
         ->name('merchant.search');
 
     /*
+     * P2-06-7. The merchant marks a page as a favourite.
+     *
+     * POST because it changes state; see the note on the notification marks below for why a
+     * state-changing GET is not used here either. No permission middleware: the authorisation is
+     * per PAGE inside the handler, since an employee who may open Products and not Orders must be
+     * able to favourite the first and be refused the second.
+     *
+     * `merchant-favourite-page`, matching the `merchant-` prefix on this phase's other new
+     * routes -- `RouteShadowingTest` compares DECLARED strings across `routes/`, so a new name has
+     * to be unique in the files and not merely at runtime.
+     */
+    Route::post('merchant-favourite-page', [\App\Http\Controllers\MerchantPageShortcutController::class, 'toggle'])
+        ->name('merchant.pages.favourite');
+
+    /*
      * P2-06-3. The merchant's notifications on the web, against the SAME `store_notifications`
      * rows the shipped Flutter app already reads through `api/admin/notification`. No schema
      * change, and that API is untouched -- see MerchantNotificationController's class note on

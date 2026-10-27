@@ -43,4 +43,103 @@
 
     <ul class="ss-command__results" id="ss-command-results" role="listbox"
         aria-label="{{ __('Search results') }}"></ul>
+
+    {{--
+        P2-06-7 — favourite pages and recent pages.
+
+        HERE, AND NOT IN SIXTY-NINE PAGE HEADERS. The toggle and the lists belong to the same
+        surface: this is the merchant's "go somewhere" dialog, so the control that curates it
+        sits with the list it changes. Putting a star in each page header would mean editing every
+        screen -- including the vendored ones this project must not touch -- for a control that
+        would then be in a different place on each.
+
+        SERVER-RENDERED, SO EVERY ENTRY IS AUTHORISED BEFORE IT IS MARKUP, exactly like the search
+        results above. `FavouritePages::all()` and `RecentPages::all()` re-ask
+        `App\Classes\Menu::permits()` through `MerchantPageDirectory` on every render, so a
+        favourite whose permission was revoked is not rendered-then-hidden: it never reaches the
+        DOM. That is the owner's condition -- "أعد فحص الصلاحيات عند كل عرض أو انتقال" -- and a
+        client-side filter could not satisfy it.
+
+        A RECENT PAGE THAT IS ALREADY A FAVOURITE IS NOT LISTED TWICE. The favourite is the
+        durable one, so it wins the slot.
+    --}}
+    @php
+        $ssFavourites = \App\Services\FavouritePages::all();
+        $ssCurrent = \App\Services\MerchantPageDirectory::nameForRoute(request()->route()?->getName());
+
+        /* THE CURRENT PAGE IS DROPPED FROM "RECENT" TOO, not only the favourites. Without this it
+           rendered TWICE from the second visit onward -- the middleware records on the way out, so
+           the page you are looking at is already in the session list -- giving one page two live
+           star controls. That was also the only way to race the unique index: the script disables
+           just the button that was clicked, so both could be posted at once. `firstOrCreate` in
+           `FavouritePages::toggle()` closes the race; this removes the duplicate. */
+        $ssRecents = array_diff_key(
+            \App\Services\RecentPages::all(),
+            $ssFavourites,
+            $ssCurrent ? [$ssCurrent => true] : []
+        );
+    @endphp
+
+    <div class="ss-command__shortcuts" data-ss-command-shortcuts>
+        @if (!empty($ssFavourites))
+            <div class="ss-command__group">
+                <p class="ss-command__grouphead">{{ __('Favourites') }}</p>
+                <ul class="ss-command__shortlist">
+                    @foreach ($ssFavourites as $ssName => $ssPage)
+                        <li>
+                            <a class="ss-command__shortcut" href="{{ $ssPage['href'] }}">
+                                <span class="ss-command__shortcuttitle">{{ $ssPage['title'] }}</span>
+                            </a>
+                            <button type="button"
+                                    class="ss-command__star is-on"
+                                    data-ss-favourite="{{ $ssName }}"
+                                    aria-pressed="true"
+                                    title="{{ __('Remove from favourites') }}">
+                                <span class="ss-visually-hidden">{{ __('Remove :page from favourites', ['page' => $ssPage['title']]) }}</span>
+                                <span aria-hidden="true">&#9733;</span>
+                            </button>
+                        </li>
+                    @endforeach
+                </ul>
+            </div>
+        @endif
+
+        @if (!empty($ssRecents))
+            <div class="ss-command__group">
+                <p class="ss-command__grouphead">{{ __('Recent') }}</p>
+                <ul class="ss-command__shortlist">
+                    @foreach ($ssRecents as $ssName => $ssPage)
+                        <li>
+                            <a class="ss-command__shortcut" href="{{ $ssPage['href'] }}">
+                                <span class="ss-command__shortcuttitle">{{ $ssPage['title'] }}</span>
+                            </a>
+                            <button type="button"
+                                    class="ss-command__star"
+                                    data-ss-favourite="{{ $ssName }}"
+                                    aria-pressed="false"
+                                    title="{{ __('Add to favourites') }}">
+                                <span class="ss-visually-hidden">{{ __('Add :page to favourites', ['page' => $ssPage['title']]) }}</span>
+                                <span aria-hidden="true">&#9734;</span>
+                            </button>
+                        </li>
+                    @endforeach
+                </ul>
+            </div>
+        @endif
+
+        @if ($ssCurrent && !array_key_exists($ssCurrent, $ssFavourites))
+            <button type="button"
+                    class="ss-command__addcurrent"
+                    data-ss-favourite="{{ $ssCurrent }}"
+                    aria-pressed="false">
+                <span aria-hidden="true">&#9734;</span>
+                {{ __('Add this page to favourites') }}
+            </button>
+        @endif
+
+        {{-- The endpoint and the strings the toggle needs, so the JS holds no URLs or copy. --}}
+        <span hidden
+              data-ss-favourite-url="{{ route('merchant.pages.favourite') }}"
+              data-ss-favourite-error="{{ __('That could not be saved. Please try again.') }}"></span>
+    </div>
 </div>

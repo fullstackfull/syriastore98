@@ -3229,3 +3229,104 @@ a.ss-setup__item:focus-visible {
     border-color: var(--ss-green-700) !important;
     color: #fff !important;
 }
+
+/* =================================================================================================
+   P2-06-7 — favourite pages and recent pages, in the command palette.
+
+   THE SHORTCUTS ARE THE PRE-SEARCH STATE, so they share the results list's surface and spacing
+   rather than introducing a second visual language inside one dialog. The group heading is
+   `--ss-fg-muted` (5.23:1 on `--ss-surface-sunken` light, 6.79:1 dark) and NOT `--ss-fg-subtle`,
+   which measures 4.13:1 on the sunken surface and fails AA at this size -- the same trap
+   `.ss-feed__when` and `.ss-order-preview dt` fell into, which is that a token solved against
+   `--ss-surface` is not solved against the surface a component repaints underneath it.
+
+   THE STAR SETS ITS OWN COLOUR. `--ss-fg` on every state, because a bare `button` inherits
+   nothing useful and the host's dark stylesheet forces unrelated elements to #808191; the "on"
+   state is `--ss-brand`, which is a hue change on a glyph that also changes shape (★ vs ☆), so
+   the state is never carried by colour alone.
+   ============================================================================================== */
+.ss-command__shortcuts {
+    padding: var(--ss-space-2) var(--ss-space-3) var(--ss-space-3);
+    border-top: 1px solid var(--ss-border);
+    background: var(--ss-surface-sunken);
+    color: var(--ss-fg);
+}
+
+.ss-command__group + .ss-command__group { margin-top: var(--ss-space-3); }
+
+/* `!important`, AND IT IS NOT DEFENSIVE PADDING -- it is the only thing that wins. The host's
+   dark stylesheet carries
+
+       .dash-sidebar .dash-link, .dash-sidebar.light-sidebar .dash-link i, .dataTable-info, p
+           { color: #808191 !important; }
+
+   (public/assets/css/style-dark.css) -- a BARE ELEMENT selector on `p`, with `!important`, which
+   beats a non-important class rule however specific it is. Measured live: this heading rendered
+   #808191 on `--ss-surface-sunken` dark = 3.85:1, failing AA at 12px, while the rule above said
+   `--ss-fg-muted`. A class plus `!important` outranks an element plus `!important`, which is the
+   same argument the "Host override defence" block makes for `.ss-field__hint`. */
+.ss-command__grouphead {
+    margin: 0 0 var(--ss-space-1);
+    color: var(--ss-fg-muted) !important;
+    font-size: var(--ss-text-xs);
+    font-weight: var(--ss-weight-medium);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.ss-command__shortlist { margin: 0; padding: 0; list-style: none; }
+
+.ss-command__shortlist > li {
+    display: flex;
+    align-items: center;
+    gap: var(--ss-space-2);
+}
+
+.ss-command__shortcut {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: var(--ss-space-2);
+    border-radius: var(--ss-radius-sm);
+    color: var(--ss-fg);
+    text-decoration: none;
+}
+
+.ss-command__shortcut:hover,
+.ss-command__shortcut:focus-visible { background: var(--ss-surface-hover); color: var(--ss-fg); }
+
+.ss-command__shortcuttitle { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.ss-command__star,
+.ss-command__addcurrent {
+    border: 1px solid transparent;
+    border-radius: var(--ss-radius-sm);
+    background: transparent;
+    color: var(--ss-fg);
+    cursor: pointer;
+}
+
+/* A 44px target: the toggle is one of the smallest controls in the admin and WCAG 2.5.5 is the
+   reason it is not glyph-sized. */
+.ss-command__star {
+    flex: 0 0 auto;
+    width: 2.75rem;
+    height: 2.75rem;
+    font-size: var(--ss-text-md);
+    line-height: 1;
+}
+
+.ss-command__star:hover { background: var(--ss-surface-hover); }
+.ss-command__star.is-on { color: var(--ss-brand); }
+.ss-command__star[disabled] { opacity: 0.6; cursor: progress; }
+
+.ss-command__addcurrent {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--ss-space-2);
+    margin-top: var(--ss-space-3);
+    padding: var(--ss-space-2) var(--ss-space-3);
+    border-color: var(--ss-border);
+    font-size: var(--ss-text-sm);
+}
+
+.ss-command__addcurrent:hover { background: var(--ss-surface-hover); }

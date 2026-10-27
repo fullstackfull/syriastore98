@@ -3190,5 +3190,18 @@
     "The removal was not confirmed.": "The removal was not confirmed.",
     "Turn :gateway off before removing this credential, so it cannot be left switched on without one.": "Turn :gateway off before removing this credential, so it cannot be left switched on without one.",
     "The saved :field for :gateway has been removed from Store Syria. This does NOT revoke the credential with the payment provider — do that in their dashboard as well.": "The saved :field for :gateway has been removed from Store Syria. This does NOT revoke the credential with the payment provider — do that in their dashboard as well.",
-    "Saved, but these gateways were left switched off because a required value is missing: :list": "Saved, but these gateways were left switched off because a required value is missing: :list"
+    "Saved, but these gateways were left switched off because a required value is missing: :list": "Saved, but these gateways were left switched off because a required value is missing: :list",
+    "Favourites": "Favourites",
+    "Recent": "Recent",
+    "Add this page to favourites": "Add this page to favourites",
+    "Add to favourites": "Add to favourites",
+    "Remove from favourites": "Remove from favourites",
+    "Add :page to favourites": "Add :page to favourites",
+    "Remove :page from favourites": "Remove :page from favourites",
+    "Added to your favourites.": "Added to your favourites.",
+    "Removed from your favourites.": "Removed from your favourites.",
+    "That page is not available to you.": "That page is not available to you.",
+    "That could not be saved. Please try again.": "That could not be saved. Please try again.",
+    "You can keep up to :count favourites. Remove one first.": "You can keep up to :count favourites. Remove one first.",
+    "No store is selected, so favourites cannot be saved.": "No store is selected, so favourites cannot be saved."
 }

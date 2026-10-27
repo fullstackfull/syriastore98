@@ -525,7 +525,17 @@
         return cmd.root;
     }
 
+    /* P2-06-7. The shortcuts are the PRE-SEARCH state: they show while the palette has no
+       results and step aside the moment one arrives, so the dialog never shows two competing
+       lists. They are server-rendered, so hiding them is purely presentational -- nothing here
+       decides what a merchant may see. */
+    function cmdShortcuts(visible) {
+        var box = document.querySelector('[data-ss-command-shortcuts]');
+        if (box) { box.hidden = !visible; }
+    }
+
     function cmdNote(text) {
+        cmdShortcuts(true);
         cmd.list.innerHTML = '';
         var li = document.createElement('li');
         li.className = 'ss-command__note';
@@ -560,6 +570,7 @@
     }
 
     function cmdRender(payload) {
+        cmdShortcuts(false);
         var sections = (payload && payload.sections) || [];
         cmd.list.innerHTML = '';
         cmd.items = [];
@@ -1077,6 +1088,8 @@
         );
         focusErrorSummary();
         updateNotificationBadge();
+        // P2-06-7. Delegated on the document, so it is wired once and survives re-render.
+        wireFavouriteToggle();
     }
 
     if (document.readyState === 'loading') {
@@ -1133,7 +1146,11 @@
         };
     }
 
-    function announceColumnMove(message) {
+    /* ONE POLITE LIVE REGION, shared. It was `announceColumnMove` while the column keys were
+       its only caller; P2-06-7's favourite toggle needs the same thing, and two live regions on a
+       page compete -- a screen reader may announce either, in either order. Renamed rather than
+       copied. */
+    function announceLive(message) {
         var region = document.getElementById('ss-live-region');
         if (!region) {
             region = document.createElement('div');
@@ -1147,6 +1164,58 @@
         // A repeated identical string is not re-announced; the blank frame is
         // what makes two moves in the same direction both audible.
         window.setTimeout(function () { region.textContent = message; }, 50);
+    }
+
+    /**
+     * P2-06-7 -- the favourite toggle.
+     *
+     * DELEGATED ON THE DOCUMENT, because the buttons are re-rendered by the response and a
+     * listener bound to each one would be lost on the first toggle.
+     *
+     * THE SERVER DECIDES, THE BUTTON REFLECTS. The response says whether the page is now a
+     * favourite; the button is set from that answer rather than flipped optimistically, so a
+     * refusal (a page the employee may no longer open) leaves the control showing the truth
+     * instead of a state the server rejected.
+     */
+    function wireFavouriteToggle() {
+        document.addEventListener('click', function (e) {
+            var btn = e.target && e.target.closest ? e.target.closest('[data-ss-favourite]') : null;
+            if (!btn) { return; }
+
+            e.preventDefault();
+
+            var meta = document.querySelector('[data-ss-favourite-url]');
+            if (!meta) { return; }
+
+            var token = document.querySelector('meta[name="csrf-token"]');
+
+            btn.disabled = true;
+
+            window.fetch(meta.getAttribute('data-ss-favourite-url'), {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-CSRF-TOKEN': token ? token.getAttribute('content') : ''
+                },
+                body: JSON.stringify({ page: btn.getAttribute('data-ss-favourite') })
+            }).then(function (r) {
+                return r.json().then(function (body) { return { ok: r.ok, body: body }; });
+            }).then(function (res) {
+                if (!res.ok) { throw new Error('refused'); }
+
+                var on = !!res.body.favourited;
+                btn.classList.toggle('is-on', on);
+                btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+
+                if (res.body.message) { announceLive(res.body.message); }
+            }).catch(function () {
+                announceLive(meta.getAttribute('data-ss-favourite-error') || '');
+            }).then(function () {
+                btn.disabled = false;
+            });
+        });
     }
 
     function wireColumnReorderKeys(table) {
@@ -1213,7 +1282,7 @@
                thing. */
             var span = ctx.last - ctx.first + 1;
 
-            announceColumnMove(
+            announceLive(
                 (th.textContent || '').trim() + ': ' + (to - ctx.first + 1) + ' / ' + span
             );
         });
@@ -1257,6 +1326,8 @@
         wireDirtyTracking: wireDirtyTracking,
         // P2-03-3. One action, two controls, one implementation.
         wireClickProxy: wireClickProxy,
+        // P2-06-7. The favourite toggle, delegated once on the document.
+        wireFavouriteToggle: wireFavouriteToggle,
         // P2-06-4. Called from the `stateSaveParams`/`stateLoadParams` options
         // that `buildDataTable()` puts on every merchant table, so the rule
         // lives in one place rather than inlined 68 times.
