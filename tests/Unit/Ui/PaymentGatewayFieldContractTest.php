@@ -181,17 +181,25 @@ class PaymentGatewayFieldContractTest extends TestCase
         $this->assertSame(
             [
                 /*
-                 * MEASURED, PRE-EXISTING, AND NOT THIS CHANGE'S TO FIX. PaiementPro's save list
-                 * carries `paiementpro_mode`, but the display array gives that gateway no
-                 * `mode_options`, so the screen renders no mode radio for it: the field never
-                 * posts, and `processGateway()` writes '' over whatever mode is stored on every
-                 * save that enables PaiementPro. It is a one-value data loss on one gateway,
-                 * with no credential in it, and fixing it means deciding what PaiementPro's
-                 * modes ARE -- which is a question about that provider, not about F117.
+                 * STILL TRUE AS A MEASUREMENT, NO LONGER DESTRUCTIVE (F143). PaiementPro's save
+                 * list carries `paiementpro_mode` while the display array gives that gateway no
+                 * `mode_options`, so no mode radio is rendered and the field never posts. It
+                 * used to be written as '' on every save that enabled the gateway, because
+                 * `processGateway()` could not tell "the merchant cleared this" from "this
+                 * control was never on the page".
                  *
-                 * The mirror case is harmless and deliberately not listed: `cinetpay` and
-                 * `easebuzz` declare `mode_options` the controller never saves, so those two
-                 * radios are inert rather than destructive.
+                 * The owner's F143 decision was to stop the erasure WITHOUT inventing mode
+                 * options or touching collection logic, since what PaiementPro's modes are is a
+                 * question about that provider's contract. So the write now skips a field that
+                 * is absent from the request entirely, and the stored value survives — pinned by
+                 * `PaymentGatewaySecretPersistenceTest::test_a_field_absent_from_the_request_keeps_its_stored_value`.
+                 *
+                 * This entry stays because the two lists still disagree, and that disagreement
+                 * is the thing worth seeing: a save-side field with no display-side control is
+                 * still a loose end, just a harmless one now. The mirror case was always
+                 * harmless: `cinetpay` and `easebuzz` declare `mode_options` the controller
+                 * never saves, so those radios are inert. Rendering a control the save ignores
+                 * costs nothing; saving a control that is never rendered cost the stored value.
                  */
                 'paiementpro.paiementpro_mode',
             ],

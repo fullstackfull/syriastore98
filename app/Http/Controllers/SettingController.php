@@ -2251,10 +2251,10 @@ elseif ($tabType == 'otp_setting') {
      * asserts every field here carries the flag, so a new gateway cannot be added without the
      * decision being made.
      *
-     * `validateGatewayFields()` was adjusted in the same change so a required secret that is
-     * already stored is `nullable` rather than `required` -- but THAT METHOD HAS NO EFFECT
-     * TODAY and the adjustment is currently inert. See the note on it; it is pinned by
-     * `PaymentGatewayValidationIsDeadTest` rather than repaired here.
+     * The required-field rule that goes with this was DEAD when F117 shipped and is live now
+     * (F142, owner decision): it bites only when a gateway is being TURNED ON, so an already
+     * enabled gateway keeps saving, and a secret that is already stored counts as supplied.
+     * `PaymentGatewayRequiredFieldsTest` holds both halves.
      */
     private function paymentSettingArray()
     {

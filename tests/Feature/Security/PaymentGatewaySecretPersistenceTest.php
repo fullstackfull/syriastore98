@@ -162,16 +162,15 @@ class PaymentGatewaySecretPersistenceTest extends SecurityTestCase
      * the description without retyping their secret key, so the rule was changed to `required`
      * only while nothing is stored.
      *
-     * THIS TEST IS CURRENTLY VACUOUS AND IS KEPT ANYWAY, labelled. It passes against the
-     * unchanged code too, because `validateGatewayFields()` has no effect at all:
-     * `processGateway()` discards its return value and the method's only failure path is a
-     * `redirect()` nobody sends. That is recorded and pinned by
-     * `PaymentGatewayValidationIsDeadTest`, which is where the finding lives.
+     * IT WAS VACUOUS WHEN WRITTEN AND IS NOT ANY MORE, which is worth recording because the
+     * reason it was vacuous is the finding. `validateGatewayFields()` had no effect at all —
+     * `processGateway()` discarded its return and its only failure path was a `redirect()`
+     * nobody sends — so this test passed against the UNFIXED code too. A test that passes
+     * before and after the change it is meant to prove is not evidence.
      *
-     * It stays because the rule it describes is the one that must hold on the day the validator
-     * is made live, and on that day this becomes real evidence with no edit. Deleting it would
-     * mean rediscovering the trap then. What it must NOT be read as today is proof that the
-     * `nullable` branch works — nothing here exercises it.
+     * The rule is live now (F142), so this is real: `PaymentGatewayRequiredFieldsTest` proves
+     * the same property from the other side, by showing that a gateway WITHOUT a stored secret
+     * is refused.
      */
     public function test_a_required_secret_that_is_already_stored_does_not_block_the_save(): void
     {
@@ -201,5 +200,60 @@ class PaymentGatewaySecretPersistenceTest extends SecurityTestCase
             'a staff member without `Manage Setting` changed the payment settings');
         $this->assertSame(self::INVENTED_STRIPE_SECRET, $this->stored('stripe_secret_key'),
             'a staff member without `Manage Setting` reached the gateway credentials');
+    }
+
+    // -------------------------------------------------------------------------------------
+    // F143 — a field that is not in the request is left alone
+    // -------------------------------------------------------------------------------------
+
+    /**
+     * A STORED VALUE SURVIVES A SAVE THAT DOES NOT MENTION IT. The old write could not tell
+     * "the merchant cleared this box" from "this control was never on the page", and wrote ''
+     * for both. `paiementpro_mode` is the measured case: it is in the gateway's save list, the
+     * display array gives PaiementPro no `mode_options`, so no radio is ever rendered and
+     * nothing posts it — yet every save that enabled that gateway cleared it.
+     */
+    public function test_a_field_absent_from_the_request_keeps_its_stored_value(): void
+    {
+        $merchant = $this->merchantWithGatewaySecrets();
+
+        Setting::forceCreate([
+            'name' => 'paiementpro_mode', 'value' => 'live',
+            'store_id' => $this->storeId, 'created_by' => $merchant->id,
+        ]);
+        Setting::forceCreate([
+            'name' => 'paiementpro_merchant_id', 'value' => 'INVENTED-PP-MERCHANT',
+            'store_id' => $this->storeId, 'created_by' => $merchant->id,
+        ]);
+
+        /* The payload the real screen sends for PaiementPro: an enable flag and a merchant id,
+           and NO mode, because no control for it is rendered. */
+        $this->actingAs($merchant)->post('/payment-setting', $this->payloadWithEmptySecrets([
+            'is_paiementpro_enabled' => 'on',
+            'paiementpro_merchant_id' => 'INVENTED-PP-MERCHANT',
+            'paiementpro_unfo' => 'Pay with PaiementPro',
+        ]));
+
+        $this->assertSame('Pay with PaiementPro', $this->stored('paiementpro_unfo'),
+            'positive control: the save did not run, so the assertion below proves nothing');
+
+        $this->assertSame('live', $this->stored('paiementpro_mode'),
+            'a save that never mentioned the mode wrote over it');
+    }
+
+    /**
+     * AND PRESENT-BUT-EMPTY STILL CLEARS, which is the other half and the one a careless fix
+     * breaks. A GET form submits every control, so an emptied text field arrives as present and
+     * empty; if that stopped clearing, nothing on this screen could ever be emptied again.
+     */
+    public function test_a_field_present_and_empty_is_still_cleared(): void
+    {
+        $merchant = $this->merchantWithGatewaySecrets();
+
+        $this->actingAs($merchant)->post('/payment-setting',
+            $this->payloadWithEmptySecrets(['stripe_publishable_key' => '']));
+
+        $this->assertSame('', $this->stored('stripe_publishable_key'),
+            'a public field that was present and empty was not cleared');
     }
 }

@@ -15,6 +15,9 @@ class PaymentSettingController extends Controller
     protected $store_id;
     protected $post = [];
 
+    /** Gateways the caller asked to enable that were left off for want of a required field. */
+    protected $incomplete = [];
+
     /**
      * Process payment settings form submission
      */
@@ -40,6 +43,25 @@ class PaymentSettingController extends Controller
 
         // Save all settings at once
         $this->saveSettings();
+
+        /*
+         * F142. A gateway the merchant asked to enable but which could not be enabled is
+         * reported BY NAME, with the fields it is waiting for. A silent "saved successfully"
+         * over a gateway that is still off would be worse than the old behaviour of enabling it
+         * broken — at least that failed visibly, at checkout.
+         */
+        if ($this->incomplete !== []) {
+            $names = array_map(function (array $row): string {
+                return __($row['gateway']) . ' (' . implode(', ', array_map(
+                    fn (string $f): string => __($this->secretLabel($f) ?? $f), $row['fields']
+                )) . ')';
+            }, $this->incomplete);
+
+            return redirect()->back()->with('error', __(
+                'Saved, but these gateways were left switched off because a required value is missing: :list',
+                ['list' => implode(' · ', $names)]
+            ));
+        }
 
         return redirect()->back()->with('success', __('Setting successfully updated.'));
     }
@@ -93,13 +115,43 @@ class PaymentSettingController extends Controller
                 $this->handleImageUpload($request->$imageKey, $imageKey);
             }
             
-            // Validate required fields if specified
-            if (!empty($gateway['required_fields'])) {
-                $this->validateGatewayFields($request, $gateway);
+            /*
+             * F142 — THE VALIDATION BITES ON THE TRANSITION, NOT ON THE EXISTING STATE.
+             *
+             * It had never run: `validateGatewayFields()`'s return was discarded and its only
+             * failure path was a `redirect()` nobody sends, so every `required_fields` entry
+             * across 52 gateways was decorative. Switching it on wholesale is what the owner's
+             * decision forbids, for a concrete reason: this screen is ONE form and ONE save
+             * covering all 52 gateways, so a single gateway enabled today with a field it never
+             * filled would make the merchant unable to save ANYTHING here, with no way to tell
+             * which gateway was at fault.
+             *
+             * So the rule applies only when a gateway is being TURNED ON — `$wasEnabled` reads
+             * the STORED row, not the request. A gateway already on keeps saving exactly as it
+             * does today; one being enabled must be complete. That is "do not accept an
+             * incomplete configuration as valid" without breaking a single existing gateway.
+             *
+             * IMPACT MEASURED, NOT ASSUMED: all 118 `required_fields` entries across the 52
+             * gateways have a rendered control (counting the mode radios, which come from
+             * `mode_options` rather than from `fields`), so the rule can never demand something
+             * the merchant has no way to supply.
+             *
+             * AND A FAILURE DOES NOT LOSE THE SAVE. The gateway is left OFF and named in the
+             * message; everything the merchant typed is still written, and every other gateway
+             * still saves. Aborting the whole form would punish 51 gateways for one.
+             */
+            $wasEnabled = ($this->storedValue($enableKey) ?? 'off') === 'on';
+            $missing = $wasEnabled ? [] : $this->missingRequiredFields($request, $gateway);
+
+            if ($missing !== []) {
+                $this->incomplete[] = ['gateway' => $gateway['id'], 'fields' => $missing];
+
+                // An incomplete gateway is not a valid one. The typed values below are still
+                // stored, so the merchant's progress survives.
+                $this->post[$enableKey] = 'off';
+            } else {
+                $this->post[$enableKey] = 'on';
             }
-            
-            // Set gateway as enabled
-            $this->post[$enableKey] = 'on';
             
             // Store gateway fields.
             //
@@ -117,12 +169,43 @@ class PaymentSettingController extends Controller
             $secretFields = $this->secretFieldsFor();
 
             foreach ($gateway['fields'] as $field) {
+                /*
+                 * THE ENABLE KEY IS IN THIS LIST, and it is decided ABOVE, not here. Every
+                 * gateway's `fields` begins with its own `is_<id>_enabled`, so without this the
+                 * loop writes `$request->is_stripe_enabled` straight over the value the F142
+                 * branch just set — which is exactly how the first version of that fix reported
+                 * "left switched off" in the message while storing 'on'. Measured, not
+                 * reasoned: the probe showed `is_stripe_enabled = 'on'` beside an error naming
+                 * both missing fields.
+                 */
+                if ($field === $enableKey) {
+                    continue;
+                }
+
                 if (in_array($field, $secretFields, true)) {
                     $this->post[$field] = \App\Support\SecretSetting::resolve(
                         $request->$field,
                         $this->storedValue($field),
                     );
 
+                    continue;
+                }
+
+                /*
+                 * F143 — A FIELD THAT IS NOT IN THE REQUEST IS LEFT ALONE, rather than written
+                 * as ''. The old line could not tell "the merchant cleared this box" from "this
+                 * control was never on the page", and the difference is a real one:
+                 * `paiementpro_mode` is in that gateway's save list while the display array
+                 * gives it no `mode_options`, so no radio is ever rendered, nothing posts it,
+                 * and every save that enabled the gateway wrote '' over the stored mode.
+                 *
+                 * `has()` is the distinction the old code lacked: PRESENT-and-empty still
+                 * clears (a GET form submits every control, so that is how a text field is
+                 * emptied), ABSENT keeps. No mode options were invented and no collection logic
+                 * touched — what PaiementPro's modes are is a question about that provider's
+                 * contract. Owner decision F143.
+                 */
+                if (! $request->has($field)) {
                     continue;
                 }
 
@@ -158,56 +241,43 @@ class PaymentSettingController extends Controller
     }
 
     /**
-     * Validate required fields for a gateway.
+     * The required fields this gateway is missing.
      *
-     * THIS METHOD HAS NO EFFECT, and saying so here is the point. `processGateway()` calls it as
-     * a statement and DISCARDS its return value, while the only thing it does on failure is
-     * `return redirect()->back()` -- constructing a response object that nobody sends. MEASURED:
-     * a POST to `/payment-setting` enabling Stripe with `stripe_publishable_key` and
-     * `stripe_secret_key` both empty and nothing stored writes `is_stripe_enabled = 'on'` and
-     * the description, exactly as if the rules did not exist.
+     * A PREDICATE THAT RETURNS, which is the whole repair. The method this replaces built a
+     * validator and then did `return redirect()->back()->with('error', …)` from a private method
+     * whose caller discarded the value — so a failure constructed a response object nobody sent
+     * and the save carried on. MEASURED before the fix: a POST enabling Stripe with both its
+     * required keys empty and nothing stored wrote `is_stripe_enabled = 'on'`.
      *
-     * IT IS LEFT DEAD DELIBERATELY. Making it live would start REFUSING saves that succeed
-     * today -- any gateway a merchant has enabled without filling a field the array calls
-     * required would stop saving -- which is a change to what the payment screen accepts, not
-     * part of masking its credentials. `PaymentGatewayValidationIsDeadTest` pins the current
-     * behaviour so it cannot change by accident, and the ledger carries it as a finding for the
-     * owner to decide.
-     *
-     * The rule below is still correct for the day it is made live, and is written now because
-     * the masking is what creates the trap: with the secret boxes masked, a flat `required`
-     * would refuse every save of an already-configured gateway.
+     * A SECRET THAT IS ALREADY STORED COUNTS AS SUPPLIED. Its box is masked and posts empty when
+     * the merchant leaves it alone, so demanding a value would mean retyping a Stripe secret key
+     * in order to change a gateway's description.
      */
-    private function validateGatewayFields(Request $request, $gateway)
+    private function missingRequiredFields(Request $request, array $gateway): array
     {
-        /*
-         * A REQUIRED SECRET THAT IS ALREADY STORED MUST NOT BE DEMANDED AGAIN. Its box is masked
-         * and posts empty when the merchant leaves it alone, so a flat `required` would refuse
-         * every save of an already-configured gateway -- the merchant would have to retype their
-         * Stripe secret key to change the gateway's description. The rule is `required` only
-         * while nothing is stored.
-         */
-        $secretFields = $this->secretFieldsFor();
+        $secrets = $this->secretFieldsFor();
+        $missing = [];
 
-        $fieldRules = [];
-        foreach ($gateway['required_fields'] as $field) {
-            $alreadyStored = in_array($field, $secretFields, true)
-                && \App\Support\SecretSetting::isSet($this->storedValue($field));
+        foreach ($gateway['required_fields'] ?? [] as $field) {
+            // The enable flag appears in some gateways' required list; it is the thing being
+            // set, not a field the merchant fills.
+            if (str_starts_with($field, 'is_')) {
+                continue;
+            }
 
-            $fieldRules[$field] = $alreadyStored ? 'nullable' : 'required';
+            if (filled($request->input($field))) {
+                continue;
+            }
+
+            if (in_array($field, $secrets, true)
+                && \App\Support\SecretSetting::isSet($this->storedValue($field))) {
+                continue;
+            }
+
+            $missing[] = $field;
         }
 
-        $rules = array_merge(
-            ['is_' . $gateway['id'] . '_enabled' => 'required'],
-            $fieldRules
-        );
-        
-        $validator = Validator::make($request->all(), $rules);
-        
-        if ($validator->fails()) {
-            $messages = $validator->getMessageBag();
-            return redirect()->back()->with('error', $messages->first());
-        }
+        return $missing;
     }
 
     /**
@@ -348,14 +418,23 @@ class PaymentSettingController extends Controller
         return null;
     }
 
-    /** The field's own label, for a message a merchant can act on. */
+    /**
+     * The field's own label, for a message a merchant can act on.
+     *
+     * Across ALL display fields, not only the secret ones: F142 reports missing REQUIRED fields
+     * and most of those are public (a merchant id, a site code). Resolving only secrets would
+     * have printed raw column names like `paytm_merchant_id` at a merchant.
+     */
     private function secretLabel(string $field): ?string
     {
-        $gateway = $this->gatewayOwningSecret($field);
+        $method = new \ReflectionMethod(SettingController::class, 'paymentSettingArray');
+        $method->setAccessible(true);
 
-        foreach ($gateway['fields'] ?? [] as $candidate) {
-            if ($candidate['key'] === $field) {
-                return $candidate['label'];
+        foreach ($method->invoke(app(SettingController::class)) as $definition) {
+            foreach ($definition['fields'] ?? [] as $candidate) {
+                if ($candidate['key'] === $field) {
+                    return $candidate['label'];
+                }
             }
         }
 
