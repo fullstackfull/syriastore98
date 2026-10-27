@@ -823,6 +823,65 @@
     cursor: pointer;
 }
 
+/* ---- Swatches: a colour chosen from a fixed set ----
+   REAL RADIOS, hidden visually but NOT from the accessibility tree. `display: none` — what the
+   brand panel used — removes an element from the tab order and from the tree entirely, which is
+   how ten theme colours ended up reachable only through ten empty anchors. `appearance: none`
+   with `position: absolute` keeps the control focusable, arrow-key navigable and announced,
+   while the label carries the colour.
+
+   The focus ring is drawn on the LABEL via `:focus-visible` on the input, because the input
+   itself has no box to draw one on. Added for P2-05-7. */
+.ss-swatches {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--ss-space-2);
+}
+.ss-swatch { position: relative; }
+.ss-swatch__input {
+    position: absolute;
+    inset-block-start: 0;
+    inset-inline-start: 0;
+    inline-size: 100%;
+    block-size: 100%;
+    margin: 0;
+    opacity: 0;
+    cursor: pointer;
+}
+.ss-swatch__label {
+    display: block;
+    inline-size: 1.75rem;
+    block-size: 1.75rem;
+    border-radius: var(--ss-radius-sm);
+    border: 2px solid var(--ss-border);
+    cursor: pointer;
+}
+.ss-swatch__input:checked + .ss-swatch__label {
+    border-color: var(--ss-fg);
+    box-shadow: 0 0 0 2px var(--ss-surface), 0 0 0 4px var(--ss-fg);
+}
+.ss-swatch__input:focus-visible + .ss-swatch__label {
+    outline: var(--ss-focus-width) solid var(--ss-focus-ring);
+    outline-offset: var(--ss-focus-offset);
+}
+/* THE TEN THEME COLOURS, COPIED FROM THE HOST'S OWN DEFINITIONS and not invented.
+   `public/assets/css/customizer.css` is where each `theme-N` actually gets its colour, under
+   `.theme-color.themes-color > a[data-value="theme-N"]`. A first draft of this block made the
+   values up, which would have shown the merchant ten swatches and applied ten different
+   colours — the same class of silent lie this slice has been removing from these panels.
+   Declared here rather than inherited so a swatch cannot render as an empty grey box, and kept
+   in step with that file by hand; if the host's palette changes, these change with it. */
+.ss-swatch--theme-1  { background: #51459d; }
+.ss-swatch--theme-2  { background: #75c251; }
+.ss-swatch--theme-3  { background: #10B77F; }
+.ss-swatch--theme-4  { background: #145388; }
+.ss-swatch--theme-5  { background: #b9406b; }
+.ss-swatch--theme-6  { background: #008ecc; }
+.ss-swatch--theme-7  { background: #922c88; }
+.ss-swatch--theme-8  { background: #c0a145; }
+.ss-swatch--theme-9  { background: #48494b; }
+.ss-swatch--theme-10 { background: #0c7785; }
+
 /* ---- Input group: a field with a fixed affix ----
    The Shopify and WooCommerce panels append `.myshopify.com` to a shop NAME. The affix is a
    picture of a rule, not a value the merchant can change, so it is `aria-hidden` in the markup

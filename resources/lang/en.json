@@ -3164,5 +3164,7 @@
     "No webhooks yet": "No webhooks yet",
     "Sending…": "Sending…",
     "Strictly Cookie Title": "Strictly Cookie Title",
-    "Put any of these tokens in your message and they are replaced when it is sent.": "Put any of these tokens in your message and they are replaced when it is sent."
+    "Put any of these tokens in your message and they are replaced when it is sent.": "Put any of these tokens in your message and they are replaced when it is sent.",
+    "Theme colour :n": "Theme colour :n",
+    "Custom colour": "Custom colour"
 }
