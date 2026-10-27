@@ -45,6 +45,13 @@ class ArabicUiCoverageTest extends TestCase
     private const SURFACES = [
         'resources/views/product/*.blade.php',
         'resources/views/order/*.blade.php',
+        // P2-06-5. `product/*.blade.php` does NOT match `product/partials/*.blade.php`, so the
+        // two list FILTER BARS -- every control label, every option, every "any" placeholder --
+        // had never been scanned since they shipped. Found by independent review of a change
+        // that added user-visible strings to exactly those two files. A glob is a claim about
+        // which files are covered, and this one quietly excluded the screens' busiest controls.
+        'resources/views/product/partials/*.blade.php',
+        'resources/views/order/partials/*.blade.php',
         // P2-05-2. ADDED when this ratchet's own surface list proved too narrow: the customers
         // screen's delete dialog rendered its body text in English under `lang=ar`, and nothing
         // caught it because `resources/views/customer/` was not scanned. A coverage test is only

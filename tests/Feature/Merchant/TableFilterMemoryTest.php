@@ -307,4 +307,112 @@ class TableFilterMemoryTest extends SecurityTestCase
         $this->assertStringContainsString('Clear filters', $html,
             'a filtered list does not offer a way out of the filter');
     }
+
+    // ---------------------------------------------------------------------------------------
+    // THE ORDER SCREEN, which this slice shipped UNTESTED and which independent review is what
+    // caught. Both halves use the same service, and that is exactly why one set of tests over
+    // one screen was not enough: the service's only per-screen behaviour — the vocabulary — was
+    // the part that was wrong, and the product screen could not see it.
+    // ---------------------------------------------------------------------------------------
+
+    private function merchantWhoMaySeeOrders(): User
+    {
+        $this->grantPermission($this->merchant, 'Manage Order');
+
+        return User::find($this->merchant->id);
+    }
+
+    public function test_a_bare_order_list_restores_the_last_applied_filters(): void
+    {
+        $m = $this->merchantWhoMaySeeOrders();
+
+        $this->actingAs($m)->get('/order?ss_status=6&ss_apply=1')->assertOk();
+
+        $this->actingAs($m)->get('/order')->assertRedirect('/order?ss_status=6');
+    }
+
+    /**
+     * THE RECEIPT MUST NAME THE ORDER STATUS CORRECTLY, for every one of the nine.
+     *
+     * THE BUG THIS PINS: the vocabulary was the PRODUCT one, so `?ss_status=1` — which lists
+     * DELIVERED orders — was announced as "Status: Active", and statuses 2 to 8 were announced
+     * as nothing at all. The second half is the dangerous one, because the Clear button's
+     * render condition is the same predicate: no label meant no receipt AND no way out of a
+     * filter that now survives navigation.
+     *
+     * @dataProvider orderStatusLabels
+     */
+    public function test_the_receipt_names_each_order_status(string $value, string $expected): void
+    {
+        $m = $this->merchantWhoMaySeeOrders();
+
+        $html = $this->actingAs($m)->get('/order?ss_status=' . $value)->assertOk()->getContent();
+
+        $this->assertStringContainsString('ss-filterbar__summary', $html,
+            "a list filtered to status {$value} renders no receipt, so the narrowing is silent "
+            . 'and the Clear button is suppressed with it');
+        $this->assertStringContainsString('Status: ' . $expected, $html,
+            "the receipt does not name status {$value} as \"{$expected}\"");
+        $this->assertStringContainsString('Clear filters', $html,
+            "a list filtered to status {$value} offers no way out");
+    }
+
+    /** The nine values of `orders.delivered_status`, from `HomeController::ORDER_STATUS_*`. */
+    public static function orderStatusLabels(): array
+    {
+        return [
+            'pending' => ['0', 'Pending'],
+            'delivered' => ['1', 'Delivered'],
+            'cancel' => ['2', 'Cancel'],
+            'return' => ['3', 'Return'],
+            'confirmed' => ['4', 'Confirmed'],
+            'picked up' => ['5', 'Picked Up'],
+            'shipped' => ['6', 'Shipped'],
+            'partially paid' => ['7', 'Partially Paid'],
+            'pre order' => ['8', 'Pre Order'],
+        ];
+    }
+
+    /** The product screen's own vocabulary must not have been disturbed by making it per-screen. */
+    public function test_the_product_receipt_still_names_the_product_statuses(): void
+    {
+        $html = $this->actingAs($this->merchant)->get('/product?ss_status=1')
+            ->assertOk()->getContent();
+
+        $this->assertStringContainsString('Status: Active', $html);
+    }
+
+    /**
+     * THE RECEIPT USES THE WORDS THE SELECT USES. "With variants" beside a select reading "Has
+     * variants" is two vocabularies for one fact, which is the same class of defect as the
+     * wrong status map, just quieter.
+     */
+    public function test_the_receipt_uses_the_same_words_as_the_control(): void
+    {
+        $html = $this->actingAs($this->merchant)->get('/product?ss_variant=1')
+            ->assertOk()->getContent();
+
+        $this->assertStringContainsString('Variants: Has variants', $html);
+        $this->assertStringNotContainsString('With variants', $html);
+    }
+
+    /**
+     * THE DATATABLES JSON LEG, driven the way the house drives it.
+     *
+     * The first version of this sent `X-Requested-With` and no `Accept`, so `wantsJson()` was
+     * false and yajra rendered the Blade view — it proved a query-bearing request is not
+     * redirected, which is true but is not the JSON path. A change that redirected only
+     * `wantsJson()` requests would have passed it.
+     */
+    public function test_the_json_leg_of_the_order_table_is_never_redirected(): void
+    {
+        $m = $this->merchantWhoMaySeeOrders();
+
+        $this->actingAs($m)->get('/order?ss_status=6&ss_apply=1')->assertOk();
+
+        $this->actingAs($m)
+            ->withHeaders(['X-Requested-With' => 'XMLHttpRequest', 'Accept' => 'application/json'])
+            ->getJson('/order?draw=1&start=0&length=10')
+            ->assertOk();
+    }
 }

@@ -27,7 +27,7 @@
          the "we kept these" flash survives one request, so a RELOAD of a restored page would
          otherwise be the silently-narrowed screen this exists to prevent. --}}
     <x-ss.filter-summary
-        :filters="\App\Services\TableFilterMemory::describe(request(), 'product', $filterCategories->toArray())"
+        :filters="\App\Services\TableFilterMemory::describe(request(), 'product', collect($filterCategories ?? [])->toArray())"
         :clear-url="route('product.index', ['ss_clear' => 1])"
         :clear-label="__('Show all products')"
         :restored="(bool) session('ss_filters_restored')" />
@@ -105,7 +105,7 @@
              restore re-decorates: without a distinct forget signal, Clear would hop to
              `/product`, the memory would fire, and the merchant would be returned to the
              filters they just asked to leave. --}}
-        @if (\App\Services\TableFilterMemory::describe(request(), 'product', $filterCategories->toArray()) !== [])
+        @if (\App\Services\TableFilterMemory::describe(request(), 'product', collect($filterCategories ?? [])->toArray()) !== [])
             {{-- A LINK, not `type="reset"`: reset restores the form's initial values, which on a
                  filtered page are the filters themselves. --}}
             <a class="ss-btn ss-btn--ghost" href="{{ route('product.index', ['ss_clear' => 1]) }}">{{ __('Clear filters') }}</a>

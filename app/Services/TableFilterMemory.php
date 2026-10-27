@@ -37,6 +37,22 @@ use Illuminate\Http\Request;
  * (`ProductController::index()`). On the server it is never readable by the next person at that
  * terminal, and never readable from JavaScript.
  *
+ * "OFF THE DEVICE" IS THE CLAIM, NOT "ENCRYPTED". Verified rather than assumed: `.env` sets
+ * `SESSION_DRIVER=database`, so the bag rests in `sessions.payload` — and `SESSION_ENCRYPT=false`,
+ * so it rests there in plaintext. A store id and a category id are negligible beside what that
+ * table already holds, but the two claims are different and only the first is being made. If the
+ * driver were ever `cookie` the whole argument for this store would collapse, which is why the
+ * value is named here instead of left to be looked up.
+ *
+ * ONE THING A FUTURE READER SHOULD NOT BE SURPRISED BY: `config/session.php` leaves `same_site`
+ * null, so browsers apply Lax and a top-level cross-site GET carries the session cookie. A link
+ * a merchant clicks can therefore write a filter into their own session with no CSRF token —
+ * `…/order?ss_apply=1&ss_status=2`. Nothing foreign is read and no business state is written, so
+ * the blast radius is one filter on one screen, and the receipt above the bar is what makes it
+ * visible rather than silent. It is recorded because it is the honest answer, not because it is
+ * being treated as a hole; widening `same_site` is an application-wide change and not this
+ * slice's to make.
+ *
  * THIS CLASS DOES NOT DECIDE WHAT A FILTER MEANS. It knows the key names and three value guards;
  * what each value does to a query stays in `ProductDataTable::applyFilters()` and
  * `OrderDataTable::applyFilters()`, which already validate every value they read. A restored
@@ -226,7 +242,7 @@ final class TableFilterMemory
         $out = [];
 
         foreach ($values as $name => $value) {
-            $label = self::label($name, $value, $categories);
+            $label = self::label($name, $value, $screen, $categories);
 
             if ($label !== null) {
                 $out[] = $label;
@@ -239,30 +255,49 @@ final class TableFilterMemory
     /**
      * One filter in words.
      *
-     * A VALUE THIS METHOD DOES NOT RECOGNISE PRODUCES NOTHING, deliberately. `recognised()` only
-     * checks shape — a string, non-empty, short — while the real vocabulary of each filter lives
-     * in `applyFilters()`, which ignores anything outside it. So `?ss_stock=banana` narrows
-     * nothing, and a summary that announced "Stock: banana" would be describing a filter that is
-     * not in force. Saying nothing is the only honest option; the empty-set case then hides the
-     * whole receipt, which is correct because nothing is filtered.
+     * THE VOCABULARY IS PER SCREEN, and the first version of this method forgot that — which
+     * independent review caught and no test did, because the whole order half of this slice was
+     * untested. It applied the PRODUCT status map (`1 => Active`, `0 => Inactive`) to the order
+     * screen, where `orders.delivered_status` is 0=Pending, 1=Delivered, 2=Cancel, 3=Return,
+     * 4=Confirmed, 5=Picked Up, 6=Shipped, 7=Partially Paid, 8=Pre Order. Two consequences, the
+     * second worse than the first:
+     *
+     *   (a) THE RECEIPT LIED. `/order?ss_status=1` lists DELIVERED orders under the words
+     *       "Status: Active".
+     *   (b) FOR SEVEN OF THE NINE STATUSES THE RECEIPT AND THE CLEAR BUTTON BOTH VANISHED. An
+     *       unmapped value returns null here, `describe()` then returns `[]`, and this slice
+     *       changed the Clear button's render condition to `describe(…) !== []`. So a merchant
+     *       who filtered to Shipped got a sticky filter, no receipt, and no way out — exactly
+     *       the "my orders are gone" screen the restore is only safe if it prevents. And it was
+     *       a REGRESSION: before this slice Clear rendered on "any parameter present".
+     *
+     * The order labels now come from `HomeController::ORDER_STATUS_*`, the same constants the
+     * bar builds its options from, so the two cannot drift.
+     *
+     * A VALUE THIS METHOD DOES NOT RECOGNISE STILL PRODUCES NOTHING, deliberately. `recognised()`
+     * only checks shape — a string, non-empty, short — while the real vocabulary of each filter
+     * lives in `applyFilters()`, which ignores anything outside it. So `?ss_stock=banana` narrows
+     * nothing, and a summary announcing "Stock: banana" would describe a filter that is not in
+     * force. What changed is that the order statuses are now IN the vocabulary, so the silence is
+     * reserved for values that really do nothing.
      */
-    private static function label(string $name, string $value, array $categories): ?string
+    private static function label(string $name, string $value, string $screen, array $categories): ?string
     {
-        $map = [
-            'ss_status' => ['1' => 'Active', '0' => 'Inactive'],
-            'ss_variant' => ['1' => 'With variants', '0' => 'Without variants'],
-            'ss_stock' => ['in' => 'In stock', 'low' => 'Low stock', 'out' => 'Out of stock'],
-        ];
-
         $heading = [
             'ss_status' => 'Status', 'ss_variant' => 'Variants', 'ss_stock' => 'Stock',
             'ss_category' => 'Category', 'ss_payment' => 'Payment', 'ss_from' => 'From',
             'ss_to' => 'To',
         ];
 
+        if (! isset($heading[$name])) {
+            return null;
+        }
+
+        $map = self::valueLabels($screen);
+
         if (isset($map[$name])) {
             return isset($map[$name][$value])
-                ? __($heading[$name]) . ': ' . __($map[$name][$value])
+                ? __($heading[$name]) . ': ' . $map[$name][$value]
                 : null;
         }
 
@@ -274,11 +309,55 @@ final class TableFilterMemory
                 : null;
         }
 
-        /* The order screen's status and payment vocabularies are data, not constants, and its
-           dates are free-form. Echoing a date or a status NAME back is safe -- it is the
-           merchant's own input, rendered by Blade, and it is already visible in the select
-           beside it. */
-        return isset($heading[$name]) ? __($heading[$name]) . ': ' . $value : null;
+        /* `ss_from` and `ss_to` are dates, which have no vocabulary. Echoing the merchant's own
+           input back is safe — Blade escapes it — and it is already visible in the field beside
+           it. `parseDate()` is what decides whether it narrows anything; a value it rejects is
+           still shown here, which is correct: the merchant typed it and should see what they
+           typed. */
+        return __($heading[$name]) . ': ' . $value;
+    }
+
+    /**
+     * The value-to-label map per screen, built from the SAME source the bar builds its options
+     * from so the receipt and the control beside it cannot say different things.
+     *
+     * TRANSLATED HERE, not only the heading. An earlier version translated the heading and
+     * echoed the raw value, so an Arabic page read "الدفع: Paid" beside a select showing
+     * "مقبوض" — two renderings of one fact, in two languages, side by side.
+     */
+    private static function valueLabels(string $screen): array
+    {
+        if ($screen === 'order') {
+            $statuses = [];
+
+            foreach ((new \ReflectionClass(\App\Http\Controllers\HomeController::class))->getConstants() as $name => $value) {
+                if (! str_starts_with($name, 'ORDER_STATUS_')) {
+                    continue;
+                }
+
+                // ORDER_STATUS_PICKED_UP -> "Picked Up", which is the key the bar translates.
+                $statuses[(string) $value] = __(ucwords(strtolower(str_replace(
+                    '_', ' ', substr($name, strlen('ORDER_STATUS_'))
+                ))));
+            }
+
+            return [
+                'ss_status' => $statuses,
+                'ss_payment' => array_combine(
+                    \App\DataTables\OrderDataTable::PAYMENT_STATUSES,
+                    array_map(static fn (string $s): string => __($s),
+                        \App\DataTables\OrderDataTable::PAYMENT_STATUSES),
+                ),
+            ];
+        }
+
+        return [
+            'ss_status' => ['1' => __('Active'), '0' => __('Inactive')],
+            /* The words the select itself uses (`product/partials/filters.blade.php`), not a
+               second phrasing of the same thing. */
+            'ss_variant' => ['1' => __('Has variants'), '0' => __('No variants')],
+            'ss_stock' => ['in' => __('In stock'), 'low' => __('Low stock'), 'out' => __('Out of stock')],
+        ];
     }
 
     /**
