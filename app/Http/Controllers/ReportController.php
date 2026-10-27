@@ -1415,7 +1415,12 @@ class ReportController extends Controller
             $NetSaleTotal = array_fill(0, 31, 0);
             $PurchasedItemTotal = array_fill(0, 31, 0);
             if (empty($selectedProducts)) {
-                $selectedProducts = Product::all()->where('store_id', getCurrentStore())->pluck('id');
+                /* `Product::all()->where(...)` loaded EVERY tenant's catalogue into memory and
+                   filtered it in PHP. `Product` is not in `config/tenancy.php`'s `scoped_models`,
+                   so `all()` really is every row in the table; the PHP filter then kept the right
+                   ones, so nothing leaked — but a report on a store with ten products read the
+                   whole platform's product table to find them. The predicate belongs in SQL. */
+                $selectedProducts = Product::where('store_id', getCurrentStore())->pluck('id');
             }
             $PurchasedItem = 0;
             $Totalsale = 0;
@@ -1496,7 +1501,8 @@ class ReportController extends Controller
             $Totalsale = 0;
             $PurchasedItem = 0;
             if (empty($selectedProducts)) {
-                $selectedProducts = Product::all()->where('store_id', getCurrentStore())->pluck('id');
+                /* Scoped in SQL, not in PHP — see the note at the first of these. */
+                $selectedProducts = Product::where('store_id', getCurrentStore())->pluck('id');
             }
             if (!empty($selectedProducts)) {
                 foreach ($selectedProducts as $productId) {
@@ -1619,7 +1625,8 @@ class ReportController extends Controller
             $NetSaleTotal = [];
             $PurchasedItemTotal = [];
             if (empty($selectedProducts)) {
-                $selectedProducts = Product::all()->where('store_id', getCurrentStore())->pluck('id');
+                /* Scoped in SQL, not in PHP — see the note at the first of these. */
+                $selectedProducts = Product::where('store_id', getCurrentStore())->pluck('id');
             }
             $Totalsale = 0;
             $PurchasedItem = 0;
@@ -1815,7 +1822,8 @@ class ReportController extends Controller
             $daysInPreviousMonth = date('j', strtotime('last day of last month'));
 
             if (empty($selectedCategory)) {
-                $selectedCategory = Category::all()->where('store_id', getCurrentStore())->pluck('id');
+                /* Scoped in SQL, not in PHP — see the note at the first of these. */
+                $selectedCategory = Category::where('store_id', getCurrentStore())->pluck('id');
             }
 
             $categoryNetSales = [];
@@ -1888,7 +1896,8 @@ class ReportController extends Controller
             $daysInCurrentMonth = date('j', strtotime('last day of this month'));
 
             if (empty($selectedCategory)) {
-                $selectedCategory = Category::all()->where('store_id', getCurrentStore())->pluck('id');
+                /* Scoped in SQL, not in PHP — see the note at the first of these. */
+                $selectedCategory = Category::where('store_id', getCurrentStore())->pluck('id');
             }
 
             $categoryNetSales = [];
@@ -2046,7 +2055,8 @@ class ReportController extends Controller
             $totalNetSalesAllCategories = array_fill(0, count($monthList), 0);
 
             if (empty($selectedCategory)) {
-                $selectedCategory = Category::all()->where('store_id', getCurrentStore())->pluck('id');
+                /* Scoped in SQL, not in PHP — see the note at the first of these. */
+                $selectedCategory = Category::where('store_id', getCurrentStore())->pluck('id');
             }
 
             $categoryNetSales = [];

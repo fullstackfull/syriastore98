@@ -21,50 +21,12 @@
 @section('content')
     @include('layouts.includes.store-syria-ds')
 
-    {{--
-        THE PERIOD PICKER IS THE MOST IMPORTANT CONTROL ON THIS PAGE, so it is a labelled group
-        rather than four buttons that happen to look selected.
-
-        What was here: four `<button class="nav-link chart-data">` inside a `<ul role="tablist">`
-        with NO `role="tab"`, no `aria-selected` and no `aria-controls`, so the selected period
-        was conveyed by a CSS class alone — a screen-reader user could not tell which of the four
-        was active, and `role="tablist"` promised tabs that were not there. Two `<div>`s sat as
-        direct children of that `<ul>`, which is invalid: only `<li>` may be a child of a list,
-        and the date field and Generate button were announced as part of the list's item count.
-
-        These are not tabs (a tab owns a panel that is already in the page; these refetch), so
-        they are buttons in a labelled group with `aria-pressed`, which states the selection in
-        the one place assistive technology reads it.
-    --}}
+    {{-- The period bar, its markup and its reasoning, live in `<x-ss.report-filter>`: four
+         report screens had a copy of it and all four carried the same defects. --}}
     <div class="row">
         <div class="col-xxl-12">
             <div class="ss-card">
-                <div class="ss-toolbar" role="group" aria-label="{{ __('Report period') }}">
-                    @foreach ([
-                        'year' => __('This year'),
-                        'last-month' => __('Last month'),
-                        'this-month' => __('This month'),
-                        'seven-day' => __('Last 7 days'),
-                    ] as $value => $label)
-                        <button type="button"
-                                class="ss-chip chart-data"
-                                name="chart_data"
-                                value="{{ $value }}"
-                                aria-pressed="{{ $loop->first ? 'true' : 'false' }}">{{ $label }}</button>
-                    @endforeach
-
-                    <div class="ss-field">
-                        <label class="ss-label" for="report-date">{{ __('Or pick a date') }}</label>
-                        <input type="date"
-                               class="ss-input date month-btn"
-                               id="report-date"
-                               name="date"
-                               value="{{ request('date', date('Y-m-d')) }}">
-                    </div>
-
-                    <button type="button" class="ss-btn ss-btn--primary ss-btn--sm generate_button"
-                            value="">{{ __('Generate') }}</button>
-                </div>
+                <x-ss.report-filter id="report" :label="__('Report period')" />
             </div>
         </div>
 

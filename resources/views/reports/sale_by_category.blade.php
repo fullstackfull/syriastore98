@@ -20,46 +20,37 @@
     <div class="row">
         <div class="col-xxl-12">
             <div class="card card-body">
-                <ul class="nav nav-pills gap-2" id="pills-tab" role="tablist">
-                    <li class="nav-item mb-2">
-                        <button class="nav-link  chart-data active" name="chart_data"
-                            value="year">{{ __('Year') }}</button>
-                    </li>
-                    <li class="nav-item mb-2">
-                        <button class="nav-link chart-data" name="chart_data"
-                            value="last-month">{{ __('Last month') }}</button>
-                    </li>
-                    <li class="nav-item mb-2">
-                        <button class="nav-link chart-data" name="chart_data"
-                            value="this-month">{{ __('This month') }}</button>
-                    </li>
-                    <li class="nav-item mb-2">
-                        <button class="nav-link chart-data" name="chart_data" value="seven-day">{{ __('Last 7 days') }}</button>
-                    </li>
-                    <div class="nav-item mb-2">
-                        {{ Form::date('date', isset($_GET['date']) ? $_GET['date'] : date('Y-m-d'), ['class' => 'date month-btn form-control', 'id' => 'pc-daterangepicker-1', 'placeholder' => 'YYYY-MM-DD']) }}
-                    </div>
-                    <div class="col-md-2 " id="filter_type" style="padding-left :10px;">
-                        <button class="btn btn-primary label-margin chart-data generate_button" id="generateButton"
-                            name="chart_data" value="date-wise">{{ __('Generate') }}</button>
-                    </div>
-                    <li class="nav-item d-flex align-items-center report-filter custom-width">
+                {{-- The period bar is `<x-ss.report-filter>`: this screen had its own copy, as
+                     did the other two sale-by screens and the reports hub, and all four carried
+                     the same defects — a `role="tablist"` whose buttons were not tabs, a
+                     selection kept only in a CSS class, `<div>`s as direct children of a `<ul>`,
+                     and an unlabelled date field. --}}
+                <x-ss.report-filter id="category" :label="__('Report period')"
+                                    generate-value="date-wise" :generate-disabled="true">
+                    {{-- The multi-select had NO LABEL, and its Apply and Reset controls were
+                         `<a href="#">` and `<a href="">` — the second navigates away on click,
+                         which is not what "Reset" means to a keyboard user who lands on it. --}}
+                    <div class="ss-field">
+                        <label class="ss-label" for="category_id">{{ __('Categories') }}</label>
                         {!! Form::select('category_id[]', $MainCategoryList, null, [
-                            'class' => 'form-control multi-select ',
+                            'class' => 'form-control multi-select',
                             'multiple' => 'multiple',
                             'data-role' => 'tagsinput',
                             'id' => 'category_id',
                         ]) !!}
-                        <a href="#" class="btn btn-sm btn-primary filter-apply-btn" data-bs-toggle="tooltip" title="{{ __('Apply') }}"
-                            data-original-title="{{ __('Apply') }}">
-                            <span class="btn-inner--icon"><i class="ti ti-search"></i></span>
-                        </a>
-                        <a href="" class="btn btn-sm btn-warning " data-bs-toggle="tooltip"
-                            title="{{ __('Reset') }}" data-original-title="{{ __('Reset') }}">
-                            <span class="btn-inner--icon"><i class="ti ti-refresh text-white-off"></i></span>
-                        </a>
-                    </li>
-                </ul>
+                    </div>
+
+                    <button type="button" class="ss-btn ss-btn--secondary ss-btn--sm filter-apply-btn"
+                            title="{{ __('Apply') }}">
+                        <i class="ti ti-search" aria-hidden="true"></i>
+                        <span class="ss-visually-hidden">{{ __('Apply') }}</span>
+                    </button>
+                    <a href="{{ url()->current() }}" class="ss-btn ss-btn--secondary ss-btn--sm"
+                       title="{{ __('Reset') }}">
+                        <i class="ti ti-refresh" aria-hidden="true"></i>
+                        <span class="ss-visually-hidden">{{ __('Reset') }}</span>
+                    </a>
+                </x-ss.report-filter>
             </div>
         </div>
         <div class="chart_data pc-dt-export">
@@ -139,24 +130,33 @@
                 });
             }
 
+            /* `aria-pressed` is the only record of the selection — the CSS selects on it too,
+               so the announced state and the visible state cannot drift apart. The old parallel
+               `active` class is what let this page look selected to a sighted user and selected
+               to nobody else. */
             $(".chart-data").on("click", function() {
-                $(".chart-data").removeClass("active");
-                $(this).addClass("active");
+                $(".chart-data").attr('aria-pressed', 'false');
+                $(this).attr('aria-pressed', 'true');
                 var value = $(this).val();
-                var date = $('.date').val();
+                var date = $('#category-date').val();
 
                 fetchData(value, date);
             });
 
-            var firstValue = $(".chart-data:first").val();
-            $(".chart-data:first").addClass("active");
-            fetchData(firstValue);
+            fetchData($('.chart-data[aria-pressed="true"]').val(), $('#category-date').val());
+
+            /* Generate is no longer one of the period buttons, so it needs its own handler:
+               it runs the `date-wise` branch against whatever is in the date field, which is
+               what its `value` said when it was wearing the `chart-data` class. */
+            $('.generate_button').on('click', function() {
+                fetchData($(this).val(), $('#category-date').val());
+            });
 
             $('.filter-apply-btn').on('click', function() {
                 var selectedCategory = $('#category_id').val();
 
-                var selectedValue = $(".chart-data.active").val();
-                var date = $('.date').val();
+                var selectedValue = $('.chart-data[aria-pressed="true"]').val();
+                var date = $('#category-date').val();
 
                 fetchData(selectedValue, date, selectedCategory);
             });
@@ -206,15 +206,15 @@
             });
 
 
-            $('#generateButton').prop('disabled', true);
-            $('#pc-daterangepicker-1').on('change', function() {
+            $('.generate_button').prop('disabled', true);
+            $('#category-date').on('change', function() {
                 // Check if a date is selected
                 if ($(this).val() !== '') {
                     // Enable the "Generate" button
-                    $('#generateButton').prop('disabled', false);
+                    $('.generate_button').prop('disabled', false);
                 } else {
                     // Disable the "Generate" button if no date is selected
-                    $('#generateButton').prop('disabled', true);
+                    $('.generate_button').prop('disabled', true);
                 }
             });
         });
