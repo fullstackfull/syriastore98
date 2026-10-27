@@ -2702,34 +2702,7 @@ class ReportController extends Controller
         $productQuery = Product::where('store_id', getCurrentStore());
         $orderQuery = Order::where('store_id', getCurrentStore());
 
-        $topSellingProductIds = (clone $orderQuery)->get()
-            ->pluck('product_id')
-            ->flatMap(function ($productIds) {
-                return explode(',', $productIds);
-            })
-            ->map(function ($productId) {
-                return (int) $productId;
-            })
-            ->groupBy(function ($productId) {
-                return $productId;
-            })
-            ->map(function ($group) {
-                return $group->count();
-            })
-            ->sortDesc()
-            ->take(5)
-            ->keys();
-
-        $topSellingProducts = (clone $productQuery)->whereIn('id', $topSellingProductIds->toArray())->get();
-
-        $productNames = $topSellingProducts->pluck('name')->toArray();
-        $productCounts = $topSellingProductIds->map(function ($id) use ($orderQuery) {
-            return $orderQuery->get()->pluck('product_id')->flatMap(function ($productIds) {
-                return explode(',', $productIds);
-            })->filter(function ($productId) use ($id) {
-                return $productId == $id;
-            })->count();
-        })->values()->toArray();
+        [$productNames, $productCounts] = $this->topSellingProducts($orderQuery, $productQuery);
 
         $top_sales = Category::select(
             'categories.name as sale_name',
@@ -2771,7 +2744,7 @@ class ReportController extends Controller
             'top_sales' => $top_sales,
             'productNames' => $productNames,
             'productCounts' => $productCounts,
-            'MainCategoryList' => Product::pluck('name', 'id')
+            'periodLabel' => __('All time'),
         ]);
     }
 
@@ -2803,6 +2776,60 @@ class ReportController extends Controller
      * the better word here would make the report disagree with the order list and with the app.
      * The wording is a contract question, recorded in the ledger, not this slice's to change.
      */
+    /**
+     * The five products appearing in the most orders, as two arrays the chart can consume.
+     *
+     * THE LABELS USED TO BE ATTACHED TO THE WRONG SLICES, and this is extracted so that can be
+     * tested: the rest of `top_product()` joins with `SUBSTRING_INDEX`, which SQLite does not
+     * have, so the screen cannot be rendered in the suite at all.
+     *
+     * What was wrong. The ids came out sorted by COUNT DESCENDING; the names then came from
+     * `Product::whereIn('id', $ids)->get()->pluck('name')`, which returns rows in whatever order
+     * the database gives — id order, in practice — while the counts stayed in count order. The
+     * chart paired name[i] with count[j] for two different products, and nothing on the screen
+     * could reveal it, because it was a pie in an empty div with no table to check against.
+     *
+     * Worse, the two arrays could be different LENGTHS: `whereIn` drops an id whose product has
+     * been deleted or belongs to another store, while the counts array always had five, so every
+     * slice after the gap shifted by one.
+     *
+     * Both are gone because the name and the count are carried together, keyed by id. The counts
+     * are also computed from ONE fetch rather than re-fetching every order inside a loop over
+     * five ids — six full table reads for one chart.
+     *
+     * `$productQuery` is already scoped to the caller's store, which matters: `Product` is NOT in
+     * `config/tenancy.php`'s `scoped_models`, so an unscoped `Product::find()` reaches every
+     * tenant's catalogue. An id that resolves to no product of this store is skipped rather than
+     * named.
+     *
+     * @return array{0: list<string>, 1: list<int>} [names, counts], index-aligned
+     */
+    private function topSellingProducts($orderQuery, $productQuery): array
+    {
+        $countsById = (clone $orderQuery)->pluck('product_id')
+            ->flatMap(fn ($ids) => explode(',', (string) $ids))
+            ->map(fn ($id) => (int) trim($id))
+            ->filter(fn ($id) => $id > 0)
+            ->countBy()
+            ->sortDesc()
+            ->take(5);
+
+        $namesById = (clone $productQuery)->whereIn('id', $countsById->keys()->all())
+            ->pluck('name', 'id');
+
+        $names = [];
+        $counts = [];
+        foreach ($countsById as $id => $count) {
+            if (! isset($namesById[$id])) {
+                continue;
+            }
+            $names[] = (string) $namesById[$id];
+            $counts[] = (int) $count;
+        }
+
+        return [$names, $counts];
+    }
+
     public function showOrderStatusReport()
     {
         $labels = [

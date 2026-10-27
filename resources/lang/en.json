@@ -3077,5 +3077,10 @@
     "total orders": "total orders",
     "The rest have no billing country recorded.": "The rest have no billing country recorded.",
     "A picture of the same figures. The table above is the readable version.": "A picture of the same figures. The table above is the readable version.",
-    "orders are in countries this map cannot draw. They are in the table, not on the map.": "orders are in countries this map cannot draw. They are in the table, not on the map."
+    "orders are in countries this map cannot draw. They are in the table, not on the map.": "orders are in countries this map cannot draw. They are in the table, not on the map.",
+    "The five products appearing in the most orders. Counts orders, not quantity or value.": "The five products appearing in the most orders. Counts orders, not quantity or value.",
+    "Categories by the number of distinct orders containing one of their products.": "Categories by the number of distinct orders containing one of their products.",
+    "Brands by the number of distinct orders containing one of their products.": "Brands by the number of distinct orders containing one of their products.",
+    "Orders grouped by the method they were paid with.": "Orders grouped by the method they were paid with.",
+    "Unknown": "Unknown"
 }

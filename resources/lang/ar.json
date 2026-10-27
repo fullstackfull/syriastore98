@@ -3106,5 +3106,10 @@
     "total orders": "إجمالي الطلبات",
     "The rest have no billing country recorded.": "الباقي لا يحمل بلد فوترة مُسجّلاً.",
     "A picture of the same figures. The table above is the readable version.": "صورة للأرقام نفسها. الجدول أعلاه هو النسخة القابلة للقراءة.",
-    "orders are in countries this map cannot draw. They are in the table, not on the map.": "طلب في بلدان لا تستطيع هذه الخريطة رسمها. هي موجودة في الجدول، لا على الخريطة."
+    "orders are in countries this map cannot draw. They are in the table, not on the map.": "طلب في بلدان لا تستطيع هذه الخريطة رسمها. هي موجودة في الجدول، لا على الخريطة.",
+    "The five products appearing in the most orders. Counts orders, not quantity or value.": "المنتجات الخمسة الأكثر ظهوراً في الطلبات. يُحصي عدد الطلبات، لا الكمية ولا القيمة.",
+    "Categories by the number of distinct orders containing one of their products.": "الفئات حسب عدد الطلبات المختلفة التي تحتوي أحد منتجاتها.",
+    "Brands by the number of distinct orders containing one of their products.": "العلامات التجارية حسب عدد الطلبات المختلفة التي تحتوي أحد منتجاتها.",
+    "Orders grouped by the method they were paid with.": "الطلبات مُجمَّعة حسب طريقة الدفع المستخدمة.",
+    "Unknown": "غير معروف"
 }
