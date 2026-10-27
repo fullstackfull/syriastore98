@@ -3219,5 +3219,8 @@
     "Nothing here yet": "Nothing here yet",
     "Items appear here once you add them.": "Items appear here once you add them.",
     "Nothing matches your search or filters.": "Nothing matches your search or filters.",
-    "Clear them to see everything again.": "Clear them to see everything again."
+    "Clear them to see everything again.": "Clear them to see everything again.",
+    "This is what customers see on the product page. It does not change the quantity you hold.": "This is what customers see on the product page. It does not change the quantity you hold.",
+    "Decide what happens when this product runs out of stock.": "Decide what happens when this product runs out of stock.",
+    "Allowing backorders means customers can still order and pay for it.": "Allowing backorders means customers can still order and pay for it."
 }

@@ -3248,5 +3248,8 @@
     "Nothing here yet": "لا يوجد شيء هنا بعد",
     "Items appear here once you add them.": "تظهر العناصر هنا بعد إضافتها.",
     "Nothing matches your search or filters.": "لا شيء يطابق بحثك أو عوامل التصفية.",
-    "Clear them to see everything again.": "أزِلها لعرض كل شيء مرة أخرى."
+    "Clear them to see everything again.": "أزِلها لعرض كل شيء مرة أخرى.",
+    "This is what customers see on the product page. It does not change the quantity you hold.": "هذا ما يراه العملاء في صفحة المنتج. لا يغيّر الكمية التي تملكها.",
+    "Decide what happens when this product runs out of stock.": "حدِّد ما يحدث عندما ينفد هذا المنتج من المخزون.",
+    "Allowing backorders means customers can still order and pay for it.": "السماح بالطلب المسبق يعني أن العملاء يستطيعون الطلب والدفع مقابله."
 }

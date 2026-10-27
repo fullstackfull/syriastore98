@@ -224,7 +224,8 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                         </div>
                         <div class="row row-gap">
                             <div class="col-12 stock_stats">
-                                {!! Form::label('', __('Stock Status:'), ['class' => 'form-label f-w-800']) !!}
+                                <x-ss.choice-group name="stock_status" :legend="__('Stock Status:')"
+                                  :hint= + HINT1 + >
                                 <div class="col-mb-9 d-flex flex-wrap row-gap">
                                 <div class="form-check form-check-inline">
                                     <input class="form-check-input code" type="radio" id="in_stock" value="in_stock" name="stock_status" {{ $product->stock_status == 'in_stock' ? 'checked' : '' }}>
@@ -245,6 +246,7 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                                     </label>
                                 </div>
                                 </div>
+                                </x-ss.choice-group>
                             </div>
                             </div>
                         </div>
@@ -263,7 +265,8 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                                         <x-ss.field-help for="low_stock_threshold">{{ __('The product list shows Low stock at or below this number. Leave 0 to use the store default.') }}</x-ss.field-help>
                                     </div>
                                     <div class="col-12 mb-3">
-                                        {!! Form::label('', __('Allow BackOrders:'), ['class' => 'form-label']) !!}
+                                        <x-ss.choice-group name="stock_order_status" :legend="__('Allow BackOrders:')"
+                                          :hint= + HINT2 + >
                                         <div class="form-check m-1">
                                             <input type="radio" id="not_allow" value="not_allow" name="stock_order_status" class="form-check-input code" {{ $product->stock_order_status == 'not_allow' ? 'checked' : '' }}>
                                             <label class="form-check-label" for="not_allow">{{ __('Do Not Allow') }}</label>
@@ -277,6 +280,7 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                                             <input type="radio" id="allow" value="allow" name="stock_order_status" class="form-check-input code" {{ $product->stock_order_status == 'allow' ? 'checked' : '' }}>
                                             <label class="form-check-label" for="allow">{{ __('Allow') }}</label>
                                         </div>
+                                        </x-ss.choice-group>
                                     </div>
                                 </div>
                             @endif

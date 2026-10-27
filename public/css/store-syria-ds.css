@@ -3367,3 +3367,38 @@ a.ss-setup__item:focus-visible {
     background: var(--ss-surface-hover);
     color: var(--ss-fg) !important;
 }
+
+/* =================================================================================================
+   P2-06-12 — a group of choices, named for assistive technology without changing how it looks.
+
+   `min-width: 0` IS DEFENSIVE, NOT LOAD-BEARING ON TODAY'S SCREENS -- stated that way because the
+   first version of this comment claimed otherwise. A `<fieldset>` does carry an implicit minimum
+   content size in every engine, which makes one refuse to shrink inside a flex or grid row; but
+   reverting this reset and re-running `check-choice-guidance-live.cjs` failed 0 of 82 cases,
+   because both choice groups sit in block-level Bootstrap columns. Kept as cheap insurance for a
+   future layout change, not presented as a measured fix.
+
+   The legend keeps the host's own field-label weight so the screens look unchanged: this row is
+   about what reaches the accessibility tree, not a restyle.
+   ============================================================================================== */
+.ss-choicegroup {
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+}
+
+.ss-choicegroup__legend {
+    float: none;              /* Bootstrap floats legends, which breaks the following flow. */
+    width: auto;
+    margin-bottom: var(--ss-space-1);
+    padding: 0;
+    color: var(--ss-fg);
+    font-size: var(--ss-text-sm);
+    font-weight: var(--ss-weight-semibold);
+    line-height: inherit;
+}
+
+/* The group's instruction sits between the legend and the options, where it is read before the
+   choices rather than after them. */
+.ss-choicegroup > .ss-field__hint { margin-bottom: var(--ss-space-2); }

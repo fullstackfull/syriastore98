@@ -216,12 +216,13 @@
                   </div>
                   <div class="row row-gap">
                       <div class="col-12 stock_stats">
-                        {!! Form::label('', __('Stock Status:'), ['class' => 'form-label f-w-800']) !!}
+                        <x-ss.choice-group name="stock_status" :legend="__('Stock Status:')"
+                          :hint="__('This is what customers see on the product page. It does not change the quantity you hold.')">
                         <div class="col-mb-9 d-flex flex-wrap row-gap">
                           <div class="form-check form-check-inline">
                             <input class="form-check-input code" type="radio" id="in_stock" value="in_stock"
                               name="stock_status" checked="checked">
-                            <label class="form-check-label" for="   ">
+                            <label class="form-check-label" for="in_stock">
                               {{ __('In Stock') }}
                             </label>
                           </div>
@@ -240,6 +241,7 @@
                             </label>
                           </div>
                         </div>
+                        </x-ss.choice-group>
                       </div>
                     </div>
                    </div>
@@ -256,7 +258,8 @@
                         <x-ss.field-help for="low_stock_threshold">{{ __('The product list shows Low stock at or below this number. Leave 0 to use the store default.') }}</x-ss.field-help>
                       </div>
                       <div class="col-12 mb-3">
-                        {!! Form::label('', __('Allow BackOrders:'), ['class' => 'form-label']) !!}
+                        <x-ss.choice-group name="stock_order_status" :legend="__('Allow BackOrders:')"
+                          :hint="__('Decide what happens when this product runs out of stock.') . ' ' . __('Allowing backorders means customers can still order and pay for it.')">
                         <div class="form-check m-1">
                           <input type="radio" id="not_allow" value="not_allow" name="stock_order_status"
                             class="form-check-input code" checked="checked">
@@ -273,6 +276,7 @@
                             class="form-check-input code">
                           <label class="form-check-label" for="allow">{{ __('Allow') }}</label>
                         </div>
+                        </x-ss.choice-group>
                       </div>
                     </div>
                   @endif
