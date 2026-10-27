@@ -54,6 +54,10 @@ class ArabicUiCoverageTest extends TestCase
         // P2-05-6. The report screens became a Phase 02 surface when they were put on the
         // design system; before that nothing scanned them, so every figure, column header and
         // empty state on them could render in English for an Arabic merchant.
+        // P2-05-7/8. The settings panels became a Phase 02 surface when F117 and the
+        // design-system migration reached them. Nothing had ever checked them, so every label,
+        // hint and placeholder on them could render in English for an Arabic merchant.
+        'resources/views/setting/*.blade.php',
         'resources/views/reports/*.blade.php',
         'resources/views/dashboard/*.blade.php',
         'resources/views/layouts/*.blade.php',

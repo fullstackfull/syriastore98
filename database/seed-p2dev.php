@@ -1,6 +1,6 @@
 <?php
 use App\Models\{User, Store, Role, Permission, Product, Order};
-use Illuminate\Support\Facades\{DB, Hash};
+use Illuminate\Support\Facades\{DB, Hash, Schema};
 
 // NO REAL CUSTOMER DATA. Every value below is invented; the brief forbids production
 // data in screenshots and the #120 dump is not on this branch.
@@ -17,6 +17,34 @@ if (! app()->environment(['local', 'testing'])) {
         'seed-p2dev.php is a development fixture and refuses to run outside local/testing. '
         . 'It creates a super-admin account with a known password.'
     );
+}
+
+/*
+ * `currency_rates` HAS NO MIGRATION (GATE F), so a fresh preview database does not have it — and
+ * `SettingController::settingForm()` seeds default rows into it BEFORE it dispatches on the tab.
+ * Without the table every settings tab answers "something went wrong" and renders nothing, which
+ * is why no harness in `docs/development/phase-2/tools/` has ever screenshotted a settings panel.
+ *
+ * MEASURED: on this instance `POST /setting-form` returned `is_success: false` for every tab,
+ * including ones no change in this phase has touched.
+ *
+ * Created here as a DEV FIXTURE, not as a migration: GATE F is an owner decision and
+ * `docs/GATE-F-VERIFIED-SCHEMA.md` records the fifteen unmanaged tables. The shape matches the
+ * one `ChatgptKeyDisclosureTest` creates for the same reason.
+ */
+if (! Schema::hasTable('currency_rates')) {
+    Schema::create('currency_rates', function ($t) {
+        $t->id();
+        $t->unsignedBigInteger('store_id')->nullable();
+        $t->string('currency_code');
+        $t->string('currency_name')->nullable();
+        $t->string('symbol')->nullable();
+        $t->decimal('rate_per_usd', 20, 8)->default(1);
+        $t->boolean('is_active')->default(1);
+        $t->unsignedBigInteger('created_by')->nullable();
+        $t->timestamps();
+    });
+    echo "created currency_rates (GATE F: no migration exists)\n";
 }
 
 $op = User::firstOrCreate(['email' => 'operator@example.test'], [

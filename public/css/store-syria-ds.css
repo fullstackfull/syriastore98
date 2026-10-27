@@ -742,6 +742,56 @@
     border-end-end-radius: var(--ss-radius-lg);
     border-end-start-radius: var(--ss-radius-lg);
 }
+/* A footer whose job is one action, pushed to the trailing edge. `flex-end` on a flex row
+   follows `direction`, so this mirrors in RTL with no per-direction rule — the same reason the
+   rest of this file uses logical properties. Added for the settings panels (P2-05-7), where
+   every one of ~31 ends in a single Save button. */
+.ss-card__footer--end {
+    display: flex;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: var(--ss-space-3);
+}
+/* A footer with one action at each edge — a secondary action and the save. */
+.ss-card__footer--between {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--ss-space-3);
+}
+
+/* ---- Input group: a field with a fixed affix ----
+   The Shopify and WooCommerce panels append `.myshopify.com` to a shop NAME. The affix is a
+   picture of a rule, not a value the merchant can change, so it is `aria-hidden` in the markup
+   and the field's hint says the same thing in words.
+
+   Logical properties throughout, so the affix lands on the trailing edge in both directions
+   without a per-direction rule. */
+.ss-input-group {
+    display: flex;
+    align-items: stretch;
+    min-inline-size: 0;
+}
+.ss-input-group > .ss-input {
+    flex: 1 1 auto;
+    min-inline-size: 0;
+    border-start-end-radius: 0;
+    border-end-end-radius: 0;
+}
+.ss-input-group__suffix {
+    display: inline-flex;
+    align-items: center;
+    padding-inline: var(--ss-space-3);
+    border: 1px solid var(--ss-border);
+    border-inline-start: 0;
+    border-start-end-radius: var(--ss-radius-md);
+    border-end-end-radius: var(--ss-radius-md);
+    background: var(--ss-surface-sunken);
+    color: var(--ss-fg-muted);
+    font-size: var(--ss-text-sm);
+    white-space: nowrap;
+}
 
 /* ---- Badges ---- */
 
