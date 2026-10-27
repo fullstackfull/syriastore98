@@ -47,6 +47,37 @@ if (! Schema::hasTable('currency_rates')) {
     echo "created currency_rates (GATE F: no migration exists)\n";
 }
 
+/*
+ * `otp_integrations` IS THE SECOND GATE F TABLE THIS FIXTURE NEEDS, for the same reason as
+ * `currency_rates`: it has no migration, so a fresh preview database does not have it, and the
+ * OTP settings tab answers "something went wrong" and renders nothing. MEASURED on this
+ * instance, before and after the panel was migrated — it failed identically both times, so it
+ * is the fixture and not the panel.
+ *
+ * The shape is copied from the production dump recorded in `docs/GATE-F-VERIFIED-SCHEMA.md`,
+ * not invented. Created as a DEV FIXTURE only: GATE F is an owner decision.
+ */
+if (! Schema::hasTable('otp_integrations')) {
+    Schema::create('otp_integrations', function ($t) {
+        $t->bigIncrements('id');
+        $t->unsignedBigInteger('store_id')->unique();
+        $t->string('base_url')->default('https://otp.lynomia.com');
+        $t->text('api_secret')->nullable();
+        $t->string('otp_channel', 20)->default('sms');
+        $t->boolean('sms_enabled')->default(0);
+        $t->string('sms_mode', 50)->nullable();
+        $t->string('sms_device')->nullable();
+        $t->string('sms_gateway')->nullable();
+        $t->unsignedTinyInteger('sms_sim')->nullable();
+        $t->unsignedTinyInteger('sms_priority')->default(0);
+        $t->boolean('whatsapp_enabled')->default(0);
+        $t->string('whatsapp_account')->nullable();
+        $t->boolean('is_active')->default(0);
+        $t->timestamps();
+    });
+    echo "created otp_integrations (GATE F: no migration exists)\n";
+}
+
 $op = User::firstOrCreate(['email' => 'operator@example.test'], [
     'name' => 'Platform Operator', 'type' => 'super admin', 'password' => Hash::make('password'),
     'is_active' => 1, 'email_verified_at' => now(), 'created_by' => null, 'language' => 'en',

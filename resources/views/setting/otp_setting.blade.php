@@ -1,9 +1,28 @@
-<div class="card">
-    <div class="card-header">
-        <h5>{{ __('LYNOMIA OTP Settings') }}</h5>
+{{--
+    LYNOMIA OTP, on the design system.
+    =============================================================================================
+
+    NINE OF ITS TEN CONTROLS HAD NO ACCESSIBLE NAME. Every field was a bare
+    `<label class="form-label">` with no `for`, over an input or select with a `name` and no
+    `id` — so the text sat beside the control and was associated with nothing. Only `is_active`
+    was wired. Each label now names the control that follows it, and each control carries an
+    `id` derived from its `name`, which is also what the panel's own script looks them up by.
+
+    THE API-SECRET FIELD IS THE PRECEDENT F117 COPIED, and it is deliberately unchanged in
+    substance: `type="password"`, `autocomplete="new-password"`, NO `value`, and a placeholder
+    that says an empty box keeps the stored secret — paired with
+    `OtpIntegrationController`'s `if ($request->filled('api_secret'))`, which is what makes an
+    empty save safe. `SettingsCredentialExposureTest` pins that pair, so neither half can be
+    removed without the other failing.
+--}}
+<div class="ss-card">
+    <div class="ss-card__header">
+        <div class="ss-page-header__text">
+            <h2 class="ss-card__title">{{ __('LYNOMIA OTP Settings') }}</h2>
+        </div>
     </div>
 
-    <div class="card-body">
+    <div class="ss-card__body">
 
         <form method="POST" action="{{ route('otp.integration.save') }}">
             @csrf
@@ -12,14 +31,14 @@
 
                 {{-- Base URL --}}
                 <div class="col-md-12 mb-3">
-                    <label class="form-label">
+                    <label class="ss-label" for="base_url">
                         {{ __('Base URL') }}
                     </label>
 
-                    <input
+                    <input id="base_url"
                         type="url"
                         name="base_url"
-                        class="form-control"
+                        class="ss-input"
                         value="{{ old('base_url', $otpIntegration->base_url ?? 'https://otp.lynomia.com') }}"
                         required
                     >
@@ -27,35 +46,35 @@
 
                 {{-- API Secret --}}
                 <div class="col-md-12 mb-3">
-                    <label class="form-label">
+                    <label class="ss-label" for="api_secret">
                         {{ __('API Secret') }}
                     </label>
 
-                    <input
+                    <input id="api_secret"
                         type="password"
                         name="api_secret"
-                        class="form-control"
+                        class="ss-input"
                         autocomplete="new-password"
                         placeholder="{{ $otpIntegration ? __('Leave empty to keep current secret') : __('Enter API Secret') }}"
                     >
 
                     @if($otpIntegration)
-                        <small class="text-muted">
+                        <p class="ss-field__hint">
                             {{ __('Leave empty if you do not want to change the saved API Secret.') }}
-                        </small>
+                        </p>
                     @endif
                 </div>
 
                 {{-- OTP Channel --}}
                 <div class="col-md-6 mb-3">
-                    <label class="form-label">
+                    <label class="ss-label" for="otp_channel">
                         {{ __('OTP Channel') }}
                     </label>
 
-                    <select
+                    <select id="otp_channel"
                         name="otp_channel"
                         id="otp_channel"
-                        class="form-control"
+                        class="ss-input"
                         required
                     >
                         <option value="sms"
@@ -72,20 +91,9 @@
 
                 {{-- Integration Status --}}
                 <div class="col-md-6 mb-3 d-flex align-items-end">
-                    <div class="form-check form-switch mb-2">
-                        <input
-                            type="checkbox"
-                            class="form-check-input"
-                            name="is_active"
-                            value="1"
-                            id="is_active"
-                            {{ old('is_active', $otpIntegration->is_active ?? false) ? 'checked' : '' }}
-                        >
-
-                        <label class="form-check-label" for="is_active">
-                            {{ __('Enable LYNOMIA OTP') }}
-                        </label>
-                    </div>
+                    <x-ss.switch name="is_active" id="is_active" value="1"
+                                 :label="__('Enable LYNOMIA OTP')"
+                                 :checked="(bool) old('is_active', $otpIntegration->is_active ?? false)" />
                 </div>
 
                 {{-- ============================= --}}
@@ -96,14 +104,14 @@
                     <div class="row">
 
                         <div class="col-md-6 mb-3">
-                            <label class="form-label">
-                                {{ __('SMS Mode') }}
-                            </label>
+                            <label class="ss-label" for="sms_mode">
+                        {{ __('SMS Mode') }}
+                    </label>
 
-                            <select
+                            <select id="sms_mode"
                                 name="sms_mode"
                                 id="sms_mode"
-                                class="form-control"
+                                class="ss-input"
                             >
                                 <option value="">
                                     {{ __('Select Mode') }}
@@ -123,11 +131,11 @@
 
                         {{-- SIM --}}
                         <div class="col-md-6 mb-3" id="sim_box">
-                            <label class="form-label">
-                                {{ __('SIM') }}
-                            </label>
+                            <label class="ss-label" for="sms_sim">
+                        {{ __('SIM') }}
+                    </label>
 
-                            <select name="sms_sim" class="form-control">
+                            <select id="sms_sim" name="sms_sim" class="ss-input">
                                 <option value="">
                                     {{ __('Select SIM') }}
                                 </option>
@@ -146,14 +154,14 @@
 
                         {{-- Device ID --}}
                         <div class="col-md-12 mb-3" id="device_box">
-                            <label class="form-label">
-                                {{ __('Device ID') }}
-                            </label>
+                            <label class="ss-label" for="sms_device">
+                        {{ __('Device ID') }}
+                    </label>
 
-                            <input
+                            <input id="sms_device"
                                 type="text"
                                 name="sms_device"
-                                class="form-control"
+                                class="ss-input"
                                 value="{{ old('sms_device', $otpIntegration->sms_device ?? '') }}"
                                 placeholder="{{ __('Enter Device ID') }}"
                             >
@@ -161,14 +169,14 @@
 
                         {{-- Gateway --}}
                         <div class="col-md-12 mb-3" id="gateway_box">
-                            <label class="form-label">
-                                {{ __('Gateway ID') }}
-                            </label>
+                            <label class="ss-label" for="sms_gateway">
+                        {{ __('Gateway ID') }}
+                    </label>
 
-                            <input
+                            <input id="sms_gateway"
                                 type="text"
                                 name="sms_gateway"
-                                class="form-control"
+                                class="ss-input"
                                 value="{{ old('sms_gateway', $otpIntegration->sms_gateway ?? '') }}"
                                 placeholder="{{ __('Enter Gateway ID') }}"
                             >
@@ -176,11 +184,11 @@
 
                         {{-- Priority --}}
                         <div class="col-md-6 mb-3" id="priority_box">
-                            <label class="form-label">
-                                {{ __('Priority') }}
-                            </label>
+                            <label class="ss-label" for="sms_priority">
+                        {{ __('Priority') }}
+                    </label>
 
-                            <select name="sms_priority" class="form-control">
+                            <select id="sms_priority" name="sms_priority" class="ss-input">
 
                                 <option value="0"
                                     {{ (string) old('sms_priority', $otpIntegration->sms_priority ?? 0) === '0' ? 'selected' : '' }}>
@@ -212,14 +220,14 @@
                     <div class="row">
 
                         <div class="col-md-12 mb-3">
-                            <label class="form-label">
-                                {{ __('WhatsApp Account ID') }}
-                            </label>
+                            <label class="ss-label" for="whatsapp_account">
+                        {{ __('WhatsApp Account ID') }}
+                    </label>
 
-                            <input
+                            <input id="whatsapp_account"
                                 type="text"
                                 name="whatsapp_account"
-                                class="form-control"
+                                class="ss-input"
                                 value="{{ old('whatsapp_account', $otpIntegration->whatsapp_account ?? '') }}"
                                 placeholder="{{ __('Enter WhatsApp Account ID') }}"
                             >
@@ -237,7 +245,7 @@
 
                 {{-- Save --}}
                 <div class="col-md-12 text-end mt-3">
-                    <button type="submit" class="btn btn-primary">
+                    <button type="submit" class="ss-btn ss-btn--primary">
                         {{ __('Save Changes') }}
                     </button>
                 </div>
@@ -254,14 +262,14 @@
 
     <div class="row align-items-end">
         <div class="col-md-8">
-            <label class="form-label">
+            <label class="ss-label" for="otp_test_phone">
                 {{ __('Phone Number') }}
             </label>
 
             <input
                 type="text"
                 id="otp_test_phone"
-                class="form-control"
+                class="ss-input"
                 placeholder="+9639XXXXXXXX"
             >
         </div>
@@ -270,7 +278,7 @@
             <button
                 type="button"
                 id="send_test_otp"
-                class="btn btn-info w-100"
+                class="ss-btn ss-btn--secondary w-100"
             >
                 {{ __('Send Test OTP') }}
             </button>
