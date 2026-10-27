@@ -12,8 +12,9 @@ use Tests\TestCase;
  * P2-05-6 — the period bar four report screens each had a broken copy of.
  * =============================================================================================
  *
- * `reports/index`, `sale_by_product`, `sale_by_category` and `sale_by_brand` each carried the
- * same hand-written filter bar, and each carried the same four defects:
+ * Six screens — `reports/index`, the three `sale_by_*`, `order_report` and
+ * `bar_chart_order_report` — each carried the same hand-written filter bar, and each carried
+ * the same four defects:
  *
  *   - `<ul role="tablist">` whose buttons had NO `role="tab"`, no `aria-selected` and no
  *     `aria-controls`. The selection lived in an `active` CSS class and nowhere else, so a
@@ -21,7 +22,9 @@ use Tests\TestCase;
  *     `role="tablist"` promised tab behaviour that was not there.
  *   - Two `<div>`s as DIRECT CHILDREN of that `<ul>`. Only `<li>` may be a child of a list.
  *   - No label on the date input.
- *   - The duplication: fixing one screen fixed one screen.
+ *   - The duplication: fixing one screen fixed one screen. Two of the six also carried an
+ *     empty `#deals-staff-report` div inside the `<ul>`, with `height` and `width` ATTRIBUTES on
+ *     a `<div>` (which do nothing) and no code that ever drew into it.
  *
  * THE DUPLICATION IS WHY THIS FILE EXISTS AS WELL AS THE PER-SCREEN TESTS. A component test
  * proves the markup is right once; the per-screen cases below prove each screen actually USES
@@ -166,6 +169,8 @@ class ReportFilterBarTest extends TestCase
             'sale by product' => ['resources/views/reports/sale_by_product.blade.php', 'product'],
             'sale by category' => ['resources/views/reports/sale_by_category.blade.php', 'category'],
             'sale by brand' => ['resources/views/reports/sale_by_brand.blade.php', 'brand'],
+            'order report' => ['resources/views/reports/order_report.blade.php', 'order'],
+            'order bar chart' => ['resources/views/reports/bar_chart_order_report.blade.php', 'orderbar'],
         ];
     }
 }

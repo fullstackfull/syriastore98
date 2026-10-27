@@ -123,33 +123,34 @@
                              2.59:1 (white on the brand green) in all four configurations, and the rail markup is
                              shared with three other screens that belong to other slices -- see the DS rule and
                              F106 for why the fix is scoped rather than applied to the shared selector. --}}
+                    {{--
+                        ALL THREE TABS CLAIMED `aria-selected="true"`.
+                        A tablist has exactly one selected tab; three saying so means a screen
+                        reader announces all three as current, and the one that is actually
+                        showing is distinguishable only by the `active` CSS class — which is the
+                        same visible-but-not-announced split the period bars had.
+
+                        The loop is not tidying for its own sake: it makes the invariant
+                        structural. `$ssActive` is compared once per tab and drives BOTH the
+                        class and the attribute, so they cannot be edited apart again.
+                    --}}
                     <ul class="nav nav-pills flex-column w-100 gap-2 ss-tabrail" id="pills-tab" role="tablist">
-                        <li class="nav-item " role="presentation">
-                            <a href="#LowStock_Setting"
-                                class="nav-link @if(isset($stock_active_tab) && ($stock_active_tab == 'pills-low-stock-tab')) active @endif list-group-item list-group-item-action rounded-1 text-center f-w-600"
-                                id="pills-low-stock-tab" data-bs-toggle="pill" data-bs-target="#pills-low-stock" type="button"
-                                role="tab" aria-controls="pills-low-stock" aria-selected="true">
-                                {{ __('Low In Stock') }}
-                            </a>
-
-                        </li>
-                        <li class="nav-item " role="presentation">
-                            <a href="#OutOfStock_Setting"
-                                class="nav-link @if(isset($stock_active_tab) && ($stock_active_tab == 'pills-out-of-stock-tab')) active @endif list-group-item list-group-item-action rounded-1 text-center f-w-600"
-                                id="pills-out-of-stock-tab" data-bs-toggle="pill" data-bs-target="#pills-out-of-stock" type="button"
-                                role="tab" aria-controls="pills-out-of-stock" aria-selected="true">
-                                {{ __('Out Of Stock') }}
-                            </a>
-
-                        </li>
-                        <li class="nav-item " role="presentation">
-                            <a href="#MostStock_Setting"
-                                class="nav-link @if(isset($stock_active_tab) && ($stock_active_tab == 'pills-most-stocked-tab')) active @endif list-group-item list-group-item-action rounded-1 text-center f-w-600"
-                                id="pills-most-stocked-tab" data-bs-toggle="pill" data-bs-target="#pills-most-stocked"
-                                type="button" role="tab" aria-controls="pills-most-stocked" aria-selected="true">
-                                {{ __('Most Stocked') }}
-                            </a>
-                        </li>
+                        @foreach ([
+                            'pills-low-stock-tab' => ['pills-low-stock', 'LowStock_Setting', __('Low In Stock')],
+                            'pills-out-of-stock-tab' => ['pills-out-of-stock', 'OutOfStock_Setting', __('Out Of Stock')],
+                            'pills-most-stocked-tab' => ['pills-most-stocked', 'MostStock_Setting', __('Most Stocked')],
+                        ] as $ssTabId => [$ssPane, $ssAnchor, $ssLabel])
+                            @php $ssActive = ($stock_active_tab ?? 'pills-low-stock-tab') === $ssTabId; @endphp
+                            <li class="nav-item" role="presentation">
+                                <a href="#{{ $ssAnchor }}"
+                                   class="nav-link @if ($ssActive) active @endif list-group-item list-group-item-action rounded-1 text-center f-w-600"
+                                   id="{{ $ssTabId }}" data-bs-toggle="pill" data-bs-target="#{{ $ssPane }}"
+                                   role="tab" aria-controls="{{ $ssPane }}"
+                                   aria-selected="{{ $ssActive ? 'true' : 'false' }}">
+                                    {{ $ssLabel }}
+                                </a>
+                            </li>
+                        @endforeach
                     </ul>
                 </div>
             </div>
