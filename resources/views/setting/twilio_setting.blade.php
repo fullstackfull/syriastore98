@@ -18,19 +18,22 @@
     </div>
     <div class="card-body p-4">
         <div class="row">
-            <div class="col-lg-6 form-group">
-                {!! Form::label('twilio_sid', __('Twilio SID'), ['class' => 'form-label']) !!}
-                {!! Form::text('twilio_sid', !empty($setting['twilio_sid']) ? $setting['twilio_sid'] : '', [
-                'class' => 'form-control',
-                'placeholder' => 'Twilio SID',
-                ]) !!}
+            {{-- F117. These two printed the live Twilio credentials into `value="…"`, so the SID
+                 and the auth token sat in the DOM of a panel a merchant opens to change the
+                 sender number. The component carries no value and the handler keeps the stored
+                 one when the box posts empty — both halves, because either alone is a defect:
+                 masking without the save change erases the credential on the next save. --}}
+            <div class="col-lg-6">
+                <x-ss.secret-field
+                    name="twilio_sid"
+                    :label="__('Twilio SID')"
+                    :stored="$setting['twilio_sid'] ?? null" />
             </div>
-            <div class="col-lg-6 form-group">
-                {!! Form::label('twilio_token', __('Twilio Token'), ['class' => 'form-label']) !!}
-                {!! Form::text('twilio_token', !empty($setting['twilio_token']) ? $setting['twilio_token'] : '', [
-                'class' => 'form-control',
-                'placeholder' => 'Twilio Token',
-                ]) !!}
+            <div class="col-lg-6">
+                <x-ss.secret-field
+                    name="twilio_token"
+                    :label="__('Twilio Token')"
+                    :stored="$setting['twilio_token'] ?? null" />
             </div>
             <div class="col-lg-6 form-group">
                 {!! Form::label('twilio_from', __('Twilio From'), ['class' => 'form-label']) !!}

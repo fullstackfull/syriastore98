@@ -1,3 +1,21 @@
+{{--
+    P2-05-5 — the merchant's own profile and change-password screen, on the design system.
+
+    THE LABELS HERE WERE ALREADY CORRECT, which is worth stating because the three sibling forms
+    in this slice were not: `users/create.blade.php` had `for="Email"` against `id="email"`
+    (F132) and `roles/create.blade.php` had `..._General` against `..._general` (F134). Every
+    `Form::label()` on this screen names its own field, so `for` resolves. Checked, not assumed.
+
+    What changes is presentation: `col-form-label` -> `ss-label`, `form-control` -> `ss-input`,
+    the submit buttons -> the design system's, and the two upload affordances off the vendored
+    `bg-primary` fill. The routes, field names, `@csrf`, the `@error` blocks, the
+    `#Personal_Info` / `#Change_Password` anchors and the `@stack('profileTab')` extension points
+    are untouched — the tab script and any module that pushes onto those stacks depend on them.
+
+    NO `data-ss-theme="light"` HERE, and the difference from the modal forms is the point: this
+    screen renders in the PAGE, not inside the host's Bootstrap modal, so its surface really does
+    follow the admin's theme. Declaring it light would have been wrong in dark mode.
+--}}
 @extends('layouts.app')
 
 @php
@@ -65,10 +83,10 @@
                                                             </div>
                                                             <div class="choose-files mt-4">
                                                                 <label for="file-1">
-                                                                    <div class=" bg-primary profile_update" style="max-width: 100% !important;"> <i
+                                                                    <div class="ss-btn ss-btn--secondary ss-btn--sm profile_update" style="max-width: 100% !important;"> <i
                                                                             class="ti ti-upload px-1"></i>{{ __('Choose File Here') }}
                                                                     </div>
-                                                                    <input type="file" class="form-control file" name="profile_image" id="file-1"
+                                                                    <input type="file" class="ss-input file" name="profile_image" id="file-1"
                                                                         data-filename="profile_update" onchange="document.getElementById('blah').src = window.URL.createObjectURL(this.files[0])">
                                                                 </label>
                                                             </div>
@@ -79,8 +97,8 @@
                                                     <div class="card-body pt-0">
                                                         <div class="col-md-12">
                                                             <div class="form-group">
-                                                                {{Form::label('name',__('Name'),array('class'=>'col-form-label')) }}
-                                                                {{Form::text('name',null,array('class'=>'form-control font-style','placeholder'=>__('Enter User Name')))}}
+                                                                {{Form::label('name',__('Name'),array('class'=>'ss-label')) }}
+                                                                {{Form::text('name',null,array('class'=>'ss-input font-style','placeholder'=>__('Enter User Name')))}}
                                                                 @error('name')
                                                                 <span class="invalid-name" role="alert">
                                                                         <strong class="text-danger">{{ $message }}</strong>
@@ -89,8 +107,8 @@
                                                             </div>
                                                         </div>
                                                         <div class="col-md-12">
-                                                            {{Form::label('email',__('Email'),array('class'=>'col-form-label')) }}
-                                                            {{Form::text('email',null,array('class'=>'form-control','placeholder'=>__('Enter User Email')))}}
+                                                            {{Form::label('email',__('Email'),array('class'=>'ss-label')) }}
+                                                            {{Form::text('email',null,array('class'=>'ss-input','placeholder'=>__('Enter User Email')))}}
                                                             @error('email')
                                                             <span class="invalid-email" role="alert">
                                                                     <strong class="text-danger">{{ $message }}</strong>
@@ -98,8 +116,8 @@
                                                             @enderror
                                                         </div>
                                                         <div class="col-md-12">
-                                                            {{Form::label('mobile',__('Mobile No.'),array('class'=>'col-form-label')) }}
-                                                            {{Form::text('mobile',null,array('class'=>'form-control','placeholder'=>__('Enter User Mobile')))}}
+                                                            {{Form::label('mobile',__('Mobile No.'),array('class'=>'ss-label')) }}
+                                                            {{Form::text('mobile',null,array('class'=>'ss-input','placeholder'=>__('Enter User Mobile')))}}
                                                             @error('mobile')
                                                             <span class="invalid-mobile" role="alert">
                                                                     <strong class="text-danger">{{ $message }}</strong>
@@ -114,7 +132,7 @@
                                     <div class="card-footer">
                                         <div class="col-sm-12 ">
                                             <div class="text-end">
-                                                {{ Form::submit(__('Save Changes'), ['class' => 'btn btn-xs btn-primary btn-badge']) }}
+                                                {{ Form::submit(__('Save Changes'), ['class' => 'ss-btn ss-btn--primary ss-btn--sm']) }}
                                             </div>
                                         </div>
                                     </div>
@@ -141,8 +159,8 @@
                                         <div class="row">
                                             <div class="col-md-6">
                                                 <div class="form-group">
-                                                    {{Form::label('old_password',__('Current Password'),array('class'=>'col-form-label')) }}
-                                                    {{Form::password('old_password',array('class'=>'form-control','placeholder'=>__('Enter Current Password')))}}
+                                                    {{Form::label('old_password',__('Current Password'),array('class'=>'ss-label')) }}
+                                                    {{Form::password('old_password',array('class'=>'ss-input','placeholder'=>__('Enter Current Password')))}}
                                                     @error('old_password')
                                                     <span class="invalid-old_password" role="alert">
                                                          <strong class="text-danger">{{ $message }}</strong>
@@ -152,8 +170,8 @@
                                             </div>
                                             <div class="col-md-6">
                                                 <div class="form-group">
-                                                    {{Form::label('new_password',__('New Password'),array('class'=>'col-form-label')) }}
-                                                    {{Form::password('new_password',array('class'=>'form-control','placeholder'=>__('Enter New Password')))}}
+                                                    {{Form::label('new_password',__('New Password'),array('class'=>'ss-label')) }}
+                                                    {{Form::password('new_password',array('class'=>'ss-input','placeholder'=>__('Enter New Password')))}}
                                                     @error('new_password')
                                                     <span class="invalid-new_password" role="alert">
                                                             <strong class="text-danger">{{ $message }}</strong>
@@ -162,8 +180,8 @@
                                                 </div>
                                             </div>
                                             <div class="form-group">
-                                                {{Form::label('new_password_confirmation',__('Re-type New Password'),array('class'=>'col-form-label')) }}
-                                                {{Form::password('new_password_confirmation',array('class'=>'form-control','placeholder'=>__('Enter Re-type New Password')))}}
+                                                {{Form::label('new_password_confirmation',__('Re-type New Password'),array('class'=>'ss-label')) }}
+                                                {{Form::password('new_password_confirmation',array('class'=>'ss-input','placeholder'=>__('Enter Re-type New Password')))}}
                                                 @error('new_password_confirmation')
                                                 <span class="invalid-new_password_confirmation" role="alert">
                                                         <strong class="text-danger">{{ $message }}</strong>
@@ -176,7 +194,7 @@
                                     <div class="card-footer">
                                         <div class="col-sm-12 ">
                                             <div class="text-end">
-                                                {{ Form::submit(__('Save Changes'), ['class' => 'btn btn-xs btn-primary btn-badge']) }}
+                                                {{ Form::submit(__('Save Changes'), ['class' => 'ss-btn ss-btn--primary ss-btn--sm']) }}
                                             </div>
                                         </div>
                                     </div>

@@ -3043,5 +3043,10 @@
     "Edit role :name": "Edit role :name",
     "Delete role :name": "Delete role :name",
     "Show all permissions for :name": "Show all permissions for :name",
-    "Show fewer permissions for :name": "Show fewer permissions for :name"
+    "Show fewer permissions for :name": "Show fewer permissions for :name",
+    "Enable store :name": "Enable store :name",
+    "Saved — leave blank to keep it": "Saved — leave blank to keep it",
+    "Not set": "Not set",
+    "A value is saved. Leave this blank to keep it, or type a new one to replace it.": "A value is saved. Leave this blank to keep it, or type a new one to replace it.",
+    "No value is saved yet.": "No value is saved yet."
 }

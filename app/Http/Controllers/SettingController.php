@@ -1394,12 +1394,37 @@ $u->save();
         session()->put(['setting_tab' => 'twilio_setting']);
         $theme_id = !empty(App_THEME()) ? APP_THEME() : '';
         $post['twilio_setting_enabled'] = $request->twilio_setting_enabled;
+
+        /*
+         * F117. THE STORED SECRETS ARE LOADED BEFORE THE VALIDATOR, because both the rules and
+         * the write below depend on whether one already exists.
+         *
+         * `$setting` is NOT in scope in this method -- it is built in the GET handlers (`:1621`,
+         * `:1624`, `:1648`), not this POST one -- so reading `$setting['twilio_sid']` here would
+         * have been an undefined variable resolving to `''`, which would have made the whole fix
+         * a SILENT NO-OP that still erased the token. Checked before relying on it.
+         *
+         * The same `getCurrentStore()` the `updateOrCreate` below uses, so the value read and the
+         * row written are the same row even when no tenant resolves.
+         */
+        $storedSecrets = Setting::where('store_id', getCurrentStore())
+            ->whereIn('name', ['twilio_sid', 'twilio_token'])
+            ->pluck('value', 'name')
+            ->all();
+
         if (isset($request->twilio_setting_enabled) && $request->twilio_setting_enabled == 'on') {
+            /*
+             * `required` ONLY WHEN NOTHING IS STORED. Once the inputs stop carrying the value
+             * (F117), an enabled panel posts both secret boxes EMPTY on every ordinary save --
+             * so a flat `required` would make the panel IMPOSSIBLE TO SAVE while enabled. That
+             * is a regression the masking introduces and this is where it is paid for; it was
+             * caught by driving the real save path, not by reading the diff.
+             */
             $validator = \Validator::make(
                 $request->all(),
                 [
-                    'twilio_sid' => 'required|string',
-                    'twilio_token' => 'required|string',
+                    'twilio_sid' => \App\Support\SecretSetting::isSet($storedSecrets['twilio_sid'] ?? null) ? 'nullable|string' : 'required|string',
+                    'twilio_token' => \App\Support\SecretSetting::isSet($storedSecrets['twilio_token'] ?? null) ? 'nullable|string' : 'required|string',
                     'twilio_from' => 'required|numeric',
                     'twilio_notification_number' => 'required|numeric',
                 ]
@@ -1411,8 +1436,18 @@ $u->save();
         }
 
 
-        $post['twilio_sid'] = $request->twilio_sid;
-        $post['twilio_token'] = $request->twilio_token;
+        /*
+         * F117. THE SECRETS KEEP THEIR STORED VALUE WHEN THE BOX POSTS EMPTY, and that is not
+         * optional once the inputs stop carrying the value: this panel writes EVERY field on
+         * EVERY save, so `$request->twilio_token` being empty used to write an empty string over
+         * a live auth token the moment a merchant changed the sender number.
+         *
+         * Clearing is still possible and still deliberate: the `twilio_setting_enabled == 'off'`
+         * branch below blanks all four, which is a named action rather than a side effect of an
+         * empty box.
+         */
+        $post['twilio_sid'] = \App\Support\SecretSetting::resolve($request->twilio_sid, $storedSecrets['twilio_sid'] ?? '');
+        $post['twilio_token'] = \App\Support\SecretSetting::resolve($request->twilio_token, $storedSecrets['twilio_token'] ?? '');
         $post['twilio_from'] = $request->twilio_from;
         $post['twilio_notification_number'] = $request->twilio_notification_number;
 

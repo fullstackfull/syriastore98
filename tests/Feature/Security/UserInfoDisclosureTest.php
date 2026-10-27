@@ -219,4 +219,86 @@ class UserInfoDisclosureTest extends SecurityTestCase
         $response->assertOk();
         $response->assertSee('Nadia Barakat', false);
     }
+
+    /**
+     * THE TWO SWITCHES IN THE MODAL ARE NAMED AND UNIQUELY ADDRESSED.
+     *
+     * Both change who can sign in — the store switch disables a whole store, the user switch a
+     * single staff member — and before P2-05-5 neither had an accessible name from any source:
+     * each `<label class="form-check-label">` was EMPTY. Worse, the ids were wrong in two
+     * different ways inside loops: the store input used a CONSTANT `id="store_disable"`, so
+     * every store tab emitted the same id, and the user input had NO id at all while its label
+     * said `for="user_disable"`.
+     *
+     * Asserted against the rendered modal rather than the source, because duplicate ids and a
+     * dangling `for` are properties of the DOCUMENT, not of the template.
+     */
+    public function test_the_modal_switches_are_named_and_uniquely_addressed(): void
+    {
+        $owner = $this->ownerWithStore('switches@example.test', 'switch-store');
+
+        $colleague = $this->makeStaff($owner, ['name' => 'Omar Saleh']);
+        $colleague->current_store = $owner->current_store;
+        $colleague->save();
+
+        $operator = $this->makePlatformAdmin();
+
+        $html = (string) $this->actingAs($operator)
+            ->get('/user-info/' . \Crypt::encrypt($owner->id))
+            ->assertOk()
+            ->getContent();
+
+        $this->assertStringContainsString('id="store-disable-' . $owner->current_store . '"', $html,
+            'the store switch must carry a per-store id; a constant one repeated in the loop makes '
+            . 'every `for` in the document ambiguous');
+        $this->assertStringContainsString('id="user-disable-' . $colleague->id . '"', $html,
+            'the user switch had no id at all while its label pointed at one');
+
+        $this->assertStringContainsString('Enable login for Omar Saleh', $html,
+            'the switch that decides whether a staff member may sign in must say whose login it '
+            . 'governs — it was an empty label before');
+        $this->assertStringContainsString('Enable store switch-store', $html);
+
+        /* The old dangling `for` must not come back in either spelling. */
+        $this->assertStringNotContainsString('for="user_disable"', $html);
+        $this->assertStringNotContainsString('for="store_disable"', $html);
+        $this->assertStringNotContainsString('for="user"', $html,
+            'the user NAME was rendered as a <label for="user"> naming an element that does not '
+            . 'exist, once per user');
+    }
+
+    /** Every `for` in the rendered modal resolves, and no id is emitted twice. */
+    public function test_the_modal_has_no_duplicate_ids_and_no_dangling_label(): void
+    {
+        $owner = $this->ownerWithStore('dupes@example.test', 'dupes-store');
+
+        foreach (['Rana Aziz', 'Samer Nour'] as $name) {
+            $staff = $this->makeStaff($owner, ['name' => $name]);
+            $staff->current_store = $owner->current_store;
+            $staff->save();
+        }
+
+        $operator = $this->makePlatformAdmin();
+
+        $html = (string) $this->actingAs($operator)
+            ->get('/user-info/' . \Crypt::encrypt($owner->id))
+            ->assertOk()
+            ->getContent();
+
+        preg_match_all('/\sid="([^"]+)"/', $html, $idMatches);
+        $ids = $idMatches[1];
+        $duplicates = array_keys(array_filter(array_count_values($ids), fn ($n) => $n > 1));
+
+        $this->assertSame([], $duplicates,
+            'these ids are emitted more than once in the modal: ' . implode(', ', $duplicates));
+
+        preg_match_all('/<label[^>]*\sfor="([^"]+)"/', $html, $forMatches);
+        $dangling = array_values(array_filter(
+            array_unique($forMatches[1]),
+            fn ($target) => ! in_array($target, $ids, true)
+        ));
+
+        $this->assertSame([], $dangling,
+            'these labels point at ids that do not exist in the modal: ' . implode(', ', $dangling));
+    }
 }

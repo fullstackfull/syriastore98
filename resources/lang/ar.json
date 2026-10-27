@@ -3072,5 +3072,10 @@
     "Edit role :name": "تعديل الدور :name",
     "Delete role :name": "حذف الدور :name",
     "Show all permissions for :name": "عرض كل صلاحيات :name",
-    "Show fewer permissions for :name": "عرض صلاحيات أقل لـ :name"
+    "Show fewer permissions for :name": "عرض صلاحيات أقل لـ :name",
+    "Enable store :name": "تفعيل المتجر :name",
+    "Saved — leave blank to keep it": "محفوظ — اتركه فارغاً للإبقاء عليه",
+    "Not set": "غير محدّد",
+    "A value is saved. Leave this blank to keep it, or type a new one to replace it.": "هناك قيمة محفوظة. اترك الحقل فارغاً للإبقاء عليها، أو اكتب قيمة جديدة لاستبدالها.",
+    "No value is saved yet.": "لا توجد قيمة محفوظة بعد."
 }

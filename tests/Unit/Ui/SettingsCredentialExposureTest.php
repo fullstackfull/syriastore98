@@ -49,6 +49,17 @@ class SettingsCredentialExposureTest extends TestCase
      * same field in two branches. It is listed as the scanner finds it rather than deduplicated,
      * so the count matches the fields a reader will actually find in the file.
      */
+    /*
+     * F117 IS BEING PAID DOWN PANEL BY PANEL, and this list shrinks as it is. The two Twilio
+     * entries left on 2026-10-27 when that panel moved to `<x-ss.secret-field>` plus
+     * `SecretSetting::resolve()` on its save path — both halves together, because masking the
+     * display over an unconditional `$post[$k] = $request->$k` erases the credential on the next
+     * save of anything else on the same panel.
+     *
+     * The ratchet asserts this list EXACTLY, in both directions: a new exposure fails it, and so
+     * does a fixed one left in the list. That second direction is what forced this edit, and it
+     * is the half that keeps the list honest.
+     */
     private const KNOWN_EXPOSED = [
         'resources/views/setting/chatgpt_setting.blade.php:36 api_key[]',
         'resources/views/setting/email_fields.blade.php:163 mail_password',
@@ -62,8 +73,6 @@ class SettingsCredentialExposureTest extends TestCase
         'resources/views/setting/test_mail.blade.php:8 mail_password',
         'resources/views/setting/test_mail.blade.php:9 mail_encryption',
         'resources/views/setting/test_whatsappmessage.blade.php:6 whatsapp_access_token',
-        'resources/views/setting/twilio_setting.blade.php:23 twilio_sid',
-        'resources/views/setting/twilio_setting.blade.php:30 twilio_token',
         'resources/views/setting/whatsapp_notify_setting.blade.php:27 whatsapp_access_token',
         'resources/views/setting/woocom_setting.blade.php:45 woocommerce_consumer_secret',
     ];

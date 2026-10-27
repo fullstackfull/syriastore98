@@ -24,8 +24,15 @@
     of context. `d-none` on index >= 11 and the two class hooks are unchanged, because the script
     depends on them.
 --}}
-<div class="role-permission-table align-middle p-3" id="useradd-sidenav">
-    <ul class="nav nav-pills row store-setting-tab ss-chips" id="pills-tab" role="list">
+{{-- NO ids ON THESE TWO ELEMENTS. This partial renders ONCE PER ROW of the roles list, so the
+     `id="useradd-sidenav"` and `id="pills-tab"` it used to carry were emitted once per role —
+     duplicate ids in one document, which makes every `for=` and `getElementById` on the page
+     ambiguous. `pills-tab` additionally COLLIDED with the create-role modal's own `#pills-tab`
+     whenever that modal was open on the same page. Measured by the live sweep in all eight
+     configurations. Nothing targets either id from this screen (checked `roles/index` and the
+     bundled scripts); the three views that DO use those selectors are other screens. --}}
+<div class="role-permission-table align-middle p-3">
+    <ul class="nav nav-pills row store-setting-tab ss-chips" role="list">
         @foreach ($role->permissions()->pluck('name') as $index => $permission)
             <li class="nav-item col-2 text-center {{ $index >= 11 ? 'd-none' : '' }}">
                 <span class="ss-chip ss-chip--static">{{ $permission }}</span>
