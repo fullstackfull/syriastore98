@@ -26,6 +26,19 @@ class PayUPaymentController extends Controller
 {
     use GuardsPlanActivation;
     use GuardsGatewayReturn;
+
+    /*
+     * D-21 / S32. The three raw read-modify-write stock decrements in this handler now go through
+     * the shared trait, which performs the same subtraction as one atomic conditional UPDATE and
+     * RECORDS it so `restoreStockDecrements()` can give it back on an in-loop exit.
+     *
+     * WHAT IT DOES NOT DO. It does not close the unverified decrement. The inventory in
+     * `docs/development/phase-2/D-21-STOCK-WRITER-INVENTORY.md` measured the ordering on this
+     * path: the stock is taken hundreds of lines BEFORE the payment status is resolved, and the
+     * decrement is conditioned on nothing. Closing that needs E13's durable stock evidence, which
+     * is BLOCKED. This bounds the damage; it does not remove it.
+     */
+    use \App\Http\Controllers\Concerns\AppliesCartStockChanges;
     use \App\Http\Controllers\Concerns\ResolvesPartialPaymentDeposit;
     /* P1-ORD-02: a pending balance is flipped to paid only for the customer who owes it. */
     use \App\Http\Controllers\Concerns\ResolvesPendingPartialPayment;
@@ -471,6 +484,13 @@ class PayUPaymentController extends Controller
         }
 
         if (!empty($products)) {
+            /*
+             * D-21. Decrements applied by the loop below, so they can be GIVEN BACK when a later
+             * line makes this handler return early. Before this, each in-loop
+             * `return $this->error(...)` left every line already processed decremented, with
+             * PayU's money captured and no order row to show for it.
+             */
+            $appliedStockChanges = [];
             foreach ($products as $key => $product) {
                 $prodduct_id_array[] = $product->product_id;
 
@@ -489,9 +509,14 @@ class PayUPaymentController extends Controller
                         if (!empty($ProductStock)) {
                             if($option == true)
                             {
-                                $remain_stock = $ProductStock->stock - $qtyy;
-                                $ProductStock->stock = $remain_stock;
-                                $ProductStock->save();
+                                /*
+                                 * `false` is $rejectOnShortfall, and it is what keeps this bit-identical: on a
+                                 * shortfall the trait re-runs the decrement with overselling allowed, exactly as the
+                                 * raw `stock - qty` did. Refusing is not available here -- PayU has already
+                                 * captured the money by the time this runs, so abandoning the basket would lose a
+                                 * paid order.
+                                 */
+                                $this->decrementStockOrFail($appliedStockChanges, 'variant', $ProductStock, $qtyy, false);
 
                                 if($ProductStock->stock <= $ProductStock->low_stock_threshold)
                                 {
@@ -517,9 +542,9 @@ class PayUPaymentController extends Controller
                             }
                             else
                             {
-                                $remain_stock = $datas->product_stock - $qtyy;
-                                $datas->product_stock = $remain_stock;
-                                $datas->save();
+                                // The variant row exists but is not stock-managed, so the PARENT product is
+                                // decremented through `$datas`.
+                                $this->decrementStockOrFail($appliedStockChanges, 'product', $datas, $qtyy, false);
                                 if($datas->product_stock <= $datas->low_stock_threshold)
                                 {
                                     if (!empty(json_decode($settings['notification'])) && in_array("enable_low_stock",json_decode($settings['notification'])))
@@ -577,14 +602,15 @@ class PayUPaymentController extends Controller
                                 }
                             }
                         } else {
+                            $this->restoreStockDecrements($appliedStockChanges);
+
                             return $this->error(['message' => 'Product not found .']);
                         }
                     } elseif (!empty($product_id) && $product_id != 0) {
 
                         if (!empty($Product)) {
-                            $remain_stock = $Product->product_stock - $qtyy;
-                            $Product->product_stock = $remain_stock;
-                            $Product->save();
+                            // The no-variant leg.
+                            $this->decrementStockOrFail($appliedStockChanges, 'product', $Product, $qtyy, false);
                             if($Product->product_stock <= $Product->low_stock_threshold)
                             {
                                 if (!empty(json_decode($settings['notification'])) && in_array("enable_low_stock",json_decode($settings['notification'])))
@@ -643,9 +669,13 @@ class PayUPaymentController extends Controller
                             }
 
                         } else {
+                            $this->restoreStockDecrements($appliedStockChanges);
+
                             return $this->error(['message' => 'Product not found .']);
                         }
                     } else {
+                        $this->restoreStockDecrements($appliedStockChanges);
+
                         return $this->error(['message' => 'Please fill proper product json field .']);
                     }
                 }

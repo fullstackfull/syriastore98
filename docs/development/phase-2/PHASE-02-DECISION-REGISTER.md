@@ -892,6 +892,53 @@ Binding conditions:
 - If a path needs an unresolved commercial behaviour change, **document it precisely and continue
   with the other independent paths** rather than stopping.
 
+### Implementation outcome, 2026-10-27 — **D-21 DELIVERED; the unverified decrement is NOT closed**
+
+Full detail in `D-21-STOCK-WRITER-INVENTORY.md` §4. The short version, including what went wrong:
+
+**Scope turned out to be four writers, not five.** `OrderController::store` was already done — a
+comment-stripped census found 0 raw decrements and 2 service calls, inside `DB::beginTransaction()`
+at `:96` with `rollBack()` at `:410`. It needed nothing.
+
+**Converted:** `AuthorizeNetPaymnetController`, `PayUPaymentController`, both `Api/ApiController`
+loops (6 sites across 2 methods) through `AppliesCartStockChanges`; and
+`Api/DashboardController::createOrderViaApi` through `ProductStockService` directly with
+`$requireAvailability = true`, because it already refused a shortfall and already rolled back — what
+it lacked was atomicity, not a refusal.
+
+**The Flutter condition is met and was tested, not assumed.** `createOrderViaApi` keeps its refusal
+byte for byte: same `status`/`message` keys, same wording, **HTTP 400 and not 401**, same
+`rollBack()`. `AdminApiStockRefusalContractTest` drives the variant shortfall, the product
+shortfall, the happy path and the exact boundary (`qty == stock` must still be allowed).
+
+**A defect was introduced by the fix and found by the review of it — ledger F123.** Two
+post-capture exits in AuthorizeNet's loop took stock and gave nothing back, because the pass that
+added the restores matched one spelling of `return` and those two use another. CI's ratchet was a
+*floor* of one restore per loop, so three correct exits hid two wrong ones. Both fixed; the ratchet
+replaced with "a restore stands before **every** `return` inside a stock-taking loop", with no list
+of spellings — the first replacement did carry one and immediately mis-reported Easebuzz, which
+returns `Utility::error(...)`.
+
+**Two findings recorded rather than fixed**, to avoid widening the slice:
+
+- **PayU and `Api/ApiController` have no `basketHasUnusableQuantity()` pre-flight** (the other five
+  handlers do), so a negative quantity reached their raw decrement and `$stock - $qtyy` **added**
+  stock. `normaliseQuantity()` returns null for anything `<= 0` and the service SKIPs, so the
+  conversion closes a stock-inflation path on those two. **The change is therefore not inert there,
+  and is not claimed to be.**
+- **`PayUPaymentController:507`** dereferences `$ProductStock->variation_option` before `:509`'s
+  null test, so its restore at `:605` is unreachable — the same post-capture 500 as F121. Left to
+  **D-22**, which is exactly that defect and which requires before-decrement and after-capture
+  tests this slice does not have.
+
+**What is explicitly NOT closed, per the owner's own instruction that conversion is not proof:**
+the decrement on the gateway paths still happens before the payment is known to have succeeded.
+That is D-13's open half and it needs E13's durable evidence, which stays BLOCKED. **D-13 remains
+NOT DONE and `$plan` stays suspended.** The lost-update property these conversions buy cannot be
+driven in this suite at all — `CACHE_STORE=array` makes `Cache::lock` process-local — so it is
+proven against the service by `OrderStockConcurrencyTest`, and the per-writer tests prove only that
+each writer delegates rather than doing its own arithmetic (ledger F124).
+
 ---
 
 ## D-22 — F121: the deleted product or variant that 500s a payment return — APPROVED as its own slice (owner, 2026-10-27)

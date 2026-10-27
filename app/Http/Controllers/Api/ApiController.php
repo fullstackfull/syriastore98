@@ -55,6 +55,18 @@ use App\Models\StoreDevice;
 class ApiController extends Controller
 {
     use ApiResponser;
+
+    /*
+     * D-21 / S32. The six raw read-modify-write stock decrements in `place_order()` and
+     * `ordersave()` now go through the shared trait: one atomic conditional UPDATE instead of a
+     * read-modify-write, recorded so it can be given back on an in-loop exit.
+     *
+     * THE SHORTFALL STILL OVERSELLS RATHER THAN REFUSING, deliberately. These are not
+     * post-capture paths, so refusing would be defensible -- but it would change what a
+     * storefront API client receives, and the owner reserves changes to API responses and status
+     * codes. See `docs/development/phase-2/D-21-STOCK-WRITER-INVENTORY.md`.
+     */
+    use \App\Http\Controllers\Concerns\AppliesCartStockChanges;
     use \App\Http\Middleware\Concerns\RedactsApiLogFields;   // P1-SEC-16: user_detail() logged the whole request body
 
     /**
@@ -3568,6 +3580,13 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         // Order stock decrease start
         $prodduct_id_array = [];
         if (!empty($products)) {
+            /*
+             * D-21. Decrements applied by the loop below, so they can be GIVEN BACK when a later
+             * line makes this handler return early. Before this, each in-loop error exit left
+             * every line already processed decremented, with no order row to show for it.
+             */
+            $appliedStockChanges = [];
+
             foreach ($products as $key => $product) {
                 $prodduct_id_array[] = $product->product_id;
 
@@ -3618,6 +3637,8 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                  * consistent with the two paths that already behave this way.
                  */
                 if (!empty($product_id) && $product_id != 0 && empty($Product)) {
+                    $this->restoreStockDecrements($appliedStockChanges);
+
                     return $this->error(['message' => __('Product not found .')]);
                 }
 
@@ -3633,6 +3654,8 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                          * refusal. Same correction as NMIPayController received in S33.
                          */
                         if (empty($ProductStock)) {
+                            $this->restoreStockDecrements($appliedStockChanges);
+
                             return $this->error(['message' => __('Product not found .')]);
                         }
 
@@ -3640,9 +3663,14 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                         $option = in_array('manage_stock', $variationOptions);
                         if (!empty($ProductStock)) {
                             if ($option == true) {
-                                $remain_stock = $ProductStock->stock - $qtyy;
-                                $ProductStock->stock = $remain_stock;
-                                $ProductStock->save();
+                                /*
+                                 * `false` is $rejectOnShortfall. This path is NOT post-capture -- a shortfall
+                                 * could legitimately refuse here -- but making it do so would change what a
+                                 * storefront client receives, and the owner reserves changes to API responses
+                                 * (D-21). So this stays bit-identical to the subtraction it replaces: oversell
+                                 * and log, exactly as before.
+                                 */
+                                $this->decrementStockOrFail($appliedStockChanges, 'variant', $ProductStock, $qtyy, false);
 
                                 if ($ProductStock->stock <= $ProductStock->low_stock_threshold) {
                                     if (!empty(json_decode($settings['notification'])) && in_array('enable_low_stock', json_decode($settings['notification']))) {
@@ -3659,9 +3687,9 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                                     }
                                 }
                             } else {
-                                $remain_stock = $datas->product_stock - $qtyy;
-                                $datas->product_stock = $remain_stock;
-                                $datas->save();
+                                // The variant row exists but is not stock-managed, so the PARENT product is
+                                // decremented through `$datas`.
+                                $this->decrementStockOrFail($appliedStockChanges, 'product', $datas, $qtyy, false);
                                 if ($datas->product_stock <= $datas->low_stock_threshold) {
                                     if (!empty(json_decode($settings['notification'])) && in_array('enable_low_stock', json_decode($settings['notification']))) {
                                         if (isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] == 'on') {
@@ -3705,14 +3733,15 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                                 }
                             }
                         } else {
+                            $this->restoreStockDecrements($appliedStockChanges);
+
                             return $this->error(['message' => 'Product not found .']);
                         }
                     } elseif (!empty($product_id) && $product_id != 0) {
 
                         if (!empty($Product)) {
-                            $remain_stock = $Product->product_stock - $qtyy;
-                            $Product->product_stock = $remain_stock;
-                            $Product->save();
+                            // The no-variant leg.
+                            $this->decrementStockOrFail($appliedStockChanges, 'product', $Product, $qtyy, false);
                             if ($Product->product_stock <= $Product->low_stock_threshold) {
                                 if (!empty(json_decode($settings['notification'])) && in_array('enable_low_stock', json_decode($settings['notification']))) {
                                     if (isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] == 'on') {
@@ -3760,9 +3789,13 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                                 }
                             }
                         } else {
+                            $this->restoreStockDecrements($appliedStockChanges);
+
                             return $this->error(['message' => __('Product not found .')]);
                         }
                     } else {
+                        $this->restoreStockDecrements($appliedStockChanges);
+
                         return $this->error(['message' => __('Please fill proper product json field .')]);
                     }
                 }
@@ -8631,6 +8664,13 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         // Order stock decrease start
         $prodduct_id_array = [];
         if (!empty($products)) {
+            /*
+             * D-21. Decrements applied by the loop below, so they can be GIVEN BACK when a later
+             * line makes this handler return early. Before this, each in-loop error exit left
+             * every line already processed decremented, with no order row to show for it.
+             */
+            $appliedStockChanges = [];
+
             foreach ($products as $key => $product) {
                 $prodduct_id_array = $product->product_id;
 
@@ -8682,6 +8722,8 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                  * query that answers it.
                  */
                 if (!empty($product_id) && $product_id != 0 && empty($Product)) {
+                    $this->restoreStockDecrements($appliedStockChanges);
+
                     return $this->error(['message' => 'Product not found .']);
                 }
 
@@ -8707,6 +8749,8 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                          * proven by removal.
                          */
                         if (empty($ProductStock)) {
+                            $this->restoreStockDecrements($appliedStockChanges);
+
                             return $this->error(['message' => 'Product not found .']);
                         }
 
@@ -8714,9 +8758,14 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                         $option = in_array('manage_stock', $variationOptions);
                         if (!empty($ProductStock)) {
                             if ($option == true) {
-                                $remain_stock = $ProductStock->stock - $qtyy;
-                                $ProductStock->stock = $remain_stock;
-                                $ProductStock->save();
+                                /*
+                                 * `false` is $rejectOnShortfall. This path is NOT post-capture -- a shortfall
+                                 * could legitimately refuse here -- but making it do so would change what a
+                                 * storefront client receives, and the owner reserves changes to API responses
+                                 * (D-21). So this stays bit-identical to the subtraction it replaces: oversell
+                                 * and log, exactly as before.
+                                 */
+                                $this->decrementStockOrFail($appliedStockChanges, 'variant', $ProductStock, $qtyy, false);
 
                                 if ($ProductStock->stock <= $ProductStock->low_stock_threshold) {
                                     if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_low_stock", json_decode($settings['notification'] ?? '[]'))) {
@@ -8733,9 +8782,9 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                                     }
                                 }
                             } else {
-                                $remain_stock = $datas->product_stock - $qtyy;
-                                $datas->product_stock = $remain_stock;
-                                $datas->save();
+                                // The variant row exists but is not stock-managed, so the PARENT product is
+                                // decremented through `$datas`.
+                                $this->decrementStockOrFail($appliedStockChanges, 'product', $datas, $qtyy, false);
                                 if ($datas->product_stock <= $datas->low_stock_threshold) {
                                     if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_low_stock", json_decode($settings['notification'] ?? '[]'))) {
                                         if (isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] == "on") {
@@ -8779,14 +8828,15 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                                 }
                             }
                         } else {
+                            $this->restoreStockDecrements($appliedStockChanges);
+
                             return $this->error(['message' => 'Product not found .']);
                         }
                     } elseif (!empty($product_id) && $product_id != 0) {
 
                         if (!empty($Product)) {
-                            $remain_stock = $Product->product_stock - $qtyy;
-                            $Product->product_stock = $remain_stock;
-                            $Product->save();
+                            // The no-variant leg.
+                            $this->decrementStockOrFail($appliedStockChanges, 'product', $Product, $qtyy, false);
                             if ($Product->product_stock <= $Product->low_stock_threshold) {
                                 if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_low_stock", json_decode($settings['notification'] ?? '[]'))) {
                                     if (isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] == "on") {
@@ -8831,9 +8881,13 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                                 }
                             }
                         } else {
+                            $this->restoreStockDecrements($appliedStockChanges);
+
                             return $this->error(['message' => 'Product not found .']);
                         }
                     } else {
+                        $this->restoreStockDecrements($appliedStockChanges);
+
                         return $this->error(['message' => 'Please fill proper product json field .']);
                     }
                 }

@@ -56,18 +56,18 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 
 | line | message |
 |---|---|
-| `app/Http/Controllers/Api/ApiController.php:117` | Coupon refused: the basket could not be priced |
-| `app/Http/Controllers/Api/ApiController.php:3420` | order: refused, basket holds a non-positive quantity |
-| `app/Http/Controllers/Api/ApiController.php:6916` | order: refused, basket holds a non-positive quantity |
-| `app/Http/Controllers/Api/ApiController.php:7007` | coupon: refused an implausible discounted total |
-| `app/Http/Controllers/Api/ApiController.php:7783` | payment_sheet refused: basket names a product from another store |
-| `app/Http/Controllers/Api/ApiController.php:7809` | payment_sheet: refused, basket holds a non-positive quantity |
-| `app/Http/Controllers/Api/ApiController.php:8419` | order: refused, basket holds a non-positive quantity |
-| `app/Http/Controllers/Api/ApiController.php:8544` | coupon: refused an implausible discounted total |
+| `app/Http/Controllers/Api/ApiController.php:129` | Coupon refused: the basket could not be priced |
+| `app/Http/Controllers/Api/ApiController.php:3432` | order: refused, basket holds a non-positive quantity |
+| `app/Http/Controllers/Api/ApiController.php:6949` | order: refused, basket holds a non-positive quantity |
+| `app/Http/Controllers/Api/ApiController.php:7040` | coupon: refused an implausible discounted total |
+| `app/Http/Controllers/Api/ApiController.php:7816` | payment_sheet refused: basket names a product from another store |
+| `app/Http/Controllers/Api/ApiController.php:7842` | payment_sheet: refused, basket holds a non-positive quantity |
+| `app/Http/Controllers/Api/ApiController.php:8452` | order: refused, basket holds a non-positive quantity |
+| `app/Http/Controllers/Api/ApiController.php:8577` | coupon: refused an implausible discounted total |
 | `app/Http/Controllers/Api/AuthController.php:186` | register: social identity verification refused |
 | `app/Http/Controllers/Api/DeliverySyriaOrderController.php:82` | Delivery Syria invalid credentials |
-| `app/Http/Controllers/AuthorizeNetPaymnetController.php:322` | Pending partial payment refused: the balance named does not belong to this customer. |
-| `app/Http/Controllers/AuthorizeNetPaymnetController.php:364` | AuthorizeNet capture refused: no server-computed payable in the stored state. |
+| `app/Http/Controllers/AuthorizeNetPaymnetController.php:339` | Pending partial payment refused: the balance named does not belong to this customer. |
+| `app/Http/Controllers/AuthorizeNetPaymnetController.php:381` | AuthorizeNet capture refused: no server-computed payable in the stored state. |
 | `app/Http/Controllers/CartController.php:222` | product_cart: refused a non-positive or non-integer quantity |
 | `app/Http/Controllers/CartController.php:275` | product_cart: refused a product belonging to another store |
 | `app/Http/Controllers/CinetPayController.php:480` | Pending partial payment refused: the balance named does not belong to this customer. |
@@ -109,7 +109,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/PaiementProPaymentController.php:433` | Pending partial payment refused: the balance named does not belong to this customer. |
 | `app/Http/Controllers/PayHerePaymnetController.php:64` | PayHere plan checkout refused: the integration is retired (owner decision). |
 | `app/Http/Controllers/PayHerePaymnetController.php:76` | PayHere plan checkout refused: the PayHere SDK is not installed. |
-| `app/Http/Controllers/PayUPaymentController.php:274` | Pending partial payment refused: the balance named does not belong to this customer. |
+| `app/Http/Controllers/PayUPaymentController.php:287` | Pending partial payment refused: the balance named does not belong to this customer. |
 | `app/Http/Controllers/PaymentController.php:1098` | Paymera trigger could not identify the order it created; the pending record names none |
 | `app/Http/Controllers/PaymentController.php:1291` | checkout: refused, basket names a product from another store |
 | `app/Http/Controllers/PaymentController.php:1331` | checkout: refused, basket holds a non-positive quantity |

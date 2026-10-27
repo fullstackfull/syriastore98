@@ -50,12 +50,19 @@ use Tests\TestCase;
  */
 class GatewayStockDecrementRoutingTest extends TestCase
 {
-    /** The four D-18 authorises, and only those four. */
+    /**
+     * Routed through the shared trait: the four D-18 named, plus the three D-21 authorised on
+     * 2026-10-27. `Api/ApiController` carries SIX sites across two methods rather than three,
+     * which is why the per-file count below is derived rather than fixed.
+     */
     private const AUTHORISED = [
-        'KhaltiPaymnetController',
-        'PaiementProPaymentController',
-        'CinetPayController',
-        'EasebuzzController',
+        'KhaltiPaymnetController' => 3,
+        'PaiementProPaymentController' => 3,
+        'CinetPayController' => 3,
+        'EasebuzzController' => 3,
+        'AuthorizeNetPaymnetController' => 3,
+        'PayUPaymentController' => 3,
+        'Api/ApiController' => 6,
     ];
 
     /**
@@ -72,9 +79,11 @@ class GatewayStockDecrementRoutingTest extends TestCase
      * a census.
      */
     private const NOT_AUTHORISED = [
-        'AuthorizeNetPaymnetController',
-        'PayUPaymentController',
-        'Api/ApiController',
+        // D-21 authorised and converted AuthorizeNet, PayU and Api/ApiController on 2026-10-27.
+        // `Api/DashboardController` is converted too but is NOT listed here, because it does not
+        // use the trait: it already refused a shortfall and already rolled back, so it needed the
+        // service's $requireAvailability argument instead — see its own contract test.
+        // Nothing remains unconverted, so this list is empty and the assertion below says so.
     ];
 
     private function source(string $controller): string
@@ -115,7 +124,7 @@ class GatewayStockDecrementRoutingTest extends TestCase
 
     public function test_each_authorised_handler_routes_every_decrement_through_the_trait(): void
     {
-        foreach (self::AUTHORISED as $controller) {
+        foreach (self::AUTHORISED as $controller => $expectedSites) {
             $source = $this->source($controller);
 
             $this->assertStringContainsString(
@@ -125,10 +134,11 @@ class GatewayStockDecrementRoutingTest extends TestCase
                 . 'again — read-modify-write, unaccounted, and invisible to any movement record '
                 . 'E13 later writes from the service.');
 
-            $this->assertSame(3, substr_count($source, '$this->decrementStockOrFail($appliedStockChanges,'),
-                "$controller must decrement at exactly three sites (the stock-managed variant, the "
-                . 'parent product behind an unmanaged variant, and the no-variant leg). A different '
-                . 'number means a site was added or lost.');
+            $this->assertSame($expectedSites, substr_count($source, '$this->decrementStockOrFail($appliedStockChanges,'),
+                "$controller must decrement at exactly $expectedSites site(s) — three per product "
+                . 'loop: the stock-managed variant, the parent product behind an unmanaged '
+                . 'variant, and the no-variant leg. A different number means a site was added or '
+                . 'lost.');
 
             /*
              * AND EVERY ONE MUST PASS `false`, which is not a style point. With `true` the trait
@@ -139,7 +149,7 @@ class GatewayStockDecrementRoutingTest extends TestCase
              * handed, carries on to `new Order()`: an order written against stock that was just
              * returned. The count above stops before the arguments, so it would not notice.
              */
-            $this->assertSame(3, substr_count($source, ', $qtyy, false);'),
+            $this->assertSame($expectedSites, substr_count($source, ', $qtyy, false);'),
                 "$controller has a decrementStockOrFail() call that does not pass "
                 . 'rejectOnShortfall = false. These are post-capture paths: the gateway already '
                 . 'has the money, so refusing here abandons a paid basket — and because the call '
@@ -153,18 +163,150 @@ class GatewayStockDecrementRoutingTest extends TestCase
         }
     }
 
+    /**
+     * Every product loop in the file as [firstLine, lastLine], by brace depth.
+     *
+     * Plural deliberately: `Api/ApiController` carries two order writers with a loop each (plus a
+     * third loop that decrements nothing), and an earlier version of this file assumed one — it
+     * then reported a perfectly correct use in the second writer as being "after the loop".
+     *
+     * Takes comment-stripped lines, because a brace inside a comment would shift the depth count
+     * and silently move every range after it.
+     */
+    private function productLoopRanges(array $lines): array
+    {
+        $ranges = [];
+
+        foreach ($lines as $i => $line) {
+            if (! str_contains($line, 'foreach ($products as $key => $product)')) {
+                continue;
+            }
+
+            $depth = 0;
+
+            for ($j = $i; $j < count($lines); $j++) {
+                $depth += substr_count($lines[$j], '{') - substr_count($lines[$j], '}');
+
+                if ($depth === 0 && $j > $i) {
+                    $ranges[] = [$i, $j];
+                    break;
+                }
+            }
+        }
+
+        return $ranges;
+    }
+
+    /**
+     * Comment text removed, LINE NUMBERING PRESERVED: each comment token becomes just its own
+     * newlines. Needed because the assertion below reads line-by-line and these files carry
+     * comments that QUOTE the exits they describe -- AuthorizeNet:727 contains the literal
+     * "return $this->error(...)" inside a block comment. Stripping comments without keeping the
+     * line count would misalign every brace depth after the first docblock.
+     */
+    private function codeLines(string $controller): array
+    {
+        $out = '';
+
+        foreach (token_get_all($this->source($controller)) as $token) {
+            if (is_array($token)) {
+                $out .= in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true)
+                    ? str_repeat("\n", substr_count($token[1], "\n"))
+                    : $token[1];
+            } else {
+                $out .= $token;
+            }
+        }
+
+        return explode("\n", $out);
+    }
+
+    /**
+     * EVERY in-loop error exit restores -- counted, not floored.
+     *
+     * This assertion replaces an `assertGreaterThanOrEqual($loops, ...)` one, and the reason is
+     * a defect it failed to catch. The first D-21 pass found each loop's exits with a detector
+     * keyed on `return $this->error(`, so it never saw AuthorizeNet's TWO
+     * `return redirect()->back()->with('error', ...)` exits at :778 and :818 -- the
+     * foreign-product refusal and the missing-variant refusal. Both left the lines already
+     * processed decremented, post-capture, with no order row. A floor of one restore per loop
+     * was satisfied by the three exits that DID restore, so CI saw nothing; an independent
+     * security review of the change found them by counting.
+     *
+     * So this does not count occurrences, and it does NOT enumerate exit spellings either. A
+     * first version of it listed `$this->error(`, `redirect()`, `response()->json(` and
+     * `abort()` — and promptly reported EasebuzzController as having no exits at all, because
+     * that handler returns `Utility::error(...)`. A fourth spelling defeating the detector is
+     * the exact failure being guarded against, so there is no list: it locates each product
+     * loop by brace depth and asserts a restore stands immediately before EVERY `return`
+     * inside it.
+     *
+     * That is sound here because a census of all seven handlers found 30 returns inside a
+     * stock-taking loop and all 30 are error exits — not one is a value return or an early
+     * success. Should a legitimate non-error return ever be added inside one of these loops,
+     * this test will fail and the exception belongs HERE, named, rather than in a pattern that
+     * quietly stops matching.
+     */
     public function test_each_authorised_handler_gives_back_what_it_took_on_every_in_loop_exit(): void
     {
-        foreach (self::AUTHORISED as $controller) {
+        foreach (self::AUTHORISED as $controller => $expectedSites) {
             $source = $this->source($controller);
+            $loops = intdiv($expectedSites, 3);
 
-            $this->assertSame(1, substr_count($source, '$appliedStockChanges = [];'),
-                "$controller must declare the accumulator exactly once, outside the loop. Twice "
-                . 'means a nested declaration silently discards what the outer loop recorded.');
+            $this->assertSame($loops, substr_count($source, '$appliedStockChanges = [];'),
+                "$controller must declare one accumulator per product loop, outside that loop. "
+                . 'An extra one means a nested declaration silently discards what the outer loop '
+                . 'recorded; a missing one is an undefined variable at the exits.');
 
-            $this->assertSame(3, substr_count($source, '$this->restoreStockDecrements($appliedStockChanges);'),
-                "$controller must give the applied decrements back at each of its three in-loop "
-                . 'error exits. Fewer means an exit that still consumes stock and writes no order.');
+            $lines = $this->codeLines($controller);
+            $checked = 0;
+
+            foreach ($this->productLoopRanges($lines) as [$from, $to]) {
+                /* Only the loops that actually take stock. A loop with no decrement has nothing
+                   to give back, and `Api/ApiController` has one of those. */
+                $takesStock = false;
+                for ($i = $from; $i <= $to; $i++) {
+                    if (str_contains($lines[$i], 'decrementStockOrFail')) {
+                        $takesStock = true;
+                        break;
+                    }
+                }
+
+                if (! $takesStock) {
+                    continue;
+                }
+
+                for ($i = $from; $i <= $to; $i++) {
+                    $line = trim($lines[$i]);
+
+                    if (! str_starts_with($line, 'return')) {
+                        continue;
+                    }
+
+                    $preceding = '';
+                    for ($b = $i - 1; $b >= $from && $b >= $i - 3; $b--) {
+                        if (trim($lines[$b]) !== '') {
+                            $preceding = trim($lines[$b]);
+                            break;
+                        }
+                    }
+
+                    $this->assertSame('$this->restoreStockDecrements($appliedStockChanges);', $preceding,
+                        "$controller line " . ($i + 1) . " exits the product loop without giving "
+                        . 'back the stock it already took from the earlier lines of the same '
+                        . 'basket: ' . $line . ' — these are post-capture paths, so the shopper '
+                        . 'has been charged, no order row is written, and the stock stays gone. '
+                        . 'Every in-loop error exit must be preceded by '
+                        . 'restoreStockDecrements($appliedStockChanges).');
+
+                    $checked++;
+                }
+            }
+
+            $this->assertGreaterThan(0, $checked,
+                "Found no in-loop returns at all in $controller, which means the loop finder "
+                . 'above stopped matching — not that the handler became safe. Re-read it before '
+                . 'trusting this test again.');
         }
     }
 
@@ -175,72 +317,87 @@ class GatewayStockDecrementRoutingTest extends TestCase
      */
     public function test_the_accumulator_is_in_scope_at_every_use(): void
     {
-        foreach (self::AUTHORISED as $controller) {
-            $lines = explode("\n", $this->source($controller));
+        foreach (array_keys(self::AUTHORISED) as $controller) {
+            $lines = $this->codeLines($controller);
+            $ranges = $this->productLoopRanges($lines);
 
-            $start = null;
-            foreach ($lines as $i => $line) {
-                if (str_contains($line, 'foreach ($products as $key => $product)')) {
-                    $start = $i;
-                    break;
-                }
-            }
+            $this->assertNotEmpty($ranges, "$controller: no product loop was found");
 
-            $this->assertNotNull($start, "$controller: the product loop was not found");
+            $declarations = [];
 
-            $depth = 0;
-            $end = null;
-            for ($i = $start; $i < count($lines); $i++) {
-                $depth += substr_count($lines[$i], '{') - substr_count($lines[$i], '}');
-                if ($depth === 0 && $i > $start) {
-                    $end = $i;
-                    break;
-                }
-            }
-
-            $this->assertNotNull($end, "$controller: the product loop never closes");
-
-            $declaredAt = null;
             foreach ($lines as $i => $line) {
                 if (str_contains($line, '$appliedStockChanges = [];')) {
-                    $declaredAt = $i;
-                    break;
+                    $declarations[] = $i;
                 }
             }
 
-            $this->assertNotNull($declaredAt, "$controller: no accumulator");
-            $this->assertLessThan($start, $declaredAt,
-                "$controller declares the accumulator inside the loop, so every iteration resets "
-                . 'it and the exits give back only the current line.');
+            $this->assertNotEmpty($declarations, "$controller: no accumulator");
+
+            /* Each declaration must sit immediately before a loop, never inside one. Inside, every
+               iteration resets it and the exits give back only the current line. */
+            foreach ($declarations as $d) {
+                $inside = array_filter($ranges, fn (array $r): bool => $r[0] < $d && $d < $r[1]);
+                $this->assertSame([], $inside,
+                    "$controller declares the accumulator INSIDE a product loop at line "
+                    . ($d + 1) . ', so each iteration resets what the exits are meant to give back.');
+            }
 
             foreach ($lines as $i => $line) {
-                if (str_contains($line, '$this->decrementStockOrFail($appliedStockChanges,')
-                    || str_contains($line, '$this->restoreStockDecrements($appliedStockChanges);')) {
-                    $this->assertGreaterThan($start, $i,
-                        "$controller uses the accumulator before the loop at line " . ($i + 1));
-                    $this->assertLessThan($end, $i,
-                        "$controller uses the accumulator after the loop at line " . ($i + 1)
-                        . ', where it may be an undefined variable on a path that skipped the loop.');
+                if (! str_contains($line, '$this->decrementStockOrFail($appliedStockChanges,')
+                    && ! str_contains($line, '$this->restoreStockDecrements($appliedStockChanges);')) {
+                    continue;
                 }
+
+                $enclosing = array_filter($ranges, fn (array $r): bool => $r[0] < $i && $i < $r[1]);
+
+                $this->assertNotSame([], $enclosing,
+                    "$controller uses the accumulator at line " . ($i + 1) . ', which is outside '
+                    . 'every product loop — on a path that skipped the loop it is an undefined '
+                    . 'variable, which PHP does not catch at lint time and no happy-path test '
+                    . 'would reach.');
+
+                /* And a declaration must precede it. */
+                $before = array_filter($declarations, fn (int $d): bool => $d < $i);
+                $this->assertNotSame([], $before,
+                    "$controller uses the accumulator at line " . ($i + 1)
+                    . ' before any declaration of it.');
             }
         }
     }
 
     /**
-     * THE SCOPE LIMIT, asserted so it cannot drift. D-18 names four handlers. Routing the others
-     * is D-21 and needs its own decision — two of them are API paths the Flutter apps depend on.
+     * THE SCOPE LIMIT, asserted so it cannot drift — and it is now EMPTY, which is the point.
+     *
+     * D-18 named four handlers and D-21 authorised the rest, so every writer this list was
+     * guarding has been converted. The assertion is kept rather than deleted: it states that
+     * nothing is knowingly left on a raw read-modify-write, and it fails the moment someone adds
+     * a writer here without converting it — or converts one without the owner's authority, which
+     * is the direction it originally guarded.
+     *
+     * `Api/DashboardController` is deliberately absent from both lists. It was converted too, but
+     * NOT through this trait: it already refused a shortfall and already rolled back, so what it
+     * needed was the service's `$requireAvailability` argument. Its contract is pinned separately
+     * by `tests/Feature/Security/AdminApiStockRefusalContractTest.php`, because it is the shipped
+     * Flutter admin app's order writer and its refusal shape is a client contract.
      */
     public function test_the_unauthorised_writers_are_left_alone(): void
     {
-        foreach (self::NOT_AUTHORISED as $controller) {
-            $source = $this->source($controller);
+        $this->assertSame([], self::NOT_AUTHORISED,
+            'a writer has been added to NOT_AUTHORISED. If the owner has authorised converting '
+            . 'it, convert it and move it to AUTHORISED; if not, it stays here and this test is '
+            . 'the record of that.');
 
+        foreach (self::NOT_AUTHORISED as $controller) {
             $this->assertStringContainsString('$remain_stock = ', $this->code($controller),
-                "$controller has been routed through the shared service. D-18 authorises Khalti, "
-                . 'PaiementPro, CinetPay and Easebuzz by name and not this one; enrolling it is '
-                . 'D-21, and two of the writers it covers are API paths the Flutter apps depend '
-                . 'on. If the owner has answered D-21, move it to AUTHORISED rather than '
-                . 'deleting this assertion.');
+                "$controller is listed as unauthorised but has been routed through the shared "
+                . 'service anyway.');
+        }
+
+        /* The other half of the same claim, and the one that actually bites: no writer this file
+           calls authorised may quietly fall back to a raw decrement. */
+        foreach (array_keys(self::AUTHORISED) as $controller) {
+            $this->assertStringNotContainsString('$remain_stock = ', $this->code($controller),
+                "$controller is listed as converted but still carries a raw read-modify-write.");
         }
     }
 }

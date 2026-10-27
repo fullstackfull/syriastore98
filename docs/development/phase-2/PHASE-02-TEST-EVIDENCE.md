@@ -3796,3 +3796,66 @@ The atomicity — the half that matters most, because it removes a lost update �
 here**: `CACHE_STORE=array` makes `Cache::lock` process-local, so no Feature test can stage two
 overlapping returns. And the decrement still happens before the payment is known to have
 succeeded; closing that needs E13's durable stock evidence, which is BLOCKED.
+
+## 31. D-21 — the four remaining stock writers (2026-10-27)
+
+`php artisan test tests/Feature/Commerce/GatewayStockDecrementRoutingTest.php
+tests/Feature/Security/AdminApiStockRefusalContractTest.php
+tests/Feature/Commerce/OrderStoreOwnershipTest.php` → **20 passed, 336 assertions**.
+
+Full Feature gate on the change: **6053 passed, 2 failed, 17 skipped** — the known-outcome gate
+reports `OK: the observed outcome set matches the manifest exactly`, 6072 testcases, 0 errors.
+
+### 31a. The Flutter refusal contract — four behavioural tests that deliberately see nothing
+
+`AdminApiStockRefusalContractTest` drives `POST api/admin/createOrderViaApi`, the shipped admin
+app's own order writer, and asserts the refusal is unchanged: **HTTP 400 and not 401** (a 401
+forces a logout in `lib/network/network.dart`, so it would be a user-visible regression rather
+than a hardening), the `status`/`message` envelope intact, a positive control that an order which
+fits still succeeds and still takes the stock, and the exact boundary — `qty == stock` must still
+be **allowed**, which is the off-by-one a `>` would introduce.
+
+**These four pass against the unconverted handler too, and that was measured rather than
+reasoned.** Reverting `createOrderViaApi` to its original check-then-act leaves all four green:
+the behaviour is byte-identical by design, which is the point of the owner's Flutter condition and
+also the reason behaviour cannot evidence the conversion.
+
+### 31b. So the conversion is pinned in source — and revert-checked
+
+`test_create_order_via_api_delegates_stock_to_the_service_and_keeps_no_read_modify_write` reads
+that one method's body through `ReflectionMethod`, strips comments, and asserts both branches call
+the service, **both pass `$requireAvailability = true`** (without it the service oversells instead
+of refusing, turning the pinned 400 into a 200 against stock that is not there), and that none of
+the four spellings of the read-modify-write returns. **Reverting the conversion fails that test and
+only that test** — executed, 4 passed / 1 failed.
+
+### 31c. The ratchet that was a floor, and the defect it hid
+
+`GatewayStockDecrementRoutingTest`'s exit assertion was
+`assertGreaterThanOrEqual($loops, substr_count(..., 'restoreStockDecrements'))`. AuthorizeNet's
+loop has **five** error exits; the conversion restored at three; the floor of one per loop was
+satisfied and CI stayed green while two **post-capture** exits consumed a paid basket's stock and
+wrote no order (ledger F123, found by the independent security review).
+
+It now locates each product loop by brace depth and asserts a restore stands immediately before
+**every** `return` inside it, over comment-stripped lines that keep their numbering — necessary
+because `AuthorizeNetPaymnetController:727` contains the literal `return $this->error(...)` inside
+a block comment.
+
+**It lists no exit spellings.** The first replacement listed four and immediately reported
+`EasebuzzController` as having no exits at all, because that handler returns `Utility::error(...)`
+— a detector defeated by a spelling it has not met being precisely the failure under guard. A
+census of all seven handlers found **30 returns inside a stock-taking loop, all 30 error exits**,
+so the rule applies to every `return`.
+
+**Revert-checked:** with the two restores removed the test fails naming line 776; with them
+present, 4 tests / **252 assertions** (up from 219).
+
+### 31d. What none of this claims
+
+Converting a writer to `ProductStockService` is **not** evidence that the path is protected — the
+owner's instruction says so explicitly and it is repeated here because the conversions are easy to
+mistake for the fix. The lost-update property they buy cannot be driven in this suite at all;
+`OrderStockConcurrencyTest` proves it against the service, and these tests prove only the thing
+that would silently undo it. The gateway decrements still precede payment verification: D-13's
+open half, needing E13's durable evidence, which is BLOCKED.

@@ -139,6 +139,21 @@ use App\Models\StoreNotification;
  */
 class DashboardController extends Controller
 {
+    /*
+     * D-21. The same private-helper shape `OrderController` uses (`:53-58`), rather than the
+     * `AppliesCartStockChanges` trait, and the difference is deliberate: that trait's
+     * `decrementStockOrFail()` is built for the post-capture paths, where a shortfall must
+     * oversell rather than refuse. THIS path already refuses a shortfall and already rolls back,
+     * and it must keep doing both — so what it needs is the service's `$requireAvailability`
+     * argument, which the trait does not expose.
+     */
+    private ?\App\Services\ProductStockService $stockService = null;
+
+    private function stockService(): \App\Services\ProductStockService
+    {
+        return $this->stockService ??= new \App\Services\ProductStockService();
+    }
+
     use ApiResponser;
 
 
@@ -5823,7 +5838,27 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('defult_currancy_sy
                 }
 
                 if ($product->track_stock == 1) {
-                    if ($variant->stock < $qty) {
+                    /*
+                     * D-21. THE TEST AND THE DECREMENT ARE NOW ONE STATEMENT.
+                     *
+                     * This was `if ($variant->stock < $qty) { refuse } $variant->stock -= $qty;
+                     * $variant->save();` — a check-then-act. Two concurrent orders could both
+                     * read the same figure, both pass the test and both subtract, so the second
+                     * write erased the first and the shop oversold without either request being
+                     * refused. `$requireAvailability = true` puts the `stock >= qty` predicate
+                     * into the UPDATE itself, so exactly one of them affects a row.
+                     *
+                     * THE RESPONSE IS DELIBERATELY UNCHANGED, byte for byte: same
+                     * `status`/`message` keys, same wording, same HTTP 400, same rollback. This
+                     * is `POST api/admin/createOrderViaApi`, the shipped Flutter admin app's own
+                     * order writer, and the owner's condition is explicit that a business refusal
+                     * must not change shape — above all it must never become a 401, which the
+                     * shipped client maps to a forced logout. `$variant->stock` still reads the
+                     * value seen before the attempt, which is what the old message reported too.
+                     */
+                    $ssVariantDecrement = $this->stockService()->decrementVariantStock($variant, $qty, false, true);
+
+                    if (! $ssVariantDecrement['applied']) {
                         \DB::rollBack();
 
                         return response()->json([
@@ -5831,8 +5866,6 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('defult_currancy_sy
                             'message' => "Insufficient stock for variant: {$variant->name}. Available: {$variant->stock}, Requested: {$qty}"
                         ], 400);
                     }
-                    $variant->stock -= $qty;
-                    $variant->save();
                 }
 
                 $productJson[] = [
@@ -5849,7 +5882,12 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('defult_currancy_sy
                 ];
             } else {
                 if ($product->track_stock == 1) {
-                    if ($product->product_stock < $qty) {
+                    /* D-21. The no-variant leg, same change and same reasoning as above: the
+                       availability test and the decrement become one atomic statement, and the
+                       refusal keeps its exact shape and status for the Flutter client. */
+                    $ssProductDecrement = $this->stockService()->decrementProductStock($product, $qty, false, true);
+
+                    if (! $ssProductDecrement['applied']) {
                         \DB::rollBack();
 
                         return response()->json([
@@ -5857,8 +5895,6 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('defult_currancy_sy
                             'message' => "Insufficient stock for product: {$product->name}. Available: {$product->product_stock}, Requested: {$qty}"
                         ], 400);
                     }
-                    $product->product_stock -= $qty;
-                    $product->save();
                 }
 
                 $productJson[] = [
