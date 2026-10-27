@@ -77,7 +77,10 @@ const ENV = Object.assign({}, process.env, {
 
 /* The tabs this harness drives, by their `data-tab`. `minControls` is a PREMISE, not a goal: a tab
    whose AJAX failed renders an error string, and without a floor on the control count that reads
-   as a clean pass. The numbers are the counts measured once the tab really rendered.
+   as a clean pass. EVERY NUMBER BELOW WAS MEASURED against the running screen rather than
+   guessed -- the guessed ones were wrong in both directions (System was guessed at 6 and really
+   has 4; Payment was guessed at 60 and really has 311), and a floor that is too high reports a
+   working screen as broken just as surely as one that is too low hides a broken one.
 
    `as` IS NOT A DETAIL. The rail shows a DIFFERENT SET OF TABS to each principal --
    `index.blade.php` gates one block on `type == 'super admin'` and another on `type == 'admin'`.
@@ -99,17 +102,17 @@ const MERCHANT = { email: 'merchant@example.test', who: 'merchant' };
    the real stylesheets in a real browser, not the route, the permission gate or the AJAX. */
 
 const TABS = [
-    { tab: 'email_setting',     minControls: 1,  label: 'Email',    as: MERCHANT, thenControls: 8 },
-    { tab: 'brand_setting',     minControls: 10, label: 'Brand',    as: MERCHANT },
-    { tab: 'system_setting',    minControls: 6,  label: 'System',   as: MERCHANT },
+    { tab: 'email_setting',     minControls: 1,  label: 'Email',    as: MERCHANT, thenControls: 9 },
+    { tab: 'brand_setting',     minControls: 19, label: 'Brand',    as: MERCHANT },
+    { tab: 'system_setting',    minControls: 4,  label: 'System',   as: MERCHANT },
     { tab: 'twilio_setting',    minControls: 5,  label: 'Twilio',   as: MERCHANT },
-    { tab: 'stock_setting',     minControls: 2,  label: 'Stock',    as: MERCHANT },
-    { tab: 'otp_setting',       minControls: 8,  label: 'OTP',      as: MERCHANT },
-    { tab: 'currency_setting',  minControls: 30, label: 'Currency', as: MERCHANT },
+    { tab: 'stock_setting',     minControls: 5,  label: 'Stock',    as: MERCHANT },
+    { tab: 'otp_setting',       minControls: 11,  label: 'OTP',      as: MERCHANT },
+    { tab: 'currency_setting',  minControls: 35, label: 'Currency', as: MERCHANT },
     /* The payment tab is where F117's largest exposure lived: 52 gateways, 108 fields, 58 of
        them secrets, all rendered at once. It is in the rail's UNGATED block, so a merchant sees
        it -- which is why it had to be reachable here rather than only in the rendered set. */
-    { tab: 'payment_setting',   minControls: 250, label: 'Payment', as: MERCHANT },
+    { tab: 'payment_setting',   minControls: 311, label: 'Payment', as: MERCHANT },
 ];
 
 /* Operator-only panels, rendered rather than clicked. `panel` is a key of
