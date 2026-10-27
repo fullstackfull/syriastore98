@@ -371,9 +371,13 @@ class ProductVariantOrdinarySaveGuardTest extends SecurityTestCase
     }
 
     /**
-     * AND THE CONFIRMED NARROWING STILL WORKS — condition 3. Without this, the refusal above
-     * could be satisfied by a handler that refuses every narrowing forever, which would make the
-     * attribute editor unusable rather than safe.
+     * AND THE CONFIRMED NARROWING STILL WORKS, **for the case where safety is PROVABLE** —
+     * condition 3. Without this, the refusals could be satisfied by a handler that refuses every
+     * narrowing forever, which would make the attribute editor unusable rather than safe.
+     *
+     * The fixture's product appears in no order, and that is what makes this the permitted case:
+     * the order line shape always carries `product_id`, so "no order ever contained this product"
+     * is establishable, and it entails that no order contained any of its variants.
      */
     public function test_a_confirmed_narrowing_removes_exactly_the_uncovered_variants(): void
     {
@@ -391,6 +395,74 @@ class ProductVariantOrdinarySaveGuardTest extends SecurityTestCase
         $after = $this->readAll($product->id);
         $this->assertSame($kept, array_keys($after),
             'a CONFIRMED narrowing must remove exactly the uncovered variants and nothing else');
+    }
+
+    /**
+     * THE OWNER'S CORRECTION, 2026-10-27: **CONFIRMATION DOES NOT SUBSTITUTE FOR PROOF.**
+     *
+     * > لا أوافق على الحذف النهائي لمتغير قد تكون له مراجع تاريخية غير قابلة للتحقق، حتى مع تأكيد
+     * > التاجر. التأكيد شرط للتغييرات المسموحة، لكنه لا يلغي شرط إثبات السلامة.
+     *
+     * An earlier version of this slice let an explicit confirmation carry a delete whose safety
+     * was unprovable, on the reasoning that the merchant had been told. That is exactly the
+     * trade the owner refused: a merchant agreeing to a warning does not make order history
+     * checkable, and the data lost is commercial.
+     *
+     * So when ANY order names this product, the delete is blocked outright and the confirmation
+     * flag is ignored — there is nothing a merchant could usefully confirm, because nobody can
+     * say whether the variant is in that history.
+     */
+    public function test_a_confirmed_narrowing_is_blocked_when_the_product_appears_in_an_order(): void
+    {
+        [$merchant, $product, $categoryId, $variants] = $this->arrangeTwelve();
+
+        /* One order naming this PRODUCT, with no variant id on the line — the storefront writer's
+           real shape, and the whole reason the history cannot be checked. */
+        \DB::table('orders')->insert([
+            'product_order_id' => 'POI-' . uniqid(),
+            'customer_id' => 0,
+            'is_guest' => 1,
+            'product_id' => $product->id,
+            'delivery_id' => 0,
+            'delivered_status' => 0,
+            'return_status' => 0,
+            'reward_points' => 0,
+            'order_date' => now(),
+            'payment_status' => 'Paid',
+            'final_price' => 100,
+            'store_id' => $product->store_id,
+            'product_json' => json_encode([[
+                'product_id' => $product->id,
+                'name' => 'Scarf',
+                'qty' => 1,
+                'price' => 100,
+                'final_price' => 100,
+                'total_orignal_price' => 100,
+            ]]),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $payload = $this->ordinarySavePayload($product, $categoryId, $variants);
+        $payload['options_datas'] = ['S-Red', 'M-Red'];
+        $payload['ss_confirm_variant_removal'] = 1;
+
+        $response = $this->actingAs($merchant)->put(route('product.update', $product->id), $payload);
+        $response->assertOk();
+
+        $this->assertSame('error', $response->json('flag'),
+            'a CONFIRMED narrowing deleted variants of a product that appears in order history. '
+            . 'Confirmation is a condition for permitted changes; it does not establish safety.');
+
+        $msg = (string) $response->json('msg');
+        $this->assertStringContainsString('order', strtolower($msg),
+            'the block must tell the merchant WHY — that order history names this product');
+        $this->assertStringContainsString('out of stock', strtolower($msg),
+            'the block must point at the way to stop selling a variant WITHOUT losing its record, '
+            . 'or the merchant is left with no route at all');
+
+        $this->assertCount(12, $this->readAll($product->id),
+            'a blocked narrowing deleted rows anyway');
     }
 
     /**

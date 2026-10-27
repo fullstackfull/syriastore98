@@ -135,9 +135,10 @@ class ProductController extends Controller
             $blockers[] = __(':count wishlist entry(ies)', ['count' => $inWishlists]);
         }
 
-        /* An order line only sometimes carries the id; when it does, it is a real reference and
-           this finds it. When it does not, nothing here can — which is what the confirmation
-           below exists to acknowledge rather than paper over. */
+        /* An order line only sometimes carries the VARIANT id; when it does, it is a real
+           reference and this finds it. The PRODUCT id, by contrast, is on every line — measured,
+           14 of 14 in the fixture — and that asymmetry is what makes a provable case possible
+           at all. See $ordersNamingProduct below. */
         $inOrders = 0;
         foreach (\App\Models\Order::withoutGlobalScopes()
             ->where('store_id', getCurrentStore())
@@ -171,6 +172,67 @@ class ProductController extends Controller
             ];
         }
 
+        /*
+         * --- THE OWNER'S CORRECTION, 2026-10-27: CONFIRMATION DOES NOT SUBSTITUTE FOR PROOF ----
+         *
+         * > لا أوافق على الحذف النهائي لمتغير قد تكون له مراجع تاريخية غير قابلة للتحقق، حتى مع
+         * > تأكيد التاجر. التأكيد شرط للتغييرات المسموحة، لكنه لا يلغي شرط إثبات السلامة.
+         *
+         * The first version of this guard let an explicit confirmation carry a delete whose safety
+         * was unprovable. That was wrong: a merchant agreeing to a warning does not make order
+         * history checkable, and what is lost is commercial data.
+         *
+         * WHAT MAKES A PROVABLE CASE POSSIBLE AT ALL is an asymmetry in the order line shape. The
+         * VARIANT id is absent from the storefront writer's lines entirely, so "no order used this
+         * variant" cannot be established. The PRODUCT id is on every line — measured, 14 of 14
+         * across the fixture's 7 orders — so "no order ever contained this PRODUCT" CAN be
+         * established, and that entails no order contained any of its variants.
+         *
+         * So two genuinely different situations, kept apart rather than blurred into one warning:
+         *
+         *   - NO order names this product  -> deletion is provably safe; an explicit confirmation
+         *                                     may carry it (condition 3, below).
+         *   - ANY order names this product -> the variant may be in that history and nothing can
+         *                                     show otherwise. HARD BLOCK, and no confirmation is
+         *                                     offered, because there is nothing a merchant could
+         *                                     usefully confirm.
+         */
+        $ordersNamingProduct = 0;
+
+        foreach (\App\Models\Order::withoutGlobalScopes()
+            ->where('store_id', getCurrentStore())
+            ->whereNotNull('product_json')
+            ->pluck('product_json') as $json) {
+            $lines = json_decode((string) $json, true);
+
+            if (! is_array($lines)) {
+                continue;
+            }
+
+            foreach ($lines as $line) {
+                if (is_array($line) && (int) ($line['product_id'] ?? 0) === (int) $product->id) {
+                    $ordersNamingProduct++;
+                    break;
+                }
+            }
+        }
+
+        if ($ordersNamingProduct > 0) {
+            return [
+                'flag' => 'error',
+                'msg' => __('These variants cannot be deleted: :names. This product appears in :count past order(s), and an order line does not record which variant was bought — so nothing can show that these variants are not part of that history. Deleting them would destroy their prices, SKUs and stock with no way to recover what an order referred to. Nothing has been changed. To stop selling them while keeping the record, set them out of stock instead.', [
+                    'names' => implode(', ', $names),
+                    'count' => $ordersNamingProduct,
+                ]),
+                'ss_variant_removal' => [
+                    'variants' => $names,
+                    'count' => count($names),
+                    'blocked' => 'unverifiable_order_history',
+                    'orders_naming_product' => $ordersNamingProduct,
+                ],
+            ];
+        }
+
         /* --- condition 3: a deliberate delete is a separate, confirmed act ----------------- */
         if (! $request->boolean('ss_confirm_variant_removal')) {
             /* Condition 2: the names, the count, and what each one carries, so the merchant is
@@ -189,7 +251,7 @@ class ProductController extends Controller
 
             return [
                 'flag' => 'error',
-                'msg' => __('This change would permanently delete :count variant(s): :detail. Their prices, SKUs and stock would be lost, and order history may still refer to them — that cannot be checked, because an order line does not always record which variant it was. Nothing has been changed. To proceed, confirm the removal explicitly.', [
+                'msg' => __('This change would permanently delete :count variant(s): :detail. Their prices, SKUs and stock would be lost. No past order names this product, so nothing in order history refers to them. Nothing has been changed. To proceed, confirm the removal explicitly.', [
                     'count' => count($names),
                     'detail' => implode(' | ', $detail),
                 ]),

@@ -676,7 +676,7 @@ Reaffirmed by the owner on 2026-10-26 and in force for all of Phase 02:
   services.
 - **No weakening of CI and no manufactured results.** Green CI is necessary evidence, not proof.
 
-## D-20 — what a deliberate narrowing of an attribute's option set should do: **ANSWERED AND IMPLEMENTED 2026-10-27 — (owner, 2026-10-27) — refuse, name what would be lost, confirm separately**
+## D-20 — what a deliberate narrowing of an attribute's option set should do: **PARTIAL.** Refusal and blocking implemented 2026-10-27; the no-loss alternative is analysed, not built
 
 **Raised:** 2026-10-26, out of the D-09 implementation. **Nothing has been changed; today's
 behaviour is preserved exactly.**
@@ -768,6 +768,66 @@ of those fail when the refusal is disabled, verified by executing that mutation.
 
 **Not covered, and stated rather than implied:** true concurrency. `CACHE_STORE=array` makes
 `Cache::lock` process-local, so no Feature test can stage two merchants saving one product.
+
+---
+
+### OWNER CORRECTION, 2026-10-27: CONFIRMATION IS NOT PROOF — and D-20 is PARTIAL
+
+> لا أوافق على الحذف النهائي لمتغير قد تكون له مراجع تاريخية غير قابلة للتحقق، حتى مع تأكيد
+> التاجر. التأكيد شرط للتغييرات المسموحة، لكنه لا يلغي شرط إثبات السلامة.
+
+The first implementation let an explicit confirmation carry a delete whose safety was unprovable,
+on the reasoning that the merchant had been told. **That is the trade the owner refused.** A
+merchant agreeing to a warning does not make order history checkable, and what is lost is
+commercial data.
+
+#### The permitted case and the blocked case, kept apart
+
+What makes a permitted case possible at all is an **asymmetry in the order line shape**:
+
+| | in an order line? | consequence |
+|---|---|---|
+| `variant_id` | **absent** from the storefront writer's shape (0 of 14 lines) | "no order used this variant" is **not** establishable |
+| `product_id` | **on every line** (14 of 14) | "no order ever contained this PRODUCT" **is** establishable — and it entails no order contained any of its variants |
+
+So:
+
+- **PERMITTED** — no cart, wishlist or variant-id reference, **and no order names this product**.
+  Safety is established, and an explicit confirmation carries the delete (condition 3).
+- **BLOCKED, confirmation ignored** — any order names this product. Nothing can show the variant
+  is absent from that history, so there is nothing a merchant could usefully confirm. The message
+  says why and points at the alternative below.
+- **BLOCKED** — a cart row, a wishlist row, or an order line that *does* carry the id.
+
+#### The no-loss alternative: analysed, NOT built, and the analysis is the reason
+
+The owner asked whether the operation can be achieved without losing data, using existing
+mechanisms first — *"مثل تعطيل إتاحة المتغير للبيع مع الاحتفاظ بسجله إذا كان ذلك مدعوماً وآمناً"*.
+The mechanism exists, and measuring it is what stopped it being built in this slice:
+
+- for a variant **not** stock-managed (`manage_stock` absent from `variation_option`),
+  `stock_status = 'out_of_stock'` blocks the cart add — `Cart.php:793` admits only `in_stock` and
+  `on_backorder`, and an explicit `out_of_stock` falls to the refusal arm;
+- for a **stock-managed** variant, `stock_status` is **not consulted at all** on that path — the
+  only lever is `qty >= $ProductVariant->stock`, i.e. `stock = 0`.
+
+So "retire this variant" is **two different levers chosen by a flag inside a comma-separated
+string**, and whether every cart entry point honours either is **not established** — the
+storefront API and the vendored module cart routes were not traced. Building a merchant-facing
+"retire" action on that footing would be exactly the kind of unproven safety the owner has just
+refused, and the standing limit forbids inventing a new archiving mechanism or migration for it
+*"دون تحليل وقرار محدد"*.
+
+**It is therefore named in the block message as the thing to do manually** (set the variant out of
+stock) and recorded here as needing its own decision.
+
+#### Why this stays PARTIAL
+
+Conditions 1, 2, 3, 5 and 6 are met and tested. **Condition 4 is met only in the direction that
+can be proven**: references that exist are found; references that cannot be checked now block
+rather than warn. The acceptance condition "the operation can be achieved without losing data" is
+**not** met — the retirement path is analysed and not built. D-20 stays **PARTIAL** until that is
+decided and, if approved, implemented with its own evidence.
 
 ---
 
