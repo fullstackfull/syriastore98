@@ -41,19 +41,44 @@
     'title',
     'period',
     'valueLabel' => null,
+    'columnLabel' => null,
+    'values2' => [],
+    'valueLabel2' => null,
 ])
 
 @php
     /* Pair up defensively. The controller builds label[] and data[] in one
        loop so they match today, but a chart that silently drops the last day
        because one array is shorter is worse than one that renders fewer
-       columns honestly. */
+       columns honestly.
+
+       A SECOND SERIES is optional and narrows the pairing further, for the
+       same reason: three arrays that disagree would otherwise let one column
+       show series A's October beside series B's November. Added for the
+       reports hub, where every chart compares customer against guest; the
+       single-series path is untouched, so the dashboard's chart renders byte
+       for byte as before. */
+    $ssHasB   = is_array($values2) && count($values2) > 0;
     $ssCount  = min(count($labels), count($values));
+    if ($ssHasB) {
+        $ssCount = min($ssCount, count($values2));
+    }
     $ssLabels = array_slice(array_values($labels), 0, $ssCount);
     $ssValues = array_map('intval', array_slice(array_values($values), 0, $ssCount));
-    $ssMax    = $ssCount ? max($ssValues) : 0;
+    $ssValuesB = $ssHasB ? array_map('intval', array_slice(array_values($values2), 0, $ssCount)) : [];
+
+    /* ONE SCALE FOR BOTH SERIES. The bars are stacked, so the tallest column
+       is the largest SUM, not the largest single value — scaling each series
+       to its own maximum would draw a 3 beside a 300 at the same height. */
+    $ssStacks = $ssHasB
+        ? array_map(static fn ($a, $b) => $a + $b, $ssValues, $ssValuesB)
+        : $ssValues;
+    $ssMax    = $ssCount ? max($ssStacks) : 0;
     $ssTotal  = array_sum($ssValues);
+    $ssTotalB = array_sum($ssValuesB);
     $ssValueLabel = $valueLabel ?: $title;
+    $ssValueLabelB = $valueLabel2 ?: __('Series 2');
+    $ssColumnLabel = $columnLabel ?: __('Day');
     $ssTableId = 'ss-chart-' . substr(md5($title . $period), 0, 8);
 @endphp
 
@@ -73,11 +98,29 @@
                     $ssPct = $ssMax > 0 ? round($v / $ssMax * 100) : 0;
                 @endphp
                 <div class="ss-chart__col">
+                    @if ($ssHasB)
+                        @php
+                            $ssPctB = $ssMax > 0 ? round($ssValuesB[$i] / $ssMax * 100) : 0;
+                        @endphp
+                        {{-- Series B sits on top: the column order is bottom-up because
+                             `.ss-chart__col` is `flex-direction: column; justify-content:
+                             flex-end`, so the LAST child is the lowest. --}}
+                        <div class="ss-chart__bar ss-chart__bar--b @if ($ssValuesB[$i] === 0) ss-chart__bar--zero @endif"
+                             style="block-size: {{ $ssPctB }}%"></div>
+                    @endif
                     <div class="ss-chart__bar @if ($v === 0) ss-chart__bar--zero @endif"
                          style="block-size: {{ $ssPct }}%"></div>
                 </div>
             @endforeach
         </div>
+        @if ($ssHasB)
+            {{-- The legend is `aria-hidden` with the bars: the table names both series
+                 in its own column headers, which is the accessible statement. --}}
+            <ul class="ss-chart__legend" aria-hidden="true">
+                <li class="ss-chart__legend-item"><span class="ss-chart__swatch"></span>{{ $ssValueLabel }}</li>
+                <li class="ss-chart__legend-item"><span class="ss-chart__swatch ss-chart__swatch--b"></span>{{ $ssValueLabelB }}</li>
+            </ul>
+        @endif
         <div class="ss-chart__labels" aria-hidden="true">
             @foreach ($ssLabels as $l)
                 <span class="ss-chart__label">{{ $l }}</span>
@@ -94,8 +137,11 @@
                     </caption>
                     <thead>
                         <tr>
-                            <th scope="col">{{ __('Day') }}</th>
+                            <th scope="col">{{ $ssColumnLabel }}</th>
                             <th scope="col" class="ss-table__num">{{ $ssValueLabel }}</th>
+                            @if ($ssHasB)
+                                <th scope="col" class="ss-table__num">{{ $ssValueLabelB }}</th>
+                            @endif
                         </tr>
                     </thead>
                     <tbody>
@@ -103,6 +149,9 @@
                             <tr>
                                 <th scope="row">{{ $l }}</th>
                                 <td class="ss-table__num ss-num">{{ number_format($ssValues[$i]) }}</td>
+                                @if ($ssHasB)
+                                    <td class="ss-table__num ss-num">{{ number_format($ssValuesB[$i]) }}</td>
+                                @endif
                             </tr>
                         @endforeach
                     </tbody>
@@ -110,6 +159,9 @@
                         <tr>
                             <th scope="row">{{ __('Total') }}</th>
                             <td class="ss-table__num ss-num">{{ number_format($ssTotal) }}</td>
+                            @if ($ssHasB)
+                                <td class="ss-table__num ss-num">{{ number_format($ssTotalB) }}</td>
+                            @endif
                         </tr>
                     </tfoot>
                 </table>

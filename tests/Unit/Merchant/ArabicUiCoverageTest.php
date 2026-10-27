@@ -51,6 +51,10 @@ class ArabicUiCoverageTest extends TestCase
         // as wide as its list, which is the one way this kind of check quietly stops working.
         'resources/views/customer/*.blade.php',
         'resources/views/components/ss/*.blade.php',
+        // P2-05-6. The report screens became a Phase 02 surface when they were put on the
+        // design system; before that nothing scanned them, so every figure, column header and
+        // empty state on them could render in English for an Arabic merchant.
+        'resources/views/reports/*.blade.php',
         'resources/views/dashboard/*.blade.php',
         'resources/views/layouts/*.blade.php',
     ];

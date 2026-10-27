@@ -175,6 +175,15 @@
     --ss-on-brand:     #ffffff;
     --ss-link:         var(--ss-teal-800);
 
+    /* Chart series. Series 1 points at --ss-brand rather than copying it, so it
+       re-themes with the brand and a brand change cannot leave a chart behind.
+       Series 2 is the gold side of a teal/gold pair, chosen because it differs in
+       HUE and in LIGHTNESS: a reader with deuteranopia or protanopia separates
+       blue-green from orange-gold, which a second green would not give them.
+       Dark mode redefines series 2 only; series 1 follows the brand. */
+    --ss-chart-series-1: var(--ss-brand);
+    --ss-chart-series-2: var(--ss-amber-800);
+
     /* Borders */
     --ss-border:        var(--ss-grey-200);
     --ss-border-strong: var(--ss-grey-400);
@@ -319,6 +328,10 @@
     --ss-danger:     #f3a9a4;
     --ss-on-danger:  #3b0d0a;
 
+    /* Teal-500 is bright in dark mode, so series 2 lightens to match: the dark
+       amber-800 would sink into the card. Same hue pair, re-solved. */
+    --ss-chart-series-2: #f0c674;
+
     --ss-focus-ring: var(--ss-teal-400);
 
     --ss-shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.45);
@@ -354,6 +367,7 @@
         --ss-neutral-bg: #212c2a; --ss-neutral-fg: #c3cccb;
         --ss-danger: #f3a9a4;
         --ss-on-danger: #3b0d0a;
+        --ss-chart-series-2: #f0c674;
         --ss-focus-ring: var(--ss-teal-400);
         --ss-shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.45);
         --ss-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.35);
@@ -1896,9 +1910,47 @@
     min-block-size: 2px;          /* a zero day is still a visible baseline */
     border-start-start-radius: var(--ss-radius-sm);
     border-start-end-radius: var(--ss-radius-sm);
-    background: var(--ss-brand);
+    background: var(--ss-chart-series-1);
 }
 .ss-chart__bar--zero { background: var(--ss-border-strong); }
+/* The second series of a stacked chart. It sits ON TOP, so only the lower bar
+   keeps the rounded cap -- two rounded segments would read as two separate
+   bars floating apart rather than one column. The colour is the accent token,
+   not a new literal: a chart that invents its own palette drifts from the rest
+   of the product the first time a token changes. */
+.ss-chart__bar--b {
+    background: var(--ss-chart-series-2);
+    border-end-start-radius: 0;
+    border-end-end-radius: 0;
+}
+.ss-chart__col > .ss-chart__bar--b + .ss-chart__bar {
+    border-start-start-radius: 0;
+    border-start-end-radius: 0;
+}
+/* The legend. `aria-hidden` with the bars -- the table's column headers are
+   the accessible statement of which series is which. */
+.ss-chart__legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--ss-space-3);
+    margin: var(--ss-space-2) 0 0;
+    padding: 0;
+    list-style: none;
+}
+.ss-chart__legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--ss-space-2);
+    font-size: var(--ss-text-xs);
+    color: var(--ss-fg-muted);
+}
+.ss-chart__swatch {
+    inline-size: 0.75rem;
+    block-size: 0.75rem;
+    border-radius: var(--ss-radius-sm);
+    background: var(--ss-chart-series-1);
+}
+.ss-chart__swatch--b { background: var(--ss-chart-series-2); }
 .ss-chart__labels {
     display: grid;
     grid-auto-flow: column;

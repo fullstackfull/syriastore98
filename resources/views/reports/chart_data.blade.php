@@ -1,56 +1,56 @@
-<div class="col-sm-12">
-    <div class="row">
-        <div class="col-xxl-4 col-12 mb-4">
-            <div class="card m-0 h-100">
-                <div class="card-header">
-                <div class="float-end">
-                    <a href="#" data-bs-toggle="tooltip" data-bs-placement="top" title="Refferals"><i
-                            class=""></i></a>
-                </div>
-                <h5><b>{{$totaluser}} {{ __('orders')}}</b></h5>
-                </div>
-                <div class="card-body"  style="min-height: 280px;">
-                        <div class="row align-items-center">
-                        <div class="col-12">
-                            <div class="chart" data-height="230"></div>
-                        </div>
+{{--
+    The customer-report body, re-rendered by AJAX each time the period changes.
+    =============================================================================================
 
-                        </div>
-                </div>
-            </div>
-        </div>
-        <div class="col-xxl-8">
-            <div class="card">
-                <div class="card-header">
-                    <h5><b>{{ __('Customer order Vs Guest order') }}</b></h5>
-                </div>
-                <div class="card-body">
-                    <div class="myChart" data-color="primary" data-height="230"></div>
-                </div>
-            </div>
-        </div>
-    </div>
+    PRD-001 — EVERY FIGURE CARRIES ITS PERIOD. This partial used to render
+    `<h5><b>{{ $totaluser }} {{ __('orders') }}</b></h5>`: a bare number over three charts, with
+    the selected window shown only as a pressed-looking button at the top of the page. Switch
+    from "This year" to "Last 7 days" and the number changes with nothing beside it saying so,
+    which is exactly the reading PRD-001 exists to stop. `$periodLabel` is derived in
+    `ReportController::chartPeriodLabels()` from the same input the data was built from.
+
+    AND THE CHARTS ARE NOW READABLE. The three ApexCharts here had no accessible representation
+    of any kind — no table, no summary, not even a `role="img"` label — so a merchant using a
+    screen reader got three empty divs. `<x-ss.bar-chart>` draws the same comparison and ships
+    the numbers as a real `<table>` with a caption and `scope` on both axes, which is also how
+    the dashboard's weekly chart works (P2-02-8). One chart mechanism, not two.
+--}}
+
+<div class="col-12">
+    <x-ss.stats>
+        <x-ss.stat :label="__('Orders')" :value="number_format($totaluser)" :period="$periodLabel" />
+        <x-ss.stat :label="__('From registered customers')" :value="number_format($customer)" :period="$periodLabel" />
+        <x-ss.stat :label="__('From guests')" :value="number_format($guest)" :period="$periodLabel" />
+        <x-ss.stat :label="__('New customer sign-ups')" :value="number_format($customer_total)" :period="$periodLabel" />
+    </x-ss.stats>
+
+    {{-- "Order count", not "sales" or "revenue": these series count ORDERS, whatever their
+         value or status, and naming them anything richer would be the claim PRD-001 forbids. --}}
+    <x-ss.card :title="__('Orders placed')"
+               :note="__('Counts every order placed in the period, whatever its status or value. Not revenue.')"
+               class="mt-3">
+        <x-ss.bar-chart
+            :labels="$monthList"
+            :values="$userTotal"
+            :values2="$guestTotal"
+            :title="__('Orders placed')"
+            :value-label="__('Registered customers')"
+            :value-label2="__('Guests')"
+            :column-label="$columnLabel"
+            :period="$periodLabel" />
+    </x-ss.card>
+
+    <x-ss.card :title="__('New sign-ups')"
+               :note="__('Counts accounts registered, and guests seen for the first time, in the period.')"
+               class="mt-3">
+        <x-ss.bar-chart
+            :labels="$monthList"
+            :values="$registerTotal"
+            :values2="$newguestTotal"
+            :title="__('New sign-ups')"
+            :value-label="__('Registered customers')"
+            :value-label2="__('Guests')"
+            :column-label="$columnLabel"
+            :period="$periodLabel" />
+    </x-ss.card>
 </div>
-
-
-<div class="col-xxl-12">
-    {{-- orders chart --}}
-    <div class="card min-h-390 overflow-auto">
-        <div class="card-header">
-            <h5><b>{{ __('Customer Vs Guest')}}</b></h5>
-        </div>
-        <div class="card-body">
-            <div class="traffic-chart"></div>
-        </div>
-    </div>
-
-</div>
-
-<script src="{{ asset('public/assets/js/plugins/apexcharts.min.js') }}"></script>
-
-
-
-
-
-
-

@@ -331,8 +331,27 @@ class ReportController extends Controller
             }
         }
 
+        /* PRD-001. A figure with no period is the commonest way a report misleads: the same
+           card reads "412 orders" for the year and for last week, and nothing on it says which.
+           The window is decided by exactly the input this method already dispatched on, so it is
+           named once here rather than in five branches — a per-branch label would be five places
+           for the label and the data to drift apart.
+
+           The column header travels with it for the same reason: the year view's buckets are
+           MONTHS and every other view's are DAYS, and a table that says "Day" over twelve month
+           names is wrong in a way no one notices until they read it aloud. */
+        [$periodLabel, $columnLabel] = $this->chartPeriodLabels($request);
+
         $html = '';
-        $html = view('reports.chart_data', compact('customer', 'guest', 'totaluser', 'customer_total'))->render();
+        $html = view('reports.chart_data', compact(
+            'customer', 'guest', 'totaluser', 'customer_total',
+            'periodLabel', 'columnLabel', 'monthList'
+        ) + [
+            'userTotal' => $userTotal ?? [],
+            'guestTotal' => $guestTotal ?? [],
+            'registerTotal' => $registerTotal ?? [],
+            'newguestTotal' => $newguestTotal ?? [],
+        ])->render();
 
         $return['html'] = $html;
         $return['guestTotal'] = $guestTotal ?? [];
@@ -347,6 +366,47 @@ class ReportController extends Controller
 
 
         return response()->json($return);
+    }
+
+    /**
+     * The period a `reports_chart` answer covers, and what its buckets are called.
+     *
+     * Returns [period, column]. Both are already translated, because they go straight into a
+     * heading and a table header. The caller dispatches on the same `chart_data` value, so this
+     * cannot name a window the data does not cover — which is the whole point of deriving it
+     * once instead of writing a literal into each branch.
+     *
+     * The default branch is a single date or a ` to ` range from the date picker, so it names the
+     * actual dates rather than something vague: "12 Mar 2026" or "1 Mar 2026 – 31 Mar 2026".
+     */
+    private function chartPeriodLabels(Request $request): array
+    {
+        switch ($request->chart_data) {
+            case 'last-month':
+                return [__('Last month') . ' (' . date('F Y', strtotime('first day of last month')) . ')', __('Day')];
+            case 'this-month':
+                return [__('This month') . ' (' . date('F Y') . ')', __('Day')];
+            case 'seven-day':
+                return [__('Last 7 days'), __('Day')];
+            case 'year':
+                return [__('This year') . ' (' . date('Y') . ')', __('Month')];
+        }
+
+        $raw = (string) $request->Date;
+
+        if ($raw === '') {
+            return [__('Today') . ' (' . date('d M Y') . ')', __('Day')];
+        }
+
+        if (str_contains($raw, ' to ')) {
+            $parts = explode(' to ', $raw);
+            $from = date('d M Y', strtotime($parts[0]));
+            $to = date('d M Y', strtotime($parts[count($parts) > 1 ? 1 : 0]));
+
+            return [$from === $to ? $from : $from . ' – ' . $to, __('Day')];
+        }
+
+        return [date('d M Y', strtotime($raw)), __('Day')];
     }
 
     public function getCurrentMonthDates()
