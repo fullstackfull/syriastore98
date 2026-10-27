@@ -47,6 +47,24 @@ class CinetPayController extends Controller
     use \App\Http\Controllers\Concerns\ResolvesPendingPartialPayment;
 
     use ApiResponser;
+
+    /*
+     * D-13 / S32. The three raw read-modify-write stock decrements in `getProductStatus()` now go
+     * through this trait's `decrementStockOrFail()`, which performs the same subtraction as one
+     * atomic conditional UPDATE and, crucially for this slice, RECORDS it so that
+     * `restoreStockDecrements()` can give it back when a later cart line makes the handler abandon
+     * the checkout.
+     *
+     * WHAT THIS DOES NOT DO, stated because the gap matters. It does not close the unverified
+     * decrement: this handler still decrements before the payment is known to have succeeded, and
+     * it cannot be made to wait, because nothing in the schema records that an order consumed
+     * stock, so a decrement deferred to confirmation would simply never be taken
+     * (`docs/development/phase-2/E13-STOCK-EVIDENCE-ANALYSIS.md`). What it does is bound the
+     * damage: every unit taken is now accounted for and reversible, so an abandoned checkout
+     * gives the stock back instead of consuming it silently.
+     */
+    use \App\Http\Controllers\Concerns\AppliesCartStockChanges;
+
     public function planPayWithCinetpay(Request $request)
     {
         $payment_setting = getSuperAdminAllSetting();
@@ -614,8 +632,13 @@ class CinetPayController extends Controller
              * behind. It is the same position assertCartAvailable() occupies in
              * PaymentController::processOrder, and the same reasoning.
              *
-             * The decrement below is `$remain_stock = $Product->product_stock - $qtyy`, so a negative
-             * quantity ADDS stock while the same line reduces every total it is summed into. See
+             * The decrement below subtracts $qtyy. D-13 routed it through
+             * `decrementStockOrFail()`; it was `$remain_stock = $Product->product_stock - $qtyy`,
+             * and THAT is the form a negative quantity could ADD stock through. It no longer can:
+             * `ProductStockService::normaliseQuantity()` returns null for a non-positive quantity,
+             * so the decrement is SKIPPED rather than inverted. The guard is still needed, because
+             * the pricing half is untouched -- a negative line still reduces every total it is
+             * summed into. See
              * App\Http\Controllers\Concerns\GuardsGatewayReturn::basketHasUnusableQuantity() for why
              * the initiation-time guard is not enough on its own: the cart stays mutable across the
              * gateway round trip, and two vendored module routes can still write such a row.
@@ -679,6 +702,14 @@ class CinetPayController extends Controller
                 );
             }
 
+            /*
+             * D-13. Decrements applied by the loop below, so they can be GIVEN BACK when a later
+             * line makes this handler return early. Before this, each of the three in-loop
+             * `return $this->error(...)` exits left every line already processed decremented, with
+             * CinetPay's money captured and no order row to show for any of it.
+             */
+            $appliedStockChanges = [];
+
             if (!empty($products)) {
                 foreach ($products as $key => $product) {
                     $prodduct_id_array[] = $product->product_id;
@@ -696,9 +727,16 @@ class CinetPayController extends Controller
                             $option = in_array('manage_stock', $variationOptions);
                             if (!empty($ProductStock)) {
                                 if ($option == true) {
-                                    $remain_stock = $ProductStock->stock - $qtyy;
-                                    $ProductStock->stock = $remain_stock;
-                                    $ProductStock->save();
+                                    /*
+                                     * `false` is $rejectOnShortfall, and it is what makes this
+                                     * bit-identical to the subtraction it replaces: on a shortfall
+                                     * the trait re-runs the decrement with overselling allowed,
+                                     * exactly as the raw `stock - qty` did, and logs it at
+                                     * critical. Refusing here is not available -- CinetPay has
+                                     * already captured the money by the time this runs, so
+                                     * abandoning the basket would lose a paid order.
+                                     */
+                                    $this->decrementStockOrFail($appliedStockChanges, 'variant', $ProductStock, $qtyy, false);
 
                                     if ($ProductStock->stock <= $ProductStock->low_stock_threshold) {
                                         if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_low_stock", json_decode($settings['notification'] ?? '[]'))) {
@@ -716,9 +754,9 @@ class CinetPayController extends Controller
                                         }
                                     }
                                 } else {
-                                    $remain_stock = $datas->product_stock - $qtyy;
-                                    $datas->product_stock = $remain_stock;
-                                    $datas->save();
+                                    // The variant row exists but is not stock-managed, so the
+                                    // PARENT product is decremented through `$datas`.
+                                    $this->decrementStockOrFail($appliedStockChanges, 'product', $datas, $qtyy, false);
                                     if ($datas->product_stock <= $datas->low_stock_threshold) {
                                         if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_low_stock", json_decode($settings['notification'] ?? '[]'))) {
                                             if (isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] == "on") {
@@ -763,14 +801,15 @@ class CinetPayController extends Controller
                                     }
                                 }
                             } else {
+                                $this->restoreStockDecrements($appliedStockChanges);
+
                                 return $this->error(['message' => 'Product not found .']);
                             }
                         } elseif (!empty($product_id) && $product_id != 0) {
 
                             if (!empty($Product)) {
-                                $remain_stock = $Product->product_stock - $qtyy;
-                                $Product->product_stock = $remain_stock;
-                                $Product->save();
+                                // The no-variant leg.
+                                $this->decrementStockOrFail($appliedStockChanges, 'product', $Product, $qtyy, false);
                                 if ($Product->product_stock <= $Product->low_stock_threshold) {
                                     if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_low_stock", json_decode($settings['notification'] ?? '[]'))) {
                                         if (isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] == "on") {
@@ -816,9 +855,13 @@ class CinetPayController extends Controller
                                 }
 
                             } else {
+                                $this->restoreStockDecrements($appliedStockChanges);
+
                                 return $this->error(['message' => 'Product not found .']);
                             }
                         } else {
+                            $this->restoreStockDecrements($appliedStockChanges);
+
                             return $this->error(['message' => 'Please fill proper product json field .']);
                         }
                     }

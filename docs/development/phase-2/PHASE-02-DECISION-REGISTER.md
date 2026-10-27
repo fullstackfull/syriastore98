@@ -563,7 +563,7 @@ existing rows, which is production data.
 
 ---
 
-## D-18 — D-13: inventory security on the four named paths (owner, 2026-10-26)
+## D-18 — D-13: inventory security on the four named paths (owner, 2026-10-26) — FIRST HALF IMPLEMENTED 2026-10-27, SECOND HALF BLOCKED
 
 **Approved** for Khalti, PaiementPro, CinetPay and Easebuzz. The objective as stated: prevent stock
 being drained without a payment, or without a legitimate and proven stock reservation.
@@ -586,6 +586,42 @@ server-to-server route behind `auth`, with the code's own comment asserting the 
 decide whether it needs an urgent fix or an independent decision.
 
 ---
+
+### What was implemented, and the half that was not
+
+**Implemented.** The twelve raw read-modify-write decrements across the four handlers D-18 names
+by name — Khalti, PaiementPro, CinetPay, Easebuzz — now go through the existing
+`AppliesCartStockChanges` / `ProductStockService`, three sites per handler. Two things follow:
+
+1. **The decrement is atomic.** `$remain_stock = $X->col - $qtyy; save()` is a read-modify-write:
+   two concurrent returns read the same figure and the second write erases the first. The service
+   issues `UPDATE ... SET col = col - ?`. This is the half that matters most and **it cannot be
+   driven in this suite** — SQLite `:memory:` with `CACHE_STORE=array` makes `Cache::lock`
+   process-local, so no Feature test can stage two overlapping returns.
+2. **The decrement is accounted for**, which is the prerequisite E13's durable stock evidence
+   depends on (`E13-STOCK-EVIDENCE-ANALYSIS.md`): a movement record written from the shared
+   service is only evidence when every writer goes through it.
+
+**NOT implemented, and not claimed.** D-13's "close the unverified decrement" half. These handlers
+still decrement before the payment is known to have succeeded, and they cannot be made to wait:
+nothing in the schema records that an order consumed stock, so a decrement deferred to
+confirmation would simply never be taken. That is E13, which is BLOCKED.
+
+**The `$plan` fault is deliberately untouched**, and this is the owner's own constraint being
+honoured rather than an omission. The owner required the decrement path to be closed first,
+*"لا تُصلح الاستثناء أولاً بطريقة تجعل الخصم غير المشروع قابلاً للوصول"*. Since the decrement
+cannot be closed on three of the four handlers, landing the `$plan` guard now would convert a
+pre-decrement crash into a **working** unverified decrement on any platform where that
+dereference currently throws — the forbidden outcome, exactly. **The question of whether `$plan`
+may land as a separate later commit is with the owner.**
+
+**One claim had to be withdrawn during the work (F121).** The change also adds a restoration at
+each of the three in-loop error exits. A behavioural test for it was written, passed, and was
+**deleted**: the revert check showed it passing against the unfixed handlers too. Driving the
+fixture produced a 500 from `Cart::cart_list_cookie()` — which dereferences the same missing
+product or variant rows earlier in the request — so the loop's exits are not reachable from there
+at all. The restores are therefore **defensive**, the test that replaced it asserts only what is
+true, and the crash is recorded as its own defect.
 
 ## D-19 — Phase 02 continuation authority (owner, 2026-10-26)
 

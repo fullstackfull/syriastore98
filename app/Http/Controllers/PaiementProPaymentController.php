@@ -41,6 +41,16 @@ class PaiementProPaymentController extends Controller
 {
     use GuardsPlanActivation;
     use GuardsGatewayReturn;
+
+    /*
+     * D-13 / S32. The three raw read-modify-write stock decrements in `getProductStatus()` now go
+     * through this trait's `decrementStockOrFail()`, which RECORDS each decrement so
+     * `restoreStockDecrements()` can give it back when a later cart line makes the handler return
+     * early. It does NOT close the unverified decrement -- see
+     * `docs/development/phase-2/E13-STOCK-EVIDENCE-ANALYSIS.md` for why a decrement deferred to
+     * payment confirmation would simply never be taken.
+     */
+    use \App\Http\Controllers\Concerns\AppliesCartStockChanges;
     use \App\Http\Controllers\Concerns\ResolvesPartialPaymentDeposit;
     /* P1-ORD-02: a pending balance is flipped to paid only for the customer who owes it. */
     use \App\Http\Controllers\Concerns\ResolvesPendingPartialPayment;
@@ -594,8 +604,13 @@ class PaiementProPaymentController extends Controller
              * behind. It is the same position assertCartAvailable() occupies in
              * PaymentController::processOrder, and the same reasoning.
              *
-             * The decrement below is `$remain_stock = $Product->product_stock - $qtyy`, so a negative
-             * quantity ADDS stock while the same line reduces every total it is summed into. See
+             * The decrement below subtracts $qtyy. D-13 routed it through
+             * `decrementStockOrFail()`; it was `$remain_stock = $Product->product_stock - $qtyy`,
+             * and THAT is the form a negative quantity could ADD stock through. It no longer can:
+             * `ProductStockService::normaliseQuantity()` returns null for a non-positive quantity,
+             * so the decrement is SKIPPED rather than inverted. The guard is still needed, because
+             * the pricing half is untouched -- a negative line still reduces every total it is
+             * summed into. See
              * App\Http\Controllers\Concerns\GuardsGatewayReturn::basketHasUnusableQuantity() for why
              * the initiation-time guard is not enough on its own: the cart stays mutable across the
              * gateway round trip, and two vendored module routes can still write such a row.
@@ -660,6 +675,13 @@ class PaiementProPaymentController extends Controller
             }
 
             if (!empty($products)) {
+                /*
+                 * D-13. Decrements applied by the loop below, so they can be GIVEN BACK when a
+                 * later line makes this handler return early. Before this, each of the three
+                 * in-loop `return $this->error(...)` exits left every line already processed
+                 * decremented, with PaiementPro's money captured and no order row to show for it.
+                 */
+                $appliedStockChanges = [];
                 foreach ($products as $key => $product) {
                     $prodduct_id_array[] = $product->product_id;
 
@@ -678,9 +700,13 @@ class PaiementProPaymentController extends Controller
                             if (!empty($ProductStock)) {
                                 if($option == true)
                                 {
-                                    $remain_stock = $ProductStock->stock - $qtyy;
-                                    $ProductStock->stock = $remain_stock;
-                                    $ProductStock->save();
+                                    /*
+                                     * `false` is $rejectOnShortfall: on a shortfall the trait re-runs the decrement
+                                     * with overselling allowed, which is what the raw `stock - qty` did, and logs it at
+                                     * critical. Refusing is not available -- PaiementPro has already captured the money by the
+                                     * time this runs.
+                                     */
+                                    $this->decrementStockOrFail($appliedStockChanges, 'variant', $ProductStock, $qtyy, false);
 
                                     if($ProductStock->stock <= $ProductStock->low_stock_threshold)
                                     {
@@ -706,9 +732,9 @@ class PaiementProPaymentController extends Controller
                                 }
                                 else
                                 {
-                                    $remain_stock = $datas->product_stock - $qtyy;
-                                    $datas->product_stock = $remain_stock;
-                                    $datas->save();
+                                    // The variant row exists but is not stock-managed, so the PARENT product is
+                                    // decremented through `$datas`.
+                                    $this->decrementStockOrFail($appliedStockChanges, 'product', $datas, $qtyy, false);
                                     if($datas->product_stock <= $datas->low_stock_threshold)
                                     {
                                         if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_low_stock",json_decode($settings['notification'] ?? '[]')))
@@ -766,14 +792,15 @@ class PaiementProPaymentController extends Controller
                                     }
                                 }
                             } else {
+                                $this->restoreStockDecrements($appliedStockChanges);
+
                                 return $this->error(['message' => __('Product not found .')]);
                             }
                         } elseif (!empty($product_id) && $product_id != 0) {
 
                             if (!empty($Product)) {
-                                $remain_stock = $Product->product_stock - $qtyy;
-                                $Product->product_stock = $remain_stock;
-                                $Product->save();
+                                // The no-variant leg.
+                                $this->decrementStockOrFail($appliedStockChanges, 'product', $Product, $qtyy, false);
                                 if($Product->product_stock <= $Product->low_stock_threshold)
                                 {
                                     if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_low_stock",json_decode($settings['notification'] ?? '[]')))
@@ -832,9 +859,13 @@ class PaiementProPaymentController extends Controller
                                 }
 
                             } else {
+                                $this->restoreStockDecrements($appliedStockChanges);
+
                                 return $this->error(['message' => __('Product not found .')]);
                             }
                         } else {
+                            $this->restoreStockDecrements($appliedStockChanges);
+
                             return $this->error(['message' => __('Please fill proper product json field .')]);
                         }
                     }

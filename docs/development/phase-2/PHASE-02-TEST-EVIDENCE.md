@@ -3730,3 +3730,69 @@ check-then-act with no database backstop (**F119**). Closing it needs a migratio
 production data, and a duplicate census first, since providers that recorded `time()` or a blank as
 `txn_id` would collide. It also has to wait on the `payment_type` canonicalisation (**F115/F116**),
 or the index would treat `Paystack` and `كومة الدفع` as different providers.
+
+---
+
+## 30. `[2026-10-27]` D-13 / D-18 — a passing test deleted because it passed for the wrong reason
+
+### 30a. What was changed
+
+The twelve raw read-modify-write stock decrements across the four gateway return handlers D-18
+names — Khalti, PaiementPro, CinetPay, Easebuzz — now go through the existing
+`AppliesCartStockChanges` trait, with an accumulator declared before each loop and a restoration
+at each of the three in-loop error exits. `$rejectOnShortfall` is `false` at every site, which is
+what makes the happy path bit-identical: on a shortfall the trait re-runs the decrement with
+overselling allowed, exactly as the raw subtraction did.
+
+### 30b. The test that was written, passed, and deleted
+
+The point of the slice is that a basket failing part-way should give back the stock it already
+took. So the test was: two cart lines, the second naming a product id with no row; drive
+PaiementPro's return (the only one of the six that reaches `new Order()` here without a live
+gateway); assert no order was written and the first line's stock is back at 50.
+
+**It passed. Then the revert check showed it passing against the unfixed handlers too.**
+
+Diagnosing it took one probe with `withoutExceptionHandling()`: the request was a **500**, not a
+refusal — `ErrorException: Attempt to read property "id" on null` at `app/Models/Cart.php:531`,
+reached from `PaiementProPaymentController.php:495`. That is the price-computation stage, roughly
+two hundred lines before the stock loop. The handler never decremented anything, so "the stock is
+still 50" was true in both directions and the test measured nothing.
+
+**The flaw was in the premise, not the assertion.** It asserted that no order was written — which
+is equally true of a basket that failed inside the loop and one that crashed before reaching it.
+A premise has to exclude the way the test could be satisfied by accident, and that one did not.
+
+The exits turn out to be unreachable from either cart path: the variant form of the same fixture
+crashes two lines further on at `Cart.php:537`, and that unguarded `ProductVariant::find(...)` ->
+`->variant` shape repeats at about a dozen sites in `Cart.php`.
+`GuardsGatewayReturn::basketHasForeignProduct()` deliberately passes such lines through — its own
+comment says "every one of these loops already has a 'Product not found' path for it" — so the
+design intends the loop to handle them and the loop never gets the chance. Recorded as **F121**.
+
+### 30c. What replaced it, and what it is honest about
+
+`GatewayStockDecrementRoutingTest` (4 tests, 106 assertions) asserts what is actually true:
+
+- every one of the four handlers routes all three decrements through the trait, and carries **no**
+  raw `$remain_stock` assignment — with **comments stripped by `token_get_all()` first**, because
+  the corrected comments in those files quote the very expression the check looks for, and this
+  project has had a comment satisfy a census before;
+- each declares the accumulator exactly once, **before** its loop, and every use is **inside** it —
+  an accumulator in the wrong scope is an undefined variable at the exits, which PHP does not
+  catch at lint time and which no happy-path test would reach;
+- the three writers D-18 does **not** authorise still carry their raw decrements, so "routed
+  everything" cannot be mistaken for progress.
+
+Three of the four fail when the controllers are reverted; the fourth is the deliberate scope
+guard. `WhatsappUrlStockTest::test_every_order_writer_call_site_is_non_rejecting` was also widened
+from a hard-coded two-file list to a **discovered** sweep of every user of the trait: it had been
+blind to all twelve new call sites, on exactly the paths it exists to protect. Mutating one new
+site to `true` now fails it, verified by executing that mutation.
+
+### 30d. What none of this claims
+
+The atomicity — the half that matters most, because it removes a lost update — **cannot be driven
+here**: `CACHE_STORE=array` makes `Cache::lock` process-local, so no Feature test can stage two
+overlapping returns. And the decrement still happens before the payment is known to have
+succeeded; closing that needs E13's durable stock evidence, which is BLOCKED.

@@ -333,14 +333,43 @@ class WhatsappUrlStockTest extends TestCase
      * STRUCTURAL, and labelled as such. The property is "no order writer rejects
      * from inside its loop", which is precisely what a future edit regresses by
      * pasting a rejecting call back in. Every `decrementStockOrFail` call site in
-     * both writers must pass the non-rejecting argument.
+     * every writer must pass the non-rejecting argument.
+     *
+     * THE FILE LIST IS DISCOVERED, NOT WRITTEN DOWN. It used to name
+     * PaymentController and PaymentService, and D-13 then routed four gateway
+     * return handlers through the same trait -- twelve new call sites that this
+     * ratchet did not see, on exactly the paths it exists to protect, because a
+     * hard-coded list is only ever as current as the last person who remembered
+     * it. Every user of the trait is now swept, and the premise below fails if
+     * the discovery finds fewer files than the trait actually has users.
      */
     public function test_every_order_writer_call_site_is_non_rejecting(): void
     {
-        foreach ([
-            base_path('app/Http/Controllers/PaymentController.php'),
-            base_path('app/Services/PaymentService.php'),
-        ] as $file) {
+        $users = [];
+
+        foreach ([base_path('app/Http/Controllers'), base_path('app/Services')] as $root) {
+            foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($root)) as $f) {
+                if (! $f->isFile() || ! str_ends_with($f->getFilename(), '.php')) {
+                    continue;
+                }
+
+                $body = (string) file_get_contents($f->getPathname());
+
+                if (str_contains($body, '$this->decrementStockOrFail(')) {
+                    $users[] = $f->getPathname();
+                }
+            }
+        }
+
+        sort($users);
+
+        $this->assertGreaterThanOrEqual(6, count($users),
+            'the sweep found fewer users of decrementStockOrFail() than are known to exist '
+            . '(PaymentController, PaymentService, NMIPay and the four D-13 gateway returns). '
+            . 'A shrinking list means the discovery is broken, not that the call sites are gone: '
+            . 'found ' . implode(', ', $users));
+
+        foreach ($users as $file) {
             $source = file_get_contents($file);
 
             preg_match_all('/\$this->decrementStockOrFail\((.*?)\);/s', $source, $matches);
