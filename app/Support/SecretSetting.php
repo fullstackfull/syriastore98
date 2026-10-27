@@ -26,14 +26,22 @@ namespace App\Support;
  * `SecretSettingPersistenceTest::test_disabling_the_integration_still_clears_the_credentials`
  * holds it.
  *
- * THE PAYMENT PANEL IS AN EXCEPTION AND HAS NO CLEARING PATH AT ALL. An earlier version of this
- * paragraph said "the other panels have the same shape"; that was wrong once the payment screen
- * was converted. `PaymentSettingController::processGateway()` skips every field write when a
- * gateway is switched off — deliberately, so switching a gateway off and on again keeps its
- * keys — so on that screen blank means keep and `off` means keep too. A merchant can ROTATE a
- * gateway credential but cannot REMOVE one. Making the toggle erase them would change behaviour
- * for 52 providers at once, so the gap is recorded for the owner rather than closed here. Found
- * by review, not by a test, which is itself the reason it is written down.
+ * THE PAYMENT PANEL CLEARS DIFFERENTLY, BY OWNER DECISION (F141). It has no toggle-clears
+ * behaviour and must not grow one: `PaymentSettingController::processGateway()` deliberately
+ * skips every field write when a gateway is switched off, so a merchant can disable and
+ * re-enable a gateway without retyping its keys. On that screen blank means keep and `off`
+ * means keep too.
+ *
+ * So removal there is its OWN action — `payment.secret.confirm` then `payment.secret.remove`,
+ * one field of one gateway in one store, behind the same permission as the save, with the
+ * confirmation asked by the SERVER because a JavaScript one fails open. A required credential
+ * cannot be removed from an ENABLED gateway: that would leave it switched on and unable to
+ * authenticate, and the merchant would learn about it from a shopper failing at checkout.
+ *
+ * AND REMOVING A CREDENTIAL HERE IS NOT REVOKING IT. The key keeps working for anyone holding a
+ * copy until it is revoked in the provider's own dashboard. The confirmation page and the
+ * success message both say so, because it is the thing a merchant removing a leaked key is most
+ * likely to assume the opposite of.
  */
 final class SecretSetting
 {

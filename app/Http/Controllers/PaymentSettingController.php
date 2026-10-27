@@ -7,6 +7,7 @@ use App\Models\Setting;
 use App\Models\Utility;
 use App\Payments\RetiredGateways;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\File;
 
 class PaymentSettingController extends Controller
@@ -207,6 +208,181 @@ class PaymentSettingController extends Controller
             $messages = $validator->getMessageBag();
             return redirect()->back()->with('error', $messages->first());
         }
+    }
+
+    /**
+     * F141 — step one of removing a stored gateway secret: ask, on the server.
+     *
+     * TWO POSTS, AND THE SECOND ONE IS NOT A FORMALITY. The owner's decision requires an
+     * explicit action, an appropriate permission and a CLEAR CONFIRMATION, and a confirmation
+     * that lives in JavaScript is not one for an action that destroys a credential:
+     *
+     *   - the house helper `show_confirm` (`public/js/custom.js:107`) resolves its form with
+     *     `closest("form")`, and the payment screen is ONE form wrapping all 52 gateways, so a
+     *     button inside a gateway card would submit the whole settings form instead;
+     *   - and it FAILS OPEN. With JavaScript broken or blocked the button still submits, and the
+     *     secret is gone with no question asked. A destructive action has to fail CLOSED.
+     *
+     * So the confirmation is a server round trip: this action renders a page naming the gateway,
+     * naming the field, and saying what removal does and does not do. Nothing is written here.
+     *
+     * NOT A GET, deliberately. P2-05-1 removed four state-changing GETs from this codebase —
+     * two of them unauthorised cross-tenant writes — and `StateChangingGetInventoryTest`
+     * ratchets the set so a fifth cannot appear quietly.
+     */
+    public function confirmSecretRemoval(Request $request)
+    {
+        if (! \App\Services\StoreSettingsAccess::permits(auth()->user())) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
+        $this->store_id = !empty(getCurrentStore()) ? getCurrentStore() : '1';
+
+        $field = (string) $request->input('field', '');
+        $gateway = $this->gatewayOwningSecret($field);
+
+        if ($gateway === null) {
+            return redirect()->back()->with('error', __('Unknown payment credential.'));
+        }
+
+        if (! \App\Support\SecretSetting::isSet($this->storedValue($field))) {
+            return redirect()->back()->with('error', __('There is no saved value to remove.'));
+        }
+
+        return view('setting.payment_partials.confirm_secret_removal', [
+            'field' => $field,
+            'label' => $this->secretLabel($field) ?? $field,
+            'gateway' => $gateway,
+            'blocked' => $this->removalBlockedBecauseEnabled($gateway, $field),
+        ]);
+    }
+
+    /**
+     * F141 — step two: remove ONE stored credential, for ONE gateway, in ONE store.
+     *
+     * WHAT THIS DELIBERATELY DOES NOT CHANGE, because the owner's decision says so explicitly
+     * and because both behaviours are load-bearing elsewhere:
+     *
+     *   - switching a gateway OFF still leaves its credentials alone (`processGateway()` writes
+     *     nothing when the gateway is not enabled), so a merchant can disable and re-enable
+     *     without retyping;
+     *   - an EMPTY BOX on a normal save still means "keep", which is the contract
+     *     `SecretSetting::resolve()` and every masked field on this screen depend on.
+     *
+     * Removal is therefore the only way a credential leaves, and it is never a side effect.
+     *
+     * A REQUIRED SECRET CANNOT BE REMOVED FROM AN ENABLED GATEWAY. Doing so would leave the
+     * gateway switched on and unable to authenticate — a checkout that fails at the payment
+     * step, which is the worst place to discover a configuration change. The merchant is told to
+     * disable the gateway first; that is a deliberate, visible act with its own consequence,
+     * rather than this action silently taking a gateway offline on their behalf.
+     */
+    public function removeSecret(Request $request)
+    {
+        if (! \App\Services\StoreSettingsAccess::permits(auth()->user())) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
+        $this->store_id = !empty(getCurrentStore()) ? getCurrentStore() : '1';
+
+        $field = (string) $request->input('field', '');
+        $gateway = $this->gatewayOwningSecret($field);
+
+        if ($gateway === null) {
+            return redirect()->back()->with('error', __('Unknown payment credential.'));
+        }
+
+        /* The confirmation is re-checked on the WRITE, not only on the page that offered it. A
+           page can be skipped; a request cannot skip the handler that acts on it. */
+        if ($request->input('confirm') !== 'remove') {
+            return redirect()->back()->with('error', __('The removal was not confirmed.'));
+        }
+
+        if ($this->removalBlockedBecauseEnabled($gateway, $field)) {
+            return redirect()->back()->with('error', __(
+                'Turn :gateway off before removing this credential, so it cannot be left switched on without one.',
+                ['gateway' => __($gateway['name'])]
+            ));
+        }
+
+        /* ONE ROW, IN THIS STORE. Not `where('name', $field)` alone -- `Setting` is in no
+           `scoped_models` entry, so it adds no predicate of its own and this `store_id` is the
+           only thing confining the delete. The same predicate the write uses. */
+        Setting::where('name', $field)->where('store_id', $this->store_id)->delete();
+
+        /* `Setting` is `Cachable`, and the delete above goes through Eloquent so the model cache
+           is flushed with it -- but `getAdminAllSetting()` is read through `Cache::remember`
+           elsewhere on this screen, so the admin bag is dropped too or the field would still
+           report "a value is saved" on the next render. */
+        Cache::forget('admin_details');
+
+        return redirect()->route('setting.index')->with('success', __(
+            'The saved :field for :gateway has been removed from Store Syria. This does NOT revoke the credential with the payment provider — do that in their dashboard as well.',
+            ['field' => __($this->secretLabel($field) ?? $field), 'gateway' => __($gateway['name'])]
+        ));
+    }
+
+    /**
+     * The gateway whose field this is, or null when the name is not a SECRET field of any
+     * gateway. An allowlist by construction: a name that is not in `paymentSettingArray()` with
+     * `'secret' => true` can never reach the delete, so the parameter cannot be pointed at
+     * `site_currency`, a public key, or another tenant's row name.
+     */
+    private function gatewayOwningSecret(string $field): ?array
+    {
+        if ($field === '') {
+            return null;
+        }
+
+        $method = new \ReflectionMethod(SettingController::class, 'paymentSettingArray');
+        $method->setAccessible(true);
+
+        foreach ($method->invoke(app(SettingController::class)) as $definition) {
+            foreach ($definition['fields'] ?? [] as $candidate) {
+                if ($candidate['key'] === $field && ($candidate['secret'] ?? true)) {
+                    return $definition;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /** The field's own label, for a message a merchant can act on. */
+    private function secretLabel(string $field): ?string
+    {
+        $gateway = $this->gatewayOwningSecret($field);
+
+        foreach ($gateway['fields'] ?? [] as $candidate) {
+            if ($candidate['key'] === $field) {
+                return $candidate['label'];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Whether this removal would leave an ENABLED gateway without a credential it needs.
+     *
+     * `required_fields` lives on the SAVE-side definition, which uses different ids for the same
+     * gateway (`cod` there, `COD` in the display array), so it is matched by FIELD NAME -- the
+     * same reason `secretFieldsFor()` does. Field names are globally unique across the 52
+     * gateways because they are `settings` rows.
+     */
+    private function removalBlockedBecauseEnabled(array $gateway, string $field): bool
+    {
+        if (($this->storedValue($gateway['enable_key']) ?? 'off') !== 'on') {
+            return false;
+        }
+
+        foreach ($this->getPaymentGateways() as $definition) {
+            if (in_array($field, $definition['required_fields'] ?? [], true)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

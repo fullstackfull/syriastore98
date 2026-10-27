@@ -12,13 +12,12 @@
     empty. The contract is pinned by `tests/Unit/Ui/PaymentGatewayFieldContractTest.php` and the
     persistence by `tests/Feature/Security/PaymentGatewaySecretPersistenceTest.php`.
 
-    ONE GAP REMAINS AND IS NOT A COMMENT'S TO HIDE: there is now NO WAY TO CLEAR a stored gateway
-    secret from this screen. Blank means keep, and unlike the other converted panels the enable
-    toggle does not blank the fields — `processGateway()` deliberately leaves stored rows alone
-    when a gateway is switched off. So a merchant can rotate a credential but not remove one.
-    Making the off-toggle erase them would change behaviour for 52 providers (today a gateway can
-    be switched off and on again with its keys intact), so it is recorded for the owner rather
-    than decided here.
+    THE GAP THAT USED TO BE RECORDED HERE IS CLOSED (F141, owner decision). A stored credential
+    can be removed, but only by its own deliberate action — the "Remove saved value" button
+    beside a field that has one, which asks the SERVER to confirm before anything is written.
+    Switching a gateway off still keeps its keys, and an empty box on a normal save still means
+    keep; removal is never a side effect of either. A credential a gateway needs cannot be
+    removed while that gateway is switched on.
 
     The header carried an EMPTY `<div class="badge bg-success p-2 px-3 rounded"></div>` — a
     coloured chip with no text, which a screen reader announces as nothing and a sighted reader
@@ -69,4 +68,21 @@
         <button type="submit" class="ss-btn ss-btn--primary btn-submit">{{ __('Save Changes') }}</button>
     </div>
     {!! Form::close() !!}
+
+    {{--
+        F141 — the form the per-field "Remove" buttons submit to.
+
+        OUTSIDE the settings form and declared ONCE, because the payment screen is a single form
+        wrapping all 52 gateways and a nested `<form>` is invalid HTML — the browser drops it and
+        the button silently submits the outer form instead, which here would mean SAVING every
+        gateway when the merchant asked to remove one credential.
+
+        Each button carries `form="payment-secret-forget"` and its own `name="field"
+        value="<the field>"`, so the field being removed is the button that was pressed. A
+        submit button's name/value pair is part of the submission; no hidden input has to be
+        kept in step with it, and there is nothing for a stale one to get wrong.
+    --}}
+    <form id="payment-secret-forget" method="POST" action="{{ route('payment.secret.confirm') }}">
+        @csrf
+    </form>
 </div>

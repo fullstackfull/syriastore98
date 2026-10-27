@@ -530,6 +530,24 @@ Route::get(
     Route::post('storage-settings', [SettingController::class, 'StorageSettings'])->name('storage.settings');
     Route::post('business-settings', [SettingController::class, 'BusinessSettings'])->name('business.settings');
     Route::post('/payment-setting', [PaymentSettingController::class, 'update'])->name('payment.settings');
+
+    /*
+     * F141 — removing ONE stored gateway credential, as an action of its own.
+     *
+     * BOTH ARE POST, including the one that only ASKS. The confirmation step writes nothing, so
+     * a GET would be defensible — but it carries a credential's field name in the url, which
+     * would then sit in browser history, in a referer header and in any access log. A POST keeps
+     * it in the body. `StateChangingGetInventoryTest` ratchets the state-changing GETs in this
+     * codebase and neither of these joins that set.
+     *
+     * Permission is enforced in the handlers via `StoreSettingsAccess::permits()`, operator
+     * first, exactly as `payment.settings` above does — the route group's `auth` is not a
+     * permission check.
+     */
+    Route::post('/payment-setting/secret/confirm', [PaymentSettingController::class, 'confirmSecretRemoval'])
+        ->name('payment.secret.confirm');
+    Route::post('/payment-setting/secret/remove', [PaymentSettingController::class, 'removeSecret'])
+        ->name('payment.secret.remove');
     Route::post('/setting-form', [SettingController::class, 'settingForm'])->name('setting.form');
 
     Route::get('plan/prepare-amount', [PlanController::class, 'planPrepareAmount'])->name('plan.prepare.amount');

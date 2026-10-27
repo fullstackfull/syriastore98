@@ -94,6 +94,22 @@
                                             :name="$field['key']"
                                             :label="__($field['label'])"
                                             :stored="$setting[$field['key']] ?? null" />
+
+                                        @if (\App\Support\SecretSetting::isSet($setting[$field['key']] ?? null))
+                                            {{-- F141. Offered only when there IS something to
+                                                 remove, so the control is an honest signal that
+                                                 a credential is stored rather than decoration.
+
+                                                 It asks the SERVER (`payment.secret.confirm`),
+                                                 which renders a page naming this field and this
+                                                 gateway. No JavaScript is involved, so it cannot
+                                                 fail open. --}}
+                                            <button type="submit" form="payment-secret-forget"
+                                                    name="field" value="{{ $field['key'] }}"
+                                                    class="ss-btn ss-btn--danger-quiet ss-btn--sm">
+                                                {{ __('Remove saved value') }}
+                                            </button>
+                                        @endif
                                     @else
                                         <div class="ss-field">
                                             <label class="ss-label" for="{{ $field['key'] }}">{{ __($field['label']) }}</label>
