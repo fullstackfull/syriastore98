@@ -26,6 +26,15 @@ use Tests\TestCase;
  * test that pinned those would have to be rewritten by the same change it exists to guard, and
  * would therefore guard nothing.
  *
+ * IT ONLY SEES LITERAL NAMES, AND THAT IS A CONSTRAINT ON THE VIEWS, NOT A GAP IN THE TEST.
+ * A panel that renders its fields from a `@foreach` with `:name="$ssName"` is invisible to this
+ * scanner — it reported exactly that the first time the refund panel's three toggles were
+ * written as a loop. The loop was unwound rather than the scanner taught to follow it: a
+ * contract that a refactor can quietly step outside of is weaker than one that requires the
+ * names to stay greppable in the file. Dynamic names that are genuinely data — the WhatsApp
+ * notification toggles post under a numeric id — are outside the contract by the same rule and
+ * are not pinned.
+ *
  * A NEW FIELD IS A FAILURE TOO, and on purpose. These handlers write every posted name into
  * `settings` for the caller's store; adding one is a schema decision, not a layout one, and it
  * should be a visible edit to this file rather than a side effect of moving a div.

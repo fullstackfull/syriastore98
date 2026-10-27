@@ -3149,5 +3149,8 @@
     "The number messages are sent from": "The number messages are sent from",
     "The number notifications are sent to": "The number notifications are sent to",
     "Send a WhatsApp message when": "Send a WhatsApp message when",
-    "Enable Woocommerce": "Enable Woocommerce"
+    "Enable Woocommerce": "Enable Woocommerce",
+    "Enable the loyalty program": "Enable the loyalty program",
+    "Reward points per :amount spent": "Reward points per :amount spent",
+    "Enter Point": "Enter Point"
 }

@@ -3178,5 +3178,8 @@
     "The number messages are sent from": "الرقم الذي تُرسَل منه الرسائل",
     "The number notifications are sent to": "الرقم الذي تُرسَل إليه الإشعارات",
     "Send a WhatsApp message when": "أرسل رسالة واتساب عند",
-    "Enable Woocommerce": "تفعيل Woocommerce"
+    "Enable Woocommerce": "تفعيل Woocommerce",
+    "Enable the loyalty program": "تفعيل برنامج الولاء",
+    "Reward points per :amount spent": "نقاط المكافأة لكل :amount من الإنفاق",
+    "Enter Point": "أدخل عدد النقاط"
 }

@@ -1,57 +1,70 @@
-<div class="card" id="Refund_Setting">
+{{--
+    Refund settings, on the design system.
+    =============================================================================================
+
+    THREE TOGGLES, THREE EMPTY LABELS. The pattern here put the visible name in a
+    `<label class="form-label">` with NO `for`, beside a checkbox whose own associated label —
+    `<label class="form-check-label" for="manage_stock"></label>` — was empty. So each control's
+    name was on screen and nowhere a screen reader would find it, and the label that WAS
+    associated said nothing. The same shape as the WhatsApp notification rows.
+
+    The condition was also written `$order_refunds['x'] ?? '' == 1`, which PHP parses as
+    `$order_refunds['x'] ?? ('' == 1)` because `??` binds looser than `==`. It happens to behave
+    correctly — a present 0 is falsy and a present 1 is truthy — but it reads as a comparison
+    that is not being made. Written as the comparison it means.
+
+    The `hidden` input before each checkbox is NOT decoration: an unchecked checkbox posts
+    nothing, so without it the handler cannot tell "switched off" from "not submitted".
+--}}
+<div class="ss-card" id="Refund_Setting">
     {{ Form::open(['route' => 'refund.settings', 'method' => 'post', 'enctype' => 'multipart/form-data']) }}
-    <div class="card-header d-flex justify-content-between">
-        <h5>{{ __('Refund Settings') }} </h5>
+
+    <div class="ss-card__header">
+        <div class="ss-page-header__text">
+            <h2 class="ss-card__title">{{ __('Refund Settings') }}</h2>
+        </div>
     </div>
+
     @php
         $order_refunds = App\Models\OrderRefundSetting::where('store_id', getCurrentStore())
             ->pluck('is_active', 'name')->toArray();
     @endphp
-    <div class="card-body p-4">
+
+    <div class="ss-card__body">
         <div class="row">
-            <div class="col-lg-4 col-md-6 col-sm-6 form-group">
-                <div class="list-group">
-                    <div class="list-group-item form-switch form-switch-right">
-                        <label class="form-label mb-0 ms-3">{{ __('Manage Stock') }}</label>
-                        <input type="hidden" name="manage_stock" value="0">
-                        <input type="checkbox" class="form-check-input" id="manage_stock"
-                            name="manage_stock"
-                            @if ($order_refunds['manage_stock'] ?? '' == 1) checked="checked" @endif type="checkbox"
-                            value="1" data-url="" />
-                        <label class="form-check-label f-w-600 pl-1" for="manage_stock"></label>
-                    </div>
-                </div>
+            {{-- WRITTEN OUT RATHER THAN LOOPED, on purpose. A `@foreach` over
+                 `['manage_stock' => …]` with `:name="$ssName"` renders identically and reads
+                 better, and `SettingsPanelContractTest` cannot see a single one of the three
+                 field names in it — which it told me immediately when I tried. A contract test
+                 that a loop can defeat is weaker than one that requires the names to be literal
+                 in the file, so the names stay literal. --}}
+            <div class="col-lg-4 col-md-6">
+                {{-- The hidden input is NOT decoration: an unchecked checkbox posts nothing, so
+                     without it the handler cannot tell "switched off" from "not submitted". --}}
+                <input type="hidden" name="manage_stock" value="0">
+                <x-ss.switch name="manage_stock" id="manage_stock" value="1"
+                             :label="__('Manage Stock')"
+                             :checked="(int) ($order_refunds['manage_stock'] ?? 0) === 1" />
             </div>
-            <div class="col-lg-4 col-md-6 col-sm-6 form-group">
-                <div class="list-group">
-                    <div class="list-group-item form-switch form-switch-right">
-                        <label class="form-label mb-0 ms-3">{{ __('Attachment') }}</label>
-                        <input type="hidden" name="attachment" value="0">
-                        <input type="checkbox" class="form-check-input" id="attachment"
-                            name="attachment"
-                            @if ($order_refunds['attachment'] ?? '' == 1) checked="checked" @endif type="checkbox"
-                            value="1" data-url="" />
-                        <label class="form-check-label f-w-600 pl-1" for="attachment"></label>
-                    </div>
-                </div>
+
+            <div class="col-lg-4 col-md-6">
+                <input type="hidden" name="attachment" value="0">
+                <x-ss.switch name="attachment" id="attachment" value="1"
+                             :label="__('Attachment')"
+                             :checked="(int) ($order_refunds['attachment'] ?? 0) === 1" />
             </div>
-            <div class="col-lg-4 col-md-6 col-sm-6 form-group">
-                <div class="list-group">
-                    <div class="list-group-item form-switch form-switch-right">
-                        <label class="form-label mb-0 ms-3">{{ __('Shipment amount deduct during') }}</label>
-                        <input type="hidden" name="shiping_deduct" value="0">
-                        <input type="checkbox" class="form-check-input" id="shiping_deduct"
-                            name="shiping_deduct"
-                            @if ($order_refunds['shiping_deduct'] ?? '' == 1) checked="checked" @endif type="checkbox"
-                            value="1" data-url="" />
-                        <label class="form-check-label f-w-600 pl-1" for="shiping_deduct"></label>
-                    </div>
-                </div>
+
+            <div class="col-lg-4 col-md-6">
+                <input type="hidden" name="shiping_deduct" value="0">
+                <x-ss.switch name="shiping_deduct" id="shiping_deduct" value="1"
+                             :label="__('Shipment amount deduct during')"
+                             :checked="(int) ($order_refunds['shiping_deduct'] ?? 0) === 1" />
             </div>
         </div>
     </div>
-    <div class="card-footer d-flex justify-content-end flex-wrap ">
-        <input type="submit" value="{{ __('Save Changes') }}" class="btn-submit btn btn-primary btn-badge">
+
+    <div class="ss-card__footer ss-card__footer--end">
+        <button type="submit" class="ss-btn ss-btn--primary btn-submit">{{ __('Save Changes') }}</button>
     </div>
     {!! Form::close() !!}
 </div>
