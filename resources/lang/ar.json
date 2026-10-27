@@ -3186,5 +3186,7 @@
     "Cache size": "حجم ذاكرة التخزين المؤقت",
     "right now": "الآن",
     "Send an email when": "أرسل بريداً إلكترونياً عند",
-    "Enable the PWA": "تفعيل تطبيق الويب التقدّمي"
+    "Enable the PWA": "تفعيل تطبيق الويب التقدّمي",
+    "Search payment gateway": "ابحث عن بوابة دفع",
+    "Enable WhatsApp support": "تفعيل دعم واتساب"
 }

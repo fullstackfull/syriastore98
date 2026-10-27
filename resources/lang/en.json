@@ -3157,5 +3157,7 @@
     "Cache size": "Cache size",
     "right now": "right now",
     "Send an email when": "Send an email when",
-    "Enable the PWA": "Enable the PWA"
+    "Enable the PWA": "Enable the PWA",
+    "Search payment gateway": "Search payment gateway",
+    "Enable WhatsApp support": "Enable WhatsApp support"
 }
