@@ -2826,6 +2826,75 @@ if (! function_exists('buildDataTableColumn')) {
 }
 
 if (! function_exists('buildDataTable')) {
+    /**
+     * P2-06-11 -- what a merchant sees when a list has nothing in it.
+     *
+     * THE GAP WAS MEASURED IN A BROWSER, not inferred. `buildDataTable()` already passed a
+     * `language` array -- paginate, lengthMenu, searchPlaceholder, search, info -- and omitted
+     * exactly the two keys that matter when a list is empty, so every one of the 67 tables fell
+     * back to DataTables' own defaults. Read off a live page, those were identical in both
+     * languages:
+     *
+     *     EN  emptyTable "No data available in table"  zeroRecords "No matching records found"
+     *     AR  emptyTable "No data available in table"  zeroRecords "No matching records found"
+     *
+     * Two defects in one omission: the message says only that there is nothing, and on a
+     * bilingual admin it was never translated.
+     *
+     * THE TWO CASES ARE DELIBERATELY DIFFERENT MESSAGES, and that is the whole design rather than
+     * a nicety. `emptyTable` means the table holds nothing at all; `zeroRecords` means a search or
+     * filter matched nothing. Telling a merchant with nine hundred products and a filter applied
+     * to "add your first product" is worse than saying nothing -- it reads as "your catalogue is
+     * gone". So the filtered message points at the way OUT, and a test forbids it from ever
+     * suggesting a record be created.
+     *
+     * BOTH KEYS MUST BE SET, AND THE REASON IS A FALLBACK IN DATATABLES CORE. Setting only
+     * `zeroRecords` does not leave `emptyTable` at the English default -- core copies one onto
+     * the other for backwards compatibility:
+     *
+     *     if (!a.sEmptyTable && d && "No data available in table" === b.sEmptyTable)
+     *         M(a, a, "sZeroRecords", "sEmptyTable")
+     *
+     * So an empty list would show the FILTERED message -- "Nothing matches your search or
+     * filters. Clear them to see everything again." -- to a merchant who has no filters and no
+     * records, which is the confusing inverse of the defect this fixes. Measured by removing the
+     * key and reading the rendered cell. Which key renders was also measured rather than assumed,
+     * with sentinel strings: `/coupon` (0 rows total) renders `emptyTable`, and `/product` with a
+     * non-matching search (51 total, 0 shown) renders `zeroRecords`.
+     *
+     * KEYED ON THE TABLE ID because `buildDataTable()` is generic and knows nothing else about
+     * the screen. A mapped list is named; anything unmapped still gets a usable message rather
+     * than the English default, which is the property that matters for the 60-odd tables not
+     * listed here (including the vendored ones, which this reaches without touching
+     * `packages/workdo/`).
+     *
+     * @return array{emptyTable: string, zeroRecords: string}
+     */
+    function dataTableEmptyState(string $tableId): array
+    {
+        $known = [
+            'product-table'  => [__('No products yet'), __('Add your first product with the button above.')],
+            'order-table'    => [__('No orders yet'), __('Orders appear here as soon as a customer buys something.')],
+            'customer-table' => [__('No customers yet'), __('Customers appear here once someone registers or places an order.')],
+            'category-table' => [__('No categories yet'), __('Add a category to group your products.')],
+            'coupon-table'   => [__('No coupons yet'), __('Create a coupon to offer a discount.')],
+        ];
+
+        [$title, $hint] = $known[$tableId] ?? [
+            __('Nothing here yet'),
+            __('Items appear here once you add them.'),
+        ];
+
+        /* ONE MESSAGE FOR THE FILTERED CASE, whatever the list, because the cause is the filter
+           rather than the screen -- and because the way out is the same everywhere: the filter
+           bar's own Clear control from P2-06-5. */
+        return [
+            'emptyTable' => $title . ' ' . $hint,
+            'zeroRecords' => __('Nothing matches your search or filters.') . ' '
+                . __('Clear them to see everything again.'),
+        ];
+    }
+
     function buildDataTable(string $tableId, $builder, array $columns)
     {
        $dataTable = $builder
@@ -2841,7 +2910,11 @@ if (! function_exists('buildDataTable')) {
                 'lengthMenu' => "_MENU_" . __('Entries Per Page'),
                 "searchPlaceholder" => __('Search...'),
                 "search" => "",
-                "info" => __("Showing")." _START_ ".__("to"). " _END_ ".__("of")." _TOTAL_ ".__("entries")
+                "info" => __("Showing")." _START_ ".__("to"). " _END_ ".__("of")." _TOTAL_ ".__("entries"),
+                // P2-06-11. Without these two, every table showed DataTables' English defaults --
+                // in Arabic too. See dataTableEmptyState() for why they are different messages.
+                "emptyTable" => dataTableEmptyState($tableId)['emptyTable'],
+                "zeroRecords" => dataTableEmptyState($tableId)['zeroRecords'],
             ])
             ->initComplete('function() {
                         var table = this;

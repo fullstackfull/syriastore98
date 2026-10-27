@@ -3206,5 +3206,18 @@
     "No store is selected, so favourites cannot be saved.": "No store is selected, so favourites cannot be saved.",
     "Edit product": "Edit product",
     "Open customer": "Open customer",
-    "No actions are available for this result.": "No actions are available for this result."
+    "No actions are available for this result.": "No actions are available for this result.",
+    "No products yet": "No products yet",
+    "Add your first product with the button above.": "Add your first product with the button above.",
+    "Orders appear here as soon as a customer buys something.": "Orders appear here as soon as a customer buys something.",
+    "No customers yet": "No customers yet",
+    "Customers appear here once someone registers or places an order.": "Customers appear here once someone registers or places an order.",
+    "No categories yet": "No categories yet",
+    "Add a category to group your products.": "Add a category to group your products.",
+    "No coupons yet": "No coupons yet",
+    "Create a coupon to offer a discount.": "Create a coupon to offer a discount.",
+    "Nothing here yet": "Nothing here yet",
+    "Items appear here once you add them.": "Items appear here once you add them.",
+    "Nothing matches your search or filters.": "Nothing matches your search or filters.",
+    "Clear them to see everything again.": "Clear them to see everything again."
 }

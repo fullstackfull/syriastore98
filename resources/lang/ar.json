@@ -3235,5 +3235,18 @@
     "No store is selected, so favourites cannot be saved.": "لا يوجد متجر محدد، لذا لا يمكن حفظ المفضلة.",
     "Edit product": "تعديل المنتج",
     "Open customer": "فتح العميل",
-    "No actions are available for this result.": "لا توجد إجراءات متاحة لهذه النتيجة."
+    "No actions are available for this result.": "لا توجد إجراءات متاحة لهذه النتيجة.",
+    "No products yet": "لا توجد منتجات بعد",
+    "Add your first product with the button above.": "أضف منتجك الأول من الزر أعلاه.",
+    "Orders appear here as soon as a customer buys something.": "تظهر الطلبات هنا بمجرد أن يشتري عميل شيئاً.",
+    "No customers yet": "لا يوجد عملاء بعد",
+    "Customers appear here once someone registers or places an order.": "يظهر العملاء هنا بعد أن يسجّل أحدهم أو يقدّم طلباً.",
+    "No categories yet": "لا توجد تصنيفات بعد",
+    "Add a category to group your products.": "أضف تصنيفاً لتجميع منتجاتك.",
+    "No coupons yet": "لا توجد كوبونات بعد",
+    "Create a coupon to offer a discount.": "أنشئ كوبوناً لتقديم خصم.",
+    "Nothing here yet": "لا يوجد شيء هنا بعد",
+    "Items appear here once you add them.": "تظهر العناصر هنا بعد إضافتها.",
+    "Nothing matches your search or filters.": "لا شيء يطابق بحثك أو عوامل التصفية.",
+    "Clear them to see everything again.": "أزِلها لعرض كل شيء مرة أخرى."
 }
