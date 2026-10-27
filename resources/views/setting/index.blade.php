@@ -441,7 +441,10 @@ $activeTab = session()->get('setting_tab') ?? 'email_setting';
 
     $(document).on('submit', '#test_email', function(e) {
         e.preventDefault();
-        $("#email_sending").show();
+        /* The two test modals used to share `id="email_sending"`, which is a duplicate id the
+           moment both are in the DOM — and `getElementById` returns whichever came first. Each
+           modal carries its own now. */
+        $("#test_mail_sending").show();
         var post = $(this).serialize();
         var url = $(this).attr('action');
         $.ajax({
@@ -459,7 +462,7 @@ $activeTab = session()->get('setting_tab') ?? 'email_setting';
                 } else {
                     show_toastr('Error', data.message, 'error');
                 }
-                $("#email_sending").hide();
+                $("#test_mail_sending").hide();
                 $('#commanModel').modal('hide');
             },
             complete: function() {

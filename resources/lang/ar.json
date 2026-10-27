@@ -3190,5 +3190,6 @@
     "Search payment gateway": "ابحث عن بوابة دفع",
     "Enable WhatsApp support": "تفعيل دعم واتساب",
     "No pixels yet": "لا توجد بكسلات بعد",
-    "No webhooks yet": "لا توجد Webhooks بعد"
+    "No webhooks yet": "لا توجد Webhooks بعد",
+    "Sending…": "جارٍ الإرسال…"
 }
