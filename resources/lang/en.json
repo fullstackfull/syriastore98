@@ -3166,5 +3166,9 @@
     "Strictly Cookie Title": "Strictly Cookie Title",
     "Put any of these tokens in your message and they are replaced when it is sent.": "Put any of these tokens in your message and they are replaced when it is sent.",
     "Theme colour :n": "Theme colour :n",
-    "Custom colour": "Custom colour"
+    "Custom colour": "Custom colour",
+    "Search settings": "Search settings",
+    "Storage Driver": "Storage Driver",
+    "Where uploaded files are kept, and what may be uploaded": "Where uploaded files are kept, and what may be uploaded",
+    "Only these file extensions may be uploaded": "Only these file extensions may be uploaded"
 }

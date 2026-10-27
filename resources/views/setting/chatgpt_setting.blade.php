@@ -1,19 +1,32 @@
-<div class="card" id="Chatgpt_Setting">
+{{--
+    Chat GPT keys, on the design system.
+    =============================================================================================
+
+    The PLATFORM OPERATOR's own OpenAI keys, not a merchant's: `ApikeySetiings` has no tenant
+    column. Both the read (`settingForm`) and the save (`ChatgptSettings`) refuse anyone whose
+    `users.type` is not `super admin`, and the listing is scoped to `created_by` so one operator
+    never sees or deletes another's rows.
+
+    THE REPEATER'S JS CONTRACT LIVES IN `index.blade.php`, NOT HERE: `.field_wrapper` is the
+    container it appends to, `.add_button` and `.remove_button` are its handlers, and
+    `$(this).parent('div').remove()` means the remove button's PARENT must be the whole row. All
+    three are kept exactly, and the row below is still one `<div>` holding field and button.
+--}}
+<div class="ss-card" id="Chatgpt_Setting">
     {{ Form::model($setting, ['route' => 'chatgpt.setting', 'method' => 'post']) }}
     @csrf
-    <div class="card-header">
-        <div class="row">
-            <div class="col-lg-10 col-md-10 col-sm-10">
-                <h5>{{ __('Chat GPT Key Settings') }}</h5>
-                <small class="text-muted">{{ __('Edit your key details') }}</small>
-            </div>
+    <div class="ss-card__header">
+        <div class="ss-page-header__text">
+            <h2 class="ss-card__title">{{ __('Chat GPT Key Settings') }}</h2>
+            <p class="ss-page-header__subtitle">{{ __('Edit your key details') }}</p>
         </div>
     </div>
-    <div class="card-body">
-        <div class="row mt-2">
-            <div class="form-group">
-            <label for="chat_gpt_model" class="col-form-label">{{ __('Chat GPT Model Name') }}</label>
-                <select name="chat_gpt_model" id="chat_gpt_model" class="form-control" required>
+    <div class="ss-card__body">
+        <div class="row">
+            <div class="col-lg-6">
+                <div class="ss-field">
+            <label for="chat_gpt_model" class="ss-label">{{ __('Chat GPT Model Name') }}</label>
+                <select name="chat_gpt_model" id="chat_gpt_model" class="ss-select" required>
                     @foreach(getAiModelName() as $groupLabel => $options)
                         @if(is_array($options))
                             <optgroup label="{{ $groupLabel }}">
@@ -26,8 +39,9 @@
                         @endif
                     @endforeach
                 </select>
+                </div>
             </div>
-            <div class="form-group">
+            <div class="col-12">
                 {{--
                     F117 — the repeater, where "blank keeps it" needs an identity of its own.
                     =================================================================================
@@ -60,10 +74,10 @@
                                         :hint="__('Remove the row and save to delete this key.')" />
                                 </div>
                                 @if ($loop->first)
-                                    <a href="javascript:void(0);" class="btn-badge add_button btn btn-primary"
+                                    <a href="javascript:void(0);" class="ss-btn ss-btn--primary ss-btn--icon add_button"
                                         title="{{ __('Add field') }}"><i class="ti ti-plus" aria-hidden="true"></i><span class="ss-visually-hidden">{{ __('Add another key') }}</span></a>
                                 @else
-                                    <a href="javascript:void(0);" class="btn-badge remove_button btn btn-danger"
+                                    <a href="javascript:void(0);" class="ss-btn ss-btn--danger ss-btn--icon remove_button"
                                         title="{{ __('Remove field') }}"><i class="ti ti-trash" aria-hidden="true"></i><span class="ss-visually-hidden">{{ __('Remove this key') }}</span></a>
                                 @endif
                             </div>
@@ -77,7 +91,7 @@
                                     :stored="null"
                                     :placeholder="__('Enter Chatgpt Key Here')" />
                             </div>
-                            <a href="javascript:void(0);" class="btn-badge add_button btn btn-primary"
+                            <a href="javascript:void(0);" class="ss-btn ss-btn--primary ss-btn--icon add_button"
                                 title="{{ __('Add field') }}"><i class="ti ti-plus" aria-hidden="true"></i><span class="ss-visually-hidden">{{ __('Add another key') }}</span></a>
                         </div>
                     @endif
@@ -85,8 +99,8 @@
             </div>
         </div>
     </div>
-    <div class="card-footer d-flex justify-content-end flex-wrap ">
-        <input type="submit" value="{{ __('Save Changes') }}" class="btn-badge btn-submit btn btn-primary">
+    <div class="ss-card__footer ss-card__footer--end">
+        <button type="submit" class="ss-btn ss-btn--primary btn-submit">{{ __('Save Changes') }}</button>
     </div>
     {{ Form::close() }}
 </div>

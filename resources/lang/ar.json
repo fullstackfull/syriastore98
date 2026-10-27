@@ -3195,5 +3195,9 @@
     "Strictly Cookie Title": "عنوان الكوكيز الضرورية",
     "Put any of these tokens in your message and they are replaced when it is sent.": "ضع أياً من هذه الرموز في رسالتك وتُستبدَل عند الإرسال.",
     "Theme colour :n": "لون السمة :n",
-    "Custom colour": "لون مخصّص"
+    "Custom colour": "لون مخصّص",
+    "Search settings": "بحث في الإعدادات",
+    "Storage Driver": "مُشغّل التخزين",
+    "Where uploaded files are kept, and what may be uploaded": "أين تُحفظ الملفات المرفوعة، وما الذي يُسمح برفعه",
+    "Only these file extensions may be uploaded": "يُسمح برفع هذه الامتدادات فقط"
 }
