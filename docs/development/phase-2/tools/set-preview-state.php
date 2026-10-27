@@ -37,6 +37,18 @@ foreach ([
     );
 }
 
+/*
+ * The write above is a RAW query and `Setting` is `Cachable`, which is the shape that has twice
+ * left Eloquent serving a pre-write row in this project. BELT AND BRACES, NOT A FIX FOR A
+ * MEASURED FAILURE: with only `Cache::flush()` below, flipping the theme was verified to take
+ * effect on the running instance, so this line changes nothing today. It is here because the
+ * next person to add a setting here should not have to rediscover the trait.
+ *
+ * (An earlier draft of this comment claimed a measured stale read. There was none — the stale
+ * reading was my own probe matching the wrong string. Corrected rather than left standing.)
+ */
+(new \App\Models\Setting)->flushCache();
+
 // getAdminAllsetting() memoises, and the settings are read through the cache.
 \Illuminate\Support\Facades\Cache::flush();
 
