@@ -99,17 +99,17 @@ const MERCHANT = { email: 'merchant@example.test', who: 'merchant' };
    the real stylesheets in a real browser, not the route, the permission gate or the AJAX. */
 
 const TABS = [
-    { tab: 'email_setting',     minControls: 9,  label: 'Email',    as: MERCHANT },
+    { tab: 'email_setting',     minControls: 1,  label: 'Email',    as: MERCHANT, thenControls: 8 },
     { tab: 'brand_setting',     minControls: 10, label: 'Brand',    as: MERCHANT },
     { tab: 'system_setting',    minControls: 6,  label: 'System',   as: MERCHANT },
     { tab: 'twilio_setting',    minControls: 5,  label: 'Twilio',   as: MERCHANT },
     { tab: 'stock_setting',     minControls: 2,  label: 'Stock',    as: MERCHANT },
     { tab: 'otp_setting',       minControls: 8,  label: 'OTP',      as: MERCHANT },
-    { tab: 'currency_setting',  minControls: 1,  label: 'Currency', as: MERCHANT },
+    { tab: 'currency_setting',  minControls: 30, label: 'Currency', as: MERCHANT },
     /* The payment tab is where F117's largest exposure lived: 52 gateways, 108 fields, 58 of
        them secrets, all rendered at once. It is in the rail's UNGATED block, so a merchant sees
        it -- which is why it had to be reachable here rather than only in the rendered set. */
-    { tab: 'payment_setting',   minControls: 60, label: 'Payment',  as: MERCHANT },
+    { tab: 'payment_setting',   minControls: 250, label: 'Payment', as: MERCHANT },
 ];
 
 /* Operator-only panels, rendered rather than clicked. `panel` is a key of
@@ -235,6 +235,14 @@ function measureContrast() {
         if (!el || !el.getClientRects().length) continue;
         const cs = getComputedStyle(el);
         if (cs.visibility === 'hidden' || cs.display === 'none') continue;
+        /* VISUALLY HIDDEN TEXT IS NOT RENDERED TO A SIGHTED READER, so its contrast is not a
+           WCAG question at all. `.ss-visually-hidden` is the 1px-clip technique: the text is in
+           the accessibility tree on purpose and nobody ever sees it. Measuring it reported ten
+           "failures" per theme on the brand panel's colour swatches -- every one of them a
+           screen-reader name doing exactly its job. Detected by the clip rectangle rather than
+           by the class name, so a different implementation of the same idea is also skipped. */
+        if (el.closest('.ss-visually-hidden')
+            || (cs.clip !== 'auto' && cs.clip !== '' && parseFloat(cs.width) <= 1)) continue;
         const fg = parse(cs.color);
         if (!fg) continue;
         /* Placeholder text and a readonly input's own value are read through .value, not a text
@@ -254,6 +262,13 @@ function measureContrast() {
        defect lived, so measure each input's own colour against its own background. */
     for (const el of panel.querySelectorAll('input, select, textarea')) {
         if (!el.getClientRects().length) continue;
+        /* A CHECKBOX HAS NO TEXT, so its `color` is not a contrast question either. Including
+           them reported every switch, swatch and radio on every panel at 1.6:1 -- the colour
+           the browser happens to compute for a control that renders no glyph. Their visible
+           affordance is a border and a fill, which is a non-text contrast question (1.4.11,
+           3:1) this harness does not claim to measure. A file input is skipped for the same
+           reason: what is drawn is the browser's own button. */
+        if (['checkbox', 'radio', 'file', 'range', 'color', 'hidden'].includes(el.type)) continue;
         const cs = getComputedStyle(el);
         const fg = parse(cs.color); if (!fg) continue;
         const bg = bgOf(el);
@@ -328,19 +343,48 @@ function measureContrast() {
 
                 for (const t of mine) {
                     const sel = `[data-tab="${t.tab}"]`;
+
+                    /* EMPTY THE PANEL FIRST. This cost a whole run of false readings: the wait
+                       below is a count, and the AJAX replaces the panel's HTML wholesale, so
+                       until it lands the PREVIOUS tab's content is still there and satisfies
+                       the count. The payment tab (311 controls, 52 gateways) is slow enough to
+                       lose that race, and every "Payment" measurement in the previous run was
+                       actually of the Currency panel -- including a contrast failure on
+                       currency table headers reported against payment. Clearing it means a
+                       timeout reads an EMPTY panel and fails the premise, which is the honest
+                       outcome. */
+                    await page.evaluate(() => {
+                        const el = document.getElementById('pills-tabContent');
+                        if (el) el.innerHTML = '';
+                    });
+
                     await page.click(sel);
                     await page.waitForFunction(
                         (n) => { const p = document.getElementById('pills-tabContent');
                                  return p && p.querySelectorAll('input,select,textarea').length >= n; },
-                        t.minControls, { timeout: 20000 },
+                        t.minControls, { timeout: 45000 },
                     ).catch(() => {});
+
+                    /* The email tab renders ONLY its driver select; the mail fields come from a
+                       SECOND request fired by that select's `change`. Without this the fragment
+                       this phase rewrote is never measured at all. */
+                    if (t.tab === 'email_setting') {
+                        await page.selectOption('#email_setting', 'smtp').catch(() => {});
+                        await page.waitForFunction(
+                            () => document.querySelectorAll('#pills-tabContent [name="mail_host"]').length > 0,
+                            null, { timeout: 30000 },
+                        ).catch(() => {});
+                    }
 
                     const a = await page.evaluate(auditPanel, LEGACY);
                     const c = await page.evaluate(measureContrast);
 
                     check(!a.error, `${theme}/${dir} ${t.label}: ${a.error || ''}`);
-                    check((a.controls || 0) >= t.minControls,
-                          `${theme}/${dir} ${t.label}: ${a.controls} controls, expected >= ${t.minControls} (the tab probably did not render)`);
+                    /* `thenControls` is the floor AFTER a second fetch the tab triggers itself
+                       (today only email's mail-driver fields). */
+                    const floor = t.thenControls ?? t.minControls;
+                    check((a.controls || 0) >= floor,
+                          `${theme}/${dir} ${t.label}: ${a.controls} controls, expected >= ${floor} (the tab probably did not render)`);
                     check((a.unnamed || []).length === 0,
                           `${theme}/${dir} ${t.label}: controls with no accessible name: ${(a.unnamed || []).join(', ')}`);
                     check((a.dangling || []).length === 0,

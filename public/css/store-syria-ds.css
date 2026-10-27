@@ -445,6 +445,17 @@
     letter-spacing: -0.01em;
 }
 
+/* A LINK INSIDE THE DESIGN SYSTEM takes the design system's link colour. Without this it keeps
+   whatever the admin theme gives an `<a>`, which on the reCAPTCHA panel's help link measured
+   2.59:1 against the card in LIGHT mode -- under AA, and not something the panel's own markup
+   could fix. `--ss-link` is already defined for all three themes; it just was not being used
+   outside the breadcrumb. Underlined, because colour alone is not an accessible distinction
+   (1.4.1), and `:where()` so a component that sets its own link colour still wins. */
+:where(.ss-card, .ss-panel, .ss-page-header, .ss-field__hint, .ss-help) a:not([class]) {
+    color: var(--ss-link);
+    text-decoration: underline;
+}
+
 .ss-page-header__subtitle {
     margin: var(--ss-space-1) 0 0;
     font-size: var(--ss-text-sm);
@@ -1000,6 +1011,17 @@
     padding-inline: var(--ss-space-4);
     text-align: start;             /* flips with dir, no RTL override needed */
     vertical-align: middle;
+}
+
+/* A ROW HEADER IN THE BODY had no colour of its own, so it inherited the admin theme's `th`
+   rule -- a hard-coded light-theme navy that does not flip. MEASURED on the currency table,
+   whose first cell of every row is `<th scope="row">`: 1.02:1 in dark mode, dark text on the
+   dark card. `thead th` was styled and `tbody th` was not, which is why it went unnoticed: the
+   column headers looked right. A row header is a HEADER in meaning and BODY TEXT in appearance,
+   so it takes the body foreground with the heavier weight a header earns. */
+.ss-table tbody th {
+    color: var(--ss-fg);
+    font-weight: var(--ss-weight-medium);
 }
 
 .ss-table thead th {
