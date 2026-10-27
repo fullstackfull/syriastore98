@@ -3067,5 +3067,8 @@
     "Orders from registered customers": "Orders from registered customers",
     "Orders from guests": "Orders from guests",
     "New registered customers": "New registered customers",
-    "New guests": "New guests"
+    "New guests": "New guests",
+    "All time": "All time",
+    "Total orders": "Total orders",
+    "Every order the store has taken, grouped by its delivery status. Counts orders, not value.": "Every order the store has taken, grouped by its delivery status. Counts orders, not value."
 }

@@ -938,7 +938,7 @@
     "Reload": "إعادة التحميل",
     "Remove": "إزالة",
     "results": "النتائج",
-    "Return": "العودة",
+    "Return": "مُرتجع",
     "Role successfully created.": "تم إنشاء الدور بنجاح",
     "Role successfully updated.": "تم تحديث الدور بنجاح",
     "Roles": "الأدوار",
@@ -1215,7 +1215,7 @@
     "Accept": "تقبل",
     "AdminHub": "مركز الإدارة",
     "Chat GPT Key Settings": "إعدادات مفتاح GPT",
-    "Confirmed": "تأكيد",
+    "Confirmed": "مؤكَّد",
     "Create Custom Page": "إنشاء صفحة مخصصة",
     "Delete Account": "حذف الحساب",
     "Drag Stage to Change Order": "اسحب المرحلة لتغيير الترتيب",
@@ -3096,5 +3096,8 @@
     "Orders from registered customers": "طلبات من عملاء مسجّلين",
     "Orders from guests": "طلبات من زوّار",
     "New registered customers": "عملاء مسجّلون جدد",
-    "New guests": "زوّار جدد"
+    "New guests": "زوّار جدد",
+    "All time": "كل الفترات",
+    "Total orders": "إجمالي الطلبات",
+    "Every order the store has taken, grouped by its delivery status. Counts orders, not value.": "كل طلب استلمه المتجر، مُجمَّعاً حسب حالة التسليم. يُحصي عدد الطلبات، لا قيمتها."
 }

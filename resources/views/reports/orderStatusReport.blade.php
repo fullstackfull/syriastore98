@@ -10,47 +10,64 @@
 
 @section('action-button')
     <div class="text-end">
-        <a href="#" class="btn btn-sm btn-primary btn-icon" onclick="saveAsPDF()"  data-bs-toggle="tooltip"  data-bs-original-title="{{ __('Download') }}">
-            <i class="ti ti-download"></i>
-        </a>
+        {{-- Was `<a href="#" onclick="saveAsPDF()">` whose only text was a `data-bs-original-title`
+             attribute — which is not an accessible name, and which Bootstrap's tooltip rewrites on
+             init anyway. A control that does something is a <button>, and it says what it does. --}}
+        <button type="button" class="btn btn-sm btn-primary btn-icon" onclick="saveAsPDF()"
+                title="{{ __('Download') }}" data-bs-toggle="tooltip" data-bs-placement="top">
+            <i class="ti ti-download" aria-hidden="true"></i>
+            <span class="ss-visually-hidden">{{ __('Download') }}</span>
+        </button>
     </div>
 @endsection
 
 @section('content')
+    @include('layouts.includes.store-syria-ds')
+
+    {{--
+        THREE CARDS, ONE DATASET, ONE HEADING.
+        =========================================================================================
+
+        This screen drew the same nine numbers three times — a pie, a bar chart and an AREA
+        chart — and gave all three cards the identical title "Order Status Report". A sighted
+        merchant could not tell which was which; a screen-reader user heard the same heading
+        three times over three empty divs, because not one of the three ApexCharts had any
+        accessible representation.
+
+        The area chart was the worst of them: an area chart draws a CONTINUOUS quantity, and
+        these are categories. The line sloping from "Cancel" to "Return" says there is something
+        between them, and there is not.
+
+        So: one picture and one table. `<x-ss.bar-chart>` carries the numbers as a real table
+        with a caption and `scope` on both axes, and the bars are `aria-hidden` because they are
+        a picture OF that table.
+    --}}
     <div class="row" id="printableArea">
-        <!-- Card 1 with Chart -->
-        <div class="col-md-5 mb-4">
-            <div class="card h-100 m-0">
-                <div class="card-header">
-                    <h5 class="card-title"><b>{{ __('Order Status Report') }}</b></h5>
-                </div>
-                <div class="card-body" style="overflow-x: overlay;">
-                    <div id="orderStatusChart"></div>
+        <div class="col-12">
+            <x-ss.card :title="__('Orders by status')"
+                       :note="__('Every order the store has taken, grouped by its delivery status. Counts orders, not value.')">
+                <x-ss.bar-chart
+                    :labels="array_keys($orderStatusCounts)"
+                    :values="array_values($orderStatusCounts)"
+                    :title="__('Orders by status')"
+                    :value-label="__('Orders')"
+                    :column-label="__('Status')"
+                    :period="$periodLabel" />
 
-                </div>
-            </div>
+                <x-slot:footer>
+                    {{-- THE PARTS MUST SUM TO THE TOTAL, and the reader must be able to check.
+                         The old map covered seven of the nine statuses, so for a store using
+                         partially-paid or pre-order the breakdown was quietly short and nothing
+                         on the screen revealed it. --}}
+                    <p class="ss-field__hint" style="margin:0">
+                        {{ __('Total orders') }}:
+                        <span class="ss-num">{{ number_format($orderStatusTotal) }}</span>
+                        ({{ $periodLabel }})
+                    </p>
+                </x-slot:footer>
+            </x-ss.card>
         </div>
-        <div class="col-md-7 mb-4">
-            <div class="card h-100 m-0">
-                <div class="card-header">
-                    <h5 class="card-title"><b>{{ __('Order Status Report') }}</b></h5>
-                </div>
-                <div class="card-body">
-                    <div id="BarchartOfStatus"></div>
-
-                </div>
-            </div>
-        </div>
-        <div class="col-md-12 mb-4">
-            <div class="card h-100 m-0">
-                <div class="card-header">
-                    <h5 class="card-title"><b>{{ __('Order Status Report') }}</b></h5>
-                </div>
-                <div class="card-body">
-                    <div id="orderLineStatusChart"></div>
-                </div>
-            </div>
-        </div>
+    </div>
 @endsection
 
 @push('custom-script')
@@ -60,118 +77,22 @@
             var element = document.getElementById('printableArea');
             var opt = {
                 margin: 0.3,
-                filename: "Order Status Report",
+                filename: @json(__('Order Status Report')),
                 image: {type: 'jpeg', quality: 1},
                 html2canvas: {scale: 4, dpi: 72, letterRendering: true},
                 jsPDF: {unit: 'in', format: 'A2'}
             };
-            html2pdf().set(opt).from(element).save();
+
+            /* The numbers live in a <details> that is closed by default, so a PDF taken as-is
+               would be a picture of bars with no values. Open it for the capture and put it
+               back afterwards. */
+            var data = element.querySelectorAll('details.ss-chart-data');
+            var wasOpen = [];
+            data.forEach(function (d, i) { wasOpen[i] = d.open; d.open = true; });
+
+            html2pdf().set(opt).from(element).save().then(function () {
+                data.forEach(function (d, i) { d.open = wasOpen[i]; });
+            });
         }
     </script>
-    <script>
-        var options = {
-            series: @json(array_values($orderStatusCounts)),
-            chart: {
-                width: 500,
-                type: 'pie',
-            },
-            labels: @json(array_keys($orderStatusCounts)),
-            responsive: [{
-                breakpoint: 480,
-                options: {
-                    chart: {
-                        width: 500
-                    },
-                    legend: {
-                        position: 'bottom'
-                    }
-                }
-            }]
-        };
-
-        var chart = new ApexCharts(document.querySelector("#orderStatusChart"), options);
-        chart.render();
-    </script>
-
-    <script>
-        var colors = ['#33FF57']; // Example color array
-        var options = {
-            series: [{
-                data: @json(array_values($orderStatusCounts))
-            }],
-            chart: {
-                height: 350,
-                type: 'bar',
-                events: {
-                    click: function(chart, w, e) {
-                    }
-                }
-            },
-            colors: colors,
-            plotOptions: {
-                bar: {
-                    columnWidth: '45%',
-                    distributed: true,
-                }
-            },
-            dataLabels: {
-                enabled: false
-            },
-            legend: {
-                show: false
-            },
-            xaxis: {
-                categories: @json(array_keys($orderStatusCounts)),
-                labels: {
-                    style: {
-                        colors: ["#000000"],
-                        fontSize: '12px'
-                    }
-                }
-            }
-        };
-
-        var chart = new ApexCharts(document.querySelector("#BarchartOfStatus"), options);
-        chart.render();
-    </script>
-
-    <script>
-        var options = {
-            series: [{
-                name: 'Orders',
-                data: @json(array_values($orderStatusCounts))
-            }],
-            chart: {
-                type: 'area',
-                height: 350,
-            },
-            xaxis: {
-                categories: @json(array_keys($orderStatusCounts)),
-                title: {
-                    text: 'Order Status'
-                }
-            },
-            yaxis: {
-                title: {
-                    text: 'Total Orders'
-                }
-            },
-            stroke: {
-                curve: 'smooth'
-            },
-            dataLabels: {
-                enabled: false
-            },
-            markers: {
-                size: 5
-            }
-        };
-
-        var chart = new ApexCharts(document.querySelector("#orderLineStatusChart"), options);
-        chart.render();
-    </script>
 @endpush
-
-
-
-

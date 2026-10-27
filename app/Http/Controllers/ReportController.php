@@ -2775,31 +2775,70 @@ class ReportController extends Controller
         ]);
     }
 
+    /**
+     * The order-status breakdown.
+     *
+     * THREE THINGS WERE WRONG, and the first is the one that matters.
+     *
+     * 1. IT COUNTED SEVEN OF THE NINE STATUSES. The map was a fresh literal `0 => 'Pending' …
+     *    6 => 'Shipped'`, while `delivered_status` carries nine values: `ORDER_STATUS_PARTIALLY_PAID`
+     *    (7) and `ORDER_STATUS_PRE_ORDER` (8) existed and were simply absent, so for any store
+     *    that uses them the pie, the bar and the line each showed a breakdown whose parts did
+     *    not sum to the store's order count — and nothing on the screen said so. This is the
+     *    same defect `HomeController::getOrderCounts()` already fixed for the dashboard, down to
+     *    the `other` catch-all: a value outside 0-8 lands there and stays visible instead of
+     *    disappearing. The labels now come from HomeController's constants rather than a second
+     *    literal map, so the two cannot drift again.
+     *
+     * 2. IT STATED NO PERIOD. The query has no date filter at all — it is every order the store
+     *    has ever taken — and the screen read as though it were current (PRD-001). It says
+     *    "All time" now, because that is what it is.
+     *
+     * 3. THE LABELS WERE HARDCODED ENGLISH, so an Arabic merchant read English statuses on an
+     *    otherwise Arabic page. They go through `__()` now.
+     *
+     * The wording of status 2 is deliberately `__('Cancel')` and not `__('Cancelled')`, which is
+     * the better word: `Order::getDeliveredStatusStringAttribute()` says `Cancel`, and
+     * `tests/Feature/ApiContract/OrderStatusTextTest.php` PINS that for the Flutter app. Using
+     * the better word here would make the report disagree with the order list and with the app.
+     * The wording is a contract question, recorded in the ledger, not this slice's to change.
+     */
     public function showOrderStatusReport()
     {
-        $order_status = \App\Models\Order::where('store_id', getCurrentStore())->orderBy('id', 'DESC')->get(); // Assuming the Order model is being used
-
-        $order_statusMethods = $order_status->groupBy('delivered_status')->map(function ($orders) {
-            return $orders->count();
-        });
-
-        $statusLabels = [
-            0 => 'Pending',
-            1 => 'Delivered',
-            2 => 'Cancel',
-            3 => 'Return',
-            4 => 'Confirm Order',
-            5 => 'PickUp',
-            6 => 'Shipped'
+        $labels = [
+            \App\Http\Controllers\HomeController::ORDER_STATUS_PENDING        => __('Pending'),
+            \App\Http\Controllers\HomeController::ORDER_STATUS_DELIVERED      => __('Delivered'),
+            \App\Http\Controllers\HomeController::ORDER_STATUS_CANCEL         => __('Cancel'),
+            \App\Http\Controllers\HomeController::ORDER_STATUS_RETURN         => __('Return'),
+            \App\Http\Controllers\HomeController::ORDER_STATUS_CONFIRMED      => __('Confirmed'),
+            \App\Http\Controllers\HomeController::ORDER_STATUS_PICKED_UP      => __('Picked Up'),
+            \App\Http\Controllers\HomeController::ORDER_STATUS_SHIPPED        => __('Shipped'),
+            \App\Http\Controllers\HomeController::ORDER_STATUS_PARTIALLY_PAID => __('Partially Paid'),
+            \App\Http\Controllers\HomeController::ORDER_STATUS_PRE_ORDER      => __('Pre Order'),
         ];
 
-        $order_statusCounts = [];
-        foreach ($statusLabels as $key => $label) {
-            $order_statusCounts[$label] = $order_statusMethods->get($key, 0);
+        $byStatus = Order::where('store_id', getCurrentStore())
+            ->selectRaw('delivered_status, COUNT(*) as aggregate')
+            ->groupBy('delivered_status')
+            ->pluck('aggregate', 'delivered_status');
+
+        $orderStatusCounts = [];
+        foreach ($labels as $value => $label) {
+            $orderStatusCounts[$label] = (int) ($byStatus[$value] ?? 0);
+        }
+
+        /* Anything outside 0-8. Shown only when it is non-zero, so a healthy store does not
+           carry an empty bucket, but never silently dropped. */
+        $accounted = array_sum($orderStatusCounts);
+        $total = (int) $byStatus->sum();
+        if ($total > $accounted) {
+            $orderStatusCounts[__('Other')] = $total - $accounted;
         }
 
         return view('reports.orderStatusReport', [
-            'orderStatusCounts' => $order_statusCounts
+            'orderStatusCounts' => $orderStatusCounts,
+            'orderStatusTotal' => $total,
+            'periodLabel' => __('All time'),
         ]);
     }
 
