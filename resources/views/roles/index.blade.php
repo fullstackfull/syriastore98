@@ -9,9 +9,15 @@
 @section('action-button')
     @permission('Create Role')
         <div class="text-end d-flex all-button-box justify-content-md-end justify-content-center">
-            <a href="#" class="btn btn-sm btn-primary" data-ajax-popup="true" data-size="xl" data-title="{{__('Create Role')}}"
-                data-url="{{ route('roles.create') }}" data-bs-toggle="tooltip" title="{{ __('Add Role') }}">
-                <i class="ti ti-plus"></i>
+            {{-- P2-05-5. Icon-only, named only by a `title` the tooltip plugin blanks on init:
+                 the primary action on the screen was an unnamed control. The visible label
+                 follows the pilot (attribute_option/index). --}}
+            <a href="#" class="ss-btn ss-btn--primary ss-btn--sm" data-ajax-popup="true" data-size="xl"
+                data-title="{{ __('Create Role') }}"
+                data-url="{{ route('roles.create') }}"
+                data-bs-placement="top" data-bs-toggle="tooltip" title="{{ __('Add Role') }}">
+                <i class="ti ti-plus" aria-hidden="true"></i>
+                <span>{{ __('Add Role') }}</span>
             </a>
         </div>
     @endpermission

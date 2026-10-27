@@ -14,13 +14,22 @@ $logo = asset(Storage::url('uploads/profile/'));
 
 @section('action-button')
 <div class="text-end d-flex gap-1 all-button-box justify-content-md-end justify-content-center">
-    <a href="{{ route('user.list') }}" data-bs-toggle="tooltip" data-bs-original-title="{{ __('List View') }}" class="btn btn-sm btn-primary btn-icon ">
-        <i class="ti ti-list"></i>
+    {{-- P2-05-5. `data-bs-original-title` is the tooltip plugin's own storage, not an accessible
+         name, and there was no `title` here at all -- so this control was unnamed from the
+         moment it rendered rather than only after the plugin initialised. --}}
+    <a href="{{ route('user.list') }}"
+        class="ss-btn ss-btn--secondary ss-btn--sm ss-btn--icon"
+        data-bs-placement="top" data-bs-toggle="tooltip" title="{{ __('List View') }}"
+        aria-label="{{ __('List View') }}">
+        <i class="ti ti-list" aria-hidden="true"></i>
     </a>
     @permission('Create User')
-    <a href="#" class="btn btn-sm btn-badge btn-primary" data-ajax-popup="true" data-size="md" data-title="{{__('Add User')}}"
-        data-url="{{ route('users.create') }}" data-bs-toggle="tooltip" title="{{ __('Add User') }}">
-        <i class="ti ti-plus"></i>
+    <a href="#" class="ss-btn ss-btn--primary ss-btn--sm" data-ajax-popup="true" data-size="md"
+        data-title="{{ __('Add User') }}"
+        data-url="{{ route('users.create') }}"
+        data-bs-placement="top" data-bs-toggle="tooltip" title="{{ __('Add User') }}">
+        <i class="ti ti-plus" aria-hidden="true"></i>
+        <span>{{ __('Add User') }}</span>
     </a>
     @endpermission
 </div>
@@ -71,7 +80,25 @@ $logo = asset(Storage::url('uploads/profile/'));
                                     </a>
                                     {!! Form::close() !!}
                                     @endpermission
-                                    @permission('Mange User Login')
+                                    {{-- P2-05-5. WAS `@permission('Mange User Login')` -- a name that is
+                                         SEEDED NOWHERE, in either spelling: "Mange" is a typo for
+                                         "Manage", and `grep` finds the string exactly once in the whole
+                                         codebase, here. Laratrust answers false for a name nothing holds,
+                                         so this control was hidden from EVERY principal, the tenant owner
+                                         included, and nothing reported an error. The P2-02-13 shape again.
+
+                                         It is now the SAME CHECK THE HANDLER MAKES.
+                                         `UserController::userLoginManage` gates on
+                                         `can('update', $user)` -- a POLICY, not a permission name -- and
+                                         `UserPolicy::update` requires `Edit User` plus the tenant and
+                                         platform-admin rules. Mirroring it means the control appears
+                                         exactly when it would work, rather than never.
+
+                                         `@can` with a POLICY is not the `@can('Some Permission')` trap
+                                         CLAUDE.md warns about: that one is always false because
+                                         `permissions_as_gates => false` disables Laratrust's bridge into
+                                         the Gate. A real policy ability is unaffected by that setting. --}}
+                                    @can('update', $user)
                                     @if ($user->is_enable_login == 1)
                                     <a href="{{ route('users.enable.login', \Crypt::encrypt($user->id)) }}"
                                         class="dropdown-item">
@@ -91,7 +118,7 @@ $logo = asset(Storage::url('uploads/profile/'));
                                         <span class="text-success"> {{ __('Login Enable') }}</span>
                                     </a>
                                     @endif
-                                    @endpermission
+                                    @endcan
                                 </div>
                             </div>
                         </div>

@@ -30,6 +30,16 @@ class DashboardPermissionNamesTest extends TestCase
         'resources/views/dashboard/overview.blade.php',
         'resources/views/partision/menu-zones.blade.php',
         'resources/views/partision/workspace-chip.blade.php',
+        // P2-05-5 — staff and permissions. Added with the slice that converts them, and the
+        // first run found `@permission('Mange User Login')` in users/index.blade.php: a typo for
+        // "Manage", seeded in NO source in either spelling, appearing exactly once in the whole
+        // codebase. The Login Enable/Disable control it guards was therefore hidden from every
+        // principal, the tenant owner included.
+        'resources/views/users/index.blade.php',
+        'resources/views/users/action.blade.php',
+        'resources/views/users/list.blade.php',
+        'resources/views/roles/index.blade.php',
+        'resources/views/roles/action.blade.php',
     ];
 
     /**
@@ -98,9 +108,24 @@ class DashboardPermissionNamesTest extends TestCase
             $source = (string) preg_replace('/\{\{--.*?--\}\}/s', '', $source);
             $source = (string) preg_replace('#/\*.*?\*/#s', '', $source);
 
-            if (preg_match_all("/isAbleTo\(\s*'([^']+)'/", $source, $m)) {
-                foreach ($m[1] as $name) {
-                    $names[$name] = $relative;
+            /*
+             * BOTH SPELLINGS OF A GATE, and the second one was missing -- which is how
+             * `@permission('Mange User Login')` survived in `users/index.blade.php` while this
+             * ratchet existed and passed. The scan only matched `isAbleTo('…')`, so every
+             * `@permission(…)` directive in the application was invisible to it, and
+             * `@permission` is the dominant form in these views: 140 occurrences across 64 of
+             * them against a handful of `isAbleTo` calls.
+             *
+             * This is the same lesson as the gateway-exit detector in
+             * GatewayStockDecrementRoutingTest, recorded a second time because it cost a real
+             * defect twice: a source-text check is only as wide as the spellings it knows, and
+             * the one it does not know is where the bug lives.
+             */
+            foreach (["/isAbleTo\(\s*'([^']+)'/", "/@permission\(\s*'([^']+)'/"] as $pattern) {
+                if (preg_match_all($pattern, $source, $m)) {
+                    foreach ($m[1] as $name) {
+                        $names[$name] = $relative;
+                    }
                 }
             }
         }

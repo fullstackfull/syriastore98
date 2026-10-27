@@ -3063,5 +3063,12 @@
     "Delete attribute :name": "حذف الخاصية :name",
     "Configure terms of :name": "ضبط قيم الخاصية :name",
     "Show this category in Trending": "إظهار هذا التصنيف ضمن الرائج",
-    "Attribute not found.": "الخاصية غير موجودة."
+    "Attribute not found.": "الخاصية غير موجودة.",
+    "Edit user :name": "تعديل المستخدم :name",
+    "Delete user :name": "حذف المستخدم :name",
+    "Reset password for :name": "إعادة تعيين كلمة مرور :name",
+    "Disable login for :name": "تعطيل دخول :name",
+    "Enable login for :name": "تفعيل دخول :name",
+    "Edit role :name": "تعديل الدور :name",
+    "Delete role :name": "حذف الدور :name"
 }
