@@ -219,6 +219,87 @@ async function drawn(page, table) {
                     check(`${label} — no Phase 02 filter string renders in English`,
                         untranslated.length === 0, untranslated.slice(0, 4).join(', '));
                 }
+
+            /* ------------------------------------------------------------------ P2-06-5
+               NAVIGATE AWAY AND COME BACK. The suite proves the memory with HTTP requests;
+               this proves the thing the suite structurally cannot: that the SECOND LEG follows.
+
+               The table's `ajax.url` is `url()->full()` evaluated when the page RENDERS, so a
+               restore that only filled the controls would leave the AJAX still fetching the
+               unfiltered url — the bar would look filtered and the rows would not be. That is
+               invisible to a feature test, which never runs the DataTable. Here the request is
+               watched. */
+            {
+                const jTag = `${dir}/${theme} ${list.name} — restore`;
+
+                // Apply, by submitting the real bar rather than by typing a url.
+                await page.goto(BASE + list.path, { waitUntil: 'domcontentloaded' });
+                await page.selectOption(`${list.bar} [name="${list.narrow.name}"]`, list.narrow.value)
+                    .catch(() => {});
+                await Promise.all([
+                    page.waitForLoadState('domcontentloaded'),
+                    page.click(`${list.bar} button[type="submit"]`),
+                ]);
+                cases++;
+                check(`${jTag} — applying puts the filter in the url`,
+                    page.url().includes(`${list.narrow.name}=${list.narrow.value}`), page.url());
+
+                // Navigate away to an unrelated screen, then return to the BARE list url.
+                await page.goto(BASE + '/dashboard', { waitUntil: 'domcontentloaded' });
+
+                const ajaxUrls = [];
+                page.on('request', (r) => {
+                    if (r.url().includes(list.path) && r.resourceType() === 'xhr') {
+                        ajaxUrls.push(r.url());
+                    }
+                });
+
+                await page.goto(BASE + list.path, { waitUntil: 'domcontentloaded' });
+                await drawn(page, list.table).catch(() => {});
+
+                cases++;
+                check(`${jTag} — the bare url is restored to the filtered one`,
+                    page.url().includes(`${list.narrow.name}=${list.narrow.value}`), page.url());
+
+                cases++;
+                check(`${jTag} — the AJAX leg carries the restored filter`,
+                    ajaxUrls.some((u) => u.includes(`${list.narrow.name}=${list.narrow.value}`)),
+                    'ajax urls seen: ' + (ajaxUrls.slice(0, 2).join(' | ') || 'none'));
+
+                // The receipt, which is what makes the restore safe rather than silent.
+                const receipt = await page.$('.ss-filterbar__summary');
+                cases++;
+                check(`${jTag} — a restored list says so on screen`, receipt !== null,
+                    'no .ss-filterbar__summary rendered');
+
+                if (receipt) {
+                    const text = (await receipt.innerText()).trim();
+                    cases++;
+                    check(`${jTag} — the receipt is not empty`, text.length > 0, text);
+                }
+
+                // And one click gets out of it, for good.
+                /* ONE clear control, in the bar's actions row. An earlier version of this
+                   journey also matched a link inside the receipt, and Playwright's strict mode
+                   is what reported it: two links to one url, 100px apart, with two different
+                   labels. The receipt now states and the bar acts. */
+                const clear = await page.$(list.bar + ' a.ss-btn--ghost');
+                cases++;
+                check(`${jTag} — a restored list offers a way out`, clear !== null,
+                    'no clear control on a restored list');
+
+                if (clear) {
+                    await Promise.all([page.waitForLoadState('domcontentloaded'), clear.click()]);
+                    cases++;
+                    check(`${jTag} — clearing lands on a clean url`,
+                        !page.url().includes(list.narrow.name), page.url());
+
+                    await page.goto(BASE + list.path, { waitUntil: 'domcontentloaded' });
+                    cases++;
+                    check(`${jTag} — and the memory is really forgotten, not re-applied`,
+                        !page.url().includes(list.narrow.name), page.url());
+                }
+            }
             }
 
             check(`${tag} — no uncaught page error and no 500`, errors.length === 0,

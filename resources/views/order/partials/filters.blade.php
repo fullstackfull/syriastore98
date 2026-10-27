@@ -47,8 +47,6 @@
          otherwise be the silently-narrowed screen this exists to prevent. --}}
     <x-ss.filter-summary
         :filters="\App\Services\TableFilterMemory::describe(request(), 'order', [])"
-        :clear-url="route('order.index', ['ss_clear' => 1])"
-        :clear-label="__('Show all orders')"
         :restored="(bool) session('ss_filters_restored')" />
 
 

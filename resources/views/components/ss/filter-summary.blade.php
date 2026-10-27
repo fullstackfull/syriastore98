@@ -15,6 +15,13 @@
     exists to prevent. Rendering on the typed case too also closes the same hole for a url that
     arrived from a bookmark or a colleague, which has been open since the filter bars shipped.
 
+    IT STATES; IT DOES NOT ACT. An earlier version carried its own "Show all products" link, and
+    driving the real page is what showed why that was wrong: the bar already has a "Clear
+    filters" control a few lines below, in the same form and visible without scrolling, so the
+    page offered TWO links to one url with two different labels about 100px apart. That reads as
+    two different actions. `clearUrl` is still a prop for a caller whose surface has no clear
+    control of its own; the two list bars do not pass it.
+
     IT NAMES THE FILTERS AND NEVER A ROW COUNT. The bar's own docblock already refuses a second
     count, because DataTables prints "Showing 1 to N of M" below the table and two numbers
     describing one fact is a thing to keep in agreement. What is NOT already on screen is which

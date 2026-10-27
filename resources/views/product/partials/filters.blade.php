@@ -28,8 +28,6 @@
          otherwise be the silently-narrowed screen this exists to prevent. --}}
     <x-ss.filter-summary
         :filters="\App\Services\TableFilterMemory::describe(request(), 'product', collect($filterCategories ?? [])->toArray())"
-        :clear-url="route('product.index', ['ss_clear' => 1])"
-        :clear-label="__('Show all products')"
         :restored="(bool) session('ss_filters_restored')" />
 
 
