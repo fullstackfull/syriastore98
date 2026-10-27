@@ -35,19 +35,21 @@ configurations.
 |---|---|---|---|
 | readonly mail fields, dark (an inline script forcing `#e9ecef`) | **1.84:1** | 6.79:1 | 4.5 |
 | currency row headers and cells, dark | **1.02:1** | 11.1:1 | 4.5 |
-| 52 payment gateway names, dark | **1.02:1** | — see below | 4.5 |
+| 52 payment gateway names, dark | **1.02:1** | 11.1:1 | 4.5 |
 | reCAPTCHA help link, light | **2.59:1** | 5.68:1 | 4.5 |
 
 Control counts, measured rather than assumed, and asserted as floors so a tab that fails to
 render cannot pass as a clean result: email 9 (after its second fetch), brand 19, system 4,
 twilio 5, stock 5, otp 11, currency 35, **payment 311**.
 
+**The run that produced these shots reports 546 checks, 0 failures, 56 screenshots, 56 distinct.**
+
 ## What these shots do NOT prove, stated plainly
 
-- **They predate the F140 root-cause fix.** The run that produced them is the run that FOUND it:
-  `.ss-card` themed its background and not its text, so anything inside a card without an `ss-*`
-  class kept the admin theme's colour. The dark currency and payment shots here still show that
-  defect. They are kept because they are the evidence for the finding.
+- **A clean contrast sweep is not an accessibility audit.** This measures text contrast (1.4.3)
+  and the presence of accessible names and resolvable `for` targets. It does not measure
+  non-text contrast (1.4.11), focus order, keyboard operability, or whether a label's WORDS are
+  the right ones. The harness says so in its own docblock rather than leaving the gap implied.
 - **The three operator-only panels are RENDERED, not driven.** `app/Http/Middleware/XSS.php`
   redirects every `super admin` to the Laravel Updater whenever a migration file is unrecorded,
   and the preview database has 96 unrecorded WorkDo module migrations, so the operator cannot
