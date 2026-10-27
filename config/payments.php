@@ -630,7 +630,15 @@ return [
         'KhaltiPaymnetController'       => "Khalti::verifyPayment() POSTs khalti.com/api/v2/payment/verify/ with the merchant secret; gates on \$response['status_code'] == '200'",
         'NMIPayController'              => "outbound POST secure.networkmerchants.com/api/transact.php type=sale then \$parsedResponse['response'] == 1",
         'PaypalPaymentController'       => "capturePaymentOrder(\$request['token']) then \$response['status'] == 'COMPLETED'",
-        'PaystackPaymentController'     => "outbound GET api.paystack.co/transaction/verify/{ref} then \$result['status'] == true",
+        /*
+         * D-12 / F87, F88. REWRITTEN BECAUSE THE OLD MARKER WAS ACCURATE AND THE CLASSIFICATION
+         * WAS STILL WRONG: it read "then $result['status'] == true", which is the API ENVELOPE,
+         * and the list conflates "calls the gateway" with "checks that the payment succeeded".
+         * Paystack was the single outlier among the 18 -- the other 17 markers all name a check
+         * on the payment state. A marker must now describe what the code REQUIRES, not what it
+         * calls.
+         */
+        'PaystackPaymentController'     => "outbound GET api.paystack.co/transaction/verify/{ref} then \$result['data']['status'] === 'success' AND data.reference === the requested reference AND data.amount === the server-owned plan price in minor units AND data.currency matches; replay refused by (payment_type, txn_id) across every locale spelling",
     ],
 
     /**

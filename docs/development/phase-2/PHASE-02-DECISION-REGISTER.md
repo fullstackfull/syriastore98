@@ -478,7 +478,7 @@ recommendation and is now the instruction.
 
 ---
 
-## D-17 — D-12: Paystack treated as an isolated security fix (owner, 2026-10-26)
+## D-17 — D-12: Paystack treated as an isolated security fix (owner, 2026-10-26) — IMPLEMENTED 2026-10-26
 
 **Approved**, and explicitly **not** as the start of Phase 06:
 
@@ -497,6 +497,69 @@ Required:
   decision that follows.
 - No subscription activated without valid payment evidence. **No production change before release
   review.**
+
+---
+
+### How D-17 was met, condition by condition
+
+- **"A successful API call must not by itself activate a plan."** The gate now requires
+  `data.status === 'success'`. The old gate tested `$result['status']`, which is whether the
+  verify *call* succeeded.
+- **"Verify the real payment status; match transaction, amount, currency, plan and user where the
+  provider's contracts support it."** Status, reference, **amount and currency** are all matched,
+  and a mismatch REFUSES.
+
+  **The first version of this fix logged the amount instead of refusing, and that was wrong.**
+  It reasoned that `GuardsPlanActivation`'s docblock warns a blind amount comparison "would refuse
+  real payments on a live integration", and that this repo only *believed* Paystack used minor
+  units because it divides by 100. Independent review refuted it with evidence that was already in
+  the repository: **this server renders the checkout**, and it sends `amount: res.total_price * 100`
+  (`resources/views/plans/stripe.blade.php:3228`) with `currency: res.currency` — the same platform
+  currency the handler compares against. Both sides are first-party and agree, so the unit is
+  corroborated by the write side, not assumed.
+
+  **Without that refusal the gate proved the wrong thing.** Status and reference together establish
+  that *some* transaction in the platform's Paystack account succeeded; they say nothing about
+  **which plan** it bought — and the plan is a route parameter whose encrypted id the plans page
+  prints for every plan card. So a merchant could pay once for the cheapest plan and open the
+  callback URL with the most expensive plan's id. Recorded as **F120**.
+
+  Plan and user are not provider-supplied (route and session), so there is nothing to match them
+  against directly — the amount is what ties the payment to the plan.
+- **"Prevent the same reference being processed twice."** `existingPlanOrderForProviderTxn()`,
+  called across **every locale spelling** of `payment_type` rather than the current one — the
+  caller chooses the locale through the ordinary language switcher, so checking only `__('Paystack')`
+  let a merchant step around a row written in another language. A replay by the same buyer for the
+  same plan **re-runs `assignPlan()`** rather than merely claiming success, because the PlanOrder
+  row is written before the activation and a failure between them would otherwise strand a real
+  payer permanently; a different buyer or a different plan is refused and logged.
+  which the handler now reaches by adopting the trait. **This surfaced a defect in the guard
+  itself (F115):** both existing callers build the lookup key with `__()`, and `ar.json`
+  translates the provider names — `__('SenangPay')` is `سينانغ باي` under Arabic, executed, not
+  assumed. A row written in one locale is invisible to a lookup in another, so the guard silently
+  misses in ordinary bilingual use. Paystack now uses a locale-independent constant for both the
+  key and the stored value; SenangPay and Ozow are recorded, not changed, because altering what
+  they store is a data decision.
+- **"Tests for failure, cancellation, success and callback replay."** All four, plus a mismatched
+  reference and an unusable response. **The decision was extracted into a pure method on purpose:**
+  the handler reaches Paystack with a raw `curl_init()`, so there is nothing to fake, and in this
+  container a failed curl refuses on the OLD code too — a route-level test would have passed
+  against the defect. Four of the nine tests fail when the gate is mutated back.
+- **"If verification safety cannot be proven, use the existing fail-closed mechanism."** Not used,
+  because it can be proven. Note that calling `assertPlanActivationEnabled()` here would NOT be a
+  soft fallback: Paystack has no entry in the `plan_activation` map and a missing key is treated as
+  disabled, so it would `abort(403)` every Paystack plan purchase.
+- **"No production change before release review."** Nothing deployed; branch only.
+
+**One thing this did not close.** F88's general half: nothing compares the other 17 verified
+providers' markers against what their code requires, so the list would absorb the next weak gate
+just as quietly. That is its own slice.
+
+**And one thing it uncovered that is NOT D-12's to fix (F116).** `plan_orders.payment_type` holds
+a translated string, and `plans/action.blade.php` and `plans/receipt.blade.php` compare it against
+English literals — so a bank-transfer plan order created while the product was in Arabic shows the
+super admin **no approve action and no invoice link**. Fixing it properly needs a backfill of
+existing rows, which is production data.
 
 ---
 
@@ -590,3 +653,40 @@ not a defect, so it waits.
 configuration path, which is unchanged.
 
 ---
+
+---
+
+## D-21 — the five stock writers D-18 does not cover: DECISION REQUESTED
+
+**Raised:** 2026-10-26, out of the E13 least-change review
+(`E13-STOCK-EVIDENCE-ANALYSIS.md`). **Nothing has been changed.**
+
+**What D-18 authorises.** Routing raw stock decrements through the existing `ProductStockService`
+/ `AppliesCartStockChanges` for **Khalti, PaiementPro, CinetPay and Easebuzz**, by name.
+
+**What it does not.** Five further writers decrement stock with a raw read-modify-write and touch
+neither the service nor the trait:
+
+| writer | reachable as | why it is a separate decision |
+|---|---|---|
+| `Api/ApiController` (two paths) | storefront order writers | a public API; changing what it does to stock on a shortfall changes what a shopper's client receives |
+| `AuthorizeNetPaymnetController` | gateway return | a card capture has already happened by the time it runs |
+| `PayUPaymentController` | gateway return | same |
+| **`Api/DashboardController::createOrderViaApi`** | **`POST api/admin/createOrderViaApi` — the shipped Flutter ADMIN app's order writer** | **the most important writer in Phase 02**, and the one every census missed (ledger F118) |
+| `OrderController::store` | merchant admin, manual order | carries its own private copy of the service rather than the trait |
+
+**Why it matters beyond tidiness.** E13 needs durable proof that an order consumed stock. A
+movement record written from the shared service would be **silent** on all five, so an absent
+record would mean *"no decrement, OR a decrement on an uninstrumented writer"* — the exact
+inference D-15 forbids. Coverage is therefore a precondition for E13, not a refinement of it.
+
+**The two API writers are the sensitive ones.** `createOrderViaApi` already runs inside a
+transaction with a rollback and already refuses a shortfall, so the change there is not "make it
+reversible" — it is "make the availability test and the decrement one atomic statement", which
+alters the **timing of the refusal** and therefore the response the Flutter app receives. That is
+an API-behaviour change, which the standing limits reserve.
+
+**Recommendation:** authorise `OrderController::store` and the two gateway returns (AuthorizeNet,
+PayU) on the same terms as D-18, and treat the two API writers as their own slice with a Flutter
+contract check. **No answer is needed to continue D-13**, which is confined to the four D-18 names.
+

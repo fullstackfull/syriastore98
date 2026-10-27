@@ -3640,3 +3640,93 @@ unchanged by this work.
 
 **What a deliberate narrowing should do** — hard-delete, as today, or refuse and name the variants
 that would be lost — is an open commercial decision (**D-20**), not an engineering one.
+
+---
+
+## 29. `[2026-10-26]` D-12 / F87, F120 — a fix that was reasoned, documented and wrong in the same breath
+
+### 29a. The defect, and why a dedicated security pass had already missed it
+
+`PaystackPaymentController::getPaymentStatus` gated plan activation on
+`isset($result['status']) && $result['status'] == true` — whether Paystack's **verify call**
+succeeded. The transaction's real state is `data.status`, and the handler *recorded* it
+(`$order->payment_status = $result['data']['status']`) without ever requiring it to be `success`.
+A failed or abandoned transaction activated the plan, repeatably, because the reference is a route
+parameter.
+
+**F88 is why it survived.** `PlanPaymentPostureTest` asserts that every "verified" provider carries
+a verification marker. Paystack carried one, and the marker **accurately described an inadequate
+check**. The test passed, the provider was documented, and the classification was still wrong — the
+list conflates *calls the gateway* with *checks that the payment succeeded*.
+
+### 29b. The test had to be built against the grain of the handler
+
+The handler reaches Paystack with a raw `curl_init()`, not the HTTP client, so there is nothing to
+fake. In this container a route-level test produces a failed curl — and **on the old code a failed
+curl refuses too**, so such a test would have passed against the defect. That is the same
+wrong-reason trap that let F87 survive a security pass in the first place.
+
+So the decision is a pure static method taking its inputs as arguments, driven directly with the
+payloads Paystack actually returns: `failed`, `abandoned`, `reversed`, `pending`, the empty string,
+a mismatched reference, two absent references, and the non-array a failed call produces. Success is
+`success` **and nothing else** — a denylist would admit the next state Paystack adds.
+
+### 29c. What the review of my own fix found, and it is the substance of this entry
+
+**Three defects in the fix, one of them worse than what it replaced.**
+
+- **F120 — the fix closed the cheaper half and left the cheaper-still half open.** `status` plus
+  `reference` prove that *some* transaction in the platform's Paystack account succeeded. They
+  prove nothing about **which plan** it bought, and the plan is a route parameter whose encrypted
+  id `plans/stripe.blade.php:3246` prints for every plan card. Pay once for the cheapest plan, open
+  the callback with the expensive plan's id: activated. The amount was the only field that could
+  tell those apart and the fix **logged** it.
+
+  **The docblock explaining why it could not be refused was what stopped anyone looking.** It cited
+  `GuardsPlanActivation`'s real warning about minor units and concluded the unit was "a belief read
+  off the code, not a measurement". The measurement was two files away: this server renders the
+  checkout and sends `amount: res.total_price * 100` with `currency: res.currency`. Both sides are
+  first-party and agree.
+
+- **The replay guard checked only the current locale's spelling.** `payment_type` was written as
+  `__('Paystack')`, and the locale is the **caller's** to choose through the language switcher, so
+  a merchant with an Arabic-written row could switch to English and miss on both lookups. It now
+  checks every shipped locale.
+
+- **A regression I introduced.** The replay branch reported success without checking the recorded
+  plan or re-running the activation. The `PlanOrder` row is written *before* `assignPlan()`, so a
+  request dying between them strands that payer permanently — every later retry, including a clean
+  one, told the plan was active while it never was. **With a reachable trigger today:** `?coupon=`
+  with no `coupon_id` dereferences a null and raises an `Error`, which `catch (\Exception)` does
+  not catch, *after* the row is written. The branch now re-runs `assignPlan()` for the same buyer
+  and same plan, and refuses anything else.
+
+**And a prerequisite without which the amount refusal would have broken every discounted sale:**
+the callback URL carries `?coupon_id=`, an **id**, while `serverOwnedPlanPrice()` resolves a coupon
+by **code**. The server price was therefore always the undiscounted one. Harmless while the
+comparison only logged; fatal the moment it became a gate.
+
+### 29d. Two of the tests could not fail on the defect they named
+
+The same review applied "would this fail if the fix were reverted" and found:
+
+- `test_a_replayed_reference_finds_the_existing_plan_order` wrote a row with `forceCreate` and
+  re-queried it inline. It never called the guard. **Deleting the guard from the controller left it
+  green** — it asserted that Eloquent can read a row it just wrote. It now drives the real
+  `existingPlanOrderForProviderTxn()` through an anonymous class using the trait, and checks both
+  directions plus the empty-reference case.
+- **Nothing pinned the handler's use of the outcome.** Every behavioural test drove the pure
+  method, so mutating the handler's gate to `$paystackAccepted = $paystackOutcome['envelope_ok'];`
+  left F87 live with all tests green. A source assertion scoped to `getPaymentStatus()`'s own body
+  (via `ReflectionMethod`, so a match elsewhere in the file cannot satisfy it) now pins the gate,
+  the replay guard, the amount refusal and the coupon-code resolution. **Verified by executing that
+  exact mutation: it now fails.**
+
+### 29e. What is still open
+
+`plan_orders` has a unique index on `order_id` and none on `(payment_type, txn_id)`, so every
+plan-activation replay guard in this codebase — SenangPay, Ozow and now Paystack — is a
+check-then-act with no database backstop (**F119**). Closing it needs a migration, which is
+production data, and a duplicate census first, since providers that recorded `time()` or a blank as
+`txn_id` would collide. It also has to wait on the `payment_type` canonicalisation (**F115/F116**),
+or the index would treat `Paystack` and `كومة الدفع` as different providers.

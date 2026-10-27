@@ -52,7 +52,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/ProductStockService.php:127` | Stock decremented below zero on an order path that cannot refuse |
 | `app/Services/ProductStockService.php:210` | Stock decremented below zero on an order path that cannot refuse |
 
-### `warning` — 117 lines
+### `warning` — 120 lines
 
 | line | message |
 |---|---|
@@ -81,14 +81,13 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/Concerns/ResolvesPendingPartialPayment.php:135` | Pending partial payment lookup failed; the payment is refused. |
 | `app/Http/Controllers/Customer/Auth/CustomerLoginController.php:716` | customer login: refused a social row still holding its module-assigned password |
 | `app/Http/Controllers/Customer/Auth/CustomerLoginController.php:941` | Newsletter subscription failed during customer registration |
-| `app/Http/Controllers/DeliverySyriaStatusController.php:95` | Delivery Syria status webhook: invalid credentials. |
 | `app/Http/Controllers/DeliverySyriaStatusController.php:179` | Zid store not found for order status sync. |
+| `app/Http/Controllers/DeliverySyriaStatusController.php:95` | Delivery Syria status webhook: invalid credentials. |
 | `app/Http/Controllers/ESewaPaymentController.php:196` | Plan payment return rejected: claimed amount does not match the plan price. |
 | `app/Http/Controllers/EasebuzzController.php:337` | Pending partial payment refused: the balance named does not belong to this customer. |
 | `app/Http/Controllers/KhaltiPaymnetController.php:241` | Khalti plan purchase NOT activated: the capture was not confirmed for the server price |
 | `app/Http/Controllers/KhaltiPaymnetController.php:743` | Khalti verification refused: no server-computed payable in the stored state. |
 | `app/Http/Controllers/NMIPayController.php:428` | Pending partial payment refused: the balance named does not belong to this customer. |
-| `app/Http/Controllers/OrderController.php:306` | Manual order total did not match its components; the computed total was stored |
 | `app/Http/Controllers/OrderController.php:1066` | Return approval restored no stock: order carries no readable product_json |
 | `app/Http/Controllers/OrderController.php:1112` | Return approval skipped a line whose stock was already credited |
 | `app/Http/Controllers/OrderController.php:1132` | Return approval skipped a line with an unusable product id or quantity |
@@ -98,22 +97,19 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/OrderController.php:1541` | Order cancellation skipped a line whose product is not in the order |
 | `app/Http/Controllers/OrderController.php:1563` | Order cancellation skipped a line whose variant does not belong to its product |
 | `app/Http/Controllers/OrderController.php:1729` | Order assignment refused: the delivery boy is not in a store this caller owns |
+| `app/Http/Controllers/OrderController.php:306` | Manual order total did not match its components; the computed total was stored |
+| `app/Http/Controllers/OrderRefundController.php:1167` | Refund settled but the order totals were left unchanged: product_json is unparseable |
 | `app/Http/Controllers/OrderRefundController.php:180` | Refund transition refused: unrecognised current state |
 | `app/Http/Controllers/OrderRefundController.php:202` | Refund transition refused: illegal transition |
 | `app/Http/Controllers/OrderRefundController.php:416` | Refund cancellation refused: the record does not match the order |
 | `app/Http/Controllers/OrderRefundController.php:749` | Refund restock skipped a line with an unusable quantity |
 | `app/Http/Controllers/OrderRefundController.php:765` | Refund restock clamped to the units the order lines lost |
-| `app/Http/Controllers/OrderRefundController.php:1167` | Refund settled but the order totals were left unchanged: product_json is unparseable |
 | `app/Http/Controllers/OzowController.php:217` | Ozow plan return refused: no TransactionId to key on. |
 | `app/Http/Controllers/PaiementProPaymentController.php:310` | PaiementPro return recorded PENDING: this gateway is not provider-verified |
 | `app/Http/Controllers/PaiementProPaymentController.php:423` | Pending partial payment refused: the balance named does not belong to this customer. |
 | `app/Http/Controllers/PayHerePaymnetController.php:64` | PayHere plan checkout refused: the integration is retired (owner decision). |
 | `app/Http/Controllers/PayHerePaymnetController.php:76` | PayHere plan checkout refused: the PayHere SDK is not installed. |
 | `app/Http/Controllers/PayUPaymentController.php:274` | Pending partial payment refused: the balance named does not belong to this customer. |
-| `app/Http/Controllers/PaymentController.php:550` | Paymera replay refused: the session presenting the reference did not place the order |
-| `app/Http/Controllers/PaymentController.php:718` | Paymera callback could not identify the order it created; the pending record names none |
-| `app/Http/Controllers/PaymentController.php:785` | Paymera pending record vanished before the order was created |
-| `app/Http/Controllers/PaymentController.php:855` | Paymera callback signature NOT verified and not enforced |
 | `app/Http/Controllers/PaymentController.php:1098` | Paymera trigger could not identify the order it created; the pending record names none |
 | `app/Http/Controllers/PaymentController.php:1291` | checkout: refused, basket names a product from another store |
 | `app/Http/Controllers/PaymentController.php:1331` | checkout: refused, basket holds a non-positive quantity |
@@ -125,6 +121,13 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/PaymentController.php:3525` | Telegram refused an order message |
 | `app/Http/Controllers/PaymentController.php:3531` | Telegram order message could not be sent |
 | `app/Http/Controllers/PaymentController.php:3599` | Whatsapp order writer: posted slug does not match the route slug; the route wins. |
+| `app/Http/Controllers/PaymentController.php:550` | Paymera replay refused: the session presenting the reference did not place the order |
+| `app/Http/Controllers/PaymentController.php:718` | Paymera callback could not identify the order it created; the pending record names none |
+| `app/Http/Controllers/PaymentController.php:785` | Paymera pending record vanished before the order was created |
+| `app/Http/Controllers/PaymentController.php:855` | Paymera callback signature NOT verified and not enforced |
+| `app/Http/Controllers/PaystackPaymentController.php:301` | Paystack plan activation refused: the transaction is not a matching success. |
+| `app/Http/Controllers/PaystackPaymentController.php:388` | Paystack plan activation refused: this reference is already recorded against a different buyer or plan. |
+| `app/Http/Controllers/PaystackPaymentController.php:455` | Paystack plan activation refused: the captured payment does not match the plan being activated. |
 | `app/Http/Controllers/PosController.php:246` | POS sale skipped a line whose product is not this store |
 | `app/Http/Controllers/SenangPayController.php:140` | SenangPay plan return refused: the return hash could not be verified. |
 | `app/Http/Controllers/SenangPayController.php:150` | SenangPay plan return refused: return hash mismatch. |
@@ -140,14 +143,14 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Models/Order.php:860` | Order return refused: the order lines are not in a shape this workflow can return |
 | `app/Models/Utility.php:2174` | New Order webhook skipped: no store could be resolved for the order |
 | `app/Models/Utility.php:2184` | New Order webhook skipped: the resolved store does not exist |
-| `app/Providers/PackageServiceProvider.php:80` | addon loader: the dynamic add-on pass failed, so some modules are not loaded |
 | `app/Providers/PackageServiceProvider.php:144` | addon loader: a module failed to load and its features are absent |
+| `app/Providers/PackageServiceProvider.php:80` | addon loader: the dynamic add-on pass failed, so some modules are not loaded |
 | `app/Services/CodCollectionService.php:161` | COD collection refused: the event is not verifiable |
 | `app/Services/CodCollectionService.php:176` | COD collection refused: the amount collected does not settle the order |
 | `app/Services/CodCollectionService.php:187` | COD collection cannot be recorded: cod_collection_events has no table |
 | `app/Services/DeliveryBoyNotificationService.php:65` | No active Delivery Firebase devices found for delivery boy. |
-| `app/Services/OrderTaxResolver.php:88` | Checkout: non-numeric client tax_price discarded |
 | `app/Services/OrderTaxResolver.php:101` | Checkout: client-supplied tax_price discarded (server value used) |
+| `app/Services/OrderTaxResolver.php:88` | Checkout: non-numeric client tax_price discarded |
 | `app/Services/OrderTotalReconciler.php:173` | Order total reconciliation mismatch (warn-only) |
 | `app/Services/PaymentFailure.php:22` | Payment could not be started |
 | `app/Services/PaymentService.php:2223` | Pending partial payment refused: the balance named does not belong to this customer. |
@@ -156,8 +159,8 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/PaymentService.php:2438` | Checkout: client-supplied shipping_final_price discarded (server value used) |
 | `app/Services/PaymentService.php:3662` | PayHere storefront checkout refused: the integration is retired (owner decision). |
 | `app/Services/PaymentVerificationService.php:340` | Order recorded as PENDING: no gateway verification for this payment |
-| `app/Services/PaymentVerificationService.php:378` | Order recorded as PENDING: the verification record is for another payment type |
 | `app/Services/PaymentVerificationService.php:365` | Order recorded as PENDING: the verification belongs to a different checkout |
+| `app/Services/PaymentVerificationService.php:378` | Order recorded as PENDING: the verification record is for another payment type |
 | `app/Services/PaymentVerificationService.php:802` | COD_SETTLEMENT=order is NO LONGER HONOURED and is ignored |
 | `app/Services/PaymentVerificationService.php:810` | Unrecognised COD settlement policy; settle-on-delivery is in force regardless |
 | `app/Services/ProductStockService.php:110` | Stock decrement rejected: insufficient stock |
@@ -169,9 +172,9 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/SocialIdentity/JwksProvider.php:74` | social-identity: provider key fetch failed |
 | `app/Services/SocialIdentity/SocialIdentityVerifier.php:239` | social-identity: facebook debug_token call failed |
 | `app/Services/StoreNotificationService.php:157` | No active Firebase devices found for store. |
+| `app/Services/StoredUpload.php:108` | a stored upload path names another tenant |
 | `app/Services/StoredUpload.php:81` | a stored upload path points outside the uploads directory and was not touched |
 | `app/Services/StoredUpload.php:90` | a stored upload path names a platform default and was not touched |
-| `app/Services/StoredUpload.php:108` | a stored upload path names another tenant |
 | `app/Services/WebuzoDomainService.php:170` | New Webuzo domain added but old domain could not be deleted |
 
 <!-- counts: error=95 info=22 debug=1 -->
