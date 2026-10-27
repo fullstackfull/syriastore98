@@ -3939,3 +3939,59 @@ palette on `:root, [data-ss-theme="light"]`.
 **Not fixed, and named as such:** roughly sixty other modal forms across the host and the seventy
 vendored modules still render their labels at 2.52:1 in dark mode. Narrowing the bare rule means
 re-measuring the sidebar and tables it was added to fix (ledger **F126**).
+
+## 33. P2-05-4 follow-up and P2-05-5 (partial) — 2026-10-27
+
+| | |
+|---|---|
+| Feature known-outcome gate | **6069 passed, 2 declared failures, 17 declared skips, 0 errors** — `OK: the observed outcome set matches the manifest exactly`, 6088 testcases, 744s |
+| `tests/Feature/Security/` + `tests/Feature/Merchant/` + `tests/Unit/Security/` | **4128 passed, 4 skipped, 0 failed** (18452 assertions) |
+| `tests/Feature/Merchant/` + `tests/Unit/Dashboard/` + `tests/Unit/Ui/` | **161 passed** (1444 assertions) |
+| Unit suite | 428 passed |
+| Contract suite (the Flutter API) | 26 passed |
+
+### 33a. A caveat on the gate run, recorded rather than glossed
+
+**That gate run spanned edits.** It was started after the F128/F129 fixes but before the P2-05-5
+ones, and PHP loads a view or class at test time — so tests that ran early in the suite saw the
+pre-P2-05-5 files and tests that ran late saw the post-edit ones. The testcase count rising from
+6072 to **6088** is the visible trace of it: the sixteen tests added mid-run were collected.
+
+It is therefore evidence that the outcome SET is unchanged across both slices, and it is **not** a
+clean single-commit gate. What covers the P2-05-5 edits specifically is the 161-test run above,
+executed after them and after the tree was committed, plus the per-slice bite tests. A clean
+full-suite run on the final tree is owed at the next integration milestone and is **not** claimed
+here.
+
+### 33b. The two findings the independent review contributed
+
+`AttributeOwnershipAndListEscapingTest` (8 tests) covers both. The cross-tenant half drives a
+foreign rename, a foreign delete and a foreign read — all refused — alongside the positive
+controls that the merchant's **own** rename and delete still succeed and that a same-store caller
+without the permission is still refused. Without those three, "refused everything" would pass just
+as well as "refuses the right things". Asserted through `withoutGlobalScopes()`, because a plain
+`find()` answers against whichever tenant resolved rather than against the table.
+
+The escaping half is asserted against the **rendered** DataTable JSON, not the source text,
+because these cells are built by concatenation where nothing else escapes them and because the
+existing ratchet (`CustomerListOutputEscapingTest`) only flags raw columns with **no closure** —
+all three of these have closures.
+
+**One assertion had to be corrected, and it is the useful part of the exercise.** It asserted the
+absence of the word `onerror=alert(1)` and therefore FAILED against the *correct* fix: `e()`
+leaves that text in place, harmlessly, inside a now-properly-quoted attribute. The property is the
+**quote**, not the word. An assertion that fails on a working fix is as much a defect as one that
+passes on a broken one, and this is the first of that direction recorded in this phase.
+
+### 33c. The ratchet that was blind to the dominant spelling
+
+`DashboardPermissionNamesTest` existed, passed, and could not see F130. It scanned only
+`isAbleTo('…')`, so every `@permission(…)` directive in the application was invisible to it — and
+`@permission` is the dominant form in these views, **140 occurrences across 64 of them**. It now
+matches both and covers the five roles/users views; restoring the `Mange User Login` typo fails it
+by name.
+
+That is the same lesson as F123's exit detector, which keyed on one spelling of `return` and
+missed two post-capture exits. Recorded twice because it has now cost a real defect twice: **a
+source-text check is only as wide as the spellings it knows, and the one it does not know is where
+the bug lives.**
