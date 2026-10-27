@@ -556,15 +556,31 @@ AuditLog::record(
         }
 
         /*
-         * OPERATOR FIRST, because `isAbleTo()` alone refuses the platform operator -- and this is
-         * the operator's own screen, reached from their store list. Then self, then same tenant.
-         * Anything else is another tenant's data.
+         * OPERATOR OR SELF, and nothing else. Both are deliberate.
+         *
+         * OPERATOR FIRST because `isAbleTo()` alone REFUSES the platform operator here, and this
+         * is the operator's own screen: an ownership fix written as a permission check would
+         * have locked them out of it while every cross-tenant test still passed.
+         *
+         * THROUGH `UserPolicy::isOperator()` rather than a local comparison. The first version
+         * wrote `strtolower(trim($actor->type))`, and `trim()` is WIDER THAN THE MySQL COLLATION:
+         * the helper deliberately uses `rtrim(..., ' ')` to match PAD SPACE, because the engine
+         * ignores a trailing space but not a leading one and not a tab. A row typed
+         * `' super admin'` would have been operator here and not-operator to the database. That
+         * is measured and documented at `UserPolicy:74-93`, and having two spellings of one
+         * decision is the drift `OperatorCheckCensusTest` exists to stop.
+         *
+         * NO SAME-TENANT LIMB, and that is a deliberate narrowing rather than an omission. An
+         * earlier version admitted anyone whose `creatorId()` matched the target's, which let a
+         * ZERO-PERMISSION staff member read their own tenant's store counts and, through the
+         * view, every colleague's name and login state -- while the sibling screens gate exactly
+         * that roster on `Manage User` (`:36`, `:805`). It bought nothing: BOTH callers of this
+         * route are operator-only -- `store/index.blade.php:159` sits inside
+         * `@if (Auth::user()->type == 'super admin')` at `:148`, and `store/action.blade.php:29`
+         * renders only through `StoreDataTable` for `StoreController::list`, which is gated the
+         * same way. Checked that those are the only two callers before narrowing.
          */
-        $isOperator = strtolower(trim((string) $actor->type)) === 'super admin';
-        $sameTenant = (int) $actor->creatorId() !== 0
-            && (int) $actor->creatorId() === (int) $user->creatorId();
-
-        if (! $isOperator && (int) $actor->id !== (int) $user->id && ! $sameTenant) {
+        if (! \App\Policies\UserPolicy::isOperator($actor) && (int) $actor->id !== (int) $user->id) {
             return redirect()->back()->with('error', __('Permission denied.'));
         }
 
@@ -578,7 +594,26 @@ AuditLog::record(
         $users_data = $data['response']['users_data'];
         $store_data = $data['response']['store_data'];
 
-        return view('users.user_info', compact('id', 'users_data', 'store_data', 'status'));
+        /*
+         * `$user->id`, NOT the route parameter. `compact('id')` passed the RAW parameter through,
+         * and `users/user_info.blade.php:59` uses it as a tenant predicate:
+         * `User::where('created_by', $id)`. From the operator's primary button that parameter is
+         * CIPHERTEXT, and `users.created_by` is an unsignedBigInteger -- so on MySQL the
+         * ciphertext casts to **0** and the modal lists whatever rows carry `created_by = 0`,
+         * from any tenant. A caller-supplied value used as the tenant predicate, inside a view.
+         *
+         * THE SUITE COULD NEVER HAVE SHOWN THIS: on SQLite the same comparison matches nothing,
+         * which is CLAUDE.md's standing warning that SQLite's type affinity hides real MySQL
+         * defects. Pre-existing rather than introduced here, and closable now only because the
+         * target is resolved and authorized above. It also fixes a plain functional bug -- the
+         * operator's Admin Info modal printed "User not found." in every store tab.
+         */
+        return view('users.user_info', [
+            'id' => $user->id,
+            'users_data' => $users_data,
+            'store_data' => $store_data,
+            'status' => $status,
+        ]);
     }
 
     public function storeUserCounter($id)
