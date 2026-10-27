@@ -1778,7 +1778,8 @@ class ReportController extends Controller
 
         }
         $html = '';
-        $html = view('reports.order_product_chart', compact('currency', 'Totalsale', 'PurchasedItem'))->render();
+        [$periodLabel] = $this->chartPeriodLabels($request);
+        $html = view('reports.order_product_chart', compact('currency', 'Totalsale', 'PurchasedItem', 'periodLabel'))->render();
 
         $return['html'] = $html;
 
@@ -2231,7 +2232,8 @@ class ReportController extends Controller
             }
         }
         $html = '';
-        $html = view('reports.order_category_chart', compact('currency', 'NetSalesofcategory'))->render();
+        [$periodLabel] = $this->chartPeriodLabels($request);
+        $html = view('reports.order_category_chart', compact('currency', 'NetSalesofcategory', 'periodLabel'))->render();
 
         $return['html'] = $html;
 
@@ -2684,7 +2686,8 @@ class ReportController extends Controller
             $NetSalesofbrand['All Brands'] = array_sum($totalNetSalesAllBrands);
             $monthList = $dayList; // Use dayList to represent the selected date range
         }
-        $html = view('reports.order_brand_chart', compact('currency', 'NetSalesofbrand'))->render();
+        [$periodLabel] = $this->chartPeriodLabels($request);
+        $html = view('reports.order_brand_chart', compact('currency', 'NetSalesofbrand', 'periodLabel'))->render();
 
         $return = [
             'html' => $html,

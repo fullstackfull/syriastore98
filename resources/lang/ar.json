@@ -3111,5 +3111,14 @@
     "Categories by the number of distinct orders containing one of their products.": "الفئات حسب عدد الطلبات المختلفة التي تحتوي أحد منتجاتها.",
     "Brands by the number of distinct orders containing one of their products.": "العلامات التجارية حسب عدد الطلبات المختلفة التي تحتوي أحد منتجاتها.",
     "Orders grouped by the method they were paid with.": "الطلبات مُجمَّعة حسب طريقة الدفع المستخدمة.",
-    "Unknown": "غير معروف"
+    "Unknown": "غير معروف",
+    "Order value by brand": "قيمة الطلبات حسب العلامة التجارية",
+    "Order value by category": "قيمة الطلبات حسب الفئة",
+    "The total value of items ordered. This is not payments received, and not profit.": "إجمالي قيمة الأصناف المطلوبة. ليست مبالغ محصّلة، وليست ربحاً.",
+    "Brand Sales Summary": "ملخص مبيعات العلامات التجارية",
+    "Category Sales Summary": "ملخص مبيعات الفئات",
+    "Product Sales Summary": "ملخص مبيعات المنتجات",
+    "Order value over the selected period.": "قيمة الطلبات خلال الفترة المحددة.",
+    "Items ordered": "الأصناف المطلوبة",
+    "How many units were ordered, not how many were delivered or paid for.": "عدد الوحدات المطلوبة، لا المُسلَّمة ولا المدفوعة."
 }

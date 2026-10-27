@@ -3082,5 +3082,14 @@
     "Categories by the number of distinct orders containing one of their products.": "Categories by the number of distinct orders containing one of their products.",
     "Brands by the number of distinct orders containing one of their products.": "Brands by the number of distinct orders containing one of their products.",
     "Orders grouped by the method they were paid with.": "Orders grouped by the method they were paid with.",
-    "Unknown": "Unknown"
+    "Unknown": "Unknown",
+    "Order value by brand": "Order value by brand",
+    "Order value by category": "Order value by category",
+    "The total value of items ordered. This is not payments received, and not profit.": "The total value of items ordered. This is not payments received, and not profit.",
+    "Brand Sales Summary": "Brand Sales Summary",
+    "Category Sales Summary": "Category Sales Summary",
+    "Product Sales Summary": "Product Sales Summary",
+    "Order value over the selected period.": "Order value over the selected period.",
+    "Items ordered": "Items ordered",
+    "How many units were ordered, not how many were delivered or paid for.": "How many units were ordered, not how many were delivered or paid for."
 }
