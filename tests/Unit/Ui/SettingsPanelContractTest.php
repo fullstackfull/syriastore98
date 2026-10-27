@@ -47,8 +47,10 @@ class SettingsPanelContractTest extends TestCase
      * panel => [route, [field names]].
      *
      * Generated from the panels as they stood when F117 closed, then read back and corrected by
-     * hand: the generator cannot tell a posted field from a `name` attribute on a button, and
-     * two panels carry both.
+     * hand — twice. The generator could not tell a posted field from a `name` attribute on a
+     * button, and it counted `Form::label('notifications', …)` as a field, so `stock_setting`
+     * was pinned to a name it has never posted: the first argument of `Form::label` is a `for`.
+     * The extractor skips the non-field `Form::` helpers now, and the entry is gone.
      */
     private const CONTRACT = [
         'twilio_setting' => ['twilio.settings', [
@@ -80,8 +82,7 @@ class SettingsPanelContractTest extends TestCase
             'strictly_cookie_description', 'strictly_cookie_title',
         ]],
         'stock_setting' => ['stock.settings', [
-            'low_stock_threshold', 'notification', 'notifications', 'out_of_stock_threshold',
-            'stock_management',
+            'low_stock_threshold', 'notification', 'out_of_stock_threshold', 'stock_management',
         ]],
         'refund_setting' => ['refund.settings', ['attachment', 'manage_stock', 'shiping_deduct']],
         'tax_opt_setting' => ['tax-option.settings', [
@@ -138,9 +139,12 @@ class SettingsPanelContractTest extends TestCase
             $names[] = $n;
         }
 
-        /* `Form::text('twilio_sid', ...)`, `Form::select('api_key[]', ...)` and the component
-           attribute `name="api_key[e...]"` all name a posted field. */
-        preg_match_all('/Form::[a-zA-Z]+\(\s*\'([^\']+)\'/', $source, $m);
+        /* `Form::text('twilio_sid', ...)` and `Form::select('api_key[]', ...)` name a posted
+           field. `Form::label('notifications', …)` does NOT — its first argument is a `for`,
+           and the generator that seeded this contract counted one, which is why `stock_setting`
+           was pinned to a field it has never posted. `Form::submit`, `Form::button` and
+           `Form::close` are not fields either. */
+        preg_match_all('/Form::(?!label|submit|button|close|open|model|token)[a-zA-Z]+\(\s*\'([^\']+)\'/', $source, $m);
         foreach ($m[1] ?? [] as $n) {
             $names[] = $n;
         }

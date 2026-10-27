@@ -3181,5 +3181,6 @@
     "Enable Woocommerce": "تفعيل Woocommerce",
     "Enable the loyalty program": "تفعيل برنامج الولاء",
     "Reward points per :amount spent": "نقاط المكافأة لكل :amount من الإنفاق",
-    "Enter Point": "أدخل عدد النقاط"
+    "Enter Point": "أدخل عدد النقاط",
+    "Enable Stock Management": "تفعيل إدارة المخزون"
 }

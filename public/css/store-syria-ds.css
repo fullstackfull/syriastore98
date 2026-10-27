@@ -761,6 +761,37 @@
     gap: var(--ss-space-3);
 }
 
+/* ---- Choice: a radio or checkbox with its label ----
+   The control and its label, side by side, with the label clickable because it carries `for`.
+   A GROUP of these belongs in a `<fieldset>` with a `<legend>`: a `<label>` can name one
+   control, not a choice between two, which is what the tax panel's price-type pair was using
+   one for. Added for the settings panels (P2-05-7).
+
+   `accent-color` so the native control takes the brand without a custom sprite, which keeps
+   the keyboard focus ring and the forced-colors behaviour the browser already gets right. */
+.ss-choice {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--ss-space-2);
+    margin-block-end: var(--ss-space-2);
+}
+.ss-choice__input {
+    inline-size: 1rem;
+    block-size: 1rem;
+    margin-block-start: 0.2rem;
+    flex: none;
+    accent-color: var(--ss-brand);
+}
+.ss-choice__input:focus-visible {
+    outline: var(--ss-focus-width) solid var(--ss-focus-ring);
+    outline-offset: var(--ss-focus-offset);
+}
+.ss-choice__label {
+    font-size: var(--ss-text-sm);
+    color: var(--ss-fg);
+    cursor: pointer;
+}
+
 /* ---- Input group: a field with a fixed affix ----
    The Shopify and WooCommerce panels append `.myshopify.com` to a shop NAME. The affix is a
    picture of a rule, not a value the merchant can change, so it is `aria-hidden` in the markup
