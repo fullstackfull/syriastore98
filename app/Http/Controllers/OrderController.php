@@ -669,16 +669,30 @@ public function store(Request $request)
                  * order in both repositories, and the source is wanted on this screen only, so
                  * it is read here and passed on its own. The API wire format is untouched.
                  *
-                 * SCOPED BY `store_id` even though `OrderDocumentAccessGuard` already refuses a
-                 * foreign order on this uri. `Order` is NOT in `config/tenancy.php`'s
-                 * `scoped_models`, so `Order::find()` adds no predicate for ANY principal, and a
-                 * tenant predicate here is cheaper than depending on the guard never moving.
-                 * Fails closed to null, which the view renders as "Not recorded" -- an absence,
-                 * never another store's answer.
+                 * NOT SCOPED BY THE CALLER'S STORE, and the first version of this was -- which
+                 * made the page LIE. `OrderDocumentAccessGuard` deliberately admits the platform
+                 * operator to any store's order, and supports a dual-identity case besides (a
+                 * merchant of store A who is also a signed-in shopper of store B, reading their
+                 * own B order). For both, `getCurrentStore()` is not the order's store, so the
+                 * read fell to null and the Source row asserted IN WORDS that the order "was
+                 * created before the source was recorded" -- about an order created today. That
+                 * is the same fabrication this slice exists to prevent, pointing the other way.
+                 *
+                 * ROW OWNERSHIP IS NOT THIS METHOD'S DECISION, and this file already says so:
+                 * `mayUseOrderScreen()`'s docblock records "Row ownership is not decided here:
+                 * OrderDocumentAccessGuard does that for these URIs", and the two neighbouring
+                 * per-order reads on the same guarded URIs -- `shippinglabel()` and
+                 * `order_receipt()` -- are both `Order::where('id', $id)->value('store_id')` with
+                 * no caller predicate, for the identical reason (P1-SEC-11).
+                 *
+                 * AND IT WEAKENS NOTHING: `Order::order_detail($id)` on the line above already
+                 * loads that row with no store predicate and the view renders its whole contents,
+                 * so a predicate on one further column of the same row protected nothing while
+                 * making the sentence beside it false. An operator-first predicate was rejected
+                 * too: it would be a fourth spelling of the operator test, and it does not even
+                 * fix the dual-identity case, where the reader is not the operator.
                  */
-                $orderSource = Order::where('id', $id)
-                    ->where('store_id', getCurrentStore())
-                    ->value('order_source');
+                $orderSource = Order::where('id', $id)->value('order_source');
 
                 return view('order.view', compact('order', 'store', 'order_notes', 'deliveryboys', 'orderSource'));
             } catch (DecryptException $e) {

@@ -514,12 +514,16 @@ class OrderDataTable extends DataTable
             'searchable' => false,
         ],
 
-        // P2-04-11. Not searchable: the stored value is a machine vocabulary ('pos'), while the
-        // cell shows a translated label, so a free-text search box matching the column would
-        // answer for one and display the other. The `ss_source` filter is the way in.
+        // P2-04-11. Neither searchable NOR orderable, for one reason in two directions: the
+        // stored value is a machine vocabulary ('pos', 'manual', 'storefront') while the cell
+        // shows a TRANSLATED label. A free-text search would match the machine value and display
+        // the label; a sort would order by the machine value while the merchant reads the label,
+        // and in a different sequence per locale. `shipping_method` three rows above sets both
+        // flags for the same kind of reason. The `ss_source` filter is the way in.
         'order_source' => [
             'title' => __('Source'),
             'searchable' => false,
+            'orderable' => false,
         ],
 
         'delivered_status' => [

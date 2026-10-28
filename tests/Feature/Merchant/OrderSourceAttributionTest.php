@@ -104,7 +104,10 @@ class OrderSourceAttributionTest extends SecurityTestCase
      */
     public function test_the_merchant_order_form_records_a_manual_source(): void
     {
-        $before = Order::withoutGlobalScopes()->count();
+        // BOTH SIDES SCOPED TO THE SAME STORE. This compared an UNSCOPED `count()` against a
+        // store-scoped collection, which held only because the fixture has one store -- so it
+        // would have started lying the moment a second store appeared in setUp().
+        $before = Order::withoutGlobalScopes()->where('store_id', $this->store->id)->count();
 
         $this->actingAs($this->merchant)->post('order', $this->validOrderPayload());
 
@@ -156,13 +159,23 @@ class OrderSourceAttributionTest extends SecurityTestCase
     }
 
     /**
-     * THE TILL. `PosController::store()` builds its order from a session cart, so this drives the
-     * writer's own statement rather than the whole checkout: the assertion is that the POS path's
-     * constant is the one the till uses and that it is distinct from both others. The census test
-     * is what proves `PosController` carries the stamp at all; this proves the value means what
-     * the screen says it means.
+     * THE VOCABULARY ONLY -- AND THE NAME THIS TEST USED TO HAVE WAS A LIE ABOUT ITS SCOPE.
+     *
+     * It was called "the till and the form are not the same source", which reads as a statement
+     * about `PosController`. It is not: it compares three constants to each other and never
+     * drives the till, so **deleting the till's stamp left it green**. Found by an independent
+     * audit of this file, not by the test failing.
+     *
+     * What actually guards the till's stamp is
+     * `OrderSourceWriterCensusTest::test_every_writer_stamps_the_constant_its_path_warrants`,
+     * added for this reason: it reads each writer's own source and requires POS from the POS
+     * controller, MANUAL from the two merchant-manual writers and STOREFRONT from the rest.
+     * Bitten by stamping the till STOREFRONT, which turns it red.
+     *
+     * This test keeps a narrow and honest job: the three values are distinct and in the order the
+     * filter offers them.
      */
-    public function test_the_till_and_the_form_are_not_the_same_source(): void
+    public function test_the_three_sources_are_distinct_values_in_a_fixed_order(): void
     {
         $this->assertNotSame(Order::SOURCE_POS, Order::SOURCE_MANUAL);
         $this->assertNotSame(Order::SOURCE_POS, Order::SOURCE_STOREFRONT);
@@ -194,6 +207,12 @@ class OrderSourceAttributionTest extends SecurityTestCase
         // Written by raw query so no model hook or $attributes default can reach the column --
         // this row is as close to a pre-migration row as a test can build.
         DB::table('orders')->where('id', $order->id)->update(['order_source' => null]);
+        // `Order` is Cachable. A raw write leaves Eloquent reads serving the PRE-WRITE row, and
+        // under CACHE_STORE=array that stale entry lives for the rest of the test -- two measured
+        // false readings in this project came from exactly this. Safe as written (each raw write
+        // precedes the first read of its row and the makeOrder() above flushes), but one line
+        // makes it immune to a later edit that reads first.
+        (new Order)->flushCache();
 
         $cell = $this->sourceCellFor($order->id);
 
@@ -246,10 +265,64 @@ class OrderSourceAttributionTest extends SecurityTestCase
         $this->assertStringContainsString('Entered manually', $body);
     }
 
+    /**
+     * THE PLATFORM OPERATOR MUST SEE THE TRUTH, and the first version of this slice lied to them.
+     *
+     * `OrderDocumentAccessGuard` admits the operator to ANY store's order -- its operator limb
+     * returns before any store comparison -- but `order_view` read the source with
+     * `where('store_id', getCurrentStore())`, which for an operator is NOT the order's store. The
+     * read fell to null and the Source row stated in words that the order "was created before the
+     * source was recorded", about an order created in this test. That is the same fabrication the
+     * whole slice exists to prevent, pointing the other way; found by independent review, not by
+     * any test here.
+     *
+     * The fix removed the predicate: row ownership on these URIs belongs to the guard, which this
+     * controller's own `mayUseOrderScreen()` docblock already states, and which `shippinglabel()`
+     * and `order_receipt()` already follow for the same reason. Reverting it turns this red.
+     */
+    public function test_the_platform_operator_is_told_the_real_source(): void
+    {
+        $operator = $this->makePlatformAdmin();
+
+        // A DIFFERENT store from the order's, which is the whole point: an operator whose
+        // current_store happened to match would pass under the broken predicate too.
+        $elsewhere = $this->makeStore($operator);
+        $operator->current_store = $elsewhere->id;
+        $operator->save();
+        $operator = User::find($operator->id);
+
+        $order = $this->makeOrder($this->store, [
+            'product_order_id' => 'OP-1',
+            'order_source' => Order::SOURCE_POS,
+        ]);
+
+        $this->assertNotSame((int) $elsewhere->id, (int) $this->store->id,
+            'premise: the operator is looking at an order outside their own current store');
+
+        $response = $this->actingAs($operator)->get('/order-view/' . Crypt::encrypt($order->id));
+
+        $this->assertSame(200, $response->status(),
+            'premise: the guard admitted the operator to another store\'s order, which is the '
+            . 'behaviour this test depends on. Body: ' . substr($response->getContent(), 0, 200));
+
+        $body = $response->getContent();
+
+        $this->assertStringContainsString('Point of sale', $body,
+            'the operator is told the source that was actually recorded');
+        $this->assertStringNotContainsString('before the source was recorded', $body,
+            'AND NOT TOLD A FALSEHOOD about an order created moments ago');
+    }
+
     public function test_the_detail_page_of_a_legacy_order_invents_no_source(): void
     {
         $order = $this->makeOrder($this->store, ['product_order_id' => 'DET-2']);
         DB::table('orders')->where('id', $order->id)->update(['order_source' => null]);
+        // `Order` is Cachable. A raw write leaves Eloquent reads serving the PRE-WRITE row, and
+        // under CACHE_STORE=array that stale entry lives for the rest of the test -- two measured
+        // false readings in this project came from exactly this. Safe as written (each raw write
+        // precedes the first read of its row and the makeOrder() above flushes), but one line
+        // makes it immune to a later edit that reads first.
+        (new Order)->flushCache();
 
         $body = $this->detailHtml($order->id);
 
@@ -276,6 +349,12 @@ class OrderSourceAttributionTest extends SecurityTestCase
         $manual = $this->makeOrder($this->store, ['product_order_id' => 'F-2', 'order_source' => Order::SOURCE_MANUAL]);
         $legacy = $this->makeOrder($this->store, ['product_order_id' => 'F-3']);
         DB::table('orders')->where('id', $legacy->id)->update(['order_source' => null]);
+        // `Order` is Cachable. A raw write leaves Eloquent reads serving the PRE-WRITE row, and
+        // under CACHE_STORE=array that stale entry lives for the rest of the test -- two measured
+        // false readings in this project came from exactly this. Safe as written (each raw write
+        // precedes the first read of its row and the makeOrder() above flushes), but one line
+        // makes it immune to a later edit that reads first.
+        (new Order)->flushCache();
 
         $unfiltered = $this->dataTableRows([]);
 
@@ -294,6 +373,12 @@ class OrderSourceAttributionTest extends SecurityTestCase
      * `Order` IS NOT IN `scoped_models`, so nothing in the framework stops this query reaching
      * another tenant. The list's own `where('store_id', getCurrentStore())` is the only predicate,
      * and this asserts the filter cannot be the thing that gets round it.
+     *
+     * READ IT FOR WHAT IT PINS, WHICH IS NOT THIS SLICE'S WORK. The predicate it exercises is
+     * `OrderDataTable::query()`'s pre-existing `where('store_id', …)`; the filter adds only an
+     * AND. It is worth having -- a filter that reached past the tenant predicate is exactly the
+     * defect class CLAUDE.md calls this codebase's most productive -- but it is NOT evidence that
+     * P2-04-11 added an isolation control, and an independent audit was right to say so.
      */
     public function test_the_source_filter_cannot_reach_another_stores_orders(): void
     {
@@ -322,6 +407,12 @@ class OrderSourceAttributionTest extends SecurityTestCase
         $a = $this->makeOrder($this->store, ['product_order_id' => 'U-1', 'order_source' => Order::SOURCE_POS]);
         $b = $this->makeOrder($this->store, ['product_order_id' => 'U-2']);
         DB::table('orders')->where('id', $b->id)->update(['order_source' => null]);
+        // `Order` is Cachable. A raw write leaves Eloquent reads serving the PRE-WRITE row, and
+        // under CACHE_STORE=array that stale entry lives for the rest of the test -- two measured
+        // false readings in this project came from exactly this. Safe as written (each raw write
+        // precedes the first read of its row and the makeOrder() above flushes), but one line
+        // makes it immune to a later edit that reads first.
+        (new Order)->flushCache();
 
         $baseline = $this->dataTableRows([]);
 

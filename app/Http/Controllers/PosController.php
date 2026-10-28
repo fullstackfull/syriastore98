@@ -305,10 +305,27 @@ class PosController extends Controller
                  * have changed an API contract and the buyer name shown for every Arabic-created
                  * till order, with no code or data change anywhere.
                  *
-                 * THIS CHANGES NO STORED VALUE TODAY: both shipped locales map "POS" to "POS",
-                 * so the row written is byte-identical. No migration, no backfill, no payment
-                 * behaviour. `PosPaymentTypeLocaleTest::test_the_landmine_is_real` arms the
-                 * mechanism and measures the response difference it produced.
+                 * IT WAS LIVE, NOT LATENT, AND MY FIRST NOTE HERE SAID OTHERWISE. That note
+                 * read "both shipped locales map POS to POS", having checked `ar.json` and
+                 * `en.json` and stopped. Independent review checked the rest: **six other
+                 * shipped locales translate it** -- `es` "Punto de venta", `fr` "Le point de
+                 * vente", `pl` "Pozycja POS", `ru` "ПОЗ", `zh` "没有", `ja` "POS ポイント" --
+                 * every one of them offered by `Utility`'s language list, and the locale is
+                 * settable through `change-languages/{lang}`, a PUBLIC GET route that writes
+                 * `users.language` straight from a route parameter. So a merchant working in
+                 * Spanish has been storing `payment_type = 'Punto de venta'` on every till sale,
+                 * which misses all three branches and renders '-' in the list's Payment Type
+                 * cell. Recorded as F146 with its own ledger row; a merchant working in Arabic or
+                 * English was never affected, which is why nobody saw it.
+                 *
+                 * THE WRITE-SITE CHANGE IS STILL EXACTLY THIS ONE LINE, and it is corrective
+                 * rather than merely defensive. Under `ar`/`en` the row written is byte-identical,
+                 * so nothing a current test or an Arabic merchant sees changes. EXISTING rows are
+                 * untouched -- there is no UPDATE and no backfill here, so any mis-localised rows
+                 * already written stay as they are. Whether to repair those is a live-data
+                 * question for the owner, not a code one, and it is recorded as such.
+                 * `PosPaymentTypeLocaleTest::test_the_landmine_is_real` arms the mechanism and
+                 * measures the response difference it produced.
                  */
                 $pos->payment_type = 'POS';
                 $pos->payment_status = 'Paid';

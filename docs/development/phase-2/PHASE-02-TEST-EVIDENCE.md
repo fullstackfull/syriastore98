@@ -4689,3 +4689,83 @@ this.
 **Third time this phase that `file:line`-keyed inventory has reddened on a slice's own edits.** The
 rule stands and is now written in three places: regenerate the inventory LAST, after the app edits
 of a slice have settled. Doing it mid-slice just moves the numbers again.
+
+### P2-04-11 follow-up — what independent review found, and what it cost to be wrong (2026-10-28)
+
+The slice was gate-verified before this. It was also, in four places, wrong — and in two of those
+the wrong thing was a **claim I had written down as established**. That is the part worth keeping.
+
+**Method.** One `tenant-authz-reviewer` pass over the money path (CLAUDE.md requires it for an
+order or payment change), then **seven adversarial verifiers run in parallel**, one per finding,
+each told to default to REFUTED and each working read-only. Four came back CONFIRMED, three
+PARTLY. None was taken on the reviewer's word; two of them turned out to understate the defect.
+
+**What the review cleared, which is not padding.** No cross-tenant read on either new surface; no
+mass-assignment path that could forge provenance (the only two `Order::create` in `app/` take
+explicit key arrays, and there is no `fill($request)` on an Order anywhere, including
+`packages/workdo/`); no XSS through the new `rawColumns()` entry (the only unescaped output is the
+file's own markup plus a `match` over two constants with an empty default, and both dynamic
+strings pass `e()`); and all stamps are single-line assignments placed after their own
+`new Order()` and before the first `save()`, none inside an extra conditional.
+
+**The four defects.**
+
+| # | what | why it mattered |
+|---|---|---|
+| **F147** | one of the sixteen "writers" was **not an order at all** — a SaaS plan purchase, the unconverted twin of P1-PLT-02 | my stamp labelled a merchant's subscription payment `storefront` |
+| **F3** | the detail page told the **platform operator** "created before the source was recorded" about an order created today | the same fabrication the slice exists to prevent, pointing the other way |
+| **F6** | the migration docblock claimed **no API response widens**; three do | an unmeasured claim about a shipped contract |
+| **F4** | the census ratchet checked its stamp window in **raw source**, so a comment could satisfy it | in a file whose own docblock warns about exactly that |
+
+**And two corrections to claims of mine**, both from checking too few cases:
+
+1. **F146 was LIVE, not latent.** I checked `ar.json` and `en.json`, found both map "POS" to "POS",
+   and wrote "latent". Six shipped locales already translate it — `es`, `fr`, `pl`, `ru`, `zh`,
+   `ja` — all offered, and the locale is settable through a **public GET route** that writes
+   `users.language` from a route parameter. A merchant working in Spanish has been storing
+   `payment_type = 'Punto de venta'` on every till sale. The test had the same flaw as the
+   docblock: it used `Lang::addLines` with a synthetic translation, so it proved only "IF someone
+   translated POS, then…". It now drives `es` from the shipped `es.json`.
+2. **Parity gap G8 was wider than reality.** `api/admin/orderlist` already carries the raw column,
+   so closing it for the app's order list is **client-side only** — no server change.
+
+**Three weaknesses in my own tests, found by auditing them rather than by running them.**
+
+| weakness | why the suite stayed green |
+|---|---|
+| the only test asserting the POS value compared **constants to each other** and never drove the till | deleting `PosController`'s stamp left it passing |
+| the stamp window read raw source | nothing was masked *yet*; the next writer added with an explanatory comment would have been |
+| the "not vacuous" floor was **14 against a measured 16** | two writers could vanish undetected |
+
+Fixed by: an exact count (now **19**); a new
+`test_every_writer_stamps_the_constant_its_path_warrants` that reads each writer's own source and
+requires POS from the till, MANUAL from the two merchant-manual writers and STOREFRONT from the
+rest; a comment-blanked window; a widened regex catching the FQN and array-constructor forms; and
+`(new Order)->flushCache()` after each raw `DB::table()` write.
+
+**Extending the census scan to `packages/workdo/` — scanning vendored code is not editing it —
+immediately found three writer categories the `app/`-only scan had made invisible (F148):** a real
+persisted writer in `LotteryPrizes` that cannot be stamped, two staging-fixture writers in
+`LynomiaChat`, and the already-known preview dummy. Each is now a **named constant with its
+reason** rather than an entry in a generic exemption list, because "cannot be stamped" and "no
+honest value exists" are different facts and conflating them is how an exemption list becomes a
+place to hide things.
+
+**Guards bitten this round — 5 of 5.**
+
+| reverted | test that went red |
+|---|---|
+| the till stamped `SOURCE_STOREFRONT` | `census > every writer stamps the constant its path warrants` |
+| a real stamp replaced by a **comment** mentioning `order_source` | `census > every order writer records its source` |
+| `MEASURED_WRITERS` moved off 19 | `census > the census is not vacuous` |
+| the caller-store predicate restored in `order_view` | `attribution > the platform operator is told the real source` |
+| (earlier round, re-confirmed) `$fillable` key removed | `attribution > the merchant order form records a manual source` |
+
+The bite harness itself was fixed first. Its restore step did `s.replace(new, old)`, which for a
+deletion means replacing the **empty string** — it had inserted a line between every character of
+a 73,485-line file. It now saves the file's exact bytes and copies them back.
+
+**Suites after the fixes:** `tests/Unit` + `Feature/Commerce` + `Feature/Merchant` — **1490 passed,
+7 skipped, 0 failed**. `tests/Feature/Security` — **4087 passed**, plus the observability inventory
+re-pointed (9 rows moved, 0 added or deleted) once the app edits had settled, for the third time
+this phase.

@@ -39,6 +39,61 @@ class OrderSourceWriterCensusTest extends TestCase
         'packages/workdo/AutomaticOrderPrinting/src/app/Http/Controllers/AutomaticOrderPrintingController.php',
     ];
 
+    /**
+     * WRITERS THAT DO PERSIST AN ORDER AND CANNOT BE STAMPED. Declared, not exempted, because
+     * the distinction matters: each of these leaves `order_source` NULL, so the order reaches the
+     * merchant's list labelled "created before the source was recorded" while being minutes old.
+     * That is a real provenance gap and it is recorded as **F148** rather than hidden.
+     *
+     * They are inside `packages/workdo/`, which CLAUDE.md §2 and
+     * `.github/scripts/guard-no-workdo-changes.sh` both forbid editing, so there is no fix
+     * available from this repository's first-party code. SCANNING vendored code is not editing
+     * it, which is why the scan reaches in: an undeclared gap here is invisible, and this file's
+     * whole reason for existing is that an invisible gap is how five writers went unstamped.
+     *
+     * @var array<string, string> path => why it cannot be stamped
+     */
+    private const UNSTAMPED_VENDOR = [
+        'packages/workdo/LotteryPrizes/src/app/Http/Controllers/LotteryResultController.php' =>
+            'F148. A real persisted host-Order writer: `new Order()` + `fill([...])` + `save()`, '
+            . 'with payment_type "Lottery Product" -- the exact value OrderDataTable renders. '
+            . 'Vendored, so it cannot be stamped; reachable only on an install holding an '
+            . '`add_on_managers` row for LotteryPrizes plus the plan entitlement. A fourth '
+            . 'vocabulary value for it is a later slice and an owner decision.',
+    ];
+
+    /**
+     * WRITERS THAT ARE NOT A COMMERCE PATH AT ALL. Not exempt because they cannot be stamped --
+     * `LynomiaChat` is the ONE package CLAUDE.md §2 permits editing -- but because there is no
+     * honest value to stamp them with.
+     *
+     * These rows declare themselves fixtures IN THEIR OWN DATA: `product_order_id` is
+     * `"STAGING-{key}-{i}"` and `payment_type` is the literal `'staging-fixture'`. The column
+     * records which of three real paths created an order, and "a seeder somebody ran by hand on
+     * staging" is none of them. Stamping `storefront` would invent a provenance for a row that
+     * openly says it is synthetic -- the fabrication the no-default decision forbids -- and
+     * widening the vocabulary with a fourth value for fixtures would put test scaffolding in a
+     * merchant-facing filter.
+     *
+     * ENUMERATED RATHER THAN MATCHED STRUCTURALLY (e.g. "anything under `database/seeders/`"),
+     * deliberately: a blanket rule would also excuse a real writer somebody later put in a
+     * seeder. One more seeder writing orders turns this test red, and that is the test working.
+     *
+     * @var array<string, string> path => why no value is honest
+     */
+    private const NOT_A_COMMERCE_PATH = [
+        'packages/workdo/LynomiaChat/src/database/seeders/LynomiaStagingFixtureSeeder.php' =>
+            'Staging fixtures, self-declared: product_order_id "STAGING-…" and payment_type '
+            . '"staging-fixture". A seeder run by hand is not POS, manual or storefront, and no '
+            . 'value in the vocabulary describes it.',
+    ];
+
+    /**
+     * The measured census. See `test_the_census_is_not_vacuous` for how it is composed; change it
+     * only together with the list of writers, and say why in the commit.
+     */
+    private const MEASURED_WRITERS = 19;
+
     private function appRoot(): string
     {
         return dirname(__DIR__, 3);
@@ -60,11 +115,22 @@ class OrderSourceWriterCensusTest extends TestCase
         $found = [];
         $root = $this->appRoot();
 
-        $iterator = new \RecursiveIteratorIterator(
-            new \RecursiveDirectoryIterator($root . '/app', \FilesystemIterator::SKIP_DOTS)
-        );
+        $roots = [$root . '/app', $root . '/packages/workdo'];
+        $files = [];
 
-        foreach ($iterator as $file) {
+        foreach ($roots as $dir) {
+            if (! is_dir($dir)) {
+                continue;
+            }
+
+            foreach (new \RecursiveIteratorIterator(
+                new \RecursiveDirectoryIterator($dir, \FilesystemIterator::SKIP_DOTS)
+            ) as $file) {
+                $files[] = $file;
+            }
+        }
+
+        foreach ($files as $file) {
             if ($file->getExtension() !== 'php') {
                 continue;
             }
@@ -73,7 +139,14 @@ class OrderSourceWriterCensusTest extends TestCase
             $lines = explode("\n", $this->withoutComments((string) file_get_contents($file->getPathname())));
 
             foreach ($lines as $i => $line) {
-                $isWriter = preg_match('/=\s*new Order\(\)\s*;/', $line)
+                /*
+                 * THREE FORMS, because two were missing and a missed form is a missed writer --
+                 * which is this file's entire subject. `new Order()` covers the bare
+                 * constructor; `new \App\Models\Order(...)` covers the fully-qualified spelling
+                 * (and `new Order([...])`, the array constructor, which `$fillable` honours);
+                 * and the static list covers mass creation.
+                 */
+                $isWriter = preg_match('/=\s*new\s+(\\\\?App\\\\Models\\\\)?Order\s*\(/', $line)
                     || preg_match('/\bOrder::(create|insert|insertGetId|updateOrCreate|firstOrCreate|forceCreate)\s*\(/', $line);
 
                 if (! $isWriter) {
@@ -121,11 +194,28 @@ class OrderSourceWriterCensusTest extends TestCase
     {
         $writers = $this->writerLines();
 
-        $this->assertGreaterThanOrEqual(14, count($writers),
-            'The scan found ' . count($writers) . ' order writers. Sixteen were measured on '
-            . '2026-10-28 (14 `new Order()` and 2 `Order::create([...])`). A number this far '
-            . 'below that means the REGEX broke, not that the application shrank -- and a broken '
-            . 'regex makes every assertion in this file pass. Found: '
+        /*
+         * AN EXACT COUNT, NOT A FLOOR. A floor of 14 against a measured 16 is two writers of
+         * slack: one could be DELETED and one could stop matching the regex with the suite still
+         * green. Exact makes any change to the census a deliberate edit of this number, with the
+         * new figure stated by whoever changed it. A broken regex still fails loudly, which is
+         * the vacuity half of the job.
+         *
+         * The figure, 19, composed:
+         *   15  in `app/`, every one stamped -- 12 storefront gateway/checkout writers, the POS
+         *       till, and the two merchant-manual `Order::create` writers. (16 were found before
+         *       F147 converted the PaymentWall site to `PlanOrder`, where it belonged.)
+         *    1  `NOT_A_WRITER`      -- AutomaticOrderPrinting's unsaved invoice-preview dummy
+         *    1  `UNSTAMPED_VENDOR`  -- LotteryPrizes, F148: a real writer that cannot be stamped
+         *    2  `NOT_A_COMMERCE_PATH` -- LynomiaChat's staging-fixture seeder
+         * The last three groups are what widening the scan to `packages/workdo/` revealed, and
+         * none of them was visible while the scan read `app/` alone.
+         */
+        $this->assertCount(self::MEASURED_WRITERS, $writers,
+            'The scan found ' . count($writers) . ' order writers; ' . self::MEASURED_WRITERS
+            . ' were measured. A LOWER number means the regex broke or a writer was deleted; a '
+            . 'HIGHER one means a new writer exists and must be stamped or declared. Either way '
+            . 'this number is edited deliberately, never relaxed. Found: '
             . implode(', ', array_keys($writers)));
     }
 
@@ -143,11 +233,24 @@ class OrderSourceWriterCensusTest extends TestCase
         foreach ($this->writerLines() as $where => $line) {
             [$relative, $lineNo] = explode(':', $where);
 
-            if (in_array($relative, self::NOT_A_WRITER, true)) {
+            if (in_array($relative, self::NOT_A_WRITER, true)
+                || array_key_exists($relative, self::UNSTAMPED_VENDOR)
+                || array_key_exists($relative, self::NOT_A_COMMERCE_PATH)) {
                 continue;
             }
 
-            $all = explode("\n", (string) file_get_contents($root . '/' . $relative));
+            /*
+             * COMMENT-BLANKED, AND IT WAS NOT. This window used the RAW source, so a mere
+             * COMMENT mentioning `order_source` within six lines of a writer satisfied the
+             * ratchet -- in a file whose own docblock warns that "a scanner that reads its own
+             * subject's commentary has produced three false readings in this project already".
+             * Nothing was actually masked when this was found (all sixteen windows held a real
+             * assignment), but the next writer added with an explanatory comment would have been.
+             * `withoutComments()` preserves the newline count, so every line number below stays
+             * truthful. The window SIZE is deliberately generous and is not narrowed here: the
+             * defect was the window's source, not its width.
+             */
+            $all = explode("\n", $this->withoutComments((string) file_get_contents($root . '/' . $relative)));
             $index = (int) $lineNo - 1;
 
             // An `Order::create([...])` array can carry the key before or after this line;
@@ -231,6 +334,68 @@ class OrderSourceWriterCensusTest extends TestCase
                 static fn ($k, $v) => $k . '  ' . $v,
                 array_keys($bad),
                 $bad
+            )));
+    }
+
+    /**
+     * EVERY WRITER STAMPS THE RIGHT CONSTANT, not merely some constant.
+     *
+     * `test_every_order_writer_records_its_source` proves a stamp EXISTS and
+     * `test_every_stamp_uses_the_vocabulary` proves it is a vocabulary constant; neither notices
+     * the till stamping `SOURCE_STOREFRONT`. That gap was real: the only test asserting the POS
+     * value compared constants to each other and never drove `PosController`, so deleting the
+     * till's stamp left it green.
+     *
+     * The rule is a rule, not a list of lines: the POS controller stamps POS, the two
+     * merchant-manual writers stamp MANUAL, and everything else is a storefront checkout path.
+     */
+    public function test_every_writer_stamps_the_constant_its_path_warrants(): void
+    {
+        $expected = [
+            'app/Http/Controllers/PosController.php' => 'SOURCE_POS',
+            'app/Http/Controllers/OrderController.php' => 'SOURCE_MANUAL',
+            'app/Http/Controllers/Api/DashboardController.php' => 'SOURCE_MANUAL',
+        ];
+
+        $root = $this->appRoot();
+        $wrong = [];
+        $checked = 0;
+
+        foreach ($this->writerLines() as $where => $line) {
+            [$relative, $lineNo] = explode(':', $where);
+
+            if (in_array($relative, self::NOT_A_WRITER, true)
+                || array_key_exists($relative, self::UNSTAMPED_VENDOR)
+                || array_key_exists($relative, self::NOT_A_COMMERCE_PATH)) {
+                continue;
+            }
+
+            $all = explode("\n", $this->withoutComments((string) file_get_contents($root . '/' . $relative)));
+            $index = (int) $lineNo - 1;
+            $isArrayForm = str_contains($line, 'Order::create');
+            $from = $isArrayForm ? max(0, $index - 4) : $index;
+            $to = min(count($all) - 1, $index + ($isArrayForm ? 40 : 6));
+            $window = implode("\n", array_slice($all, $from, $to - $from + 1));
+
+            $want = $expected[$relative] ?? 'SOURCE_STOREFRONT';
+            $checked++;
+
+            if (! str_contains($window, 'Order::' . $want)) {
+                $wrong[$where] = 'expected Order::' . $want;
+            }
+        }
+
+        $this->assertGreaterThanOrEqual(15, $checked,
+            'premise: the loop actually examined the writers rather than skipping them all');
+
+        $this->assertSame([], $wrong,
+            "THESE WRITERS STAMP THE WRONG SOURCE. The till is not a storefront checkout and a "
+            . "merchant typing an order is not either; a writer stamping the wrong constant puts "
+            . "a confident false provenance on a commercial record, which is worse than NULL:\n  "
+            . implode("\n  ", array_map(
+                static fn ($k, $v) => $k . '  ' . $v,
+                array_keys($wrong),
+                $wrong
             )));
     }
 

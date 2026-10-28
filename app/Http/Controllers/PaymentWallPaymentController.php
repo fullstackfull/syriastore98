@@ -168,8 +168,40 @@ class PaymentWallPaymentController extends Controller
                             $user->save();
                         }
 
-                        $order                 = new Order();
-                        $order->order_source = Order::SOURCE_STOREFRONT;
+                        /*
+                         * F147. `PlanOrder`, NOT `Order` -- THE UNCONVERTED TWIN OF P1-PLT-02.
+                         *
+                         * This is a SaaS PLAN purchase, not a shopper's order. Of the fifteen
+                         * attributes assigned below, TWELVE are not columns on `orders` at all
+                         * (`order_id`, `name`, `card_number`, `card_exp_month`, `card_exp_year`,
+                         * `plan_name`, `plan_id`, `price`, `price_currency`, `txn_id`, `receipt`,
+                         * `user_id`) and every one of them IS a column on `plan_orders`.
+                         *
+                         * P1-PLT-02 converted this method's OTHER branch 51 lines above -- see
+                         * its comment, "a plan sale is a plan_orders row; Order::create wrote a
+                         * blank host order with store_id NULL" -- and converted the same shape in
+                         * four sibling gateways. It missed this one because that sweep searched
+                         * for the `Order::create([...])` ARRAY form, and this branch uses direct
+                         * property assignment. The two fail differently, which is why it hid:
+                         * mass assignment SILENTLY DROPS unfillable keys (so the array form wrote
+                         * a blank row), while property assignment bypasses `$fillable` entirely
+                         * and would raise "Unknown column 'order_id'" at the INSERT.
+                         *
+                         * Found by independent review of the P2-04-11 stamp, which had labelled
+                         * a merchant's subscription payment `order_source = storefront`. The
+                         * ratchet asked "does this writer record a source?" and nobody asked the
+                         * prior question, "is this an order at all?". The stamp is DELETED rather
+                         * than moved: `plan_orders` has no such column, and provenance of a plan
+                         * sale is not in that vocabulary.
+                         *
+                         * LATENT, double-gated, so no row carrying the false stamp can exist:
+                         * `assertPlanActivationEnabled('paymentwall')` at :55 fails closed
+                         * (`config/payments.php` defaults it to false), and no Paymentwall SDK is
+                         * in `composer.json`/`composer.lock`, so `Paymentwall_Config` at :129
+                         * raises before this line is reached. Converting it is still correct:
+                         * repairing either gate later must not resurrect the defect.
+                         */
+                        $order                 = new PlanOrder();
                         $order->order_id       = $orderID;
                         $order->name           = $user->name;
                         $order->card_number    = '';

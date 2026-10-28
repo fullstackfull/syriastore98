@@ -30,12 +30,19 @@ use Tests\Feature\Security\SecurityTestCase;
  * created it -- and `resources/lang/ar.json` currently maps "POS" to the identical string "POS",
  * which is the only reason nothing is broken today.
  *
- * THE DEFECT IS THEREFORE LATENT, NOT LIVE, AND THAT IS EXACTLY WHY IT IS WORTH FIXING: the
- * trigger is a one-word edit to a translation file, made by somebody doing localisation work who
- * has no reason to suspect that naming the till in Arabic silently changes an API contract and
- * the line shape of every Arabic-created POS order. `test_the_landmine_is_real` below arms it on
- * purpose and shows the response change; `test_the_till_writes_the_literal` shows the writer no
- * longer feeds it.
+ * THE DEFECT IS LIVE, AND AN EARLIER VERSION OF THIS DOCBLOCK SAID IT WAS LATENT. That version
+ * checked `ar.json` and `en.json`, found both map "POS" to the identical string "POS", and
+ * concluded the trigger was a future translation edit. Independent review checked the other
+ * locales: **six shipped ones already translate it** -- `es` "Punto de venta", `fr` "Le point de
+ * vente", `pl` "Pozycja POS", `ru` "ПОЗ", `zh` "没有", `ja` "POS ポイント". All are offered by
+ * `Utility`'s language list unless the operator disables them, and the locale is settable through
+ * `change-languages/{lang}`, a PUBLIC GET route writing `users.language` from a route parameter.
+ *
+ * So a merchant working in Spanish has been storing `payment_type = 'Punto de venta'` on every
+ * till sale: it misses all three branches above and renders '-' in the order list's Payment Type
+ * cell. A merchant working in Arabic or English was never affected, which is exactly why this
+ * went unseen. `test_the_landmine_is_real` drives a real shipped locale and measures the response
+ * difference; `test_the_till_writes_the_literal` shows the writer no longer feeds it.
  *
  * THE FIX CHANGES NO STORED VALUE TODAY. `__('POS')` returns 'POS' in both shipped locales, so
  * writing the literal produces a byte-identical row -- no existing order changes, no payment
@@ -66,12 +73,22 @@ class PosPaymentTypeLocaleTest extends SecurityTestCase
      */
     public function test_the_landmine_is_real(): void
     {
-        Lang::addLines(['*.POS' => 'نقطة بيع'], 'ar');
-        app()->setLocale('ar');
+        /*
+         * A REAL SHIPPED LOCALE, not a synthetic translation. This test first did
+         * `Lang::addLines(['*.POS' => 'نقطة بيع'], 'ar')` and proved only "IF someone translated
+         * POS, then…". Independent review established that six shipped locales ALREADY do --
+         * `es` "Punto de venta", `fr` "Le point de vente", `pl` "Pozycja POS", `ru` "ПОЗ",
+         * `zh` "没有", `ja` "POS ポイント" -- so the hypothetical was unnecessary and the defect was
+         * live rather than latent. Driving `es` from `resources/lang/es.json` makes this a
+         * statement about the shipped product.
+         */
+        app()->setLocale('es');
 
         $this->assertNotSame('POS', __('POS'),
-            'premise: the translator really would change the value. If "POS" is still "POS" '
-            . 'under this locale the rest of the test proves nothing.');
+            'premise: a SHIPPED locale really does translate this. If es.json ever maps "POS" to '
+            . '"POS" the rest of the test proves nothing -- pick another of the six.');
+        $this->assertSame('Punto de venta', __('POS'),
+            'premise: and it is the value review measured, so the fixture below is realistic');
 
         // A walk-in sale: no customer row, which is the ordinary till case and the one whose
         // two branches differ most visibly.

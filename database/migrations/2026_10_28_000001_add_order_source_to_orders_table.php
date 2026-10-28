@@ -60,15 +60,47 @@ use Illuminate\Support\Facades\Schema;
  *   index build, so it wants an online DDL path (`ALGORITHM=INPLACE, LOCK=NONE`, or
  *   pt-online-schema-change). The column add itself is instant on MySQL 8. Neither statement
  *   rewrites or reads existing row VALUES.
+ *   **THE DEPENDENCY RUNS ONE WAY AND IT IS NOT GUARDED IN CODE.** Sixteen writers in `app/`
+ *   stamp this column UNCONDITIONALLY, so this migration must be applied before, or atomically
+ *   with, the code that accompanies it: deploying that code alone makes every order INSERT fail
+ *   with "Unknown column 'order_source'" -- on storefront checkout, at the till and in the admin
+ *   app alike. `Schema::hasColumn` guards at those sixteen sites were considered and REJECTED:
+ *   they would reinstate exactly the silent unstamped writer that the no-default DDL and
+ *   `OrderSourceWriterCensusTest` exist to make impossible, make provenance depend on the
+ *   environment, and still leave the list filter and the detail read broken. This is the same
+ *   shape as `2026_10_12_000102`'s currency pair, whose standing instruction is likewise "DO NOT
+ *   TOUCH THE HOOK" -- sequence the deploy, do not weaken the writers.
  *
  * SAFETY. `hasTable`/`hasColumn`/`hasIndex` guarded and applied one object at a time, so
  * re-running against a database that already has some or all of it is a NO-OP. Purely additive
  * and nullable: no existing row changes and no existing query result changes.
  *
- * FLUTTER AND LYNOMIA IMPACT: none. An additive nullable column cannot change any JSON key's
- * presence or type for a client that reads named keys, and no API response in either repository
- * is widened by this migration. The admin app's order list and detail screens are unchanged by
- * it; `order_source` reaches them only if a later slice adds it to a response on purpose.
+ * FLUTTER AND LYNOMIA IMPACT: NO BREAK, BUT THREE RESPONSES ARE WIDENED BY ONE KEY.
+ *
+ * AN EARLIER VERSION OF THIS PARAGRAPH SAID "none", AND THAT WAS WRONG -- caught by independent
+ * review. `$appends` is not the only route into a payload: three handlers serialise WHOLE `Order`
+ * models rather than an explicit key list, so each gains `order_source` per order the moment the
+ * column exists:
+ *   - `GET  api/admin/orderlist`                  -- `DashboardController.php` `$orders->items()`
+ *   - `POST api/admin/searchdata` (type=order)    -- `DashboardController.php` `->get()->toArray()`
+ *   - `POST api/{slug}/loyality-program-json`     -- `ApiController.php`, inside
+ *                                                    `data.reward_history.data[]`
+ * (`DashboardController::OrderList_backup` does the same and has no route, so it stays latent.)
+ *
+ * IT IS A WIDENING, NOT A BREAK: an added key cannot change the presence or type of any key a
+ * named-key reader already looks for, no `assertExactJson` exists anywhere in `tests/`, and the
+ * value is NULL on every pre-migration row -- so a consumer must tolerate null, which a client
+ * reading named keys already does for absent ones.
+ *
+ * THE HANDLERS ARE DELIBERATELY NOT NARROWED. Restricting those three to explicit key lists, or
+ * adding `order_source` to `$hidden`, would REMOVE keys from live list responses the Flutter app
+ * reads by name -- which is a real break, where this is not. The defect was the claim, not the
+ * behaviour.
+ *
+ * What the original paragraph got right and still holds: `order_source_label` is kept OUT of
+ * `$appends`, so no accessor is serialised anywhere, and `OrderController::order_view` reads the
+ * source itself rather than through `Order::order_detail()`, which also builds the order-detail
+ * API response. Parity gap G8 records what the admin app can and cannot yet DISPLAY.
  */
 return new class extends Migration
 {
