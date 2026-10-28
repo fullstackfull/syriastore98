@@ -432,7 +432,42 @@ class ProductController extends Controller
      */
     public function create()
     {
+        /*
+         * F160. THIS FORM HAD NO PERMISSION CHECK OF ANY KIND, AND IT 500s WITH NO STORE.
+         *
+         * Found while scoping D-24a, whose approval requires checking "employee permission and
+         * current store, both on render and on request" -- so the target had to be read, and the
+         * target checked neither. `store()` below is gated on `Create Product`, so nothing could be
+         * WRITTEN; but a form is a read, and this one renders the store's categories, taxes,
+         * shipping methods, brands, labels, tags and product attributes. Any authenticated
+         * merchant-side principal could open it. The same shape as F157 on
+         * `CouponController::create()`, which is why the sweep continued past that controller.
+         *
+         * `Create Product`, DELIBERATELY THE SAME PERMISSION `store()` USES, and with no operator
+         * branch for the same reason `store()` has none: an operator could not submit this form
+         * either way, so offering them one that refuses on submit would be worse than refusing it
+         * here. F157's lesson is that a read path must not allow what the write path forbids;
+         * identical gates are the narrowest way to satisfy it and invent nothing.
+         *
+         * AND THE STORE CHECK IS NOT BELT-AND-BRACES. `getCurrentStore()` returns `current_store`,
+         * else the hardcoded literal 1 for a `super admin`, else
+         * `Store::where('created_by', $user->id)->first()?->id` -- NULL for a staff member who owns
+         * no store, which is the ordinary state of a newly added employee. `getStoreById(null)` is
+         * then null and `$store->slug` throws. Without this, the permission gate alone would leave
+         * a 500 reachable by anyone holding `Create Product` without a resolvable store.
+         */
+        $user = auth()->user();
+
+        if ($user === null || ! $user->isAbleTo('Create Product')) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
         $store = getStoreById(getCurrentStore());
+
+        if ($store === null) {
+            return redirect()->back()->with('error', __('No store is selected.'));
+        }
+
         $link = env('APP_URL') . ($store->slug ? ('/'.$store->slug) : '').'/product/';
         $categories = Category::where('store_id',getCurrentStore())->get();
         $categoryTree = buildCategoryTree($categories);
@@ -1417,6 +1452,21 @@ $Product->cost_price = $request->cost_price;
          * then `getCurrentStore()` against the product's own `store_id`.
          */
         $actor = auth()->user();
+        /*
+         * F160, same pair. `show()` carried the ownership check and no permission check, so a
+         * colleague with no product right could read one of this store's products in full.
+         *
+         * `Manage Products` OPERATOR-FIRST, which is `product_preview()` (:1369) -- the other
+         * single-product READ in this controller, and therefore the precedent rather than a choice
+         * of mine. Operator-first and not `isAbleTo()` alone because, as that site's own comment
+         * puts it, `isAbleTo()` alone refuses the one principal who legitimately reads every
+         * store's catalogue, and reversing the two limbs is a lockout rather than a tightening.
+         */
+        $isOperatorActor = $actor !== null && \App\Policies\UserPolicy::isOperator($actor);
+
+        if ($actor === null || (! $isOperatorActor && ! $actor->isAbleTo('Manage Products'))) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
 
         if ($actor === null || $actor->type !== \App\Policies\UserPolicy::PLATFORM_ADMIN) {
             $currentStore = getCurrentStore();
@@ -1470,6 +1520,22 @@ $Product->cost_price = $request->cost_price;
          * then `getCurrentStore()` against the product's own `store_id`.
          */
         $actor = auth()->user();
+        /*
+         * F160. THE BLOCK BELOW IS A TENANCY CHECK, NOT A PERMISSION CHECK, and until now this form
+         * had only the first. P1-INV-01 closed "another store's product renders into this merchant's
+         * form"; it left "a colleague with no product rights renders THIS store's product into the
+         * form" -- name, prices, cost, stock and every variant row. Exactly the pair F157 found on
+         * `CouponController::edit()`, which also had the tenant check and no permission check, for
+         * the same reason: the submission was refused, so nobody noticed the form was not.
+         *
+         * `Edit Products` WITH NO OPERATOR BRANCH, because that is precisely what `update()` does
+         * (:1541): there the permission is required of everyone and the operator exemption applies
+         * only to the OWNERSHIP question below. Adding an operator bypass here would let the
+         * operator open a form `update()` will refuse to accept.
+         */
+        if ($actor === null || ! $actor->isAbleTo('Edit Products')) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
 
         if ($actor === null || $actor->type !== \App\Policies\UserPolicy::PLATFORM_ADMIN) {
             $currentStore = getCurrentStore();
