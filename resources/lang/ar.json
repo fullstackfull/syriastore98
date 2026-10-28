@@ -3262,5 +3262,6 @@
     "Source": "المصدر",
     "Any source": "أي مصدر",
     "The source of this order was not recorded.": "لم يُسجَّل مصدر هذا الطلب.",
-    "No store is selected.": "لم يتم اختيار متجر."
+    "No store is selected.": "لم يتم اختيار متجر.",
+    "by": "بواسطة"
 }

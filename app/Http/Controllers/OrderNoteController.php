@@ -64,6 +64,15 @@ class OrderNoteController extends Controller
         // (OrderController.php:291), so the merchant would never see it. This
         // matches the API sibling, which stamps `$store->id`.
         $note->store_id       = $order->store_id;
+        /*
+         * P2-04-6. THE AUTHOR, recorded by the writer. `Auth::user()` is non-null here -- the
+         * policy check above returns early otherwise -- and this is the one place in the
+         * application where a human demonstrably TYPED the note's text, which is the only thing
+         * that justifies attributing it. The generated notes (`order_note_data()`, and the two
+         * "Order created" notes the manual-order writers emit) leave this NULL on purpose: they
+         * describe an event rather than state somebody's words.
+         */
+        $note->created_by     = Auth::id();
         $note->save();
 
         return redirect()->back()->with('success', __('Order Note successfully created.'));

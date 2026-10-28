@@ -568,6 +568,7 @@ class="text-start ps-3"><b>{{ order_currency_format_with_sym($order['coupon_pric
                                                      decision, so the timestamp stands alone. --}}
                                                 <span
                                                     class="time">{{ $note->created_at->format('d M Y h:i A') }}</span>
+                                                @include('order.partials.note-author', ['note' => $note])
                                                 @permission('Delete Order Note')
                                                 {!! Form::open([
                                                     'method' => 'DELETE',
@@ -595,6 +596,7 @@ class="text-start ps-3"><b>{{ order_currency_format_with_sym($order['coupon_pric
                                             <div class="cart-time-wrapper">
                                                 <span
                                                     class="time">{{ $note->created_at->format('d M Y h:i A') }}</span>
+                                                @include('order.partials.note-author', ['note' => $note])
                                                 @permission('Delete Order Note')
                                                 {!! Form::open([
                                                     'method' => 'DELETE',
@@ -622,6 +624,7 @@ class="text-start ps-3"><b>{{ order_currency_format_with_sym($order['coupon_pric
                                             <div class="cart-time-wrapper">
                                                 <span
                                                     class="time">{{ $note->created_at->format('d M Y h:i A') }}</span>
+                                                @include('order.partials.note-author', ['note' => $note])
                                                 @permission('Delete Order Note')
                                                 {!! Form::open([
                                                     'method' => 'DELETE',
@@ -649,6 +652,7 @@ class="text-start ps-3"><b>{{ order_currency_format_with_sym($order['coupon_pric
                                             <div class="cart-time-wrapper">
                                                 <span
                                                     class="time">{{ $note->created_at->format('d M Y h:i A') }}</span>
+                                                @include('order.partials.note-author', ['note' => $note])
                                                 @permission('Delete Order Note')
                                                 {!! Form::open([
                                                     'method' => 'DELETE',
@@ -676,6 +680,7 @@ class="text-start ps-3"><b>{{ order_currency_format_with_sym($order['coupon_pric
                                             <div class="cart-time-wrapper">
                                                 <span
                                                     class="time">{{ $note->created_at->format('d M Y h:i A') }}</span>
+                                                @include('order.partials.note-author', ['note' => $note])
                                                 @permission('Delete Order Note')
                                                 {!! Form::open([
                                                     'method' => 'DELETE',

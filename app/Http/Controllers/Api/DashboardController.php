@@ -243,6 +243,17 @@ public function AddOrderNote(Request $request)
      */
     $note->status = null;
     $note->store_id = $store->id;
+    /*
+     * P2-04-6. THE AUTHOR. The admin app's note endpoint is the second -- and last -- place a
+     * human types a note's text; the merchant is authenticated here by `custom.auth` and the
+     * store predicate above, so `\Auth::id()` is their own id and not request input.
+     *
+     * THE RESPONSE BELOW IS DELIBERATELY NOT WIDENED. It lists its keys explicitly, so adding
+     * `created_by` would change the order-note payload the shipped app parses. The data is
+     * recorded correctly either way, and letting the app DISPLAY it is a decision to take on
+     * purpose -- tracked as parity gap G9, not absorbed as a side effect of this slice.
+     */
+    $note->created_by = \Auth::id();
     $note->save();
 
     return $this->success([

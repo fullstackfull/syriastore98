@@ -3233,5 +3233,6 @@
     "Source": "Source",
     "Any source": "Any source",
     "The source of this order was not recorded.": "The source of this order was not recorded.",
-    "No store is selected.": "No store is selected."
+    "No store is selected.": "No store is selected.",
+    "by": "by"
 }

@@ -4825,3 +4825,49 @@ row before asserting the screen refuses.
 **Suites:** `tests/Unit` + `Feature/Merchant` + `Feature/Commerce` — **1492 passed, 7 skipped, 0
 failed**. `tests/Feature/Security` — **4096 passed** (the 9 new F149 tests), with the observability
 inventory re-pointed afterwards, as always.
+
+### P2-04-6 order-note author, and §3 PaymentWall integrity (2026-10-28)
+
+**15 new tests.** `OrderNoteAuthorTest` (11) and `PaymentWallPlanOrderIntegrityTest` (4).
+
+**The guard that matters most is one that already existed.**
+`OrderDetailTest::test_a_note_is_not_attributed_to_the_person_reading_the_page` pins the original
+defect — the notes list rendered `Auth::user()->name`, so one note read "by Amina" to Amina and "by
+Khalid" to Khalid. It still passes. That is the whole point: naming the **author** is not naming the
+**reader**, and the two are only distinguishable by a test where they are different people, so every
+positive test here uses two.
+
+**4 of 4 guards bitten — and the fourth bit in the opposite direction, which is the finding.**
+
+| reverted | result |
+|---|---|
+| the tenant predicate in `authorNameFor()` | 1 failed |
+| the partial given a `?? auth()->user()?->name` fallback | 1 failed |
+| `order_note_data()` stamped with `auth()->id()` | 1 failed |
+| **`created_by` removed from `$fillable`** | **0 failed** |
+
+That last row is the one worth keeping. The key was there with a comment calling it *"REQUIRED:
+both human writers pass it by key"* — and that was simply **wrong**: both writers assign the
+property directly (`$note->created_by = Auth::id();`), which bypasses `$fillable` entirely. Once
+unnecessary, keeping it would have been a pure forgery surface, because four `OrderNote::create`
+sites write system notes by mass assignment and `order_note_data()` composes more from gateway
+callbacks. So it was **removed**, and `test_an_author_cannot_be_mass_assigned` now pins the absence
+— which bites when the key is put back.
+
+**One over-broad assertion of mine, the third of the day.** `assertStringNotContainsString(' by ')`
+against the whole 734-line notes panel matched prose elsewhere. Scoped to the note's own card. The
+pattern is now explicit enough to name: *a short generic string asserted against a whole rendered
+document answers a question about the document, not about the element under test.*
+
+**§3 — PaymentWall, and the clause the owner underlined.** The branch is unreachable (the config
+gate is false by default and no SDK is installed), and a green suite over an unreachable branch
+could easily be read as "a subscription charge works". It is not, and
+`test_no_claim_is_made_about_a_live_collection` says so **as an assertion** rather than as prose: it
+fails the moment a Paymentwall SDK appears in `composer.json`, because at that point the branch
+becomes reachable and the question "does a real charge succeed?" becomes live and must be answered
+by driving it. The other three assert what is checkable: every attribute the branch writes is a real
+`plan_orders` column, the branch constructs no host `Order` and carries no `order_source`, and the
+activation gate is still closed. Reverting F147 turns two of them red **and** the census test.
+
+**Suites:** `Unit` + `Merchant` + `Commerce` + `Platform` + `Lynomia` + `Tenancy` — **2733 passed,
+13 skipped, 0 failed**. `tests/Feature/Security` — **4097 passed, 0 failed**.
