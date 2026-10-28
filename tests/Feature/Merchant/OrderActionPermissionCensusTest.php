@@ -369,9 +369,24 @@ class OrderActionPermissionCensusTest extends SecurityTestCase
         // requirement -- a list of where the requirement is met by a different mechanism.
         $guardedElsewhere = [
             // OrderDocumentAccessGuard (bootstrap/app.php:101) owns the order documents, by
-            // route-uri table: :185, :232, :243.
+            // route-uri table: :185, :231, :232, :243, :280. It enforces BOTH halves, not only
+            // row ownership: `PERMISSION = 'Show Order'` (:159), and its own docblock records
+            // closing exactly this bypass -- "a staff role holding 'Manage Order' but NOT
+            // 'Show Order' can today still read an order through `orders/order_view/{id}`,
+            // because OrderController::show() checks no permission at all".
+            //
+            // SO THE IN-HANDLER ABSENCE IN `show()`, `shippinglabel()` AND `order_receipt()` IS
+            // NOT A GAP. An independent sweep filed all three as missing-permission findings --
+            // correctly observing that the handlers check nothing, and correctly noting the
+            // middleware covers them -- and reading the middleware is what settles it. Recorded
+            // here so the next reader does not re-raise them.
             'GET shippinglabel/pdf/{id}',
             'GET order-receipt/{id}',
+            // A MERCHANT route, not a storefront one: it sits in the ['auth','xss','setlocate',
+            // 'verified'] group at routes/web.php:400 and renders the admin blade
+            // `order.order_show`. An earlier version of this list filed it under the storefront
+            // heading below, which was wrong -- caught by an independent sweep of this file.
+            'GET orders/order_view/{id}',
             // Writes, each carrying authorize() on an OrderPolicy ability.
             'POST order-assign',
             'POST order-status-change/{id}',
@@ -385,8 +400,6 @@ class OrderActionPermissionCensusTest extends SecurityTestCase
             // guard and ApiController::resolveStoreCustomer), and Phase 03's subject rather than
             // this row's. Listed rather than filtered by pattern so that a NEW storefront route
             // still has to be looked at once by a person.
-            'GET orders/order_view/{id}',
-            'GET order/all',
             'POST {storeSlug?}/place-order',
             'POST {storeSlug?}/applycoupon',
             'GET {storeSlug?}/paymentlist',
@@ -394,6 +407,10 @@ class OrderActionPermissionCensusTest extends SecurityTestCase
             'POST {storeSlug?}/status-cancel',
             'GET {storeSlug?}/order/{id}',
             'GET {storeSlug?}/order-complete',
+            // NO CONTROLLER METHOD, so the route answers with a framework error rather than
+            // reaching any code -- there is nothing to gate. Also a MERCHANT route (same group as
+            // the rest), which an earlier version of this list wrongly filed as storefront.
+            'GET order/all',
             // `Route::resource('order')` declares the full seven. `edit` and `update` have NO
             // METHOD on the controller, so they answer with a framework error rather than
             // reaching any code -- there is nothing to gate. `store` DOES exist (line 68) and is
