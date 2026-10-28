@@ -259,6 +259,18 @@ class AdminApiSurfaceTest extends SecurityTestCase
     {
         [$merchant, $store] = $this->makeTenant();
 
+        // P2-07-13 CONSEQUENCE. Four of these seven handlers gained a permission gate on
+        // 2026-10-28, and this test's subject is the STORE PREDICATE, not permissions. A fixture
+        // merchant holds no Laratrust role, so without these grants it would fail for an
+        // orthogonal reason and stop isolating what it was written for. A real merchant is
+        // unaffected: the shared global `admin` role carries all four and every merchant is given
+        // it for every store they create.
+        foreach (['Manage Order', 'Manage Products', 'Manage Coupon'] as $permission) {
+            $this->grantPermission(\App\Models\User::find($merchant->id), $permission);
+        }
+
+        $merchant = \App\Models\User::find($merchant->id);
+
         $token = $merchant->createToken('auth_token')->plainTextToken;
 
         $response = $this->withHeader('Authorization', 'Bearer ' . $token)

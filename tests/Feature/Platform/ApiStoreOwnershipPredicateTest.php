@@ -80,9 +80,40 @@ class ApiStoreOwnershipPredicateTest extends SecurityTestCase
     private const SITES_SCOPED_BY_ACTOR_ID = 1;
 
     /** @return array{0:\App\Models\User,1:\App\Models\Store,2:string} merchant, store, token */
+    /**
+     * P2-07-13 CONSEQUENCE, recorded rather than silently absorbed.
+     *
+     * Six `api/admin/*` handlers gained a permission gate on 2026-10-28, and this test's subject
+     * is the STORE PREDICATE rather than permissions: it asks whether the ownership check refuses
+     * the owner. A fixture merchant created by `makeTenant()` holds no Laratrust role at all, so
+     * without these grants the test would start failing for an orthogonal reason and would no
+     * longer be isolating what it was written to isolate.
+     *
+     * A REAL MERCHANT IS UNAFFECTED, which is why this is a fixture change and not a weakening:
+     * the shared global `admin` role carries all of these and is what every merchant is given for
+     * every store they create, and `Utility::addNewData()` tops it up on every web login.
+     * `AdminApiPermissionExposureTest::test_the_merchant_role_really_holds_every_permission_the_dashboard_gates_on`
+     * pins that premise.
+     */
+    private function grantGatedPermissions(\App\Models\User $merchant): void
+    {
+        foreach ([
+            'Manage Order',
+            'Manage Products',
+            'Manage Coupon',
+            'Manage Store Analytics',
+        ] as $permission) {
+            $this->grantPermission(\App\Models\User::find($merchant->id), $permission);
+        }
+    }
+
     private function tenantWithToken(): array
     {
         [$merchant, $store] = $this->makeTenant();
+
+        $this->grantGatedPermissions($merchant);
+
+        $merchant = \App\Models\User::find($merchant->id);
 
         return [$merchant, $store, $merchant->createToken('auth_token')->plainTextToken];
     }

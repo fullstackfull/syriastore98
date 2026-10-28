@@ -350,7 +350,39 @@ public function DeleteOrderNote(Request $request)
             'delivered_status' => [
                 'nullable',
                 'integer',
-                'in:0,1,2,3,4,5,6',
+            /*
+             * P2-07-12. BUILT FROM THE COLUMN'S OWN CONSTANTS, not typed out.
+             *
+             * `orders.delivered_status` holds NINE values and two of them are not fulfilment
+             * states: 7 is Partially Paid (a payment state) and 8 is Pre Order (an order type),
+             * both sharing the column. This read `in:0,1,2,3,4,5,6`, so the only client that
+             * calls this endpoint could not ask for either -- while F29 had already taught
+             * `Order::getOrderData()` to RENDER them, so the app could show a partially-paid
+             * order and not request one.
+             *
+             * The web's own filter says why a hand-typed list is the wrong shape
+             * (`order/partials/filters.blade.php:12-14`): "Typing a list by hand is how a filter
+             * ends up offering 0-6 and quietly hiding those orders from the one screen a merchant
+             * uses to find them." Deriving the rule from the constants means a tenth status
+             * becomes filterable on its own.
+             *
+             * STILL VALIDATED: widening the set is not removing it. A value the column cannot
+             * hold is still refused -- `test_a_status_the_column_does_not_hold_is_still_refused`.
+             *
+             * NO BUSINESS RULE CHANGES. This decides nothing about what a status means or when it
+             * may change; it stops the endpoint refusing a value the column legitimately holds.
+             */
+                'in:' . implode(',', [
+                    \App\Http\Controllers\HomeController::ORDER_STATUS_PENDING,
+                    \App\Http\Controllers\HomeController::ORDER_STATUS_DELIVERED,
+                    \App\Http\Controllers\HomeController::ORDER_STATUS_CANCEL,
+                    \App\Http\Controllers\HomeController::ORDER_STATUS_RETURN,
+                    \App\Http\Controllers\HomeController::ORDER_STATUS_CONFIRMED,
+                    \App\Http\Controllers\HomeController::ORDER_STATUS_PICKED_UP,
+                    \App\Http\Controllers\HomeController::ORDER_STATUS_SHIPPED,
+                    \App\Http\Controllers\HomeController::ORDER_STATUS_PARTIALLY_PAID,
+                    \App\Http\Controllers\HomeController::ORDER_STATUS_PRE_ORDER,
+                ]),
                 'required_without:payment_status',
             ],
 
@@ -407,6 +439,38 @@ $storeId = getCurrentStore();
                 'success' => false,
                 'message' => 'Order not found.',
             ], 404);
+        }
+
+        /*
+         * P2-07-13 — THE WRITE SIDE, which had no permission check at all.
+         *
+         * The store above is resolved from `getCurrentStore()`, so the TENANT boundary was sound.
+         * Nothing asked whether this principal MAY change an order. A staff member with no order
+         * permission could therefore mark any order in their employer's store Delivered, or mark
+         * it PAID -- and that second one changes what the merchant believes they are owed.
+         *
+         * THE GATE IS THE WEB'S OWN ABILITY, NOT A COPIED PERMISSION NAME, and that is the whole
+         * point: `OrderPolicy::updateStatus` already requires `Manage Order`, already checks
+         * `isPlatformAdmin` FIRST (because `isAbleTo()` refuses the platform operator and would
+         * otherwise lock them out of their own endpoint), and already re-checks `sameStore`.
+         * `OrderController` calls `$this->authorize('updateStatus', $order)` at four sites. Using
+         * the same ability means the app and the panel cannot drift about who may change an
+         * order -- which is exactly the drift P2-04-4 found between two of the web's own screens.
+         *
+         * 403 AND NEVER 401: the shipped Flutter app force-clears its session on any 401 and
+         * treats 403 as "authorized but not permitted" with the session intact, so a 401 here
+         * would log a merchant out for pressing a button they were never allowed to press.
+         * `Gate::forUser(...)->allows()` rather than `authorize()` so the status is ours to choose
+         * instead of whatever the exception handler renders for this route.
+         */
+        $actor = \Auth::user();
+
+        if (! $actor instanceof \App\Models\User
+            || ! \Illuminate\Support\Facades\Gate::forUser($actor)->allows('updateStatus', $order)) {
+            return response()->json([
+                'success' => false,
+                'message' => __('You do not have permission to perform this action.'),
+            ], 403);
         }
 
         $oldDeliveredStatus = (int) $order->delivered_status;
@@ -1201,7 +1265,22 @@ public function OrderList(Request $request)
 {
     $request->validate([
         'store_id' => ['required', 'integer'],
-        'delivered_status' => ['nullable', 'integer', 'in:0,1,2,3,4,5,6'],
+        // P2-07-12: all nine values the column holds -- see updateStatus() for the measurement.
+        'delivered_status' => [
+            'nullable',
+            'integer',
+            'in:' . implode(',', [
+                \App\Http\Controllers\HomeController::ORDER_STATUS_PENDING,
+                \App\Http\Controllers\HomeController::ORDER_STATUS_DELIVERED,
+                \App\Http\Controllers\HomeController::ORDER_STATUS_CANCEL,
+                \App\Http\Controllers\HomeController::ORDER_STATUS_RETURN,
+                \App\Http\Controllers\HomeController::ORDER_STATUS_CONFIRMED,
+                \App\Http\Controllers\HomeController::ORDER_STATUS_PICKED_UP,
+                \App\Http\Controllers\HomeController::ORDER_STATUS_SHIPPED,
+                \App\Http\Controllers\HomeController::ORDER_STATUS_PARTIALLY_PAID,
+                \App\Http\Controllers\HomeController::ORDER_STATUS_PRE_ORDER,
+            ]),
+        ],
         'payment_status' => ['nullable', 'string'],
         'from_date' => ['nullable', 'date'],
         'to_date' => ['nullable', 'date', 'after_or_equal:from_date'],

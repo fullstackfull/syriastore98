@@ -4367,3 +4367,85 @@ a third way. On a surface with an unmanaged table under it, there is always a th
   "referenced only as a static model-to-table mapping", and `Api\DashboardController` reads
   `CurrencyRate::where(...)` in three handlers the Flutter app calls. It is a comment rather than
   an assertion, so nothing fails. Named for the next schema pass.
+
+---
+
+# P2-07-11 + P2-07-12 — the write side, and a filter that hid two statuses (2026-10-28)
+
+| Suite | Result |
+|---|---|
+| Laravel `tests/Feature/Security/AdminApiOrderWritePermissionTest.php` (new) | **7 passed** |
+| Laravel `tests/Feature/Merchant/ApiOrderFilterStatusCoverageTest.php` (new) | **5 passed** |
+| Laravel `--testsuite=Unit` | **520 passed** |
+| Laravel the suites touching these routes | **801 passed** |
+| App `test/ui/order_filter_status_coverage_test.dart` (new) | **3 passed** |
+| App full `flutter test` | **1282 passed** |
+| App `flutter analyze` | **246 info, 0 warning, 0 error** |
+
+## Measuring "quick daily operations" found a write-side hole
+
+P2-07-11's acceptance was already met: changing an order's status is two taps from the order list,
+and the same sheet is reachable from the order detail screen and a customer's detail screen. No UI
+change was needed.
+
+What measuring it found is that `api/admin/orders/update-status` had **no permission check at all**.
+The store comes from `getCurrentStore()`, so the tenant boundary was sound — and then it wrote
+`delivered_status` and `payment_status` with nothing asking whether this principal may. The test
+that named it recorded the server's own words:
+
+```
+"success":true,"message":"Order updated successfully."
+```
+
+for a staff member holding only `Manage Product Category`. A read exposes a figure; **marking an
+unpaid order Paid changes what the merchant believes they are owed.**
+
+The gate is `Gate::forUser($actor)->allows('updateStatus', $order)` — the web's own ability, which
+`OrderController` uses at four sites. Not a copied permission name, so the two surfaces cannot
+drift about who may change an order. Deleting `OrderPolicy::allow`'s operator-first branch fails
+`test_the_operator_is_not_refused`, which confirms the test exercises that ordering rather than
+inheriting it silently.
+
+## Five existing tests went red, and investigating beat suppressing
+
+`AdminApiSurfaceTest::test_admin_list_routes_still_accept_the_callers_own_store` (×4) and
+`ApiStoreOwnershipPredicateTest::test_the_owning_merchant_is_not_refused_at_any_rewired_admin_endpoint`
+both assert that the **store predicate** does not refuse the owner. Their subject is tenancy. A
+fixture merchant from `makeTenant()` holds **no Laratrust role at all**, so a permission gate made
+them fail for an orthogonal reason — and each would have stopped isolating what it was written for.
+
+The fixtures grant the gated permissions now, with the reason written into both files. A real
+merchant is unaffected: the shared global `admin` role carries all of them and is what every
+merchant is given for every store they create, and
+`AdminApiPermissionExposureTest::test_the_merchant_role_really_holds_every_permission_the_dashboard_gates_on`
+pins that premise rather than leaving it as a claim.
+
+**The rule:** when a new gate turns an existing test red, read what that test was written to
+isolate before changing either side. Here the gate was right and the fixture was incomplete; the
+opposite is just as possible, and only reading tells you which.
+
+## The filter offered seven of nine, and the API refused the other two anyway
+
+`orders.delivered_status` holds nine values. The app's tabs stopped at Shipped, and
+`api/admin/orderlist` validated `in:0,1,2,3,4,5,6`, so a request for 7 or 8 answered **422** —
+while F29 had already taught the API to *render* both names. A merchant could see a partially-paid
+order and had no way to ask for one.
+
+Both validators are now derived from `HomeController`'s constants rather than typed out, which is
+what the web's filter does and why it says so:
+
+> "Typing a list by hand is how a filter ends up offering 0–6 and quietly hiding those orders from
+>  the one screen a merchant uses to find them."
+
+One of the three app tests asserts the tab **order**, not the labels, because
+`order_screen.dart` sends `selectedStatus - 1` — the position *is* the status. The bite test moved
+the two new tabs before "shipped" and two tests went red while every label was still present, which
+is exactly the failure a label-only assertion would have missed.
+
+## Limits
+
+- **Widening a validator is not changing a business rule.** Nothing here decides what a status
+  means or when it may change, and a value the column cannot hold is still refused.
+- **Product and customer search were measured and left alone** — neither had a comparable
+  accepted-set gap.
+- **MySQL remains unverified.** Everything above ran on SQLite `:memory:`.
