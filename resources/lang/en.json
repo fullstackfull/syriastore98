@@ -3266,5 +3266,10 @@
     "Create manual order": "Create manual order",
     "Add customer": "Add customer",
     "Create coupon": "Create coupon",
-    "An item in your cart is no longer available. Please contact the store before paying again.": "An item in your cart is no longer available. Please contact the store before paying again."
+    "An item in your cart is no longer available. Please contact the store before paying again.": "An item in your cart is no longer available. Please contact the store before paying again.",
+    "Variant Image": "Variant Image",
+    "Uploading…": "Uploading…",
+    "Image uploaded successfully.": "Image uploaded successfully.",
+    "Please select an image.": "Please select an image.",
+    "The file was not accepted.": "The file was not accepted."
 }

@@ -1326,6 +1326,97 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                 });
             }
         });  
-        
+
+        /*
+         * D-26 -- the one image a product variant may carry.
+         *
+         * BOUND HERE, ON THE PARENT PAGE, AND DELEGATED -- not inside the injected partials. Both
+         * `attribute_combinations_data` and `attribute_combinations_edit` are injected with
+         * jQuery's `.html()`, which EVALUATES their <script> tags, so a handler declared inside
+         * one of them re-binds on every injection and a single click then fires it N times. For
+         * an upload that would mean N requests, and for a delete N deletions. One delegated
+         * binding on the parent covers both partials and cannot accumulate.
+         */
+        $(document).on('change', '.ss-variant-image-input', function() {
+            var input = $(this);
+            var row = input.closest('.variant-image-row');
+            var feedback = row.find('.ss-variant-image-feedback');
+            var file = this.files && this.files[0];
+
+            if (!file) { return; }
+
+            var data = new FormData();
+            data.append('_token', $('meta[name="csrf-token"]').attr('content'));
+            data.append('variant_id', row.data('variant-id'));
+            data.append('variant_image', file);
+
+            feedback.text('{{ __('Uploading…') }}').removeClass('text-danger text-success');
+
+            $.ajax({
+                url: '{{ route('product.variant.image.store') }}',
+                type: 'POST',
+                data: data,
+                processData: false,
+                contentType: false,
+                success: function(res) {
+                    if (res.flag !== 'success') {
+                        /* The server's own wording, which for a refused file NAMES it (F75). */
+                        feedback.addClass('text-danger').text(res.msg || '{{ __('The file was not accepted.') }}');
+                        return;
+                    }
+                    feedback.addClass('text-success').text(res.msg);
+                    row.find('.ss-variant-image-preview').html(
+                        $('<img>').attr({src: res.url, alt: '{{ __('Variant Image') }}', width: 80}).addClass('rounded')
+                    ).append(
+                        $('<a>').attr('href', '#')
+                            .addClass('btn btn-sm btn-danger ms-2 ss-variant-image-remove')
+                            .append($('<i>').addClass('ti ti-trash text-white py-1'))
+                    );
+                    input.val('');
+                },
+                error: function(xhr) {
+                    /* A refusal is a 403 or a 422 with a body; anything else gets a generic line
+                       rather than a raw status, and NOTHING from the response is injected as
+                       HTML -- `.text()`, not `.html()`. */
+                    var msg = (xhr.responseJSON && xhr.responseJSON.msg)
+                        ? xhr.responseJSON.msg
+                        : '{{ __('The file was not accepted.') }}';
+                    feedback.addClass('text-danger').text(msg);
+                },
+            });
+        });
+
+        $(document).on('click', '.ss-variant-image-remove', function(e) {
+            e.preventDefault();
+
+            var row = $(this).closest('.variant-image-row');
+            var feedback = row.find('.ss-variant-image-feedback');
+
+            $.ajax({
+                url: '{{ route('product.variant.image.destroy') }}',
+                type: 'POST',
+                data: {
+                    _token: $('meta[name="csrf-token"]').attr('content'),
+                    /* Laravel reads the method override from the body; the route is DELETE. */
+                    _method: 'DELETE',
+                    variant_id: row.data('variant-id'),
+                },
+                success: function(res) {
+                    if (res.flag !== 'success') {
+                        feedback.addClass('text-danger').text(res.msg || '{{ __('Permission denied.') }}');
+                        return;
+                    }
+                    row.find('.ss-variant-image-preview').empty();
+                    feedback.removeClass('text-danger').addClass('text-success').text(res.msg);
+                },
+                error: function(xhr) {
+                    var msg = (xhr.responseJSON && xhr.responseJSON.msg)
+                        ? xhr.responseJSON.msg
+                        : '{{ __('Permission denied.') }}';
+                    feedback.addClass('text-danger').text(msg);
+                },
+            });
+        });
+
     </script>
 @endpush

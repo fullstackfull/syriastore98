@@ -73,7 +73,19 @@ class VariantDeleteScopeTest extends TestCase
         $raw = (string) file_get_contents($path);
 
         $stripped = preg_replace('/\{\{--.*?--\}\}/s', '', $raw);
-        $stripped = preg_replace('#/\*.*?\*/#s', '', (string) $stripped);
+        /*
+         * A NEGATIVE LOOKBEHIND BEFORE THE OPENER, AND IT IS LOAD-BEARING. A naive opener pattern
+         * treats the slash-star inside `accept="image/-"` (read that as a wildcard) as the start
+         * of a PHP block comment and runs to the next closer. MEASURED at 5678 characters: it
+         * swallowed the whole downloadable-file block of two variant views, and two ratchets
+         * failed with "this view does not emit the id it looks up". The attribute is correct
+         * HTML; the stripper was wrong. A real comment opener is never preceded by a word
+         * character, a quote or a slash.
+         *
+         * The sequences are not written out literally in this paragraph, because a closer inside
+         * a PHP block comment ends it -- a mistake made once while fixing this very line.
+         */
+        $stripped = preg_replace('#(?<![\w"\'/])/\*.*?\*/#s', '', (string) $stripped);
         $stripped = preg_replace('#^\s*//.*$#m', '', (string) $stripped);
 
         $this->assertNotSame('', trim((string) $stripped), 'stripping removed the whole file');

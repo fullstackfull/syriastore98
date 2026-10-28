@@ -280,6 +280,42 @@
                                                 </div>
                                                 <input type="hidden" class="options_data_{{ $str }}[]"
                                                     name="options_datas[]" value="{{ $str }}">
+
+                                                {{-- D-26 -- THE ONE IMAGE THIS VARIANT MAY CARRY.
+                                                     Rendered only for a SAVED variant, because the control binds to a
+                                                     variant id and an unsaved combination has none. The upload posts to
+                                                     `product.variant.image.store`, which gates on `Edit Products` and
+                                                     resolves ownership through the variant's product -- the markup
+                                                     carries no product id and no store id, so there is nothing here for
+                                                     a caller to substitute. --}}
+                                                @if (!empty($ProductVariantData->id))
+                                                    @php
+                                                    /* The block form, not `@php(...)`: Blade's inline
+                                                       directive does not survive the nested parentheses in
+                                                       `($variantImages ?? collect())->get(...)` -- it closes at
+                                                       the first `)` and the view fails to compile. */
+                                                    $ssVariantImage = isset($variantImages) ? $variantImages->get($ProductVariantData->id) : null;
+                                                @endphp
+                                                    <div class="row variant-image-row" data-variant-id="{{ $ProductVariantData->id }}">
+                                                        <div class="form-group col-md-12">
+                                                            <label for="variant_image_{{ $safe_str }}"
+                                                                class="form-label">{{ __('Variant Image') }}</label>
+                                                            <input type="file" accept="image/*"
+                                                                id="variant_image_{{ $safe_str }}"
+                                                                class="form-control ss-variant-image-input">
+                                                            <div class="ss-variant-image-feedback small mt-1" role="status" aria-live="polite"></div>
+                                                            <div class="mt-2 ss-variant-image-preview">
+                                                                @if ($ssVariantImage)
+                                                                    <img src="{{ get_file($ssVariantImage->image_path) }}"
+                                                                        alt="{{ __('Variant Image') }}" width="80" class="rounded" />
+                                                                    <a href="#" class="btn btn-sm btn-danger ms-2 ss-variant-image-remove">
+                                                                        <i class="ti ti-trash text-white py-1"></i>
+                                                                    </a>
+                                                                @endif
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                @endif
                                                 <div class="row download-product d-none down_product_{{ $str }}"
                                                     data-id="{{ $str }}" id="download_product_row_{{ $safe_str }}">
                                                     <div class="form-group mb-0">

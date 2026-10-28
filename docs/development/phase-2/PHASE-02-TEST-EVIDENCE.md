@@ -6258,3 +6258,40 @@ rejected it on **one error** — a zero-error baseline with no manifest section,
 means a test could not run at all. That was `PaymentTypeDisplayTest`'s fixture naming a
 `customers.name` column that does not exist. Failures and skips already matched; the error was the
 only violation.
+
+---
+
+## D-26 — one image per product variant, driven live — 2026-10-28
+
+`docs/development/phase-2/tools/check-variant-image-live.cjs`, on `/product/1/edit` with the dev
+product's 8 stored variants, in both directions:
+
+| | `light / ltr / en` | `dark / rtl / ar` |
+|---|---|---|
+| controls rendered | 8, ids all distinct, every label activating its own input | identical |
+| upload to variant 22 | preview appears on 22 only; the other variant untouched | identical |
+| server feedback | `Image uploaded successfully.` | `تم رفع الصورة بنجاح.` |
+| rows written | exactly one, `variant_id = 22` | identical |
+| after remove | preview cleared, **0** rows | identical |
+| page errors | none | none |
+
+### Three faults in the probe before it measured anything, all recorded in it
+
+1. It clicked the remove button while the variant's accordion panel was **collapsed** —
+   `setInputFiles` does not need visibility but `click` does, so it timed out. The probe now opens
+   the panel first.
+2. It compared `innerHTML.trim().length` before and after. A second run against a variant that
+   already had an image measured **443 → 244** and reported "no preview", because the
+   server-rendered markup is longer than the JS-built one. It now asks whether an `<img>` exists.
+3. The crashed first run left a row behind, so the second run started from a state it did not
+   expect. The fixture is cleaned before each run and after.
+
+### And one fault in the handler that only the tests found
+
+The first draft uploaded to `uploads/pro_image` — a plausible directory name that does not exist
+as a convention here. `ProductImage`'s `saving` hook calls `StoredPathPolicy::productImage()`,
+which judges a stored path against **the owning store's folder**, so every upload came back
+`The file path is not accepted.` as a 302 with a validation error. The gallery writes to
+`uploads/<store_id>` (`ProductController:598`) and so does this now. My own test fixtures made the
+identical mistake and failed for the identical reason, which is the clearest evidence the policy
+is doing its job.

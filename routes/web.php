@@ -973,6 +973,17 @@ Route::get(
 
     Route::delete('product-attribute-delete/{id}', [ProductController::class, 'product_attribute_delete'])->name('product.attribute.delete');
 
+    /*
+     * D-26 -- the one image a product variant may carry. Add/replace and remove.
+     *
+     * In this group, so they inherit its middleware; declared ONCE each, because a later
+     * declaration of the same method+URI silently replaces an earlier one along with its
+     * middleware (CLAUDE.md). Both handlers gate on `Edit Products` and resolve ownership through
+     * the variant's PRODUCT before touching anything.
+     */
+    Route::post('products/variant-image', [ProductController::class, 'variant_image_store'])->name('product.variant.image.store');
+    Route::delete('products/variant-image', [ProductController::class, 'variant_image_destroy'])->name('product.variant.image.destroy');
+
     Route::resource('app-setting', AppSettingController::class);
     Route::get('mobile-screen-content', [AppSettingController::class, 'MobileScreenContent'])->name('mobilescreen.content');
     Route::post('theme-settings', [AppSettingController::class, 'ThemeSettings'])->name('theme.settings');

@@ -2917,7 +2917,25 @@ $Product->cost_price = $request->cost_price;
         $product_stock = ProductVariant::where('product_id', $request->id)->where('store_id', getCurrentStore())
             ->get();
         $Shipping = Shipping::where('store_id', getCurrentStore())->pluck('name', 'id')->prepend('Same as parent', '');
-        return view('product.attribute_combinations_data', compact('product_stock', 'Shipping'));
+
+        /*
+         * D-26 -- each variant's one image, resolved once and keyed by variant id.
+         *
+         * KEYED RATHER THAN LOOKED UP IN THE VIEW, which the sibling views do for attribute
+         * options. A per-panel query would be one round trip per variant, and this renderer
+         * routinely draws eight or more; the edit page injects it from `$(document).ready`, so
+         * the cost lands on every page load rather than on an interaction.
+         *
+         * Narrowed by the VARIANT IDS ALREADY RESOLVED above, not by `$request->id`: those ids
+         * have been through this method's own `store_id` predicate, so the media lookup inherits
+         * it instead of repeating a weaker version of it.
+         */
+        $variantImages = ProductImage::whereIn('variant_id', $product_stock->pluck('id'))
+            ->whereNotNull('variant_id')
+            ->get()
+            ->keyBy('variant_id');
+
+        return view('product.attribute_combinations_data', compact('product_stock', 'Shipping', 'variantImages'));
     }
 
     public function combinations($arrays)
@@ -3166,6 +3184,255 @@ $Product->cost_price = $request->cost_price;
         return $msg;
     }
 
+    /**
+     * D-26 — THE ONE IMAGE A PRODUCT VARIANT MAY CARRY.
+     *
+     * Owner-approved for Phase 02: one image per variant, reusing the existing media model, the
+     * Gallery Upload path and `UploadLimits`; add, replace and remove; bound to the correct
+     * variant and the correct store; without losing a variant's price, stock or SKU and without
+     * changing its identity.
+     *
+     * NOTHING HERE TOUCHES `product_variants`. The image lives on `product_images.variant_id`,
+     * so a media operation cannot write to the row that holds the variant's money and stock —
+     * which is the whole reason the column went there. The variant row is READ, to establish
+     * ownership, and never written.
+     *
+     * ONE IMAGE PER VARIANT IS ENFORCED BY REPLACING, not by a unique index: see the migration's
+     * docblock for why an index that Phase 03 would have to drop is not cheap.
+     */
+    public function variant_image_store(Request $request)
+    {
+        /*
+         * PERMISSION FIRST, BEFORE THE VARIANT IS LOOKED UP. P1-INV-10 (e). `Edit Products`,
+         * matching `file_delete()`: this writes media onto an EXISTING product's variant and the
+         * only caller is the edit screen. Placed ahead of the lookup so a caller without the
+         * permission cannot learn from the response whether a variant id exists.
+         */
+        if ($this->lacksProductPermission(['Edit Products'])) {
+            return response()->json([
+                'flag' => 'error',
+                'msg' => __('Permission denied.'),
+            ], 403);
+        }
+
+        $variant = ProductVariant::find($request->variant_id);
+
+        /*
+         * OWNERSHIP THROUGH THE VARIANT'S PRODUCT, NEVER THROUGH THE VARIANT'S OWN `store_id`.
+         *
+         * `ProductVariant` registers no `StoreScope` and is not in `config/tenancy.php`'s
+         * `scoped_models`, so `ProductVariant::find($id)` reaches every tenant's variants and
+         * nothing narrows it — the same shape as S19's measured cross-tenant stock drain, and the
+         * same reason `product_attribute_delete()` resolves through the product. The variant's
+         * own `store_id` is nullable and is not the authority on who owns it.
+         *
+         * The predicate cannot be `where('product_id', $request->product_id)` either: that
+         * compares the caller's own two values, which CLAUDE.md records as having produced four
+         * separate defects.
+         */
+        $owner = $variant ? Product::find($variant->product_id) : null;
+
+        if ($variant === null || $this->productIsOutsideCurrentStore($owner)) {
+            \Illuminate\Support\Facades\Log::warning(
+                'variant image upload refused: the variant is missing or belongs to another store',
+                [
+                    'variant_id' => $request->variant_id,
+                    'product_id' => $variant->product_id ?? null,
+                    'product_store_id' => $owner->store_id ?? null,
+                    'current_store' => getCurrentStore(),
+                    'user_id' => optional(auth()->user())->id,
+                ]
+            );
+
+            /*
+             * 403 and the same body for both cases, so a caller cannot distinguish "no such
+             * variant" from "not yours". Not a 401: that is the status the shipped Flutter app
+             * force-logs-out on, and this is a web route besides.
+             */
+            return response()->json([
+                'flag' => 'error',
+                'msg' => __('Permission denied.'),
+            ], 403);
+        }
+
+        if (! $request->hasFile('variant_image')) {
+            return response()->json([
+                'flag' => 'error',
+                'msg' => __('Please select an image.'),
+            ], 422);
+        }
+
+        /*
+         * THE STORE IS THE PRODUCT'S, NOT `getCurrentStore()`. Ownership has just been proved, and
+         * the helper hands a `super admin` with an empty `current_store` the hardcoded literal `1`
+         * (helper.php:636-637) — so an operator acting on another store's product would stamp the
+         * media row with store 1. That is the F157 trap, and F168 found the same shape two methods
+         * away. The three existing gallery writers use `getCurrentStore()`; they are not changed
+         * here, but a new writer should not copy an edge it does not need.
+         */
+        $storeId = (int) $owner->store_id;
+
+        /*
+         * THE STORE'S OWN FOLDER, `uploads/<store_id>` — which is what the gallery writes to
+         * (:598, `'uploads/' . $store_id->id`) and what `StoredPathPolicy::productImage()`
+         * enforces on save. A plausible-looking `uploads/pro_image` is REFUSED: the first draft
+         * of this handler used it and every upload came back
+         * "The file path is not accepted." from the P1-SEC-28 saving hook, because the policy
+         * judges a stored path against the owning store's folder rather than against a
+         * well-known directory name. Inheriting that hook is one of the three reasons the column
+         * went on `product_images`, so it would be perverse to then write a path it rejects.
+         */
+        $dir = 'uploads/' . $storeId;
+
+        $image = $request->file('variant_image');
+
+        /*
+         * THE PLAN'S STORAGE LIMIT, CHARGED TO THE SAME PRINCIPAL THE GALLERY CHARGES.
+         * `Utility::updateStorageLimit(creatorId(), $bytes)` returns `1` or a message, and
+         * `creatorId()` resolves a staff user to their merchant — so an employee's upload counts
+         * against the merchant's plan, not against a staff account with no plan. That is the
+         * existing idiom at :1758 and :591, copied rather than reinvented; P1-INV-25 records that
+         * "which user is debited" is a question this codebase has already answered.
+         */
+        $result = \App\Models\Utility::updateStorageLimit(\Auth::user()->creatorId(), $image->getSize());
+
+        if ($result != 1) {
+            return response()->json([
+                'flag' => 'error',
+                'msg' => is_string($result) ? $result : __('The file was not accepted.'),
+            ], 422);
+        }
+
+        $fileName = rand(10, 100) . '_' . time() . '_' . $image->getClientOriginalName();
+
+        /*
+         * `upload_file`, NOT `keyWiseUpload_file`, AND THE DIFFERENCE IS NOT COSMETIC. The
+         * gallery's helper does `$request->file($key)[$data_key]` — it indexes into an ARRAY of
+         * files, because the gallery is a multi-file loop. This is one file, so that helper would
+         * index a single `UploadedFile` and fail. `upload_file` is its single-file sibling and is
+         * what the product's COVER image already uses.
+         *
+         * They share the rules, which is what "reuse Gallery Upload and `UploadLimits`" actually
+         * requires: both read `mimes:`/`max:` from the same storage settings
+         * (`local_storage_validation` / `s3_storage_validation` / `wasabi_storage_validation`)
+         * and both return `['flag' => 0, 'msg' => ...]` on refusal. So the accepted set is the one
+         * configured set, not a second one.
+         *
+         * The refusal is reported BY NAME, the F75 shape: a rejected image that vanishes in
+         * silence is the defect that fix closed, and this is a new upload surface that could
+         * easily have reintroduced it.
+         */
+        $path = \App\Models\Utility::upload_file($request, 'variant_image', $fileName, $dir, []);
+
+        if (! isset($path['url'])) {
+            return response()->json([
+                'flag' => 'error',
+                'msg' => $path['msg'] ?? __('The file was not accepted.'),
+                'file' => (string) $image->getClientOriginalName(),
+            ], 422);
+        }
+
+        /*
+         * REPLACE, AND THE OLD FILE GOES WITH THE ROW. Deleting the previous row through the same
+         * path `file_delete()` uses means the unlink is authorised by `StoredUpload` — rule 3,
+         * the owner-folder check — rather than by a second containment implementation. A stored
+         * path that does not resolve still loses its row: a bad stored value must not make an
+         * image unreplaceable, which is what P1-INV-07 established.
+         */
+        $existing = ProductImage::where('product_id', $owner->id)
+            ->where('variant_id', $variant->id)
+            ->get();
+
+        foreach ($existing as $old) {
+            if (! \App\Services\StoredUpload::delete((string) $old->image_path, \Auth::user()->creatorId())
+                && ! empty($old->image_path)) {
+                \Illuminate\Support\Facades\Log::warning(
+                    'variant image row replaced but the old file was not unlinked: StoredUpload'
+                    . ' refused the stored path',
+                    ['image_id' => $old->id, 'image_path' => (string) $old->image_path]
+                );
+            }
+
+            $old->delete();
+        }
+
+        $productImage = new ProductImage();
+        $productImage->product_id = $owner->id;
+        $productImage->variant_id = $variant->id;
+        $productImage->image_path = $path['url'];
+        $productImage->image_url = $path['full_url'];
+        $productImage->store_id = $storeId;
+        $productImage->save();
+
+        return response()->json([
+            'flag' => 'success',
+            'msg' => __('Image uploaded successfully.'),
+            'id' => $productImage->id,
+            'url' => get_file($productImage->image_path),
+        ]);
+    }
+
+    /**
+     * D-26 — remove a variant's image. Add, replace and remove were approved together.
+     */
+    public function variant_image_destroy(Request $request)
+    {
+        if ($this->lacksProductPermission(['Edit Products'])) {
+            return response()->json([
+                'flag' => 'error',
+                'msg' => __('Permission denied.'),
+            ], 403);
+        }
+
+        $variant = ProductVariant::find($request->variant_id);
+        $owner = $variant ? Product::find($variant->product_id) : null;
+
+        if ($variant === null || $this->productIsOutsideCurrentStore($owner)) {
+            \Illuminate\Support\Facades\Log::warning(
+                'variant image delete refused: the variant is missing or belongs to another store',
+                [
+                    'variant_id' => $request->variant_id,
+                    'product_id' => $variant->product_id ?? null,
+                    'product_store_id' => $owner->store_id ?? null,
+                    'current_store' => getCurrentStore(),
+                    'user_id' => optional(auth()->user())->id,
+                ]
+            );
+
+            return response()->json([
+                'flag' => 'error',
+                'msg' => __('Permission denied.'),
+            ], 403);
+        }
+
+        /*
+         * SCOPED BY BOTH THE PRODUCT AND THE VARIANT. The variant id alone would be enough given
+         * the ownership check above, but the product predicate means a `variant_id` that somehow
+         * points across products cannot reach another product's media row.
+         */
+        $images = ProductImage::where('product_id', $owner->id)
+            ->where('variant_id', $variant->id)
+            ->get();
+
+        foreach ($images as $image) {
+            if (! \App\Services\StoredUpload::delete((string) $image->image_path, \Auth::user()->creatorId())
+                && ! empty($image->image_path)) {
+                \Illuminate\Support\Facades\Log::warning(
+                    'variant image row deleted but the file was not unlinked: StoredUpload refused'
+                    . ' the stored path',
+                    ['image_id' => $image->id, 'image_path' => (string) $image->image_path]
+                );
+            }
+
+            $image->delete();
+        }
+
+        return response()->json([
+            'flag' => 'success',
+            'msg' => __('Image delete Successfully'),
+        ]);
+    }
+
     public function attribute_combination_edit(Request $request)
     {
         /*
@@ -3272,7 +3539,17 @@ $Product->cost_price = $request->cost_price;
 
         $combinations = $this->combination($options);
         $Shipping = Shipping::where('store_id', getCurrentStore())->pluck('name', 'id')->prepend('Same as parent', '');
-        return view('product.attribute_combinations_edit', compact('combinations', 'unit_price', 'product_name', 'product', 'Shipping'));
+
+        /*
+         * D-26 -- each variant's one image, keyed by variant id. Scoped to THIS product, whose
+         * ownership was proved above, so the lookup cannot reach another tenant's media.
+         */
+        $variantImages = ProductImage::where('product_id', $product->id)
+            ->whereNotNull('variant_id')
+            ->get()
+            ->keyBy('variant_id');
+
+        return view('product.attribute_combinations_edit', compact('combinations', 'unit_price', 'product_name', 'product', 'Shipping', 'variantImages'));
     }
 
     public function product_attribute_delete($id)

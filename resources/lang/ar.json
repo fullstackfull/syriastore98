@@ -3295,5 +3295,10 @@
     "Create manual order": "إنشاء طلب يدوي",
     "Add customer": "إضافة عميل",
     "Create coupon": "إنشاء كوبون",
-    "An item in your cart is no longer available. Please contact the store before paying again.": "أحد العناصر في سلتك لم يعد متوفراً. يرجى التواصل مع المتجر قبل الدفع مرة أخرى."
+    "An item in your cart is no longer available. Please contact the store before paying again.": "أحد العناصر في سلتك لم يعد متوفراً. يرجى التواصل مع المتجر قبل الدفع مرة أخرى.",
+    "Variant Image": "صورة المتغيّر",
+    "Uploading…": "جارٍ الرفع…",
+    "Image uploaded successfully.": "تم رفع الصورة بنجاح.",
+    "Please select an image.": "يرجى اختيار صورة.",
+    "The file was not accepted.": "لم يتم قبول الملف."
 }
