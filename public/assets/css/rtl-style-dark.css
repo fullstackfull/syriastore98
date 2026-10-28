@@ -16759,7 +16759,18 @@ body .dash-sidebar.light-sidebar{
 }
 
 .dash-header .dash-head-link {
-    color: #808191;
+    /* F158. MEASURED 3.71:1 ON EVERY TEXT NODE IN THE SHARED HEADER IN DARK MODE, below the 4.5:1
+       AA floor for 14px text, in BOTH ar/rtl and en/ltr -- "Hi, <name>!", "Notifications",
+       "Quick Add", the store name and the language code, on every merchant screen. Light mode
+       measured clean, so this is the dark token and only the dark token.
+       Was #808191 = rgb(128,129,145) on rgb(41,42,51). #9596a8 keeps the same blue-grey hue --
+       it is a neutral UI colour, not a merchant brand colour -- and measures 5.03:1, which leaves
+       headroom rather than sitting on the line.
+       CONFINED TO `.dash-header`, deliberately: the owner's F158 condition forbids changing the
+       theme's general all-paragraphs rule in one go, and `.dash-header` appears in exactly three
+       first-party views and in NO WorkDo Blade view (the six WorkDo files that mention it are that
+       module's own CSS/JS copies, which this sheet does not reach). */
+    color: #9596a8;
     display: inline-flex;
     align-items: center;
     padding: 8.5px 12px;
@@ -29467,4 +29478,26 @@ label{
 }
 .new-login-design{
     border: 1px solid rgba(206, 206, 206, 0.2) !important;
+}
+
+/* F158 — THE HEADER'S DROPDOWN ITEMS, MEASURED AT 3.5:1 IN DARK MODE.
+ *
+ * `#808191` on the dropdown surface `rgb(38,47,63)`, 14px, in both ar/rtl and en/ltr: the profile
+ * menu, the quick-add list, the store switcher and all 18 language entries -- 23 failing text nodes
+ * on every merchant screen. They were MISSED by the first pass of this measurement, which read only
+ * the visible header and found five nodes: `dropdown-menu` is `display:none` until opened, so a
+ * probe that does not open them measures the bar and nothing in it.
+ *
+ * CONFINED TO `.dash-header`, AND THAT IS A SCOPE DECISION RATHER THAN CAUTION. The plain
+ * `.dropdown-item` rule above is Bootstrap's own class, used across the whole application, and the
+ * owner's F158 condition forbids changing a theme-wide rule in one go. `.dash-h-dropdown` would
+ * have been the other natural anchor and it is WORSE: eight vendored WorkDo Blade views carry that
+ * class, and fixing surfaces this measurement never looked at is extending the change beyond its
+ * evidence. `.dash-header` appears in three first-party views and in no WorkDo Blade view at all.
+ *
+ * Specificity (0,2,0) against the base rule's (0,1,0), so it wins without `!important`.
+ * #9596a8 measures 4.75:1 here and 5.03:1 on the header bar -- one token for both surfaces.
+ */
+.dash-header .dropdown-item {
+    color: #9596a8;
 }

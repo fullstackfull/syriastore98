@@ -1626,6 +1626,109 @@ its reasoning are written down here rather than inferred from an absence.
 **Nothing was built. That is the decision, not an omission** — and it is stated that way so a later
 reader cannot mistake the missing preview for work that was dropped.
 
+### Step 1 outcome, 2026-10-28 — **the verification harness and three real defects landed; the CONVERSION ITSELF IS BLOCKED on a decision, with the measurement below**
+
+**What Step 1 asked for, and what measuring it first established.** The instruction is to convert
+the shared header to `ss-*` while preserving every id, event handler, link and permission, and
+without deleting WorkDo elements. Measured before touching anything:
+
+| measurement | result |
+|---|---|
+| theme CSS rules targeting `.dash-header` | **210** across `style.css` and `style-dark.css` |
+| of those, rules carrying an **id** in the selector | 2 (`#vertical-nav-toggle`, `.dash-head-link#mobile-collapse`) |
+| theme JS selecting the header | `dash.js` selects `#mobile-collapse` and `.dash-horizontal #mobile-collapse` |
+| header theme classes also used by WorkDo files | `drp-language` 22, `hide-mob` 15, `dash-head-link` 13, `drp-arrow` 12, `dash-h-dropdown` 10 … |
+| design-system header component to migrate **to** | **none** — the DS has `.ss-menu` for a dropdown's contents and `.ss-bell__count`, and no header, topbar or dropdown component at all |
+
+So "convert to `ss-*`" has no destination today, and the two ways to create one are both larger than
+a small coherent slice:
+
+- **(A) Replace** the theme classes on the first-party header. The DS would then have to reproduce
+  what those 210 rules do — layout, spacing, colours, the mobile collapse, light and dark, LTR and
+  RTL — because the header renders on **every** merchant screen across 70 modules. If the new
+  component misses anything, every screen's header is wrong at once, which is the outcome *"لا تنفذ
+  تغييرات واسعة دفعة واحدة"* exists to prevent.
+- **(B) Layer** `ss-*` alongside. Nothing breaks, but two of the theme's rules carry an id, so DS
+  class rules lose the cascade to them; making the DS win means escalating specificity or
+  `!important` across a shared surface, and the result is a hybrid whose every state has to be
+  re-verified anyway.
+- **(C) Leave the header on the theme** and spend Step 1's budget on the defects the verification
+  actually surfaced — which is what has been done, below.
+
+**This is recorded as a decision rather than taken, because both (A) and (B) change a surface shared
+by 70 modules and (A) in particular is a re-implementation rather than a migration.** Note the
+WorkDo files that share those classes are that module's own CSS/JS copies, not Blade views — so a
+rule added to the host theme does not reach them, and `.dash-header` appears in exactly three
+first-party views and no WorkDo view. That is what made (C)'s fixes safe.
+
+### What landed on that surface instead, all of it measured
+
+**The verification harness Step 1's conditions require, built first and built to be distrusted.**
+`capture-header-contract.cjs` records the header's behavioural contract as data — every id, every
+link href and accessible name, every form's action and method, every Bootstrap dropdown **clicked
+for real** and its open state read, the header's geometry and computed colours, the focusable set
+and the real Tab order — across 8 configurations (en/ltr, ar/rtl × light, dark) × 6 screens.
+
+**And it was non-deterministic at first, which nearly produced a false finding.** Two runs of the
+*same* tree disagreed in 2 of 24 captures: the Store Link and POS controls are icon-only with a
+`title`, and Bootstrap's tooltip plugin **moves** that attribute into `data-bs-original-title` and
+clears `title` when it initialises — so whether the control had a name depended on whether the
+plugin had run. The first before/after diff showed those two "gaining accessible names" and I was
+one step from attributing it to a CSS change. Reading both attributes is stable *and* the more
+accurate answer. **The comparison was only trusted after two runs of one tree came back
+byte-identical in every field.**
+
+**The before/after, on the trustworthy tool:** across all 24 captures the **only** difference in
+any field is the one intended link change. ids, forms, dropdown toggles, all four dropdowns still
+opening, geometry, the focusable set and the Tab order are identical.
+
+**F158 on the header — three failures, three surfaces, measured in a real browser.**
+
+| surface | before | after |
+|---|---|---|
+| header bar links, dark | `#808191` on `rgb(41,42,51)` — **3.71:1** | `#9596a8` — **5.03:1** |
+| header dropdown items, dark | `#808191` on `rgb(38,47,63)` — **3.50:1** | `#9596a8` — **4.75:1** |
+| brand as text, light | `var(--theme-color)` on white — **2.59:1** | `--ss-brand-ontext` — AA |
+
+Dark went from **28 of 30** text nodes below AA to **0 of 30**; light from 2 to 0; all four
+configurations.
+
+**OPENING THE DROPDOWNS IS WHY THOSE NUMBERS ARE 30 AND NOT 5.** The probe's first version read
+only the visible bar and found five nodes. The menus are `display:none` until opened, so the profile
+menu, the quick-add list, the store switcher and all eighteen language entries were invisible to it
+— **23 of the 28 dark failures and BOTH light failures were in there.** A contrast tool that does
+not open what the user opens is measuring a different page.
+
+**The brand token is the merchant's and is not changed.** `--theme-color` is the merchant's brand —
+ten presets plus a picker — and the owner's F158 condition protects it by name. So the third fix
+reuses P2-A-03's existing `--ss-brand-ontext`: the merchant's own colour darkened only until it
+reaches AA, computed once in the layout. No parallel mechanism, no colour of mine, and a custom
+picker value handled by the same arithmetic.
+
+**And that fix was wrong in one direction until it was measured.** Applied unconditionally it took
+dark mode from 0 failures back to **2, at 2.72:1** — because `--ss-brand-ontext` is darkened against
+the *light* page, and the bright brand colour was already compliant on a dark surface (5.34:1). It
+is now scoped to light mode via `html:not([data-ss-theme="dark"])`. The P2-A-03 breadcrumb rule has
+the same shape and has not been measured on a dark surface; it is left alone, because F158 says to
+fix the sites that actually failed and the breadcrumb is not one this measurement covered.
+
+**Every token is confined to `.dash-header`**, which is the scope decision rather than caution: a
+bare `.dropdown-item` rule would restyle every dropdown in the application, which F158's conditions
+forbid, and `.dash-h-dropdown` — the other natural anchor — is carried by **eight vendored WorkDo
+Blade views**, so anchoring there would change surfaces this measurement never looked at.
+
+**F161, found by the harness rather than by reading the markup:** the Log Out link's `href` was the
+literal string `route('logout')` — the Blade braces were missing — so opening it in a new tab
+requested `<current-path>/route('logout')` and got a 404, on every merchant screen. Set to `#`, not
+to the real route, because that route is POST-only and a real URL would trade a 404 for a 405 while
+reading as though the link worked without JavaScript. It does not; the onclick submits the form.
+
+`tests/Unit/Ui/HeaderContrastTokensTest.php` (9) pins all three tokens **and recomputes their WCAG
+ratios from the two colours**, so a revert fails with the arithmetic attached. Bitten twice:
+restoring the old grey fails the bar case, removing the light-mode scoping fails the scoping case.
+
+---
+
 ## D-25 — the shared merchant chrome on the design system: ONE scope question, three rows waiting on it
 
 > **DECIDED 2026-10-28 — APPROVED: PHASED DESIGN-SYSTEM MIGRATION, in a fixed order.**

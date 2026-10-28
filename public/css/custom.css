@@ -4689,3 +4689,32 @@ html[data-ss-theme="dark"] body .card-body dl.row dt {
 html[data-ss-theme="dark"] body .card-body dl.row dd {
     color: var(--ss-fg, #e6eceb);
 }
+
+
+/* F158 (header). THE BRAND AS TEXT IN THE SHARED HEADER -- P2-A-03's defect a fourth time.
+   MEASURED at 2.59:1 on white, 14px, in both ar/rtl and en/ltr light mode: the store switcher's
+   "Create New Store" action and the CURRENTLY SELECTED language in the language list. Both are
+   `.text-primary`, i.e. `var(--theme-color) !important`, inside the header's dropdowns -- which is
+   why they were missed until the measurement opened the dropdowns rather than reading only the
+   visible bar.
+   SAME MECHANISM AS P2-A-03 (b) ABOVE, deliberately, and not a colour of my own: `--ss-brand-ontext`
+   is the MERCHANT'S colour darkened only until it reaches AA, computed once in
+   layouts/app.blade.php from whatever that merchant chose. So no brand colour changes -- the
+   owner's F158 condition on brand colours is honoured rather than argued around -- and a custom
+   picker value is handled by the same arithmetic as the ten presets. The fallback is the brand
+   colour itself, i.e. exactly today's appearance if the script is blocked.
+   LIGHT MODE ONLY, AND THAT IS A MEASURED CORRECTION RATHER THAN CAUTION. `--ss-brand-ontext` is
+   darkened against the LIGHT page (`PAGE = [249,250,251]` in layouts/app.blade.php), so on a dark
+   surface it is the wrong direction entirely: applying it unconditionally took the header's dark
+   mode from 0 failures to 2, at 2.72:1. The BRIGHT brand colour is already compliant there --
+   rgb(16,183,127) on rgb(38,47,63) measures 5.34:1 -- so dark mode needs no change and must not
+   get one. `data-ss-theme` is set server-side on <html> (layouts/app.blade.php:69), which is the
+   project's own theme indicator and what the design system already keys off.
+   (The P2-A-03 (b) breadcrumb rule above has the same shape and has not been measured on a dark
+   surface; it is left alone here because F158 says to fix the sites that actually failed, and the
+   breadcrumb is not one this measurement covered.)
+   `!important` because `.text-primary` carries it; confined to `.dash-header`, which appears in
+   three first-party views and no WorkDo Blade view. */
+html:not([data-ss-theme="dark"]) body .dash-header .text-primary {
+    color: var(--ss-brand-ontext, var(--theme-color)) !important;
+}

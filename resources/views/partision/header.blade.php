@@ -57,7 +57,23 @@ $theme_url = App\Http\Controllers\HomeController::getThemeUrl($store);
                                 <span>{{ __(' Profile') }}</span>
                             </a>
                             <form method="POST" action="{{ route('logout') }}" id="form_logout">
-                                <a href="route('logout')"
+                                {{-- F161. THE HREF WAS THE LITERAL STRING `route('logout')` --
+                                     the Blade braces were missing, so this rendered as a RELATIVE
+                                     URL. Middle-clicking or opening the Log Out item in a new tab
+                                     requested `<current-path>/route('logout')` and got a 404, on
+                                     every merchant screen. Found by a header capture that recorded
+                                     every link's href as data rather than reading the markup.
+
+                                     `#`, NOT `{{ route('logout') }}`: that route is POST-only, so a
+                                     real URL here would trade a 404 for a 405 and read as though
+                                     the link worked without JavaScript. It does not -- the onclick
+                                     submits the form -- and `#` says so. The element stays an <a>
+                                     with its class: a <button type="submit"> would work without
+                                     JavaScript, but D-25's conditions are to preserve the ids,
+                                     handlers and LINKS of this header, and the same anchor idiom
+                                     sits in four other copies of this menu. Changing one of five is
+                                     its own slice, not a side effect of a contrast fix. --}}
+                                <a href="#"
                                     onclick="event.preventDefault(); this.closest('form').submit();"
                                     class="dropdown-item">
                                     <i class="ti ti-power"></i>
