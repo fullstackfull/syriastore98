@@ -59,6 +59,33 @@ class VariantKeySelectorSafetyTest extends TestCase
         return (string) file_get_contents($path);
     }
 
+    /**
+     * The view's CODE, with comments removed — added 2026-10-28 because this scan matched an
+     * explanation of a defect and reported it as the defect.
+     *
+     * F162 replaced the create view's delete handler, and the comment left in its place QUOTES the
+     * removed line verbatim: `$('.remove_option_' + id).remove();`. The selector scan found that
+     * inside the comment, looked for a `var id = ...` declaration before it, found none — because
+     * the code it belonged to is gone — and failed with "this test cannot judge the value".
+     *
+     * That is the fourth time a source check in this project has matched its own prose: the
+     * breadcrumb contract test quoted `<ul class="breadcrumb">` in its docblock, the ajax-popup
+     * ratchet counted an attribute spelled out in a layout comment, and VariantDeleteScopeTest hit
+     * it on three assertions at once. A comment describing a defect is evidence it was understood,
+     * not evidence it is still there. The `$checked` floor below is what keeps this from hiding a
+     * genuine disappearance.
+     */
+    private function code(string $rel): string
+    {
+        $raw = $this->read($rel);
+
+        $stripped = preg_replace('/\{\{--.*?--\}\}/s', '', $raw);
+        $stripped = preg_replace('#/\*.*?\*/#s', '', (string) $stripped);
+        $stripped = preg_replace('#^\s*//.*$#m', '', (string) $stripped);
+
+        return (string) $stripped;
+    }
+
     public function test_every_sibling_view_still_exists_and_still_renders_the_key(): void
     {
         // A premise, so nothing below can pass by matching an empty file.
@@ -94,7 +121,7 @@ class VariantKeySelectorSafetyTest extends TestCase
         $checked = 0;
 
         foreach (self::VIEWS as $rel) {
-            $src = $this->read($rel);
+            $src = $this->code($rel);
 
             /* Every `$('.some_class_' + <var>)`. The variable must hold an ESCAPED value, which
              * means it was assigned from `ssSelectorKey(...)`, from `CSS.escape(...)`, or from a
@@ -109,9 +136,14 @@ class VariantKeySelectorSafetyTest extends TestCase
              * `data-id="{{ $safe_str }}"`, already sanitised in PHP, with the raw key kept in
              * `data-original-id` for an attribute-VALUE selector (quoted, so safe). Accept that
              * only when the file really does sanitise in PHP AND keeps the original. */
+            /* UPDATED 2026-10-28 (F162). This clause required `data-original-id="{{ $str }}"` as
+               part of the create view's "safe a different way" exemption. That attribute existed
+               ONLY to feed the substring removal F162 deleted, so requiring it now would demand
+               the view keep a vestige of the defect to be judged safe. The remaining two
+               conditions are the ones that matter: the key is sanitised in PHP, and the sanitised
+               value is what reaches the DOM. */
             $sanitisedInPhp = str_contains($src, '$safe_str = preg_replace')
-                && str_contains($src, 'data-id="{{ $safe_str }}"')
-                && str_contains($src, 'data-original-id="{{ $str }}"');
+                && str_contains($src, 'data-id="{{ $safe_str }}"');
 
             foreach ($matches as $match) {
                 $checked++;
