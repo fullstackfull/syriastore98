@@ -53,6 +53,149 @@ class DesignSystemStylesheetScopeTest extends TestCase
     /** `from` / `to` / `37%` inside `@keyframes` are animation stops, not selectors. */
     private const KEYFRAME_STOP = '/^(from|to|-?\d+(\.\d+)?%)$/i';
 
+    // ---------------------------------------------------------------------------------------
+    //  P2-01-16 — LOGICAL PROPERTIES. A physical edge is the wrong edge in one of two languages.
+    // ---------------------------------------------------------------------------------------
+
+    /**
+     * The properties that have a logical counterpart, and the counterpart to use.
+     *
+     * `margin-left` in an LTR layout means "the side the text starts on"; in the Arabic build it
+     * means the side it ENDS on, and the rule then paints the wrong edge. This storefront and
+     * admin are bilingual Arabic (RTL) and English (LTR) by design, so a physical edge in the
+     * shared stylesheet is a defect in exactly one of the two directions -- which is the hardest
+     * kind to notice, because the build you are looking at is usually fine.
+     *
+     * `top` / `bottom` and their `-block-` counterparts are NOT in this list. They do not flip
+     * with writing direction in any locale this product ships, so rewriting them would be churn
+     * with no reader who benefits.
+     */
+    private const PHYSICAL_TO_LOGICAL = [
+        'margin-left' => 'margin-inline-start',
+        'margin-right' => 'margin-inline-end',
+        'padding-left' => 'padding-inline-start',
+        'padding-right' => 'padding-inline-end',
+        'border-left' => 'border-inline-start',
+        'border-right' => 'border-inline-end',
+        'border-left-width' => 'border-inline-start-width',
+        'border-right-width' => 'border-inline-end-width',
+        'border-left-color' => 'border-inline-start-color',
+        'border-right-color' => 'border-inline-end-color',
+        'border-left-style' => 'border-inline-start-style',
+        'border-right-style' => 'border-inline-end-style',
+        'border-top-left-radius' => 'border-start-start-radius',
+        'border-top-right-radius' => 'border-start-end-radius',
+        'border-bottom-left-radius' => 'border-end-start-radius',
+        'border-bottom-right-radius' => 'border-end-end-radius',
+        'left' => 'inset-inline-start',
+        'right' => 'inset-inline-end',
+        'text-align: left' => 'text-align: start',
+        'text-align: right' => 'text-align: end',
+        'float: left' => 'float: inline-start',
+        'float: right' => 'float: inline-end',
+    ];
+
+    /**
+     * PREMISE, and it is not optional here: the detector must be able to SEE a physical property.
+     *
+     * Every assertion below is satisfied by a detector that matches nothing, so without this a
+     * broken regex or a comment-stripping bug would report a clean stylesheet forever. This feeds
+     * the real detector a string that must trip it, and a logical one that must not.
+     */
+    public function test_the_physical_property_detector_actually_detects(): void
+    {
+        $offenders = $this->physicalDeclarationsIn(
+            ".ss-fake { margin-left: 4px; padding-inline-start: 8px; }\n"
+            . ".ss-other { text-align: left; }\n"
+        );
+
+        $this->assertSame(
+            ['margin-left', 'text-align: left'],
+            array_values(array_unique(array_column($offenders, 'property'))),
+            'the detector did not find a physical declaration it was handed, so a clean result '
+            . 'from it would mean nothing'
+        );
+
+        $this->assertSame(
+            [],
+            $this->physicalDeclarationsIn(
+                ".ss-fake { margin-inline-start: 4px; inset-inline-end: 0; text-align: start; }\n"
+            ),
+            'the detector flagged a logical declaration, so it would force churn rather than fixes'
+        );
+    }
+
+    /**
+     * THE RATCHET. No physical edge where a logical property exists.
+     *
+     * MEASURED BEFORE THIS LANDED: the stylesheet was already clean -- the work this row describes
+     * had been done without a row to record it. So this test is not a fix; it is the thing that
+     * stops the next contributor undoing one, which the row's own acceptance asks for in as many
+     * words ("a ratchet that fails on a new one"). The lesson it embodies is the one this phase
+     * has now met four times: an unasserted property is one edit away from an absent one.
+     */
+    public function test_the_stylesheet_uses_logical_properties_only(): void
+    {
+        $offenders = $this->physicalDeclarationsIn($this->stylesheet());
+
+        $report = array_map(
+            fn (array $o) => sprintf(
+                '  line %d: `%s` -- use `%s`',
+                $o['line'],
+                $o['property'],
+                self::PHYSICAL_TO_LOGICAL[$o['property']]
+            ),
+            $offenders
+        );
+
+        $this->assertSame([], $offenders,
+            "store-syria-ds.css carries physical edges, which paint the wrong side of the element "
+            . "in the Arabic (RTL) build:\n" . implode("\n", $report));
+    }
+
+    /**
+     * Physical declarations in a stylesheet, as [line, property] pairs.
+     *
+     * COMMENTS ARE BLANKED FIRST, and that is a lesson this repository paid for twice: a
+     * source-text scanner that does not strip comments matches its own prose, so a file explaining
+     * why it avoids `margin-left` would fail a test looking for `margin-left`. Blanked rather than
+     * deleted, so the line numbers in the report still point at the real lines.
+     *
+     * @return list<array{line: int, property: string}>
+     */
+    private function physicalDeclarationsIn(string $css): array
+    {
+        $css = (string) preg_replace_callback(
+            '#/\*.*?\*/#s',
+            fn (array $m) => preg_replace('/[^\n]/', ' ', $m[0]),
+            $css
+        );
+
+        $offenders = [];
+
+        foreach (explode("\n", $css) as $index => $line) {
+            foreach (self::PHYSICAL_TO_LOGICAL as $physical => $logical) {
+                // A declaration, not a word: the property must be followed by a colon, and must
+                // not be the tail of a longer property name (`border-left` must not match inside
+                // `border-left-width`, which has its own entry).
+                $pattern = str_contains($physical, ':')
+                    ? '/(^|[;{\s])' . preg_quote($physical, '/') . '\s*(;|}|$)/i'
+                    : '/(^|[;{\s])' . preg_quote($physical, '/') . '\s*:/i';
+
+                if (preg_match($pattern, $line)) {
+                    $offenders[] = ['line' => $index + 1, 'property' => $physical];
+                }
+            }
+        }
+
+        return $offenders;
+    }
+
+    private function stylesheet(): string
+    {
+        return (string) file_get_contents(self::STYLESHEET);
+    }
+
     public function test_the_stylesheet_exists_and_was_really_parsed(): void
     {
         // THE PREMISE. Every assertion below is satisfied by an empty selector list, so a parser
