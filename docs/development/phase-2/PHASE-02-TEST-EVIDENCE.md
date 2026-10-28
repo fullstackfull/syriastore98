@@ -5795,3 +5795,89 @@ rather than absorbed into a test.
 
 After the four: **`Commerce` + `Security` + `Payments` green on the finished tree**, `Unit` 564
 passed.
+
+---
+
+## D-24a / P2-01-18 — the four create-actions in the command palette (2026-10-28)
+
+`tests/Feature/Security/MerchantQuickActionTargetsTest.php` — 31 cases.
+`docs/development/phase-2/tools/check-quick-actions-live.cjs` — 6 screens × 2 languages, 0 failures.
+
+### Three deliberate bites did not bite, and that is the evidence
+
+The first version of this file had 25 passing cases. I then reverted the service's permission check,
+then its operator store guard, then flipped a declaration to a knowingly wrong value. **All 25
+stayed green on every one.**
+
+The reason is that **the page gate dominates**. `MerchantPageDirectory::available()` is built from
+the real `Menu`, which is permission-filtered, so a principal holding nothing has no pages and
+therefore no actions, whatever the permission check does. The suite was measuring the page gate
+three times over and the rest not at all.
+
+So the cases that exercise each gate were constructed:
+
+| gate | the only principal it decides for | bites now |
+|---|---|---|
+| action permission | has the menu page, lacks the action permission — and for two of the four those are *different* permissions (`Manage Products` vs `Create Product`, `Manage Coupon` vs `Create Coupon`) | 2 cases fail on revert |
+| page availability | holds the action permission, page absent | 2 cases fail on revert |
+| operator declaration / store guard | **nobody today** — measured | premise asserted instead |
+
+**The page gate could not be tested through the safety invariant at all**, and that is worth stating
+rather than glossing: dropping it offers *more* actions, and every one of them is still served by its
+target (an employee with `Create Product` can open `product/create`), so the implication holds
+perfectly while the owner's condition *"لا تعرض إجراءً إذا كانت الصفحة أو الوحدة غير متوفرة"* is
+violated. A module-availability rule needs its own direct test.
+
+**The operator paths are unreachable today and the test says so instead of passing quietly.** The
+operator's navigation holds **none** of the four pages these actions target — measured; my
+expectation from reading `SuperAdminMenuListener` was `['coupon']` and the measurement said `[]`,
+because that entry's own permission is not among the four. The declarations and the store guard are
+kept as defence-in-depth, and the case asserts that premise, so the day someone adds one of these
+pages to the operator's menu it fails there and whoever added it has to exercise the declaration
+path properly.
+
+### The invariant itself was wrong at first
+
+I asserted `offered === served`. That is a UX preference dressed as a security property. The right
+claim is the **implication**: if the palette offers an action, its target must serve the same
+principal — the render must not be more permissive than the request, which is what *"على العرض وعلى
+الطلب"* means. The converse legitimately fails, for both reasons in the table above.
+
+### F157's trap applies here too, and is closed
+
+`getCurrentStore()` hands an operator with an empty `current_store` the **hardcoded literal 1**, and
+`getStoreById(1)` normally resolves — so a null-store guard passes and the operator would be offered
+four create-actions into **store 1**, a store they never selected. Refused, with the premise
+asserted the way F157's was: a store whose id really is 1, holding the catalogue, and
+`getCurrentStore()` really answering 1.
+
+### Measured in a real browser, in both languages
+
+Ctrl+K on `/order`, `/product`, `/customer`, `/coupon`, `/order-kanban`, `/product/create`, each in
+`en`/`ltr` and `ar`/`rtl`: **0 failures**. Every rendered action is one of the approved four, in the
+approved relative order, each with a resolvable href, each in the tab order, the group above
+Favourites, and the Arabic copy read **off the rendered DOM** — إنشاء منتج / إنشاء طلب يدوي / إضافة
+عميل. That last is a stronger claim than the source ratchet's: only the DOM proves the translation
+reached the screen.
+
+**The tool's first expectation was wrong, instructively.** It demanded four and reported three on
+every page in both languages. The dev merchant holds `Manage Coupon` and **not** `Create Coupon`, so
+`create-coupon` is correctly withheld — the permission gate working, live. A tool that insisted on
+four would have reported the gate as a defect. It now asserts subset and relative order, **and
+carries a live bite**: grant `Create Coupon`, reload, watch the fourth appear; revoke, watch it go.
+Without that, "correctly withheld" and "never renders" look identical.
+
+**And that bite did not bite either, at first.** Granting the permission changed nothing on screen,
+because Laratrust caches a user's permissions in the **cache store** and this server runs
+`CACHE_STORE=file` — so clearing the `cache` *table*, which is what I did, cleared the wrong thing
+entirely. The same trap CLAUDE.md records for `Cachable` models. `cache:clear` empties the store the
+app is actually using.
+
+### Ratchet widened, and a second one tripped
+
+`ArabicUiCoverageTest`'s surface list never scanned `resources/views/partision/`, where the palette,
+the header and the sidebar live — a Phase 02 surface with a lot of copy. Measured before adding it:
+every `__()` string already there has Arabic, so this closes a **latent** gap rather than finding a
+live defect, and it now enforces the new strings automatically. Adding the six keys then tripped
+`TranslationFileIntegrityTest`, which caps how many keys `ar.json` may declare beyond `en.json`
+(31); they went into both files.

@@ -93,9 +93,51 @@
             $ssFavourites,
             $ssCurrent ? [$ssCurrent => true] : []
         );
+
+        /* D-24a. The four approved create-actions, authorised SERVER-SIDE on every render exactly
+           as the favourites and recents above are -- same condition from the owner, "أعد فحص
+           الصلاحيات عند كل عرض أو انتقال", and the same answer: a row this principal may not use
+           never becomes markup. `MerchantQuickActions::available()` holds the whole decision,
+           including which targets admit the platform operator (they disagree) and the store check
+           that stops an operator with no `current_store` being pointed at the hardcoded store 1. */
+        $ssQuickActions = \App\Services\MerchantQuickActions::available();
     @endphp
 
     <div class="ss-command__shortcuts" data-ss-command-shortcuts>
+        {{-- D-24a — إنشاء منتج، إنشاء طلب يدوي، إضافة عميل، إنشاء كوبون.
+
+             IN THE EXISTING PALETTE, AS THE APPROVAL REQUIRES, and with no second mechanism for
+             search or for actions: these are plain links in the shortcuts region that Favourites
+             and Recent already use, with the same classes, so the dialog's focus trap and its Tab
+             order cover them for free and no new CSS or JS exists to maintain. The per-result
+             action bar (`#ss-command-actions`) is untouched -- it answers a different question,
+             "what can I do to THIS search result", and these four answer "make something new".
+
+             FIRST, above Favourites, deliberately: this list is fixed and short, while favourites
+             and recents grow, and a merchant should not have to scroll past twelve favourites to
+             reach "create product".
+
+             NO DELETE, PAYMENT OR REFUND ACTION APPEARS HERE and none can be added by accident --
+             the list is a constant in `MerchantQuickActions`, not anything derived from the menu,
+             and `MerchantQuickActionTargetsTest` asserts both the exact four and that no route
+             name among them is destructive or money-moving. --}}
+        @if (!empty($ssQuickActions))
+            <div class="ss-command__group">
+                <p class="ss-command__grouphead">{{ __('Quick create') }}</p>
+                <ul class="ss-command__shortlist">
+                    @foreach ($ssQuickActions as $ssActionName => $ssAction)
+                        <li>
+                            <a class="ss-command__shortcut" href="{{ $ssAction['href'] }}"
+                               data-ss-quick-action="{{ $ssActionName }}">
+                                <span aria-hidden="true">{{ $ssAction['glyph'] }}</span>
+                                <span class="ss-command__shortcuttitle">{{ $ssAction['title'] }}</span>
+                            </a>
+                        </li>
+                    @endforeach
+                </ul>
+            </div>
+        @endif
+
         @if (!empty($ssFavourites))
             <div class="ss-command__group">
                 <p class="ss-command__grouphead">{{ __('Favourites') }}</p>

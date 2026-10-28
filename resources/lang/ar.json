@@ -3289,5 +3289,11 @@
     "Status :value": "الحالة :value",
     "Move order :ref to": "نقل الطلب :ref إلى",
     "Move to…": "نقل إلى…",
-    "Move": "نقل"
+    "Move": "نقل",
+    "Quick create": "إنشاء سريع",
+    "Create product": "إنشاء منتج",
+    "Create manual order": "إنشاء طلب يدوي",
+    "Add customer": "إضافة عميل",
+    "Create coupon": "إنشاء كوبون",
+    "An item in your cart is no longer available. Please contact the store before paying again.": "أحد العناصر في سلتك لم يعد متوفراً. يرجى التواصل مع المتجر قبل الدفع مرة أخرى."
 }

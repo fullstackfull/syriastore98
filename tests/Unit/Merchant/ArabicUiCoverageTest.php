@@ -68,6 +68,14 @@ class ArabicUiCoverageTest extends TestCase
         'resources/views/reports/*.blade.php',
         'resources/views/dashboard/*.blade.php',
         'resources/views/layouts/*.blade.php',
+        // D-24a. The shared chrome -- the command palette, the header, the sidebar -- had never
+        // been scanned, and the palette is a Phase 02 surface with a lot of user-visible copy
+        // (P2-06-2, P2-01-15, P2-01-18, and now the four create-actions). MEASURED before adding
+        // it: every `__()` string already under `partision/` has an Arabic translation, so this is
+        // a LATENT gap being closed rather than a live defect being found -- the list was simply
+        // narrower than the surfaces Phase 02 had grown into, which this file's own comments call
+        // out twice as the one way a coverage test quietly stops working.
+        'resources/views/partision/*.blade.php',
     ];
 
     /**

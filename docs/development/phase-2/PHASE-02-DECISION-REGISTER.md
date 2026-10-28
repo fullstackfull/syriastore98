@@ -1515,6 +1515,100 @@ form, because the column records the PATH that created the order and not the dev
 Phase 04's approved scope includes "channels", which is why the column is a widenable string rather than
 an enum — but no channel value is invented now.
 
+### Implementation outcome, 2026-10-28 — **DONE**, and the useful part is that three deliberate bites did not bite
+
+`app/Services/MerchantQuickActions.php` (new), `resources/views/partision/command-palette.blade.php`,
+`tests/Feature/Security/MerchantQuickActionTargetsTest.php` (new, 31),
+`docs/development/phase-2/tools/check-quick-actions-live.cjs` (extended).
+
+**IN THE EXISTING PALETTE, WITH NO SECOND MECHANISM.** The four actions are plain links in the
+shortcuts region Favourites and Recent already use, with the same classes — so the dialog's focus
+trap and Tab order cover them for free, and no new CSS or JS exists to maintain. The per-result
+action bar (`#ss-command-actions`, P2-06-8) is untouched: it answers *"what can I do to THIS search
+result"* and these four answer *"make something new"*. Rendered **above** Favourites deliberately:
+this list is fixed and short while favourites and recents grow, and a merchant should not scroll
+past twelve favourites to reach "create product".
+
+**NO NEW PERMISSION IS INVENTED.** Each action declares the permission its own target enforces:
+`Create Product`, `Manage Order`, `Manage Customer`, `Create Coupon`. And the list is a **constant**,
+not anything derived from the menu — a menu-derived list would grow a delete action the day a module
+registered one. No route among them is destructive or money-moving, asserted.
+
+**THE FOUR TARGETS DISAGREE ABOUT THE PLATFORM OPERATOR, which is the one genuinely surprising
+thing here.** `order` admits them (`mayUseOrderScreen()` is `isOperator() || isAbleTo()`),
+`customer` admits them (`create()` tests the operator first), `coupon` refuses them (F157's
+decision), `product` refuses them (gated on a bare `isAbleTo`, per F160). So neither
+"operator-first everywhere" nor "no operator branch" is correct: the first offers two actions whose
+targets will refuse, the second withholds two the operator can really use. Each row therefore
+**declares** what its target does.
+
+### Three bites did not bite, and finding that out is the work
+
+Reverting the permission check, then the operator store guard, then flipping a declaration to a
+knowingly wrong value — all 25 cases stayed green on every one. The reason: **the page gate
+dominates.** `MerchantPageDirectory::available()` is built from the real `Menu`, which is
+permission-filtered, so a principal holding nothing has no pages and therefore no actions whatever
+the permission check does.
+
+So the cases that actually exercise each gate had to be constructed:
+
+- **The permission check** is decided only for a principal who HAS the menu page and NOT the action
+  permission — and for two of the four those are *different* permissions (`Manage Products` vs
+  `Create Product`, `Manage Coupon` vs `Create Coupon`). Those cases now exist, with the premise
+  asserted both ways, and they fail the moment the check is removed.
+- **The page gate** is a module-availability rule, not a security property: dropping it offers MORE
+  actions and every one is still served by its target, so the safety invariant holds perfectly while
+  the owner's condition *"لا تعرض إجراءً إذا كانت الصفحة أو الوحدة غير متوفرة"* is violated. It
+  therefore needed its own direct test — an employee holding the action permission whose page is
+  absent — which now bites it.
+- **The operator paths are unreachable today**, measured: the operator's navigation holds **none**
+  of the four pages these actions target. (My expectation was `['coupon']` from reading
+  `SuperAdminMenuListener`; the measurement said `[]`, because that entry's own permission is not
+  among the four.) The declarations and the store guard are kept as defence-in-depth and the test
+  **asserts that premise**, so the day someone adds one of these pages to the operator's menu the
+  premise fails and whoever added it must exercise the declaration path properly.
+
+**THE INVARIANT WAS ALSO WRONG AT FIRST and that is corrected rather than papered over.** I asserted
+`offered === served`. That is a UX preference masquerading as a security property: the right claim is
+the **implication** — if the palette offers an action, its target must serve the same principal. The
+converse legitimately fails, for the two reasons above.
+
+**THE F157 TRAP APPLIES HERE TOO and is closed.** `getCurrentStore()` hands an operator with an
+empty `current_store` the **hardcoded literal 1**, and `getStoreById(1)` normally resolves — so a
+null-store guard passes and the operator would be offered four create-actions into **store 1**, a
+store they never selected. Refused, with the premise asserted the way F157's was (a store whose id
+really is 1, and `getCurrentStore()` really answering 1).
+
+### Measured in a real browser, in both languages
+
+`check-quick-actions-live.cjs`, extended: Ctrl+K on six screens × `en`/`ltr` and `ar`/`rtl`,
+**0 failures**. Every rendered action is one of the approved four, in the approved relative order,
+each with a resolvable href, each in the tab order, the group above Favourites, and the Arabic copy
+**on the rendered page** — إنشاء منتج / إنشاء طلب يدوي / إضافة عميل — which is a stronger claim than
+the source ratchet's, since only the DOM proves the translation reached the screen.
+
+**The tool's first expectation was wrong in an instructive way.** It demanded four and reported
+three on every page in both languages. The dev merchant holds `Manage Coupon` and not
+`Create Coupon`, so `create-coupon` is correctly withheld — the permission gate working, live. A
+tool that insisted on four would have reported the gate as a defect. It now asserts subset and
+relative order, **and carries a live bite**: grant `Create Coupon`, reload, watch the fourth action
+appear; revoke it, watch it go. Without that, "correctly withheld" and "never renders" look
+identical.
+
+**That bite did not bite either, at first** — granting the permission changed nothing on screen,
+because Laratrust caches a user's permissions in the **cache store** and this server runs
+`CACHE_STORE=file`, so clearing the `cache` *table* cleared the wrong thing entirely. The same trap
+CLAUDE.md records for `Cachable` models. `cache:clear` empties the store the app is actually using.
+
+**Ratchet widened as a side effect:** `ArabicUiCoverageTest`'s surface list never scanned
+`resources/views/partision/`, where the palette, header and sidebar live. Measured before adding it
+— every `__()` string already there has Arabic — so this closes a **latent** gap rather than finding
+a live defect, and it now enforces the new strings automatically. Adding them also tripped
+`TranslationFileIntegrityTest`, which caps how many keys `ar.json` may declare beyond `en.json`; the
+six keys went into both files.
+
+---
+
 ## D-25 — the shared merchant chrome on the design system: ONE scope question, three rows waiting on it
 
 > **DECIDED 2026-10-28 — APPROVED: PHASED DESIGN-SYSTEM MIGRATION, in a fixed order.**

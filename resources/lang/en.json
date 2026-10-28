@@ -3260,5 +3260,11 @@
     "Status :value": "Status :value",
     "Move order :ref to": "Move order :ref to",
     "Move to…": "Move to…",
-    "Move": "Move"
+    "Move": "Move",
+    "Quick create": "Quick create",
+    "Create product": "Create product",
+    "Create manual order": "Create manual order",
+    "Add customer": "Add customer",
+    "Create coupon": "Create coupon",
+    "An item in your cart is no longer available. Please contact the store before paying again.": "An item in your cart is no longer available. Please contact the store before paying again."
 }
