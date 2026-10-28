@@ -1,0 +1,40 @@
+ok    [en] a favourite control is present
+ok    [en] both titles travel with the control  -- on="Remove from favourites" off="Add to favourites"
+ok    [en] the control carries a swappable glyph  -- glyph="★"
+ok    [en] EXECUTING: aria-busy is set while in flight  -- aria-busy="true"
+ok    [en] EXECUTING: the control is disabled while in flight
+ok    [en] EXECUTING: the request really was intercepted  -- hits=1
+ok    [en] EXECUTING: the live region announced it  -- live="Saving your change…"
+ok    [en] SUCCESS: aria-pressed flipped  -- true -> false
+ok    [en] SUCCESS: aria-busy was cleared
+ok    [en] SUCCESS: the control is enabled again
+ok    [en] SUCCESS: the glyph changed, so the state is not colour-only  -- "★" -> "☆"
+ok    [en] SUCCESS: the title is no longer the stale one  -- "Remove from favourites" -> "Add to favourites"
+ok    [en] SUCCESS: the accessible name is no longer the stale one  -- "Remove Dashboard from favourites" -> "Add Dashboard to favourites"
+ok    [en] FAILURE: the refusal really was served  -- hits=1
+ok    [en] FAILURE: the announcement is the ERROR text, not the busy text  -- live="That could not be saved. Please try again." expected="That could not be saved. Please try again."
+ok    [en] FAILURE: the state did NOT flip on a refusal  -- false -> false
+ok    [en] FAILURE: the control is usable again
+ok    [en] FAILURE: aria-busy was cleared
+ok    [en] FAILURE: something was announced  -- live="That could not be saved. Please try again."
+ok    [ar] a favourite control is present
+ok    [ar] both titles travel with the control  -- on="أزل من المفضلة" off="أضف إلى المفضلة"
+ok    [ar] the control carries a swappable glyph  -- glyph="★"
+ok    [ar] EXECUTING: aria-busy is set while in flight  -- aria-busy="true"
+ok    [ar] EXECUTING: the control is disabled while in flight
+ok    [ar] EXECUTING: the request really was intercepted  -- hits=1
+ok    [ar] EXECUTING: the live region announced it  -- live="جارٍ حفظ التغيير…"
+ok    [ar] SUCCESS: aria-pressed flipped  -- true -> false
+ok    [ar] SUCCESS: aria-busy was cleared
+ok    [ar] SUCCESS: the control is enabled again
+ok    [ar] SUCCESS: the glyph changed, so the state is not colour-only  -- "★" -> "☆"
+ok    [ar] SUCCESS: the title is no longer the stale one  -- "أزل من المفضلة" -> "أضف إلى المفضلة"
+ok    [ar] SUCCESS: the accessible name is no longer the stale one  -- "أزل لوحة التحكم من المفضلة" -> "أضف لوحة التحكم إلى المفضلة"
+ok    [ar] FAILURE: the refusal really was served  -- hits=1
+ok    [ar] FAILURE: the announcement is the ERROR text, not the busy text  -- live="لم يتم الحفظ. يُرجى المحاولة مرة أخرى." expected="لم يتم الحفظ. يُرجى المحاولة مرة أخرى."
+ok    [ar] FAILURE: the state did NOT flip on a refusal  -- false -> false
+ok    [ar] FAILURE: the control is usable again
+ok    [ar] FAILURE: aria-busy was cleared
+ok    [ar] FAILURE: something was announced  -- live="لم يتم الحفظ. يُرجى المحاولة مرة أخرى."
+
+0 check(s) failed

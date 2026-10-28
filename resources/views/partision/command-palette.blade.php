@@ -105,13 +105,22 @@
                             <a class="ss-command__shortcut" href="{{ $ssPage['href'] }}">
                                 <span class="ss-command__shortcuttitle">{{ $ssPage['title'] }}</span>
                             </a>
+                            {{-- P2-01-15: BOTH states' copy travels with the control, because the
+                                 toggle used to flip `aria-pressed` and the colour while leaving the
+                                 title and the hidden label saying the opposite -- a screen reader
+                                 read "Add :page to favourites" on a page that had just been added.
+                                 The JS still holds no copy; it swaps between these. --}}
                             <button type="button"
                                     class="ss-command__star is-on"
                                     data-ss-favourite="{{ $ssName }}"
                                     aria-pressed="true"
-                                    title="{{ __('Remove from favourites') }}">
-                                <span class="ss-visually-hidden">{{ __('Remove :page from favourites', ['page' => $ssPage['title']]) }}</span>
-                                <span aria-hidden="true">&#9733;</span>
+                                    title="{{ __('Remove from favourites') }}"
+                                    data-ss-fav-title-on="{{ __('Remove from favourites') }}"
+                                    data-ss-fav-title-off="{{ __('Add to favourites') }}"
+                                    data-ss-fav-label-on="{{ __('Remove :page from favourites', ['page' => $ssPage['title']]) }}"
+                                    data-ss-fav-label-off="{{ __('Add :page to favourites', ['page' => $ssPage['title']]) }}">
+                                <span class="ss-visually-hidden" data-ss-fav-label>{{ __('Remove :page from favourites', ['page' => $ssPage['title']]) }}</span>
+                                <span aria-hidden="true" data-ss-fav-glyph>&#9733;</span>
                             </button>
                         </li>
                     @endforeach
@@ -132,9 +141,13 @@
                                     class="ss-command__star"
                                     data-ss-favourite="{{ $ssName }}"
                                     aria-pressed="false"
-                                    title="{{ __('Add to favourites') }}">
-                                <span class="ss-visually-hidden">{{ __('Add :page to favourites', ['page' => $ssPage['title']]) }}</span>
-                                <span aria-hidden="true">&#9734;</span>
+                                    title="{{ __('Add to favourites') }}"
+                                    data-ss-fav-title-on="{{ __('Remove from favourites') }}"
+                                    data-ss-fav-title-off="{{ __('Add to favourites') }}"
+                                    data-ss-fav-label-on="{{ __('Remove :page from favourites', ['page' => $ssPage['title']]) }}"
+                                    data-ss-fav-label-off="{{ __('Add :page to favourites', ['page' => $ssPage['title']]) }}">
+                                <span class="ss-visually-hidden" data-ss-fav-label>{{ __('Add :page to favourites', ['page' => $ssPage['title']]) }}</span>
+                                <span aria-hidden="true" data-ss-fav-glyph>&#9734;</span>
                             </button>
                         </li>
                     @endforeach
@@ -146,15 +159,18 @@
             <button type="button"
                     class="ss-command__addcurrent"
                     data-ss-favourite="{{ $ssCurrent }}"
-                    aria-pressed="false">
-                <span aria-hidden="true">&#9734;</span>
-                {{ __('Add this page to favourites') }}
+                    aria-pressed="false"
+                    data-ss-fav-text-on="{{ __('Remove this page from favourites') }}"
+                    data-ss-fav-text-off="{{ __('Add this page to favourites') }}">
+                <span aria-hidden="true" data-ss-fav-glyph>&#9734;</span>
+                <span data-ss-fav-text>{{ __('Add this page to favourites') }}</span>
             </button>
         @endif
 
         {{-- The endpoint and the strings the toggle needs, so the JS holds no URLs or copy. --}}
         <span hidden
               data-ss-favourite-url="{{ route('merchant.pages.favourite') }}"
-              data-ss-favourite-error="{{ __('That could not be saved. Please try again.') }}"></span>
+              data-ss-favourite-error="{{ __('That could not be saved. Please try again.') }}"
+              data-ss-favourite-busy="{{ __('Saving your change…') }}"></span>
     </div>
 </div>

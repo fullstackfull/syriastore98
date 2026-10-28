@@ -1297,7 +1297,15 @@
 
             var token = document.querySelector('meta[name="csrf-token"]');
 
+            /* P2-01-15 -- THE EXECUTING STATE IS ANNOUNCED, not only drawn. `[disabled]` already
+               gives a visible one (`.ss-command__star[disabled]` sets `cursor: progress` and
+               dims it), but a screen-reader user got nothing at all between the click and the
+               answer. `aria-busy` states it, and the shared live region says it once. */
             btn.disabled = true;
+            btn.setAttribute('aria-busy', 'true');
+
+            var busyText = meta.getAttribute('data-ss-favourite-busy');
+            if (busyText) { announceLive(busyText); }
 
             window.fetch(meta.getAttribute('data-ss-favourite-url'), {
                 method: 'POST',
@@ -1317,11 +1325,33 @@
                 btn.classList.toggle('is-on', on);
                 btn.setAttribute('aria-pressed', on ? 'true' : 'false');
 
+                /* THE SUCCESS STATE WAS INCOMPLETE AND PART OF IT WAS WRONG. Flipping `is-on`
+                   changes `color` to the brand, and colour alone is not an accessible
+                   distinction -- so the glyph is swapped too. And the `title` and the
+                   visually-hidden label were left as rendered, so after adding a page a screen
+                   reader still read "Add :page to favourites": the accessible name said the
+                   opposite of the state beside it. Every affordance is moved from the copy the
+                   markup carries, so this function still holds none of it. */
+                var glyph = btn.querySelector('[data-ss-fav-glyph]');
+                if (glyph) { glyph.textContent = on ? '\u2605' : '\u2606'; }
+
+                var title = btn.getAttribute(on ? 'data-ss-fav-title-on' : 'data-ss-fav-title-off');
+                if (title) { btn.setAttribute('title', title); }
+
+                var hidden = btn.querySelector('[data-ss-fav-label]');
+                var label = btn.getAttribute(on ? 'data-ss-fav-label-on' : 'data-ss-fav-label-off');
+                if (hidden && label) { hidden.textContent = label; }
+
+                var visible = btn.querySelector('[data-ss-fav-text]');
+                var text = btn.getAttribute(on ? 'data-ss-fav-text-on' : 'data-ss-fav-text-off');
+                if (visible && text) { visible.textContent = text; }
+
                 if (res.body.message) { announceLive(res.body.message); }
             }).catch(function () {
                 announceLive(meta.getAttribute('data-ss-favourite-error') || '');
             }).then(function () {
                 btn.disabled = false;
+                btn.removeAttribute('aria-busy');
             });
         });
     }

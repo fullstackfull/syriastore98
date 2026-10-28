@@ -5425,3 +5425,77 @@ the product; that is not the narrowest safe change and needs its own measurement
 decision. They are also not a design-system defect — they were never on the design system, so the
 fix cannot reach them by construction. Recorded as **F158** with the measured rows, so the next
 slice starts from a measurement.
+
+---
+
+## P2-01-15 — loading, success and failure states (2026-10-28)
+
+`docs/development/phase-2/tools/check-favourite-toggle-live.cjs` → **34 checks, 0 failures**, in
+Arabic and English. Raw run: `docs/development/phase-2/evidence/p2-01-15/`.
+`FavouriteToggleStateContractTest` → 6 passed. **Unit suite: 553 passed.**
+
+### Measurement cut the claimed gap down three times before any code was written
+
+The row reads "a loading state for every async surface (panel fetch, DataTables redraw, toggle
+POST)". Measuring each one first removed most of the work:
+
+| surface | what already existed |
+|---|---|
+| panel fetch | `aria-busy` + visible `ss-panel__loading` text — and legible in dark since F152 |
+| command-palette search | `cmdNote(data-ss-searching-text)`, and the attribute **is** set by the caller |
+| toggle POST | `.ss-command__star[disabled]` → `cursor: progress`, dimmed |
+| DataTables redraw | **not asynchronous** — no `ajax`, no `serverSide`; only the four WooCommerce import screens use them |
+
+So no loading state was added to the DataTables, per the instruction not to add cosmetic ones to
+synchronous tables. A success state that is not only a toast already existed as well: the shared
+`announceLive()` polite region, plus `ss_announce_transient()` from P2-06-9.
+
+### The two real defects were both in the success state
+
+1. **The glyph never changed.** `is-on` moves `color` to the brand and nothing else, so success was
+   conveyed by **colour alone** — which this design system rejects everywhere else.
+2. **`title` and the visually-hidden label were left as rendered.** After adding a page the
+   accessible name still read *"Add :page to favourites"* while `aria-pressed` beside it said
+   `true`. The control stated the opposite of its own state.
+
+And nothing at all was announced between the click and the answer, so a screen-reader user got
+silence through the whole request.
+
+All the copy travels in the markup — `data-ss-fav-title-on/off`, `-label-on/off`, `-text-on/off`,
+`data-ss-favourite-busy` — which is that partial's own stated convention (*"so the JS holds no URLs
+or copy"*), and the fix reuses `announceLive()` rather than adding a second notification mechanism.
+
+Measured in both languages: glyph `★ → ☆`, title `"أزل من المفضلة" → "أضف إلى المفضلة"`, accessible
+name `"أزل لوحة التحكم من المفضلة" → "أضف لوحة التحكم إلى المفضلة"`, and on a refusal the state does
+**not** flip (`false → false`) while the error text is announced verbatim.
+
+### My own test was invalid first, and that is the part worth keeping
+
+It routed `**/favourite*`, which does **not** match `/merchant-favourite-page` — that segment starts
+with `merchant-`. **Neither interception ever fired.** Both clicks went to the real server, so the
+SUCCESS assertions passed *by coincidence* — the server's own toggle produced the same answer the
+fake body would have — and the FAILURE phase never failed, reporting `false -> true` and looking
+like a product defect. Every interception is now **counted and asserted**, so a pattern that matches
+nothing fails loudly instead of quietly passing.
+
+Two more assertions were weak in the same family:
+
+- *"it was announced"* passed while the live region still held the **busy** text, so it could not
+  tell the busy and error messages apart. It now waits for the error string, read from the markup.
+- Sampling the live region the instant `aria-busy` appeared always read empty, because
+  `announceLive()` blanks the region and fills it on a 50 ms timeout — that blank frame is
+  deliberate, so two identical messages are both audible. The wait is for content, not for the
+  attribute.
+
+The executing state is only observable because the response is **held open** by the route handler;
+against a local server answering in single-digit milliseconds the test would otherwise pass whether
+or not `aria-busy` was ever set.
+
+### Bitten four ways
+
+| bite | fails |
+|---|---|
+| drop `aria-busy` | the executing check, both languages |
+| drop the busy announcement | the announcement check |
+| drop the glyph/title/label swap | **6** success checks, incl. `"أزل من المفضلة" -> "أزل من المفضلة"` |
+| remove one glyph target + one title attribute from the markup | 2 of the 6 static cases |
