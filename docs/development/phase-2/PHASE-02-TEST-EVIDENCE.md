@@ -5052,3 +5052,122 @@ censused with its permission and its must-not-open permission.
 **No writer of its own**, asserted rather than asserted-in-prose: every form on the board targets
 `order.status.change`, and `cancel`/`return` are absent from the move control because both are
 irreversible and money-bearing.
+
+---
+
+## P2-04-12 — printing, export and document preview (2026-10-28)
+
+`php artisan test --testsuite=Unit` → **533 passed**.
+`php artisan test tests/Feature/Merchant tests/Feature/Commerce` → **1018 passed, 7 skipped, 0 failed**.
+`php artisan test` over the four export-dependent Security files → **42 passed**.
+`OrderExportColumnAlignmentTest` → **12 passed**; `OrderKanbanTest` → **15 passed** (12 + 3 new).
+
+**The row's own acceptance was already met in its reachable/gated half, and measuring that first is
+why no time was spent re-proving it.** `OrderDocumentAccessTest` drives twelve cases — anonymous
+access to the shipping label, the print label, the host invoice route and the invoice preview; the
+overlapping URI pattern; cross-tenant denial; a validly encrypted id belonging to another tenant;
+the owner's own success; staff with and without the permission. The export introduces no URI, so
+`OrderDocumentAccessGuard::TARGETS` needs no entry; its gate is `fileExport`'s operator-first
+permission check plus `resolvedCurrentStoreId()`, asserted by `OperatorOrderExportStoreTest`,
+`NullStoreOrderExposureTest` and `OrderActionPermissionCensusTest`.
+
+### What the row actually turned up: a correctness defect, not a styling gap (F154)
+
+The export paired **19 hardcoded headings against 28 data columns**, and that count is the whole
+finding. `OrderExport::collection()` returned whole `Order` models — so the data columns were
+whatever the `orders` table's physical column order happened to be, minus an `unset()` list — while
+`headings()` was a separate literal that no migration had ever updated. Nine columns shipped with no
+header at all: `additional_note`, `deliveryboy_id`, `payment_receipt`, `product_order_status`,
+`lottery_code`, `currency_code`, `currency_symbol`, `created_by` and `order_source`.
+
+**The dangerous half is positional, and it is invisible to this suite by construction.** Three
+shipped migrations insert order columns MID-table:
+
+| migration | column | inserted |
+|---|---|---|
+| `2024_11_08_111424` | `product_order_status`, then `lottery_code` | `after('return_price')` |
+| `2024_10_22_103923` | `payment_receipt` | `after('payment_status')` |
+| `2024_03_28_034154` | `deliveryboy_id` | `after('additional_note')` |
+
+`return_price` is heading index 9. **`after()` is a no-op on sqlite**, which always appends — so on
+the test database every added column lands past the 19th and the old headings lined up, while on
+MySQL two columns sit between *"Return Price"* and `payment_type`, shifting every heading from
+*"Payment Type"* onward. A merchant reading *"Delivered status"* would be looking at `payment_type`.
+
+**That production state is NOT asserted.** `mysqld`, `mysql` and `mysqladmin` are all absent from
+this container, so whether the live export is currently mislabelled is **unmeasured**, and nothing
+here claims otherwise — the standing "MySQL remains UNVERIFIED" constraint is untouched. The fix was
+taken because it makes the question moot, not because the answer is known. This is the same class as
+P01-SEC-13: a defect sqlite cannot express.
+
+The fix reads headings and data from **one list, by attribute name** (`OrderExport::COLUMNS`), so a
+migration may insert a column anywhere and `$appends` may grow without effect. The first 19 headings
+are unchanged verbatim and in order — including the inconsistent casing of `product Name` and
+`Payment status`, left exactly as shipped because a merchant's downstream spreadsheet may match on
+them. No column was added, removed or moved, so **no cell in an existing export changes position**;
+nine gained a header.
+
+**Bitten 7 of 12.** Reverting `map()` to positional fails the width check, every money column, the
+payment/fulfilment columns and the scrambled-order case, while the five cases that do not depend on
+pairing still pass — which is the shape a correct bite has.
+
+`test_the_pairing_survives_a_scrambled_attribute_order` is the case that carries the row: it hands
+`map()` a row whose attributes are in an order no schema would produce and requires every value to
+still arrive under its own heading. **Its first version failed for a fixture reason, not a code
+reason** — `Order::create()` returns a model holding only the attributes that were set, so the
+scrambled row lacked `delivery_date`, and `getDeliveryDateAttribute()` reads
+`$this->attributes['delivery_date']` unguarded. Real exports always come from `get()`, which carries
+every column, so the fixture was corrected to `->fresh()` rather than the assertion weakened.
+
+### Two things deliberately not changed
+
+**F153 — reward points export as the literal `1`.** `$data[$k]["reward_points"] = 1;` discarded the
+stored value: an order created with `reward_points => 7` exported as `1`. The column defaults to `0`,
+so `1` is not the column default either, and nothing in the file says why it is there. It is a figure
+a merchant may sum, and whether `1` was intended cannot be settled from the code, so it is an **owner
+decision** and the literal is preserved exactly — with
+`test_reward_points_exports_the_shipped_literal_pending_an_owner_decision` pinning the current
+behaviour so the change, once authorised, cannot land unnoticed.
+
+**No styling pass was forced onto the two print documents.** `shippinglabel.blade.php` (320 lines)
+and `receipt.blade.php` (263 lines) are standalone `<html>` documents, not screen pages, and both
+measure **0 contrast failures in BOTH `screen` and `print` media, in both directions**, with
+`dir=rtl` correct. The design system is a screen system; applying its tokens to a courier label
+would be change without a defect.
+
+### Three candidate findings investigated and rejected
+
+1. **The receipt has no order reference** — by design. It is a POS till receipt reading only
+   `final_price`, `id`, `paymnet_type`, `product` and `sub_total`.
+2. **`lang="en" dir="rtl"`** — the store's configured RTL-with-English-document-language state,
+   already named by `DocumentDirection::languageDisagreesWithFlag()`.
+3. **`border: 1px solid var(--theme-color)` with `--theme-color: #FFF`** — white borders on a white
+   page, which text-contrast tooling structurally cannot see, so it looked like a find the
+   measurement had missed. It is **dead CSS**: `add-border` appears only in the stylesheet, never in
+   the markup, and the document has no `<tfoot>`. Reading the markup before recording it is the only
+   reason it is not in the register as a defect.
+
+### F155 — the Kanban board had no entry point
+
+`routes/web.php:1164` declared `order-kanban` and **no view linked to it**, so P2-04-7's board
+shipped reachable only by typing the URL. **All twelve of its tests call `route('order.kanban')`
+directly**, so none of them could have found it: a test that reaches a surface by constructing its
+own route proves the surface works, never that a user can get to it. The three new cases assert
+reachability from the **rendered** list and grid pages, and removing the link from
+`index.blade.php` alone fails exactly its two cases while the grid case still passes.
+
+The control carries `request()->query()`, so the active filters survive the switch — the same
+contract the board's own link back to the list already kept. It is classed like its three siblings
+(`btn btn-sm btn-primary btn-icon`) rather than converted to `ss-*` alone, because that whole
+`action-button` region is **P2-01**'s shared chrome and converting one of four controls would leave
+the header visibly inconsistent. `ti-layout-kanban` was confirmed present in the shipped
+`public/assets/fonts/tabler-icons.min.css` before use rather than assumed.
+
+### The two remainders, which is why the row is PARTIAL and not DONE
+
+1. **The invoice-preview clause is D-24b, OPEN.** Its view lives under
+   `packages/workdo/AutomaticOrderPrinting/`, which CLAUDE.md §2 and
+   `.github/scripts/guard-no-workdo-changes.sh` both forbid editing. Not doable here in either
+   direction.
+2. **The export's trigger control is not on the design system**, along with its three siblings in
+   the shared `action-button` header. Handed to **P2-01**, the next slice, which owns shared chrome.

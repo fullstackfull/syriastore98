@@ -314,4 +314,48 @@ class OrderKanbanTest extends SecurityTestCase
         $this->assertStringNotContainsString('Nothing here', $body,
             'an empty board shows one message, not seven empty columns');
     }
+
+    // =======================================================================================
+    //  REACHABILITY  (P2-04-12)
+    // =======================================================================================
+
+    /*
+     * THESE THREE CASES EXIST BECAUSE THE FIRST TWELVE COULD NOT HAVE FOUND THE DEFECT THEY COVER.
+     * Every one of them calls `route('order.kanban')` directly, so the board was fully asserted
+     * while no view linked to it: it shipped reachable only by typing the URL. A test that reaches
+     * a surface by constructing its own route proves the surface works, never that a user can get
+     * to it.
+     */
+
+    public function test_the_order_list_links_to_the_board(): void
+    {
+        $response = $this->actingAs($this->merchant)->get(route('order.index'));
+
+        $this->assertSame(200, $response->status(), 'premise: the order list rendered');
+        $this->assertStringContainsString(route('order.kanban'), $response->getContent(),
+            'nothing on the order list links to the board, so it is reachable only by typing '
+            . 'the URL');
+    }
+
+    public function test_the_grid_view_links_to_the_board(): void
+    {
+        $response = $this->actingAs($this->merchant)->get(route('order.grid'));
+
+        $this->assertSame(200, $response->status(), 'premise: the grid view rendered');
+        $this->assertStringContainsString(route('order.kanban'), $response->getContent(),
+            'nothing on the grid view links to the board');
+    }
+
+    public function test_the_link_to_the_board_carries_the_active_filters(): void
+    {
+        // The same contract the board's own link back to the list keeps, so switching view does
+        // not silently widen what the merchant is looking at.
+        $response = $this->actingAs($this->merchant)->get(route('order.index', ['ss_payment' => 'Unpaid']));
+
+        $this->assertSame(200, $response->status(), 'premise: the filtered list rendered');
+        $this->assertStringContainsString(route('order.kanban', ['ss_payment' => 'Unpaid']),
+            $response->getContent(),
+            'the board link drops the active filter, so a merchant filtering to unpaid orders '
+            . 'and switching view is shown every order they have');
+    }
 }

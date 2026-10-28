@@ -10,6 +10,15 @@
     <a href="{{ route('order.index') }}" data-bs-toggle="tooltip" data-bs-original-title="{{ __('List View') }}" class="btn btn-sm btn-primary btn-icon ">
         <i class="ti ti-list"></i>
     </a>
+    {{-- P2-04-12: the board's entry point. The route existed from P2-04-7 with nothing linking
+         to it, so the board was reachable only by typing the URL -- every one of that slice's
+         twelve tests drove `route('order.kanban')` directly and so none of them could notice.
+         `request()->query()` carries the active filters across, which is the same contract
+         `kanban.blade.php`'s own link back to this list keeps. Classed like its three siblings
+         rather than converted alone: this whole `action-button` region is P2-01's header work. --}}
+    <a href="{{ route('order.kanban', request()->query()) }}" data-bs-toggle="tooltip" data-bs-original-title="{{ __('Board View') }}" class="btn btn-sm btn-primary btn-icon">
+        <i class="ti ti-layout-kanban"></i>
+    </a>
 </div>
 @endsection
 
