@@ -129,11 +129,66 @@ class VariantDeleteScopeTest extends TestCase
 
     public function test_the_css_safe_identifier_is_unique_per_rendered_variant(): void
     {
-        $this->assertMatchesRegularExpression(
-            "/\\\$safe_str\s*=\s*preg_replace\([^)]*\)\s*\.\s*'_'\s*\.\s*\\\$loop->index/",
-            $this->source(),
-            '$safe_str must carry the loop index: without it, two terms differing only in a '
-            . 'special character collapse to the same DOM id (F73)'
+        /*
+         * ALL THREE VIEWS, and that is a correction this file needed rather than a preference.
+         * Four of its ratchets asked only the create view, so when F73 and F163 were fixed there
+         * the two siblings kept both defects and the suite stayed green. They were then found by
+         * driving the EDIT page in a browser -- and `attribute_combinations_data.blade.php` is the
+         * one the edit screen injects from `$(document).ready`, so it is the panel a merchant sees
+         * FIRST. A ratchet that covers one of three copies of a defect is not a ratchet.
+         */
+        foreach ($this->allViews() as $label => $view) {
+            $this->assertMatchesRegularExpression(
+                "/\\\$safe_str\s*=\s*preg_replace\([^)]*\)\s*\.\s*'_'\s*\.\s*\\\$loop->index/",
+                $this->source($view),
+                $label . ': $safe_str must carry the loop index: without it, two terms differing '
+                . 'only in a special character collapse to the same DOM id (F73)'
+            );
+        }
+    }
+
+    /** @return array<string, string|null> label => path relative to the repo root; null = the create view */
+    private function allViews(): array
+    {
+        return array_merge(
+            ['attribute_combinations.blade.php' => null],
+            array_combine(array_map('basename', self::SIBLINGS), self::SIBLINGS)
+        );
+    }
+
+    /**
+     * THE MISTAKE THIS ONE EXISTS FOR WAS MINE, and it was strictly worse than the defect it came
+     * from. Giving each variant's preview `<img>` a per-variant id (F163) left the `onchange`
+     * beside it still naming the old shared `down_product`, which no longer existed -- so
+     * `getElementById(...).src` ran on `null` and THREW on every file choice, where before it had
+     * merely written the wrong variant's preview. A browser probe that measures only the delete
+     * and the duplicate ids cannot see that, so the rule is asserted instead: every id a view
+     * looks up must be an id that view emits.
+     */
+    public function test_every_getelementbyid_names_an_id_the_same_view_emits(): void
+    {
+        $checked = 0;
+
+        foreach ($this->allViews() as $label => $view) {
+            $source = $this->source($view);
+
+            preg_match_all("/getElementById\(\s*'([^']+)'\s*\)/", $source, $lookups);
+
+            foreach ($lookups[1] as $wanted) {
+                $checked++;
+                $this->assertStringContainsString(
+                    'id="' . $wanted . '"',
+                    $source,
+                    $label . ": getElementById('" . $wanted . "') names an id this view does not "
+                    . 'emit, so the lookup returns null'
+                );
+            }
+        }
+
+        $this->assertGreaterThanOrEqual(
+            3,
+            $checked,
+            'this test found no getElementById lookups at all, so it proved nothing'
         );
     }
 
@@ -158,15 +213,15 @@ class VariantDeleteScopeTest extends TestCase
      */
     public function test_no_identifier_is_emitted_without_the_variant_suffix(string $id): void
     {
-        $source = $this->source();
-
-        $this->assertDoesNotMatchRegularExpression(
-            '/id="' . preg_quote($id, '/') . '"/',
-            $source,
-            'id="' . $id . '" is emitted once per variant, so N variants share one id. A label '
-            . 'activates the FIRST -- which is how a file chosen for the third variant landed on '
-            . 'the first (F163).'
-        );
+        foreach ($this->allViews() as $label => $view) {
+            $this->assertDoesNotMatchRegularExpression(
+                '/id="' . preg_quote($id, '/') . '"/',
+                $this->source($view),
+                $label . ': id="' . $id . '" is emitted once per variant, so N variants share one '
+                . 'id. A label activates the FIRST -- which is how a file chosen for the third '
+                . 'variant landed on the first (F163).'
+            );
+        }
     }
 
     /** @return array<string, array{0: string}> */
@@ -178,25 +233,29 @@ class VariantDeleteScopeTest extends TestCase
             'download-product' => ['download-product'],
             'downloadable_product' => ['downloadable_product'],
             'down_product' => ['down_product'],
+            'down_products' => ['down_products'],
+            'payment-gateways' => ['payment-gateways'],
         ];
     }
 
     public function test_the_shipping_select_is_associated_with_its_label(): void
     {
-        $source = $this->source();
+        foreach ($this->allViews() as $label => $view) {
+            $source = $this->source($view);
 
-        $this->assertStringNotContainsString(
-            "'id' => 'Shipping'",
-            $source,
-            "the shipping select still carries a hardcoded id repeated once per variant"
-        );
+            $this->assertStringNotContainsString(
+                "'id' => 'Shipping'",
+                $source,
+                $label . ': the shipping select still carries a hardcoded id repeated once per variant'
+            );
 
-        $this->assertStringContainsString(
-            "Form::label('shipping_id_' . \$safe_str",
-            $source,
-            'the shipping label must name the select it describes: its first argument was an empty '
-            . 'string, so it was associated with nothing at all'
-        );
+            $this->assertStringContainsString(
+                "Form::label('shipping_id_' . \$safe_str",
+                $source,
+                $label . ': the shipping label must name the select it describes: its first '
+                . 'argument was an empty string, so it was associated with nothing at all'
+            );
+        }
     }
 
     /**
@@ -205,17 +264,42 @@ class VariantDeleteScopeTest extends TestCase
      */
     public function test_the_downloadable_file_label_names_its_own_variants_input(): void
     {
-        $source = $this->source();
+        foreach ($this->allViews() as $label => $view) {
+            $source = $this->source($view);
 
-        $this->assertStringContainsString(
-            'for="downloadable_product_id_{{ $safe_str }}"',
-            $source,
-            'the label must point at this variant\'s own file input'
-        );
-        $this->assertStringContainsString(
-            'id="downloadable_product_id_{{ $safe_str }}"',
-            $source,
-            'and that input must carry the matching unique id'
-        );
+            $this->assertStringContainsString(
+                'for="downloadable_product_id_{{ $safe_str }}"',
+                $source,
+                $label . ': the label must point at this variant\'s own file input'
+            );
+            $this->assertStringContainsString(
+                'id="downloadable_product_id_{{ $safe_str }}"',
+                $source,
+                $label . ': and that input must carry the matching unique id'
+            );
+        }
+    }
+
+    /**
+     * AND THE PANEL'S ACCESSIBLE NAME IS ITS OWN. `aria-labelledby="COD"` was duplicated once per
+     * variant, so every panel but the first resolved to the FIRST variant's header -- measured in
+     * a browser: the panel whose own term was `M/L` was announced as `M`.
+     */
+    public function test_each_variant_panel_is_labelled_by_its_own_header(): void
+    {
+        foreach ($this->allViews() as $label => $view) {
+            $source = $this->source($view);
+
+            $this->assertStringNotContainsString(
+                'aria-labelledby="COD"',
+                $source,
+                $label . ': every panel is labelled by the first variant\'s header'
+            );
+            $this->assertStringContainsString(
+                'aria-labelledby="variant_head_{{ $safe_str }}"',
+                $source,
+                $label . ': the panel must be labelled by its own header'
+            );
+        }
     }
 }

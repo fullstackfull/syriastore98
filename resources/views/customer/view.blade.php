@@ -65,61 +65,22 @@
                                             <span>{{ currency_format_with_sym( ($order->final_price ?? 0), getCurrentStore()) ?? SetNumberFormat($order->final_price) }}</span>
                                         </td>
                                         <td>
-                                            @if ($order->payment_type == 'cod')
-                                                {{ __('Cash On Delivery') }}
-                                            @elseif ($order->payment_type == 'bank_transfer')
-                                                {{ __('Bank Transfer') }}
-                                            @elseif ($order->payment_type == 'stripe')
-                                                {{ __('Stripe')}}
-                                            @elseif ($order->payment_type == 'paystack')
-                                                {{ __('Paystack')}}
-                                            @elseif ($order->payment_type == 'Mercado')
-                                                {{ __('Mercado Pago')}}
-                                            @elseif ($order->payment_type == 'skrill')
-                                                {{ __('Skrill')}}
-                                            @elseif ($order->payment_type == 'paymentwall')
-                                                {{ __('PaymentWall')}}
-                                            @elseif ($order->payment_type == 'Razorpay')
-                                                {{ __('Razorpay')}}
-                                            @elseif ($order->payment_type == 'paypal')
-                                                {{ __('Paypal')}}
-                                            @elseif ($order->payment_type == 'flutterwave')
-                                                {{ __('Flutterwave')}}
-                                            @elseif ($order->payment_type == 'mollie')
-                                                {{ __('Mollie')}}
-                                            @elseif ($order->payment_type == 'coingate')
-                                                {{ __('Coingate')}}
-                                            @elseif ($order->payment_type == 'paytm')
-                                                {{ __('Paytm')}}
-                                            @elseif ($order->payment_type == 'SenagePay')
-                                                {{ __('SenagePay')}}
-                                            @elseif ($order->payment_type == 'CyberSource')
-                                                {{ __('CyberSource')}}
-                                            @elseif ($order->payment_type == 'Ozow')
-                                                {{ __('Ozow')}}
-                                            @elseif ($order->payment_type == 'MyFatoorah')
-                                                {{ __('MyFatoorah')}}
-                                            @elseif ($order->payment_type == 'easebuzz')
-                                                {{ __('Easebuzz')}}
-                                            @elseif ($order->payment_type == 'payu')
-                                                {{ __('PayU') }}
-                                            @elseif ($order->payment_type == 'NMI')
-                                            {{ __('NMI')}}
-                                            @elseif ($order->payment_type == 'sofort')
-                                            {{ __('Sofort')}}
-                                            @elseif ($order->payment_type == 'Paynow')
-                                                {{ __('Paynow')}}
-                                            @elseif ($order->payment_type == 'esewa')
-                                            {{ __('Esewa')}}
-                                            @elseif ($order->payment_type == 'DPO')
-                                            {{ __('DPO')}}
-                                            @elseif ($order->payment_type == 'Braintree')
-                                            {{ __('Braintree') }}
-                                            @elseif ($order->payment_type == 'PowerTranz')
-                                            {{ __('PowerTranz') }}
-                                            @elseif ($order->payment_type == 'SSLCommerz')
-                                            {{ __('SSLCommerz') }}
-                                            @endif
+                                            {{-- F150 -- ONE RESOLVER INSTEAD OF A 27-BRANCH CHAIN WITH NO @else.
+                                                 An unmatched payment type rendered an EMPTY CELL here, which is
+                                                 worse than a dash: the column simply looked blank, with nothing
+                                                 to say whether the order had no payment method or the page did
+                                                 not recognise it.
+
+                                                 MEASURED against the whole vocabulary -- the 52 gateway ids, the
+                                                 44 storefront paymentList names and the two stored literals: 52
+                                                 of the 71 values rendered blank here, POS among them, which for
+                                                 a shop using point of sale is most of its orders. Two branches
+                                                 were also unreachable by any writer: `'Mercado'` where the
+                                                 registry id is `mercado`, and `'DPO'` where it is `dpopay`.
+
+                                                 The dash is the same absence the order list shows, so the two
+                                                 merchant-facing surfaces now agree. --}}
+                                            {{ \App\Payments\PaymentTypeLabel::for($order->payment_type) ?? '-' }}
                                         </td>
                                         <td>
                                             @if ($order->delivered_status == 0)

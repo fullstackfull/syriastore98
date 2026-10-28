@@ -6369,9 +6369,28 @@ public function getActivePaymentMethods(Request $request)
             $status = \App\Models\Utility::GetValueByName($enableKey, $storeId);
 
             if ($status === 'on' || $status === '1') {
+                /*
+                 * F150 -- THE LABEL, NOT THE KEY. `ucwords(str_replace('_', ' ', $id))` produced
+                 * "Cod", "Sslcommerz", "Bank Transfer", "Paiementpro" -- a mechanical transform of
+                 * an internal identifier, shown to a merchant in the admin app's order form, and
+                 * identical in Arabic because nothing translated it.
+                 *
+                 * `key` IS UNTOUCHED, and that is what makes this safe for the shipped app. The
+                 * Flutter client posts the key and displays the name, verified in its own source:
+                 * `create_order_screen.dart:237` renders `m.name` in the dropdown and `:242` sets
+                 * `orderController.paymentType.value = method?.key`. So the value that reaches
+                 * `payment_type` on the created order does not change at all; only the words the
+                 * merchant reads do. No API field is added, removed or renamed.
+                 *
+                 * A gateway with no label falls back to the old transform rather than vanishing
+                 * from the picker: this list is what a merchant can CHOOSE, and silently dropping
+                 * an enabled payment method would be a functional regression, where an ugly name
+                 * is only a cosmetic one.
+                 */
                 $activeMethods[] = [
                     'key' => $id,
-                    'name' => ucwords(str_replace('_', ' ', $id)),
+                    'name' => \App\Payments\PaymentTypeLabel::for($id)
+                        ?? ucwords(str_replace('_', ' ', $id)),
                 ];
             }
         }

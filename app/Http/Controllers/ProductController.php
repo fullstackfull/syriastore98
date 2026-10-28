@@ -2053,7 +2053,58 @@ $Product->cost_price = $request->cost_price;
                         $optionValues = [];
                         if (isset($request[$str])) {
                             foreach ($request[$str] as $fValue) {
-                                $option = ProductAttributeOption::where('terms', $fValue)->first();
+                                /*
+                                 * F168 -- THE TERM RESOLVES WITHIN THIS PRODUCT'S OWN STORE.
+                                 *
+                                 * `ProductAttributeOption::where('terms', $fValue)->first()` was
+                                 * the whole predicate. The model registers no `StoreScope` and is
+                                 * not in `config/tenancy.php`'s `scoped_models`, so that matched
+                                 * the WHOLE TABLE, and with no `orderBy` an unordered `first()`
+                                 * returns the lowest id -- the OLDEST option. The resolved ids are
+                                 * then PERSISTED, as
+                                 * `$product->product_attribute = json_encode(...)`.
+                                 *
+                                 * So the older store won. Attribute terms are generic by nature --
+                                 * `Red`, `M`, `Natural` -- so two stores sharing one is the normal
+                                 * case, not a collision, and whichever store created its option
+                                 * first owned the id every other store's products were written
+                                 * with. MEASURED: with a foreign `Red` created before the
+                                 * merchant's own, the save stored the FOREIGN id.
+                                 *
+                                 * It is not invisible either. The edit screen reads those ids back
+                                 * as `whereIn('id', $idsArray)->pluck('terms')`
+                                 * (edit.blade.php:544-550), so while the words agree the page
+                                 * looks right -- and then the other tenant renames their option
+                                 * and this merchant's product shows the other store's word, or
+                                 * deletes it and the attribute disappears from this product's
+                                 * form. A tenant's catalogue structure should not depend on a row
+                                 * in another tenant's catalogue.
+                                 *
+                                 * The sibling `attribute_combination()` already carries this
+                                 * predicate for this same model (P1-INV-10 (c)); these two sites
+                                 * were missed because they resolve the other way round -- term to
+                                 * id rather than id to term.
+                                 *
+                                 * THE PRODUCT'S STORE, NOT `getCurrentStore()`: `update()` has
+                                 * already proved the caller owns this product (P1-INV-01), and an
+                                 * option linked to a product must be its own store's. The helper
+                                 * hands a `super admin` with an empty `current_store` the
+                                 * hardcoded literal `1`, so an operator editing another store's
+                                 * product would resolve against store 1 -- the F157 trap.
+                                 *
+                                 * An empty `store_id` resolves NOTHING rather than everything:
+                                 * `where('store_id', null)` becomes `whereNull`, which matches
+                                 * every store-less option row.
+                                 *
+                                 * A term that does not resolve contributes no id, which is the
+                                 * shape this loop already produced for any unresolved term.
+                                 */
+                                $option = empty($product->store_id)
+                                    ? null
+                                    : ProductAttributeOption::where('terms', $fValue)
+                                        ->where('store_id', $product->store_id)
+                                        ->first();
+
                                 if ($option) {
                                     $optionValues[] = $option->id;
                                 }
@@ -2146,7 +2197,58 @@ $Product->cost_price = $request->cost_price;
                         $optionValues = [];
                         if (isset($request[$str])) {
                             foreach ($request[$str] as $fValue) {
-                                $option = ProductAttributeOption::where('terms', $fValue)->first();
+                                /*
+                                 * F168 -- THE TERM RESOLVES WITHIN THIS PRODUCT'S OWN STORE.
+                                 *
+                                 * `ProductAttributeOption::where('terms', $fValue)->first()` was
+                                 * the whole predicate. The model registers no `StoreScope` and is
+                                 * not in `config/tenancy.php`'s `scoped_models`, so that matched
+                                 * the WHOLE TABLE, and with no `orderBy` an unordered `first()`
+                                 * returns the lowest id -- the OLDEST option. The resolved ids are
+                                 * then PERSISTED, as
+                                 * `$product->product_attribute = json_encode(...)`.
+                                 *
+                                 * So the older store won. Attribute terms are generic by nature --
+                                 * `Red`, `M`, `Natural` -- so two stores sharing one is the normal
+                                 * case, not a collision, and whichever store created its option
+                                 * first owned the id every other store's products were written
+                                 * with. MEASURED: with a foreign `Red` created before the
+                                 * merchant's own, the save stored the FOREIGN id.
+                                 *
+                                 * It is not invisible either. The edit screen reads those ids back
+                                 * as `whereIn('id', $idsArray)->pluck('terms')`
+                                 * (edit.blade.php:544-550), so while the words agree the page
+                                 * looks right -- and then the other tenant renames their option
+                                 * and this merchant's product shows the other store's word, or
+                                 * deletes it and the attribute disappears from this product's
+                                 * form. A tenant's catalogue structure should not depend on a row
+                                 * in another tenant's catalogue.
+                                 *
+                                 * The sibling `attribute_combination()` already carries this
+                                 * predicate for this same model (P1-INV-10 (c)); these two sites
+                                 * were missed because they resolve the other way round -- term to
+                                 * id rather than id to term.
+                                 *
+                                 * THE PRODUCT'S STORE, NOT `getCurrentStore()`: `update()` has
+                                 * already proved the caller owns this product (P1-INV-01), and an
+                                 * option linked to a product must be its own store's. The helper
+                                 * hands a `super admin` with an empty `current_store` the
+                                 * hardcoded literal `1`, so an operator editing another store's
+                                 * product would resolve against store 1 -- the F157 trap.
+                                 *
+                                 * An empty `store_id` resolves NOTHING rather than everything:
+                                 * `where('store_id', null)` becomes `whereNull`, which matches
+                                 * every store-less option row.
+                                 *
+                                 * A term that does not resolve contributes no id, which is the
+                                 * shape this loop already produced for any unresolved term.
+                                 */
+                                $option = empty($product->store_id)
+                                    ? null
+                                    : ProductAttributeOption::where('terms', $fValue)
+                                        ->where('store_id', $product->store_id)
+                                        ->first();
+
                                 if ($option) {
                                     $optionValues[] = $option->id;
                                 }
@@ -3103,6 +3205,19 @@ $Product->cost_price = $request->cost_price;
             return redirect()->back()->with('error', __('Permission denied.'));
         }
 
+        /*
+         * A MISSING PRODUCT IS REFUSED HERE, not left to the view. F165.
+         *
+         * `productIsOutsideCurrentStore()` returns false for the platform operator BEFORE its
+         * `empty($product)` test, so for an operator a non-existent `id` reached the view with
+         * `$product === null` and the view's own `$product->ProductVariant($str)` raised
+         * "Call to a member function on null" -- a 500. The same refusal shape as above, so a
+         * missing id and a foreign id stay indistinguishable to the caller.
+         */
+        if (empty($product)) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
         $options = array();
         $product_name = !empty($request->sku) ? $request->sku : '';
         $unit_price = !empty($request->price) ? $request->price : 0;
@@ -3115,8 +3230,40 @@ $Product->cost_price = $request->cost_price;
                     $name = 'attribute_options_' . $no;
 
                     if ($request->has($name) && is_array($request[$name])) {
+                        /*
+                         * THE VALUE IS USED VERBATIM, AND THAT IS CORRECT HERE — the two
+                         * endpoints take the SAME parameter name with DIFFERENT vocabularies.
+                         *
+                         * This is the trap in this pair of handlers, and it is written down
+                         * because it produced a wrong "fix" that a pre-existing test caught:
+                         *
+                         *   - the CREATE page fills its select from `attribute_option()`, which
+                         *     returns `pluck('terms', 'id')`, and its JavaScript emits
+                         *     `<option value="<id>">` (create.blade.php:833). So
+                         *     `attribute_options_N[]` carries option **IDS**, and
+                         *     `attribute_combination()` (:2745) resolves each id to its `terms`
+                         *     — with a store predicate, which is P1-INV-10 (c).
+                         *
+                         *   - the EDIT page's select is Blade, and its `<option>` carries NO
+                         *     `value` attribute (edit.blade.php:632-636), so the browser submits
+                         *     the option's TEXT. That text is `$option`, which is
+                         *     `ProductAttributeOption::...->pluck('terms')` (edit.blade.php:552).
+                         *     So the same parameter carries option **TERMS** here, and the terms
+                         *     are already what the variant key must be.
+                         *
+                         * Resolving them as ids therefore produced `ProductAttributeOption::
+                         * where('id', 'Red')`, which matches nothing, so the combination table
+                         * came back EMPTY for every real request — and because the merchant's own
+                         * variant row then went unrendered,
+                         * `MerchantProductOwnershipTest::test_a_merchant_can_open_their_own_attribute_combination`
+                         * failed on its positive control. There is no cross-tenant read to guard
+                         * here precisely BECAUSE nothing is looked up: the handler echoes strings
+                         * the caller already had.
+                         *
+                         * `VariantCombinationVocabularyTest` pins both shapes so the two cannot
+                         * be "unified" by inspection again.
+                         */
                         $my_str = $request[$name];
-                        $optionValues = [];
                         array_push($options, $my_str);
                     }
                 }

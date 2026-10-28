@@ -169,7 +169,14 @@
                                                                 class="form-label">{{ __('Downloadable Product') }}</label>
                                                             <input type="file" name="downloadable_product_{{ $str }}" id="downloadable_product_id_{{ $safe_str }}" data-value="downloadable_product_{{ $str }}"
                                                                 class="form-control downloadable_product_variant"
-                                                                onchange="document.getElementById('down_product').src = window.URL.createObjectURL(this.files[0])">
+                                                                {{-- AND THE HANDLER HAD TO MOVE WITH THE ID. Giving the
+                                                                     preview a per-variant id (F163) left this `onchange`
+                                                                     naming `down_product`, which no longer exists -- so
+                                                                     `.src` on null THREW on every file choice, which is
+                                                                     worse than writing the wrong preview. `?.setAttribute`
+                                                                     rather than `.src =` so a future rename degrades to
+                                                                     no preview instead of a thrown error. --}}
+                                                                onchange="document.getElementById('down_product_{{ $safe_str }}')?.setAttribute('src', window.URL.createObjectURL(this.files[0]))">
                                                             <img id="down_product_{{ $safe_str }}" src="" width="20%" class="mt-2" />
                                                         </div>
                                                     </div>

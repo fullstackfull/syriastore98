@@ -33,9 +33,25 @@
                                merchant reads); only the id is sanitised. Its one cost is recorded as
                                F73: two terms differing solely in a special character collapse to the
                                same id. */
-                            $safe_str = preg_replace('/[^a-zA-Z0-9_-]/', '_', $str);
+                            /* F73, AND THE SUFFIX IS NOT DECORATION. The sanitiser maps EVERY
+                               character outside [A-Za-z0-9_-] to '_', so two terms differing only in
+                               a special character -- `M/L` and `M.L` -- both become `M_L`: one id and
+                               one `data-bs-target` shared by two panels, so opening one opened the
+                               other's. `$loop->index` makes the id injective BY CONSTRUCTION rather
+                               than probabilistically, which a hash would not. The same fix the
+                               create-side sibling carries (attribute_combinations.blade.php:21), kept
+                               identical so there is one spelling of it. Note the inner
+                               `foreach ($combination as $key => $item)` above SHADOWS the outer
+                               `$key`, so `$loop->index` is the only safe source of the index here. */
+                            $safe_str = preg_replace('/[^a-zA-Z0-9_-]/', '_', $str) . '_' . $loop->index;
                         @endphp
-                        <div class="form-group accordion accordion-flush" id="payment-gateways">
+                        {{-- F164: every id below was emitted ONCE PER VARIANT. `payment-gateways`
+                             and `COD` are leftovers from the payment-gateway template this accordion
+                             was copied from; nothing selects either (checked across this view, both
+                             sibling views, public/js and public/assets/js -- the JavaScript keys on
+                             the CLASSES, which are untouched). They are made unique rather than
+                             dropped because `COD` is the `aria-labelledby` target below. --}}
+                        <div class="form-group accordion accordion-flush" id="variant_group_{{ $safe_str }}">
                             <div id="" class="accordion-item card attribute_options_datas">
                                 <div class="accordion-item card media remove_{{$str}} remove_option_{{ $str }}">
                                     @if (strlen($str) > 0)
@@ -46,7 +62,7 @@
                                                 $variationOptions = explode(',', $ProductVariantData->variation_option);
                                             }
                                         @endphp
-                                        <h2 class="accordion-header" id="COD">
+                                        <h2 class="accordion-header" id="variant_head_{{ $safe_str }}">
                                             <button class="accordion-button collapsed according-delete-input"
                                                 type="button" data-bs-toggle="collapse"
                                                 data-bs-target="#collapseone_{{ $safe_str }}" aria-expanded="false"
@@ -71,7 +87,11 @@
                                         </h2>
 
                                         <div id="collapseone_{{ $safe_str }}" class="accordion-collapse collapse"
-                                            aria-labelledby="COD" data-bs-parent="#accordionExample">
+                                            {{-- MEASURED: with `aria-labelledby="COD"` duplicated,
+                                                 every panel but the first resolved to the FIRST
+                                                 variant's header, so a screen reader announced the
+                                                 wrong variant's name for all of them. --}}
+                                            aria-labelledby="variant_head_{{ $safe_str }}" data-bs-parent="#accordionExample">
                                             <div class="accordion-body">
                                                 <div class="row">
                                                     <div class="form-group col-md-3">
@@ -157,20 +177,20 @@
                                                 </div>
                                                 @if ($ProductVariantData)
                                                     <div class="form-group col-md-12 shipping-div">
-                                                        {!! Form::label('', __('Shipping'), ['class' => 'form-label']) !!}
+                                                        {!! Form::label('shipping_id_' . $safe_str, __('Shipping'), ['class' => 'form-label']) !!}
                                                         {!! Form::select('shipping_id_' . $str, $Shipping, $ProductVariantData->shipping, [
                                                             'class' => 'form-control',
                                                             'data-role' => 'tagsinput',
-                                                            'id' => 'Shipping',
+                                                            'id' => 'shipping_id_' . $safe_str,
                                                         ]) !!}
                                                     </div>
                                                 @else
                                                     <div class="form-group col-md-12 shipping-div">
-                                                        {!! Form::label('', __('Shipping'), ['class' => 'form-label']) !!}
+                                                        {!! Form::label('shipping_id_' . $safe_str, __('Shipping'), ['class' => 'form-label']) !!}
                                                         {!! Form::select('shipping_id_' . $str, $Shipping, null, [
                                                             'class' => 'form-control',
                                                             'data-role' => 'tagsinput',
-                                                            'id' => 'Shipping',
+                                                            'id' => 'shipping_id_' . $safe_str,
                                                         ]) !!}
                                                     </div>
                                                 @endif
@@ -214,7 +234,7 @@
                                                     ) !!}
                                                 </div>
                                                 <div class="row col-md-12 d-none enable_manage_stock manageble_stock_{{ $str }}"
-                                                    id="enable_manage_stock" data-id="{{ $str }}">
+                                                    id="enable_manage_stock_{{ $safe_str }}" data-id="{{ $str }}">
                                                     <div class="form-group col-md-4 ">
                                                         {!! Form::label('', __('Stock'), ['class' => 'form-label']) !!}
                                                         {!! Form::number('product_stock_' . $str, !empty($ProductVariantData->stock) ? $ProductVariantData->stock : 0, [
@@ -261,17 +281,29 @@
                                                 <input type="hidden" class="options_data_{{ $str }}[]"
                                                     name="options_datas[]" value="{{ $str }}">
                                                 <div class="row download-product d-none down_product_{{ $str }}"
-                                                    data-id="{{ $str }}" id="download-product">
+                                                    data-id="{{ $str }}" id="download_product_row_{{ $safe_str }}">
                                                     <div class="form-group mb-0">
-                                                        <label for="downloadable_product"
+                                                        {{-- MEASURED: `for="downloadable_product"` activated the
+                                                             PRODUCT-level file input (edit.blade.php:470), which
+                                                             comes first in document order -- so clicking a
+                                                             variant's label opened the product's own file picker
+                                                             and the chosen file landed on `downloadable_product`
+                                                             instead of this variant's field. Both variants'
+                                                             labels did it. The id cannot be
+                                                             `downloadable_product_{{ '{{ $str }}' }}` either: the
+                                                             `Downloadable` CHECKBOX above already owns that one. --}}
+                                                        <label for="downloadable_product_id_{{ $safe_str }}"
                                                             class="form-label">{{ __('Downloadable Product') }}</label>
                                                             <input type="file"
                                                             name="downloadable_product_{{ $str }}"
-                                                            id="downloadable_product" class="form-control downloadable_product_variant"
+                                                            id="downloadable_product_id_{{ $safe_str }}" class="form-control downloadable_product_variant"
                                                             data-value="downloadable_product_{{ $str }}"
-                                                            onchange="document.getElementById('down_products')?.setAttribute('src', window.URL.createObjectURL(this.files[0]))">
+                                                            {{-- MEASURED: `getElementById('down_products')` returns the
+                                                                 FIRST match, so choosing a file on the second variant
+                                                                 wrote the preview into the first variant's <img>. --}}
+                                                            onchange="document.getElementById('down_product_{{ $safe_str }}')?.setAttribute('src', window.URL.createObjectURL(this.files[0]))">
 
-                                                     <img id="down_products" src="" width="20%" class="mt-2" />
+                                                     <img id="down_product_{{ $safe_str }}" src="" width="20%" class="mt-2" />
 
                                                     </div>
                                                 </div>

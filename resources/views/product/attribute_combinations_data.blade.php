@@ -23,12 +23,20 @@
                                merchant reads); only the id is sanitised. Its one cost is recorded as
                                F73: two terms differing solely in a special character collapse to the
                                same id. */
-                            $safe_str = preg_replace('/[^a-zA-Z0-9_-]/', '_', $str);
+                            /* F73: the sanitiser maps every special character to '_', so `M/L` and
+                               `M.L` both become `M_L` -- one id shared by two panels. `$loop->index`
+                               makes it injective by construction. The same suffix both sibling views
+                               carry. */
+                            $safe_str = preg_replace('/[^a-zA-Z0-9_-]/', '_', $str) . '_' . $loop->index;
                         @endphp
                         <div class="accordion accordion-flush" id="">
                             <div id="" class="accordion-item card attribute_option_data">
                                 <div class="accordion-item card media remove_option_{{ $str }}">
-                                    <h2 class="accordion-header" id="COD">
+                                    {{-- F164: `COD` is a leftover from the payment-gateway template this
+                                         accordion was copied from, and it was emitted once per variant while
+                                         being the `aria-labelledby` target below -- so every panel but the
+                                         first was announced under the FIRST variant's name. --}}
+                                    <h2 class="accordion-header" id="variant_head_{{ $safe_str }}">
                                         <button class="accordion-button collapsed according-delete-input" type="button"
                                             data-bs-toggle="collapse" data-bs-target="#collapseone_{{ $safe_str }}"
                                             aria-expanded="false" aria-controls="collapseone_{{ $safe_str }}">
@@ -46,7 +54,7 @@
                                         </button>
                                     </h2>
                                     <div id="collapseone_{{ $safe_str }}" class="accordion-collapse collapse"
-                                        aria-labelledby="COD" data-bs-parent="#accordionExample">
+                                        aria-labelledby="variant_head_{{ $safe_str }}" data-bs-parent="#accordionExample">
                                         <div class="accordion-body">
                                             <div class="row">
                                                 <div class="form-group col-md-3">
@@ -130,11 +138,11 @@
                                             </div>
 
                                             <div class="form-group col-md-12 shipping-div">
-                                                {!! Form::label('', __('Shipping'), ['class' => 'form-label']) !!}
+                                                {!! Form::label('shipping_id_' . $safe_str, __('Shipping'), ['class' => 'form-label']) !!}
                                                 {!! Form::select('shipping_id_' . $str, $Shipping, $combination->shipping, [
                                                     'class' => 'form-control',
                                                     'data-role' => 'tagsinput',
-                                                    'id' => 'Shipping',
+                                                    'id' => 'shipping_id_' . $safe_str,
                                                 ]) !!}
                                             </div>
                                             @if ($combination->stock_status != null)
@@ -161,7 +169,7 @@
                                                 ]) !!}
                                             </div>
                                             <div class="row col-md-12 d-none enable_manage_stock manageble_stock_{{ $str }}"
-                                                id="enable_manage_stock" data-id="{{ $str }}">
+                                                id="enable_manage_stock_{{ $safe_str }}" data-id="{{ $str }}">
                                                 <div class="form-group col-md-4 ">
                                                     {!! Form::label('', __('Stock'), ['class' => 'form-label']) !!}
                                                     {!! Form::number('product_stock_' . $str, $combination->stock, ['class' => 'form-control productVariantStock']) !!}
@@ -206,16 +214,25 @@
                                             <input type="hidden" class="options_data_{{ $str }}[]"
                                                 name="options_datas[]" value="{{ $str }}">
                                             <div class="row download-product d-none down_product_{{ $str }}"
-                                                data-id="{{ $str }}" id="download-product">
+                                                data-id="{{ $str }}" id="download-product-{{ $safe_str }}">
                                                 <div class="form-group mb-0">
-                                                    <label for="downloadable_product"
+                                                    {{-- `for="downloadable_product"` activated the PRODUCT-level file
+                                                         input (edit.blade.php:470), first in document order, so a click
+                                                         on a variant's label opened the product's own picker. The id
+                                                         cannot be `downloadable_product_<key>`: the `Downloadable`
+                                                         CHECKBOX above already owns that one. --}}
+                                                    <label for="downloadable_product_id_{{ $safe_str }}"
                                                         class="form-label">{{ __('Downloadable Product') }}</label>
                                                     <input type="file"
                                                         name="downloadable_product_{{ $str }}"
-                                                        id="downloadable_product" class="form-control"
-                                                        onchange="document.getElementById('down_product').src = window.URL.createObjectURL(this.files[0])">
+                                                        id="downloadable_product_id_{{ $safe_str }}" class="form-control"
+                                                        {{-- `getElementById('down_product')` matched NOTHING in this view
+                                                             -- the preview img carried no id at all -- so `.src =` on null
+                                                             threw a TypeError on every file choice. --}}
+                                                        onchange="document.getElementById('down_product_{{ $safe_str }}')?.setAttribute('src', window.URL.createObjectURL(this.files[0]))">
 
-                                                    <img src="{{ !empty($combination->downloadable_product) ? get_file($combination->downloadable_product) : $profile . '/avatar.png' }}"
+                                                    <img id="down_product_{{ $safe_str }}"
+                                                        src="{{ !empty($combination->downloadable_product) ? get_file($combination->downloadable_product) : $profile . '/avatar.png' }}"
                                                         class=" rounded-circle-avatar" width="100px">
                                                 </div>
                                             </div>

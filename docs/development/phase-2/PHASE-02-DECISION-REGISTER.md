@@ -1876,7 +1876,7 @@ the rest"*.
 | 7 | **F158** dark mode | APPROVED — incremental, measured in a real browser, starting from sites that actually failed; no single sweeping theme-wide rule | — |
 | 8 | **F153** reward points | APPROVED — export the stored `orders.reward_points`; remove the literal `1`; export stays read-only | — |
 | 9 | **F157** operator on coupons | **READ AND EXPORT ONLY** — no create, edit, delete or value change on a merchant's coupons; unify `CouponController` so export and read agree; keep the store explicit and tenant-isolated, with no default that could expose an unintended store | — |
-| 10 | **F150** payment keys | **FORWARD-ONLY canonical keys** — the database stores canonical identifiers, the UI shows translated names; per-writer slices; **no backfill, no historical edit, no amount or state change, no re-charge, and an ambiguous value stays as it is** | — |
+| 10 | **F150** payment keys | **FORWARD-ONLY canonical keys** — the database stores canonical identifiers, the UI shows translated names; per-writer slices; **no backfill, no historical edit, no amount or state change, no re-charge, and an ambiguous value stays as it is** | **DISPLAY HALF DONE; WRITER HALF ALREADY SATISFIED ON `orders`; `plan_orders` RESERVED** — see below |
 | 11 | **security & commerce** | APPROVED with business-logic restrictions — D-13/D-18 stock drain, D-22/F121, D-20, E13, F95/F96, each as its own slice, each proved by driving the scenario rather than reading the source | — |
 | 12 | **F159** Flutter CI | **DRAFT PR AUTHORIZED** — draft only, no merge, no auto-merge, no change to `main` | **DONE** — PR #4 opened, CI subscribed |
 | 13 | **token security** | APPROVED — staged: observability → explicit abilities → **30-day expiry for NEW merchant tokens only**; customers and drivers out of scope; no Sanctum global expiration; no mass invalidation | — |
@@ -1893,3 +1893,56 @@ result, leave that writer out and record it for independent review"*.
 production migrations, production backfill, production secret rotation, force-push, history
 rewriting, breaking payment or inventory behaviour, deleting historical data or altering
 settlements, editing `packages/workdo/`, and starting Phase 2.5 or Phase 03.
+
+---
+
+## F150, as executed — and why the writer half turned out to be empty
+
+**Recorded here because the finding changes the shape of an approved decision**, not to re-open it.
+The decision is unchanged and nothing in it was waived.
+
+A six-scope census of every consumer and writer of `orders.payment_type` — `app/`, all 70 vendored
+modules, the Flutter app, Lynomia, the display maps and writer feasibility — returned 183
+consumers and 41 blockers, and one answer that resized the work: **there is no writer of
+`orders.payment_type` anywhere in `app/` or `packages/workdo/` that passes a value through
+`__()`.** The single genuine translator writer of that column was `PosController:330`, and **F146
+already fixed it**: it stores the literal `'POS'`. So on `orders`, *"the database stores canonical
+payment identifiers"* was already true before this slice began, and there was no safe writer left
+to canonicalise.
+
+**The 51 remaining translator writers all write `plan_orders`,** which is the SaaS subscription
+table, not the order table. The owner's F150 text names no column, so whether they are in scope is
+a real question — and three of them are keyed by a replay guard
+(`GuardsPlanActivation::existingPlanOrderForProviderTxn`, a raw
+`where('payment_type', $paymentType)`, called from `SenangPayController:174`,
+`OzowController:234` and `PaystackPaymentController:94`). Changing the value those three store
+changes which historical row a returning callback matches, which is *"تغيير في نتيجة Payment
+Callback"* — exactly what the decision's standing limit reserves for independent review. They are
+**left out and recorded**, as that limit instructs. `PaystackPaymentController:499` shows the shape
+any future slice there must copy: `paystackPaymentTypeSpellings()` enumerates the canonical literal
+**plus** `trans('Paystack')` for every shipped locale, so the replay guard still matches rows
+written before the change — prepending the canonical spelling rather than substituting it.
+
+**Two writers stay as they are for recorded reasons, not by omission.**
+`packages/workdo/LotteryPrizes/.../LotteryResultController:135` stores `'Lottery Product'` — a
+stable literal, so not part of the locale defect, but also not a payment method, and the module is
+vendored and must not be edited. `PaymentController:2842` and its sibling
+`PaymentService:2773` derive their stored value from the same expression that three gateway
+verification gates branch on in the same function and that the Paymera callback identifies its own
+order with; canonicalising the shared source would touch all four at once. Both are listed for
+independent review.
+
+**So what was built is the display half only** — one read-side resolver, `App\Payments\PaymentTypeLabel`,
+and three callers. It changes no writer, no stored value, no validation rule, no vocabulary and no
+API contract. It repairs a defect that is live **in English, with no locale involved**: measured
+over the 71-value vocabulary, 26 values rendered a bare dash in the order list and 52 rendered an
+empty cell on the customer detail page, `POS` among them. It is forward-only by construction,
+because a resolver that only reads cannot backfill, re-charge or reinterpret anything — an
+unattributable value such as `'没有'` resolves to NULL and renders an absence, which is what *"أبقِ
+القيم الملتبسة على حالها"* asks for.
+
+**One question for the owner, deliberately not decided here.** `Setting::paymentList()` spells one
+provider **SenaGePay** and `getPaymentGateways()` spells it **SenanGpay**. One is a typo and
+nothing in the codebase settles which. Both spellings resolve to a label, because dropping either
+would turn a stored row into a dash on a guess; it is recorded rather than chosen.
+

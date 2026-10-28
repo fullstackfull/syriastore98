@@ -6049,3 +6049,98 @@ computed columns resolve their related rows, and that a second store's order is 
    affinity would store the word and a Feature test would see it. If a writer ever did put a word
    there, the application would be **wrong in production and right in the test suite** — the
    direction that hides defects. It is latent today and asserted so it stays visible.
+
+---
+
+## F164 / F165 / F166 / F167 — 2026-10-28
+
+### F164, the variant renderers' DOM ids — measured on `/product/1/edit`
+
+`docs/development/phase-2/tools/check-variant-edit-keys-live.cjs`, against the dev product
+`Damask Cotton Scarf` with the colliding terms `M` and `M/L`, and against its 8 stored variants:
+
+| | before | after |
+|---|---|---|
+| duplicate ids in the edit renderer | **7** (`payment-gateways`, `COD`, `Shipping`, `enable_manage_stock`, `download-product`, `downloadable_product`, `down_products`) | **0** |
+| duplicate ids in the data renderer (8 real variants) | 7 + `enable_manage_stock` | **0** |
+| panel labelled by its own header | first only; the `M/L` panel announced as **`M`** | all |
+| the file label activates | the **product-level** `downloadable_product` input, for every variant | its own variant's input |
+| the preview `<img>` the handler writes | the first variant's, or **nothing at all** in the data renderer (so `.src` on null **threw**) | its own |
+
+The data renderer is the one the edit page injects from `$(document).ready`, so it is the panel a
+merchant sees first — and it was the last of the three to be checked, which is the whole reason the
+ratchet now loops over all three views instead of asking only the create one.
+
+### F167, the payment-type display maps — measured over the whole vocabulary
+
+The vocabulary is the 52 `getPaymentGateways()` ids, the 44 `Setting::paymentList()` names and the
+two literals live code stores (`'POS'`, `'Lottery Product'`): **71 values, 56 once case-folded.**
+
+| surface | values that rendered nothing useful | what they rendered |
+|---|---|---|
+| `OrderDataTable::editColumn('payment_type')` | **26 of 71** | a bare `-`, because the lookup was a case-sensitive index over mixed-case keys while the writers store lowercase registry ids |
+| `customer/view.blade.php` | **52 of 71** | an **empty cell** — the 27-branch chain had no `@else`; `POS` was among them |
+| `Api\DashboardController::getActivePaymentMethods` | all of them | `ucwords(str_replace('_',' ',$id))` → "Cod", "Sslcommerz", identical in Arabic |
+
+Five values had no label at **any** casing: `payhere`, `senangpay`, `dpopay`, `other_payment`.
+
+And the brands were being translated. Counted against the shipped locale files, over the 51 brand
+labels:
+
+| locale | brands the old maps would have passed through `__()` | examples |
+|---|---|---|
+| `ar` | **45 / 51** | `Stripe` → `الشريط` ("the strip"), `Benefit` → `الميزة`, `Cashfree` → `نقدية`, `Braintree` → `" برينتري "` |
+| `fr` | 45 / 51 | `Aamarpay` → "Je suis désolé.", `Braintree` → "Nom de l'entreprise" |
+| `ja` | 47 / 51 | `Benefit` → `利益`, `Cashfree` → `現金なし` |
+| `he` | 43 / 51 | `Braintree` → `עץ מוח` ("brain tree") |
+
+The locale files contain machine-translation output for brand names, so the Arabic order list named
+providers things their own companies do not. `PaymentTypeLabel` translates only the three
+descriptive phrases; the 51 brands are literals, and a test asserts both halves — that a brand is
+unchanged under `ar` **and** that the phrases still translate, because otherwise "nothing is
+translated any more" would pass the first half.
+
+### The Flutter contract, verified in the client rather than assumed
+
+`StoreSyria_app98/lib/core/model/payment_model.dart` carries `key` and `name`;
+`lib/view/screen/order_screen/create_order_screen.dart:237` renders `m.name` in the dropdown and
+`:242` sets `orderController.paymentType.value = method?.key`. So the picker's `name` is display
+only and its `key` is the contract — which is why only `name` changed.
+
+### F166 — a measurement that was right and a conclusion that was wrong
+
+Worth recording in full because the numbers were real.
+
+Driving the **edit** combination endpoint with the option ids `2` and `4` produced
+`options_datas[] = "2-4"`, `product_variation_price_2-4 = 0` and `product_stock_2-4 = 0` against a
+stored variant `M-Natural` holding price 43 and stock 6, with no server-side delete route. Every
+figure there is accurate. The inference — that the edit handler keys variants by option id — was
+not, because **the probe was sending the create page's request shape to the edit endpoint.**
+
+The two endpoints take `attribute_options_N[]` with different vocabularies: ids for
+`products.attribute_combination`, terms for `products.attribute_combination/edit`. The edit page's
+`<option>` carries no `value` attribute, so the browser submits its text, and that text is
+`pluck('terms')`. Driven with terms, the same endpoint returns `M-Natural`, **43**, **6** and the
+real delete route — the handler was correct all along.
+
+What caught it was `MerchantProductOwnershipTest::test_a_merchant_can_open_their_own_attribute_combination`,
+a **positive control** written for an unrelated security fix. A refusal test could not have: the
+wrong fix produced an empty combination table, and an empty table is not an error anybody sees.
+`VariantCombinationVocabularyTest` now pins both vocabularies from both ends — the pages that
+produce the values and the handlers that consume them.
+
+### Both directions, on the live pages — 2026-10-28
+
+Required by CLAUDE.md for any UI change, and the AR row is the one that carries F167's whole point.
+
+| | `light / ltr / en` | `dark / rtl / ar` |
+|---|---|---|
+| order list payment column header | `Payment Type` | `نوع الدفع` |
+| `cod` (a descriptive phrase) | `Cash On Delivery` | **`نقداً عند التسليم`** |
+| `stripe` (a brand) | `Stripe` | **`Stripe`** — not `الشريط` |
+| `'没有'` (a historical, unattributable value) | `-` | `-` — not POS, and not echoed |
+| variant panels on `/product/1/edit` | 8 panels, **0** duplicate ids, every panel labelled by its own header, every file label activating its own input | identical |
+| page errors | none | none |
+
+The two mutated order rows were set in the dev sqlite for the measurement and restored immediately
+after; the database is not tracked.

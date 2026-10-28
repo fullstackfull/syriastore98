@@ -94,62 +94,41 @@ class OrderDataTable extends DataTable
     return order_currency_format_with_sym(($item->final_price ?? 0), $item->id) ?? SetNumberFormat($item->final_price);
 })
 ->editColumn('payment_type', function ($item) {
-                $paymentTypes = [
-                    'cod' => __('Cash On Delivery'),
-                    'paymera' => __('Paymera'),
-                    'bank_transfer' => __('Bank Transfer'),
-                    'stripe' => __('Stripe'),
-                    'paystack' => __('Paystack'),
-                    'mercado' => __('Mercado Pago'),
-                    'skrill' => __('Skrill'),
-                    'paymentwall' => __('PaymentWall'),
-                    'Razorpay' => __('Razorpay'),
-                    'paypal' => __('Paypal'),
-                    'flutterwave' => __('Flutterwave'),
-                    'mollie' => __('Mollie'),
-                    'coingate' => __('Coingate'),
-                    'paytm' => __('Paytm'),
-                    'POS' => __('POS'),
-                    'toyyibpay' => __('Toyyibpay'),
-                    'sspay' => __('Sspay'),
-                    'Paytabs' => __('Paytabs'),
-                    'iyzipay' => __('IyziPay'),
-                    'payfast' => __('PayFast'),
-                    'benefit' => __('Benefit'),
-                    'cashfree' => __('Cashfree'),
-                    'aamarpay' => __('Aamarpay'),
-                    'telegram' => __('Telegram'),
-                    'whatsapp' => __('Whatsapp'),
-                    'paytr' => __('PayTR'),
-                    'yookassa' => __('Yookassa'),
-                    'midtrans' => __('Midtrans'),
-                    'Xendit' => __('Xendit'),
-                    'Nepalste' => __('Nepalste'),
-                    'khalti' => __('Khalti'),
-                    'AuthorizeNet' => __('AuthorizeNet'),
-                    'Tap' => __('Tap'),
-                    'PhonePe' => __('PhonePe'),
-                    'Paddle' => __('Paddle'),
-                    'Paiementpro' => __('Paiement Pro'),
-                    'FedPay' => __('FedPay'),
-                    'CinetPay' => __('CinetPay'),
-                    'SenagePay' => __('SenagePay'),
-                    'CyberSource' => __('CyberSource'),
-                    'Ozow' => __('Ozow'),
-                    'MyFatoorah' => __('MyFatoorah'),
-                    'easebuzz' => __('Easebuzz'),
-                    'NMI' => __('NMI'),
-                    'PayU' => __('PayU'),
-                    'sofort' => __('Sofort'),
-                    'esewa' => __('Esewa'),
-                    'Paynow' => __('Paynow'),
-                    'DPO' => __('DPO'),
-                    'Braintree' => __('Braintree'),
-                    'PowerTranz' => __('PowerTranz'),
-                    'SSLCommerz' => __('SSLCommerz'),
-                    'Lottery Product' => __('Lottery Product')
-                ];
-                return $paymentTypes[$item->payment_type] ?? '-';
+                /*
+                 * F150 -- ONE READ-SIDE RESOLVER, replacing a 53-entry CASE-SENSITIVE array index.
+                 *
+                 * The map this replaces was indexed with `$paymentTypes[$item->payment_type]`,
+                 * and its keys were a mixture of casings copied from whichever surface the
+                 * author had open: `'NMI'`, `'PayU'`, `'SSLCommerz'`, `'Paytabs'`,
+                 * `'AuthorizeNet'`. The two manual-order writers
+                 * (`OrderController:350`, `Api\DashboardController:6242`) store
+                 * `getPaymentGateways()`'s `id` verbatim, which is LOWERCASE for 49 of 52. So
+                 * the lookup missed and the column rendered a bare dash.
+                 *
+                 * MEASURED over the whole vocabulary -- the 52 gateway ids, the 44 storefront
+                 * `paymentList` names and the two stored literals: 26 of the 71 values rendered
+                 * `-` here, in English, with no locale involved. That is a live defect, not a
+                 * translation question, and it is why this slice was worth doing at all.
+                 *
+                 * The map also wrapped every label in `__()`, including brand names.
+                 * `resources/lang/ar.json` translates 45 of the 51 brands -- `Stripe` ->
+                 * `الشريط` ("the strip"), `Benefit` -> `الميزة`, `Cashfree` -> `نقدية` -- so the
+                 * Arabic order list named providers things their own companies do not. The
+                 * resolver translates only the descriptive phrases.
+                 *
+                 * `'-'` FOR AN UNRESOLVED VALUE, which is the same absence the column showed
+                 * before and is deliberate for the historical rows F146 found: a value like
+                 * `'没有'` is a translated `__('POS')` that nobody can attribute, and the owner's
+                 * decision forbids reading it as POS. A dash says "not recorded"; a guess would
+                 * say something false.
+                 *
+                 * NO STORED VALUE IS EVER ECHOED. `payment_type` is in this table's
+                 * `rawColumns()` list (:268), so whatever this returns is injected unescaped.
+                 * The resolver returns either one of its own literals or null, so the column
+                 * cannot carry a stored string into the page at all -- stricter than escaping
+                 * one would be.
+                 */
+                return \App\Payments\PaymentTypeLabel::for($item->payment_type) ?? '-';
             })
 ->addColumn('shipping_method', function (Order $item) {
     return $item->ShippingMethod?->method_name ?? '-';
