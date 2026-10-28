@@ -3232,5 +3232,6 @@
     "Entered manually": "Entered manually",
     "Source": "Source",
     "Any source": "Any source",
-    "This order was created before the source was recorded.": "This order was created before the source was recorded."
+    "The source of this order was not recorded.": "The source of this order was not recorded.",
+    "No store is selected.": "No store is selected."
 }

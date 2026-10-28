@@ -501,9 +501,12 @@ class="text-start ps-3"><b>{{ order_currency_format_with_sym($order['coupon_pric
                                          WORDS rather than showing a dash, because this page has
                                          the room and because "-" beside the labelled rows around
                                          it reads as "the field is empty" instead of "nobody
-                                         recorded this". Every order written before the column
-                                         existed is in the second case, and presenting those as
-                                         storefront orders is the one thing this row must not do.
+                                         recorded this". Orders written before the column existed
+                                         are in the second case -- and so are orders from writers
+                                         the host may not edit (F148, `LotteryPrizes`), which is
+                                         why this row states the absence WITHOUT inferring the
+                                         order's age. Presenting any of them as storefront orders
+                                         is the one thing this row must not do.
 
                                          `$orderSource` is passed by `OrderController::order_view`
                                          and is store-scoped there; it is NOT part of
@@ -514,7 +517,7 @@ class="text-start ps-3"><b>{{ order_currency_format_with_sym($order['coupon_pric
                                             @if (\App\Models\Order::orderSourceLabel($orderSource ?? null) !== null)
                                                 <b>{{ \App\Models\Order::orderSourceLabel($orderSource) }}</b>
                                             @else
-                                                <b title="{{ __('This order was created before the source was recorded.') }}">{{ __('Not recorded') }}</b>
+                                                <b title="{{ __('The source of this order was not recorded.') }}">{{ __('Not recorded') }}</b>
                                             @endif
                                         </span>
                                     </li>

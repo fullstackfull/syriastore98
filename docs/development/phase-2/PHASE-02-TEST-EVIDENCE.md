@@ -4769,3 +4769,59 @@ a 73,485-line file. It now saves the file's exact bytes and copies them back.
 7 skipped, 0 failed**. `tests/Feature/Security` — **4087 passed**, plus the observability inventory
 re-pointed (9 rows moved, 0 added or deleted) once the app edits had settled, for the third time
 this phase.
+
+### Owner directive 2026-10-28 §2 and §4 — an untrue sentence, and a tenant hole (2026-10-28)
+
+**§2 — the wording was a claim about the record's AGE, and it was false.** The unrecorded-source
+cell said *"This order was created before the source was recorded."* For the orders F148
+identified — `packages/workdo/LotteryPrizes` writes real orders the host may not edit and therefore
+cannot stamp — an order created this morning was being described as older than a column it is
+younger than. Replaced everywhere it renders with *"The source of this order was not recorded."*,
+which states the fact and infers nothing.
+
+| new test | what it pins |
+|---|---|
+| `a recent order with no source is not described as old` | an order created **in the test** must not be called old, in the list cell **and** the detail Source row |
+| `an unrecorded order is listed but claimed by no source filter` | it stays reachable on the unfiltered list, and none of the three sources claims it |
+
+Both bite: restoring the old string turns two tests red.
+
+**One mistake while writing them, of the kind this project keeps re-learning.** The first version
+asserted the word `older` was absent from the **whole detail page** — 1498 lines — and failed on
+`placeholder`. A vocabulary assertion against a whole document answers a question about the
+document, not about the row under test. Now scoped to the rendered cell and to the Source `<li>`.
+
+**§4 — F149, and the test design is the interesting part.** `getCurrentStore()` returns NULL for a
+staff member with no `current_store` (they own no store, so the helper's last branch finds nothing),
+and Laravel rewrites `where('store_id', null)` into `WHERE store_id IS NULL` — so the list predicate
+selected the platform's orphaned orders.
+
+The merchant path now **refuses before the query runs**, per the instruction. Three guards, each
+bitten separately:
+
+| reverted | result |
+|---|---|
+| `index`'s refusal | 3 failed |
+| `order_grid_view`'s refusal | 2 failed |
+| `OrderDataTable`'s `whereRaw('1 = 0')` | **0 failed** — and that is why it now has its own direct test |
+
+That third row is worth keeping. Through the route the DataTable's guard is unreachable, because
+the controller refuses first — correct layering and a blind spot at once, since the table is a
+public class and the next caller added will not have the controller in front of it. A test that
+calls `query()` directly makes it bite.
+
+**Two assertions of mine were vacuous and I found them by reading, not by running.** The row helper
+returned `[]` when the response was a redirect, so `assertNotContains($orphan, [])` passed for free
+— including in the operator test. The helper now asserts a real 200 JSON payload, and the refusal
+cases use a separate `assertListRefused()`. Separately, driving the plain page before the AJAX leg
+put the request through `TableFilterMemory::shouldRestore()`, which **redirected** it — which is
+how the empty list arose in the first place.
+
+**The test seeds a real NULL-store order**, and that is load-bearing rather than tidy: on a
+fixture-only database `WHERE store_id IS NULL` matches nothing, so every absence assertion would
+have passed against the unfixed code. It also asserts the dangerous predicate really selects that
+row before asserting the screen refuses.
+
+**Suites:** `tests/Unit` + `Feature/Merchant` + `Feature/Commerce` — **1492 passed, 7 skipped, 0
+failed**. `tests/Feature/Security` — **4096 passed** (the 9 new F149 tests), with the observability
+inventory re-pointed afterwards, as always.

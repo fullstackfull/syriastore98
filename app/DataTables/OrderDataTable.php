@@ -178,13 +178,24 @@ class OrderDataTable extends DataTable
                      * A BARE DASH, which is this table's own idiom for an absent value
                      * (`payment_type`, `shipping_method` and `dateOrDash` all render `'-'`), so
                      * the cell inherits the surrounding colour and needs no new class. The only
-                     * addition is the tooltip, which says WHY it is empty -- the cell must not
-                     * leave a merchant guessing whether the source is missing or the order is
+                     * addition is the tooltip, which says the source is missing -- the cell must
+                     * not leave a merchant guessing whether the source is absent or the order is
                      * odd. `.ss-muted` was written here first and does not exist in
                      * `store-syria-ds.css`; it would have rendered as unstyled default text.
+                     *
+                     * IT STATES A FACT AND INFERS NOTHING ABOUT THE ORDER'S AGE. The first
+                     * wording was "This order was created before the source was recorded",
+                     * which reads the absence as a DATE -- and that is false for the orders
+                     * F148 identified: `packages/workdo/LotteryPrizes` writes real orders the
+                     * host cannot stamp, so an order created this morning would have been
+                     * labelled as predating a column it is younger than. Owner instruction,
+                     * 2026-10-28: describe the absence honestly and do not infer the record's
+                     * age from it. An unrecorded source now means exactly that -- unrecorded --
+                     * whether the order predates the column, came from a writer the host may
+                     * not edit, or arrived by a path nobody has classified.
                      */
                     return '<span data-bs-toggle="tooltip" title="'
-                        . e(__('This order was created before the source was recorded.'))
+                        . e(__('The source of this order was not recorded.'))
                         . '">-</span>';
                 }
 
@@ -328,10 +339,29 @@ class OrderDataTable extends DataTable
      */
     public function query(Order $model): QueryBuilder
     {
+        $storeId = getCurrentStore();
+
         $query = $model->newQuery()
             ->with('ShippingMethod')
-            ->where('store_id', getCurrentStore())
             ->orderBy('created_at', 'desc');
+
+        /*
+         * F149 -- DEFENCE IN DEPTH, not the control. `OrderController::index()` refuses before
+         * constructing this table, which is where the owner's requirement is met; this is here
+         * because `where('store_id', null)` is rewritten by Laravel into `WHERE store_id IS NULL`
+         * and would serve every NULL-store order on the platform to a principal with no store
+         * context -- a staff member whose `current_store` has never been set. A second caller of
+         * this table added later must not reintroduce that by omission.
+         *
+         * IT REFUSES BY MATCHING NOTHING rather than by returning early, because `query()` must
+         * hand back a builder. `1 = 0` says "no rows, deliberately"; `where('store_id', -1)`
+         * would say the same thing while looking like a real predicate somebody could "fix".
+         */
+        if (empty($storeId)) {
+            $query->whereRaw('1 = 0');
+        } else {
+            $query->where('store_id', $storeId);
+        }
 
         return $this->applyFilters($query);
     }

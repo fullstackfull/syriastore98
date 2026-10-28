@@ -3261,5 +3261,6 @@
     "Entered manually": "مُدخَل يدوياً",
     "Source": "المصدر",
     "Any source": "أي مصدر",
-    "This order was created before the source was recorded.": "أُنشئ هذا الطلب قبل تسجيل المصدر."
+    "The source of this order was not recorded.": "لم يُسجَّل مصدر هذا الطلب.",
+    "No store is selected.": "لم يتم اختيار متجر."
 }

@@ -221,8 +221,11 @@ class OrderSourceAttributionTest extends SecurityTestCase
             . 'naming a source for it is a claim about a commercial record that nobody made.');
         $this->assertStringNotContainsString('Point of sale', $cell);
         $this->assertStringNotContainsString('Entered manually', $cell);
-        $this->assertStringContainsString('before the source was recorded', $cell,
-            'and it must say WHY it is empty, rather than leaving a bare gap');
+        $this->assertStringContainsString('was not recorded', $cell,
+            'and it must say the source is missing, rather than leaving a bare gap');
+        $this->assertStringNotContainsString('before the source was recorded', $cell,
+            'WITHOUT INFERRING THE ORDER\'S AGE -- see '
+            . 'test_a_recent_order_with_no_source_is_not_described_as_old');
     }
 
     #[DataProvider('sourceLabelProvider')]
@@ -251,6 +254,80 @@ class OrderSourceAttributionTest extends SecurityTestCase
             'typed' => [Order::SOURCE_MANUAL, 'Entered manually'],
             'storefront' => [Order::SOURCE_STOREFRONT, 'Storefront'],
         ];
+    }
+
+    /**
+     * OWNER INSTRUCTION, 2026-10-28 (§2): an order with no recorded source must NOT be presented
+     * as having been created before the column existed. That is an inference about the record's
+     * AGE, and it is false for the case F148 identified -- `packages/workdo/LotteryPrizes` writes
+     * real orders that the host may not edit and therefore cannot stamp, so an order created this
+     * morning carries NULL and the old wording called it older than a column it is younger than.
+     *
+     * THIS TEST STANDS IN FOR THAT WRITER rather than invoking it: the module needs an
+     * `add_on_managers` row and a plan entitlement to load at all (CLAUDE.md: no WorkDo module
+     * loads in any test run unless the test inserts that row), and what is under test here is the
+     * HOST's presentation of an unstamped row, which is identical however the row arrived. The
+     * census test is what keeps the writer itself declared.
+     */
+    public function test_a_recent_order_with_no_source_is_not_described_as_old(): void
+    {
+        // Created NOW, with no source -- exactly the shape a LotteryPrizes order has.
+        $order = $this->makeOrder($this->store, [
+            'product_order_id' => 'RECENT-1',
+            'order_date' => now(),
+        ]);
+
+        DB::table('orders')->where('id', $order->id)->update(['order_source' => null]);
+        (new Order)->flushCache();
+
+        $cell = $this->sourceCellFor($order->id);
+        $detailRow = $this->sourceRowOf($this->detailHtml($order->id));
+
+        /*
+         * SCOPED TO THE TWO PLACES THIS SLICE RENDERS, not to the whole document. The first
+         * version asserted the word "older" was absent from the entire detail page -- 1498 lines
+         * of it -- and failed on `placeholder`. Asserting a vocabulary against a whole page
+         * answers a question about the page, not about the row under test; this project has
+         * recorded that mistake before and this is one more.
+         */
+        foreach ([['list cell', $cell], ['detail Source row', $detailRow]] as [$where, $html]) {
+            $this->assertStringNotContainsString('before the source was recorded', $html,
+                "the {$where} claims this order predates the column. It was created in this test, "
+                . 'so that is a false statement about a commercial record -- and the orders this '
+                . 'really affects (F148) are created today by a writer the host may not edit.');
+
+            foreach (['older', 'legacy', 'predates', 'historic'] as $ageWord) {
+                $this->assertStringNotContainsString($ageWord, strtolower($html),
+                    "the {$where} describes the order's AGE. The absence of a source says "
+                    . 'nothing about when the order was created.');
+            }
+        }
+
+        $this->assertStringContainsString('was not recorded', $cell,
+            'it states the fact: the source is not recorded. Nothing about when.');
+        $this->assertStringContainsString('Not recorded', $detailRow);
+    }
+
+    /**
+     * FILTER COMPATIBILITY for an unrecorded order, asserted in both directions: it is reachable
+     * on the unfiltered list, and NO source filter claims it. An unstamped writer's orders must
+     * not become invisible to the merchant who has to work them.
+     */
+    public function test_an_unrecorded_order_is_listed_but_claimed_by_no_source_filter(): void
+    {
+        $unrecorded = $this->makeOrder($this->store, ['product_order_id' => 'UNREC-1']);
+        DB::table('orders')->where('id', $unrecorded->id)->update(['order_source' => null]);
+        (new Order)->flushCache();
+
+        $this->assertContains($unrecorded->id, $this->dataTableRows([]),
+            'THE MERCHANT MUST STILL SEE IT. An order whose source nobody recorded is still an '
+            . 'order; a provenance column that hides orders would be worse than no column.');
+
+        foreach (Order::SOURCES as $source) {
+            $this->assertNotContains($unrecorded->id, $this->dataTableRows(['ss_source' => $source]),
+                "`{$source}` must not claim an order whose source is unknown -- that is the "
+                . 'fabrication the whole column is shaped to avoid');
+        }
     }
 
     public function test_the_detail_page_names_a_recorded_source(): void
@@ -309,7 +386,7 @@ class OrderSourceAttributionTest extends SecurityTestCase
 
         $this->assertStringContainsString('Point of sale', $body,
             'the operator is told the source that was actually recorded');
-        $this->assertStringNotContainsString('before the source was recorded', $body,
+        $this->assertStringNotContainsString('was not recorded', $body,
             'AND NOT TOLD A FALSEHOOD about an order created moments ago');
     }
 
@@ -518,6 +595,22 @@ class OrderSourceAttributionTest extends SecurityTestCase
         }
 
         $this->fail("order {$orderId} is not on the list, so its cell cannot be read");
+    }
+
+    /**
+     * The Source row of the detail page, anchored on its own label. Not the whole document: the
+     * page is ~1500 lines and a vocabulary assertion against all of it answers a question about
+     * the page rather than about this slice's row.
+     */
+    private function sourceRowOf(string $body): string
+    {
+        $start = strpos($body, __('Source'));
+
+        $this->assertNotFalse($start, 'premise: the Source row was found on the detail page');
+
+        $end = strpos($body, '</li>', $start);
+
+        return substr($body, $start, $end === false ? 400 : ($end - $start));
     }
 
     private function dataTablePayload(array $query): array

@@ -542,6 +542,24 @@ public function store(Request $request)
                 }
             }
 
+            /*
+             * F149. REFUSED BEFORE THE LIST QUERY RUNS, which is the owner's requirement and not
+             * merely a narrower predicate: `OrderDataTable::query()` would otherwise execute
+             * `where('store_id', null)` -> `WHERE store_id IS NULL` and serve every NULL-store
+             * order on the platform. Placed after the permission gate and after the filter
+             * memory's redirects so a caller who may not see orders never reaches it, and before
+             * `remember()` so a refused request writes nothing.
+             *
+             * NOT A 401 AND NOT AN ABORT: this is an ordinary commercial refusal -- the caller
+             * has the permission and lacks a store context -- so it takes the same
+             * redirect-with-error shape every other refusal in this controller takes. A 401 here
+             * would log the Flutter app out, which is a user-visible regression for a condition
+             * that is not an authentication failure.
+             */
+            if ($this->resolvedCurrentStoreId() === null) {
+                return redirect()->back()->with('error', __('No store is selected.'));
+            }
+
             \App\Services\TableFilterMemory::remember($request, 'order');
 
             return $dataTable->render('order.index', $this->orderAttentionCounts());
@@ -643,6 +661,43 @@ public function store(Request $request)
          */
         return $user !== null
             && (\App\Policies\UserPolicy::isOperator($user) || $user->isAbleTo($permission));
+    }
+
+    /**
+     * F149 -- IS THERE A REAL STORE BEHIND THIS REQUEST?
+     *
+     * `getCurrentStore()` RETURNS NULL FOR A REACHABLE PRINCIPAL, and that is the whole finding.
+     * The helper (`app/Helper/helper.php`) returns `current_store` when set; otherwise a
+     * hardcoded `1` for `type == 'super admin'`; otherwise
+     * `Store::where('created_by', $user->id)->first()?->id` -- which is **NULL for a STAFF
+     * member**, because staff do not create stores. A staff user whose `current_store` has never
+     * been set is not exotic: it is the ordinary state of a newly added employee.
+     *
+     * AND NULL IS NOT INERT. Laravel rewrites `where('store_id', null)` into
+     * `WHERE store_id IS NULL`, so an unguarded list query does not return nothing -- it returns
+     * EVERY ORDER ON THE PLATFORM WHOSE `store_id` IS NULL. `orders.store_id` is nullable
+     * (`create_orders_table.php`) and P1-PLT-02 records writers that persisted NULL into it, so
+     * the set is not hypothetical on a database with history.
+     *
+     * TWO CONDITIONS, NOT ONE, and the second is `fileExport()`'s hard-won lesson rather than
+     * caution: `empty()` alone is not the question, because the helper hands an operator the
+     * literal `1` whether or not store 1 exists. On a deployment whose stores do not start at 1 --
+     * one deleted first store is enough -- that guard passes and the screen then works against a
+     * store that is not the operator's, or against none at all. Ask whether the store RESOLVES.
+     *
+     * CONSOLIDATED RATHER THAN COPIED. This decision already existed inline in `fileExport()`,
+     * whose own comment complains that the operator test had become "a fourth copy of the
+     * decision". `fileExport()` now calls this too, so the count goes down rather than up.
+     */
+    private function resolvedCurrentStoreId(): ?int
+    {
+        $storeId = getCurrentStore();
+
+        if (empty($storeId) || getStoreById($storeId) === null) {
+            return null;
+        }
+
+        return (int) $storeId;
     }
 
     public function order_view(Request $request, $id)
@@ -1829,7 +1884,10 @@ public function store(Request $request)
          * where store 1 DOES exist and is not the operator's, `Order.xlsx` quietly held that
          * store's orders with nothing in the response naming it.
          */
-        if (empty(getCurrentStore()) || getStoreById(getCurrentStore()) === null) {
+        // F149: through `resolvedCurrentStoreId()`, which is this check extracted verbatim. The
+        // reasoning above is why the helper tests BOTH conditions; it is kept here because this
+        // is where it was learned.
+        if ($this->resolvedCurrentStoreId() === null) {
             return redirect()->back()->with('error', __('Permission denied.'));
         }
 
@@ -2007,8 +2065,17 @@ public function store(Request $request)
     public function order_grid_view(Request $request)
     {
         if ($this->mayUseOrderScreen('Manage Order')) {
-            $orders = Order::where('store_id', getCurrentStore())->orderBy('created_at', 'desc')->paginate(16);
-            
+            // F149. THE SAME UNGUARDED PREDICATE as the list had, on the alternative view of the
+            // same data -- `where('store_id', null)` is `WHERE store_id IS NULL`. Fixing only the
+            // DataTable would have left this reachable at `order-grid`.
+            $storeId = $this->resolvedCurrentStoreId();
+
+            if ($storeId === null) {
+                return redirect()->back()->with('error', __('No store is selected.'));
+            }
+
+            $orders = Order::where('store_id', $storeId)->orderBy('created_at', 'desc')->paginate(16);
+
             return view('order.grid', compact('orders'));
         } else {
             return redirect()->back()->with('error', __('Permission denied.'));

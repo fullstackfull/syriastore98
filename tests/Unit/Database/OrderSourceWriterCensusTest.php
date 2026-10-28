@@ -12,8 +12,8 @@ use PHPUnit\Framework\TestCase;
  * WHY THIS FILE EXISTS, and it is not a style rule. `orders.order_source` is declared with NO
  * DEFAULT, deliberately, so that a writer nobody stamped leaves NULL instead of CLAIMING a
  * provenance. That makes NULL honest -- but it also makes an unstamped writer INVISIBLE: the
- * order simply appears on the merchant's screen as "created before the source was recorded",
- * which is a lie of a quieter kind, because the order was created this morning.
+ * order simply appears on the merchant's screen with no source at all, which tells the merchant
+ * nothing about an order that did have a provenance -- somebody just never recorded it.
  *
  * THE CENSUS THAT FOUND THE WRITERS WAS WRONG THE FIRST TIME. A `grep` for `new Order()` and
  * `Order::create(` over `app/` was read from a terminal that truncated at forty lines, and FIVE
@@ -42,7 +42,7 @@ class OrderSourceWriterCensusTest extends TestCase
     /**
      * WRITERS THAT DO PERSIST AN ORDER AND CANNOT BE STAMPED. Declared, not exempted, because
      * the distinction matters: each of these leaves `order_source` NULL, so the order reaches the
-     * merchant's list labelled "created before the source was recorded" while being minutes old.
+     * merchant's list with its source blank, and nothing records why.
      * That is a real provenance gap and it is recorded as **F148** rather than hidden.
      *
      * They are inside `packages/workdo/`, which CLAUDE.md §2 and
@@ -268,9 +268,9 @@ class OrderSourceWriterCensusTest extends TestCase
 
         $this->assertSame([], $unstamped,
             "THESE ORDER WRITERS RECORD NO SOURCE. `orders.order_source` has no default, so an "
-            . "order written here reaches the merchant's screen labelled \"created before the "
-            . "source was recorded\" -- which is false for an order created today, and is the "
-            . "specific dishonesty the no-default decision was supposed to make impossible:\n  "
+            . "order written here reaches the merchant's screen with no source at all, and nothing "
+            . "records why. The no-default decision makes that absence HONEST rather than a false "
+            . "claim -- it does not make it acceptable for a writer somebody simply forgot:\n  "
             . implode("\n  ", array_map(
                 static fn ($k, $v) => $k . '  ' . $v,
                 array_keys($unstamped),
@@ -284,7 +284,7 @@ class OrderSourceWriterCensusTest extends TestCase
      * Every stamp names a value the vocabulary holds. A typo'd constant is a compile error, but a
      * STRING literal ('store_front', 'POS') is not, and it would reach the list as an
      * unrecognised value the label map answers NULL for -- rendering a brand new order as
-     * "created before the source was recorded".
+     * with no source at all.
      */
     public function test_every_stamp_uses_the_vocabulary(): void
     {
@@ -329,7 +329,7 @@ class OrderSourceWriterCensusTest extends TestCase
         $this->assertSame([], $bad,
             "These lines write `order_source` as something other than an `Order::SOURCE_*` "
             . "constant. A bare string is not checked by anything and a typo in one renders a "
-            . "brand new order as \"created before the source was recorded\":\n  "
+            . "brand new order as having no source at all:\n  "
             . implode("\n  ", array_map(
                 static fn ($k, $v) => $k . '  ' . $v,
                 array_keys($bad),
