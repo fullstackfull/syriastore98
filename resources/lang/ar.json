@@ -3275,5 +3275,14 @@
     "Saved view deleted.": "تم حذف العرض المحفوظ.",
     "Select at least one filter before saving a view.": "اختر مرشحاً واحداً على الأقل قبل حفظ العرض.",
     "Private Note": "ملاحظة خاصة",
-    "To Customer": "إلى العميل"
+    "To Customer": "إلى العميل",
+    "Order board": "لوحة الطلبات",
+    "Switch to the list": "التبديل إلى القائمة",
+    "No orders match these filters.": "لا طلبات تطابق هذه المرشحات.",
+    "Nothing here": "لا شيء هنا",
+    "Recorded in the same field, but not fulfilment stages": "مُسجَّلة في الحقل نفسه، لكنها ليست مراحل تنفيذ",
+    "Status :value": "الحالة :value",
+    "Move order :ref to": "نقل الطلب :ref إلى",
+    "Move to…": "نقل إلى…",
+    "Move": "نقل"
 }

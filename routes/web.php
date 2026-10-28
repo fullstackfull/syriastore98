@@ -1159,6 +1159,9 @@ Route::get(
         ->middleware('themelanguage');
 
     Route::get('order-grid', [OrderController::class, 'order_grid_view'])->name('order.grid');
+    // P2-04-7. A READ-ONLY view of the same orders. GET, because it reads; every status control
+    // on it posts to `order.status.change`, which is the only order-status writer.
+    Route::get('order-kanban', [OrderController::class, 'order_kanban_view'])->name('order.kanban');
 
     /*
      * P2-04-9 -- saved filter views. Inside this group, so `auth` applies; every handler then

@@ -3246,5 +3246,14 @@
     "Saved view deleted.": "Saved view deleted.",
     "Select at least one filter before saving a view.": "Select at least one filter before saving a view.",
     "Private Note": "Private Note",
-    "To Customer": "To Customer"
+    "To Customer": "To Customer",
+    "Order board": "Order board",
+    "Switch to the list": "Switch to the list",
+    "No orders match these filters.": "No orders match these filters.",
+    "Nothing here": "Nothing here",
+    "Recorded in the same field, but not fulfilment stages": "Recorded in the same field, but not fulfilment stages",
+    "Status :value": "Status :value",
+    "Move order :ref to": "Move order :ref to",
+    "Move to…": "Move to…",
+    "Move": "Move"
 }

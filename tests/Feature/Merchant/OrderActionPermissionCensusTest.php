@@ -75,6 +75,10 @@ class OrderActionPermissionCensusTest extends SecurityTestCase
         // false readings in this phase were caught.
         ['get',  'order',                  'Manage Order',  'Manage Products',         'none'],
         ['get',  'order-grid',             'Manage Order',  'Manage Products',         'none'],
+        // P2-04-7. The board is a READ of the same orders behind the same permission; every
+        // status control on it posts to `order.status.change`, which this census already covers
+        // through the detail page, so the board adds a surface and not a writer.
+        ['get',  'order-kanban',           'Manage Order',  'Manage Products',         'none'],
         ['get',  'order/export',           'Manage Order',  'Manage Products',         'none'],
         ['get',  'order-view/{id}',        'Show Order',    'Manage Products',         'crypt'],
         ['get',  'order-preview/{id}',     'Show Order',    'Manage Products',         'raw'],

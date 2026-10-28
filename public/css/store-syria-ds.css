@@ -1989,6 +1989,126 @@
    the DS foreground and the DS weight rather than a heading utility. */
 .ss-text-strong { color: var(--ss-fg); font-weight: var(--ss-weight-medium); }
 
+/* ==========================================================================================
+   P2-04-7 -- THE ORDER BOARD (Kanban).
+
+   A horizontally scrolling row of status columns. Logical properties throughout, so it mirrors in
+   RTL without a second rule, and the scroll container is the ROW rather than the page so the
+   layout's own chrome stays put.
+
+   ON A PHONE the columns narrow to most of the viewport and the row scrolls -- a board is a
+   horizontal object and pretending otherwise (stacking the columns) would turn seven stages into
+   one long list, which is the list view the merchant already has.
+   ========================================================================================== */
+.ss-board {
+    display: flex;
+    gap: var(--ss-space-3);
+    overflow-x: auto;
+    padding: var(--ss-space-4);
+    /* Momentum scrolling that stops on a column rather than between two. */
+    scroll-snap-type: inline proximity;
+    /* `min-width: 0` AND `max-width: 100%` ARE BOTH LOAD-BEARING, and measuring found it: without
+       them the flex row's INTRINSIC width (nine columns of 17rem) widened its ancestors instead
+       of scrolling inside them, and the whole PAGE scrolled horizontally -- document width 2022px
+       against a 1400px viewport, and 2066px on a 390px phone. The order detail page, measured the
+       same way, does not overflow at all, which is how this was attributed to the board rather
+       than assumed pre-existing. */
+    min-width: 0;
+    max-width: 100%;
+}
+
+/* The scroll container's ancestors must be allowed to be narrower than their content, or the
+   constraint above has nothing to resolve against. */
+.ss-board-wrap { min-width: 0; max-width: 100%; overflow: hidden; }
+
+.ss-board__col {
+    display: flex;
+    flex-direction: column;
+    gap: var(--ss-space-2);
+    flex: 0 0 17rem;
+    min-width: 0;
+    scroll-snap-align: start;
+    padding: var(--ss-space-3);
+    border: 1px solid var(--ss-border);
+    border-radius: var(--ss-radius-lg);
+    background: var(--ss-surface-sunken);
+}
+
+@media (max-width: 36rem) {
+    /* 82vw, not 100%: the sliver of the next column is what tells a merchant the row scrolls. */
+    .ss-board__col { flex-basis: 82vw; }
+    .ss-board { padding: var(--ss-space-3); }
+}
+
+.ss-board__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--ss-space-2);
+}
+
+.ss-board__count {
+    font-size: var(--ss-text-sm);
+    color: var(--ss-fg-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.ss-board__cards { display: flex; flex-direction: column; gap: var(--ss-space-2); }
+
+.ss-board__none {
+    margin: 0;
+    font-size: var(--ss-text-sm);
+    color: var(--ss-fg-muted);
+}
+
+.ss-board__card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--ss-space-1);
+    padding: var(--ss-space-3);
+    border: 1px solid var(--ss-border);
+    border-radius: var(--ss-radius-md);
+    background: var(--ss-surface);
+}
+
+.ss-board__card-id { font-weight: var(--ss-weight-medium); color: var(--ss-brand); text-decoration: none; }
+.ss-board__card-id:hover { text-decoration: underline; }
+
+/* `.ss-board__card .ss-board__card-meta`, NOT the single class, and specificity is the reason:
+   the host's dark stylesheet sets `#808191` on this paragraph and WON over a one-class selector --
+   measured, after changing the token here appeared to do nothing. Both selectors are `.ss-`
+   confined, so the design system's own scoping rule still holds. */
+.ss-board__card .ss-board__card-meta,
+.ss-board__card-meta {
+    margin: 0;
+    font-size: var(--ss-text-sm);
+    /* `--ss-fg`, NOT `--ss-fg-muted`: measured at 3.42:1 in dark mode on the card's surface,
+       below AA. The buyer's name and the order's total are the card's PRIMARY information -- the
+       two things a merchant scans a board for -- so treating them as hint text was wrong on
+       legibility and on meaning at once. */
+    color: var(--ss-fg);
+    display: flex;
+    align-items: center;
+    gap: var(--ss-space-2);
+    flex-wrap: wrap;
+}
+
+.ss-board__card-move {
+    display: flex;
+    gap: var(--ss-space-2);
+    align-items: center;
+    margin-block-start: var(--ss-space-1);
+}
+
+.ss-board__card-move .ss-select { flex: 1 1 auto; min-width: 0; }
+
+/* A smaller select for a dense card. */
+.ss-select--sm { padding-block: 2px; font-size: var(--ss-text-sm); }
+
+/* NO `.ss-sr-only` HERE: `.ss-visually-hidden` already exists in this file and does exactly
+   this. A second name for one component is how two of them drift apart. The board's move control
+   uses the existing class. */
+
 .ss-menu__item--danger { color: var(--ss-danger-fg); }
 .ss-menu__item--danger:hover,
 .ss-menu__item--danger:focus-visible { background: var(--ss-danger-bg); color: var(--ss-danger-fg); }

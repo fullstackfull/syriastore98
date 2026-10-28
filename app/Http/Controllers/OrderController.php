@@ -2089,6 +2089,104 @@ public function store(Request $request)
         }
     }
 
+    /**
+     * P2-04-7 / WS E — THE ORDER BOARD (Kanban).
+     *
+     * A PRESENTATION OF THE EXISTING DATA AND NOTHING ELSE. Three things it deliberately does not
+     * do, because the brief forbids each of them:
+     *   - it creates NO update path. A card's status control posts to `order.status.change`, the
+     *     same route the detail page uses, whose handler reads the id from the ROUTE SEGMENT,
+     *     checks `OrderPolicy::allow('updateStatus')` operator-first and then `sameStore`, and
+     *     whose cancel limb is a MONEY WRITE that `OrderObserver` forwards to
+     *     `OrderFinancialService`. A second writer would have to re-earn all of that.
+     *   - it touches no stock and no payment. It reads.
+     *   - it reuses the SAME filter vocabulary as the list, so a board and a list carrying the
+     *     same query string show the same orders.
+     *
+     * THE COLUMNS ARE THE FULFILMENT STAGES, AND TWO STATUSES ARE DELIBERATELY NOT COLUMNS.
+     * `orders.delivered_status` holds NINE values and ledger F0 records that two of them are not
+     * fulfilment states at all: 7 is Partially Paid (a PAYMENT state) and 8 is Pre Order (an
+     * ORDER TYPE). A board that rendered them as pipeline stages would assert a delivery stage
+     * that does not exist -- so they are grouped separately, labelled as what they are, and the
+     * orders in them stay reachable. The filter bar already makes the same distinction with its
+     * optgroup; this is the same honesty in a different shape.
+     */
+    public function order_kanban_view(Request $request)
+    {
+        if (! $this->mayUseOrderScreen('Manage Order')) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
+        // F149. Refuse before the query: `where('store_id', null)` is `WHERE store_id IS NULL`.
+        $storeId = $this->resolvedCurrentStoreId();
+
+        if ($storeId === null) {
+            return redirect()->back()->with('error', __('No store is selected.'));
+        }
+
+        /*
+         * THE LIST'S OWN FILTERS, through the DataTable's own `applyFilters()`. Calling it rather
+         * than re-reading the `ss_*` parameters here is what makes "the board and the list agree"
+         * a property of one implementation instead of a coincidence between two.
+         */
+        $query = (new \App\DataTables\OrderDataTable())
+            ->query(new Order())
+            ->with('ShippingMethod');
+
+        $orders = $query->get();
+
+        $pipeline = [
+            HomeController::ORDER_STATUS_PENDING,
+            HomeController::ORDER_STATUS_CONFIRMED,
+            HomeController::ORDER_STATUS_PICKED_UP,
+            HomeController::ORDER_STATUS_SHIPPED,
+            HomeController::ORDER_STATUS_DELIVERED,
+            HomeController::ORDER_STATUS_CANCEL,
+            HomeController::ORDER_STATUS_RETURN,
+        ];
+
+        // F0: a payment state and an order type, not stages.
+        $notStages = [
+            HomeController::ORDER_STATUS_PARTIALLY_PAID,
+            HomeController::ORDER_STATUS_PRE_ORDER,
+        ];
+
+        $grouped = $orders->groupBy(fn (Order $o) => (int) $o->delivered_status);
+
+        $columns = [];
+
+        foreach ($pipeline as $status) {
+            $columns[$status] = $grouped->get($status, collect());
+        }
+
+        $aside = [];
+
+        foreach ($notStages as $status) {
+            $aside[$status] = $grouped->get($status, collect());
+        }
+
+        /*
+         * ANY OTHER VALUE IS SHOWN, NOT DROPPED. If a tenth status is ever written, a board that
+         * silently omitted it would hide live orders from the only screen a merchant is looking
+         * at -- the same failure mode as a filter offering 0..6. They go to the aside with their
+         * raw value named, which is visible and reportable rather than invisible.
+         */
+        foreach ($grouped->keys() as $status) {
+            $status = (int) $status;
+
+            if (! in_array($status, $pipeline, true) && ! array_key_exists($status, $aside)) {
+                $aside[$status] = $grouped->get($status, collect());
+            }
+        }
+
+        return view('order.kanban', [
+            'ssColumns' => $columns,
+            'ssAside' => $aside,
+            'ssPipeline' => $pipeline,
+            'ssTotal' => $orders->count(),
+        ] + $this->orderAttentionCounts());
+    }
+
     private function getFrontThemeUrl($store)
     {
         $enable_storelink = Utility::GetValueByName('enable_storelink', $store->id);

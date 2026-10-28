@@ -4997,3 +4997,58 @@ slice. The broader layout chrome measured below AA in dark too, and is named in 
 row starts from evidence.
 
 **Suites:** `Unit` + `Merchant` + `Commerce` — **1524 passed, 7 skipped, 0 failed**.
+
+### P2-04-7 the order board (2026-10-28)
+
+**12 new tests, 4 of 4 guards bitten** (permission gate, the F149 no-store refusal, the F0 aside,
+and offering `cancel` as a board move).
+
+**Measured in a real browser in EIGHT configurations** — AR/EN × light/dark × phone/desktop, with
+dark mode captured **server-side** through the `cust_darklayout` setting:
+
+| | columns | cards | `dir` | board scrolls | page overflow | contrast failures |
+|---|---|---|---|---|---|---|
+| LTR light / dark, desktop + phone | 9 | 10 | ltr | yes | **no** | **0** |
+| RTL light / dark, desktop + phone | 9 | 10 | **rtl** | yes | **no** | **0** |
+
+Phone columns measure 320px of a 390px viewport (82vw), so the sliver of the next column that
+tells a merchant the row scrolls is visible.
+
+**Three defects the browser found that no test in this repository would have**, each fixed after
+being measured rather than guessed at:
+
+1. **The flex row widened its ancestors instead of scrolling inside them.** The document measured
+   2022px against a 1400px viewport and 2066px on a 390px phone. The order detail page, measured
+   the same way, did not overflow at all — which is how this was attributed to the board rather
+   than assumed pre-existing. `min-width: 0` + `max-width: 100%` on the scroller, plus a
+   `min-width: 0` wrapper.
+2. **The card's buyer name and total read 3.42:1 in dark.** Changing the design-system token did
+   nothing. **Raising the DS selector's specificity also did nothing** — and that is the finding:
+   the host's dark stylesheet carries `… , p { color: #808191 !important }`, every paragraph in
+   the dark admin, which no component CSS can override. Fixed by using `<div>`, which the rule
+   does not match. Recorded as **F152**, with five sibling `!important` colour rules in the same
+   file named, because any component built on `<p>` in this admin inherits a sub-AA colour in dark
+   and cannot fix it locally.
+3. **My own overflow check was wrong.** It read the root's `scrollWidth`, which reflects a
+   descendant scroller's extent, so it reported an overflow *after* the fix had already worked.
+   Corrected to "is any element wider than the viewport", which then reported `false` everywhere
+   and agreed with an independent probe showing no element exceeding the viewport.
+
+That third one is the third measurement-validity error in this session — after toggling
+`data-theme` (an attribute this design system does not use) and toggling `data-ss-theme` while the
+host stylesheet stayed light. The rule that caught all three is the same: **before trusting a
+measurement, prove it changes when the thing it measures changes.**
+
+**And a test defect worth naming:** the filter test asserted `assertStringNotContainsString('PAID-1')`
+against fixtures `UNPAID-1` and `PAID-1` — and **`UNPAID-1` contains `PAID-1`**, so it failed while
+the filter was working perfectly. A substring assertion is only as good as the distinctness of its
+fixtures; the references are now `REF-OWING` and `REF-SETTLED`. A second one scanned every form in
+the document and flagged the **layout's logout form**; it is now scoped to the board.
+
+**Two ratchets caught the slice and were satisfied rather than relaxed:** `ArabicUiCoverageTest`
+named nine untranslated strings, and `OrderActionPermissionCensusTest` required the new route to be
+censused with its permission and its must-not-open permission.
+
+**No writer of its own**, asserted rather than asserted-in-prose: every form on the board targets
+`order.status.change`, and `cancel`/`return` are absent from the move control because both are
+irreversible and money-bearing.
