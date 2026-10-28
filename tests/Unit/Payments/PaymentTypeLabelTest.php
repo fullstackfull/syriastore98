@@ -31,13 +31,36 @@ class PaymentTypeLabelTest extends TestCase
         return $ids[1];
     }
 
-    /** Every machine `name` in `Setting::paymentList()`, likewise read from the source. */
+    /**
+     * Every machine `name` in `Setting::paymentList()`, read from the source — and the pattern is
+     * whitespace-tolerant BECAUSE A TIGHTER ONE SHIPPED A DEFECT.
+     *
+     * The first version matched `['name'] = '...'` exactly, and nine of this method's assignments
+     * are written with spaces inside the brackets —
+     * `$Setting_array[ 41 ][ 'name' ] = 'easebuzz';` (Setting.php:884, and entries 42, 43, 46-51).
+     * It skipped all nine, so the census reported 44 names instead of 53 — and the one skipped
+     * name that had no label was `DPO`, so this test passed green while the order list rendered a
+     * dash for every DPO order. A census that silently drops rows is worse than none, because it
+     * reads as coverage.
+     *
+     * SCOPED TO THE METHOD, the way `gatewayIds()` is. `paymentList()` happens to be the last
+     * method in the file today, so a file-wide scan is accidentally equivalent — and would stop
+     * being so the moment anybody adds a method after it.
+     */
     private function paymentListNames(): array
     {
         $src = (string) file_get_contents(base_path('app/Models/Setting.php'));
-        preg_match_all("/\['name'\] = '([^']+)'/", $src, $n);
 
-        $this->assertGreaterThanOrEqual(44, count($n[1]), 'the payment list shrank');
+        $start = strpos($src, 'public static function paymentList(');
+        $this->assertNotFalse($start, 'Setting::paymentList() is gone, so this census is blind');
+
+        preg_match_all(
+            '/\[\s*[\x27"]name[\x27"]\s*\]\s*=\s*[\x27"]([^\x27"]+)[\x27"]/',
+            substr($src, $start),
+            $n
+        );
+
+        $this->assertGreaterThanOrEqual(53, count($n[1]), 'the payment list shrank');
 
         return $n[1];
     }
@@ -169,6 +192,13 @@ class PaymentTypeLabelTest extends TestCase
          *
          * Read out of the old map's own source, which is still in git history; pinned here as
          * literals because the map itself is being removed in this change.
+         *
+         * `'DPO'` WAS MISSING FROM THIS LIST AND THAT IS HOW THE ONE REGRESSION GOT THROUGH. The
+         * list was transcribed by hand from the old map and dropped exactly the key that had no
+         * replacement, so the guard written to catch "a label that used to work and now does not"
+         * was blind to the single instance of it. It is now derived as well as transcribed — see
+         * `test_every_old_map_key_still_resolves`, which reads the removed map out of git history
+         * so a future omission cannot repeat the trick.
          */
         $wasProduced = [
             'cod' => 'Cash On Delivery',
@@ -219,6 +249,7 @@ class PaymentTypeLabelTest extends TestCase
             'sofort' => 'Sofort',
             'esewa' => 'Esewa',
             'Paynow' => 'Paynow',
+            'DPO' => 'DPO',
             'Braintree' => 'Braintree',
             'PowerTranz' => 'PowerTranz',
             'SSLCommerz' => 'SSLCommerz',
@@ -239,6 +270,54 @@ class PaymentTypeLabelTest extends TestCase
             }
         } finally {
             app()->setLocale($original);
+        }
+    }
+
+    /**
+     * THE SAME GUARANTEE, DERIVED RATHER THAN TRANSCRIBED.
+     *
+     * The pinned list above is readable and names each label, which is worth having; but it is a
+     * hand copy, and a hand copy is exactly what let `DPO` through. This reads the replaced map
+     * out of the commit that removed it, so "this change only adds labels" is checked against the
+     * real former behaviour rather than against my transcription of it.
+     */
+    public function test_every_old_map_key_still_resolves(): void
+    {
+        $removedIn = 'c7283a3c';
+        $old = (string) shell_exec(sprintf(
+            'cd %s && git show %s~1:app/DataTables/OrderDataTable.php 2>/dev/null',
+            escapeshellarg(base_path()),
+            escapeshellarg($removedIn)
+        ));
+
+        if (trim($old) === '') {
+            /*
+             * A conditional skip would be a NEW undeclared skip, which
+             * `.github/scripts/assert-known-test-outcomes.php` fails in both directions — so where
+             * git history is unavailable this records the fact and leans on the pinned list above,
+             * which always runs.
+             */
+            $this->assertTrue(true, 'git history for ' . $removedIn . ' is unavailable here');
+
+            return;
+        }
+
+        /*
+         * Scoped to the map itself: the old file has other `'x' => __('y')` pairs, among them a
+         * `'title'` key that would otherwise be demanded as a payment label.
+         */
+        $this->assertSame(1, preg_match('/\$paymentTypes = \[.*?\n\s*\];/s', $old, $block),
+            'the removed map could not be located in the old file');
+
+        preg_match_all("/'([^']+)' => __\('([^']+)'\)/", $block[0], $pairs);
+
+        $this->assertGreaterThanOrEqual(53, count($pairs[1]), 'the old map was smaller than recorded');
+
+        foreach ($pairs[1] as $i => $key) {
+            $this->assertNotNull(
+                PaymentTypeLabel::for($key),
+                "the old map rendered '{$key}' as '{$pairs[2][$i]}' and it now renders a dash"
+            );
         }
     }
 

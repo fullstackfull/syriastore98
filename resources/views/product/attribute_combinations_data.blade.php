@@ -291,7 +291,7 @@
            attribute_option_data() on $(document).ready() so this view loads on EVERY edit page
            load, and replacing `.attribute_combination`'s HTML does not unbind a document-level
            handler. The button that fires it is the sibling view's --
-           attribute_combinations_edit.blade.php:48-49 renders `.delete_option` with
+           attribute_combinations_edit.blade.php's own `.delete_option` button renders it with
            `data-id="{{ $str }}"`, the RAW key -- so both handlers run on one click and this one
            throws on a term like `M/L`. */
         var id = ssSelectorKey($(this).attr('data-id'));

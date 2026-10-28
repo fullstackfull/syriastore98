@@ -6,6 +6,7 @@ use App\Models\Product;
 use App\Models\ProductVariant;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Feature\Security\SecurityTestCase;
+use Tests\Support\StripsSourceComments;
 
 /**
  * THE TWO COMBINATION ENDPOINTS TAKE THE SAME PARAMETER NAME WITH DIFFERENT VOCABULARIES.
@@ -30,6 +31,16 @@ use Tests\Feature\Security\SecurityTestCase;
 class VariantCombinationVocabularyTest extends SecurityTestCase
 {
     use RefreshDatabase;
+
+    /*
+     * COMMENTS STRIPPED BEFORE ANY SOURCE ASSERTION — the fifth instance of this project's
+     * recurring bite, and this file was the one that proved it still bites. Driven as an
+     * experiment: deleting `value="{{ $key }}"` from the create page and changing
+     * `pluck('terms', 'id')` to `pluck('terms')`, while leaving `{{-- was: ... --}}` and `//`
+     * comments quoting both removed lines, left both scanners below GREEN. They were reading the
+     * explanation of the code rather than the code.
+     */
+    use StripsSourceComments;
 
     private function makeCategory(int $storeId): int
     {
@@ -111,7 +122,7 @@ class VariantCombinationVocabularyTest extends SecurityTestCase
 
     public function test_the_edit_pages_option_elements_carry_no_value_so_they_submit_their_text(): void
     {
-        $source = (string) file_get_contents(base_path('resources/views/product/edit.blade.php'));
+        $source = $this->sourceWithoutComments('resources/views/product/edit.blade.php');
 
         $this->assertStringContainsString(
             'name="attribute_options_{{ $choice_option->attribute_id }}[]"',
@@ -144,7 +155,7 @@ class VariantCombinationVocabularyTest extends SecurityTestCase
 
     public function test_the_create_pages_options_carry_the_option_id(): void
     {
-        $source = (string) file_get_contents(base_path('resources/views/product/create.blade.php'));
+        $source = $this->sourceWithoutComments('resources/views/product/create.blade.php');
 
         /*
          * The create page builds its options in JavaScript from `attribute_option()`'s response,
@@ -156,7 +167,7 @@ class VariantCombinationVocabularyTest extends SecurityTestCase
             'the create page no longer posts option ids, so attribute_combination() must change too'
         );
 
-        $controller = (string) file_get_contents(base_path('app/Http/Controllers/ProductController.php'));
+        $controller = $this->sourceWithoutComments('app/Http/Controllers/ProductController.php');
 
         $this->assertStringContainsString(
             "->get()->pluck('terms', 'id')->toArray()",
@@ -268,7 +279,7 @@ class VariantCombinationVocabularyTest extends SecurityTestCase
          */
         $operator = $this->makePlatformAdmin();
 
-        $this->actingAs($operator)->put(route('products.attribute_combination_edit'), [
+        $missing = $this->actingAs($operator)->put(route('products.attribute_combination_edit'), [
             'id' => 999999,
             'sku' => 'Scarf',
             'price' => 100,
@@ -276,6 +287,22 @@ class VariantCombinationVocabularyTest extends SecurityTestCase
             'for_variation_1' => 1,
             'attribute_options_1' => ['M'],
             'options_1' => ['M'],
-        ])->assertRedirect();
+        ]);
+
+        $missing->assertRedirect();
+        $missing->assertSessionHas('error');
+
+        /*
+         * AND THE POSITIVE CONTROL, because a bare `assertRedirect()` is satisfied by ANY
+         * refusal — a permission denial, a middleware bounce, a route that stopped existing. The
+         * same operator asking for a product that DOES exist must get a 200, or this test is
+         * measuring something other than the missing-product guard.
+         */
+        $a = $this->arrange();
+
+        $this->actingAs($operator)->put(
+            route('products.attribute_combination_edit'),
+            $this->payload($a, [1 => ['M'], 2 => ['Natural']])
+        )->assertOk();
     }
 }

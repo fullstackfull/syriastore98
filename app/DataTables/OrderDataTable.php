@@ -32,17 +32,23 @@ class OrderDataTable extends DataTable
                 /*
                  * ESCAPED, for the same reason as the customer cell below and with a longer
                  * path to it. `product_order_id` is a STRING column
-                 * (`create_orders_table.php:16`) and `PaymentService.php:2689` builds it as
-                 * `$request->customer_id . date('YmdHis')` for an authenticated shopper -- raw
-                 * caller input, not the authenticated customer's id. The same request value is
+                 * (`create_orders_table.php:16`) and `PaymentService.php:2707`/`:2711` build it
+                 * from a customer id and a timestamp. THIS COMMENT USED TO SAY THAT THE
+                 * AUTHENTICATED BRANCH USED `$request->customer_id` -- raw caller input -- and
+                 * that is no longer true: F46 has since been fixed, and `:2710-2711` now read
+                 * `auth('customers')->id()`, while the guest branch at `:2707` uses the literal
+                 * `'0'`. The escaping below stays, because a string column reached through a raw
+                 * column is escaped on its own merits rather than on the strength of whatever its
+                 * current writer happens to do. The same request value was
                  * also written to `orders.customer_id`, which is `unsignedBigInteger`, so the
                  * obvious objection is that the insert would fail -- but `config/database.php`
                  * sets `'strict' => false` on the `mysql` connection, so MySQL COERCES that one
                  * to 0 and stores the string column whole.
                  *
-                 * THE AUTHORIZATION HALF OF THAT IS NOT FIXED HERE and is recorded as ledger
-                 * F46: reading `$request->customer_id` where `auth('customers')->id()` is
-                 * available is the pattern CLAUDE.md names as this codebase's most productive
+                 * THE AUTHORIZATION HALF WAS NOT FIXED IN THAT CHANGE and was recorded as
+                 * ledger F46 -- since closed. Reading `$request->customer_id` where
+                 * `auth('customers')->id()` is available is the pattern CLAUDE.md names as this
+                 * codebase's most productive
                  * defect class, and it sits on a payment path, which the owner's constraints
                  * reserve for escalation. Escaping the cell closes the rendering vector whatever
                  * is decided there.
@@ -122,13 +128,45 @@ class OrderDataTable extends DataTable
                  * decision forbids reading it as POS. A dash says "not recorded"; a guess would
                  * say something false.
                  *
-                 * NO STORED VALUE IS EVER ECHOED. `payment_type` is in this table's
-                 * `rawColumns()` list (:268), so whatever this returns is injected unescaped.
-                 * The resolver returns either one of its own literals or null, so the column
-                 * cannot carry a stored string into the page at all -- stricter than escaping
-                 * one would be.
+                 * NO STORED VALUE IS EVER ECHOED, AND THE OUTPUT IS ESCAPED ANYWAY.
+                 * `payment_type` is in this table's `rawColumns()` list, so whatever this
+                 * returns is injected unescaped.
+                 *
+                 * NO LINE NUMBER FOR THAT, DELIBERATELY. The first draft of this comment cited
+                 * `:268`, which was already 21 lines stale; correcting it to `:247` made it wrong
+                 * again within the same edit, because writing this paragraph moved the line it
+                 * points at. A same-file citation inside a comment whose own length shifts the
+                 * target cannot stay true, so the relationship is asserted instead of described:
+                 * `OrderPaymentColumnEscapingTest` fails if `payment_type` leaves `rawColumns()`
+                 * or if this closure stops escaping.
+                 *
+                 * The stored value genuinely cannot reach the page: the resolver uses it only as
+                 * a folded array key and returns one of its own literals or null
+                 * (PaymentTypeLabel::for()).
+                 *
+                 * BUT AN EARLIER VERSION OF THIS COMMENT WENT ON TO SAY THE COLUMN "cannot carry
+                 * a stored string into the page at all -- stricter than escaping one would be",
+                 * AND THAT WAS WRONG. For `cod`, `bank_transfer` and `other_payment` the resolver
+                 * returns `__(...)`, i.e. a value read from `resources/lang/<locale>.json` -- and
+                 * `LanguageController::storeLanguageData()` (:202) writes that file from request
+                 * input with `file_put_contents` (:242) and no escaping. The file is GLOBAL, one
+                 * per locale under `base_path()`, shared by every store, and the `xss` middleware
+                 * on that route strips only the literal substrings `&lt;`, `&gt;`, `javascript`
+                 * and `alert` (XSS.php:52-59), so raw markup survives it.
+                 *
+                 * That is not a merchant-reachable hole: `Create Language` is granted only to the
+                 * `super admin` role (Utility.php:3200), is absent from the merchant grant list
+                 * (`$companyNewPermission`, :2983-3170), and is denylisted in
+                 * `config/superadminaccess.php:9`, which `RolePolicy::isGrantableBy()` enforces on
+                 * the WRITE path (RoleController.php:170, :314) and not merely in the form. So it
+                 * takes a deliberate operator action to put a translator-sourced string here.
+                 *
+                 * `e()` closes it regardless, and costs nothing: measured, all 57 label literals
+                 * and all 48 translations of the three descriptive phrases across the 16 locale
+                 * files are free of `&`, `<`, `>`, `'` and `"`, so nothing renders differently
+                 * today. One layer standing in for another is what this project refuses.
                  */
-                return \App\Payments\PaymentTypeLabel::for($item->payment_type) ?? '-';
+                return e(\App\Payments\PaymentTypeLabel::for($item->payment_type) ?? '-');
             })
 ->addColumn('shipping_method', function (Order $item) {
     return $item->ShippingMethod?->method_name ?? '-';

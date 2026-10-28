@@ -228,7 +228,8 @@
            in the one path D-09's fix did not cover.
 
            SCOPED TO THE CLICKED VARIANT'S OWN CONTAINER instead, which is the idiom the sibling
-           view already uses (attribute_combinations_edit.blade.php:331) rather than a third one:
+           view already uses -- its `.delete_option` handler, the one call of
+           `closest('.attribute_options_datas')` in that file -- rather than a third one:
            the combination loop renders exactly one `.attribute_options_datas` per combination, so
            (the directive is not named literally here: Blade compiles its own directives even inside
            a JavaScript comment, and writing it out raised "Malformed @@foreach statement" and 500ed

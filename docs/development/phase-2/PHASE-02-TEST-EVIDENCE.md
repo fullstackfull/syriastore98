@@ -6144,3 +6144,91 @@ Required by CLAUDE.md for any UI change, and the AR row is the one that carries 
 
 The two mutated order rows were set in the dev sqlite for the measurement and restored immediately
 after; the database is not tracked.
+
+---
+
+## The independent review of F167/F168, and what it cost — 2026-10-28
+
+Seven claims were raised against the F150/F164 change set and each was verified against the real
+source before being acted on. Five were confirmed, one was partly confirmed with its
+severity-deciding premise refuted, and one was refuted outright. Three of the confirmed ones were
+worse than the claim.
+
+### Confirmed, and worse than claimed
+
+| claim | what was actually true |
+|---|---|
+| a test skips, breaking the gate | it **errored** (wrong fixture column), which the gate treats as worse than a failure — zero-error baseline. And the permission was wrong too, so fixing only the fixture would have converted the error into the predicted silent skip. And the assertion was green for the wrong reason: `POS` appears in two `method="POST"` attributes and the header's `title="POS"`. |
+| a fourth label map survives, 2 English divergences | **17 of 52** registry ids disagreed, and in Arabic `__('DPO Pay')` → `راتب موظف حماية البيانات` (*"Data Protection Officer's salary"*), offered to a merchant as a payment method |
+| three stale `file:line` citations | **9 of 29** were stale, and two of mine decayed *within the edit correcting them* |
+
+### Partly confirmed — the mechanism is real, the severity is not
+
+The order list's payment cell is a raw column, and for `cod`/`bank_transfer`/`other_payment` the
+resolver returns `__()`, read from a global `resources/lang/<locale>.json` that
+`LanguageController::storeLanguageData()` writes from request input with no escaping, past an
+`xss` middleware that strips only the literal substrings `&lt;`, `&gt;`, `javascript` and `alert`.
+
+But `Create Language` is **not merchant-reachable**: granted only to the `super admin` role,
+absent from the merchant grant list, and denylisted in `config/superadminaccess.php`, which
+`RolePolicy::isGrantableBy()` enforces on the write path and not merely in the form. So it takes a
+deliberate operator action. `e()` was added anyway — measured as a visual no-op across all 57
+label literals and all 48 translations of the three phrases in the 16 locale files — because this
+project's rule is never to let one check be the only one.
+
+### Refuted
+
+`resources/views/order/show.blade.php` renders `{{ $order->payment_type }}` raw, and the review
+called it a third merchant order-detail surface. It is **not**. Its only render site is
+`BankTransferController:118`, bound to `PlanOrder::find($id)`, off `plan.order.show`. The confusion
+is a name collision: `Route::resource('order', ...)` registers a route *named* `order.show`, but
+`OrderController::show()` renders `order.order_show`, a different file — which does not display
+`payment_type` at all. Applying the resolver there would be a **regression**, not a gap closed:
+that view's rows hold `__('Bank Transfer')` written by `BankTransferController:103`, and
+`PaymentTypeLabel::for('Bank Transfer')` folds to `'bank transfer'`, which is not a key — so a
+correct label would become a dash on the one order kind the view serves.
+
+### The regression the review did not find, and the audit did
+
+`PaymentTypeLabel` had no label for `'DPO'`. Measured: `for('DPO') === null`, while the replaced
+map held `'DPO' => __('DPO')` at `OrderDataTable:146` in `c7283a3c~1`, and `'DPO'` is a value
+`PaymentService` really stores (`case 'DPO':` at `:424`, stored verbatim at `:2773`). So every DPO
+order rendered a dash.
+
+The guard written to catch exactly that missed it, and the cause is a measurement error worth
+keeping:
+
+```
+grep -cE "\['name'\] = '"            app/Models/Setting.php   →  44
+grep -coE "\[\s*'name'\s*\]\s*=\s*'" app/Models/Setting.php   →  53
+```
+
+Nine of `paymentList()`'s assignments are written `$Setting_array[ 41 ][ 'name' ] = 'easebuzz';`
+with spaces inside the brackets. The census skipped all nine, the floor was calibrated to the
+broken count, and the ninth skipped name was `DPO`. The same regex produced the "10 ids the
+gateways hold that paymentList does not" figure that F167's own commit message offered as a
+*correction* — eight of those ten are in both registries.
+
+Three independent guards now catch it where zero did: the widened and method-scoped census
+(floor 53), the pinned list with `DPO` restored, and a new `test_every_old_map_key_still_resolves`
+that reads the replaced map out of git history rather than from a transcription. Removing the
+label fails all three.
+
+### The cross-tenant exposure, measured
+
+With one email address used as a guest in two stores, the other store's order appeared in the
+rendered table on the merchant's customer page — reference, date, value, payment type and status.
+`order_billing_details` has **no `store_id` column in any migration**, so the predicate had to go
+on `Order`. Both branches bitten separately.
+
+### Tests that passed for the wrong reason, found by driving them against a mutated tree
+
+| test | passed with the fix reverted, because |
+|---|---|
+| the customer page's `POS` assertion | `method="POST"` and the header's `title="POS"` |
+| the F168 "foreign term resolves to nothing" test | it asserts an absence with no premise; any of `update()`'s eleven early returns satisfies it. One needle could never match; the other matched `visible_attribute_N` under a browser-shaped payload |
+| both `VariantCombinationVocabularyTest` source scanners | they did not strip comments — deleting the code and leaving a comment quoting it left them green |
+
+The third is the **fifth** instance of this trap in this repository, so the stripper is now a
+shared trait (`tests/Support/StripsSourceComments.php`) naming all five, rather than a tenth
+private copy.

@@ -481,16 +481,6 @@ public function store(Request $request)
     $gatewaysConfig = $paymentSettingController->getPaymentGateways();
     $activePaymentMethods = [];
 
-    $customLabels = [
-        'cod' => 'Cash on Delivery',
-        'bank_transfer' => 'Bank Transfer',
-        'dpopay' => 'DPO Pay',
-        'paytr' => 'Pay TR',
-        'Xendit' => 'Xendit',
-        'Senangpay' => 'SenangPay',
-        'myfatoorah' => 'MyFatoorah',
-    ];
-
     foreach ($gatewaysConfig as $gateway) {
         $id = $gateway['id'];
         $enableKey = "is_{$id}_enabled"; // مثال: is_stripe_enabled
@@ -498,13 +488,48 @@ public function store(Request $request)
         $status = \App\Models\Utility::GetValueByName($enableKey);
 
         if ($status === 'on' || $status === '1') {
-            $label = $customLabels[$id] ?? ucwords(str_replace('_', ' ', $id));
-            $activePaymentMethods[$id] = __($label);
+            /*
+             * F150 -- THE FOURTH COPY OF THE PAYMENT-LABEL MAP, and the one that had drifted
+             * furthest. The other three read sites now share `App\Payments\PaymentTypeLabel`:
+             * `OrderDataTable:131`, `Api\DashboardController:6392` and
+             * `customer/view.blade.php:83`. This one kept a 7-entry `$customLabels` with a
+             * `ucwords(str_replace('_', ' ', $id))` fallback, and the whole result went through
+             * `__()`.
+             *
+             * MEASURED, AND THE ARABIC IS THE PART THAT MATTERS. Seventeen of the 52 registry ids
+             * disagreed with the resolver in English alone -- `Nmi` for `NMI`, `Payu` for `PayU`,
+             * `Sslcommerz` for `SSLCommerz`, `Cash on Delivery` for `Cash On Delivery`,
+             * `Pay TR` for `PayTR` -- so the merchant's web order form and the admin app's picker
+             * named the same gateway differently. Worse, passing BRAND names through `__()` meant
+             * `resources/lang/ar.json` answered for them: `__('DPO Pay')` resolves to
+             * `راتب موظف حماية البيانات` -- "Data Protection Officer's salary" -- which an Arabic
+             * merchant was being offered as a payment method. `__('Pay TR')` gave `دفع الـ TR`,
+             * a literal translation of a brand. Five of the seven mapped entries were wrong in
+             * Arabic.
+             *
+             * THE POSTED VALUE DOES NOT CHANGE. `createOrder.blade.php:56` renders
+             * `<option value="{{ $key }}">{{ $name }}</option>`, so the array KEY is what reaches
+             * `payment_type` on the created order and only the displayed words move -- the same
+             * property that made the API twin safe.
+             *
+             * An id with no label keeps the old mechanical transform rather than vanishing: this
+             * list is what a merchant can CHOOSE, and silently dropping an enabled payment method
+             * would be a functional regression where an ugly name is a cosmetic one.
+             */
+            $activePaymentMethods[$id] = \App\Payments\PaymentTypeLabel::for($id)
+                ?? __(ucwords(str_replace('_', ' ', $id)));
         }
     }
 
     if (empty($activePaymentMethods)) {
-        $activePaymentMethods['cod'] = __('Cash on Delivery (Default)');
+        /*
+         * The default keeps its own wording -- it says something the resolver's label does not,
+         * namely that nothing is configured -- but it is built from the resolver so the provider
+         * half cannot drift away from the other three sites again.
+         */
+        $activePaymentMethods['cod'] = __(':method (Default)', [
+            'method' => \App\Payments\PaymentTypeLabel::for('cod'),
+        ]);
     }
 
     return view('order.createOrder', compact(

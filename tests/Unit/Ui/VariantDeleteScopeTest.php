@@ -176,6 +176,17 @@ class VariantDeleteScopeTest extends TestCase
 
             foreach ($lookups[1] as $wanted) {
                 $checked++;
+
+                /*
+                 * THE LIMIT OF THIS CHECK, STATED SO IT IS NOT MISTAKEN FOR MORE. It compares two
+                 * Blade expressions for identical spelling over the un-rendered template; it does
+                 * not prove the element is ever EMITTED. Wrapping the `<img>` in `@if (false)`
+                 * leaves this green — measured. What it does catch is the real defect it was
+                 * written for: a rename on one side and not the other, which is how the F163 fix
+                 * left `getElementById('down_product')` pointing at an id that no longer existed.
+                 * The live probe `check-variant-edit-keys-live.cjs` is what proves the lookups
+                 * actually resolve, on rendered pages, for all three views.
+                 */
                 $this->assertStringContainsString(
                     'id="' . $wanted . '"',
                     $source,
@@ -185,10 +196,17 @@ class VariantDeleteScopeTest extends TestCase
             }
         }
 
+        /*
+         * ONE PER VIEW, DERIVED — not a hardcoded 3. The floor was `3` and the measured value is
+         * exactly 3, so it had zero margin: delete the lookup from two views and add two to a
+         * third and the floor still passes. Deriving it from the view list means a view that
+         * loses its lookup entirely is caught.
+         */
         $this->assertGreaterThanOrEqual(
-            3,
+            count($this->allViews()),
             $checked,
-            'this test found no getElementById lookups at all, so it proved nothing'
+            'at least one of the variant views has no getElementById lookup left, so this test '
+            . 'is no longer covering it'
         );
     }
 

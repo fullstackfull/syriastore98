@@ -91,15 +91,15 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/KhaltiPaymnetController.php:416` | Khalti verification refused: no server-computed payable in the stored state. |
 | `app/Http/Controllers/KhaltiPaymnetController.php:461` | Khalti order refused before any stock moved: the gateway rejected the capture |
 | `app/Http/Controllers/NMIPayController.php:428` | Pending partial payment refused: the balance named does not belong to this customer. |
-| `app/Http/Controllers/OrderController.php:1283` | Return approval restored no stock: order carries no readable product_json |
-| `app/Http/Controllers/OrderController.php:1329` | Return approval skipped a line whose stock was already credited |
-| `app/Http/Controllers/OrderController.php:1349` | Return approval skipped a line with an unusable product id or quantity |
-| `app/Http/Controllers/OrderController.php:1370` | Return approval skipped a line whose product is not in the order |
-| `app/Http/Controllers/OrderController.php:1397` | Return approval skipped a line whose variant does not belong to its product |
-| `app/Http/Controllers/OrderController.php:1743` | Order cancellation skipped a line with an unusable product id or quantity |
-| `app/Http/Controllers/OrderController.php:1758` | Order cancellation skipped a line whose product is not in the order |
-| `app/Http/Controllers/OrderController.php:1780` | Order cancellation skipped a line whose variant does not belong to its product |
-| `app/Http/Controllers/OrderController.php:1949` | Order assignment refused: the delivery boy is not in a store this caller owns |
+| `app/Http/Controllers/OrderController.php:1308` | Return approval restored no stock: order carries no readable product_json |
+| `app/Http/Controllers/OrderController.php:1354` | Return approval skipped a line whose stock was already credited |
+| `app/Http/Controllers/OrderController.php:1374` | Return approval skipped a line with an unusable product id or quantity |
+| `app/Http/Controllers/OrderController.php:1395` | Return approval skipped a line whose product is not in the order |
+| `app/Http/Controllers/OrderController.php:1422` | Return approval skipped a line whose variant does not belong to its product |
+| `app/Http/Controllers/OrderController.php:1768` | Order cancellation skipped a line with an unusable product id or quantity |
+| `app/Http/Controllers/OrderController.php:1783` | Order cancellation skipped a line whose product is not in the order |
+| `app/Http/Controllers/OrderController.php:1805` | Order cancellation skipped a line whose variant does not belong to its product |
+| `app/Http/Controllers/OrderController.php:1974` | Order assignment refused: the delivery boy is not in a store this caller owns |
 | `app/Http/Controllers/OrderController.php:322` | Manual order total did not match its components; the computed total was stored |
 | `app/Http/Controllers/OrderRefundController.php:1167` | Refund settled but the order totals were left unchanged: product_json is unparseable |
 | `app/Http/Controllers/OrderRefundController.php:180` | Refund transition refused: unrecognised current state |

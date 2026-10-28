@@ -86,6 +86,40 @@ class AttributeTermResolutionTenancyTest extends SecurityTestCase
         return [$attributeId, $optionId];
     }
 
+    /**
+     * The option ids a product's `product_attribute` column actually holds.
+     *
+     * SHARED, because the second test used to assert over the raw JSON string with
+     * `assertStringNotContainsString` and that was wrong twice over: one of its two needles
+     * (`'|' . $id . '|'`) can never match, since `implode('|', ...)` only puts an id BETWEEN
+     * pipes with three or more ids and the test posts one term; and the other (`'"' . $id . '"'`)
+     * matched whatever else the JSON happened to contain — with a browser-shaped payload, where
+     * every value is a string, `"1"` matches the `visible_attribute_N` value and the test fails
+     * for a reason that has nothing to do with tenancy.
+     */
+    private function storedOptionIds(int $productId): array
+    {
+        $stored = (string) \DB::table('products')->where('id', $productId)->value('product_attribute');
+
+        $this->assertNotSame('', $stored, 'premise: the save wrote the attribute column');
+
+        $decoded = json_decode($stored, true);
+        $this->assertIsArray($decoded, 'premise: the column holds JSON');
+
+        $ids = [];
+        foreach ($decoded as $entry) {
+            foreach ((array) ($entry['values'] ?? []) as $group) {
+                foreach (explode('|', (string) $group) as $id) {
+                    if ($id !== '') {
+                        $ids[] = (int) $id;
+                    }
+                }
+            }
+        }
+
+        return $ids;
+    }
+
     public function test_a_posted_term_resolves_to_the_products_own_stores_option(): void
     {
         /*
@@ -149,28 +183,88 @@ class AttributeTermResolutionTenancyTest extends SecurityTestCase
         $this->assertNotSame(500, $response->status(),
             'premise: the save completed at all. Body: ' . substr((string) $response->getContent(), 0, 300));
 
-        $stored = (string) \DB::table('products')->where('id', $product->id)->value('product_attribute');
-
-        $this->assertNotSame('', $stored, 'premise: the save wrote the attribute column');
-
-        $decoded = json_decode($stored, true);
-        $this->assertIsArray($decoded, 'premise: the column holds JSON');
-
-        $ids = [];
-        foreach ($decoded as $entry) {
-            foreach ((array) ($entry['values'] ?? []) as $group) {
-                foreach (explode('|', (string) $group) as $id) {
-                    if ($id !== '') {
-                        $ids[] = (int) $id;
-                    }
-                }
-            }
-        }
+        $ids = $this->storedOptionIds((int) $product->id);
 
         $this->assertContains($ownOptionId, $ids,
             "the merchant's own 'Red' option was not the one stored");
         $this->assertNotContains($foreignOptionId, $ids,
             "another store's option id was written into this product's attributes");
+    }
+
+    /**
+     * THE VARIANT ARM, which carries the identical predicate and was untested.
+     *
+     * `update()` resolves posted terms to option ids in TWO places — once for a non-variant
+     * product and once for a variant one — and the F168 fix had to be applied to both. Only the
+     * non-variant arm was driven, so reverting the variant arm alone left the suite green. The
+     * two blocks are byte-identical apart from their surroundings, which is exactly the shape
+     * that gets half-fixed.
+     */
+    public function test_the_variant_arm_resolves_within_the_products_own_store_too(): void
+    {
+        [, $otherStore] = $this->makeTenant();
+        [, $foreignOptionId] = $this->attributeWithTerm($otherStore->id, 'Red');
+
+        [$merchant, $store] = $this->makeTenant();
+        $this->grantPermission($merchant, 'Edit Products');
+        [$ownAttributeId, $ownOptionId] = $this->attributeWithTerm($store->id, 'Red');
+
+        $this->assertLessThan($ownOptionId, $foreignOptionId,
+            'premise: the foreign option is the older row, so an unordered first() prefers it');
+
+        $categoryId = $this->makeCategory($store->id);
+
+        $product = \App\Models\Product::forceCreate([
+            'name' => 'Scarf',
+            'slug' => 'scarf-' . uniqid(),
+            'description' => 'x',
+            'price' => 10,
+            'track_stock' => 1,
+            'trending' => 0,
+            'stock_status' => 'in_stock',
+            'product_stock' => 7,
+            'category_id' => $categoryId,
+            'status' => 1,
+            'variant_product' => 1,
+            'attribute_id' => (string) $ownAttributeId,
+            'store_id' => $store->id,
+            'created_by' => $merchant->id,
+        ]);
+
+        $response = $this->actingAs($merchant)->put('/product/' . $product->id, [
+            'name' => 'Scarf',
+            'category_id' => $categoryId,
+            'status' => 1,
+            'variant_product' => 1,
+            'price' => 10,
+            'sale_price' => 0,
+            'cost_price' => 5,
+            'trending' => 0,
+            'track_stock' => 1,
+            'product_stock' => 7,
+            'stock_status' => 'in_stock',
+            'low_stock_threshold' => 0,
+            'attribute_no' => [$ownAttributeId],
+            'for_variation_' . $ownAttributeId => 1,
+            'visible_attribute_' . $ownAttributeId => 1,
+            'attribute_options_' . $ownAttributeId => ['Red'],
+            /* The variant arm's own gate key — see ProductVariantOrdinarySaveGuardTest. */
+            'options_datas' => ['Red'],
+            'product_variation_price_Red' => 10,
+            'product_sale_price_Red' => 9,
+            'product_stock_Red' => 3,
+            'product_sku_Red' => 'Scarf-Red',
+        ]);
+
+        $this->assertNotSame(500, $response->status(),
+            'premise: the save completed at all. Body: ' . substr((string) $response->getContent(), 0, 300));
+
+        $ids = $this->storedOptionIds((int) $product->id);
+
+        $this->assertContains($ownOptionId, $ids,
+            "the variant arm did not store the merchant's own 'Red' option");
+        $this->assertNotContains($foreignOptionId, $ids,
+            "the variant arm wrote another store's option id into this product");
     }
 
     public function test_a_term_that_exists_only_in_another_store_resolves_to_nothing(): void
@@ -208,7 +302,7 @@ class AttributeTermResolutionTenancyTest extends SecurityTestCase
             'created_by' => $merchant->id,
         ]);
 
-        $this->actingAs($merchant)->put('/product/' . $product->id, [
+        $response = $this->actingAs($merchant)->put('/product/' . $product->id, [
             'name' => 'Scarf',
             'category_id' => $categoryId,
             'status' => 1,
@@ -227,16 +321,23 @@ class AttributeTermResolutionTenancyTest extends SecurityTestCase
             'attribute_options_' . $ownAttributeId => ['Ultramarine'],
         ]);
 
-        $stored = (string) \DB::table('products')->where('id', $product->id)->value('product_attribute');
+        /*
+         * THE PREMISE, WHICH THIS TEST DID NOT HAVE AND NEEDED MOST. It asserts an ABSENCE, so
+         * anything that stops the request reaching the resolution loop satisfies it for free —
+         * and `update()` has eleven early returns between its permission gate and that loop
+         * (validation, the concurrent-edit conflict, the plan storage limit, seven upload
+         * failures), most of which answer HTTP 200 with an error payload rather than a redirect.
+         * Driven with the fix reverted AND a validation failure injected, the old version of this
+         * test still passed: it was asserting a prohibition over an empty string.
+         */
+        $this->assertNotSame(500, $response->status(),
+            'premise: the save completed at all. Body: ' . substr((string) $response->getContent(), 0, 300));
 
-        $this->assertStringNotContainsString(
-            '"' . $foreignOptionId . '"',
-            $stored,
-            "another store's option id was borrowed for a term this store does not have"
-        );
-        $this->assertStringNotContainsString(
-            '|' . $foreignOptionId . '|',
-            $stored,
+        $ids = $this->storedOptionIds((int) $product->id);
+
+        $this->assertNotContains(
+            $foreignOptionId,
+            $ids,
             "another store's option id was borrowed for a term this store does not have"
         );
     }

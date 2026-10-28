@@ -34,17 +34,26 @@ namespace App\Payments;
  *
  *   - `PaymentSettingController::getPaymentGateways()` — 52 `id`s, a pure array literal, what the
  *     two manual-order writers store (`OrderController:350`, `Api\DashboardController:6242`);
- *   - `Setting::paymentList($slug)` — 44 `name`s, what the storefront checkout posts;
+ *   - `Setting::paymentList($slug)` — **53** `name`s, what the storefront checkout posts;
  *   - the two literals live code stores and this project cannot change: `'POS'`
  *     (`PosController:330`, fixed by F146) and `'Lottery Product'`
  *     (`packages/workdo/LotteryPrizes/.../LotteryResultController:135`, vendored, not editable).
  *
- * Case-folded, those sets are NOT the same set — a claim worth correcting because it was made in
- * the census and it is wrong. `paymentList` holds 2 the gateways do not (`other_payment`,
- * `senagepay`), and the gateways hold **10** that `paymentList` does not (`senangpay`,
- * `myfatoorah`, `easebuzz`, `nmi`, `payu`, `paynow`, `dpopay`, `braintree`, `powertranz`,
- * `sslcommerz`) — which are precisely the ones the old map keyed in mixed case. The union is 56
- * distinct identifiers once folded, and that is what this map holds.
+ * Case-folded, those sets are NOT the same set. `paymentList` holds 3 the gateways do not
+ * (`other_payment`, `senagepay`, `DPO`), and the gateways hold 2 that `paymentList` does not
+ * (`senangpay`, `dpopay`).
+ *
+ * AN EARLIER VERSION OF THIS DOCBLOCK SAID 44 AND 10, AND BOTH NUMBERS WERE WRONG — recorded
+ * rather than quietly corrected, because the cause is a trap worth naming. The census regex was
+ * `\['name'\] = '...'`, and nine of `paymentList()`'s assignments are written with spaces inside
+ * the brackets — `$Setting_array[ 41 ][ 'name' ] = 'easebuzz';` (Setting.php:884, and 42, 43, 46,
+ * 47, 48, 49, 50, 51). The regex skipped all nine, so the method looked like it had 44 names and
+ * eight of the "10 the gateways hold that paymentList does not" were in fact in both. The ninth
+ * skipped name was `DPO`, which is why this class shipped without a label for it.
+ *
+ * A measurement whose sampling error hides exactly the case that breaks is worse than no
+ * measurement, so the test now derives these names with a whitespace-tolerant pattern and a floor
+ * of 53.
  *
  * `Setting::paymentList()` IS NOT CALLED FROM HERE, deliberately: it takes a store slug, hits the
  * settings table per provider and `abort(404)`s on an unknown slug. A label resolver that can
@@ -100,6 +109,21 @@ final class PaymentTypeLabel
         'cinetpay' => 'CinetPay',
         'coingate' => 'Coingate',
         'cybersource' => 'CyberSource',
+        /*
+         * BOTH SPELLINGS OF DPO, and the second one is a REGRESSION THIS CLASS CAUSED.
+         *
+         * `dpopay` is the gateway registry's id. `DPO` is what `Setting::paymentList()` calls the
+         * same provider (Setting.php:1022) and what `PaymentService` branches on (`case 'DPO':`,
+         * :424) before storing `$requests_data['payment_type']` verbatim (:2773) -- so `'DPO'` is
+         * a value that really sits in `orders.payment_type`.
+         *
+         * The map this class replaced held `'DPO' => __('DPO')`
+         * (OrderDataTable.php:146 at c7283a3c~1). Without this line every DPO order started
+         * rendering a dash -- exactly the "only adds labels, never removes one that worked"
+         * promise that `test_no_label_the_order_list_already_produced_has_changed` exists to
+         * keep, and that test MISSED it because its hand-copied key list omitted this one key.
+         */
+        'dpo' => 'DPO',
         'dpopay' => 'DPO Pay',
         'easebuzz' => 'Easebuzz',
         'esewa' => 'Esewa',
