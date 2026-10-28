@@ -570,6 +570,18 @@ git checkout analysis_options.yaml       # pub get rewrites it and narrows `anal
 **`SESSION_DRIVER=file` matters**: the default database driver needs a `sessions` table the
 migrations do not create, and every page 500s without it.
 
+**The Flutter SDK in the container is 3.47.7 / Dart 3.13.5**, not the 3.41.2 / 3.11.0 recorded
+against P2-07-1 — the container was rebuilt. The app suite passes on it (1227 tests) and
+`flutter analyze` still reports 246 info / 0 warning / 0 error, so the newer SDK changed nothing
+that matters; the recorded version was simply stale.
+
+**Do NOT run the Flutter suite while the Laravel Feature suite is running.** Measured twice: the
+Feature suite stalled at 0% CPU with zero cputime, at two *different* tests
+(`ModuleAdministrativeRouteGuardRulesTest` the first time, a settings-writer-route test the
+second), on both occasions with `flutter test` running alongside. Run alone it completed normally
+in 1158s. The symptom reads exactly like a hung test — a specific test name, frozen output — and
+it is not one; chasing the named test is wasted effort. Run them one at a time.
+
 ## 7. Standing rules this phase did not touch
 
 - **Issue #120 / P1-SEC-40 is NOT resolved.** The exposed production database dump is a separate
