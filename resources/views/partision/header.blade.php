@@ -20,7 +20,16 @@ $theme_url = App\Http\Controllers\HomeController::getThemeUrl($store);
         <div class="header-wrapper">
                 <ul class="list-unstyled gap-2">
                     <li class="dash-h-item mob-hamburger">
-                        <a href="#!" class="dash-head-link" id="mobile-collapse">
+                        {{-- P2-01-17: this control had NO accessible name of any kind, and the
+                             header renders on every merchant screen, so a screen reader announced
+                             "link" and nothing else on all of them. It stays an <a> deliberately:
+                             public/assets/js/dash.js:99 and side-dash.js:96 select
+                             #mobile-collapse, and style.css:17131 styles
+                             `.dash-header .dash-head-link#mobile-collapse`, so swapping the
+                             element risks the host theme's layout everywhere for a benefit
+                             aria-label already delivers. --}}
+                        <a href="#!" class="dash-head-link" id="mobile-collapse"
+                           aria-label="{{ __('Toggle navigation') }}">
                             <div class="hamburger hamburger--arrowturn">
                                 <div class="hamburger-box">
                                     <div class="hamburger-inner"></div>

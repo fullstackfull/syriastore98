@@ -233,19 +233,44 @@
         // behind it, which is still in the accessibility tree.
         var panel = document.getElementById(id);
         if (!panel) { return; }
-        var items = focusablesIn(panel);
+        containFocus(e, panel);
+    });
+
+    /* P2-01-20 -- ONE CONTAINMENT, TWO MODAL SURFACES.
+       Extracted from the panel handler above rather than written again, because the command
+       palette needs exactly this and a second trap would be a second thing to keep correct. */
+    function containFocus(e, root) {
+        var items = focusablesIn(root);
         if (!items.length) { return; }
 
         var first = items[0];
         var last = items[items.length - 1];
 
-        if (e.shiftKey && (document.activeElement === first || !panel.contains(document.activeElement))) {
+        if (e.shiftKey && (document.activeElement === first || !root.contains(document.activeElement))) {
             e.preventDefault();
             last.focus();
         } else if (!e.shiftKey && document.activeElement === last) {
             e.preventDefault();
             first.focus();
         }
+    }
+
+    /* P2-01-20 -- THE COMMAND PALETTE DECLARED `aria-modal="true"` AND TRAPPED NOTHING.
+       Measured with real Tab presses in all four configurations: of 25 presses with the palette
+       open, 21 left it, landing on the page behind — which is still in the accessibility tree,
+       because the palette neither marks the rest `aria-hidden` nor uses `inert`. A sighted mouse
+       user never sees this; a keyboard user is dropped out of the dialog they opened.
+
+       A panel on top wins, and is already handled by the listener above, so this bails when one
+       is open rather than fighting it for the same keypress. */
+    document.addEventListener('keydown', function (e) {
+        if (e.key !== 'Tab') { return; }
+        if (openPanelIds().length) { return; }
+
+        var palette = document.getElementById('ss-command');
+        if (!palette || palette.hidden) { return; }
+
+        containFocus(e, palette);
     });
 
     /* ---------------------------------------------------------- dirty state */

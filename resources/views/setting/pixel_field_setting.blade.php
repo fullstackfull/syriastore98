@@ -57,7 +57,7 @@
                                         'route' => ['pixel-setting.destroy', $PixelField->id],
                                         'class' => 'd-inline',
                                     ]) !!}
-                                    <button type="submit" class="ss-btn ss-btn--danger-quiet ss-btn--sm ss-btn--icon show_confirm">
+                                    <button type="submit" class="ss-btn ss-btn--danger-quiet ss-btn--sm ss-btn--icon show_confirm" data-confirm="{{ __('Are You Sure?') }}" data-text="{{ __('This action can not be undone. Do you want to continue?') }}" data-text-yes="{{ __('Yes') }}" data-text-no="{{ __('No') }}">
                                         <i class="ti ti-trash" aria-hidden="true"></i>
                                         <span class="ss-visually-hidden">
                                             {{ __('Delete') }} — {{ $PixelField->platform }}

@@ -5499,3 +5499,89 @@ or not `aria-busy` was ever set.
 | drop the busy announcement | the announcement check |
 | drop the glyph/title/label swap | **6** success checks, incl. `"أزل من المفضلة" -> "أزل من المفضلة"` |
 | remove one glyph target + one title attribute from the markup | 2 of the 6 static cases |
+
+---
+
+## P2-01-17 / P2-01-19 / P2-01-20 (2026-10-28)
+
+Unit **564 passed**. The six Feature files that read the design-system assets: **68 passed**.
+Keyboard run: `docs/development/phase-2/evidence/p2-01-20/`, **0 failures**.
+
+### Three recorded figures were wrong, and measuring them was most of the work
+
+| claim | measured |
+|---|---|
+| "all 266 `data-ajax-popup` contracts" | **128** in 83 files — plus a *separate* **19** in 16 files of `data-ajax-popup-over` |
+| "three or four confirmation mechanisms" | **one** — `show_confirm` is a CSS *class*, `data-confirm` the attribute it reads |
+| eight unnamed header controls | **one** |
+| six `<p>` in the header (F158 scope) | **zero** |
+
+My own first count of the popup contracts said 154, because `data-ajax-popup-over=` **contains**
+`data-ajax-popup` and a substring grep merges two different mechanisms. The eight "unnamed"
+controls came from treating any control whose text began with `{{` as icon-only — `{{ __('
+Profile') }}` is a Blade echo that renders a perfectly good name. The six paragraphs were `<path>`
+and `<polyline>` inside the inline SVG icons.
+
+### P2-01-17 — one control, on every screen
+
+`<a href="#!" id="mobile-collapse">` wraps three nested `div`s that draw a hamburger: no text, no
+`aria-label`, no `title`. `layouts/app.blade.php` renders this partial on **every** merchant
+screen, so a screen reader announced *"link"* and nothing else, everywhere.
+
+It stays an `<a>`: `dash.js:99`, `side-dash.js:96` and `style.css:17131` all target
+`#mobile-collapse`, so swapping the element risks the host theme's layout on every screen for a
+benefit `aria-label` already delivers. **F52 was already fixed.** **F158 cannot reach the header** —
+zero paragraphs, pinned by a test so adding one brings the scope decision back.
+
+**What keeps the row PARTIAL:** "the merchant header is on the design system". 281 lines, **4**
+`ss-` occurrences. Converting it is a change to shared chrome on every screen and across all 70
+vendored modules — the theme-wide change the owner said must not happen without a scope decision.
+
+### P2-01-19 — the defect was the fallback, not the component
+
+`custom.js:107` binds `.show_confirm` with one delegated SweetAlert handler, and substitutes
+**hardcoded English** when an attribute is missing — and it is a static file that cannot call
+`__()`. Four delete buttons carried no `data-confirm`, so an Arabic merchant got an **English**
+confirmation on `country/filter`, `state/filter`, `setting/pixel_field_setting` and
+`setting/webhook_setting`. All five strings already existed in both languages.
+
+**The raw browser dialogs are frozen, not converted.** Four `confirm(...)` calls in
+`finance/withdrawals` (×2) and `pos/index` (×2) — all translated. Converting them is not styling:
+`onclick="return confirm(...)"` is **synchronous** and blocks the submit while the SweetAlert
+handler is asynchronous, and two of the four **approve a withdrawal and mark it paid**. A fifth
+match was inside a Blade *comment* describing this very defect, so comments are stripped before
+counting.
+
+### P2-01-20 — the row named its own remainder, and a browser could finally answer it
+
+> *"Tab ORDER on a rendered page, and whether a focus ring is actually PAINTED by a browser, need a
+> real page and a real tab press… what is not asserted is the paint."*
+
+Both asserted now. `page.keyboard.press('Tab')` is real keyboard input, so `:focus-visible` applies
+as it does for a person — a `.focus()` call would not trigger it.
+
+**A real defect:** the command palette declares `aria-modal="true"` and trapped nothing — **21 of
+25** Tab presses left it, landing on the page behind, which is still in the accessibility tree
+because the palette neither marks the rest `aria-hidden` nor uses `inert`. The side panel has had
+containment since P2-04-5, so the fix **extracts it into `containFocus()`** and reuses it; the
+palette branch bails when a panel is open so the two never fight for one keypress. After: **25 of
+25 inside, 0 escaped**, all four configurations. Bitten — removing the branch restores 3/21.
+
+**My measurement produced a false defect first.** It checked only `outline` and `box-shadow` and
+reported the palette's input as unindicated. It is not: `.ss-command__input:focus-visible` sets
+`outline: none` and changes `border-block-end-color` to the brand — an underline my property list
+could not see. A measurement that enumerates the properties it expects keeps missing the ones it
+did not think of, so nothing is enumerated: every control's computed style is recorded **before**
+any Tab and the focused style is diffed against its own unfocused style. Not by blur-and-refocus
+either — the second focus would be programmatic, and `:focus-visible` does not apply to that, so
+the measurement would have destroyed what it measures. On that basis **29 controls per
+configuration do paint an indicator**.
+
+**And a second false reading:** the palette's input appeared in the tab order while the palette was
+shut. Probed directly — closed, it has `hidden`, `display: none`, a 0×0 rect, and is not tabbable.
+It gains focus because **tabbing into the sidebar search opens the palette**, which auto-focuses it.
+Intended behaviour.
+
+**Stated limit:** measured on the order list (116 focusable controls) in four configurations, not on
+all 107 screens individually. The indicator is shared CSS and the trap is shared JS, so both are
+system-level; a per-screen sweep would be breadth, not a different question.
