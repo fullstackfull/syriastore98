@@ -65,8 +65,24 @@ class OrderController extends Controller
         return $this->paymentVerifier ??= new \App\Services\PaymentVerificationService();
     }
 
+/**
+ * P2-04-10. THE WORST OF THE THREE: AN ORDER WRITE WITH NO PERMISSION GATE.
+ *
+ * This validates its input, opens a transaction and INSERTS AN ORDER carrying `final_price` and
+ * `payment_status`. Nothing asked whether the principal may. DEMONSTRATED ON THE DATABASE rather
+ * than inferred -- driven with a staff member holding NO ROLE AT ALL, the orders table went from
+ * 0 rows to 1. Independent review reproduced it in an isolated checkout of HEAD. A status assertion could not have shown it: the handler redirects
+ * on success and on validation failure alike, so only the row count distinguishes them.
+ *
+ * The gate goes BEFORE the validator, so an unpermitted principal cannot use the validation
+ * messages to probe which customer and product ids exist in the store.
+ */
 public function store(Request $request)
 {
+    if (! $this->mayUseOrderScreen('Manage Order')) {
+        return redirect()->back()->with('error', __('Permission denied.'));
+    }
+
     $validator = \Validator::make($request->all(), [
         'customer_id' => 'required|exists:customers,id',
         'products' => 'required|array|min:1',
@@ -418,8 +434,27 @@ public function store(Request $request)
 }
 /////////
 
+    /**
+     * P2-04-10. NO PERMISSION GATE AT ALL, on a form that discloses the store's customer list.
+     *
+     * THE GATE WAS ABSENT, NOT MIS-NAMED, and independent review sharpened this: a staff user with
+     * NO ROLE AND NO PERMISSION AT ALL also got **200** (`roles held: []`). Any authenticated
+     * member of the tenant reached it; the permission a test fixture happens to hold is beside the
+     * point.
+     * The view it renders (`order/createOrder.blade.php`) lists every active Customer in the
+     * store as `first_name last_name (email)` -- so names AND email addresses
+     * (createOrder.blade.php:40) -- plus the whole catalogue with its PRICES (:99-101). Store-scoped, so not a cross-tenant leak; a disclosure to an employee the
+     * merchant never gave order access to, which is what this row is about.
+     *
+     * `Manage Order`, not the read-only `Show Order`: this is the manual order-entry form, and
+     * its POST counterpart creates an order.
+     */
     public function create(Request $request)
 {
+    if (! $this->mayUseOrderScreen('Manage Order')) {
+        return redirect()->back()->with('error', __('Permission denied.'));
+    }
+
     $preselectedCustomerId = $request->query('customer_id');
     $preselectedCustomer = null;
 
@@ -1846,9 +1881,37 @@ public function store(Request $request)
         ]);
     }
 
+    /**
+     * P2-04-10. THE PERMISSION WAS FROM THE WRONG DOMAIN, and that single word did three things.
+     *
+     * This view's only content is ORDERS -- `Order::where('store_id', getCurrentStore())` -- and
+     * it was gated on `isAbleTo('Manage Products')`. Measured, by driving it:
+     *
+     *   * a staff member holding `Manage Products` and NO order permission got **200** and read
+     *     every order in the store -- while being REFUSED the order list itself (`GET order` =
+     *     302), so the same principal could not open the list and could open a grid of the same
+     *     rows. Intra-tenant, not cross-tenant: `getCurrentStore()` reads the authenticated
+     *     user's own `current_store`, so the predicate is a real store scope. What breaks is
+     *     privilege separation INSIDE one store, and what it discloses is customer names and
+     *     mobile numbers;
+     *   * a staff member holding `Manage Order` got **302 "Permission denied."** -- for the
+     *     "Grid View" button that `resources/views/order/index.blade.php:18` renders for them,
+     *     inside a page they reached legitimately;
+     *   * the platform operator got **302** as well, because a bare `isAbleTo()` refuses them.
+     *     There is no super-admin bypass in this codebase; the rule is recorded three times over.
+     *
+     * `mayUseOrderScreen('Manage Order')` is `index()`'s own gate -- this view is an alternative
+     * presentation of the same list -- and it tests the operator first, through the one helper,
+     * rather than adding a fourth spelling of that decision.
+     *
+     * THE WRONG NAME WAS A COPY-PASTE: `ProductController.php:4373` carries the identical shape
+     * on a product surface, where `Manage Products` is the RIGHT name and the missing
+     * operator-first limb is still wrong. Named here so the next pass fixes the source and not
+     * only this copy.
+     */
     public function order_grid_view(Request $request)
     {
-        if(auth()->user() && auth()->user()->isAbleTo('Manage Products')) {
+        if ($this->mayUseOrderScreen('Manage Order')) {
             $orders = Order::where('store_id', getCurrentStore())->orderBy('created_at', 'desc')->paginate(16);
             
             return view('order.grid', compact('orders'));

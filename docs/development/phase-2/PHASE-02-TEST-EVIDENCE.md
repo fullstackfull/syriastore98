@@ -4449,3 +4449,79 @@ is exactly the failure a label-only assertion would have missed.
 - **Product and customer search were measured and left alone** — neither had a comparable
   accepted-set gap.
 - **MySQL remains unverified.** Everything above ran on SQLite `:memory:`.
+
+---
+
+# P2-04-10 — the census found what the enforcement had already lost (2026-10-28)
+
+| Suite | Result |
+|---|---|
+| `tests/Feature/Merchant/OrderActionPermissionCensusTest.php` (new) | **11 passed** |
+| `tests/Feature/Security/AdminApiOrderWritePermissionTest.php` | **9 passed** (7 + 2 new) |
+| Every suite the change touched, together | **354 passed, 2074 assertions** |
+| App `flutter test` | **1283 passed**, `analyze` 246 info / 0 warning / 0 error |
+
+Independent verification: **four reviewers, 0 of 4 refuted.** Two reproduced the order write in
+isolated checkouts of HEAD. Every correction they returned made a finding **worse**, not weaker.
+
+## The row's note was the whole reason it existed
+
+> "enforced in code today via `OrderPolicy` and `mayUseOrderScreen`, but no row asserted it"
+
+An unasserted control is one refactor away from an absent one. Here it had already happened — in
+four places, two of them money-bearing writes.
+
+## Four defects
+
+1. **The ORDER grid gated on the PRODUCT permission.** A `Manage Products` holder got 200 and read
+   every order **while being refused the order list itself (302)** — one principal who could not
+   open the list and could open a grid of its contents. A `Manage Order` holder was refused the
+   button the list renders for them. The operator was locked out by the bare `isAbleTo()`.
+   Intra-tenant: the store predicate is real, so what broke is privilege separation inside one
+   store. Copy-pasted from `ProductController:4373`, which still carries the shape.
+2. **`create()` ungated** — and *absent*, not mis-named: a user with `roles held: []` got 200. The
+   form lists every customer's email and every product's price.
+3. **`store()` ungated on a WRITE.** Orders 0 → 1, driven by a principal with no role. A status
+   assertion could not show it — the handler redirects either way.
+4. **`createOrderViaApi` ungated**, the same hole on the app's surface: 328 lines, two
+   order-creating calls, zero permission checks.
+
+## Three flaws in my own census, and the one that nearly hid the worst finding
+
+- **A substring matcher.** `str_contains($action, 'OrderController@')` also matches
+  `DeliverySyriaOrderController@`, so the first run reported a route belonging to another
+  controller. Compares the exact class now.
+- **Two vacuous rows.** `order_view` decrypts its id; `order_preview` demands a raw integer and
+  404s on anything else **before** its permission check. Passing a Crypt string to both made every
+  case on those rows 404 for every principal — "refused", "served" and "operator locked out" were
+  indistinguishable, and all three looked green. A premise test now fails if any censused URI
+  answers 404 for a permitted holder.
+- **A grep that assumed four-space indentation.** It reported `store()` absent, because `store()`
+  is declared at column 1. The most serious finding of the row was nearly lost to a flaw in the
+  tool rather than in the reasoning — which is the one failure mode a careful argument cannot
+  catch.
+
+## Nine existing tests went red across two rounds, and none was suppressed
+
+Five assert the **store predicate** does not refuse the owner; four assert the **stock** contract.
+All nine drive these endpoints with a fixture merchant holding **no Laratrust role at all**, so a
+permission gate failed them for an orthogonal reason and each would have stopped isolating what it
+was written for. Fixtures grant the gated permissions now, with the reason in every file.
+
+**The rule, restated because it came up twice in one day:** when a new gate turns an existing test
+red, read what that test was written to isolate before changing either side.
+
+## And a ratchet that red-flagged itself twice
+
+`SecurityLogInventoryTest` keys `docs/security/P01-OBSERVABILITY-INVENTORY.md` by `file:line`.
+Editing `OrderController` shifted **ten** log statements; correcting the prose shifted them again.
+The numbers are **derived** from each message's actual position now. Regenerating that inventory is
+the last step before committing any change to a file it indexes — not the first.
+
+## Limits
+
+- The census covers the **merchant** order surface. Storefront routes under `{storeSlug?}` are a
+  different principal and guard family (Phase 03) and are listed explicitly, not pattern-filtered,
+  so a new one must still be read by a person.
+- `ProductController:4373` carries the same bare-`isAbleTo()` shape and is **not** fixed here.
+- MySQL remains unverified.

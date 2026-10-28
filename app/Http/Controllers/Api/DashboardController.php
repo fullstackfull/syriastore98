@@ -6020,6 +6020,32 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('defult_currancy_sy
         }
 
         /*
+         * P2-04-10. AND THE PRINCIPAL MUST BE ALLOWED TO CREATE ORDERS, which nothing here asked.
+         *
+         * `resolveOwnedStore()` above is a TENANT control and it is sound. It was also the ONLY
+         * control: measured by grepping this method's whole body (328 lines, two order-creating
+         * calls), `isAbleTo`, `authorize`, `Gate::` and `MerchantPermissions` appeared ZERO times.
+         * So a staff member with no order permission created a real order, with a real
+         * `final_price` and `payment_status`, in their employer's store -- the same hole as the
+         * web's `OrderController::store()`, which this slice closed in the same pass.
+         *
+         * ROLL BACK FIRST, for the reason the block above documents: these early returns sit
+         * inside the transaction opened earlier and returning without rolling back leaves it open.
+         *
+         * `$store->id`, not `current_store`: this handler serves the store named by `?store_id=`,
+         * which `resolveOwnedStore()` admits anywhere in the caller's tenant, so the grant must be
+         * evaluated against the store whose rows are about to be written.
+         */
+        if (! MerchantPermissions::allowsAny(\Auth::user(), ['Manage Order'], $store->id)) {
+            \DB::rollBack();
+
+            return response()->json([
+                'status' => 'error',
+                'message' => __('You do not have permission to perform this action.'),
+            ], 403);
+        }
+
+        /*
          * AND THE CUSTOMER MUST BE THIS STORE'S. P01-COMMERCE-SEC-03 FOLLOW-UP, found by an
          * adversarial authz review of the commit that added the product predicate above.
          *

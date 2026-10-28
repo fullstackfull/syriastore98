@@ -162,6 +162,98 @@ class AdminApiOrderWritePermissionTest extends SecurityTestCase
             'the platform operator was refused an order write');
     }
 
+    /**
+     * THE API'S OWN MANUAL-ORDER-ENTRY HOLE, the same shape as the web's `OrderController::store()`
+     * and found by asking whether the app had a twin of it.
+     *
+     * `createOrderViaApi` (route `api/admin/createOrderViaApi`, called from the app's
+     * create-order flow) spans 328 lines, contains TWO order-creating calls, and — measured by
+     * grepping its whole body — **zero** permission checks of any kind. `resolveOwnedStore()`
+     * gives it a sound tenant boundary and nothing else, so a staff member with no order
+     * permission could create a real order, with a real `final_price` and `payment_status`, in
+     * their employer's store.
+     *
+     * ASSERTED ON THE DATABASE, not on the status code: the handler's failure modes overlap with
+     * its success modes closely enough that a status assertion could pass while the row landed.
+     */
+    public function test_the_api_order_create_is_refused_without_the_order_permission(): void
+    {
+        [$merchant, $store] = $this->tenant();
+        $staff = $this->staffIn($merchant, $store, 'Manage Product Category');
+
+        $before = Order::withoutGlobalScopes()->count();
+
+        $response = $this->withHeader(
+            'Authorization',
+            'Bearer ' . $staff->createToken('auth_token')->plainTextToken
+        )->postJson(
+            '/api/admin/createOrderViaApi?store_id=' . $store->id,
+            $this->validApiOrderPayload($store)
+        );
+
+        $this->assertSame($before, Order::withoutGlobalScopes()->count(),
+            'a principal with no order permission created an order through the API');
+
+        $this->assertNotSame(401, $response->getStatusCode(),
+            'a permission refusal answered 401, which logs the merchant out of the app');
+    }
+
+    /**
+     * THE COUNTERPART, and the reason the test above means anything: the SAME payload through a
+     * permitted principal must still create the order. Without this, a payload the handler simply
+     * rejects would satisfy the refusal test and prove nothing.
+     */
+    public function test_a_permitted_principal_can_still_create_an_order_through_the_api(): void
+    {
+        [$merchant, $store] = $this->tenant();
+        $this->grantPermission($merchant, 'Manage Order');
+        $merchant = User::find($merchant->id);
+
+        $before = Order::withoutGlobalScopes()->count();
+
+        $response = $this->withHeader(
+            'Authorization',
+            'Bearer ' . $merchant->createToken('auth_token')->plainTextToken
+        )->postJson(
+            '/api/admin/createOrderViaApi?store_id=' . $store->id,
+            $this->validApiOrderPayload($store)
+        );
+
+        $this->assertSame($before + 1, Order::withoutGlobalScopes()->count(),
+            'the gate refused a principal who holds Manage Order, which breaks order creation '
+            . 'from the app. Body: ' . substr((string) $response->getContent(), 0, 300));
+    }
+
+    /** @return array<string, mixed> */
+    private function validApiOrderPayload(Store $store): array
+    {
+        $product = \App\Models\Product::forceCreate([
+            'name' => 'apiorder', 'slug' => 'apiorder-' . uniqid(),
+            'price' => 10, 'sale_price' => 10, 'cost_price' => 4,
+            'product_stock' => 9, 'track_stock' => 1, 'variant_product' => 0,
+            'stock_status' => 'in_stock', 'status' => 1,
+            'store_id' => $store->id, 'created_by' => $store->created_by,
+        ]);
+
+        // `status, 1` is part of the customer rule, so an inactive customer would be rejected for
+        // the wrong reason.
+        $customer = \App\Models\Customer::forceCreate([
+            'first_name' => 'Api', 'last_name' => 'Buyer',
+            'email' => 'apiorder' . uniqid() . '@example.test',
+            'password' => bcrypt('x'), 'status' => 1, 'store_id' => $store->id,
+        ]);
+
+        return [
+            'customer_id' => $customer->id,
+            'products' => [['product_id' => $product->id, 'quantity' => 1, 'price' => 10]],
+            'payment_type' => 'cod',
+            'payment_status' => 'Unpaid',
+            'first_name' => 'Api', 'last_name' => 'Buyer',
+            'email' => 'apiorder@example.test', 'telephone' => '1',
+            'address' => 'x',
+        ];
+    }
+
     /** The tenant boundary is unchanged, and still refuses before the permission question. */
     public function test_another_tenant_still_cannot_touch_the_order(): void
     {

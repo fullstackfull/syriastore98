@@ -68,6 +68,19 @@ class AdminApiStockRefusalContractTest extends SecurityTestCase
 
     private function order($merchant, $store, Customer $customer, int $productId, $variantId, int $qty)
     {
+        // P2-04-10 CONSEQUENCE, recorded rather than silently absorbed.
+        //
+        // `createOrderViaApi` gained a permission gate on 2026-10-28: it previously had NO
+        // permission check at all (328 lines, two order-creating calls, zero checks), so an
+        // employee with no order permission created real orders in their employer's store. This
+        // suite's subject is the STOCK contract, not permissions, and a fixture merchant holds no
+        // Laratrust role -- so without this grant it would start failing for an orthogonal reason
+        // and stop isolating what it was written for. A REAL merchant is unaffected: the shared
+        // global `admin` role carries `Manage Order` and every merchant is given it for every
+        // store they create.
+        $this->grantPermission(\App\Models\User::find($merchant->id), 'Manage Order');
+        $merchant = \App\Models\User::find($merchant->id);
+
         return $this->withHeader('Authorization', 'Bearer ' . $merchant->createToken('auth_token')->plainTextToken)
             ->postJson('/api/admin/createOrderViaApi?store_id=' . $store->id, [
                 'customer_id' => $customer->id,
