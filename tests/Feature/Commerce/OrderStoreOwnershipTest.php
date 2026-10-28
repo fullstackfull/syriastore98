@@ -82,6 +82,15 @@ class OrderStoreOwnershipTest extends TestCase
             'products',
             'customers',
             'settings',
+            // P2-04-10: `store()` now asks whether the principal may create an order, through
+            // `mayUseOrderScreen('Manage Order')` -> Laratrust's `isAbleTo()`. So the Laratrust
+            // tables are tables "this writer actually touches", which is this suite's own stated
+            // rule for what it builds.
+            'permission_user',
+            'permission_role',
+            'role_user',
+            'permissions',
+            'roles',
             'users',
         ] as $table) {
             Schema::dropIfExists($table);
@@ -545,6 +554,33 @@ class OrderStoreOwnershipTest extends TestCase
             'updated_at' => now(),
         ]);
 
+        /*
+         * AND THE PERMISSION THE GATE NOW REQUIRES. A real merchant holds the shared global
+         * `admin` role, which `Utility::addNewData()` grants `Manage Order` among ~190 others;
+         * these four rows are the part of that this suite depends on. GRANTED RATHER THAN
+         * BYPASSED -- the alternative was to make this principal the platform operator, which
+         * short-circuits the gate before it queries anything -- so the suite keeps driving the
+         * realistic principal AND exercises the gate instead of stepping around it.
+         */
+        \Illuminate\Support\Facades\DB::table('roles')->insert([
+            'id' => 3, 'name' => 'admin', 'display_name' => 'admin', 'guard_name' => 'web',
+            'store_id' => null, 'created_by' => null,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        \Illuminate\Support\Facades\DB::table('permissions')->insert([
+            'id' => 4, 'name' => 'Manage Order', 'display_name' => 'Manage Order',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        \Illuminate\Support\Facades\DB::table('permission_role')->insert([
+            'permission_id' => 4, 'role_id' => 3,
+        ]);
+
+        \Illuminate\Support\Facades\DB::table('role_user')->insert([
+            'role_id' => 3, 'user_id' => 7, 'user_type' => \App\Models\User::class,
+        ]);
+
         Auth::login(User::withoutGlobalScopes()->find(7));
 
         $this->assertSame(
@@ -607,6 +643,15 @@ class OrderStoreOwnershipTest extends TestCase
             'products',
             'customers',
             'settings',
+            // P2-04-10: `store()` now asks whether the principal may create an order, through
+            // `mayUseOrderScreen('Manage Order')` -> Laratrust's `isAbleTo()`. So the Laratrust
+            // tables are tables "this writer actually touches", which is this suite's own stated
+            // rule for what it builds.
+            'permission_user',
+            'permission_role',
+            'role_user',
+            'permissions',
+            'roles',
             'users',
         ] as $table) {
             Schema::dropIfExists($table);
@@ -623,6 +668,63 @@ class OrderStoreOwnershipTest extends TestCase
             $table->unsignedBigInteger('created_by')->nullable();
             $table->rememberToken();
             $table->timestamps();
+        });
+
+        /*
+         * THE LARATRUST TABLES, because `OrderController::store()` now asks whether the principal
+         * may create an order.
+         *
+         * P2-04-10 gated that handler -- it previously inserted an order with no permission check
+         * at all, so a principal with no role created orders in their employer's store. The gate
+         * runs `mayUseOrderScreen('Manage Order')`, which tests the platform operator first and
+         * otherwise calls Laratrust's `isAbleTo()`. This suite's merchant is `type => 'company'`,
+         * so it is NOT the operator and the permission query runs.
+         *
+         * WITHOUT THESE TABLES THE WHOLE SUITE ERRORED -- ten tests, `no such table: permissions`,
+         * and ERRORS rather than failures, which the known-outcome gate holds at a zero baseline
+         * because a test that could not run is a worse thing than one whose assertion failed.
+         *
+         * Columns are those `2023_12_08_100022_laratrust_setup_tables.php` declares, plus the
+         * `store_id` / `created_by` that `2024_03_21_121945_add_module_coumns_in_roles_table.php`
+         * adds to `roles` -- the same rule the rest of this builder follows.
+         */
+        Schema::create('roles', function (Blueprint $table) {
+            $table->id();
+            $table->string('name');
+            $table->string('display_name')->nullable();
+            $table->string('description')->nullable();
+            $table->string('guard_name')->nullable();
+            $table->unsignedBigInteger('store_id')->nullable()->index();
+            $table->unsignedBigInteger('created_by')->nullable();
+            $table->timestamps();
+        });
+
+        Schema::create('permissions', function (Blueprint $table) {
+            $table->id();
+            $table->string('name');
+            $table->string('display_name')->nullable();
+            $table->string('description')->nullable();
+            $table->timestamps();
+        });
+
+        Schema::create('role_user', function (Blueprint $table) {
+            $table->unsignedBigInteger('role_id');
+            $table->unsignedBigInteger('user_id');
+            $table->string('user_type');
+            $table->primary(['user_id', 'role_id', 'user_type']);
+        });
+
+        Schema::create('permission_role', function (Blueprint $table) {
+            $table->unsignedBigInteger('permission_id');
+            $table->unsignedBigInteger('role_id');
+            $table->primary(['permission_id', 'role_id']);
+        });
+
+        Schema::create('permission_user', function (Blueprint $table) {
+            $table->unsignedBigInteger('permission_id');
+            $table->unsignedBigInteger('user_id');
+            $table->string('user_type');
+            $table->primary(['user_id', 'permission_id', 'user_type']);
         });
 
         Schema::create('settings', function (Blueprint $table) {

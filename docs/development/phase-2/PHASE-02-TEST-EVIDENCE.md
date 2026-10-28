@@ -4525,3 +4525,65 @@ the last step before committing any change to a file it indexes — not the firs
   so a new one must still be read by a person.
 - `ProductController:4373` carries the same bare-`isAbleTo()` shape and is **not** fixed here.
 - MySQL remains unverified.
+
+---
+
+# The full gate FAILED on 638d06c1, and what that says about how I verified it (2026-10-28)
+
+I pushed `638d06c1` describing it as verified. The full `--testsuite=Feature` run against it then
+came back **12 failed, 3 errored** — and ten of those twelve were mine.
+
+```
+Tests:    12 failed, 17 skipped, 6332 passed
+::error::ERRORED: Tests\Feature\Commerce\OrderStoreOwnershipTest::...
+::error::  SQLSTATE[HY000]: General error: 1 no such table: permissions
+::error::The suite has a zero-errors baseline and there is no manifest section for errors.
+```
+
+Ten failures, all in `tests/Feature/Commerce/OrderStoreOwnershipTest`, three of them **errors**
+rather than failures — which the gate holds at a zero baseline precisely because a test that could
+not run is a worse thing than one whose assertion failed.
+
+## The cause
+
+`tests/Feature/Commerce/*` **builds its own schema** and says why in its own docblock: `RefreshDatabase`
+runs the whole migration set, and `2024_05_16_054044_add_id_to_currency_table.php` cannot run on
+SQLite ("Cannot add a PRIMARY KEY column"), so the suite would die during migration before reaching
+an assertion. It therefore creates only "the tables ... the real migrations declare for the rows
+this writer actually touches".
+
+Gating `OrderController::store()` made that writer touch two more tables. `mayUseOrderScreen()`
+tests the platform operator first and otherwise calls Laratrust's `isAbleTo()`, and this suite's
+merchant is `type => 'company'` — not the operator — so the permission query ran against a schema
+that has no `permissions` table.
+
+## The process error, which is the part worth recording
+
+I ran "every suite the change touches" and reported 354 passing, then a 4414-test regression across
+`tests/Feature/{Security,Merchant,Platform}`. Both were clean. **Neither included
+`tests/Feature/Commerce`.**
+
+I chose that set from the suites I already knew about — the ones that had gone red earlier in the
+day — rather than from what the changed code is *driven by*. `OrderController::store()` has a
+dedicated suite in a directory I never looked at. The subset looked thorough because it was large,
+not because it was derived.
+
+**The rule:** before claiming a change is verified, derive the suite set from the symbol, not from
+memory. `grep -rl "OrderController\|store()" tests/` would have found it in one command. A 4414-test
+run that omits the one suite dedicated to the handler you changed is not evidence about that
+handler.
+
+The claim in `638d06c1`'s message and in the P2-04-10 ledger row that the change was verified was
+therefore wrong when written. It is corrected here rather than quietly amended.
+
+## The fix
+
+The Laratrust tables are now part of what that suite builds — which is its own stated rule, since
+the writer now touches them — and the merchant is **granted** `Manage Order` rather than being made
+the platform operator. Making it the operator would have short-circuited the gate before it queried
+anything: the suite would pass while no longer exercising the thing that broke it.
+
+| Suite | Result |
+|---|---|
+| `tests/Feature/Commerce/OrderStoreOwnershipTest` | **11 passed, 62 assertions** |
+| `tests/Feature/Commerce` (whole directory, 43 files) | **662 passed, 7 skipped, 0 failed** |

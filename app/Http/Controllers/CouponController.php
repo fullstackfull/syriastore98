@@ -115,11 +115,79 @@ class CouponController extends Controller
         }
     }
 
+
+    /**
+     * Whether this coupon belongs to a store other than the caller's.
+     *
+     * CROSS-TENANT COUPON ACCESS, one half of it destructive. `App\Models\Coupon` uses
+     * `HasFactory, Cachable` and NOTHING ELSE (Coupon.php:11): no `BelongsToStore`, and it is not
+     * in `config/tenancy.php`'s `scoped_models` — so it adds **no** global predicate for any
+     * principal, and the open-tenant rule does not even come into it. These four handlers take a
+     * route-model-bound `Coupon $coupon` resolved from a bare id and compared it with nothing.
+     *
+     * MEASURED by driving a store-A merchant holding the coupon permissions at a store-B coupon:
+     *
+     *   GET    coupon/{id}/edit  -> 200            another store's code and discount terms
+     *   GET    coupon/{id}       -> 200            another store's redemption list
+     *   DELETE coupon/{id}       -> 302, ROW GONE  a store-A merchant DELETED a store-B coupon
+     *
+     * The delete was confirmed against the database rather than against a status code, because
+     * both outcomes are 302.
+     *
+     * NOT an "any authenticated user" hole: a staff member with no permission got 404, so the
+     * boundary that was missing is the one BETWEEN MERCHANTS. An independent sweep claimed the
+     * wider shape; driving it narrowed the claim.
+     *
+     * THE CODEBASE ALREADY KNEW THIS SHAPE. `ImportMappingOwnershipTest:23` records F1 as
+     * "`WoocomCouponController::edit` ... never compared the coupon with the caller's store (Coupon
+     * carries no [scope])" — the same defect, found and fixed in the WOOCOMMERCE import controller
+     * and left standing in this one.
+     *
+     * The predicate is `CategoryController::categoryIsOutsideCurrentStore()` verbatim, including
+     * its exact-case operator test and its reason: it FAILS SAFE, so a hypothetical `'Super Admin'`
+     * row is treated as a merchant and refused rather than exempted.
+     */
+    private function couponIsOutsideCurrentStore($coupon): bool
+    {
+        $actor = auth()->user();
+
+        if ($actor !== null && $actor->type === \App\Policies\UserPolicy::PLATFORM_ADMIN) {
+            return false;
+        }
+
+        $currentStore = getCurrentStore();
+
+        return empty($coupon)
+            || empty($currentStore)
+            || empty($coupon->store_id)
+            || (int) $coupon->store_id !== (int) $currentStore;
+    }
+
+    /** The refusal, logged once and worded identically wherever it fires. */
+    private function refuseForeignCoupon($coupon, string $action)
+    {
+        \Illuminate\Support\Facades\Log::warning(
+            'coupon ' . $action . ' refused: the coupon belongs to another store',
+            [
+                'coupon_id' => $coupon->id ?? null,
+                'coupon_store_id' => $coupon->store_id ?? null,
+                'current_store' => getCurrentStore(),
+                'user_id' => optional(auth()->user())->id,
+            ]
+        );
+
+        return redirect()->back()->with('error', __('Permission denied.'));
+    }
+
     /**
      * Display the specified resource.
      */
     public function show(UserCouponDataTable $dataTable, Coupon $coupon)
     {
+        if ($this->couponIsOutsideCurrentStore($coupon)) {
+            return $this->refuseForeignCoupon($coupon, 'view');
+        }
+
         if (auth()->user() && auth()->user()->isAbleTo('Create Coupon')) {
             // Set the Coupon ID for filtering
             $dataTable->setCouponId($coupon->id);
@@ -134,6 +202,10 @@ class CouponController extends Controller
      */
     public function edit(Coupon $coupon)
     {
+        if ($this->couponIsOutsideCurrentStore($coupon)) {
+            return $this->refuseForeignCoupon($coupon, 'edit');
+        }
+
         $product = Product::where('store_id', getCurrentStore())->pluck('name', 'id')->toArray();
         $category = Category::where('store_id', getCurrentStore())->pluck('name', 'id')->toArray();
         $applied_product = explode(',', $coupon->applied_product);
@@ -149,6 +221,15 @@ class CouponController extends Controller
      */
     public function update(Request $request, Coupon $coupon)
     {
+        /*
+         * ABOVE THE VALIDATOR, deliberately and for two reasons. A cross-store attempt must not be
+         * distinguishable from a refusal by which error comes back; and the spend validation below
+         * answers before any permission or ownership test, so an ungated caller could otherwise
+         * probe this handler's rules against a coupon they cannot see.
+         */
+        if ($this->couponIsOutsideCurrentStore($coupon)) {
+            return $this->refuseForeignCoupon($coupon, 'update');
+        }
 
         if ($request->coupon_type !== 'percentage' && isset($request->minimum_spend)) {
             $discountAmount = $request->discount_amount;
@@ -228,6 +309,11 @@ class CouponController extends Controller
      */
     public function destroy(Coupon $coupon)
     {
+        // Above the delete and above the two connection-table deletes it cascades into.
+        if ($this->couponIsOutsideCurrentStore($coupon)) {
+            return $this->refuseForeignCoupon($coupon, 'delete');
+        }
+
         if (auth()->user() && auth()->user()->isAbleTo('Delete Coupon')) {
             WoocommerceConection::where('module', 'coupon')->where('original_id', $coupon->id)->delete();
 
