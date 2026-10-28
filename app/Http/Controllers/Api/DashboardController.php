@@ -70,6 +70,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Log;
 
 use App\Models\StoreNotification;
+use App\Services\MerchantPermissions;
 
 
 
@@ -700,6 +701,47 @@ public function noti(Request $request)
             $user = Auth::user();
 
             $user = User::find($user->id);
+
+            // ACCOUNT STATE, which this door did not check at all.
+            //
+            // The WEB login refuses both of these (AuthenticatedSessionController:68-74): an
+            // inactive account, and a login disabled either on the user or on the owner whose
+            // tenant they belong to. The API login validated the email, called Auth::attempt and
+            // issued a token -- so a merchant who disabled an employee in the web UI found that
+            // the employee could still sign into the Flutter app, with a token that never
+            // expires. This change makes that worse if left alone, because the employee would now
+            // also be handed a permission list.
+            //
+            // The refusal keeps `error()`'s DEFAULT shape -- HTTP 200 with `status: 0` -- rather
+            // than introducing a status code on a path every client calls. A 401 here would be
+            // actively wrong: the shipped app force-clears its session on any 401, and this is a
+            // login, so the only thing that would change is which message it shows.
+            // MIRRORED FROM THE WEB CHECK RATHER THAN REINVENTED, including the part that is easy
+            // to get wrong: the web EXEMPTS `super admin` from both switches
+            // (`&& $user->type != 'super admin'`). A first draft of this guard omitted that and
+            // would have locked the platform operator out of the API the moment either column read
+            // 0 on their row. The owner's switch has no such exemption in the web check and gets
+            // none here either -- disabling a merchant disables their staff with them.
+            //
+            // `== 0` not `=== 0`: `users.is_active` is a STRING column with default '1'
+            // (2014_10_12_000000_create_users_table.php:39), so a strict integer comparison would
+            // never match a de-activated account. `is_enable_login` is an integer
+            // (2024_03_15_055922, default 1). Matching the web's loose comparison is what makes
+            // the two doors agree.
+            $isOperator = \App\Policies\UserPolicy::isOperator($user);
+            $owner = $user->created_by ? User::find($user->created_by) : null;
+
+            $refused = (! $isOperator && $user->is_active == 0)
+                || (! $isOperator && $user->is_enable_login == 0)
+                || ($owner && $owner->is_enable_login == 0);
+
+            if ($refused) {
+                Auth::logout();
+
+                return $this->error([
+                    'message' => __('Your Account is disable,please contact your Administrator.'),
+                ]);
+            }
         } else {
             return $this->error(['message' => __('Invalid login details')]);
         }
@@ -712,6 +754,18 @@ public function noti(Request $request)
         $user_array['image'] = !empty($user_data->profile_image) ? $user_data->profile_image : "themes/style/uploads/require/user.png";
         $user_array['mobile'] = $user_data->mobile;
         $user_array['current_store'] = $user_data->current_store;
+
+        // P2-07-13 / WS K13. ADDITIVE, and that is a requirement rather than a preference: every
+        // field above is read by the shipped Flutter app and by Lynomia Chat, so none is removed,
+        // renamed or retyped here. A client that does not know these two keys ignores them.
+        //
+        // Before this, `adminlogin` told the app nothing about what the employee may do, which is
+        // the structural reason the app had no permission model at all and showed every screen to
+        // everyone. The list is resolved against the store the principal is actually in --
+        // see App\Services\MerchantPermissions for why `allPermissions()` could not be used as-is
+        // -- and the operator gets the wildcard, because isAbleTo() refuses them.
+        $user_array['user_type'] = $user_data->type;
+        $user_array['permissions'] = MerchantPermissions::names($user_data, $user_data->current_store);
 
         $user->tokens()->delete();
         $token = $user->createToken('auth_token')->plainTextToken;
@@ -790,7 +844,36 @@ public function logouto(Request $request)
 
         $currentstore = $user->current_store;
 
+        // P2-07-13 / WS K13. Resolved ONCE, against the CURRENT store, and used for BOTH halves:
+        // what the app is told it may do, and what this handler actually serves. Reporting without
+        // enforcing would be a hidden button, not a control -- before this change `isAbleTo`
+        // appeared nowhere in this controller and `routes/api.php` declared no permission
+        // middleware on any of its 127 admin routes, so a staff token reached every figure here.
+        //
+        // Reported on the dashboard as well as at login BECAUSE PERMISSIONS ARE PER STORE: the app
+        // calls this endpoint after a store switch, and a list handed out once at login could not
+        // express the change.
+        // ONCE means once. An earlier version of these four lines called names() FOUR times --
+        // directly, and again inside each allows()/allowsAny() -- at two queries apiece, while
+        // this comment claimed otherwise. held() answers from the list already resolved.
+        $permissions = MerchantPermissions::names($user, $currentstore);
+        $mayReadOrders = MerchantPermissions::held($permissions, ['Manage Order', 'Show Order']);
+        $mayReadProducts = MerchantPermissions::held($permissions, ['Manage Products']);
+        // `Show Coupon` is a real granted name, so a "view coupons, do not edit" role keeps the
+        // dashboard's coupon block -- the same view-or-manage pair the order gate above uses.
+        $mayReadCoupons = MerchantPermissions::held($permissions, ['Manage Coupon', 'Show Coupon']);
+        // Store traffic is business data too. The web gates its dashboard on `Manage Dashboard`
+        // and carries a `Manage Store Analytics` permission; without this the endpoint that
+        // withholds everything else still handed a zero-permission staff token 15 days of
+        // pageviews and unique-visitor counts.
+        $mayReadAnalytics = MerchantPermissions::held(
+            $permissions,
+            ['Manage Store Analytics', 'Manage Dashboard']
+        );
+
         $DashboardData = [];
+        $DashboardData['permissions'] = $permissions;
+        $DashboardData['user_type'] = $user->type;
         //user info
         $users = [];
         $userdata = User::find($user->id);
@@ -829,27 +912,45 @@ public function logouto(Request $request)
 
         $DashboardData['qr-code'] = $statics;
 
-        //product
-        $TotalProducts = Product::where('store_id', $store->id)->count();
-        $TotalSales = Order::where('store_id', $store->id)->where('delivered_status', 1)->count();
-        $TotalOrder = Order::where('store_id', $store->id)->count();
+        // The `if ($store)` guard above was added because a user whose current_store no longer
+        // exists produced a 500 -- but only the qr-code block was guarded, and every query below
+        // still dereferenced $store->id unconditionally, so the 500 simply moved four lines down.
+        // Measured: test_a_dashboard_for_a_missing_store_does_not_500.
+        if (! $store) {
+            return $this->error(
+                ['message' => __('Store not found!')],
+                __('fail'),
+                404
+            );
+        }
 
-        $DashboardData['products'] = $TotalProducts;
-        $DashboardData['sales'] = $TotalSales;
-        $DashboardData['order'] = $TotalOrder;
+        //product
+        // P2-07-13. A figure the principal may not see is OMITTED, not zeroed. A withheld count
+        // served as 0 is wrong information rather than withheld information, and the app renders
+        // `?? "0"`, so a zero here would have read as "this store has no orders". The companion
+        // Flutter change reads `permissions` and shows the tile as not-permitted instead.
+        if ($mayReadProducts) {
+            $DashboardData['products'] = Product::where('store_id', $store->id)->count();
+        }
+
+        if ($mayReadOrders) {
+            $DashboardData['sales'] = Order::where('store_id', $store->id)->where('delivered_status', 1)->count();
+            $DashboardData['order'] = Order::where('store_id', $store->id)->count();
+        }
 
         //top products
-        $topproducts = [];
-        $Products = Product::orderBy('created_at', 'Desc')->where('store_id', $store->id)->where('variant_product', 0)->limit('2')->get();
-        if (!empty($Products)) {
-            $DashboardData['product'] = $Products;
-        } else {
-            return $this->error(['message' => __('Product Data not found!')]);
+        // Withheld wholesale rather than field by field: these are full Product models, and they
+        // carry cost_price -- the store's margin, not just its catalogue.
+        if ($mayReadProducts) {
+            $DashboardData['product'] = Product::orderBy('created_at', 'Desc')->where('store_id', $store->id)->where('variant_product', 0)->limit('2')->get();
         }
         //recent order
+        // `final_price` is money. Withheld from a principal who may not read orders.
         $recentOrder = [];
-        $orders = Order::orderBy('id', 'DESC')->where('store_id', $store->id)->limit(4)->get();
-        if (!empty($orders)) {
+        $orders = $mayReadOrders
+            ? Order::orderBy('id', 'DESC')->where('store_id', $store->id)->limit(4)->get()
+            : collect();
+        if ($mayReadOrders) {
             foreach ($orders as $key => $value) {
                 $recentOrder[$key]['id'] = $value->id;
                 $recentOrder[$key]['product_order_id'] = $value->product_order_id;
@@ -860,14 +961,15 @@ public function logouto(Request $request)
                 $recentOrder[$key]['currency'] = Utility::GetValByName('CURRENCY_NAME', $store->id);
             }
             $DashboardData['recent_order'] = $recentOrder;
-        } else {
-            return $this->error(['message' => __('Order Data not found!')]);
         }
 
         //coupons
+        // `discount_amount` is money. Withheld from a principal who may not read coupons.
         $recentcoupon = [];
-        $coupons = Coupon::orderBy('id', 'DESC')->where('store_id', $store->id)->limit(3)->get();
-        if (!empty($coupons)) {
+        $coupons = $mayReadCoupons
+            ? Coupon::orderBy('id', 'DESC')->where('store_id', $store->id)->limit(3)->get()
+            : collect();
+        if ($mayReadCoupons) {
             foreach ($coupons as $key => $value) {
 
                 $recentcoupon[$key]['id'] = $value->id;
@@ -898,7 +1000,9 @@ public function logouto(Request $request)
         $i = 0;
         $arrTask[$i]['date'] = [];
         $arrTask[$i]['order'] = [];
-        foreach ($arrDuration as $date => $label) {
+        // Not merely discarded below -- not RUN. Seven order COUNT queries for a principal who
+        // may not read orders is work done to throw away.
+        foreach ($mayReadOrders ? $arrDuration : [] as $date => $label) {
             $data = Order::select(\DB::raw('count(*) as total'))->where('store_id', $store->id)->whereDate('created_at', '=', $date)->first();
 
 
@@ -907,7 +1011,9 @@ public function logouto(Request $request)
             $i++;
         }
 
-        $DashboardData['orderchart'] = $arrTask;
+        if ($mayReadOrders) {
+            $DashboardData['orderchart'] = $arrTask;
+        }
 
         //visitor chart
         $visistorchart = [];
@@ -928,7 +1034,8 @@ public function logouto(Request $request)
         $arrTask[$i]['date'] = [];
         $arrTask[$i]['pageview']  = [];
 
-        foreach ($arrDuration as $date => $label) {
+        // Thirty queries over shetabit_visits, not run for a principal who may not read them.
+        foreach ($mayReadAnalytics ? $arrDuration : [] as $date => $label) {
             $data['visitor'] = \DB::table('shetabit_visits')->select(\DB::raw('count(*) as total'))->where('store_id', $store->id)->whereDate('created_at', '=', $date)->first();
             $uniq            = \DB::table('shetabit_visits')->select('ip')->distinct()->where('store_id', $store->id)->whereDate('created_at', '=', $date)->get();
 
@@ -939,7 +1046,9 @@ public function logouto(Request $request)
             $i++;
         }
 
-        $DashboardData['visitorchart'] = $arrTask;
+        if ($mayReadAnalytics) {
+            $DashboardData['visitorchart'] = $arrTask;
+        }
 
         return $this->success($DashboardData);
     }
@@ -967,6 +1076,12 @@ public function ProductList(Request $request)
         return $this->storeAccessDenied();
     }
 
+        // Serves `cost_price` explicitly below -- the store's margin, not just its catalogue.
+        if ($refusal = $this->refuseWithoutPermission(['Manage Products'], $store->id)) {
+            return $refusal;
+        }
+
+
     $Products = Product::where('store_id', $store->id)
         ->where('product_type', null)
         ->with('ProductData:id,name')
@@ -990,7 +1105,27 @@ public function ProductList(Request $request)
             return number_format((float) ($value ?? 0), 2, '.', '');
         };
 
-        $Products->getCollection()->transform(function ($product) use ($store, $formatNumber) {
+        // P2-07-10. ADDITIVE, and the app needs it to agree with the web about one word.
+    //
+    // THE WEB DOES NOT TRUST `products.stock_status` FOR A TRACKED PRODUCT. It reads that column
+    // only when `track_stock == 0`; otherwise it derives the badge from the live quantity --
+    // `$product->product_stock <= $settings['out_of_stock_threshold'] ? 'Out of stock' : 'In
+    // stock'` (resources/views/product/list.blade.php:115-129). That is not a style difference: a
+    // measured fact about this schema is that `products.stock_status` is written ONLY from
+    // merchant input at create and update (`ProductController:701`, `:1744`, and the API's own
+    // :2503/:2647) and is NEVER recomputed when stock drains through an order. So for a tracked
+    // product it goes stale with the first shipment -- a product created "in_stock" and sold down
+    // to zero still carries `in_stock` in the column.
+    //
+    // The app read that column unconditionally, so it told a merchant a sold-out product was In
+    // stock while the web told them it was Out of stock. The app can now apply the web's rule, and
+    // this is the one input it was missing: the threshold is a per-store SETTING, not a constant,
+    // so hardcoding 0 client-side would be right only for stores that never changed it.
+    $outOfStockThreshold = (int) (
+        getAdminAllSetting(null, $store->id)['out_of_stock_threshold'] ?? 0
+    );
+
+    $Products->getCollection()->transform(function ($product) use ($store, $formatNumber) {
             $product->category = $product->ProductData;
             unset($product->ProductData);
 
@@ -1026,6 +1161,9 @@ public function ProductList(Request $request)
                 'total' => $Products->total(),
                 'currency_code' => $currencyCode,      // ✅ إضافة مفيدة: إرجاع كود العملة أيضاً
                 'currency_symbol' => $currencySymbol,  // ✅ الرمز الصحيح والديناميكي
+                // P2-07-10, additive: the per-store threshold the WEB compares `product_stock`
+                // against for a tracked product. See the note above the transform.
+                'out_of_stock_threshold' => $outOfStockThreshold,
             ]
         ], 200);
 
@@ -1039,6 +1177,12 @@ public function VariantList(Request $request)
         if (empty($store)) {
         return $this->storeAccessDenied();
     }
+
+        // Variant rows carry their own prices and stock.
+        if ($refusal = $this->refuseWithoutPermission(['Manage Products'], $store->id)) {
+            return $refusal;
+        }
+
 
         $ProductVariant = ProductVariant::where('store_id', $store->id)->OrderBy('id', 'desc')->paginate(10);
 
@@ -1069,6 +1213,11 @@ public function OrderList(Request $request)
     if (!$store) {
         return $this->storeAccessDenied();
     }
+    // `final_price` is set on every row of the paginator below.
+    if ($refusal = $this->refuseWithoutPermission(['Manage Order', 'Show Order'], $store->id)) {
+        return $refusal;
+    }
+
 
     $query = Order::where('store_id', $store->id);
 
@@ -1170,6 +1319,12 @@ public function OrderList(Request $request)
         if (empty($store)) {
         return $this->storeAccessDenied();
     }
+
+        // Returns full Coupon models, `discount_amount` among them.
+        if ($refusal = $this->refuseWithoutPermission(['Manage Coupon', 'Show Coupon'], $store->id)) {
+            return $refusal;
+        }
+
 
         $coupons = Coupon::where('store_id', $store->id)->OrderBy('id', 'desc')->paginate(10);
 
@@ -3050,6 +3205,11 @@ public function DeleteReview($id)
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
         }
+        // The dashboard's analytics twin -- the full set, where `visitorchart` is a slice.
+        if ($refusal = $this->refuseWithoutPermission(['Manage Store Analytics', 'Manage Dashboard'], $store->id)) {
+            return $refusal;
+        }
+
 
         $DashboardData = [];
 
@@ -4139,6 +4299,37 @@ public function DeleteReview($id)
     /**
      * The 403 denial used for every tenancy failure in this controller.
      */
+    /**
+     * P2-07-13. The permission gate for a list endpoint, placed AFTER the store has resolved.
+     *
+     * WHY A HELPER AND NOT THE SAME TREATMENT THE DASHBOARD GOT. `/dashboard` is the app's HOME
+     * SCREEN: refusing it outright would blank the first thing a merchant sees, so it withholds
+     * fields and still answers 200. These are list endpoints backing one screen each, and the
+     * shipped app already maps 403 to "authorized but not permitted" with the session INTACT
+     * (`lib/network/network.dart`: "Deliberately NOT a forced logout") -- so refusing is both
+     * correct and already handled. 401 is never used: the app force-clears its session on any 401.
+     *
+     * THE STORE IS PASSED EXPLICITLY, and that is the whole point of the parameter being required.
+     * These handlers key their rows on `resolveOwnedStore($request->store_id)`, which admits any
+     * store in the caller's tenant by design -- so the grant must be evaluated against THAT store,
+     * not against `users.current_store`. Defaulting would let an employee permitted in store A
+     * read store B.
+     *
+     * @param  list<string>  $permissions  any one of which suffices
+     */
+    private function refuseWithoutPermission(array $permissions, $storeId)
+    {
+        if (MerchantPermissions::allowsAny(\Auth::user(), $permissions, $storeId)) {
+            return null;
+        }
+
+        return $this->error(
+            ['message' => __('You do not have permission to perform this action.')],
+            __('Forbidden.'),
+            403
+        );
+    }
+
     private function storeAccessDenied()
     {
         return $this->error(
@@ -6410,6 +6601,11 @@ public function Top_orders(Request $request)
                 'message' => 'fail',
                 'data' => ['message' => 'You do not have permission to access this store.']
             ], 403);
+        }
+        // The five largest orders BY `final_price`. This is the endpoint that made gating the
+        // dashboard alone pointless: it served the same money to the same token, one route over.
+        if ($refusal = $this->refuseWithoutPermission(['Manage Order', 'Show Order'], $store->id)) {
+            return $refusal;
         }
 
         // ✅ 1. جلب كود العملة الحالية الفعلي من الإعدادات (مثال: 'USD', 'SYP')

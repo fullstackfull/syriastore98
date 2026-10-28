@@ -516,13 +516,24 @@ anywhere else the host sets its own background.
    is worth trusting was measured there.
 3. **Do not re-litigate the settled holds.** P2-06-1's RTL duplication was the preview harness,
    measured eight ways in the real application. B2 is cleared. F8 and F9 are resolved.
-4. **Resume at P2-05-5 (staff and permissions).** P2-05-4 closed on 2026-10-27; P2-05-1 through
+4. **Resume at P2-07-10 (products and inventory visibility in the app).** As of 2026-10-28,
+   **P2-07-8, P2-07-9, P2-07-13 and P2-07-14 are DONE** and **P2-07-15 is PARTIAL** (the
+   account-state half landed; token lifetime and the absent refresh path still need an owner
+   decision). The remaining Flutter rows are **P2-07-10, P2-07-11, P2-07-12**, then the
+   outstanding P2-01/P2-03/P2-04 work, the remaining P2-06 contextual guidance, and **P2-08
+   last**. Two measurements already taken for P2-07-10, so they need not be repeated: the app's
+   product list **already shows stock and stock status** (`products_screen.dart:665-666`), so the
+   row is narrower than it reads; and `product_widget.dart:75` renders `stock: -` for **every
+   variant product**, because the list API returns the parent's `product_stock` and the real
+   quantities live in `product_variants` rows it does not send. That is the actual gap, and it is
+   an API-shape question, not a widget question.
+5. **Resume at P2-05-5 (staff and permissions).** P2-05-4 closed on 2026-10-27; P2-05-1 through
    P2-05-4 are DONE. The remaining order the owner set is **P2-05-5 → P2-05-8, then P2-06,
    P2-07 (Flutter), the rest of P2-01/P2-03/P2-04, and P2-08 last**. D-21 is delivered; **D-13
    remains NOT DONE with `$plan` suspended**, D-20 stays **PARTIAL**, and **D-22/F121** (a deleted
    product or variant 500s a payment return, with `PayUPaymentController:507` a known site) has
    not been started.
-5. **F20 is the one sweep worth proposing to the owner.** `Utility::dateFormat(null)` renders the
+6. **F20 is the one sweep worth proposing to the owner.** `Utility::dateFormat(null)` renders the
    Unix epoch at 64 call sites, 28 of them vendored, and F22 says the same helper also prints
    English month names inside the Arabic admin. One line inside it fixes both — and changes output
    on screens across seventy modules, which is why it is a proposal and not a commit.
@@ -610,3 +621,41 @@ it is not one; chasing the named test is wasted effort. Run them one at a time.
 - Green CI is necessary evidence, not proof of production readiness. The Feature suite's accepted
   failures and skips are declared in `.github/known-test-outcomes.json`; the gate asserts that set
   in both directions.
+
+---
+
+## 4n. A security fix scoped to the SCREEN instead of to the DATA closes nothing
+
+P2-07-13 gated `/dashboard`: it stopped serving order counts, `final_price`, `discount_amount` and
+`cost_price` to a staff member without the matching permission. Eleven tests, every one of them
+bitten by reverting the thing it named. The slice looked finished.
+
+Independent review then read the rest of the controller. **Four sibling handlers served the same
+three money fields to the same token** — `Top_orders` (the dashboard's own widget, orders ranked
+*by* `final_price`), `orderlist`, `productlist`, `couponlist` — each guarded by
+`resolveOwnedStore()` and nothing else. That is a *tenant* control, and it admits any store in the
+caller's tenant by design. So the staff member who could no longer read order money on the
+dashboard read it by asking a different route, and `routes/api.php` declares no permission
+middleware anywhere to catch them.
+
+The slice was worse than incomplete. It also began **telling the client a permission list**, so an
+app that hid the orders tile would have presented a UI stating that staff cannot see order money
+while `Top_orders` handed it over on request. A visible control over an absent one.
+
+**The rule this leaves:** when gating a field, grep for the field, not for the screen. `final_price`
+appears in five handlers in one file; `cost_price` in two. The question is never "is this screen
+protected" but "is this *datum* reachable", and the answer is a search over the column name across
+every route the client can call. The same reasoning applied to analytics found `visitorchart` and
+its twin `staticsdata` still serving 15 days of store traffic to a zero-permission token.
+
+Two further things the same review found, both of which generalise:
+
+- **An optional parameter with a plausible default is a trap with a delay on it.**
+  `MerchantPermissions::names($user, $storeId = null)` defaulted to `users.current_store`. Correct
+  in `dashboard()`, which also keys its data on `current_store` — and wrong in every other handler
+  in the file, which keys its data on `?store_id=`. The defect would have arrived by *omission*,
+  the first time someone added a gate without passing the store. The parameter is required now.
+  A default that is right for the first caller and wrong for the next is not a convenience.
+- **An appended attribute makes a string assertion lie.** `assertStringContainsString('final_price')`
+  passed because `final_price` is in `Product::$appends`, so it appeared in the top-products block
+  whether or not the `recent_order` block was served. Assert the **key**, in the block you mean.

@@ -4177,3 +4177,193 @@ it. The resolver is correct, the component is correct, the save paths are correc
 defects were in a send handler the slice touched in passing, in three validators it did not
 touch, and in a data provider that silently defined what "covered" meant. A review that only read
 the lines that changed would have found none of them.
+
+---
+
+# P2-07-13 + P2-07-9 — employee permissions and figure honesty (2026-10-28)
+
+## What was executed
+
+| Suite | Result |
+|---|---|
+| Laravel `tests/Feature/Security/AdminApiPermissionExposureTest.php` (new) | **22 passed, 74 assertions**, 0 skipped |
+| Laravel `tests/Feature/Security/AdminApiListPermissionTest.php` (new) | **7 passed**, 0 skipped |
+| Laravel `tests/Feature/Merchant/ApiDashboardFigurePeriodTest.php` (new) | **4 passed, 9 assertions** |
+| Laravel `--testsuite=Unit` | **520 passed, 2470 assertions** |
+| Laravel `tests/Feature/Security` + `tests/Feature/Tenancy` | **4498 passed, 10 skipped, 0 failed** (576s) |
+| Laravel `--testsuite=Contract` | **26 passed, 83 assertions** — unchanged, which is the point |
+| App `test/security/` (3 new files, 24 new tests) | **132 passed** |
+| App `test/contract/permission_gated_endpoints_test.dart` (new) | **4 passed** |
+| App `test/ui/dashboard_figure_honesty_test.dart` (new) | **7 passed** |
+| App `test/security/refusal_reads_as_refusal_test.dart` (new) | **3 passed** |
+| App full `flutter test` | **1269 passed** (1231 before) |
+| App `flutter analyze` | **246 info, 0 warning, 0 error** — exactly the recorded baseline |
+
+The full `--testsuite=Feature` run against `.github/known-test-outcomes.json` is recorded with the
+commit; the partial suites above are **not** evidence for it, and are not offered as such.
+
+`flutter analyze` is worth a line of its own. It read **248** after the first version of the tile,
+and the two extra were **warnings** — `title!` and `subTitle!` dereferenced a second time inside an
+expression that had already promoted them, which the analyser reports because the `!` is dead code.
+The project's baseline is 0 warnings, so a count that merely "looks close" is not the same as being
+clean; removing them returned it to 246 exactly.
+
+## Eighteen guards, each bitten by reverting it
+
+A test that passes is not evidence the thing it names is doing any work. Each of these was removed
+or inverted and the matching test confirmed red, then restored.
+
+| Reverted | Test that went red |
+|---|---|
+| the operator-first branch | `the operator is not reported as having no permissions` |
+| the per-store arm of the role predicate | `an employee of another store holds nothing here`, `the permission list follows a store switch` |
+| the null-store arm | `a merchant keeps their permissions in every store` |
+| the `instanceof App\Models\User` guard | `a non user principal resolves to nothing rather than fatally` |
+| `permissions` on the login payload | `the login payload reports the permissions`, `a limited employee gets only their own permissions` |
+| the three money gates (forced to `true`) | `money is withheld without the order permission`, `a withheld figure is absent rather than zero` |
+| the `! $store` guard | `a dashboard for a missing store does not 500` |
+| the em dash (back to `total`) | `shows a dash, never a zero, when it was withheld` |
+| the spoken reason | `tells a screen reader why the figure is a dash` |
+| `mayOffer`'s fail-open | `an uninformed client offers every entry` |
+| the store-switch clear | `a store switch replaces the previous store permissions`, `nothing is held while the new store is still loading` |
+| the five list-endpoint gates (forced to `true`) | `every gated route refuses a staff member without its permission` |
+| the gate's store (switched to `current_store`) | `a permission in one store does not unlock another` |
+| `Show Coupon` from the coupon gate | `show coupon is enough for the coupon block` |
+| the analytics gate | `store traffic is withheld without the analytics permission` |
+| the account-state refusal | `a deactivated user cannot log in to the api`, `an employee of a disabled owner cannot log in` |
+| the `super admin` exemption | `the operator is exempt from the account state switches` |
+| the client's 403 branch (made a logout) | `a 403 does not force a logout` |
+| the refusal message (back to the screen's own string) | `a refusal shows the server reason` |
+
+## Four false readings, and what each one cost
+
+**1 — The money test passed against unfixed code.** The first version created no order and no
+coupon, so `final_price` and `discount_amount` were absent from the response because they were
+absent from the *database*. It proved nothing about gating. It is written from both directions now:
+the same fixture through a permitted principal must still carry the money, so the pair can only
+both pass if the permission is what makes the difference.
+
+**2 — Three tests passed against HTTP 405.** `/api/admin/dashboard` is declared **POST**; the tests
+drove `getJson`. Every assertion of the form "the money is absent" passed on a Method Not Allowed
+body — the handler never ran. This is the most dangerous shape a security test can take, because the
+failure mode is silent and reads as success. Every data-reading test now goes through
+`dashboardFor()`, which asserts **200 and a `data` envelope** before absence means anything.
+
+**3 — Dead code was gated and then un-gated.** `MyDrawerController` holds a nine-entry navigation
+list and is **referenced by nothing** — `grep -rn MyDrawerController lib/` returns only its own
+declaration. Gating it compiled, analysed clean, and would have read in the ledger as a delivered
+feature while changing nothing a merchant can see. The real surface is the settings grid.
+
+**4 — `Semantics(label:)` combines rather than replaces.** Wrapping the tile's text in a `Semantics`
+with an explicit label produced *"Total Orders, all time"* **and then** *"Total Orders"* and
+*"all time"* again as separate fragments. The exact-label assertion found zero matches and exposed
+it; `excludeSemantics: true` is what makes it one utterance. A `findsAtLeast`-style or
+`textContaining` assertion would have passed and shipped the stutter.
+
+## Four tests that CANNOT fail on revert, labelled as such
+
+Independent review checked this and it is worth stating plainly, because a test count is not an
+evidence count. These four are legitimate ratchets and none of them is evidence for this change:
+`test_the_login_payload_keeps_every_field_it_had` (the old code returned those eight fields too),
+`test_a_permission_refusal_is_not_401` (the old dashboard also answered 200 here),
+`test_money_is_present_with_the_order_permission` (the unfixed controller served that money), and
+`test_the_merchant_role_really_holds_every_permission_the_dashboard_gates_on` (a dependency ratchet
+on `$companyNewPermission`, and the most valuable of the four). They exist to catch a LATER change,
+and the file now says so in each docblock.
+
+Review also caught an assertion that could pass for the wrong reason: `final_price` is an
+**appended attribute on `App\Models\Product`**, so `assertStringContainsString('final_price')` was
+satisfied by the serialised top-products block even if the `recent_order` block had been wrongly
+withheld. It asserts the **key** inside `recent_order[0]` now, and the missing `cost_price`-present
+counterpart was added — without it, withholding the product block unconditionally would have passed
+both money tests.
+
+## One live defect found in passing
+
+`Api\DashboardController::dashboard()` carried an `if ($store)` guard whose own comment says it was
+added because *"a user whose current_store no longer exists produced a 500 here"*. Only the qr-code
+block was inside it; the four queries immediately after still dereferenced `$store->id`
+unconditionally. The 500 had moved four lines down, not gone. Reachable by any merchant whose
+current store was deleted.
+
+## Limits, stated rather than implied
+
+- **~119 of the 127 `api/admin/*` routes remain ungated.** `routes/api.php` declares no permission
+  middleware. This slice gates eight: `adminlogin`, `/dashboard`, `orderlist`, `Top_orders`,
+  `productlist`, `variantlist`, `couponlist`, `staticsdata` — the ones serving money or analytics.
+- **The first version of this slice gated only `/dashboard`**, which independent review showed
+  closed one screen while four siblings served the same money to the same token. That is recorded
+  here rather than quietly corrected, because the lesson is about scoping a security fix to the
+  *data* rather than to the *screen*.
+- **MySQL remains unverified.** Everything above ran on SQLite `:memory:`; there is no mysqld or
+  client in this container. SQLite's type affinity hides real MySQL defects, and none of this is
+  claimed as covered on MySQL.
+- **No device, so no screen reader was run.** The announcements are asserted from the semantics
+  tree, which is what a reader is handed — not the same thing as hearing one speak it. Reading
+  order on a rendered screen is still open.
+- **A refusal now reads as a refusal on the order screens only.** Three sites in
+  `order_controller` discarded the server's message; `product_controller` and
+  `statistic_controller` already surfaced it. Other screens calling ungated endpoints were not
+  swept — there is nothing yet to refuse them.
+- **The app's permission gate is cosmetic by design.** It lives in unencrypted local storage. The
+  control is the server-side withholding, which is tested separately and independently.
+
+---
+
+# P2-07-10 — stock state parity (2026-10-28)
+
+| Suite | Result |
+|---|---|
+| App `test/ui/stock_state_parity_test.dart` (new) | **10 passed** |
+| App full `flutter test` | **1279 passed** |
+| App `flutter analyze` | **246 info, 0 warning, 0 error** |
+| Laravel `tests/Feature/Merchant/ApiProductListStockParityTest.php` (new) | **3 passed** |
+| Laravel `tests/Feature/Security` + `tests/Feature/Merchant` | **280 passed, 1900 assertions** |
+
+Guards bitten: the tracked-product branch (reverting it to the stored column fails 6 of 10 cases),
+`<=` versus `<` (fails 4), honouring the per-store threshold (fails 1), the server's threshold read,
+the response field, and the list gate re-bitten under the tightened assertions below.
+
+## The false reading this row found in the work before it
+
+`orderlist`, `Top_orders` and `productlist` all read `currency_rates` — a **GATE F table with no
+migration** — so on a from-zero SQLite schema they return **500**, not 200. The
+`AdminApiListPermissionTest` written an hour earlier asserted the permitted direction with
+`assertNotSame(403, ...)`, **which a 500 satisfies**. Three of its five "still serves the store
+owner" assertions were therefore passing on a missing-table crash rather than on the gate letting
+the merchant through.
+
+It was found by probing each endpoint's actual status rather than trusting the green tick:
+
+```
+PROBE orderlist      500 SQLSTATE[HY000]: no such table: currency_rates
+PROBE Top_orders     500 fail
+PROBE productlist    200          <- the EMPTY path; 500 once a product exists
+PROBE variantlist    200
+PROBE couponlist     200
+PROBE staticsdata    200
+```
+
+`productlist`'s 200 there is itself a trap: with no products the handler returns
+`error('Product Data not found.')` before it ever reaches the currency query, so even the probe
+needed a fixture to tell the truth.
+
+Two changes followed. Every "is served" assertion is now `assertSame(200, ...)`, so a crash cannot
+read as success. And `SecurityTestCase::requireCurrencyRatesStandIn()` supplies the **test-local
+minimum** — copied verbatim from `WebSettingsSecretsTest::setUp()` and `ChatgptKeyDisclosureTest`,
+the two tests that already face this, so the suite has one shape rather than three. That is **not**
+inventing the production schema, which `GateFSchemaContainmentTest` forbids outright and which is
+why the parked draft keeps its columns commented out; the measured production columns live in
+`docs/GATE-F-VERIFIED-SCHEMA.md`.
+
+**The rule:** `assertNotSame($bad, $actual)` is a weak assertion wherever the endpoint can fail in
+a third way. On a surface with an unmanaged table under it, there is always a third way.
+
+## Limits
+
+- **The detail screen applies threshold 0**, because the detail response does not carry the
+  setting. For a store that changed it, the list card is the authoritative badge.
+- **`GateFCoverageLedgerTest` is now stale in prose**: it describes `currency_rates` as
+  "referenced only as a static model-to-table mapping", and `Api\DashboardController` reads
+  `CurrencyRate::where(...)` in three handlers the Flutter app calls. It is a comment rather than
+  an assertion, so nothing fails. Named for the next schema pass.

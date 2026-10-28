@@ -970,3 +970,105 @@ So this is not one null-guard. It needs the handler to distinguish "we have not 
 found F121 in the first place: the behavioural test written for D-13's restoration passed, then
 passed again against the unfixed code, and was deleted. Any test for this slice must be shown to
 fail on revert before it is claimed.
+
+---
+
+## D-23 — P2-07-13: the admin API's permission contract (owner-authorised 2026-10-28, implemented the same day)
+
+**The escalation the parity matrix asked for was answered before the work started.** Gap G3 recorded
+that closing it "makes it an API change and therefore an escalation, not a quiet edit". The owner's
+resume directive granted exactly that, in writing, with five conditions:
+
+> مسموح بإضافة معلومات الصلاحيات إلى استجابة `adminlogin` بشكل إضافي ومتوافق رجعياً، دون حذف أو تغيير
+> الحقول الحالية. يجب أن تكون الصلاحيات مرتبطة بالمتجر الحالي، وأن يفرض Laravel التحقق الأمني فعلياً.
+> اختبر التاجر والموظف محدود الصلاحيات والمشغّل، وتبديل المتجر وتغير الصلاحيات. لا تحول رفض الصلاحية إلى
+> HTTP 401 يؤدي إلى تسجيل خروج المستخدم من التطبيق. احفظ توافق تطبيق Flutter مع API وLynomia Chat.
+
+Each condition and where it is held:
+
+| Condition | How it is met | Pinned by |
+|---|---|---|
+| Additive, nothing removed or retyped | two new keys; the eight existing fields are asserted by name | `test_the_login_payload_keeps_every_field_it_had` |
+| Bound to the current store | `store_id IS NULL OR store_id = current_store`, reported on the dashboard too so a switch refreshes it | `test_the_permission_list_follows_a_store_switch`, `test_an_employee_of_another_store_holds_nothing_here` |
+| Laravel enforces for real | the dashboard withholds order counts, `final_price`, `discount_amount`, the top-product list and the order chart | `test_money_is_withheld_without_the_order_permission` + its permitted counterpart |
+| Merchant, limited employee, operator all tested | three principals, plus a store switch and a permission change | the 14 tests in `AdminApiPermissionExposureTest` |
+| Never a 401 | nothing on this path answers 401 or 403; fields are omitted and the status stays 200 | `test_a_permission_refusal_is_not_401` |
+
+### The four decisions taken inside that authority
+
+**1. The operator is reported as `'*'`, not as a dump of the `permissions` table.** `isAbleTo()`
+refuses the platform operator — there is no super-admin bypass in this codebase — so a list built
+from role membership comes back **empty** for the one principal who may do everything, and a client
+that hides what the list omits would hide every screen from them. A wildcard does not depend on the
+table being seeded (a fresh install and every test database have no rows in it), it is one rule for
+a client to implement, and it is the convention Sanctum already uses for an unrestricted token.
+
+**2. Refusal is withholding, not a status code.** A 403 on `/dashboard` would blank the app's home
+screen; a **401 would log the merchant out**, because the shipped app forces a logout on any 401 and
+treats 403 as session-intact. The handler therefore omits what the caller may not see and still
+answers 200 — **no status code on this path changed**, so no shipped client sees anything new.
+
+**3. A withheld figure is OMITTED, never zeroed.** The app rendered `?? "0"`, so a zero would have
+read as "this store has no orders". The data exists and the viewer may not see it; those are
+different statements, and the web dashboard already says so in as many words
+(`overview.blade.php`: *"Omitted entirely rather than shown as zero or 'unavailable'"*).
+
+**4. The client's navigation gate fails OPEN while uninformed, and only then.** A client shipped
+ahead of its backend receives no permission list; gating strictly on an empty list would leave the
+merchant an app with no navigation. So `mayOffer` offers everything until the server has listed
+anything at all, and gates from then on. This is safe **only** because the server enforces
+independently — the app's gate is cosmetic by design, and the permission list lives in unencrypted
+local storage, so on a rooted device it is attacker-controlled.
+
+### What independent review changed, after the first version was written
+
+The `tenant-authz-reviewer` pass found no hole in the resolver — the predicate, the `instanceof`
+guard, the strict `=== null` comparison and the `!$store` guard all verified clean, and it
+confirmed `names()` is unreachable with a `Customer` or `DeliveryBoy` principal. What it found was
+that **the slice was scoped wrongly**, and that is the more valuable finding:
+
+**The money was still one route away.** `Top_orders`, `orderlist`, `productlist` and `couponlist`
+served the same three money fields to the same token, each guarded by `resolveOwnedStore()` —
+a *tenant* control — and nothing else. Gating the dashboard alone would have produced a UI telling
+staff they may not see order money while another route handed it over. **Decision: gate them, at
+403.** The shipped app already maps 403 to "not permitted, session intact", so refusing a list
+endpoint is correct and already handled; the dashboard stays a withholding 200 because it is the
+home screen. `staticsdata` and the dashboard's own `visitorchart` block are gated the same way, on
+`Manage Store Analytics` / `Manage Dashboard` — store traffic is business data, and without it the
+endpoint that withheld everything else still served 15 days of it.
+
+**`$storeId` is required, not defaulted.** Defaulting to `current_store` was harmless in
+`dashboard()` and a live trap everywhere else: the other handlers key their rows on
+`?store_id=`, which `resolveOwnedStore()` admits anywhere in the tenant, so a gate reading
+`current_store` would evaluate store A's grants against store B's rows. Making the caller name the
+store makes that mistake unavailable rather than documented.
+
+**`Show Coupon` counts.** The order gate accepted its view-only twin and the coupon gate did not,
+so a "view coupons, do not edit" role lost the dashboard's coupon block.
+
+**And `adminlogin` now honours the account-state switches.** It checked neither `is_active` nor
+`is_enable_login`, so a merchant's "disable this employee" switch did not hold on the app's door —
+and this change would have handed the disabled employee a permission list. Mirrored from
+`AuthenticatedSessionController:68-74` rather than reinvented, **including the `super admin`
+exemption both switches carry there**: without it the platform operator would have been locked out
+of the API. It keeps `error()`'s default 200 + `status: 0`, so no status code changes on a path
+every client calls.
+
+### What was deliberately NOT done
+
+- **`Utility::addNewData()` was not added to the API login.** It is what grants the merchant role
+  the names the dashboard gates on, and the **web** login calls it — but it opens with
+  `Artisan::call('cache:clear')`, so wiring it into `adminlogin` would flush the whole application
+  cache on every launch of the Flutter app. The dependency is pinned by a test instead.
+- **The remaining ~119 `api/admin/*` routes are still ungated.** `routes/api.php` declares no
+  permission middleware anywhere. This slice gates the eight endpoints that serve money or
+  analytics; the rest is a larger slice and is not claimed.
+- **`Utility::addNewData()` was still not added to the API login** — see above. The reviewer also
+  noted a consequence worth recording: because `MerchantPermissions::names()` reads live
+  (`$user->roles()->with(...)->get()`) it bypasses the Laratrust cache, so a revoked role takes
+  effect on the API immediately where `isAbleTo()` on the web can serve a stale grant for up to an
+  hour. The new door is the stricter of the two, so the divergence creates no hole.
+- **The bottom navigation bar was left alone.** Its five entries are index-coupled to an
+  `IndexedStack` through `currantIndex`, so hiding one shifts the indices of the rest. A bug there
+  breaks core navigation for every merchant, for the benefit of hiding a tab the server already
+  refuses. The settings grid — five independent cards, no index coupling — is gated instead.

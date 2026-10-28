@@ -279,6 +279,36 @@ abstract class SecurityTestCase extends TestCase
      * written now and become live the moment that migration lands -- they are
      * skipped rather than deleted so the dependency stays visible.
      */
+    /**
+     * `currency_rates` HAS NO MIGRATION (GATE F), and `productlist` / `orderlist` / `Top_orders`
+     * all read it — so without this the endpoint 500s on a from-zero SQLite schema and every
+     * assertion below would be measuring a missing table rather than the gate.
+     *
+     * THIS IS NOT INVENTING THE PRODUCTION SCHEMA, which `GateFSchemaContainmentTest` forbids and
+     * which is why the parked draft keeps its columns commented out. It is a test-local minimum,
+     * copied verbatim from the two tests that already do it — `WebSettingsSecretsTest::setUp()`
+     * and `ChatgptKeyDisclosureTest` — so there is one shape in the suite rather than three.
+     * `docs/GATE-F-VERIFIED-SCHEMA.md` holds the measured production columns.
+     */
+    protected function requireCurrencyRatesStandIn(): void
+    {
+        if (\Illuminate\Support\Facades\Schema::hasTable('currency_rates')) {
+            return;
+        }
+
+        \Illuminate\Support\Facades\Schema::create('currency_rates', function ($t) {
+            $t->id();
+            $t->unsignedBigInteger('store_id')->nullable();
+            $t->string('currency_code');
+            $t->string('currency_name')->nullable();
+            $t->string('symbol')->nullable();
+            $t->decimal('rate_per_usd', 20, 8)->default(1);
+            $t->boolean('is_active')->default(1);
+            $t->unsignedBigInteger('created_by')->nullable();
+            $t->timestamps();
+        });
+    }
+
     protected function requireTable(string $table): void
     {
         if (!\Illuminate\Support\Facades\Schema::hasTable($table)) {
