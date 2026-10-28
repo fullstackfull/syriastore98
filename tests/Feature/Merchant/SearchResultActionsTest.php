@@ -234,9 +234,17 @@ class SearchResultActionsTest extends SecurityTestCase
         $items = $payload['sections'][0]['items'] ?? [];
 
         $this->assertNotEmpty($items, 'premise: the order was not found at all');
-        $this->assertSame(['order.preview'], $this->actionKeys($payload));
+        $this->assertSame(['order.view'], $this->actionKeys($payload));
         $this->assertSame('ss-order-preview-panel', $items[0]['panel'] ?? null);
-        $this->assertSame(route('order.preview', $order->id), $items[0]['actions'][0]['href']);
+
+        /* THE ACTION GOES TO THE REAL ORDER PAGE, not the preview panel, and that is a fix rather
+           than a preference: `ss-order-preview-panel` exists in only three views, so a
+           panel-opening action was a DEAD CLICK everywhere else — including `/product`, where the
+           live check drove it. `order.view` works from any screen and its handler gates on the
+           same `Show Order` checked here. */
+        $this->assertArrayNotHasKey('panel', $items[0]['actions'][0],
+            'the action still opens a panel that does not exist on most screens');
+        $this->assertStringContainsString('order-view/', (string) $items[0]['actions'][0]['href']);
     }
 
     /**
@@ -262,14 +270,35 @@ class SearchResultActionsTest extends SecurityTestCase
      */
     public function test_an_action_points_at_its_own_record(): void
     {
-        $product = $this->makeProduct('Zaatar Blend');
+        /* TWO PRODUCTS, BECAUSE ONE CANNOT CATCH THE DEFECT THIS NAMES. Review was right about
+           this: with a single record, an implementation that gave EVERY action the first result's
+           id would pass, and that is precisely the bug "points at its own record" is about. A
+           changed id is caught by one record; a shared id is not. */
+        $first = $this->makeProduct('Zaatar Blend');
+        $second = $this->makeProduct('Zaatar Premium');
+
         $this->grantPermission($this->merchant, 'Edit Products');
         $m = User::find($this->merchant->id);
 
         $payload = $this->actingAs($m)->getJson($this->url('Zaatar'))->assertOk()->json();
-        $action = $payload['sections'][0]['items'][0]['actions'][0];
+        $items = $payload['sections'][0]['items'];
 
-        $this->assertSame(route('product.edit', $product->id), $action['href']);
+        $this->assertCount(2, $items, 'premise: both products must be in the result set');
+
+        $expected = [];
+        foreach ([$first, $second] as $p) {
+            $expected[$p->name] = route('product.edit', $p->id);
+        }
+
+        foreach ($items as $item) {
+            $this->assertSame($expected[$item['title']], $item['actions'][0]['href'],
+                'the action on "' . $item['title'] . '" points at another record');
+        }
+
+        // And the two differ, so a shared id cannot satisfy the loop above.
+        $hrefs = array_map(static fn (array $i) => $i['actions'][0]['href'], $items);
+        $this->assertCount(2, array_unique($hrefs),
+            'both results carry the same action href, so one of them is wrong');
     }
 
     /** Every action carries a human label, in the caller's language. */

@@ -602,6 +602,19 @@
                 a.id = 'ss-command-item-' + (index++);
                 a.setAttribute('role', 'option');
                 a.setAttribute('aria-selected', 'false');
+
+                /* NOT TABBABLE, and this is a correctness fix rather than a preference. These are
+                   `<a href>` elements with `role="option"`, so they were natively in the tab
+                   order -- and an `aria-activedescendant` combobox requires DOM FOCUS TO STAY ON
+                   THE INPUT. Tabbing into an option moved real focus while `aria-activedescendant`
+                   still pointed at whichever row was selected, so a screen reader was told two
+                   contradictory things about what was current. Review reproduced it.
+
+                   An `option` is also not a tab stop in the listbox pattern: arrow keys move the
+                   selection, which is exactly what this dialog already does. Making them -1 also
+                   puts the action bar immediately after the input in the tab order instead of
+                   sixteen stops later. */
+                a.tabIndex = -1;
                 a.href = item.href || '#';
 
                 /* A row that opens a PANEL rather than navigating carries the panel id, so the
@@ -674,6 +687,17 @@
         box.hidden = false;
         box.setAttribute('aria-label',
             (box.getAttribute('data-ss-actions-label') || 'Actions') + ': ' + (option.ssTitle || ''));
+
+        /* THE SELECTION CHANGE IS ANNOUNCED, which review found it was not. `aria-activedescendant`
+           makes a reader announce the OPTION as the selection moves, and says nothing about the
+           actions that moved with it -- so a merchant arrowing down had no way to know an action
+           had appeared, changed or gone. The count goes into the palette's own existing status
+           region rather than a new one: two live regions for one dialog compete. */
+        if (cmd.status) {
+            cmd.status.textContent = (option.ssTitle || '') + ' — '
+                + actions.length + ' '
+                + (box.getAttribute('data-ss-actions-label') || 'Actions');
+        }
 
         actions.forEach(function (action) {
             var a = document.createElement('a');
@@ -752,7 +776,26 @@
 
         if (!cmdEls() || cmd.root.hidden) { return; }
 
+        /* P2-06-8 FIX. THIS HANDLER IS BOUND TO `document` AND HAD NO TARGET GUARD, which was
+           harmless while the dialog held only an input and a listbox and became three defects the
+           moment the action bar gave it a second focusable region:
+
+             - Enter on a focused action ran `cmd.items[cmd.active].click()` -- activating the
+               selected ROW instead of the action the merchant had tabbed to and was looking at;
+             - ArrowUp/ArrowDown moved the row selection, which re-renders the bar from
+               `cmdActions()`, so the focused element was removed from the DOM mid-keypress and
+               focus fell to `<body>` -- outside the `aria-modal` dialog entirely;
+             - both were reproduced in a browser by review, not inferred.
+
+           Escape stays global on purpose: closing the dialog is the one action that must work
+           from anywhere inside it. Everything else belongs to the input. */
+        var inActions = e.target && e.target.closest
+            && e.target.closest('#ss-command-actions');
+
         if (e.key === 'Escape') { e.preventDefault(); cmdClose(); return; }
+
+        if (inActions) { return; }
+
         if (e.key === 'ArrowDown') { e.preventDefault(); cmdActivate(cmd.active + 1); return; }
         if (e.key === 'ArrowUp') { e.preventDefault(); cmdActivate(cmd.active - 1); return; }
         if (e.key === 'Enter' && cmd.active >= 0 && cmd.items[cmd.active]) {

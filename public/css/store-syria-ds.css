@@ -3339,6 +3339,23 @@ a.ss-setup__item:focus-visible {
    otherwise take the host's link colour, and the host's dark stylesheet forces several bare
    elements to #808191 (measured at 3.85:1 on this surface for the group heading above).
    ============================================================================================== */
+/* `[hidden]` DEFENCE, AND IT IS DEFENSIVE RATHER THAN A FIX -- recorded that way because review
+   reported it as a live defect and measurement says it is not.
+
+   The cascade concern is real in the abstract: `[hidden] { display: none }` is an attribute
+   selector with no class, so an author rule setting `display` on a class outranks it, and a
+   synthetic page proves it (`display: flex` wins, the element stays visible with the attribute
+   set). It does NOT happen here, because `public/assets/css/style.css` carries
+   `[hidden] { display: none !important; }` -- an important author declaration that beats any
+   non-important class rule. Measured on the real admin page with this reset removed: computed
+   display `none`, height 0. So the bar was never visible while hidden.
+
+   The rule stays as cheap insurance against that host declaration changing, and is NOT presented
+   as a bug fixed. The live check reads `getComputedStyle` rather than `bar.hidden` either way,
+   which is a genuine improvement: the IDL property is true whenever the attribute is set and
+   could never have told the two apart. */
+.ss-command__actions[hidden] { display: none; }
+
 .ss-command__actions {
     display: flex;
     flex-wrap: wrap;
@@ -3362,10 +3379,22 @@ a.ss-setup__item:focus-visible {
     text-decoration: none;
 }
 
-.ss-command__action:hover,
+.ss-command__action:hover {
+    background: var(--ss-surface-hover);
+    color: var(--ss-fg) !important;
+}
+
+/* A VISIBLE FOCUS RING, because the host kills the UA one. `custom.css` clears `outline` on
+   focused links admin-wide, so the only way to see which chip is focused was the hover
+   background -- which `:focus-visible` shared, making keyboard focus indistinguishable from the
+   mouse hover it sits under. These are the only keyboard-reachable controls in the dialog besides
+   the input, so an invisible ring makes the whole action bar unusable without a mouse (WCAG
+   2.4.7). Stated with the same tokens the rest of the design system's focus treatment uses. */
 .ss-command__action:focus-visible {
     background: var(--ss-surface-hover);
     color: var(--ss-fg) !important;
+    outline: var(--ss-focus-width, 2px) solid var(--ss-focus-ring, currentColor);
+    outline-offset: var(--ss-focus-offset, 2px);
 }
 
 /* =================================================================================================

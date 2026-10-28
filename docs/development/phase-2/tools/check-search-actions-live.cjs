@@ -144,7 +144,16 @@ const ratio = (fg, bg) => {
                     const opts = Array.from(list.querySelectorAll('[role="option"]'));
                     return {
                         barExists: !!bar,
-                        barHidden: bar ? bar.hidden : null,
+                        /* COMPUTED DISPLAY, NOT `bar.hidden`. The IDL property is true whenever
+                           the attribute is set, so it can never distinguish "hidden" from "the
+                           attribute is set and a class rule overrode it" -- which review flagged
+                           as live here. Measured: it is NOT live, because
+                           `public/assets/css/style.css` carries
+                           `[hidden] { display: none !important }`, so the attribute wins over any
+                           class rule in this admin. Reading the computed value is still the right
+                           instrument: it is the only one that could have settled the question. */
+                        barHidden: bar ? (getComputedStyle(bar).display === 'none') : null,
+                        barHiddenAttr: bar ? bar.hidden : null,
                         insideListbox: bar ? list.contains(bar) : null,
                         role: bar ? bar.getAttribute('role') : null,
                         label: bar ? bar.getAttribute('aria-label') : null,
@@ -157,6 +166,7 @@ const ratio = (fg, bg) => {
                         // THE ARIA INVARIANT: an option is a leaf.
                         interactiveInsideAnOption: opts.some((o) =>
                             o.querySelector('a, button, input, select, textarea, [tabindex]')),
+                        tabbableOptions: opts.filter((o) => o.tabIndex >= 0).length,
                     };
                 });
 
@@ -165,6 +175,39 @@ const ratio = (fg, bg) => {
                     'the bar is inside the listbox, so an option is no longer a leaf');
                 check(`${tag} — no option contains an interactive descendant`,
                     state.interactiveInsideAnOption === false);
+
+                /* THE OPTIONS ARE NOT TAB STOPS. They are `<a href>` with `role="option"`, so
+                   they were natively tabbable -- and an `aria-activedescendant` combobox requires
+                   DOM focus to stay on the input, so tabbing into one told a screen reader two
+                   contradictory things about what was current. */
+                check(`${tag} — the options are not in the tab order`,
+                    state.tabbableOptions === 0,
+                    String(state.tabbableOptions) + ' option(s) are tabbable, which breaks the '
+                    + 'aria-activedescendant contract');
+
+                /* AND THE FIRST TAB FROM THE INPUT REACHES THE ACTION BAR, which is what the
+                   fix above is for: the bar used to be sixteen stops away, behind every option. */
+                await page.locator('#ss-command-input').focus();
+                await page.keyboard.press('Tab');
+                await page.waitForTimeout(200);
+                const firstStop = await page.evaluate(() => {
+                    const el = document.activeElement;
+                    return {
+                        isAction: !!(el && el.classList
+                            && el.classList.contains('ss-command__action')),
+                        cls: el ? (el.className || el.tagName) : null,
+                    };
+                });
+                check(`${tag} — one Tab from the input reaches the action bar`,
+                    firstStop.isAction === true, String(firstStop.cls));
+
+                /* FOCUS GOES BACK TO THE INPUT before the arrow-key checks below, and forgetting
+                   it cost a run: with focus still in the action bar, ArrowDown correctly does
+                   NOTHING (that is the target guard this slice added), so the selection never
+                   moved and the follow-the-selection premise failed. The guard working looked
+                   exactly like a missing fixture. */
+                await page.locator('#ss-command-input').focus();
+                await page.waitForTimeout(150);
                 check(`${tag} — it is a group`, state.role === 'group', String(state.role));
                 check(`${tag} — the selection is carried by aria-activedescendant`,
                     !!state.activeDescendant, String(state.activeDescendant));
@@ -232,7 +275,8 @@ const ratio = (fg, bg) => {
                         .getAttribute('aria-activedescendant');
                     const el = id ? document.getElementById(id) : null;
                     return {
-                        hidden: bar.hidden,
+                        // Computed, not the IDL property -- see above.
+                        hidden: getComputedStyle(bar).display === 'none',
                         count: bar.querySelectorAll('.ss-command__action').length,
                         selected: el ? el.querySelector('.ss-command__title').textContent.trim() : null,
                         // nothing anywhere in the dialog should link to a customer record
@@ -244,7 +288,8 @@ const ratio = (fg, bg) => {
                     noAction.selected !== null, String(noAction.selected));
                 check(`${tag} — no action is offered without Show Customer`, noAction.count === 0,
                     String(noAction.count));
-                check(`${tag} — and the bar is hidden`, noAction.hidden === true, String(noAction.hidden));
+                check(`${tag} — and the bar is really hidden (computed display)`,
+                    noAction.hidden === true, String(noAction.hidden));
                 check(`${tag} — no customer record link is in the DOM at all`,
                     noAction.anyCustomerShowLink === false,
                     'an unauthorised action reached the markup and was merely hidden');
@@ -268,7 +313,7 @@ const ratio = (fg, bg) => {
                         selected: el ? el.querySelector('.ss-command__title').textContent.trim() : null,
                         count: bar.querySelectorAll('.ss-command__action').length,
                         panel: a ? a.getAttribute('data-ss-panel-open') : null,
-                        panelUrl: a ? a.getAttribute('data-ss-panel-url') : null,
+                        href: a ? a.getAttribute('href') : null,
                         text: a ? a.textContent.trim() : null,
                     };
                 });
@@ -277,11 +322,65 @@ const ratio = (fg, bg) => {
                     orderCase.selected !== null, String(orderCase.selected));
                 check(`${tag} — the order offers exactly one action`, orderCase.count === 1,
                     String(orderCase.count));
-                check(`${tag} — the order action opens the preview panel in place`,
-                    orderCase.panel === 'ss-order-preview-panel', String(orderCase.panel));
-                check(`${tag} — and it carries the preview url`,
-                    !!orderCase.panelUrl && orderCase.panelUrl.includes('order-preview'),
-                    String(orderCase.panelUrl));
+                /* NOT A DEAD CLICK. The action used to carry `data-ss-panel-open` for a panel
+                   element that exists in only three views, so on this page it pointed at nothing.
+                   It is now a real link to the order page, which works from anywhere. */
+                check(`${tag} — the order action is a real link, not a panel on a page without one`,
+                    orderCase.panel === null, String(orderCase.panel));
+                check(`${tag} — it points at the order page`,
+                    !!orderCase.href && orderCase.href.includes('order-view/'),
+                    String(orderCase.href));
+
+                /* AND IF IT EVER CARRIES A PANEL AGAIN, THE PANEL MUST EXIST. This is the
+                   assertion whose absence let the dead click through. */
+                if (orderCase.panel) {
+                    const exists = await page.evaluate((id) => !!document.getElementById(id),
+                        orderCase.panel);
+                    check(`${tag} — a panel action's panel exists on this page`, exists === true,
+                        orderCase.panel + ' is on no element here');
+                }
+
+                /* KEYBOARD: focus the action and press Enter. The palette's keydown is bound to
+                   `document` and had no target guard, so Enter activated the selected ROW instead
+                   of the focused action -- reproduced by review. Here the URL must not change to
+                   the row's destination. */
+                const before2 = page.url();
+                await page.locator('#ss-command-actions .ss-command__action').first().focus();
+
+                const focusRing = await page.evaluate(() => {
+                    const el = document.activeElement;
+                    const s2 = getComputedStyle(el);
+                    return {
+                        isAction: el.classList.contains('ss-command__action'),
+                        outlineWidth: s2.outlineWidth,
+                        outlineStyle: s2.outlineStyle,
+                    };
+                });
+                check(`${tag} — the action can take focus`, focusRing.isAction === true,
+                    String(focusRing.isAction));
+                /* WCAG 2.4.7. The host clears outlines on focused links admin-wide, so without an
+                   explicit ring the only focus cue was the hover background -- which
+                   `:focus-visible` shared, making keyboard focus indistinguishable from hover. */
+                check(`${tag} — and it shows a visible focus ring`,
+                    focusRing.outlineStyle !== 'none' && parseFloat(focusRing.outlineWidth) > 0,
+                    `${focusRing.outlineStyle} ${focusRing.outlineWidth}`);
+
+                await page.keyboard.press('ArrowDown');
+                await page.waitForTimeout(250);
+                const afterArrow = await page.evaluate(() => ({
+                    tag: document.activeElement ? document.activeElement.tagName : null,
+                    isAction: document.activeElement
+                        ? document.activeElement.classList.contains('ss-command__action') : false,
+                }));
+                /* Arrowing used to move the row selection, which re-renders the bar and removed
+                   the focused element mid-keypress -- focus fell to <body>, outside the modal. */
+                check(`${tag} — arrowing inside the bar does not throw focus to the body`,
+                    afterArrow.tag !== 'BODY', String(afterArrow.tag));
+
+                check(`${tag} — and Enter did not navigate to the row's destination`,
+                    page.url() === before2, page.url());
+
+
 
                 /* ---- contrast, on the surface the bar actually paints ---- */
                 await page.keyboard.press('Escape');
@@ -323,6 +422,48 @@ const ratio = (fg, bg) => {
                     // WCAG 2.5.5: a real target, beside a list the keyboard drives.
                     check(`${tag} — "${c.text}" is at least 44px tall`, c.height >= 43.5,
                         c.height.toFixed(1) + 'px');
+                }
+
+                /* THE POSITIVE HALF, and its absence was a real gap in this harness. Everything
+                   above checks that the new guard STOPS the palette hijacking keys aimed at the
+                   action bar. Nothing checked that Enter still works from the INPUT -- the
+                   dialog's primary interaction, and the thing both the guard and `tabIndex = -1`
+                   touch. A guard with only the negative half can over-match and break Enter
+                   entirely unnoticed: `inActions` returning true unconditionally would have
+                   passed every assertion above.
+
+                   Driven on a PRODUCT row, because an order row opens a PANEL in place rather
+                   than navigating, so the URL correctly does not change -- the first version of
+                   this check asserted against an order row and failed for that reason, which is
+                   the check being wrong rather than Enter being broken. It is also how the ROW's
+                   own dead click on panel-less pages surfaced (F145, P2-06-2's contract, not
+                   this slice's). It runs last because it leaves the dialog. */
+                await page.keyboard.press('Escape');
+                await page.waitForTimeout(200);
+                await search(page, 'Co');
+
+                const rowTarget = await page.evaluate(() => {
+                    const id = document.getElementById('ss-command-input')
+                        .getAttribute('aria-activedescendant');
+                    const el = id ? document.getElementById(id) : null;
+                    return el ? { href: el.getAttribute('href'),
+                                  panel: el.getAttribute('data-ss-panel-open') } : null;
+                });
+
+                check(`${tag} — premise: a navigating row is selected`,
+                    !!rowTarget && !!rowTarget.href && !rowTarget.panel,
+                    JSON.stringify(rowTarget));
+
+                if (rowTarget && rowTarget.href && !rowTarget.panel) {
+                    await page.locator('#ss-command-input').focus();
+                    await page.keyboard.press('Enter');
+                    await page.waitForLoadState('domcontentloaded').catch(() => {});
+                    await page.waitForTimeout(700);
+
+                    const want = rowTarget.href.replace(/^https?:\/\/[^/]+/, '');
+                    check(`${tag} — Enter from the input still opens the selected row`,
+                        page.url().includes(want),
+                        `expected ${want}, got ${page.url()}`);
                 }
 
                 check(`${tag} — no JavaScript errors`, errors.length === 0, errors.join(' | '));

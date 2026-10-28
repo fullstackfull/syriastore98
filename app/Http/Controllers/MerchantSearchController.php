@@ -261,11 +261,27 @@ class MerchantSearchController extends Controller
                    row that goes to the orders list they can actually open. */
                 'href' => $mayOpen ? route('order.preview', $o->id) : route('order.index'),
                 'panel' => $mayOpen ? 'ss-order-preview-panel' : null,
+                /* THE ACTION GOES TO THE REAL ORDER PAGE, NOT THE PREVIEW PANEL, and review
+                   caught why the panel was wrong. `ss-order-preview-panel` exists in only three
+                   views -- `order/index`, `order/action` and `notification/index` -- so a
+                   `data-ss-panel-open` action was a DEAD CLICK on every other screen, including
+                   `/product`, which is where the live check happened to drive it. The check
+                   asserted the attribute was present without asserting the panel existed: a test
+                   passing for the wrong reason.
+                   
+                   It also stacked two `aria-modal` dialogs when it did work, because the palette
+                   does not close when the panel opens.
+                   
+                   `order.view` is a real page that works from anywhere, and its handler gates on
+                   exactly the permission checked here -- `OrderController::order_view` calls
+                   `mayUseOrderScreen('Show Order')` -- so the affordance and the destination
+                   cannot disagree. The encrypted id is the transport this route already expects,
+                   matching `OrderDataTable:51` and `order/action.blade.php:85`; the authorisation
+                   is the permission plus the handler's own store check, never the ciphertext. */
                 'actions' => $mayOpen ? [[
-                    'key' => 'order.preview',
+                    'key' => 'order.view',
                     'label' => __('View order'),
-                    'href' => route('order.preview', $o->id),
-                    'panel' => 'ss-order-preview-panel',
+                    'href' => route('order.view', \Illuminate\Support\Facades\Crypt::encrypt($o->id)),
                 ]] : [],
             ])->all();
     }
