@@ -364,7 +364,10 @@ security and financial review of the payment paths, not as a request to start Ph
 
 ## D-13 — stock consumed without payment evidence on four gateway return paths (F90, F91, F92)
 
-**Raised:** 2026-10-26 by the E14 review. **Status: open.** Nothing changed.
+**Raised:** 2026-10-26 by the E14 review. **Status: PARTIAL as of 2026-10-28** — the unverified
+decrement is CLOSED on Khalti (verification hoisted above the stock loop, measured and bitten) and
+**BLOCKED on PaiementPro, CinetPay and Easebuzz**, which have no provider verification to hoist.
+See the implementation outcome under D-18.
 Evidence: `E14-PAYMENT-CALLBACK-REVIEW.md` §2.
 
 **The cross-cutting result of the review, stated with its bounds.** Replay resistance is largely
@@ -642,6 +645,197 @@ fixture produced a 500 from `Cart::cart_list_cookie()` — which dereferences th
 product or variant rows earlier in the request — so the loop's exits are not reachable from there
 at all. The restores are therefore **defensive**, the test that replaced it asserts only what is
 true, and the crash is recorded as its own defect.
+
+### Implementation outcome, 2026-10-28 — **KHALTI CLOSED. THE OTHER THREE ARE BLOCKED, AND THE REASON IS NOT THE SAME REASON**
+
+Evidence: `tests/Feature/Security/GatewayStockBeforeVerificationTest.php` (10 cases).
+
+**THE DRAIN WAS MEASURED BEFORE IT WAS TOUCHED, AND IT WAS REAL.** On the Khalti return, with the
+stock loop in its old position, a capture Khalti itself REJECTED took `products.product_stock` from
+50 to 49 and `product_variants.stock` from 50 to 49, with **zero order rows written**. A stored
+state carrying no server-computed payable did the same, refusing before Khalti was even asked. Both
+are repeatable: the route is anonymous and a checkout can be re-initiated.
+
+**D-18 STEP 1 IS NOW DISCHARGED — reachability, which this register recorded as NOT ESTABLISHED.**
+The loop is reached: a confirmed capture moves the figure and writes its order, asserted as its own
+case so that every negative case in the file has a premise. And the `$plan->shipping_method`
+question is settled by driving it rather than reasoning about it: with `users.plan_id` pointing at
+nothing the handler throws `ErrorException: Attempt to read property "shipping_method" on null`
+**before** the loop, stock still 50, no order. So the path is **latent only on a platform whose
+admin has no resolvable plan, and LIVE on one that has** — the ordinary configuration. The
+register's hope that this might make the drain latent in practice holds only for a broken install.
+Two bounds stated rather than glossed: the crash is a PHP warning promoted by Laravel's handler, so
+it needs `error_reporting()` to include `E_WARNING` — where it does not, the deref yields null,
+`null == 'on'` is false and the path runs LIVE; and nothing here says which configuration
+production runs, which still needs the one query.
+
+**WHAT CLOSED IT ON KHALTI, AND WHY IT IS NOT THE DEFERRAL D-18 RULED OUT.** D-18 recorded that the
+decrement "cannot be made to wait" because no column records that an order consumed its stock. That
+reasoning is about deferring a decrement to a **later request** — a webhook or confirmation
+callback would need durable evidence not to double-take. It does not apply here, and that is the
+whole finding of this slice: on this handler the decrement and the verification are **in the same
+request**, roughly 250 lines apart, in the wrong order. Closing the gap is therefore an **ordering
+of two statements** — no schema, no marker, no E13 dependency. The verification block was hoisted
+to sit immediately above the loop, and a REJECTED capture now returns before the first stock row
+moves. Nothing in that block reads anything the loop produces (`$request->payload`, `$store` and
+the stored checkout state are all resolved long before it), which is what makes the move safe
+rather than merely desirable.
+
+**NO BUSINESS RULE CHANGED, and the tests are shaped to prove that rather than assert it.** A
+verified capture decrements and writes its order exactly as before. The deliberate UNVERIFIABLE
+branch — the verify call could not be completed, so this server cannot say whether money moved —
+still reaches the loop and still writes its Pending order for reconciliation; refusing it would
+strand a charged customer, the one outcome worse than the drain. The shopper-visible refusal for a
+REJECTED capture is the same redirect with the same message the old post-loop `else` returned, and
+that is pinned. Only two cases change, and both change from *"stock taken, no order"* to *"nothing
+taken, no order"*.
+
+**Three controls keep the fix honest.** A fix that stopped the drain by simply not decrementing
+would pass every negative case, so the reachability case, the UNVERIFIABLE case and the replay case
+all assert that the decrement still happens exactly once. A fourth asserts Khalti is asked
+**exactly once per return** — a hoist that left the old call standing would double every outbound
+verify request, and nothing else in the file would have noticed. **Bitten:** reverting the
+controller fails exactly the three drain cases and leaves all six controls passing.
+
+**CONSEQUENCE FOR THE SUSPENDED `$plan` FIX.** The owner's condition was that fixing the exception
+must not make an illegitimate decrement reachable. On Khalti it no longer can — a resolvable plan
+now reaches a gate, not a drain — so that condition is discharged **for this handler only**. It
+still binds on PaiementPro, which shares the dereference and has nothing to gate on.
+
+### The independent review found two defects IN THE FIX, and one of them was the serious kind
+
+Recorded at this length because it is the third time in four packages that `tenant-authz-reviewer`
+has found the defect *inside the remedy*, and because both of these were invisible to every test in
+the repository.
+
+**1. The hoist clobbered `$response`, and a CONFIRMED GUEST PAYMENT would have ended in an error
+after the order committed.** The verify result went into `$response`, which was fine while the
+verification sat *below* the cart read. D-22 then moved it *above* that read — and the guest arm
+does
+
+```php
+$response = Cart::cart_list_cookie($requests_data, $store->id);
+$response = json_decode(json_encode($response));      // a stdClass
+```
+
+while the thank-you payload 800 lines later reads `$response['status_code']`. **The reviewer
+predicted a silent `0`** (so the storefront would show "Payment Failed" for a successful payment).
+**Measured on PHP 8.3.6, it is worse than that: it throws** `Error: Cannot use object of type
+stdClass as array`. So a guest whose Khalti capture was confirmed would have got an unhandled error
+**after** the order row committed `Paid` and the stock was decremented — the same shape as F89, a
+charged card ending in a 500. Fixed by giving the verify result its own name, `$khaltiResponse`.
+
+**Why no test saw it: every Khalti test in this repository drives
+`actingAs($customer, 'customers')`, and the guest arm is the one that reads `$response`.** That is a
+coverage shape, not an oversight in one file, and it is now closed in two places — a verified-guest
+case in `GatewayStockBeforeVerificationTest` that asserts the request completes, the payload carries
+Khalti's real status code and the order is `Paid`, and a guest-arm file covering all four handlers.
+**The new case bites:** restoring `$response` fails it with that exact `Error`.
+
+**2. The new guard swept the whole store when a guest had no cookie.** `whereNull` is what Laravel
+makes of `where('cookie_session_id', null)`, and `carts.cookie_session_id` is nullable with no
+default — so **every registered customer's row in the store carries NULL there**. The predicate
+silently became *"this store's customer baskets"*, and one deleted catalogue product would have
+refused every cookie-less guest's return, after their capture had been classified. The guard now
+returns `false` for a principal it cannot identify: failing **open** is right rather than merely
+convenient, because this guard exists to pre-empt a crash in the cart read and a guest with no
+cookie has no cookie basket for that read to crash on. Driven by a test that creates the trigger —
+another customer's dangling basket in the same store — and asserts the premise that the row really
+does carry NULL.
+
+**3. A third finding was about the window the hoist opens, and it is fixed rather than argued
+away.** There are now ~450 lines between *"the gateway confirmed this capture"* and the order write,
+and several exits in that window returned `{status: 0}` with **no log at all** — silence that cost
+nothing before the hoist, because those exits used to run *before* the verify call. The two
+`'Cart is empty.'` exits now call a new `logGatewayExitAfterCapture()`, whose `capture_was_confirmed`
+field is the one to search on: `true` means money moved and that shopper has no order. The three
+in-loop exits are deliberately left alone — F121 established they are not reachable from the
+dangling-basket fixture, and the new guard refuses before them, so a log there would be inventory
+churn for unreachable code.
+
+**4. And the review caught a false claim in my own docblock** — that the D-22 file drove "BOTH
+arms", when all five of its cases drive the authenticated one. Load-bearingly false, since the guest
+arm is exactly where findings 1 and 2 lived. Corrected, with the guest coverage named where it
+actually is.
+
+**Two things the review cleared that were worth asking about.** The replay claim is not a
+regression: `claimGatewayReturn()` and `Session::forget('request_data')` both sit **above** both
+positions, so a rejected return consumed them before this change and still does — and a shopper
+whose attempt genuinely failed re-initiates checkout and gets both keys fresh, now *with their
+basket intact*, because the cart delete no longer runs for a payment that was refused. And the
+tenancy of the gateway secret is unchanged: `$store` comes from the stored state's slug, never from
+caller input, so the hoist cannot make another merchant's secret sign the verification.
+
+**A fifth, smaller finding is also applied:** the comment called REJECTED *"the payment does not
+cover this basket"*, but `verifyKhaltiCapture()` classifies **any** non-200, non-zero HTTP status as
+REJECTED — a 502 included. The comment now says what the code does, and the observability inventory
+records the consequence: a run of these may mean Khalti is unwell rather than that shoppers are
+being refused.
+
+**The observability ratchet failed in both directions and is repaired properly.** Three log lines
+were genuinely **added**, which is exactly the case the resync tool refuses to write, because a new
+row needs a destination and a reader that only a person can state. Those three statements are now in
+`P01-OBSERVABILITY-INVENTORY.md` before the tool was allowed to re-point the five rows that had
+merely moved.
+
+---
+
+### One real behaviour change, stated rather than absorbed into a test
+
+On Khalti the **quantity** and **foreign-product** refusals now fire *after* the verification rather
+than before it. That is forced, not chosen: both read `$products`, which comes from the cart read,
+and D-22 requires the verification to precede that read. The security outcome is identical in every
+case — refused, no order, no stock — and only the message a shopper sees changes, from *"Your cart
+contains an invalid quantity"* to *"Transaction has been failed"* when the capture also fails.
+
+It surfaced as three failing rows in `GatewayReturnTrustBoundaryTest` and
+`StockManagementSettingTest`, and the honest reading of those failures is worth keeping: **before
+D-13 they reached the stock loop with no payment evidence at all.** They were reachable only because
+of the defect. Each now binds a confirming Khalti double, so the fixture is a legitimate paid return
+— the only kind that should reach a stock loop — and each row's claim is unchanged and stronger. No
+assertion was loosened and nothing went into the known-outcome manifest; the full reasoning is in
+`PHASE-02-TEST-EVIDENCE.md`.
+
+A fourth failure was the project catching me rather than the reverse: `NullCookieCartTest` forbids
+any query naming `cookie_session_id` outside `Cart::scopeForGuestCookie()`, and the new guard had a
+raw predicate. That census exists because the mistake has been made before, and it caught the exact
+`whereNull` defect the reviewer had found independently. **The code changed, not the test** — the
+guard now goes through `forGuestCookie()`/`forCustomer()`, so its fail-open behaviour comes from the
+project's own mechanism instead of a hand-rolled early return.
+
+---
+
+### PaiementPro, CinetPay, Easebuzz — **BLOCKED, and not for want of effort**
+
+**There is nothing to hoist, because there is no verification to hoist.** Measured against the
+source: `PaymentVerificationService` holds exactly three provider verifiers — `verifyKhaltiCapture`,
+`verifyPaymeraCapture`, `verifyPaymeraSignature`. None of these three gateways has one. Each goes
+from the stock loop straight to `new Order()`, and the only returns between the loop and the order
+write are the three in-loop *"Product not found"* / *"bad json"* exits D-18 already fitted with
+`restoreStockDecrements()`. There is no post-loop refusal to reorder and no provider answer to
+refuse on.
+
+**So their shape differs from Khalti's in a way worth stating precisely.** On these three an order
+row **is** written — Pending, since `gatewayReturnPaymentStatus()` has no verification record to
+read — so the consumed stock is attached to an order a merchant can see and cancel. That is not a
+defence, but it is not Khalti's silent drain either.
+
+**Closing it needs one of two things the directive reserves.** Either (a) **add** a provider
+verification for each gateway — for Easebuzz the reverse hash is verifiable locally with the stored
+salt and no outbound call, and this repository already uses exactly that to gate the Easebuzz
+**plan** path while deliberately leaving the storefront order path alone *"a merchant's customers
+keep checking out"* — or (b) refuse a return carrying no evidence. (a) is *"لا تفعّل بوابة دفع أو
+SDK غير متحقق منه"* and *"لا تدّعِ أن اختبار مصدر الشيفرة وحده يثبت الأمان المالي"*: the hash
+computation has never been checked against a real Easebuzz response in this repository, and getting
+it wrong refuses live customers. (b) loses paid orders, which the owner forbade by name.
+
+Both change **whether a payment is accepted**, on live storefront paths, for gateways whose
+responses are unverified here. Per *"إذا كان الإصلاح الأمني سيغيّر سلوكاً تجارياً مؤثراً لم يسبق
+اعتماده، أوقف تلك الشريحة فقط، وقدّم الخيارات، وتابع العمل المستقل"* these three stay **BLOCKED**
+with the options above recorded, and the work continues elsewhere. **D-13 is now PARTIAL: closed on
+Khalti, open on three.**
+
+---
 
 ## D-19 — Phase 02 continuation authority (owner, 2026-10-26)
 
@@ -970,6 +1164,96 @@ So this is not one null-guard. It needs the handler to distinguish "we have not 
 found F121 in the first place: the behavioural test written for D-13's restoration passed, then
 passed again against the unfixed code, and was deleted. Any test for this slice must be shown to
 fail on revert before it is claimed.
+
+---
+
+### Implementation outcome, 2026-10-28 — **THE PRE-COLLECTION HALF IS CLOSED. THE POST-COLLECTION HALF IS A DECISION, AND IT IS STATED AS ONE**
+
+Evidence: `tests/Feature/Security/GatewayReturnMissingProductTest.php` (5 cases).
+
+**F121 IS CONFIRMED ON A DRIVEN REQUEST, which it had never been.** Driving a Khalti return whose
+basket names a deleted row, before anything was changed:
+
+| arm / capture | outcome |
+|---|---|
+| authenticated, capture **VERIFIED**, `products` row deleted | `ErrorException: Attempt to read property "id" on null`, 0 orders |
+| authenticated, capture **REJECTED**, `products` row deleted | the same exception |
+| authenticated, capture **VERIFIED**, variant row deleted | `ErrorException: Attempt to read property "discount_price" on null`, 0 orders, stock still 50 |
+
+So **a paid customer whose product was deleted mid-checkout got an unhandled exception and no
+order.** Two things follow. The crash **precedes the decrement** — it is in the cart read, which
+runs before the loop — so F121 is not a drain; and that same ordering is why D-13's restoration
+test could never reach the in-loop exits it was written for. The register had this right and now it
+is measured.
+
+**WHAT IS FIXED, in the owner's own words:** *"before proof of collection → structured refusal
+without HTTP 500 and no illegitimate deduction"*. Two changes, in this order:
+
+1. **The verification moved above the cart read**, not merely above the stock loop. It needs only
+   `$request->payload`, `$store` and the stored checkout state, so this is the earliest position it
+   can occupy — and the earliest is the right one, because a refusal fired at the cart read needs
+   to know whether money was collected before deciding how loudly to log.
+2. **A new guard, `basketHasMissingProductRow()`**, asked of the `carts` rows directly, before the
+   read. It refuses the basket **whole**, so a healthy line is not decremented on the way to
+   discovering a dangling one.
+
+**WHY NOT GUARD THE DEREFERENCES THEMSELVES.** `Cart::cart_list_cookie()` and
+`Api\ApiController::cart_list()` are read by the storefront cart page, the sidebar, the API and
+nine checkout writers. Making a dangling line **skip** would silently drop a line the shopper has
+already paid for; making it yield nulls changes an array shape all of those read. The gateway return
+is the surface where a dangling line is dangerous, so the guard lives there, additive, and nothing
+else changes behaviour. (Also: `basketHasForeignProduct()` deliberately `continue`s on a missing row
+— *"not a provable mismatch"* — which is precisely the line this one catches. They are different
+questions and are kept apart.)
+
+**ONE MESSAGE MOVED WITH THE VERIFICATION and it is recorded rather than discovered later:**
+`"Cart is empty."` is now reached only after the capture has been classified, so a **REJECTED**
+return with an empty basket says `"Transaction has been failed"` where it used to say
+`"Cart is empty."`. For a verified capture nothing changes, and the new sentence is the more
+accurate of the two for a payment the gateway refused.
+
+### What is NOT closed, stated plainly
+
+*"after proof → do not lose the paid order"* is **NOT done and is not claimed.** A paid customer
+whose product was deleted still gets **no order**. What they get instead of an unhandled exception
+is a structured refusal and a `critical` log naming the confirmed capture, its outcome and its
+amount — strictly more recoverable, and not the order.
+
+Writing the order would mean deciding **what an order line for a deleted product contains**, and
+that shape is read by the merchant order UI, the invoice/printing modules and the Flutter app. The
+owner forbade inventing a substitute product or variant, so the options are:
+
+- **(A) Write the order from the surviving facts** — the `carts` row still holds `product_id`,
+  `variant_id` and `qty`, and the stored state holds the amount actually charged. The line would
+  carry no name, price or image, because the row that held them is gone. Preserves the money and
+  the customer's claim; needs every reader of an order line to tolerate a line whose product is
+  absent, which is a contract question across two repositories.
+- **(B) Keep the refusal and make the capture a first-class record** — write a verification/payment
+  row the merchant can see and settle from, without an order. Loses no money and invents nothing,
+  but the customer still has no order to look at.
+- **(C) Prevent the cause** — refuse to delete a product that appears in a live `carts` row, or
+  soft-delete it. Touches D-20's territory (deletion behaviour) and does nothing for baskets that
+  already dangle.
+
+**(A) is the only one that satisfies *"do not lose the paid order"* literally, and it is the one
+that changes a contract the Flutter app reads.** That is an owner decision, not a judgement call,
+so it is recorded here and the slice stops. The structured refusal is in place meanwhile, so the
+failure mode is a message and a log rather than a 500.
+
+**Bite matrix**, because the owner attached *"لا تعتمد على اختبارات تمر حتى بعد التراجع عن
+الإصلاح"* to this finding — and running it corrected one of my own tests:
+
+| state | result |
+|---|---|
+| HEAD, neither change | 4 of 5 fail |
+| the hoist only, guard removed | **3** of 5 fail |
+| both | 5 pass |
+
+The rejected-capture case does **not** detect the guard — it detects the **hoist**, because once
+the verification sits above the cart read a rejected capture never reaches the crash. It is kept and
+relabelled as evidence for D-13 rather than for this slice. The three cases that bite on the guard
+are the **verified** paths, which is the correct answer: a verified capture is exactly the caller
+the hoist cannot turn away. The intact-basket case passes in all three states, as a control must.
 
 ---
 

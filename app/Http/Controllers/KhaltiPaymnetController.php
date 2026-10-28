@@ -358,6 +358,143 @@ class KhaltiPaymnetController extends Controller
             ]);
         }
 
+        /*
+         * D-13 AND D-22. THE PAYMENT IS VERIFIED BEFORE THE BASKET IS READ, AND SO BEFORE ANY
+         * STOCK MOVES. It used to be verified ~400 lines BELOW both.
+         *
+         * This whole block used to sit ~250 lines BELOW, after the loop had already decremented
+         * every line of the basket. Two of its exits take stock and never give it back:
+         *
+         *   - a capture Khalti was asked about and REJECTED. That outcome is broader than "the
+         *     payment does not cover this basket": verifyKhaltiCapture() classifies ANY non-200,
+         *     non-zero HTTP status as REJECTED, a 502 included, so it means "Khalti was reached and
+         *     did not confirm". No order is written, and the stock was gone.
+         *   - a stored state with no server-computed payable, which is refused without Khalti
+         *     being asked at all. Same outcome.
+         *
+         * MEASURED, not inferred: with the loop first, a rejected capture took `product_stock`
+         * from 50 to 49 and `product_variants.stock` from 50 to 49, with zero order rows written.
+         * The route is anonymous and a checkout can be re-initiated, so it is repeatable --
+         * denial of inventory for any catalogue line that can be put in a cart
+         * (tests/Feature/Security/GatewayStockBeforeVerificationTest.php).
+         *
+         * WHY THIS IS A HOIST AND NOT A DEFERRAL. D-18 recorded that the decrement "cannot be
+         * made to wait" because no column records that an order has consumed its stock. That is
+         * true of deferring a decrement to a LATER request -- a webhook or a confirmation
+         * callback would need durable evidence not to double-take. It does not apply here: the
+         * decrement and the verification are in the SAME request, so closing the gap is an
+         * ORDERING of two statements and needs no schema and no marker. Nothing below reads
+         * anything the loop produces -- `$request->payload`, `$store` and the stored checkout
+         * state are all resolved long before it -- which is what makes the move safe.
+         *
+         * D-22 PUT IT ABOVE THE CART READ RATHER THAN MERELY ABOVE THE LOOP. The read is where
+         * F121's crash is, and a refusal fired there needs to know whether money was collected
+         * before it decides how loudly to log. The block needs nothing from the cart -- only
+         * `$request->payload`, `$store` and the stored checkout state -- so this is the earliest
+         * position it can occupy, which is also the right one.
+         *
+         * ONE MESSAGE MOVES WITH IT, stated rather than discovered later: "Cart is empty." is now
+         * reached only after the capture has been classified, so a REJECTED return with an empty
+         * basket says "Transaction has been failed" where it used to say "Cart is empty." For a
+         * verified capture the order is unchanged, and the new sentence is the more accurate of
+         * the two for a payment the gateway refused.
+         *
+         * WHAT DOES NOT CHANGE. A verified capture decrements and writes its order exactly as
+         * before. UNVERIFIABLE -- the verify call itself could not be completed -- still proceeds
+         * to the loop and still writes its Pending order for reconciliation: this server cannot
+         * say whether money moved, and refusing here would strand a charged customer, which is
+         * the one outcome worse than the drain. Only REJECTED and the unpriceable state change,
+         * and they change from "stock taken, no order" to "nothing taken, no order".
+         */
+        $payload = $request->payload;
+        $secret = Utility::GetValueByName('khalti_secret_key', $store->id);
+        $token = is_array($payload) ? ($payload['token'] ?? null) : null;
+
+        $serverPayable = $this->serverPayableAmount($requests_data);
+
+        if ($serverPayable === null) {
+            \Illuminate\Support\Facades\Log::warning('Khalti verification refused: no server-computed payable in the stored state.', [
+                'store_id' => $store->id ?? null,
+                'customer_id' => $customer_id ?: null,
+            ]);
+
+            return $this->gatewayReturnRefusal();
+        }
+
+        $expectedPaisa = (int) round($serverPayable * 100);
+
+        // Container-resolved for the reason recorded on planGetKhaltiStatus(): it is what makes
+        // this path drivable in a test without an outbound request.
+        $khalti = app(Khalti::class);
+
+        /*
+         * `$khaltiResponse`, NOT `$response`, AND THAT NAME IS THE WHOLE POINT OF THIS COMMENT.
+         *
+         * The verify result lived in `$response` for as long as the verification sat below the
+         * cart read. Moving it ABOVE that read put it in front of
+         *
+         *     $response = Cart::cart_list_cookie($requests_data, $store->id);
+         *     $response = json_decode(json_encode($response));      // a stdClass
+         *
+         * on the GUEST arm, which overwrote it -- and the thank-you payload 800 lines later reads
+         * `$response['status_code']`. MEASURED on PHP 8.3.6: `$stdClass['k'] ?? 0` does not fall
+         * back to 0, it throws `Error: Cannot use object of type stdClass as array`. So a guest
+         * whose Khalti capture was CONFIRMED would have got an unhandled error AFTER the order row
+         * committed Paid and the stock was decremented -- the same shape as F89, a charged card
+         * ending in a 500. Found by the project's own reviewer, not by a test: every Khalti test in
+         * this repository drives `actingAs($customer, 'customers')`, and the guest arm is the one
+         * that reads `$response`. A guest case now exists for exactly that reason.
+         */
+        $khaltiResponse = $khalti->verifyPayment($secret, $token, $expectedPaisa);
+        $khaltiResponse = is_array($khaltiResponse) ? $khaltiResponse : [];
+
+        $khaltiVerification = $this->gatewayReturnVerifier()->verifyKhaltiCapture($khaltiResponse, $expectedPaisa);
+
+        $khaltiUnverifiable = $khaltiVerification->outcome === \App\Services\PaymentVerificationResult::UNVERIFIABLE;
+
+        /*
+         * REJECTED, so refuse before the first stock row moves. The shopper-visible result is
+         * byte-for-byte the response the old post-loop `else` returned -- the same redirect with
+         * the same message -- because the only thing being changed here is WHEN it is returned.
+         */
+        if (! $khaltiVerification->isVerified() && ! $khaltiUnverifiable) {
+            \Illuminate\Support\Facades\Log::warning('Khalti order refused before any stock moved: the gateway rejected the capture', [
+                'site' => __METHOD__,
+                'store_id' => $store->id ?? null,
+                'expected_total' => (string) $serverPayable,
+                'outcome' => $khaltiVerification->outcome,
+                'reason' => $khaltiVerification->reason,
+            ]);
+
+            return redirect()->back()->with('error', __('Transaction has been failed'));
+        }
+
+
+        /*
+         * D-22 / F121. A BASKET LINE WHOSE PRODUCT OR VARIANT ROW IS GONE.
+         *
+         * Asked HERE -- after the capture has been classified, before the cart is read -- because
+         * the cart read is what crashes on such a line, and because the refusal's log is only
+         * useful if it can say whether the money was collected.
+         *
+         * MEASURED before this guard existed: a deleted product made this return answer with
+         * `ErrorException: Attempt to read property "id" on null`, and a deleted variant with the
+         * same on "discount_price" -- zero orders, and no decrement, since the read precedes the
+         * loop (tests/Feature/Security/GatewayReturnMissingProductTest.php).
+         *
+         * THIS IS THE HALF THE OWNER AUTHORISED: "before proof of collection -> structured refusal
+         * without HTTP 500 and no illegitimate deduction". The other half -- "after proof, do not
+         * lose the paid order" -- is NOT closed here and is not claimed to be. A paid customer
+         * still gets no order; they now get a structured refusal and a `critical` log naming the
+         * confirmed capture and its amount instead of an unhandled exception and silence. Writing
+         * the order would mean deciding what an order line for a deleted product contains, which
+         * the merchant UI, the invoices and the Flutter app all read, and the owner forbade
+         * inventing a substitute product or variant. That decision is in the register.
+         */
+        if ($this->basketHasMissingProductRow($store)) {
+            return $this->gatewayReturnMissingProductRefusal($request, 'khalti', $khaltiVerification, $serverPayable);
+        }
+
         $cartlist_final_price = 0;
         $final_price = 0;
         $tax_price = 0;
@@ -368,6 +505,8 @@ class KhaltiPaymnetController extends Controller
             $response = json_decode(json_encode($response));
             $cartlist = (array)$response->data;
             if (empty($cartlist['product_list'])) {
+                $this->logGatewayExitAfterCapture('khalti', 'the basket was empty on the guest arm', $khaltiVerification, $serverPayable);
+
                 return Utility::error(['message' => 'Cart is empty.']);
             }
             $cartlist_final_price = !empty($cartlist['final_price']) ? $cartlist['final_price'] : 0;
@@ -385,6 +524,8 @@ class KhaltiPaymnetController extends Controller
             $cartlist = (array)$cartlist_response->getData()->data;
 
             if (empty($cartlist['product_list'])) {
+                $this->logGatewayExitAfterCapture('khalti', 'the basket was empty on the authenticated arm', $khaltiVerification, $serverPayable);
+
                 return Utility::error(['message' => 'Cart is empty.']);
             }
 
@@ -743,63 +884,25 @@ class KhaltiPaymnetController extends Controller
             $is_guest = 0;
         }
 
-        $payload = $request->payload;
         $theme_name = !empty(APP_THEME()) ? APP_THEME() : env('DATA_INSERT_APP_THEME');
-        $secret = Utility::GetValueByName('khalti_secret_key', $store->id);
-        $token = is_array($payload) ? ($payload['token'] ?? null) : null;
 
         /*
-         * P1-PAY-03. THE AMOUNT KHALTI IS ASKED ABOUT IS THE SERVER'S, NOT THE SHOPPER'S.
+         * D-13. THE VERIFICATION USED TO BE PERFORMED HERE and is now performed ABOVE the stock
+         * loop; see the block that starts "THE PAYMENT IS VERIFIED BEFORE THE STOCK MOVES" for
+         * why, and P1-PAY-03 there for why the amount Khalti is asked about is the SERVER's
+         * (`cartlist_final_price` from the stored state) rather than `$payload['amount']`.
          *
-         * This was `$amount = $payload['amount'];` -- the caller's own field -- handed straight to
-         * `payment/verify/`. Khalti's verify endpoint confirms the token AND amount as a PAIR, so
-         * posting the caller's figure asks the gateway the caller's question: a buyer who paid one
-         * unit could present that token with a matching one-unit amount, collect a 200, and have
-         * this handler write the order at the SERVER's full basket price. The verification was
-         * real; it was just a verification of the wrong number.
+         * `$khaltiVerification`, `$khaltiUnverifiable`, `$response`, `$token`, `$serverPayable`
+         * and `$expectedPaisa` all come from that one call. Khalti is asked EXACTLY ONCE per
+         * return -- asserted, because a hoist that left the old call in place would double every
+         * verify request and is the obvious way to get this wrong.
          *
-         * `cartlist_final_price` in the stored checkout state is the full payable -- products plus
-         * the SERVER's delivery price plus the SERVER's tax, assembled by
-         * PaymentController::prepareFinalRequestData(). It is also exactly what the Khalti widget
-         * was initiated with: resources/views/payment/khalti.blade.php:16 reads
-         * `var amount = {{$data['cartlist_final_price']}} * 100`, so this asks about the same
-         * figure the shopper was charged, in the same unit (paisa).
-         *
-         * Owner decision D2: "a return URL, redirect or client flag proves nothing; require
-         * provider-side verification of ownership, reference, amount, currency and status".
+         * THE CONDITION BELOW IS NOW ALWAYS TRUE at this point: REJECTED returned above, so only
+         * VERIFIED and UNVERIFIABLE reach here. It is deliberately left standing rather than
+         * unwrapped -- unwrapping it would re-indent ~350 lines of order, billing, coupon, tax and
+         * notification writing and make the diff unreviewable, for no behavioural gain. Its
+         * trailing `else` is unreachable and kept for the same reason.
          */
-        $serverPayable = $this->serverPayableAmount($requests_data);
-
-        if ($serverPayable === null) {
-            \Illuminate\Support\Facades\Log::warning('Khalti verification refused: no server-computed payable in the stored state.', [
-                'store_id' => $store->id ?? null,
-                'customer_id' => $customer_id ?: null,
-            ]);
-
-            return $this->gatewayReturnRefusal();
-        }
-
-        $expectedPaisa = (int) round($serverPayable * 100);
-
-        // Container-resolved for the reason recorded on planGetKhaltiStatus(): it is what makes
-        // this path drivable in a test without an outbound request.
-        $khalti = app(Khalti::class);
-        $response = $khalti->verifyPayment($secret, $token, $expectedPaisa);
-        $response = is_array($response) ? $response : [];
-
-        $khaltiVerification = $this->gatewayReturnVerifier()->verifyKhaltiCapture($response, $expectedPaisa);
-
-        /*
-         * UNVERIFIABLE STILL WRITES THE ORDER. A failed curl leaves this server unable to say
-         * whether money moved, and the old `else` returned "Transaction has been failed" with no
-         * order row at all -- so a Khalti payment that completed while the verify call did not
-         * left a charged customer with nothing to reconcile against. The order is written
-         * (Pending, because no verification was recorded) and the SHOPPER IS STILL TOLD IT
-         * FAILED -- see the refusal below, just before the thank-you payload. A rejection, where
-         * Khalti was reached and said no, is refused exactly as before.
-         */
-        $khaltiUnverifiable = $khaltiVerification->outcome === \App\Services\PaymentVerificationResult::UNVERIFIABLE;
-
         if($khaltiVerification->isVerified() || $khaltiUnverifiable)
         {
         // add in  Order table  start
@@ -1216,7 +1319,7 @@ class KhaltiPaymnetController extends Controller
 
             $arr = [
                 'data' => $order->product_order_id,
-                'status_code' => $response['status_code'] ?? 0,
+                'status_code' => $khaltiResponse['status_code'] ?? 0,
                 'store_complete'=>route('order.complete',$slug),
             ];
             \Session::put('khalti_order_id', $order->product_order_id);

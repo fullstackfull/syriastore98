@@ -118,6 +118,35 @@ class StockManagementSettingTest extends SecurityTestCase
         ]);
     }
 
+    /**
+     * A KHALTI VERIFIER THAT CONFIRMS, so the khalti row still reaches the stock loop it measures.
+     *
+     * D-13 moved the Khalti verification above the cart read and the loop, so a return whose
+     * capture is not confirmed stops before either. That is the fix. It also means this row,
+     * which binds no gateway, used to reach the stock loop WITH NO PAYMENT EVIDENCE AT ALL -- the
+     * exposure D-13 closed -- so it was reachable only because of the defect.
+     *
+     * Binding a confirming double makes the fixture a legitimate PAID return, which is the only
+     * kind that should reach a stock loop, and leaves this test's claim exactly as it was: the
+     * `stock_management` setting, and nothing else, decides whether the figure moves. The canned
+     * response carries no `amount`, so the double does not depend on the fixture's total.
+     *
+     * Harmless for cinetpay, easebuzz and the storefront return: none of them resolves `Khalti`.
+     */
+    private function bindConfirmingKhalti(): void
+    {
+        $this->app->instance(\App\Khalti\Khalti::class, new class extends \App\Khalti\Khalti {
+            public function __construct()
+            {
+            }
+
+            public function verifyPayment($secret, $token, $amount)
+            {
+                return ['status_code' => 200, 'data' => ['idx' => 'stock-management-double']];
+            }
+        });
+    }
+
     private function guestCart($store, Product $product): string
     {
         $sid = 'sm-cookie-' . uniqid();
@@ -358,6 +387,7 @@ class StockManagementSettingTest extends SecurityTestCase
         $sid = $this->guestCart($store, $product);
 
         $state = $this->checkoutState($store);
+        $this->bindConfirmingKhalti();
 
         /*
          * EASEBUZZ STORES ITS STATE UNDER ITS OWN KEY -- `easebuzz_request_data`, which

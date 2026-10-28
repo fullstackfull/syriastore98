@@ -402,6 +402,32 @@ class EasebuzzController extends Controller
                 ]);
             }
 
+            /*
+             * D-22 / F121. A BASKET LINE WHOSE PRODUCT OR VARIANT ROW IS GONE.
+             *
+             * MEASURED on this route's guest arm before this guard existed: a deleted product made
+             * the return answer `ErrorException: Attempt to read property "id" on null`, and a
+             * dangling variant reference `... property "variant" on null` -- the two unguarded
+             * dereferences in `Cart::cart_list_cookie()` that the register names. Zero orders, and
+             * no decrement, because the cart read precedes the loop
+             * (tests/Feature/Security/GatewaySiblingMissingProductTest.php).
+             *
+             * THIS GATEWAY VERIFIES NOTHING, so `null` is passed where Khalti passes its
+             * verification outcome, and that is the honest value rather than a placeholder:
+             * `PaymentVerificationService` holds three provider verifiers and none of them is this
+             * one, so every return here is "before proof of collection" by construction. The log
+             * therefore records that the capture state is UNKNOWN rather than claiming it was not
+             * collected -- this gateway may well have taken the money before redirecting.
+             *
+             * WHAT THIS FIXES IS THE 500, NOT THE LOST ORDER. Before: an unhandled exception, no
+             * order, no decrement. After: a structured refusal, no order, no decrement. A customer
+             * who has paid still has no order -- that half of D-22 is the owner's open decision --
+             * but the failure is now a message and a `critical` log instead of a stack trace.
+             */
+            if ($this->basketHasMissingProductRow($store)) {
+                return $this->gatewayReturnMissingProductRefusal($request, 'easebuzz', null, $this->serverPayableAmount($requests_data));
+            }
+
             $cartlist_final_price = 0;
             $final_price = 0;
             $tax_price = 0;

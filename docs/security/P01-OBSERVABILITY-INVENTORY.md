@@ -35,12 +35,14 @@ entirely pre-existing third-party-integration failure reporting, `info` (22) and
 diagnostics; none of them is a security signal and enumerating them would bury the ones that are.
 
 
-### `critical` — 12 lines
+### `critical` — 14 lines
 
 | line | message |
 |---|---|
 | `app/Http/Controllers/Concerns/AppliesCartStockChanges.php:111` | Insufficient stock on an order path that cannot refuse; order kept, stock oversold |
-| `app/Http/Controllers/KhaltiPaymnetController.php:1206` | Khalti order written for RECONCILIATION: the gateway could not be asked whether money moved |
+| `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:954` | Gateway return gave up after the capture was classified: |
+| `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:966` | Gateway return refused: the basket names a product or variant row that no longer exists. |
+| `app/Http/Controllers/KhaltiPaymnetController.php:1309` | Khalti order written for RECONCILIATION: the gateway could not be asked whether money moved |
 | `app/Http/Controllers/PaymentController.php:469` | Paymera status poll ABANDONED: no API credential is configured |
 | `app/Http/Controllers/PaymentController.php:580` | Paymera callback REJECTED: the payment status could not be established |
 | `app/Http/Controllers/PaymentController.php:840` | Paymera callback REJECTED: inbound signature not verified |
@@ -52,7 +54,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/ProductStockService.php:127` | Stock decremented below zero on an order path that cannot refuse |
 | `app/Services/ProductStockService.php:210` | Stock decremented below zero on an order path that cannot refuse |
 
-### `warning` — 122 lines
+### `warning` — 123 lines
 
 | line | message |
 |---|---|
@@ -74,9 +76,9 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:133` | Gateway return refused: no server-stored checkout state. |
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:282` | Gateway return carries no claimable identity; falling back to the session control alone. |
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:296` | Gateway return refused: already claimed. |
-| `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:823` | Gateway return refused: basket names a product from another store. |
-| `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:859` | Gateway return refused: the gateway request could not be built. |
-| `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:876` | Gateway return refused: basket holds a non-positive quantity. |
+| `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:984` | Gateway return refused: basket names a product from another store. |
+| `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:1020` | Gateway return refused: the gateway request could not be built. |
+| `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:1037` | Gateway return refused: basket holds a non-positive quantity. |
 | `app/Http/Controllers/Concerns/GuardsPlanActivation.php:85` | Plan activation refused: provider is disabled pending verification. |
 | `app/Http/Controllers/Concerns/ResolvesPendingPartialPayment.php:135` | Pending partial payment lookup failed; the payment is refused. |
 | `app/Http/Controllers/Customer/Auth/CustomerLoginController.php:716` | customer login: refused a social row still holding its module-assigned password |
@@ -86,7 +88,8 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/ESewaPaymentController.php:196` | Plan payment return rejected: claimed amount does not match the plan price. |
 | `app/Http/Controllers/EasebuzzController.php:350` | Pending partial payment refused: the balance named does not belong to this customer. |
 | `app/Http/Controllers/KhaltiPaymnetController.php:251` | Khalti plan purchase NOT activated: the capture was not confirmed for the server price |
-| `app/Http/Controllers/KhaltiPaymnetController.php:774` | Khalti verification refused: no server-computed payable in the stored state. |
+| `app/Http/Controllers/KhaltiPaymnetController.php:416` | Khalti verification refused: no server-computed payable in the stored state. |
+| `app/Http/Controllers/KhaltiPaymnetController.php:461` | Khalti order refused before any stock moved: the gateway rejected the capture |
 | `app/Http/Controllers/NMIPayController.php:428` | Pending partial payment refused: the balance named does not belong to this customer. |
 | `app/Http/Controllers/OrderController.php:1283` | Return approval restored no stock: order carries no readable product_json |
 | `app/Http/Controllers/OrderController.php:1329` | Return approval skipped a line whose stock was already credited |
@@ -180,6 +183,39 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/WebuzoDomainService.php:170` | New Webuzo domain added but old domain could not be deleted |
 
 <!-- counts: error=95 info=22 debug=1 -->
+
+---
+
+### The three rows added 2026-10-28 (D-13 / D-22), with their destination and reader
+
+The ratchet's resync tool refuses to write when a line is **added** rather than moved, because a new
+row needs a destination and a reader that only a person can state. These are those statements.
+
+**`GuardsGatewayReturn.php:946` — `logGatewayExitAfterCapture()`, `critical`.** Fires when a gateway
+return gives up *after* the capture has been classified. **Why it has to exist:** D-13 hoisted the
+Khalti verification above the cart read, which is what stops stock being taken before the payment is
+known — and in doing so opened roughly 450 lines between *"the gateway confirmed this capture"* and
+the order write. Several exits in that window previously returned `{status: 0}` with no log at all,
+and before the hoist they ran *before* the verify call, so their silence cost nothing. Now it would.
+**Reader:** whoever reconciles payments. `capture_was_confirmed` is the field to search on — `true`
+means money moved and that shopper has no order. **Destination:** the same channel as every other
+row here (section 2), so it reaches larabug with the same caveat recorded there.
+
+**`GuardsGatewayReturn.php:958` — `gatewayReturnMissingProductRefusal()`, `critical`.** Fires when a
+gateway return's basket names a `products` or `product_variants` row that no longer exists — F121,
+which used to answer with an unhandled `ErrorException` from the cart read. Wired on all four
+handlers D-18 names. **Reader:** the same person, for the same reason: on Khalti it carries the
+verification outcome, so a confirmed capture with no order is searchable; on PaiementPro, CinetPay
+and Easebuzz it carries `null` there, which is the honest value — those gateways verify nothing, so
+the capture state is genuinely **unknown** rather than known-absent. **Destination:** as above.
+
+**`KhaltiPaymnetController.php:461` — the rejected-capture refusal, `warning`.** Fires when Khalti
+was reached and did not confirm, now *before* any stock moves. `warning` rather than `critical`
+because on this branch the gateway answered and the answer was no: nothing was taken and nothing
+needs settling. One caveat worth having in writing — `verifyKhaltiCapture()` classifies **any**
+non-200, non-zero HTTP status as REJECTED, a 502 included, so a run of these may mean Khalti is
+unwell rather than that shoppers are being refused. **Reader:** whoever watches gateway health.
+**Destination:** as above.
 
 ---
 

@@ -818,6 +818,167 @@ trait GuardsGatewayReturn
      * conversation can tell which of the three fired -- and so the regression tests can assert
      * it rather than inferring it from an absent order.
      */
+    /**
+     * D-22 / F121. DOES THE BASKET NAME A ROW THAT NO LONGER EXISTS?
+     *
+     * Asked of the `carts` rows DIRECTLY, and asked BEFORE the cart read, because the cart read is
+     * where the crash is. `Cart::cart_list_cookie()` and `Api\ApiController::cart_list()` both do
+     *
+     *     $cart_product_data = Product::find($value->product_id);
+     *     ... $cart_product_data->id ... $cart_product_data->product_type ...
+     *     $ProductVariant = ProductVariant::find($value->variant_id);
+     *     $variant_name = $ProductVariant->variant;
+     *
+     * with no null test, at about a dozen sites between them. A line whose product or variant row
+     * has been deleted since it was added therefore makes the gateway return answer with an
+     * unhandled `ErrorException`, on both the guest and the authenticated arm.
+     *
+     * MEASURED on a driven Khalti return before this guard existed: `Attempt to read property "id"
+     * on null` for a deleted product, `Attempt to read property "discount_price" on null` for a
+     * deleted variant, zero orders written, and -- the one piece of good news -- no decrement,
+     * because the cart read precedes the stock loop. That ordering is also why D-13's restoration
+     * test could never reach the in-loop exits it was written for (F121).
+     *
+     * WHY NOT GUARD THE DEREFS THEMSELVES. `Cart::cart_list_cookie()` and `cart_list()` are read by
+     * the storefront cart page, the sidebar, the API and nine checkout writers. Making a dangling
+     * line SKIP would silently drop it from a basket the shopper has already paid for, and making
+     * it yield nulls changes an array shape all of those read. The gateway return is the surface
+     * where a dangling line is dangerous, so the guard lives here, additive, and nothing else
+     * changes behaviour.
+     *
+     * NOT the same question as `basketHasForeignProduct()`, which deliberately `continue`s on a
+     * missing row ("not a provable mismatch") -- precisely the line this one catches.
+     */
+    protected function basketHasMissingProductRow($store): bool
+    {
+        if (empty($store) || empty($store->id)) {
+            return false;
+        }
+
+        /*
+         * THE PRINCIPAL IS DERIVED HERE, NOT PASSED IN -- and that is the THIRD version of these
+         * lines, each correction coming from something the project already knew.
+         *
+         * The first read `->where('cookie_session_id', $guestCookie)`. Laravel turns a null value
+         * into `whereNull()`, and `carts.cookie_session_id` is nullable with no default, so EVERY
+         * registered customer's row in the store carries NULL there: the predicate silently became
+         * "this store's customer baskets", and one deleted catalogue product would have refused
+         * every cookie-less guest's return. The reviewer found that, and then
+         * `NullCookieCartTest::test_no_host_query_names_cookie_session_id_outside_the_scope`
+         * failed on the same line -- a census that exists precisely because the mistake has been
+         * made here before.
+         *
+         * The second took `$customerId` and `$guestCookie` as ARGUMENTS, and
+         * `CartScopesTest::test_every_for_customer_call_names_the_authenticated_principal` refused
+         * it: that census allows `forCustomer()` to be handed the authenticated principal and
+         * nothing else. It is right, and not merely about spelling. CLAUDE.md's most productive
+         * rule in this codebase is "derive the target from the authenticated principal; never from
+         * request input", and a guard that ACCEPTS an id is one careless call site away from being
+         * handed `$request->customer_id`. There is nothing for a caller to supply, so it supplies
+         * nothing.
+         *
+         * Both scopes fail CLOSED on their predicate and therefore OPEN on this guard's answer:
+         * `forGuestCookie()` is `whereRaw('1 = 0')` for anything that is not a non-empty string,
+         * `forCustomer()` the same for anything that is not a positive integer. That is correct
+         * rather than convenient -- this guard exists to pre-empt a crash in the cart read, and a
+         * principal with no identifiable basket has no basket for that read to crash on.
+         */
+        $customerId = auth('customers')->id();
+        $guestCookie = \Cookie::get('cart');
+
+        $query = \App\Models\Cart::withoutGlobalScopes()->where('store_id', $store->id);
+
+        $query = $customerId
+            ? $query->forCustomer(auth('customers')->id())
+            : $query->forGuestCookie(is_string($guestCookie) ? $guestCookie : '');
+
+        $rows = $query->get(['product_id', 'variant_id']);
+
+        foreach ($rows as $row) {
+            if (empty($row->product_id) || ! is_numeric($row->product_id)) {
+                continue;
+            }
+
+            if (! \App\Models\Product::withoutGlobalScopes()->whereKey($row->product_id)->exists()) {
+                return true;
+            }
+
+            if (! empty($row->variant_id) && is_numeric($row->variant_id) && (int) $row->variant_id !== 0) {
+                if (! \App\Models\ProductVariant::withoutGlobalScopes()->whereKey($row->variant_id)->exists()) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * D-22 / F121. The refusal for a basket naming a deleted row.
+     *
+     * TWO THINGS ABOUT THIS REFUSAL ARE DELIBERATE AND NEITHER IS COSMETIC.
+     *
+     * It is logged at `critical` WITH the verification outcome, because the caller is expected to
+     * have verified the capture before reaching here. When the money WAS collected this is the only
+     * durable record that a paid customer has no order, and a merchant needs the amount to settle
+     * it. When it was not, the same line reads as an ordinary refusal.
+     *
+     * And it does NOT claim the payment was applied. The foreign-product refusal next door says
+     * "your payment has not been applied to an order", which is the right sentence there and the
+     * wrong one here: on this path the payment may well have been taken. The shopper is told the
+     * item is unavailable and to contact the store, which is true either way.
+     */
+    /**
+     * D-13 FOLLOW-UP. A HANDLER THAT GIVES UP *AFTER* THE CAPTURE WAS CLASSIFIED MUST SAY SO.
+     *
+     * Hoisting the verification above the cart read bought the thing D-13 needed -- no stock moves
+     * before the payment is known -- and opened something the project's reviewer named: there are
+     * now ~450 lines between "Khalti confirmed this capture" and the order write, and several of
+     * the exits in that window returned `{status: 0}` with NO LOG AT ALL. Before the hoist those
+     * exits ran before the verify call, so "verify was called" implied either an order or a
+     * rejection; now it does not.
+     *
+     * This does NOT write the order -- the register records that as the owner's open half of D-22,
+     * because an order line for a product that no longer exists is a shape the merchant UI, the
+     * invoices and the Flutter app all read. What it does is make a collected capture with no order
+     * RECOVERABLE instead of silent, which is the minimum the instruction "do not lose a paid
+     * order" can mean while the decision is outstanding.
+     *
+     * `capture_was_confirmed` is the field to search on: true means money moved and this shopper
+     * has no order.
+     */
+    protected function logGatewayExitAfterCapture(string $gateway, string $why, $verification = null, $amount = null): void
+    {
+        $confirmed = $verification !== null && $verification->isVerified();
+
+        Log::critical('Gateway return gave up after the capture was classified: ' . $why, [
+            'gateway' => $gateway,
+            'reason' => $why,
+            'verification_outcome' => $verification->outcome ?? null,
+            'capture_was_confirmed' => $confirmed,
+            'expected_total' => $amount === null ? null : (string) $amount,
+            'authenticated_customer' => optional(auth('customers')->user())->id,
+        ]);
+    }
+
+    protected function gatewayReturnMissingProductRefusal(Request $request, string $gateway, $verification = null, $amount = null)
+    {
+        Log::critical('Gateway return refused: the basket names a product or variant row that no longer exists.', [
+            'gateway' => $gateway,
+            'path' => $request->path(),
+            'ip' => $request->ip(),
+            'authenticated_customer' => optional(auth('customers')->user())->id,
+            'verification_outcome' => $verification->outcome ?? null,
+            'capture_was_confirmed' => $verification !== null ? $verification->isVerified() : null,
+            'expected_total' => $amount === null ? null : (string) $amount,
+        ]);
+
+        return redirect()->back()->with(
+            'error',
+            __('An item in your cart is no longer available. Please contact the store before paying again.')
+        );
+    }
+
     protected function gatewayReturnForeignProductRefusal(Request $request, string $gateway)
     {
         Log::warning('Gateway return refused: basket names a product from another store.', [

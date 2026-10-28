@@ -244,6 +244,41 @@ class GatewayReturnTrustBoundaryTest extends SecurityTestCase
     }
 
     /** The shape PaymentService stores, with every money field the handlers read. */
+    /**
+     * A KHALTI VERIFIER THAT CONFIRMS, BOUND SO THESE ROWS STILL REACH WHAT THEY MEASURE.
+     *
+     * D-13 moved the Khalti verification ABOVE the cart read and the stock loop, so a return whose
+     * capture is not confirmed now stops before either. That is the fix; it also means a khalti row
+     * that binds no verifier stops at the payment and never reaches the guard or the loop this test
+     * is about. Before the fix those rows reached the stock loop WITH NO PAYMENT EVIDENCE AT ALL,
+     * which is the exposure D-13 closed -- so the rows were only ever reachable because of the
+     * defect.
+     *
+     * Binding a confirming double is therefore not a relaxation: it makes the fixture a LEGITIMATE
+     * PAID return, which is the only kind that should reach a stock loop, and the row's own claim
+     * is unchanged and now stronger -- the guard fires, or the setting gates the deduction, EVEN
+     * when the payment is good.
+     *
+     * The canned response carries no `amount`, deliberately: `verifyKhaltiCapture()` treats a 200
+     * with no amount field as verified (its own test pins that), so this double is independent of
+     * whatever total the fixture happens to price, and will not start failing if one changes.
+     *
+     * Harmless for the other gateways in these data sets: none of them resolves `Khalti` at all.
+     */
+    private function bindConfirmingKhalti(): void
+    {
+        $this->app->instance(\App\Khalti\Khalti::class, new class extends \App\Khalti\Khalti {
+            public function __construct()
+            {
+            }
+
+            public function verifyPayment($secret, $token, $amount)
+            {
+                return ['status_code' => 200, 'data' => ['idx' => 'trust-boundary-double']];
+            }
+        });
+    }
+
     private function forgedCheckoutState($store, $customerId, array $overrides = []): array
     {
         return array_merge([
@@ -478,6 +513,7 @@ class GatewayReturnTrustBoundaryTest extends SecurityTestCase
 
         $state = $this->forgedCheckoutState($store, $customer->id);
         $before = self::orderCount();
+        $this->bindConfirmingKhalti();
 
         session()->forget('error');
         $this->actingAs($customer, 'customers')
@@ -1199,6 +1235,7 @@ class GatewayReturnTrustBoundaryTest extends SecurityTestCase
 
         $state = $this->forgedCheckoutState($store, '');
         $before = self::orderCount();
+        $this->bindConfirmingKhalti();
 
         session()->forget('error');
         $this->withCookie('cart', $sid)

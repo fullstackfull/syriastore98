@@ -5585,3 +5585,213 @@ Intended behaviour.
 **Stated limit:** measured on the order list (116 focusable controls) in four configurations, not on
 all 107 screens individually. The indicator is shared CSS and the trap is shared JS, so both are
 system-level; a per-screen sweep would be breadth, not a different question.
+
+---
+
+## D-13 / F90 — the unverified stock decrement on the Khalti return (2026-10-28)
+
+`tests/Feature/Security/GatewayStockBeforeVerificationTest.php` — 10 cases, all passing.
+
+**The drain was measured before anything was touched.** With the stock loop in its old position, a
+capture Khalti itself REJECTED took `products.product_stock` from 50 to 49 and
+`product_variants.stock` from 50 to 49, with **zero order rows written**, and a stored state
+carrying no server payable did the same without Khalti being asked at all. Both are repeatable: the
+route is anonymous and a checkout can be re-initiated.
+
+**Reachability came first, because D-18 requires it and the register recorded it as NOT
+ESTABLISHED.** `test_the_stock_loop_is_reached_at_all` drives a confirmed capture and watches the
+figure move, so no negative case in the file is vacuous. And the `$plan->shipping_method` question
+is settled by driving it: with `users.plan_id` pointing at nothing the handler throws
+`ErrorException: Attempt to read property "shipping_method" on null` **before** the loop, stock
+still 50, no order. So the path is latent only on a platform whose admin has no resolvable plan and
+**live on one that has** — the ordinary configuration. Two bounds stated rather than glossed: that
+crash is a PHP warning promoted by Laravel's handler, so where `error_reporting()` omits `E_WARNING`
+the deref yields null, `null == 'on'` is false and the path runs **live**; and nothing here says
+which configuration production runs.
+
+**The fix is an ordering, not the deferral D-18 ruled out.** D-18 recorded that the decrement cannot
+wait because no column records that an order consumed its stock — true of deferring to a *later*
+request, not of this one, where the decrement and the verification sit in the **same** request about
+250 lines apart in the wrong order. The verification block was hoisted above the loop. No schema, no
+marker, no E13 dependency.
+
+**Three controls keep it honest, because a fix that stopped the drain by not decrementing would pass
+every negative case:** the reachability case, the UNVERIFIABLE case (still decrements and still
+writes its Pending order — refusing it would strand a charged customer) and the replay case all
+assert the decrement still happens exactly once. A fourth asserts **Khalti is asked exactly once per
+return** — a hoist that left the old call standing would double every outbound verify request and
+nothing else in the file would have noticed. A fifth pins the shopper-visible refusal as the same
+redirect and message as before.
+
+**Bitten:** reverting the controller fails exactly the three drain cases and leaves all six controls
+green.
+
+**PaiementPro, CinetPay and Easebuzz are BLOCKED, and measured as such rather than assumed.**
+`PaymentVerificationService` holds exactly three provider verifiers — `verifyKhaltiCapture`,
+`verifyPaymeraCapture`, `verifyPaymeraSignature` — and none of these three gateways has one. Each
+goes from the loop straight to `new Order()`; the only returns in between are the three in-loop
+"Product not found" / "bad json" exits D-18 already fitted with restores. **There is nothing to
+hoist and no post-loop refusal to reorder.** Closing them needs either a new provider verification
+(Easebuzz's reverse hash is locally verifiable with the stored salt and already gates its *plan*
+path, but its computation has never been checked against a real response here) or refusing
+evidence-free returns — both change whether a payment is **accepted** on a live storefront path,
+which §11 reserves. Options recorded in the register; the slice is stopped, not guessed at.
+
+---
+
+## D-22 / F121 — the deleted product or variant that 500s a payment return (2026-10-28)
+
+`tests/Feature/Security/GatewayReturnMissingProductTest.php` — 5 cases, all passing.
+
+**Confirmed on a driven request, which it never had been.** A Khalti return whose basket names a
+deleted `products` row answers `ErrorException: Attempt to read property "id" on null` with zero
+orders — on a **VERIFIED** capture as much as a rejected one — and a deleted variant row gives the
+same on `discount_price`. A paid customer whose product was deleted mid-checkout got an unhandled
+exception and no order. The crash precedes the decrement, so this is not a drain; that same ordering
+is why D-13's restoration test could never reach the exits it was written for.
+
+**Fixed — the half the owner authorised in those words.** The verification moved above the **cart
+read**, not merely above the loop: it needs only the payload, the store and the stored state, so
+that is the earliest position it can hold, and a refusal fired at the read needs to know whether
+money was collected before deciding how loudly to log. Then `basketHasMissingProductRow()`, asked of
+the `carts` rows directly before the read, refuses the basket **whole** — a healthy line is not
+decremented on the way to discovering a dangling one.
+
+**The dereferences themselves are deliberately not guarded.** `Cart::cart_list_cookie()` and
+`Api\ApiController::cart_list()` are read by the storefront cart page, the sidebar, the API and nine
+checkout writers; skipping a dangling line would silently drop one the shopper has already paid for,
+and nulling it changes an array shape all of them read.
+
+**Not fixed, not claimed:** *after proof, do not lose the paid order*. A paid customer still gets no
+order — now a structured refusal and a `critical` log naming the confirmed capture and its amount
+instead of a 500 and silence. Writing the order means deciding what an order line for a deleted
+product contains, a shape the merchant UI, the invoice modules and the **Flutter** app all read, and
+inventing a substitute product or variant is forbidden. Three options are recorded in the register;
+only one satisfies the instruction literally and it is the one that changes a cross-repository
+contract, so it is the owner's decision and the slice stops there.
+
+**Bite matrix** — and it corrected one of my own tests:
+
+| state | result |
+|---|---|
+| HEAD, neither change | 4 of 5 fail |
+| the hoist only, guard removed | **3** of 5 fail |
+| both | 5 pass |
+
+The rejected-capture case does not detect the guard; it detects the **hoist**, because once the
+verification sits above the cart read a rejected capture never reaches the crash. Kept and
+relabelled as D-13 evidence. The three that bite the guard are the **verified** paths — the right
+answer, since a verified capture is exactly the caller the hoist cannot turn away. The intact-basket
+case passes in all three states, as a control must.
+
+### The independent review of the D-13 / D-22 change (2026-10-28)
+
+`tenant-authz-reviewer` was run on the uncommitted diff before it was committed, as CLAUDE.md
+requires for a payment path. It found **two defects in the fix**, both invisible to every test in
+the repository, and that is the third time in four packages the reviewer has found the defect inside
+the remedy.
+
+**The serious one: the hoist clobbered `$response`.** The verify result went into `$response`, which
+was safe while the verification sat below the cart read — and D-22 moved it above that read, where
+the GUEST arm does `$response = Cart::cart_list_cookie(...)` then `json_decode(json_encode(...))`,
+a stdClass. The thank-you payload 800 lines later reads `$response['status_code']`. The reviewer
+predicted a silent `0`; **measured on PHP 8.3.6 it throws** `Error: Cannot use object of type
+stdClass as array`. A guest whose capture was CONFIRMED would have got an unhandled error **after**
+the order committed `Paid` and the stock was decremented — the F89 shape, a charged card ending in a
+500. Renamed to `$khaltiResponse`.
+
+**The coverage shape behind it matters more than the line.** Every Khalti test in this repository
+drives `actingAs($customer, 'customers')`, and the guest arm is the one that reads `$response`. So
+the guest arm is now driven in two places: a verified-guest case asserting the request completes,
+the payload carries Khalti's real status code and the order is `Paid`; and
+`GatewaySiblingMissingProductTest`, which drives the guest arm of all four handlers. **The new case
+bites** — restoring `$response` fails it with that exact `Error`.
+
+**The second: the new guard swept the store for a cookie-less guest.** `where('cookie_session_id',
+null)` becomes `whereNull`, and `carts.cookie_session_id` is nullable with no default, so every
+registered customer's row carries NULL there. One deleted catalogue product would have refused every
+cookie-less guest's return. The guard now returns `false` for a principal it cannot identify —
+failing **open**, which is correct here rather than merely convenient: the guard exists to pre-empt a
+crash in the cart read, and a guest with no cookie has no cookie basket for that read to crash on.
+Driven with the trigger present (another customer's dangling basket in the same store) and with the
+NULL premise asserted.
+
+**And it caught a false claim in my own docblock** — that the D-22 file drove "BOTH arms" when all
+five cases drive the authenticated one. Load-bearingly false, since both findings lived on the guest
+arm. Corrected.
+
+**A vacuous green was caught by the fixture work, separately from the review.** The sibling file's
+first version seeded only `request_data`; Easebuzz reads `easebuzz_request_data` with **no
+fallback**, so its rows refused at the entry guard and passed for an unrelated reason. Both keys are
+seeded now, and every row asserts the premise that the handler got past that guard — which turned
+two passes into two real failures, both then fixed.
+
+**Also applied from the review:** a `critical` log on the two `'Cart is empty.'` exits that now sit
+*after* the capture is classified (`capture_was_confirmed` is the field to search on — `true` means
+money moved and that shopper has no order); and the REJECTED comment corrected, since
+`verifyKhaltiCapture()` classifies any non-200, non-zero status as REJECTED, a 502 included.
+
+**The observability ratchet failed in both directions** — seven undocumented, five stale — and was
+repaired in the order the document itself requires: three log lines were genuinely **added**, which
+is the case the resync tool refuses to write, so a destination and a reader were written for each
+before the tool was allowed to re-point the five that had merely moved.
+
+**Cleared by the review, and worth recording as cleared:** the replay claim is not a regression
+(`claimGatewayReturn()` and the `Session::forget()` sit above both positions, and a shopper whose
+attempt genuinely failed re-initiates with both keys fresh — now with their basket intact, since the
+cart delete no longer runs for a refused payment), and the gateway secret's tenancy is unchanged
+(`$store` comes from the stored state's slug, never from caller input).
+
+### Four existing tests had to change, and why that is not a weakened check
+
+The full `Commerce` + `Security` + `Payments` run on the finished tree came back **4 failed, 11
+skipped, 4858 passed** before these were addressed. All four are recorded here because the directive
+forbids weakening a check, and three of them are a test discovering the fix.
+
+**`NullCookieCartTest::test_no_host_query_names_cookie_session_id_outside_the_scope` — the census was
+right and my guard was wrong.** This project forbids any query naming `cookie_session_id` outside
+`Cart::scopeForGuestCookie()`, and the new guard had a raw `->where('cookie_session_id', $cookie)`.
+That census exists *because this mistake has been made before*, and it caught the very defect the
+reviewer had flagged independently: `whereNull` on a nullable column with no default. The guard now
+goes through `forGuestCookie()` and `forCustomer()`, which answer `whereRaw('1 = 0')` for anything
+that is not a non-empty string / positive integer — so the fail-open behaviour comes from the
+project's own mechanism rather than from a hand-rolled early return. **No test was changed for this
+one; the code was.**
+
+**Three rows across `GatewayReturnTrustBoundaryTest` (negative cart line, absurd quantity) and
+`StockManagementSettingTest` (each gateway return deducts only when stock management is on) bound no
+Khalti verifier, and so stopped at the payment instead of reaching the guard or the loop they
+measure.** The honest reading of that is the important part: **before D-13 those rows reached the
+stock loop with no payment evidence at all.** They were reachable only because of the defect. The
+`absurd quantity` test's own docblock even says so out loud — *"CinetPay, Easebuzz and PaiementPro
+verify nothing, so the stock moves whether or not money did"*.
+
+So each now binds a **confirming** Khalti double, which makes the fixture a legitimate **paid**
+return — the only kind that should reach a stock loop at all. Each row's claim is unchanged and
+strictly stronger: the quantity guard fires, and the `stock_management` setting gates the deduction,
+**even when the payment is good**. The double's canned response carries no `amount` field, because
+`verifyKhaltiCapture()` treats a 200 with no amount as verified (its own test pins that), so it does
+not depend on whatever total a fixture happens to price and will not rot when one changes. It is
+bound unconditionally in the data-provider-driven tests and is inert for the other gateways, none of
+which resolves `Khalti`.
+
+**A second census then caught a genuine design flaw in the guard, and this one is worth more than
+the bug it prevented.** `CartScopesTest::test_every_for_customer_call_names_the_authenticated_
+principal` allows `forCustomer()` to be handed the authenticated principal and nothing else; the
+guard took `$customerId` as an argument. The census is right for a reason that is not about
+spelling: CLAUDE.md's most productive rule in this codebase is *derive the target from the
+authenticated principal, never from request input*, and a guard that ACCEPTS an id is one careless
+call site away from being handed `$request->customer_id`. So the guard now derives both the customer
+id and the guest cookie itself and takes only `$store` — there is nothing for a caller to supply, so
+it supplies nothing. That also deleted the duplicated
+`is_string(\Cookie::get('cart')) ? ... : null` dance from all four call sites. **Three versions of
+four lines, each correction coming from something this repository already knew.**
+
+**What was NOT done:** no assertion was loosened, no expected message was changed to match new
+behaviour, no census allow-list was widened, and nothing was added to the known-outcome manifest. The one genuine behaviour change —
+that on Khalti the quantity and foreign-product refusals now follow the verification, because they
+read `$products` and the verification must precede the cart read — is recorded in the register
+rather than absorbed into a test.
+
+After the four: **`Commerce` + `Security` + `Payments` green on the finished tree**, `Unit` 564
+passed.
