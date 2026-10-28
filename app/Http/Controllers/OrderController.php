@@ -541,10 +541,68 @@ public function store(Request $request)
 
             \App\Services\TableFilterMemory::remember($request, 'order');
 
-            return $dataTable->render('order.index');
+            return $dataTable->render('order.index', $this->orderAttentionCounts());
         } else {
             return redirect()->back()->with('error', __('Permission denied.'));
         }
+    }
+
+
+    /**
+     * P2-04-13 / WS E9 — the order screen's "needs attention" counts.
+     *
+     * EVERY COUNT HERE IS LINKED TO A LIST THAT REALLY CONTAINS IT, which is the property that
+     * makes the block worth reading and the one that is easy to get wrong. Each predicate below
+     * is the SAME predicate the filter its link carries will apply:
+     *
+     *   pending  -> `delivered_status = 0`      -> ?ss_status=0
+     *   returns  -> `return_status = 1`         -> ?ss_return=1
+     *   unpaid   -> `payment_status = 'Unpaid'` -> ?ss_payment=Unpaid
+     *
+     * TWO MISMATCHES WERE FOUND BY MEASURING AND ARE THE REASON THAT PROPERTY IS SPELLED OUT.
+     *
+     *  1. The dashboard's "returns" count is `delivered_status = ORDER_STATUS_RETURN`
+     *     (`HomeController::getOrderCounts()`'s `return` bucket) -- the FULFILMENT status. That is
+     *     NOT `orders.return_status`, which holds the return-REQUEST workflow
+     *     (`0 none, 1 request, 2 approve, 3 cancel`). The two columns count different things, and
+     *     a link from one to a filter on the other lands the merchant on a list that does not
+     *     contain the orders just counted. `returns` below is the REQUEST queue -- "raised and
+     *     nobody has decided" -- which nothing could filter for before this slice.
+     *
+     *  2. The dashboard's stock count and the product list's `ss_stock=out` filter DISAGREE, so
+     *     that link is deliberately left unfiltered rather than given false precision. The count
+     *     includes untracked products the merchant marked out of stock
+     *     (`track_stock = 0 AND stock_status = 'out_of_stock'`, HomeController.php:263-264); the
+     *     filter requires `track_stock = 1` on all three of its states, because a product the
+     *     merchant told the system not to count has no stock state at all -- a property
+     *     `ProductListFilterTest` asserts as a partition. Making either match the other changes a
+     *     figure a merchant reads or breaks that partition, so it is recorded rather than papered
+     *     over.
+     *
+     * STORE-SCOPED FROM THE PRINCIPAL, never from request input: `getCurrentStore()` reads the
+     * authenticated user's own `current_store`. `Order` is not in `config/tenancy.php`'s
+     * `scoped_models`, so this predicate is the only thing keeping another tenant's orders out of
+     * these numbers.
+     *
+     * @return array<string, int>
+     */
+    private function orderAttentionCounts(): array
+    {
+        $store = getCurrentStore();
+
+        if (empty($store)) {
+            return ['ssAttentionPending' => 0, 'ssAttentionReturns' => 0, 'ssAttentionUnpaid' => 0];
+        }
+
+        $scoped = fn () => Order::where('store_id', $store);
+
+        return [
+            'ssAttentionPending' => (int) $scoped()
+                ->where('delivered_status', \App\Http\Controllers\HomeController::ORDER_STATUS_PENDING)
+                ->count(),
+            'ssAttentionReturns' => (int) $scoped()->where('return_status', 1)->count(),
+            'ssAttentionUnpaid' => (int) $scoped()->where('payment_status', 'Unpaid')->count(),
+        ];
     }
 
     public function show(Order $order, $id)

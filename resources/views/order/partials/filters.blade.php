@@ -70,6 +70,24 @@
         </select>
     </div>
 
+    {{-- P2-04-13. The return-request queue, offered in the bar as well as linked from the
+         "needs attention" block above the table — so a merchant can reach it deliberately and
+         not only by clicking a count.
+
+         A SELECT WITH ONE REAL OPTION, not a checkbox, for two reasons: the bar is a plain GET
+         form with no JavaScript, and an unchecked checkbox submits NOTHING, so "Any" would be
+         indistinguishable from "the merchant cleared it" — the distinction
+         `TableFilterMemory::shouldRestore()` depends on. `orders.return_status` holds four values
+         and only `1` narrows anything (see `OrderDataTable::applyFilters()`), so offering 2 and 3
+         would be offering filters that return everything. --}}
+    <div class="ss-filterbar__field">
+        <label class="ss-label" for="ss-filter-return">{{ __('Returns') }}</label>
+        <select class="ss-select" id="ss-filter-return" name="ss_return">
+            <option value="">{{ __('Any') }}</option>
+            <option value="1" @selected(request()->query('ss_return') === '1')>{{ __('Awaiting a decision') }}</option>
+        </select>
+    </div>
+
     <div class="ss-filterbar__field">
         <label class="ss-label" for="ss-filter-payment">{{ __('Payment Status') }}</label>
         <select class="ss-select" id="ss-filter-payment" name="ss_payment">

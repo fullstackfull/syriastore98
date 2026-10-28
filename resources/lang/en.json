@@ -3222,5 +3222,10 @@
     "Clear them to see everything again.": "Clear them to see everything again.",
     "This is what customers see on the product page. It does not change the quantity you hold.": "This is what customers see on the product page. It does not change the quantity you hold.",
     "Decide what happens when this product runs out of stock.": "Decide what happens when this product runs out of stock.",
-    "Allowing backorders means customers can still order and pay for it.": "Allowing backorders means customers can still order and pay for it."
+    "Allowing backorders means customers can still order and pay for it.": "Allowing backorders means customers can still order and pay for it.",
+    "Show them": "Show them",
+    "Returns": "Returns",
+    "Awaiting a decision": "Awaiting a decision",
+    "return is waiting for a decision|returns are waiting for a decision": "return is waiting for a decision|returns are waiting for a decision",
+    "order is still unpaid|orders are still unpaid": "order is still unpaid|orders are still unpaid"
 }

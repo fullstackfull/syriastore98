@@ -28,6 +28,63 @@
 @section('content')
     <div class="row">
         <div class="col-xl-12">
+            {{-- P2-04-13 / WS E9 — the operational "needs attention" centre for orders.
+
+                 A SECOND CALLER of the component the dashboard already uses, not a new one. The
+                 block, its accent bar, its heading and its per-row action link are
+                 `components/ss/attention.blade.php` and `attention-item.blade.php`, written and
+                 tested under P2-02.
+
+                 EVERY COUNT LINKS TO A LIST THAT REALLY CONTAINS IT. The hrefs carry the same
+                 predicate `OrderController::orderAttentionCounts()` counted with — see that
+                 method for the two mismatches measurement turned up, one of which would have sent
+                 a merchant to a list of the wrong column entirely.
+
+                 NO EMPTY STATE, BY THE COMPONENT'S OWN CONTRACT: "a permanent '0 items need
+                 attention' panel teaches merchants to stop looking at this part of the screen".
+                 So the whole section is absent when all three counts are zero, and each row is
+                 absent when its own count is.
+
+                 The page already requires `Manage Order` to reach (OrderController::index()), so
+                 the links need no further gate: anyone who can see this block can open what it
+                 points at. --}}
+            @php
+                $ssAttentionTotal = ($ssAttentionPending ?? 0)
+                    + ($ssAttentionReturns ?? 0)
+                    + ($ssAttentionUnpaid ?? 0);
+            @endphp
+
+            @if ($ssAttentionTotal > 0)
+                <x-ss.attention :title="__('Needs attention')"
+                                :severity="($ssAttentionReturns ?? 0) > 0 ? 'warning' : 'brand'"
+                                class="mb-4">
+
+                    @if (($ssAttentionPending ?? 0) > 0)
+                        <x-ss.attention-item
+                            :count="$ssAttentionPending"
+                            :text="trans_choice('order is waiting to be confirmed|orders are waiting to be confirmed', $ssAttentionPending)"
+                            :href="route('order.index', ['ss_status' => \App\Http\Controllers\HomeController::ORDER_STATUS_PENDING])"
+                            :action="__('Show them')" />
+                    @endif
+
+                    @if (($ssAttentionReturns ?? 0) > 0)
+                        <x-ss.attention-item
+                            :count="$ssAttentionReturns"
+                            :text="trans_choice('return is waiting for a decision|returns are waiting for a decision', $ssAttentionReturns)"
+                            :href="route('order.index', ['ss_return' => 1])"
+                            :action="__('Show them')" />
+                    @endif
+
+                    @if (($ssAttentionUnpaid ?? 0) > 0)
+                        <x-ss.attention-item
+                            :count="$ssAttentionUnpaid"
+                            :text="trans_choice('order is still unpaid|orders are still unpaid', $ssAttentionUnpaid)"
+                            :href="route('order.index', ['ss_payment' => 'Unpaid'])"
+                            :action="__('Show them')" />
+                    @endif
+                </x-ss.attention>
+            @endif
+
             {{-- P2-04-8. Above the table, because it changes what the table shows. The same
                  GET-form mechanism the product list uses — see that partial for why it needs
                  no JavaScript. --}}

@@ -75,7 +75,12 @@ final class TableFilterMemory
      */
     private const VOCABULARY = [
         'product' => ['ss_status', 'ss_stock', 'ss_category', 'ss_variant'],
-        'order' => ['ss_status', 'ss_payment', 'ss_from', 'ss_to'],
+        /* `ss_return` added by P2-04-13. IT HAS TO BE HERE, not only in the DataTable: this
+           class's own docblock records what happens to a filter the vocabulary does not know —
+           `describe()` returns `[]`, the Clear button's render condition is `describe(…) !== []`,
+           so the merchant gets a sticky filter, no receipt and no way out. That is the
+           "my orders are gone" screen the restore is only safe if it prevents. */
+        'order' => ['ss_status', 'ss_payment', 'ss_return', 'ss_from', 'ss_to'],
     ];
 
     /** The submit button's name. Its PRESENCE is the only thing that writes the memory. */
@@ -286,7 +291,7 @@ final class TableFilterMemory
         $heading = [
             'ss_status' => 'Status', 'ss_variant' => 'Variants', 'ss_stock' => 'Stock',
             'ss_category' => 'Category', 'ss_payment' => 'Payment', 'ss_from' => 'From',
-            'ss_to' => 'To',
+            'ss_to' => 'To', 'ss_return' => 'Returns',
         ];
 
         if (! isset($heading[$name])) {
@@ -343,6 +348,12 @@ final class TableFilterMemory
 
             return [
                 'ss_status' => $statuses,
+                /* ONE value, because one is all `applyFilters()` accepts. `orders.return_status`
+                   holds `0 none, 1 request, 2 approve, 3 cancel`, and the operational queue is
+                   the undecided one. A map entry for 0/2/3 would let the receipt announce a
+                   filter that narrows nothing — which is the silence this class reserves for
+                   values that really do nothing. */
+                'ss_return' => ['1' => __('Awaiting a decision')],
                 'ss_payment' => array_combine(
                     \App\DataTables\OrderDataTable::PAYMENT_STATUSES,
                     array_map(static fn (string $s): string => __($s),

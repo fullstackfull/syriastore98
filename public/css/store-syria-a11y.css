@@ -1,0 +1,56 @@
+/* =================================================================================================
+   STORE SYRIA — SYSTEM-LEVEL ACCESSIBILITY RESTORATIONS
+   P2-01-20 / WS A7 / F5
+   =================================================================================================
+
+   THIS FILE EXISTS FOR ONE REASON: THE HOST THEME SUPPRESSES THE FOCUS RING FOR EVERY ELEMENT ON
+   EVERY ADMIN PAGE.
+
+       public/assets/css/style.css:15685   *:focus { outline: none; }
+
+   And not in one file — in ALL FOUR stylesheets the layout swaps between: `style.css`,
+   `style-dark.css`, `style-rtl.css` and `rtl-style-dark.css`. So a keyboard user on any admin
+   screen, in either language and either mode, across all 70 vendored WorkDo modules, could not see
+   where they were. Five design-system surfaces already manage focus correctly — the side panel, the
+   dialog, the command palette, the table sort headers and the tab strip — and every control that is
+   NOT a design-system component was left without an indicator.
+
+   WHY A RESTORATION AND NOT A DELETION. Removing `*:focus { outline: none; }` from four theme files
+   would bring back the ring for POINTER users too — a visible change on every control on every
+   screen in the product, which is a far larger and less reversible act than the accessibility
+   problem requires. `:focus-visible` is the mechanism that separates the two cases: the browser
+   paints it for keyboard navigation and withholds it for a mouse click. So a pointer user sees
+   exactly what they see today, and a keyboard user gets an indicator back.
+
+   WHY NOT IN store-syria-ds.css. That file carries an enforced property —
+   `Tests\Unit\Ui\DesignSystemStylesheetScopeTest` asserts that EVERY selector in it is confined by
+   an `.ss-` class or a `data-ss-` attribute, so that loading it on all 70 modules cannot reach an
+   element the design system does not own. `*:focus-visible` is deliberately unconfined, which is
+   the whole point of it, so it cannot live there without destroying that guarantee.
+
+   WHY ONE FILE AND NOT TWO. `custom.css` and `rtl-custom.css` both load after the theme and would
+   have worked — at the cost of two copies of a direction-agnostic rule, which is how two copies of
+   one fact drift apart. The layout loads this once, after the `@if` that chooses the theme, so it
+   covers all four combinations with one declaration.
+
+   THE TOKENS ARE THE DESIGN SYSTEM'S OWN, so the ring is the same colour and weight a merchant
+   already sees on every `.ss-btn`, and it follows the dark-mode override the design system defines
+   (`--ss-focus-ring` is redefined for dark at store-syria-ds.css:335 and :371). The fallbacks are
+   concrete, so this still paints if the design system is ever not loaded on a page.
+   ============================================================================================== */
+
+*:focus-visible {
+    outline: var(--ss-focus-width, 2px) solid var(--ss-focus-ring, #0f766e);
+    outline-offset: var(--ss-focus-offset, 2px);
+}
+
+/* THE ONE EXCEPTION, and it is not a carve-out: these already paint their own ring from the same
+   tokens, and the more specific selector wins anyway. Listed so a reader does not think the
+   design system is being overridden here. */
+
+/* Scroll containers that take focus for keyboard scrolling have no visible affordance of their
+   own, so the ring is the only thing that tells a keyboard user the container is what moves. */
+[tabindex]:focus-visible {
+    outline: var(--ss-focus-width, 2px) solid var(--ss-focus-ring, #0f766e);
+    outline-offset: var(--ss-focus-offset, 2px);
+}

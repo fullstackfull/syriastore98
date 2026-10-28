@@ -1072,3 +1072,93 @@ every client calls.
   `IndexedStack` through `currantIndex`, so hiding one shifts the indices of the rest. A bug there
   breaks core navigation for every merchant, for the benefit of hiding a tab the server already
   refuses. The settings grid — five independent cards, no index coupling — is gated instead.
+
+---
+
+## D-24 — the owner's decisions of 2026-10-28, and the two scope questions still open
+
+The owner approved four **development/test-only** migrations, resolved the P2-01-19 / P2-01-21
+conflict, and asked for "the third scope decision" to be documented by name. My report of
+2026-10-28 named **three** scope questions without labelling them, which is the fair criticism
+behind that instruction. P2-01-19 is now decided, so **two** remain. Both are recorded here with
+the original requirement, the conflict, and the least-risky alternative, and **neither is treated as
+approved**.
+
+### D-24a — P2-01-18: which create-actions belong in the command palette
+
+**The original requirement** (WS B5 / H5, ledger P2-01-18): *"a quick-action surface a merchant can
+reach from anywhere, and from search results"*.
+
+**What is already built.** The palette is in the layout on every admin page
+(`layouts/app.blade.php:520` → `partision/command-palette.blade.php`, 160 lines), opened by
+Ctrl/Cmd+K (`store-syria-ds.js:770-773`). Favourites, Recents and the search half are done, and
+P2-06-12 gave each search result its own permission-aware action.
+
+**The conflict.** `command-palette.blade.php:57` states the contract in the file: the action bar
+*"is never populated client-side"* and stays hidden with no selection. The palette's standing
+content is Favourites and Recents — **navigation destinations, not actions**. So "from anywhere"
+is satisfied and "a quick ACTION surface independent of a selected result" is not, and building one
+means deciding **which create-actions** belong there. That is a product judgement about the
+merchant's daily work, not a technical choice.
+
+**The least-risky alternative, and why it is not automatic.** P2-06-8 already settled the adjacent
+question for this same surface — **nothing destructive in the palette** — and the smallest safe step
+is to inherit that decision and offer only the create-actions whose screens the principal may
+already reach, derived from `MerchantPageDirectory` so the palette cannot offer what navigation
+hides. That is narrow and reversible. It is **not** taken as approved, because choosing the set is
+the part the owner owns.
+
+### D-24b — P2-04-12: the invoice-preview clause is module-owned
+
+**The original requirement** (WS E10, ledger P2-04-12): *"printing and export UI where already
+supported"*, including an invoice preview.
+
+**What is already satisfied.** Two of the three clauses: the documents are reachable
+(`order/view.blade.php:25` shipping label, `:31` receipt, `:23` the module invoice button behind
+`module_is_active('AutomaticOrderPrinting')`), and all of them are permission-gated by
+`OrderDocumentAccessGuard`.
+
+**The conflict.** The invoice preview is **not first-party**. Its view lives under
+`packages/workdo/AutomaticOrderPrinting/`, and both CLAUDE.md §2 and
+`.github/scripts/guard-no-workdo-changes.sh` forbid editing `packages/workdo/`. The guard's own
+entry (`OrderDocumentAccessGuard.php:284-288`) records that `invoices/preview` builds `new Order()`
+and leaks no order data, and that gating it on an order permission would break the module's settings
+iframe. So the clause cannot be delivered by editing the module, and the row's own wording —
+*"where already supported"* — may mean it is out of scope.
+
+**The least-risky alternative.** Read the clause as satisfied by what is already supported, record
+the module boundary, and leave a first-party invoice preview to a later phase. The alternative —
+building a first-party preview — duplicates a vendored feature and is the larger, less reversible
+choice. **Not taken as approved either way**; the rest of P2-04-12 proceeds regardless, per the
+owner's instruction not to let this stop other work.
+
+### D-24c — the nested-modal rule, as the owner stated it
+
+**Preserve Existing Contracts, Eliminate Nested User Experience.** Binding, and recorded here so it
+is not re-litigated:
+
+- Keep every existing `data-ajax-popup` contract and all **266** callers. **No mass deletion.**
+- Where a flow opens a dialog inside a dialog, restructure it so only **one** dialog level is ever
+  really on screen — or use a full page or the side panel — preserving the operation's result, its
+  permissions, and its request/response contract.
+- **Measure the real nesting sites.** Do not assume all 266 callers are broken; the host theme's
+  `[data-ajax-popup-over]` / `#commanModelOver` mechanism (`custom.js:72-95`,
+  `layouts/app.blade.php:484-495`) is deliberate, and only the flows that actually stack need
+  restructuring.
+- Test close, focus, keyboard, save and cancel behaviour, and add a ratchet that protects the
+  callers from accidental deletion.
+
+### D-24d — the four approved migrations, with the owner's conditions attached
+
+**Development and test environments only. No production migration, prepared and tested in an
+isolated environment.** Each must be additive and non-destructive, checked against the current
+schema *and* the documented production schema (`docs/GATE-F-VERIFIED-SCHEMA.md`) for dependencies,
+keys, indexes and backward compatibility, and tested against old rows, new rows, and store
+isolation.
+
+| Row | Approved for | The owner's condition, verbatim in effect |
+|---|---|---|
+| P2-04-9 | named filter sets, per employee and per store | isolation and permissions enforced; sharing a filter combination stays a safe LINK and must not become unrestricted sharing of tenant data |
+| P2-04-11 | `orders.order_source` to distinguish POS, manual and storefront | **old rows stay unattributed** unless there is reliable evidence to classify them; payment and stock logic unchanged |
+| P2-03-4 | the smallest addition compatible with the existing media model, **if proven necessary** | no parallel media engine; no change to variant identity; no deletion of variant references. If it exceeds supporting today's variants and becomes a Phase 03 feature, document the deferral and do not let it block closing approved requirements |
+| P2-04-6 | an **optional** author on NEW notes | appropriate permissions, honest display, and **old notes must not be attributed** to the current employee or to a presumed author |

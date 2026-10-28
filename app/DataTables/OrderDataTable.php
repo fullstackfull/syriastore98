@@ -335,6 +335,31 @@ class OrderDataTable extends DataTable
             $query->where('payment_status', $payment);
         }
 
+        /*
+         * P2-04-13. RETURN REQUESTS AWAITING A DECISION -- a queue nothing could filter for.
+         *
+         * `orders.return_status` is NOT a flag and NOT the same thing as the dashboard's "returns"
+         * count. Its migration comments the four values it holds:
+         * `0 => none, 1 => request, 2 => approve, 3 => cancel`
+         * (2024_01_23_061635_create_orders_table.php:38), so it is the RETURN-REQUEST WORKFLOW.
+         *
+         * THE DASHBOARD'S COUNT IS A DIFFERENT COLUMN, and conflating them was the first version
+         * of this filter. `$ssReturnOrders` comes from `getOrderCounts()`'s `'return'` bucket,
+         * which is `where('delivered_status', ORDER_STATUS_RETURN)` -- the FULFILMENT status
+         * (HomeController.php:412). A filter on `return_status` would therefore have sent a
+         * merchant clicking that count to a list that does not contain the orders it counted.
+         * `delivered_status = 3` is already filterable through `ss_status`, so that count needs no
+         * new filter -- it needs its link to carry the parameter, which this slice also fixes.
+         *
+         * `=== '1'` AND NOTHING ELSE. The operational queue is "a return was raised and nobody has
+         * decided yet"; 2 and 3 are decided and 0 is the overwhelming majority. Accepting only
+         * `'1'` also means a hand-typed `?ss_return=0` cannot quietly invert the queue into
+         * "every order that has no return".
+         */
+        if ($request->query('ss_return') === '1') {
+            $query->where('return_status', 1);
+        }
+
         $from = self::parseDate($request->query('ss_from'));
 
         if ($from !== null) {

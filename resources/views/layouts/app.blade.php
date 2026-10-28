@@ -154,6 +154,20 @@
         <link rel="stylesheet" href="{{ asset('css/loader.css') }}{{ '?v=' . time() }}" >
     @endif
 
+    {{-- P2-01-20. AFTER the @if, so it covers all four theme combinations with one line.
+
+         The host theme suppresses the focus ring for EVERY element —
+         `public/assets/css/style.css:15685` is `*:focus { outline: none; }`, and the same rule is
+         in all four stylesheets the branches above choose between. That left every control which
+         is not a design-system component with no focus indicator, on every admin page, across all
+         70 vendored modules.
+
+         This restores it for KEYBOARD navigation only, via `:focus-visible`, so a pointer user
+         sees exactly what they see today. See the file's own header for why it is a restoration
+         rather than deleting the theme's rule, and why it cannot live in store-syria-ds.css. --}}
+    <link rel="stylesheet" href="{{ asset('css/store-syria-a11y.css') }}{{ '?v=' . time() }}"
+          id="ss-a11y-style-link">
+
     {{-- P2-01-11: the design system is loaded for EVERY admin page now, not
          only the screens that opt in via layouts/includes/store-syria-ds.blade.php.
 
