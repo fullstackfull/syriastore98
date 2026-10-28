@@ -5359,3 +5359,69 @@ guessing. The script was run against a **snapshot** of `resources/` first and re
 pre-measurement exactly (104 files, 134 items, 67 `aria-current` added, 5 removed, 3 Home crumbs
 dropped), and the contract test's assertions were simulated against that snapshot before either was
 applied. They agreed: the only residual offender on all four scans was that one hand-check file.
+
+---
+
+## F152 — the dark theme's blanket paragraph colour (2026-10-28)
+
+Fixed at the shared location with **one selector token**, in both
+`public/assets/css/style-dark.css` and `public/assets/css/rtl-style-dark.css`:
+
+```
+before:  .dash-sidebar .dash-link, …, .dataTable-info, p                                    { color:#808191!important }
+after:   .dash-sidebar .dash-link, …, .dataTable-info, p:not([class^="ss-"]):not([class*=" ss-"]) { … }
+```
+
+Nothing else in the rule changed, so the sidebar link, its icon and the DataTables info line still
+take the host theme's grey — asserted, because a diff that lost them would be a regression in the
+host theme dressed as a fix.
+
+**`:not([class*="ss-"])` would have been wrong.** It matches any class attribute *containing* the
+substring, and `address-line` contains `ss-`. The two selectors match a real class **token**.
+
+### Measured in a real browser, dark mode, ten merchant pages
+
+`docs/development/phase-2/tools/check-dark-paragraphs-live.cjs`; raw runs in
+`docs/development/phase-2/evidence/f152/`.
+
+| | before | after |
+|---|---|---|
+| design-system paragraphs | 14 measured, **7 below 4.5:1** | 14 measured, **0 below 4.5:1** |
+| paragraphs with no `ss-` class | 3 measured, 3 at 3.71:1 | 3 measured, 3 at 3.71:1 — **byte-identical** |
+
+The second row is the point. The owner asked for the narrowest safe change *and* a measurement of
+the impact on other screens; a `diff` of the non-design-system rows across the two runs is empty,
+so that impact is provably zero rather than argued.
+
+The seven were `ss-board__none` ×2 at 3.85:1, `ss-section__note` at 3.42:1 and `ss-stat__period` ×4
+at 3.85:1 — every one computing to `rgb(128,129,145)`, the forced grey itself.
+
+**One of them is a gap in my own earlier work.** P2-04-7 reported "0 contrast failures" for the
+Kanban board. The board it measured had **cards**, so `ss-board__none` — the empty-column message —
+never rendered and was never measured. It fails at 3.85:1.
+
+**A static census said 23; the live measurement said 7. Both are reported.** 23 design-system
+classes are applied to `<p>` elements across ~74 usages — the *potential* scope. 7 is what actually
+rendered and failed on the pages measured. Reporting only the first would overstate the fix;
+reporting only the second would understate the risk to components not on these pages.
+
+### Pinned, and bitten two ways
+
+`tests/Unit/Ui/DarkParagraphContrastRuleTest.php`, 4 cases. Restoring the bare `p` fails *"neither
+dark stylesheet forces a colour on every paragraph"* and *"both stylesheets exempt design-system
+paragraphs"*; switching to the over-matching substring form fails the other two. Unit suite: **547
+passed**.
+
+**One of my own assertions was wrong first.** The blanket-rule check used
+`/(^|[,{}\s])p\s*\{…/`, which also matches `.auth-footer p { color:#808191!important }` — a
+legitimate *scoped* rule — so it failed against the correctly patched stylesheet. It matches a bare
+`p` now: one preceded by a comma or a line start, never by a space.
+
+### What is not fixed, and why — F158
+
+The three paragraphs carrying no design-system class remain at **3.71:1**. Releasing them means
+changing what every paragraph in the dark admin looks like, whose blast radius is every screen in
+the product; that is not the narrowest safe change and needs its own measurement and an owner
+decision. They are also not a design-system defect — they were never on the design system, so the
+fix cannot reach them by construction. Recorded as **F158** with the measured rows, so the next
+slice starts from a measurement.

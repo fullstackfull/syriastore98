@@ -29439,7 +29439,7 @@ h1,h2,h3,h4,h5,h6{
 }
 .dash-sidebar .dash-link,
 .dash-sidebar.light-sidebar .dash-link i,
-.dataTable-info,p{
+.dataTable-info,p:not([class^="ss-"]):not([class*=" ss-"]){
     color: #808191 !important;
 }
 .details-card, .dashboard-card{
