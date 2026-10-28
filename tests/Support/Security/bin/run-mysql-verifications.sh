@@ -132,6 +132,13 @@ run_one verify-coupon-code-matching-on-mysql \
   "COUPON_MYSQL_SOCKET=${SOCK}" "COUPON_MYSQL_HOST=${HOST}" "COUPON_MYSQL_PORT=${PORT}" \
   "COUPON_MYSQL_DATABASE=coupon_verify" "COUPON_MYSQL_USERNAME=${USER_NAME}" "COUPON_MYSQL_PASSWORD=${PASS}"
 
+# F154/F153 -- the order export's heading-to-value alignment, and the one coercion that made the
+# first draft of that script report a FAIL for a fixture of my own making. Added 2026-10-28 under
+# the directive's "export column order" clause for MySQL evidence.
+run_one verify-order-export-column-order-on-mysql \
+  "EXPORTORDER_MYSQL_SOCKET=${SOCK}" "EXPORTORDER_MYSQL_HOST=${HOST}" "EXPORTORDER_MYSQL_PORT=${PORT}" \
+  "EXPORTORDER_MYSQL_DATABASE=exportorder_verify" "EXPORTORDER_MYSQL_USERNAME=${USER_NAME}" "EXPORTORDER_MYSQL_PASSWORD=${PASS}"
+
 run_one verify-cart-quantity-guard-on-mysql \
   "MYSQL_SOCKET=${SOCK}" "MYSQL_HOST=${HOST}" "MYSQL_PORT=${PORT}" \
   "MYSQL_USER=${USER_NAME}" "MYSQL_PASSWORD=${PASS}"

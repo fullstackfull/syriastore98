@@ -5951,3 +5951,101 @@ The ratchet counts raw occurrences of the attribute, and the explanatory comment
 `layouts/app.blade.php` **contained the attribute spelled out**, so the count read 1 instead of 0.
 The same trap the breadcrumb contract test hit. The comment now points at the ratchet for the exact
 spelling instead of repeating it.
+
+---
+
+## §14 — the isolated MySQL/MariaDB environment, PROVISIONED AND RUN (2026-10-28)
+
+The directive authorises an isolated MySQL/MariaDB database with synthetic data only, and requires
+that *"if the environment is not available, record the test as BLOCKED clearly, and do not use a
+SQLite result as a substitute for MySQL proof."* **It is available now**, so nothing here is
+blocked.
+
+**Engine: MariaDB 10.11.14-0ubuntu0.24.04.1**, installed into this ephemeral container and started
+manually (`mysqld_safe`; the container's `policy-rc.d` denies service scripts). No production data,
+no production connection: every script creates and drops its own database and refuses a database
+name that does not contain `verify`.
+
+**A STATED LIMIT, because it matters for two of the findings.** This is **MariaDB**, not MySQL 8.
+Its default collation is `utf8mb4_general_ci`; MySQL 8's is `utf8mb4_0900_ai_ci`. Both are
+case-insensitive, so the collation-sensitivity evidence below holds — but any MySQL-8-only
+behaviour is **not** covered, and CLAUDE.md records production as MySQL. Where a result depends on
+the engine rather than on the schema, it is marked as such in the script's own log.
+
+### Result: 23 scripts, 272 assertions, 0 failures
+
+`tests/Support/Security/bin/run-mysql-verifications.sh` against that server. The first run came back
+**19 passed, 3 failed**, and **all three failures were the harness rather than the code** — which is
+worth recording in full, because a project that treats a harness failure as a defect learns the
+wrong thing:
+
+| script | first run | cause | fix |
+|---|---|---|---|
+| `verify-stock-oversell-concurrency` | FAIL before any assertion | `@@transaction_isolation` is MySQL 5.7+; **MariaDB does not have it** and raises errno 1193 | ask for the variable by trial: `transaction_isolation`, then `tx_isolation` |
+| `verify-refund-freshness-lock-and-limiter-keys` | FAIL before any assertion | the same line | the same fix |
+| `verify-coupon-code-matching` | 2 checks, 1 failure | `Coupon` is `Cachable`, so its read went through the cache store — `database`, resolving against the **default sqlite** connection, which has no `cache` table | `config(['cache.default' => 'array'])` |
+
+Neither variable name works on both engines: MySQL 8.0 **removed** `tx_isolation` and MariaDB 10.11
+never had `transaction_isolation`, so the value has to be asked for by trial. The engine and version
+are still printed either way, because the assertions depend on InnoDB rather than on the isolation
+level — a figure reported for the record must not be able to fail the run.
+
+### What this unblocks: D-18's concurrency half, which was recorded as undrivable
+
+D-18's implementation note says the atomic decrement *"cannot be driven in this suite — SQLite
+`:memory:` with `CACHE_STORE=array` makes `Cache::lock` process-local, so no Feature test can stage
+two overlapping returns."* That is still true of the Feature suite. It is no longer true of this
+project's evidence. `verify-stock-oversell-concurrency-on-mysql` now runs **14 assertions on real
+InnoDB row locks**, and two of them are the ones that matter most:
+
+- **the removal check**: the unguarded read-modify-write this project replaced **does oversell here**
+  — stock 0 with two sales of the same unit;
+- **the restock direction**, which nothing had measured at all: the read-modify-write restock
+  **loses one of two concurrent returns** (10 → 11, not 12), and the atomic increment keeps both.
+
+Plus: ten concurrent checkouts against five units, all holding the same stale read, where exactly
+five succeed, five are refused and stock lands exactly at zero; a `not_allow` product that never
+goes below zero; and a backorder product that still reaches −1, because that is the configured
+behaviour.
+
+`verify-refund-freshness-lock-and-limiter-keys` likewise now runs its 10 assertions, including a
+**real lock-wait timeout (errno 1205 after ~2s)** while another transaction holds the row, and the
+proof that a plain re-read inside the older snapshot still returns the stale row — which is why the
+re-read must lock.
+
+### A new script, for the directive's "export column order" clause
+
+`tests/Support/Security/bin/verify-order-export-column-order-on-mysql.php` — **23 assertions, 0
+failures**. It drives the real `OrderExport` against a real engine with
+`strict => false`, which is **production's setting** (running strict here would make the script
+kinder than production and useless as evidence, since the defect class it hunts is a value *coerced*
+into a column rather than refused by it).
+
+It asserts that `COLUMNS` is the single source for both the headings and the values (28 columns),
+that every mapped attribute is a real `orders` column on MySQL, that each money column holds **its
+own** distinct value under its own heading — a width check alone passes a wholesale shift, which is
+what F154 was — that F153's Reward Points is the stored 7 and not the old literal 1, that the two
+computed columns resolve their related rows, and that a second store's order is not exported.
+
+**Two harness failures and one fixture error of my own, all recorded rather than smoothed over:**
+
+1. MySQL refused the first `stores` insert with **errno 1452**, a foreign-key violation on
+   `stores.created_by → users.id`. SQLite does not enforce foreign keys unless
+   `PRAGMA foreign_keys=ON`, and the Feature suite does not issue it — so every fixture in this
+   repository can invent a `created_by` that references nothing, and the same insert that works
+   there is refused here. The user is now created first.
+2. `Auth::login()` wrote a session row to a `sessions` table on the default sqlite connection, and
+   reconfiguring `session.driver` did not help because the manager had already resolved. Replaced
+   with `Auth::guard('web')->setUser()`, which puts the principal on the guard in memory and touches
+   no session — all `getCurrentStore()` needs.
+3. The first draft wrote the **word** `'Delivered'` into `orders.delivered_status` and the export
+   read back **0**. That is not a defect: the column is `integer` with
+   `comment('0=>pending/1=>diliver/2=>cancel/3=>return')`, and **every** writer uses an integer —
+   checked across `app/` *and* `packages/workdo/`, including PartialPayments (7) and AuctionProduct.
+   **My fixture was wrong, not the code.**
+
+   But the coercion is real and is now **pinned as its own assertion**: with `strict => false`,
+   MySQL silently turns a word there into `0` so the order reads as "pending", while SQLite's type
+   affinity would store the word and a Feature test would see it. If a writer ever did put a word
+   there, the application would be **wrong in production and right in the test suite** — the
+   direction that hides defects. It is latent today and asserted so it stays visible.
