@@ -1212,3 +1212,100 @@ named three (POS, manual, storefront); the admin app's order form records `manua
 form, because the column records the PATH that created the order and not the device that reached it.
 Phase 04's approved scope includes "channels", which is why the column is a widenable string rather than
 an enum — but no channel value is invented now.
+
+## D-25 — the shared merchant chrome on the design system: ONE scope question, three rows waiting on it
+
+**Raised 2026-10-28, out of P2-01-17. Nothing has been changed; this is a question, not a plan.**
+
+**Why it is recorded once instead of three times.** Three rows carry a PARTIAL whose remainder is
+the same change, and each was describing it in its own words:
+
+| row | its remainder, as written | what it actually is |
+|---|---|---|
+| **P2-01-17** | *"the merchant header is on the design system"* | `partision/header.blade.php` — 281 lines, **4** `ss-` occurrences |
+| **P2-04-6** | the order detail page SHELL — **107 legacy classes** | the `@section('action-button')` / page-header region the layout renders |
+| **P2-04-12** | the export control is legacy-classed with its three siblings | the same `action-button` region, on the order list |
+
+Converting any one of them in isolation makes the result **worse**, not better: the export control
+and its three siblings sit in one header region, so restyling one of four leaves that header
+visibly inconsistent on the screen a merchant uses most. And converting the region properly means
+touching the shared chrome that `layouts/app.blade.php` renders on **every** merchant screen and
+across all **70** vendored modules.
+
+**The owner's own limit is what stops it here.** The instruction of 2026-10-28 was to handle F152
+*"from its shared location, with the narrowest safe change, measuring the impact on other
+screens"*, and explicitly: **"do not perform a general theme change without a scope decision and
+proper review."** A 281-line header conversion plus a page-shell region is a general theme change.
+F152 was narrow enough to do under that instruction — one selector token, with a measured blast
+radius of zero outside the design system. This is not.
+
+**What has already been done inside these rows, so the remainder is only the styling.** The
+accessibility and correctness halves are closed and measured, which is why this is a scope question
+and not a defect:
+
+- the header's only unnamed control now has a translated `aria-label` (P2-01-17), and **F52** —
+  five bare `target="_blank"` — was fixed earlier with a rendered-html assertion;
+- **F158 cannot reach the header at all**: the partial contains **zero** `<p>` elements, pinned by
+  a test, so the dark-mode paragraph rule is not part of this question;
+- the order detail page's correctness, accessibility, dark-mode legibility and author attribution
+  are all DONE under P2-04-6; only the shell's classes remain;
+- P2-04-12's documents measure **0 contrast failures in both `screen` and `print` media, in both
+  directions**, so the export control's classes are the entire styling remainder there.
+
+**The least-risky alternative, and why it is not automatic.** Convert the shared `action-button`
+header region **as one unit** — all four controls together, in one change, measured in the four
+real configurations before and after, with the 107-class page shell following only if that first
+step measures clean. That is still a change every merchant screen inherits, so the first step needs
+approval before it is taken, and the sequencing is the part the owner owns.
+
+**Not taken as approved in either direction.** Until it is decided, P2-01-17, P2-04-6 and P2-04-12
+each stay PARTIAL and each point here, so the remainder is tracked once rather than re-described
+three times.
+
+## D-26 — P2-03-4: per-variant media and bulk edit across combinations are NEW capability
+
+**Raised 2026-10-28, scoping P2-03-4 against the decisions already approved. Nothing has been
+changed.**
+
+**What the approved decisions already settle, so this is narrower than the row reads.**
+
+- **D-16 closed the persistence question.** *"D-09: design A1 approved (owner, 2026-10-26) —
+  IMPLEMENTED 2026-10-26"*, and the four findings it governed — **F82** (a variant price edit
+  silently discarded), **F83** (the rebuild hard-deleting variants and zeroing prices), **F84** and
+  **F105** (an ordinary save zeroing 11 of 12 variant prices) — are each marked FIXED by that
+  change. The row's status still cited *"BLOCKED on owner decision point A"* until 2026-10-28;
+  that blocker no longer exists and the citation has been corrected.
+- **D-06 defers gallery image reorder to Phase 03** by name, *"with full parity across the
+  storefront, the web merchant UI, Flutter and the WorkDo add-ons, without editing the vendored
+  module files"*, and explicitly **as a scope-limited deferral, not an implemented feature**.
+- Four of the owner's five closing conditions are **verified**: upload, deletion, the primary
+  image, and validation errors (media driven 17/17, contrast 56 measured with 0 below AA, bilingual
+  26/26, validation 93/0).
+
+**So exactly one thing is left undecided: per-variant media, and bulk edit across combinations.**
+
+**The conflict.** Neither exists today in any form, so both are **new capability** rather than a
+reorganisation of what is there — and the master prompt's Workstream D says *"do not implement new
+Phase 04 product pricing or stock engines in Phase 02"*. The scope-boundary table in the ledger
+already applies that rule to this workstream: *"P2-03-8 and P2-03-9 reorganise and label what
+exists; they add no pricing or stock logic."* Per-variant media is not pricing or stock, so the
+rule does not forbid it outright; bulk edit across combinations writes prices and stock to many
+rows at once, which is much closer to the engine the rule reserves.
+
+**Why it is not simply ruled out.** *"تجربة المتغيرات"* was one of the owner's five closing
+conditions for this row, so dropping it silently would discard a stated requirement. The honest
+position is that its two halves sit on opposite sides of the Workstream D line and need to be
+decided separately rather than together.
+
+**The least-risky alternative, and why it is not automatic.** Take **per-variant media only** —
+one image per combination, reusing the gallery upload path and `UploadLimits` already built and
+driven under this row — and leave **bulk edit across combinations to Phase 04**, where the pricing
+and stock engine it needs belongs. That is additive, touches no existing price or stock write, and
+inherits the media evidence already gathered. It is **not** taken as approved: whether a stated
+closing condition may be split, and which half ships in Phase 02, is the owner's call.
+
+**Also still open inside this row, and unchanged by this entry:** **F76** (the dropzone panel
+ignores dark mode — recorded, worked around, not fixed), **F73** (`$safe_str` collides for two terms
+differing only in a special character), and the missing `accept` on `downloadable_product` /
+`preview_video`, which needs its own per-field setting because the server's single configured list
+is an image list and would wrongly constrain a video or a ZIP.
