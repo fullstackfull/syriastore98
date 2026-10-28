@@ -4656,3 +4656,36 @@ in one file, with `php -l` still clean and the test suite still green. Caught by
 at its single site. **A clean lint and a green suite do not establish that a diff is what you think it
 is** — the diff itself has to be read, and `249 insertions / 6 deletions across 22 files`, with every
 deletion accounted for as a line-rewrite, is the evidence that it is.
+
+### The required gate, read rather than assumed (owner §5)
+
+Two consecutive full-Feature runs, because the first one **failed** and the commit it covered was
+pushed with "NOT YET GATE-VERIFIED" in its message rather than described as verified.
+
+| commit | tests | failures | skips | errors | known-outcome gate |
+|---|---|---|---|---|---|
+| `7d7285a0` | 6355 passed | **3** | 17 | 0 | **FAILED** — one undeclared failure |
+| `427c2c03` | **6374 passed** | 2 | 17 | 0 | **PASSED** — *"the observed outcome set matches the manifest exactly"* |
+
+The undeclared failure on `7d7285a0` was `SecurityLogInventoryTest::test_the_observability_inventory_matches_the_source`.
+Root cause, not a test defect: the inventory keys every security log statement by `file:line`, and
+adding `OrderController::orderAttentionCounts()` in P2-04-13 shifted nine statements down by 58
+lines. `resync-observability-inventory.py` re-points rows by `(file, message)` and **refuses to
+write when a line was added or deleted rather than moved**, so its clean run — 9 re-pointed, 123
+unchanged, 132 source lines against 132 documented — is itself the evidence that it was movement
+only. Fixed in `33777152`; this slice shifted 26 more and they were re-pointed the same way, after
+the app edits had settled.
+
+The arithmetic between the two runs reconciles exactly, which is worth checking rather than
+assuming: 6355 + 1 (the inventory test, now passing) + 18 (this slice's new Feature tests; the
+4 census tests are in the Unit suite) = **6374**.
+
+**What the pass does and does not mean**, in the gate's own words: *"This is NOT a statement that
+the suite is green. It is a statement that the suite is failing and skipping exactly the tests the
+project has recorded, for the reasons it has recorded."* Two accepted failures and seventeen
+accepted skips remain owed, and Phase 01's closure gates and incident #120 are untouched by any of
+this.
+
+**Third time this phase that `file:line`-keyed inventory has reddened on a slice's own edits.** The
+rule stands and is now written in three places: regenerate the inventory LAST, after the app edits
+of a slice have settled. Doing it mid-slice just moves the numbers again.
