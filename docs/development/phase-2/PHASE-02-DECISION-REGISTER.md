@@ -1609,6 +1609,23 @@ six keys went into both files.
 
 ---
 
+### Consequence recorded, 2026-10-28 — **P2-04-12 is CLOSED, with this clause as an authorised exception**
+
+This decision needed no code, and that is precisely what makes recording it the deliverable. The
+owner's words — *"لا تعدّل `packages/workdo/AutomaticOrderPrinting/`. لا تنشئ نظام فواتير موازياً. لا
+تنسخ ميزة موجودة إلى النظام الأساسي"* — rule out all three ways the invoice-preview clause could
+have been satisfied: editing the module, building a parallel preview in the core, or copying the
+module's feature out of it.
+
+So the clause is not satisfied and is not meant to be. P2-04-12 moves from **PARTIAL** to **DONE
+with one authorised exception**, and the open-decisions table's row 3 is **CLOSED**. CLAUDE.md §4
+says Phase 02 is not complete until every master-prompt requirement has *"a verified status or an
+authorised exception"*; this is the second kind, and it only counts as one because the decision and
+its reasoning are written down here rather than inferred from an absence.
+
+**Nothing was built. That is the decision, not an omission** — and it is stated that way so a later
+reader cannot mistake the missing preview for work that was dropped.
+
 ## D-25 — the shared merchant chrome on the design system: ONE scope question, three rows waiting on it
 
 > **DECIDED 2026-10-28 — APPROVED: PHASED DESIGN-SYSTEM MIGRATION, in a fixed order.**
