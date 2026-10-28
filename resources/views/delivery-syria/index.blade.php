@@ -3,13 +3,8 @@
 @section('page-title', __('Delivery Syria'))
 
 @section('breadcrumb')
-    <li class="breadcrumb-item">
-        <a href="{{ route('dashboard') }}">
-            {{ __('Dashboard') }}
-        </a>
-    </li>
 
-    <li class="breadcrumb-item">
+    <li aria-current="page" class="ss-breadcrumb__item">
         {{ __('Delivery Syria') }}
     </li>
 @endsection

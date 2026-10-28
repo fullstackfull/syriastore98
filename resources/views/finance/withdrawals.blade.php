@@ -5,11 +5,11 @@
 @endsection
 
 @section('breadcrumb')
-    <li class="breadcrumb-item">
-        <a href="{{ route('finance.index') }}">{{ __('Finance') }}</a>
+    <li class="ss-breadcrumb__item">
+        <a class="ss-breadcrumb__link" href="{{ route('finance.index') }}">{{ __('Finance') }}</a>
     </li>
 
-    <li class="breadcrumb-item">
+    <li aria-current="page" class="ss-breadcrumb__item">
         {{ __('Withdrawal Requests') }}
     </li>
 @endsection

@@ -8,8 +8,7 @@
     </div>
 @endsection
 @section('breadcrumb')
-    <li class="breadcrumb-item"><a href="{{ route('dashboard') }}">{{ __('Home') }}</a></li>
-    <li class="breadcrumb-item active" aria-current="page">{{ __('Email Templates') }}</li>
+    <li aria-current="page" class="ss-breadcrumb__item">{{ __('Email Templates') }}</li>
 @endsection
 @push('script-page')
     <script type="text/javascript">

@@ -7,8 +7,8 @@
 @endsection
 
 @section('breadcrumb')
-    <li class="breadcrumb-item"><a href="{{ route('module.index') }}">{{ __('Add-on Manager') }}</a></li>    
-    <li class="breadcrumb-item">{{ __('Add New Theme') }}</li>
+    <li class="ss-breadcrumb__item"><a class="ss-breadcrumb__link" href="{{ route('module.index') }}">{{ __('Add-on Manager') }}</a></li>    
+    <li aria-current="page" class="ss-breadcrumb__item">{{ __('Add New Theme') }}</li>
 @endsection
 
 {{-- F16: this was asset('public/...') and 404d. Not corrected but REMOVED: the admin

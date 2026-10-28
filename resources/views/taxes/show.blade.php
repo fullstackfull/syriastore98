@@ -3,8 +3,8 @@
 @section('page-title', __('Tax Class'))
 
 @section('breadcrumb')
-    <li class="breadcrumb-item"><a href="{{ route('taxes.index') }}">{{ __('Tax Class') }} </a></li>
-    <li class="breadcrumb-item">{{ $tax_option->name }}</li>
+    <li class="ss-breadcrumb__item"><a class="ss-breadcrumb__link" href="{{ route('taxes.index') }}">{{ __('Tax Class') }} </a></li>
+    <li aria-current="page" class="ss-breadcrumb__item">{{ $tax_option->name }}</li>
 @endsection
 
 @section('action-button')

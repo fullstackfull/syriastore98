@@ -9,7 +9,7 @@ $logo = asset(Storage::url('uploads/profile/'));
 @endphp
 
 @section('breadcrumb')
-<li class="breadcrumb-item" aria-current="page">{{ __('Users') }}</li>
+<li aria-current="page" class="ss-breadcrumb__item">{{ __('Users') }}</li>
 @endsection
 
 @section('action-button')

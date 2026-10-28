@@ -33,7 +33,7 @@
 @endsection
 
 @section('breadcrumb')
-    <li class="breadcrumb-item active" aria-current="page">{{ __('Profile') }}</li>
+    <li aria-current="page" class="ss-breadcrumb__item">{{ __('Profile') }}</li>
 @endsection
 
 @section('action-btn')

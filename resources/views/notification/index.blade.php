@@ -3,7 +3,7 @@
 @section('page-title', __('Notifications'))
 
 @section('breadcrumb')
-    <li class="breadcrumb-item">{{ __('Notifications') }}</li>
+    <li aria-current="page" class="ss-breadcrumb__item">{{ __('Notifications') }}</li>
 @endsection
 
 @section('content')

@@ -11,7 +11,7 @@
 @endsection
 
 @section('breadcrumb')
-    <li class="breadcrumb-item">{{ __('Add-on Theme') }}</li>
+    <li aria-current="page" class="ss-breadcrumb__item">{{ __('Add-on Theme') }}</li>
 @endsection
 
 @section('content')

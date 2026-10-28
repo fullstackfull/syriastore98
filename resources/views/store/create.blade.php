@@ -5,7 +5,7 @@
 @endsection
 
 @section('breadcrumb')
-    <li class="breadcrumb-item" aria-current="page">{{ __('Add') }}</li>
+    <li aria-current="page" class="ss-breadcrumb__item">{{ __('Add') }}</li>
 @endsection
 
 @section('content')

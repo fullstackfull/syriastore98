@@ -15,8 +15,8 @@ $ssUpload = \App\Services\UploadLimits::forStore();
 @endphp
 
 @section('breadcrumb')
-<li class="breadcrumb-item" aria-current="page"><a href="{{ route('product.index') }}">{{ __('Product') }}</a></li>
-<li class="breadcrumb-item" aria-current="page">{{ __('Edit') }}</li>
+<li class="ss-breadcrumb__item"><a class="ss-breadcrumb__link" href="{{ route('product.index') }}">{{ __('Product') }}</a></li>
+<li aria-current="page" class="ss-breadcrumb__item">{{ __('Edit') }}</li>
 @endsection
 @section('action-button')
 <div class=" text-end d-flex all-button-box justify-content-md-end justify-content-center">

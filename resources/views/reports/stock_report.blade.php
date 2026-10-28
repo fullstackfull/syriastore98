@@ -5,7 +5,7 @@
 @endsection
 
 @section('breadcrumb')
-    <li class="breadcrumb-item" aria-current="page">
+    <li aria-current="page" class="ss-breadcrumb__item">
         {{ __('Stock Reports') }}</li>
 @endsection
 

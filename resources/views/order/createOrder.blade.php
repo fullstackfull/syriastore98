@@ -5,8 +5,8 @@
 @endsection
 
 @section('breadcrumb')
-    <li class="breadcrumb-item"><a href="{{ route('order.index') }}">{{ __('Orders') }}</a></li>
-    <li class="breadcrumb-item" aria-current="page">{{ __('Create Order') }}</li>
+    <li class="ss-breadcrumb__item"><a class="ss-breadcrumb__link" href="{{ route('order.index') }}">{{ __('Orders') }}</a></li>
+    <li aria-current="page" class="ss-breadcrumb__item">{{ __('Create Order') }}</li>
 @endsection
 
 @section('action-button')

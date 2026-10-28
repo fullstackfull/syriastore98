@@ -462,12 +462,15 @@
                                 <h2 class="h3 mb-0">@yield('page-title')</h4>
                             </div>
                             @if (\Request::route()->getName() != 'dashboard')
-                            <ul class="breadcrumb mt-2">
-                                <li class="breadcrumb-item">
-                                        <a href="{{ route('dashboard') }}">{{ __('Home') }}</a>
-                                    </li>
-                                    @yield('breadcrumb')
-                            </ul>
+                                {{-- P2-01-14 / WS A3: the ONE breadcrumb, for all 107 merchant
+                                     screens. This was Bootstrap's `<ul class="breadcrumb">`, whose
+                                     `--bs-breadcrumb-item-active-color` and
+                                     `--bs-breadcrumb-divider-color` are BYTE-IDENTICAL in
+                                     style.css and style-dark.css -- one colour cannot be legible
+                                     in both themes, which is F151. The component's tokens are
+                                     redefined per theme. Each screen still supplies only its own
+                                     trail; Home lives in the component so it cannot drift. --}}
+                                <x-ss.breadcrumb>@yield('breadcrumb')</x-ss.breadcrumb>
                             @endif
                         </div>
                         <div class="page-header-icon d-flex flex-wrap gap-2">

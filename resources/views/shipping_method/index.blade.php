@@ -3,13 +3,13 @@
 @section('page-title', __('Shipping Method'))
 
 @section('breadcrumb')
-    <li class="breadcrumb-item">
-        <a href="{{ route('shipping-zone.index') }}">{{ __('Shipping Zone') }} @if (isset($shippingZones->zone_name))
+    <li class="ss-breadcrumb__item">
+        <a class="ss-breadcrumb__link" href="{{ route('shipping-zone.index') }}">{{ __('Shipping Zone') }} @if (isset($shippingZones->zone_name))
                 ({{ $shippingZones->zone_name }})
             @endif
         </a>
     </li>
-    <li class="breadcrumb-item">{{ __('Shipping Method') }}</li>
+    <li aria-current="page" class="ss-breadcrumb__item">{{ __('Shipping Method') }}</li>
 @endsection
 
 @section('content')

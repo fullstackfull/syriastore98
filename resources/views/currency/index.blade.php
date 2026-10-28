@@ -1,7 +1,7 @@
 @extends('layouts.app')
 @section('page-title', __('Currency'))
 @section('breadcrumb')
-    <li class="breadcrumb-item">{{ __('Currency') }}</li>
+    <li aria-current="page" class="ss-breadcrumb__item">{{ __('Currency') }}</li>
 @endsection
 @section('action-button')
     <div class="text-end d-flex all-button-box justify-content-md-end justify-content-center">

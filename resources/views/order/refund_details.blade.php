@@ -6,8 +6,8 @@
 @endsection
 
 @section('breadcrumb')
-<li class="breadcrumb-item"><a href="{{ route('refund-request.index') }}">{{ __('Order Refund Request') }}</a></li>
-<li class="breadcrumb-item">{{ $order['order_id'] }}</li>
+<li class="ss-breadcrumb__item"><a class="ss-breadcrumb__link" href="{{ route('refund-request.index') }}">{{ __('Order Refund Request') }}</a></li>
+<li aria-current="page" class="ss-breadcrumb__item">{{ $order['order_id'] }}</li>
 @endsection
 
 @section('content')

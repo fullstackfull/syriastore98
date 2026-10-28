@@ -3,8 +3,8 @@
 @section('page-title', __('Theme Customize'))
 
 @section('breadcrumb')
-<li class="breadcrumb-item"><a href="{{ route('theme.index') }}">{{ __('Themes') }}</a></li>
- <li class="breadcrumb-item">{{ __('Pages') }}</li>
+<li class="ss-breadcrumb__item"><a class="ss-breadcrumb__link" href="{{ route('theme.index') }}">{{ __('Themes') }}</a></li>
+ <li aria-current="page" class="ss-breadcrumb__item">{{ __('Pages') }}</li>
 @endsection
 
 

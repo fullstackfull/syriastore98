@@ -6,8 +6,8 @@
 @endsection
 
 @section('breadcrumb')
-    <li class="breadcrumb-item"><a href="{{ route('coupon.index') }}">{{ __('Coupon') }}</a></li>
-    <li class="breadcrumb-item">{{ __('Coupon Detail') }}</li>
+    <li class="ss-breadcrumb__item"><a class="ss-breadcrumb__link" href="{{ route('coupon.index') }}">{{ __('Coupon') }}</a></li>
+    <li aria-current="page" class="ss-breadcrumb__item">{{ __('Coupon Detail') }}</li>
 @endsection
 
 @section('content')

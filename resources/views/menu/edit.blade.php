@@ -1,8 +1,8 @@
 @extends('layouts.app')
 @section('page-title', __('Menus'))
 @section('breadcrumb')
-<li class="breadcrumb-item"><a href="{{ route('menus.index') }}">{{ __('Menus') }}</a></li>
-<li class="breadcrumb-item">{{ $menu->name }}</li>
+<li class="ss-breadcrumb__item"><a class="ss-breadcrumb__link" href="{{ route('menus.index') }}">{{ __('Menus') }}</a></li>
+<li aria-current="page" class="ss-breadcrumb__item">{{ $menu->name }}</li>
 @endsection
 
 @push('css')

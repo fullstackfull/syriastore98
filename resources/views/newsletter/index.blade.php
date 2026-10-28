@@ -4,7 +4,7 @@
 
 
 @section('breadcrumb')
-    <li class="breadcrumb-item">{{ __('Newsletters') }}</li>
+    <li aria-current="page" class="ss-breadcrumb__item">{{ __('Newsletters') }}</li>
 @endsection
 
 @section('action-button')

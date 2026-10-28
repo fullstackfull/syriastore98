@@ -8,8 +8,8 @@
     </div>
 @endsection
 @section('breadcrumb')
-    <li class="breadcrumb-item"><a href="{{ route('stores.index') }}">{{ __('Users') }}</a></li>
-    <li class="breadcrumb-item active" aria-current="page">{{ __('Custom Domain') }}</li>
+    <li class="ss-breadcrumb__item"><a class="ss-breadcrumb__link" href="{{ route('stores.index') }}">{{ __('Users') }}</a></li>
+    <li aria-current="page" class="ss-breadcrumb__item">{{ __('Custom Domain') }}</li>
 @endsection
 @section('action-button')
     <div class="text-end d-flex all-button-box justify-content-md-end justify-content-center">

@@ -98,7 +98,14 @@ const PROBE = `
     measure('page title', '.page-header h2, h2');
     measure('table header', 'table thead th');
     measure('table cell', 'table tbody td');
-    measure('breadcrumb link', '.breadcrumb a');
+    /* P2-01-14: the breadcrumb is the design system's component now, not Bootstrap's, so the old
+       '.breadcrumb a' target would match NOTHING and report found:false -- which reads like "no
+       failure" and is how a measurement lies. Both parts are measured: the trail link and the
+       current-page item, which took their colour from #6c757d declared identically in the light
+       and dark stylesheets (F151). NOTE: this block is inside a template literal, so no
+       backticks. */
+    measure('breadcrumb link', '.ss-breadcrumb__link');
+    measure('breadcrumb current page', '.ss-breadcrumb__item[aria-current="page"]');
 
     /* P2-06-3's notification feed. Present only on /notifications, so these report
        "(not present)" on the order list -- which is why the page list below visits both rather

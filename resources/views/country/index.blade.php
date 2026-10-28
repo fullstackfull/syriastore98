@@ -7,7 +7,7 @@
 @endsection
 
 @section('breadcrumb')
-    <li class="breadcrumb-item">{{ __('Country Settings') }}</li>
+    <li aria-current="page" class="ss-breadcrumb__item">{{ __('Country Settings') }}</li>
 @endsection
 @push('css')
     @include('layouts.includes.datatable-css')

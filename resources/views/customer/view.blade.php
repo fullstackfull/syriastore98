@@ -6,8 +6,8 @@
 @endsection
 
 @section('breadcrumb')
-    <li class="breadcrumb-item"><a href="{{ route('customer.index') }}">{{__('Customer')}}</a></li>
-    <li class="breadcrumb-item" aria-current="page">{{ __('Orders') }}</li>
+    <li class="ss-breadcrumb__item"><a class="ss-breadcrumb__link" href="{{ route('customer.index') }}">{{__('Customer')}}</a></li>
+    <li aria-current="page" class="ss-breadcrumb__item">{{ __('Orders') }}</li>
 @endsection
 @section('action-button')
 <div class="text-end">

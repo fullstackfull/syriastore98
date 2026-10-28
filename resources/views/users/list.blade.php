@@ -38,7 +38,7 @@
      `aria-current="page"` — was dead markup that read as deliberate. Kept the one that renders
      and gave it back the `aria-current` the dead one had. --}}
 @section('breadcrumb')
-    <li class="breadcrumb-item" aria-current="page">{{ __('Users') }}</li>
+    <li aria-current="page" class="ss-breadcrumb__item">{{ __('Users') }}</li>
 @endsection
 
 @section('content')

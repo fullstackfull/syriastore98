@@ -3,8 +3,8 @@
 @section('page-title', __('Remove a saved credential'))
 
 @section('breadcrumb')
-    <li class="breadcrumb-item"><a href="{{ route('setting.index') }}">{{ __('Settings') }}</a></li>
-    <li class="breadcrumb-item">{{ __('Remove a saved credential') }}</li>
+    <li class="ss-breadcrumb__item"><a class="ss-breadcrumb__link" href="{{ route('setting.index') }}">{{ __('Settings') }}</a></li>
+    <li aria-current="page" class="ss-breadcrumb__item">{{ __('Remove a saved credential') }}</li>
 @endsection
 
 @section('content')

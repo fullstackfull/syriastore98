@@ -15,7 +15,7 @@
     $firebase_enabled = empty($firebase_enabled) || $firebase_enabled == 'on' ? 1 : 0;
 @endphp
 @section('breadcrumb')
-    <li class="breadcrumb-item">{{ __('Mobile App Setting') }}</li>
+    <li aria-current="page" class="ss-breadcrumb__item">{{ __('Mobile App Setting') }}</li>
 @endsection
 
 @section('content')

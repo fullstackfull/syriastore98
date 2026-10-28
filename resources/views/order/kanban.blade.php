@@ -3,8 +3,8 @@
 @section('page-title', __('Order board'))
 
 @section('breadcrumb')
-    <li class="breadcrumb-item"><a href="{{ route('order.index') }}">{{ __('Order') }}</a></li>
-    <li class="breadcrumb-item">{{ __('Order board') }}</li>
+    <li class="ss-breadcrumb__item"><a class="ss-breadcrumb__link" href="{{ route('order.index') }}">{{ __('Order') }}</a></li>
+    <li aria-current="page" class="ss-breadcrumb__item">{{ __('Order board') }}</li>
 @endsection
 
 @section('content')

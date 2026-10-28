@@ -34,7 +34,7 @@
 @endsection
 
 @section('breadcrumb')
-    <li class="breadcrumb-item">{{ __('Language') }}</li>
+    <li aria-current="page" class="ss-breadcrumb__item">{{ __('Language') }}</li>
 @endsection
 
 @section('content')

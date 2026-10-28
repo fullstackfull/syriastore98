@@ -5,8 +5,8 @@
 @endsection
 
 @section('breadcrumb')
-    <li class="breadcrumb-item mb-2" aria-current="page"><a href="{{ route('plan.index') }}">{{ __('Plan') }}</a></li>
-    <li class="breadcrumb-item mb-2" aria-current="page">{{ __('Add') }}</li>
+    <li class="ss-breadcrumb__item"><a class="ss-breadcrumb__link" href="{{ route('plan.index') }}">{{ __('Plan') }}</a></li>
+    <li aria-current="page" class="ss-breadcrumb__item">{{ __('Add') }}</li>
 @endsection
 
 @section('content')

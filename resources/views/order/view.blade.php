@@ -75,8 +75,8 @@
 @endsection
 
 @section('breadcrumb')
-    <li class="breadcrumb-item"><a href="{{ route('order.index') }}">{{ __('Order') }}</a></li>
-    <li class="breadcrumb-item"> {{ __('Items from Order') }} {{ $order['order_id'] }}</li>
+    <li class="ss-breadcrumb__item"><a class="ss-breadcrumb__link" href="{{ route('order.index') }}">{{ __('Order') }}</a></li>
+    <li aria-current="page" class="ss-breadcrumb__item"> {{ __('Items from Order') }} {{ $order['order_id'] }}</li>
 @endsection
 
 @section('content')

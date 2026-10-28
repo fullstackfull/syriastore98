@@ -38,8 +38,8 @@
 @endsection
 
 @section('breadcrumb')
-    <li class="breadcrumb-item"><a href="{{ route('product-attributes.index') }}">{{ __('Attribute') }}</a></li>
-    <li class="breadcrumb-item">{{ __('Attribute-options') }}</li>
+    <li class="ss-breadcrumb__item"><a class="ss-breadcrumb__link" href="{{ route('product-attributes.index') }}">{{ __('Attribute') }}</a></li>
+    <li aria-current="page" class="ss-breadcrumb__item">{{ __('Attribute-options') }}</li>
 @endsection
 
 @section('content')

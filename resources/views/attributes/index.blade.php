@@ -21,7 +21,7 @@
 @endsection
 
 @section('breadcrumb')
-    <li class="breadcrumb-item">{{ __('Attributes') }}</li>
+    <li aria-current="page" class="ss-breadcrumb__item">{{ __('Attributes') }}</li>
 @endsection
 
 @section('content')
