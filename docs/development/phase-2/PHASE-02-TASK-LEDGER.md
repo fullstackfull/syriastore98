@@ -418,6 +418,17 @@ browser-global slot, so the second employee at a shared terminal overwrites the 
 | **P2-03-4** media and variant UX | per-variant media needs a column on `product_variants` | the upload limits service, the real server rules wired into Dropzone, and the D-16 persistence decision are all implemented and tested |
 | **P2-04-6** order detail | an author column on `order_notes` | the correctness, accessibility and dark-mode half is done and tested |
 
+**Three rows need a SCOPE decision instead — NAMED HERE, each with its register entry, because a
+report of mine listed them without naming the third and the owner had to ask for it (§3,
+2026-10-28). The failure was in the reporting, not in the record: all three were already written
+up. This block exists so a future report cannot omit one.**
+
+| # | the decision, by name | register entry | state |
+|---|---|---|---|
+| 1 | **P2-01-18** — which create-actions belong in the command palette | **D-24a** | **SETTLED by the owner** |
+| 2 | **P2-01-19 vs P2-01-21** — "no nested modal workflows" against "every `data-ajax-popup` caller keeps working" | **D-24c** | **SETTLED by the owner (§2, 2026-10-28):** *Preserve Existing Contracts, Eliminate Nested User Experience* |
+| 3 | **P2-04-12** — the invoice-preview clause is module-owned (`packages/workdo/AutomaticOrderPrinting/`, which CLAUDE.md §2 and `guard-no-workdo-changes.sh` both forbid editing) | **D-24b** | **OPEN. NOT taken as approved in either direction.** D-24b carries the original requirement, the conflict and the least-risky alternative, as §3 requires. The rest of P2-04-12 proceeds regardless |
+
 **Three rows need a SCOPE decision instead.**
 
 - **P2-01-18 quick actions** — which create-actions belong in the command palette. The palette, its
