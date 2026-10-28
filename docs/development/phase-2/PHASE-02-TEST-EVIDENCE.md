@@ -5171,3 +5171,89 @@ the header visibly inconsistent. `ti-layout-kanban` was confirmed present in the
    direction.
 2. **The export's trigger control is not on the design system**, along with its three siblings in
    the shared `action-button` header. Handed to **P2-01**, the next slice, which owns shared chrome.
+
+### The full Feature known-outcome gate on `f808afd3`
+
+```
+Tests:    2 failed, 17 skipped, 6464 passed (32851 assertions)   Duration: 890.38s
+
+KNOWN-OUTCOME GATE
+testcases observed   : 6483  (manifest floor 1000)
+failures observed    : 2  (manifest declares 2)
+errors observed      : 0  (always expected: 0)
+skips observed       : 17  (manifest declares 17)
+OK: the observed outcome set matches the manifest exactly -- 2 declared failures,
+    17 declared skips, 0 errors, and nothing undeclared.
+```
+
+The two failures are the two the manifest names — `RegistrationTest::test_new_users_can_register`
+and `ProfileTest::test_profile_page_is_displayed`. As the gate's own output says, this is not a
+statement that the suite is green; it is a statement that it fails and skips exactly what the
+project has recorded.
+
+### What the mandated independent review found — and the one thing it found that mattered
+
+CLAUDE.md requires the `tenant-authz-reviewer` pass before committing a change that touches
+tenancy, and `OrderExport` carries a tenant predicate. **It cleared the diff**, with the negative
+results worth keeping: the store predicate holds for the merchant owner, for store-less staff (fails
+closed, and the class never compiles `where('store_id', null)` → `IS NULL`, so the orphan-order set
+is unreachable from this export for any principal) and for the operator; tenant resolution is
+identical in `collection()` and `map()` because Laravel Excel calls `map()` synchronously in-request
+and the class is neither `ShouldQueue` nor chunked; `map()` issues no `Order` query, so it adds no
+path around the guard; and the class has no constructor and no settable store, so no caller can
+point it at a store.
+
+**Then it found a live defect in the sibling the change did not touch, and that is the substantive
+outcome of this round — F156.** `CouponController::fileExport()` had **no permission check at all**,
+while `index()` — the coupon list the file is the export of — requires `Manage Coupon`. Any
+authenticated principal, including a staff member of any merchant holding no coupon permission,
+could GET `/coupon/export` and receive every coupon code, usage limit, discount amount and expiry
+date for the resolved store.
+
+**Every claim was verified against the source before acting on it**, per the rule that another
+agent's findings are a claim and not a result: `fileExport`'s three-line body, `index()`'s gate at
+`:25`, the route at `routes/web.php:986`, and `CouponExport::collection()`'s unguarded `$store->id`.
+All four held. The reviewer was also careful about what it is **not** — the rows carry a
+`getCurrentStore()` predicate, so it is a permission hole and not a cross-tenant leak, which is the
+exact overstatement already corrected once for the order export.
+
+**Bitten three independent ways, each failing exactly its own case and nothing else:**
+
+| bite | fails |
+|---|---|
+| remove the permission gate | only `test_a_principal_without_the_permission_is_refused` |
+| invert to `isAbleTo()`-first | only `test_the_platform_operator_can_export_without_holding_the_permission` |
+| remove the `$store === null` guard | only `test_an_unresolvable_store_exports_nothing_rather_than_a_stack_trace` |
+
+**One of my own tests bit for the wrong reason and was corrected rather than kept.**
+`test_the_refusal_is_not_a_401` failed under the first bite only because an ungated export returns a
+`BinaryFileResponse`, which has no `->status()` — a type error, not a measurement. It reads
+`baseResponse->getStatusCode()` now, so it measures the status in both the refusal and the grant
+case; the primary refusal case still bites that revert on its own. The two "can still export" cases
+were strengthened at the same time from `assertSame(200, …)` to asserting a real
+`BinaryFileResponse` with `Coupon.xlsx` in its content-disposition, because "allowed through" and
+"rendered some page" are different claims.
+
+**F157 was raised and deliberately not fixed.** Five `CouponController` handlers are bare
+`isAbleTo()` with no operator limb and so refuse the platform operator. After F156 that asymmetry is
+visible — `fileExport` admits the operator, `index` does not — and it is stated in the method's own
+docblock rather than left to be discovered. Fixing it would grant the operator cross-store coupon
+read and write where today there is none, which needs its own slice and its own measurement.
+
+**And the review's test-gap note was correct and is closed.** No case drove a cross-store id through
+`OrderExport::computed()`; `test_the_two_name_columns_hold_names_rather_than_ids` uses id `0`, which
+resolves to nothing for a reason unrelated to tenancy. Two cases now record **opposite** answers,
+because the two models differ: `Customer` is allowlisted in `config/tenancy.php` and really filters,
+so a customer from another tenant resolves to `''`; `Product` is absent from `scoped_models`
+entirely, so a foreign product name **does** resolve — the same absence behind the S19 cross-tenant
+stock drain. The second case records shipped behaviour rather than endorsing it: the leaked value is
+a product name the shop page already serves anonymously, so the export was left reproducing what it
+always did instead of being widened inside a printing row, and the test exists so that adding
+`Product` to `scoped_models` later fails here and tells whoever did it that the export changed.
+Bitten both ways — dropping the `Customer` scope fails only the first, adding a store predicate to
+the `Product` read fails only the second.
+
+The review's two other observations were accepted without code changes: `Product::find()` is
+unscoped for every principal (pre-existing, public catalogue data, and a fix belongs with whoever
+scopes `Product`), and two of the twelve original export cases pin `collection()` rather than biting
+this diff — legitimate regression pins, **not** counted as tenancy coverage of the new code.

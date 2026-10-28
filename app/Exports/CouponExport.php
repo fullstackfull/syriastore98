@@ -42,6 +42,19 @@ class CouponExport implements FromCollection, WithHeadings {
 
     public function collection(){
         $store = getStoreById(getCurrentStore());
+
+        /*
+         * P1-SEC-11 criterion 2 -- the second line of defence `OrderExport` already carries, and
+         * for the same reason: this class is reached from a download response, so the alternative
+         * to an empty file is a stack trace. `$store->id` on a null store was a 500 for any
+         * operator whose `current_store` is empty on a deployment whose stores do not start at 1
+         * (a deleted first store is enough). The caller refuses with a message before getting
+         * here; this guard exists because the class is constructible from anywhere.
+         */
+        if ($store === null) {
+            return collect([]);
+        }
+
         $data = Coupon::where('store_id', $store->id)->get();
         $i = 1;
         foreach($data as $k => $coupon){

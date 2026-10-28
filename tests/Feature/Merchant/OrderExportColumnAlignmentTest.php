@@ -235,4 +235,65 @@ class OrderExportColumnAlignmentTest extends SecurityTestCase
 
         $this->assertCount(0, (new OrderExport())->collection());
     }
+
+    // =============================================================================================
+    //  THE TWO NAME LOOKUPS, ACROSS A STORE BOUNDARY  (gap closed after independent review)
+    // =============================================================================================
+
+    /*
+     * The independent tenancy review of this change noted that no case drove a CROSS-STORE id
+     * through `computed()` — `test_the_two_name_columns_hold_names_rather_than_ids` uses id 0,
+     * which resolves to nothing for a reason that has nothing to do with tenancy. These two cases
+     * close that, and they deliberately record OPPOSITE answers, because the two models differ:
+     * `Customer` is allowlisted in `config/tenancy.php` and really filters, `Product` is not in
+     * `scoped_models` at all and so adds no predicate for any principal.
+     */
+
+    public function test_a_customer_from_another_tenant_does_not_resolve_a_name(): void
+    {
+        $outsider = \App\Models\Customer::forceCreate([
+            'first_name' => 'Zebra', 'last_name' => 'Outsider',
+            'email' => 'outsider-' . uniqid() . '@example.test',
+            'mobile' => '555' . random_int(100000, 999999),
+            'password' => bcrypt('not-a-real-password'),
+            'store_id' => $this->makeStore($this->makeMerchant())->id,
+            'status' => 1, 'register_type' => 'email',
+        ]);
+
+        // An order in MY store that names a customer belonging to a tenant I am not inside.
+        $order = $this->makeOrder($this->store, ['customer_id' => $outsider->id]);
+
+        $this->assertSame('', $this->exportedRow($order)['User Name'],
+            'the export resolved a customer name from a tenant the caller is not inside');
+    }
+
+    public function test_a_product_from_another_store_still_resolves_because_product_is_unscoped(): void
+    {
+        /*
+         * RECORDING SHIPPED BEHAVIOUR, NOT ENDORSING IT. `Product` is absent from
+         * `config/tenancy.php`'s `scoped_models`, so `StoreScope::isActiveFor()` short-circuits and
+         * `Product::find()` reads across every tenant for EVERY principal — this is the same
+         * absence that produced the S19 cross-tenant stock drain. Here the leaked value is a
+         * product NAME, which the shop page already serves to anonymous visitors, so the export is
+         * left reproducing what it always did rather than widened in a UI row.
+         *
+         * The case exists so the behaviour is visible and pinned: if `Product` is ever added to
+         * `scoped_models`, this test fails and tells whoever did it that the export's output
+         * changed with it.
+         */
+        $foreignStore = $this->makeStore($this->makeMerchant());
+        $foreign = \App\Models\Product::forceCreate([
+            'name' => 'QUUX-FOREIGN', 'slug' => 'quux-foreign-' . uniqid(),
+            'price' => 10, 'sale_price' => 10, 'cost_price' => 4,
+            'product_stock' => 1, 'track_stock' => 1, 'variant_product' => 0,
+            'stock_status' => 'in_stock', 'status' => 1,
+            'store_id' => $foreignStore->id, 'created_by' => $foreignStore->created_by,
+        ]);
+
+        $order = $this->makeOrder($this->store, ['product_id' => $foreign->id]);
+
+        $this->assertSame('QUUX-FOREIGN', $this->exportedRow($order)['product Name'],
+            'Product has become scoped, or the export now filters it — either way the export no '
+            . 'longer reproduces the shipped behaviour this case records');
+    }
 }

@@ -329,6 +329,50 @@ class CouponController extends Controller
 
     public function fileExport()
     {
+        /*
+         * THIS METHOD HAD NO PERMISSION CHECK AT ALL. Found by the independent tenancy/authz
+         * review of the P2-04-12 order-export change, in the sibling it did not touch.
+         *
+         * `index()` -- the coupon list this file is the export OF -- requires `Manage Coupon`
+         * (`:25`). `fileExport` required nothing beyond the route group's `auth`, so any
+         * authenticated principal, including a staff member of any merchant holding no coupon
+         * permission at all, could GET `coupon/export` and download the store's entire coupon
+         * book: codes, limits, discount amounts and expiry dates. It is the same file-shaped hole
+         * in the permission boundary that P1-SEC-11 closed on `order/export`, left open on its
+         * twin.
+         *
+         * IT IS NOT, AND MUST NOT BE REPORTED AS, A CROSS-TENANT LEAK. `CouponExport::collection()`
+         * has always filtered on `getStoreById(getCurrentStore())`, so the rows were the caller's
+         * own store's. The defect is the missing permission and the refusal is stated as that --
+         * the overstatement corrected once already for the order export.
+         *
+         * OPERATOR-FIRST, because `isAbleTo()` alone refuses the platform operator: on a database
+         * built from source no role holds `Manage Coupon`. NOTE THE INCONSISTENCY THIS EXPOSES
+         * rather than hides: `index()`, `:48`, `:191`, `:255` and `:317` are bare `isAbleTo()`
+         * calls with no operator limb, so they DO refuse the operator. Recorded as F157 and left
+         * alone, because changing it alters five handlers' behaviour for the platform operator and
+         * belongs in a slice that can measure that.
+         *
+         * `redirect()->back()` and NOT a 401: this is a web route and an ordinary commercial
+         * refusal, and the shipped Flutter app forces a logout on any 401.
+         */
+        $user = auth()->user();
+        $isOperator = \App\Policies\UserPolicy::isOperator($user);
+
+        if (!$user || (!$isOperator && !$user->isAbleTo('Manage Coupon'))) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
+        /*
+         * And the store must RESOLVE, not merely be non-empty -- P1-SEC-11 criterion 2.
+         * `getCurrentStore()` hands back a hardcoded 1 for an operator with no `current_store`, so
+         * `empty()` is not the question; `getStoreById()` returning null is. Without this,
+         * `CouponExport::collection()` dereferenced `$store->id` and answered a stack trace.
+         */
+        if (getStoreById(getCurrentStore()) === null) {
+            return redirect()->back()->with('error', __('No store is selected.'));
+        }
+
         $fileName = 'Coupon.xlsx';
 
         return Excel::download(new CouponExport, $fileName);
