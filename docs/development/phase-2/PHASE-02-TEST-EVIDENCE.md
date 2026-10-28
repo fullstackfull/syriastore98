@@ -5257,3 +5257,105 @@ The review's two other observations were accepted without code changes: `Product
 unscoped for every principal (pre-existing, public catalogue data, and a fix belongs with whoever
 scopes `Product`), and two of the twelve original export cases pin `collection()` rather than biting
 this diff — legitimate regression pins, **not** counted as tenancy coverage of the new code.
+
+---
+
+## P2-01-14 / F151 — the unified breadcrumb, measured (2026-10-28)
+
+`php artisan test --testsuite=Unit` → **543 passed**. `tests/Feature/Merchant` → **352 passed**,
+so converting 107 view sections broke no rendered page. `BreadcrumbContractTest` → **10 passed**.
+
+**24 page-configurations measured in a real browser, 0 problems.** Raw output:
+`docs/development/phase-2/evidence/p2-01-14/breadcrumb-live-24-configurations.txt`.
+
+| configuration | page background | dir | lang | current page | trail link |
+|---|---|---|---|---|---|
+| en/ltr light | `rgb(249,250,251)` | *(absent)* | en | **15.37:1** | **5.69:1** |
+| en/ltr dark | `rgb(34,36,44)` | *(absent)* | en | **13.1:1** | **7.11:1** |
+| ar/rtl light | `rgb(249,250,251)` | `rtl` | ar | **15.37:1** | **5.69:1** |
+| ar/rtl dark | `rgb(34,36,44)` | `rtl` | ar | **13.1:1** | **7.11:1** |
+
+Six pages per configuration — `/order`, `/product`, `/coupon`, `/customer`, `/product/create`,
+`/order-kanban`. Every one reports `current=1` and `home=1`, and no item renders a second
+separator. `/product/create` is in the list deliberately: it is one of the five screens that
+carried `aria-current="page"` on both the parent link and the leaf, so `items=3 current=1` there is
+the fix proved live rather than inferred from markup.
+
+**F151's cause was never a token.** The breadcrumb was Bootstrap's, and
+`--bs-breadcrumb-item-active-color` and `--bs-breadcrumb-divider-color` are **byte-identical** in
+`style.css:5343` and `style-dark.css:5350`. A colour declared the same way in both stylesheets
+cannot be legible in both themes, so no theme work on the old markup could have fixed it. 3.35:1 →
+7.11:1 and 13.1:1 in dark.
+
+**Links preserved, verified against git rather than asserted:** 34 breadcrumb links before the
+conversion, 31 after, difference exactly **−3** — the three duplicate Home crumbs — and **zero**
+other links lost across all 107 files.
+
+### The harness lied twice before it told the truth
+
+This is the part worth keeping. The first run reported **14 of 20 failures**, and not one of them
+was a defect in the page.
+
+**Five were my state control.** `layouts/app.blade.php:42-50` derives the direction from
+**`users.language`** and overrides the setting:
+
+```php
+$setting['currantLang'] = auth()->user()->language;
+if ($setting['currantLang'] == 'ar' || $setting['currantLang'] == 'he') {
+    $setting['SITE_RTL'] = 'on';
+}
+```
+
+The dev merchant's language is `ar`, so writing `SITE_RTL = off` changed nothing — the harness had
+measured ar/rtl twice and en/ltr never, while reporting four configurations. Flipping that setting
+on, off and on again and watching **three identical renders** come back is what found it. The
+writes were also `DB::table()->update()` while `Setting` and `User` are both `Cachable`, which is
+the trap CLAUDE.md records under *Model caching*; they go through Eloquent now, with
+`flushCache()`. The lever is in `set-admin-preview-state.php`, beside the two settings it has to
+agree with, rather than bolted onto the shared `set-preview-state.php` five other rows depend on.
+
+**Four were `/finance`**, which answers **403 Forbidden** for this fixture — a module screen the
+merchant holds no permission for, which never rendered the merchant layout at all and was reported
+as four breadcrumb failures. An unreachable page is a **PRECONDITION** failure now, printed
+differently, and the page list is screens the fixture was verified able to open.
+
+**One was my own assertion** demanding `dir="ltr"` when the layout emits `dir=""` — and an absent
+`dir` **is** left-to-right per HTML, so every correct LTR page was failing. It compares the
+resolved direction now, not the attribute's spelling.
+
+**And my attempt to prove the theme had switched was worthless.** I listed the linked stylesheets;
+all four names appear on every page because the theme switcher references them. Each row now
+carries the measured, composited page background, so "light" and "dark" are proved by a colour
+instead of by the loop variable — the same failure mode as F8, where four "dark" readings were
+taken of the light stylesheet.
+
+**Before any of it, the first attempt hung.** The existing contrast sweep visits seven pages for
+every design-system colour, and the single-threaded PHP built-in server deadlocked on a page whose
+notification feed fires a concurrent XHR: 1385 requests served, then silence, with nothing printed
+because the output was buffered through a pipe. The new tool aborts that XHR, prints each row as it
+completes so a hang is visible, and the server runs with `PHP_CLI_SERVER_WORKERS`.
+
+### Two more false readings, caught inside my own tests
+
+- `BreadcrumbContractTest`'s *"the layout no longer hardcodes Bootstrap's list"* assertion **failed
+  against the correct layout**, because the comment explaining the change quotes the markup it
+  replaced. It strips Blade comments and measures markup now, which stays true however the next
+  comment is worded.
+- The link-preservation check reported three lost links. Its regex `href=["']([^"']+)["']` stopped
+  at the single quote inside `{{ route('dashboard') }}` and captured `{{ route(`. Reading to the
+  closing double quote gives the real answer: zero.
+
+### A dev-fixture defect, not a code one
+
+`/order` and `/finance` had been answering **500** on `no such table: saved_views`:
+`database/p2dev.sqlite` predates P2-04-9's migration. Three pending migrations were applied to that
+**local dev database only** — no production migration, in line with the standing limit.
+
+### What the conversion did, and how it was validated before it ran
+
+104 sections converted by script, `shipping_method/index.blade.php` by hand because its Blade logic
+sits inside the link text rather than the item structure — the script **reported** it rather than
+guessing. The script was run against a **snapshot** of `resources/` first and reproduced the
+pre-measurement exactly (104 files, 134 items, 67 `aria-current` added, 5 removed, 3 Home crumbs
+dropped), and the contract test's assertions were simulated against that snapshot before either was
+applied. They agreed: the only residual offender on all four scans was that one hand-check file.
