@@ -22,11 +22,11 @@ class CouponController extends Controller
      */
     public function index(CouponDataTable $dataTable)
     {
-        if (auth()->user() && auth()->user()->isAbleTo('Manage Coupon')) {
-            return $dataTable->render('coupon.index');
-        } else {
-            return redirect()->back()->with('error', __('Permission denied.'));
+        if ($refusal = $this->couponReadRefusal()) {
+            return $refusal;
         }
+
+        return $dataTable->render('coupon.index');
     }
 
     /**
@@ -34,6 +34,13 @@ class CouponController extends Controller
      */
     public function create()
     {
+        // F157: this form had NO permission check of any kind -- any authenticated principal could
+        // open it. The submission was refused by `store()`, so nothing could be created, but the
+        // form itself is a surface and the gate belongs on it too.
+        if ($refusal = $this->couponWriteRefusal('Create Coupon')) {
+            return $refusal;
+        }
+
         $product = Product::where('store_id', getCurrentStore())->pluck('name', 'id')->toArray();
         $category = Category::where('store_id', getCurrentStore())->pluck('name', 'id')->toArray();
 
@@ -45,6 +52,10 @@ class CouponController extends Controller
      */
     public function store(Request $request)
     {
+        if ($refusal = $this->refuseOperatorWrite('create')) {
+            return $refusal;
+        }
+
         if (auth()->user() && auth()->user()->isAbleTo('Create Coupon')) {
             if ($request->coupon_type !== 'percentage' && isset($request->minimum_spend)) {
                 $discountAmount = $request->discount_amount;
@@ -147,6 +158,113 @@ class CouponController extends Controller
      * its exact-case operator test and its reason: it FAILS SAFE, so a hypothetical `'Super Admin'`
      * row is treated as a merchant and refused rather than exempted.
      */
+    /**
+     * F157 — the coupon READ gate, shared by the list and the export so the two cannot disagree.
+     * =============================================================================================
+     *
+     * **DECIDED 2026-10-28: the platform operator may READ and EXPORT a store's coupons, and may
+     * not create, edit, delete or change their values.** Before that decision this controller held
+     * the asymmetry F157 named: `fileExport` admitted the operator (it had been given the
+     * operator-first gate when F156 closed the hole), while `index` was a bare `isAbleTo()` and so
+     * refused them. The operator could export a coupon book they could not open.
+     *
+     * THE STORE MUST BE CHOSEN, NOT DEFAULTED, and this is the part that is a security fix rather
+     * than a consistency one. `getCurrentStore()` hands an operator with an empty `current_store`
+     * the **hardcoded literal 1** (`helper.php:636-637`). `getStoreById(1)` normally RESOLVES, so a
+     * null-store guard passes and the operator is served *store 1's* coupon book — codes, limits,
+     * discounts, expiry — for a store they never selected. That is exactly the
+     * "default that could expose an unintended store" the owner's decision forbids, so an operator
+     * with no `current_store` is refused here instead of being quietly pointed at the lowest id.
+     *
+     * @return \Illuminate\Http\RedirectResponse|null  a refusal, or null when the read may proceed
+     */
+    private function couponReadRefusal()
+    {
+        $user = auth()->user();
+
+        if (! $user) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
+        // Operator-first: `isAbleTo()` alone refuses the platform operator, because on a database
+        // built from source no role holds `Manage Coupon`.
+        $isOperator = \App\Policies\UserPolicy::isOperator($user);
+
+        if (! $isOperator && ! $user->isAbleTo('Manage Coupon')) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
+        if ($isOperator && empty($user->current_store)) {
+            return redirect()->back()->with('error', __('No store is selected.'));
+        }
+
+        // And the store must RESOLVE -- P1-SEC-11 criterion 2, kept for every principal.
+        if (getStoreById(getCurrentStore()) === null) {
+            return redirect()->back()->with('error', __('No store is selected.'));
+        }
+
+        return null;
+    }
+
+    /**
+     * F157 — the coupon WRITE gate. The operator is refused here EXPLICITLY, not by accident.
+     *
+     * These handlers were bare `isAbleTo()` calls, which refused the operator as a side effect of
+     * Laratrust having no super-admin bypass. That produced the right answer for the wrong reason:
+     * anyone adding an operator limb "for consistency" with the read paths would have silently
+     * granted the operator the power to rewrite a merchant's coupons, which the owner's decision
+     * withholds by name. Stating the refusal makes it a decision rather than a coincidence.
+     *
+     * @return \Illuminate\Http\RedirectResponse|null
+     */
+    private function couponWriteRefusal(string $permission)
+    {
+        $user = auth()->user();
+
+        if (! $user) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
+        if (\App\Policies\UserPolicy::isOperator($user)) {
+            // READ AND EXPORT ONLY (owner decision, 2026-10-28). Not an oversight.
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
+        if (! $user->isAbleTo($permission)) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
+        return null;
+    }
+
+    /**
+     * F157 — refuse the platform operator a coupon WRITE, explicitly.
+     *
+     * For `store()`, `update()` and `destroy()` the permission gate is already correct, so this
+     * adds the one thing that was only true by accident. Those gates are bare `isAbleTo()` calls,
+     * which refuse the operator because Laratrust has no super-admin bypass -- the right answer for
+     * the wrong reason. Anyone later adding an operator limb "to match the read paths" would have
+     * handed the operator the power to rewrite a merchant's coupons, which the owner's decision of
+     * 2026-10-28 withholds by name. The refusal is stated so it survives that edit.
+     *
+     * @return \Illuminate\Http\RedirectResponse|null
+     */
+    private function refuseOperatorWrite(string $action)
+    {
+        $user = auth()->user();
+
+        if ($user !== null && \App\Policies\UserPolicy::isOperator($user)) {
+            \Illuminate\Support\Facades\Log::warning(
+                'coupon ' . $action . ' refused: the platform operator has read and export rights only',
+                ['user_id' => $user->id, 'current_store' => getCurrentStore()]
+            );
+
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
+        return null;
+    }
+
     private function couponIsOutsideCurrentStore($coupon): bool
     {
         $actor = auth()->user();
@@ -202,6 +320,16 @@ class CouponController extends Controller
      */
     public function edit(Coupon $coupon)
     {
+        /*
+         * F157: the TENANT check was here and the PERMISSION check was not, so a same-store staff
+         * member holding no coupon right could open this form and read the coupon's code, discount
+         * and limits. `update()` refused the submission, which is why nothing could be changed --
+         * but reading a coupon book is the thing F156 was about, and a form is a read.
+         */
+        if ($refusal = $this->couponWriteRefusal('Edit Coupon')) {
+            return $refusal;
+        }
+
         if ($this->couponIsOutsideCurrentStore($coupon)) {
             return $this->refuseForeignCoupon($coupon, 'edit');
         }
@@ -221,6 +349,10 @@ class CouponController extends Controller
      */
     public function update(Request $request, Coupon $coupon)
     {
+        if ($refusal = $this->refuseOperatorWrite('update')) {
+            return $refusal;
+        }
+
         /*
          * ABOVE THE VALIDATOR, deliberately and for two reasons. A cross-store attempt must not be
          * distinguishable from a refusal by which error comes back; and the spend validation below
@@ -309,6 +441,10 @@ class CouponController extends Controller
      */
     public function destroy(Coupon $coupon)
     {
+        if ($refusal = $this->refuseOperatorWrite('delete')) {
+            return $refusal;
+        }
+
         // Above the delete and above the two connection-table deletes it cascades into.
         if ($this->couponIsOutsideCurrentStore($coupon)) {
             return $this->refuseForeignCoupon($coupon, 'delete');
@@ -356,22 +492,15 @@ class CouponController extends Controller
          * `redirect()->back()` and NOT a 401: this is a web route and an ordinary commercial
          * refusal, and the shipped Flutter app forces a logout on any 401.
          */
-        $user = auth()->user();
-        $isOperator = \App\Policies\UserPolicy::isOperator($user);
-
-        if (!$user || (!$isOperator && !$user->isAbleTo('Manage Coupon'))) {
-            return redirect()->back()->with('error', __('Permission denied.'));
+        // F157: the SAME gate as `index()`, so the export can never allow what the read
+        // forbids, nor the reverse -- which is the asymmetry this finding was.
+        if ($refusal = $this->couponReadRefusal()) {
+            return $refusal;
         }
 
-        /*
-         * And the store must RESOLVE, not merely be non-empty -- P1-SEC-11 criterion 2.
-         * `getCurrentStore()` hands back a hardcoded 1 for an operator with no `current_store`, so
-         * `empty()` is not the question; `getStoreById()` returning null is. Without this,
-         * `CouponExport::collection()` dereferenced `$store->id` and answered a stack trace.
-         */
-        if (getStoreById(getCurrentStore()) === null) {
-            return redirect()->back()->with('error', __('No store is selected.'));
-        }
+        // The store-resolution check that used to sit here is inside `couponReadRefusal()` now,
+        // together with the operator's explicit-store requirement, so the list and the export
+        // cannot drift apart. The reasoning for it is recorded there.
 
         $fileName = 'Coupon.xlsx';
 

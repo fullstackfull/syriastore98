@@ -179,21 +179,94 @@ class OrderExportColumnAlignmentTest extends SecurityTestCase
         $this->assertNull($this->exportedRow($order->fresh())['Order Source']);
     }
 
-    public function test_reward_points_exports_the_shipped_literal_pending_an_owner_decision(): void
+    /*
+     * F153 — DECIDED 2026-10-28. The export used to overwrite this column with the literal `1`
+     * for every row, so an order carrying 7 points exported as 1. The owner approved exporting
+     * the stored value, and these cases replace the one that pinned the old behaviour.
+     *
+     * "Export the real value" and "export must not change the value" are different claims, and
+     * only the first is about the column. Both are asserted.
+     */
+
+    public function test_reward_points_exports_the_stored_value(): void
     {
-        /*
-         * F153. The export has always overwritten this column with the literal 1, discarding the
-         * stored value: an order carrying 7 points exports as 1. It is a figure a merchant may
-         * sum, so it is recorded for an owner decision rather than corrected inside a UI row. This
-         * case pins the CURRENT behaviour so the change, once authorised, cannot land unnoticed.
-         */
         $order = $this->makeOrder($this->store);
         $order->reward_points = 7;
         $order->save();
 
-        $this->assertEquals(1, $this->exportedRow($order->fresh())['Reward Points'],
-            'reward_points no longer exports the shipped literal -- if that is intended, F153 has '
-            . 'been decided and this test states the new contract instead');
+        $this->assertEquals(7, $this->exportedRow($order->fresh())['Reward Points'],
+            'the export no longer reports the stored reward points');
+    }
+
+    public function test_zero_reward_points_export_as_zero_and_not_as_the_old_literal(): void
+    {
+        // The case the old literal hid most completely: `1` for an order that earned nothing.
+        $order = $this->makeOrder($this->store);
+        $order->reward_points = 0;
+        $order->save();
+
+        $this->assertEquals(0, $this->exportedRow($order->fresh())['Reward Points'],
+            'an order that earned no points is still being reported as having earned some');
+    }
+
+    public function test_several_orders_each_export_their_own_points(): void
+    {
+        /*
+         * One row at a time cannot catch a per-row value being replaced by a constant — which is
+         * exactly what the defect was. Distinct values across several rows can.
+         */
+        $expected = [];
+        foreach ([0, 3, 7, 12.5] as $i => $points) {
+            $order = $this->makeOrder($this->store, ['product_order_id' => "PTS-{$i}"]);
+            $order->reward_points = $points;
+            $order->save();
+            $expected["PTS-{$i}"] = $points;
+        }
+
+        $rows = [];
+        foreach ((new OrderExport())->collection() as $order) {
+            $row = $this->exportedRow($order);
+            $rows[$row['Order Id']] = $row['Reward Points'];
+        }
+
+        foreach ($expected as $ref => $points) {
+            $this->assertArrayHasKey($ref, $rows, "order {$ref} is missing from the export");
+            $this->assertEquals($points, $rows[$ref],
+                "order {$ref} exported {$rows[$ref]} points instead of {$points}");
+        }
+
+        $this->assertGreaterThan(1, count(array_unique(array_values($rows))),
+            'every row exported the same number of points, which is the defect F153 was');
+    }
+
+    public function test_the_export_does_not_change_a_points_balance_or_open_a_transaction(): void
+    {
+        /*
+         * The export is a read. Asserted rather than assumed, because the fix moved this column
+         * from a constant to a real attribute read and the obvious way to get that wrong is to
+         * write while reading. Queries are captured so a single write or transaction statement
+         * fails the case by name.
+         */
+        $order = $this->makeOrder($this->store);
+        $order->reward_points = 9;
+        $order->save();
+
+        $writes = [];
+        \Illuminate\Support\Facades\DB::listen(function ($query) use (&$writes) {
+            if (preg_match('/^\s*(insert|update|delete|begin|commit|rollback|start transaction)/i', $query->sql)) {
+                $writes[] = $query->sql;
+            }
+        });
+
+        $rows = (new OrderExport())->collection();
+        foreach ($rows as $exported) {
+            $this->exportedRow($exported);
+        }
+
+        $this->assertSame([], $writes,
+            "the export issued a write or opened a transaction:\n  " . implode("\n  ", $writes));
+        $this->assertEquals(9, (float) $order->fresh()->reward_points,
+            'the stored points balance changed during an export');
     }
 
     public function test_the_two_name_columns_hold_names_rather_than_ids(): void

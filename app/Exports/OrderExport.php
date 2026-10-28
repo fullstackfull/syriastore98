@@ -52,11 +52,14 @@ use Maatwebsite\Excel\Concerns\WithMapping;
  *
  * TWO PRE-EXISTING ODDITIES ARE PRESERVED DELIBERATELY, not inherited by accident:
  *
- *  1. `reward_points` was overwritten with the literal `1` for every row, discarding the stored
- *     value -- an order carrying 7 points exported as 1. That is a value a merchant may sum, so it
- *     is recorded as **F153** for an owner decision rather than silently corrected here; the
- *     literal is kept until that decision. `OrderExportColumnAlignmentTest` pins the current
- *     behaviour so the change, when authorised, is visible.
+ *  1. `reward_points` USED TO BE overwritten with the literal `1` for every row, discarding the
+ *     stored value -- an order carrying 7 points exported as 1. It was recorded as **F153** and
+ *     left alone, because a figure a merchant may sum is not a UI slice's to change.
+ *     **DECIDED 2026-10-28: the owner approved exporting the stored value**, so the column now
+ *     reads `orders.reward_points` like any other numeric column and the literal is gone. The
+ *     export remains READ-ONLY: it opens no transaction, writes nothing, and cannot alter a points
+ *     balance -- asserted, not assumed, because "export the real value" and "export must not
+ *     change the value" are different claims and only one of them is about the column.
  *  2. "User Name" and "product Name" carry the customer's and product's NAME, not the id columns
  *     they are read from. That substitution is the point of those two headings and is retained.
  */
@@ -87,7 +90,7 @@ class OrderExport implements FromCollection, WithHeadings, WithMapping
         'Picked Date'      => 'picked_date',
         'Return status'    => 'return_status',
         'Cancel Date'      => 'cancel_date',
-        'Reward Points'    => null,                 // F153: the shipped literal, see the docblock
+        'Reward Points'    => 'reward_points',       // F153 DECIDED: the stored value
         // --- previously present in the file with no heading at all ---
         'Additional Note'  => 'additional_note',
         'Delivery Boy Id'  => 'deliveryboy_id',
@@ -160,9 +163,6 @@ class OrderExport implements FromCollection, WithHeadings, WithMapping
                 // resolves a name only for a single-product one. Shipped behaviour, retained.
                 return Product::find($order->product_id)?->name ?? '';
 
-            case 'Reward Points':
-                // F153 -- the shipped literal, not `$order->reward_points`. See the docblock.
-                return 1;
         }
 
         return '';
