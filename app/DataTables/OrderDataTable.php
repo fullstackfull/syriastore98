@@ -154,6 +154,48 @@ class OrderDataTable extends DataTable
 ->addColumn('shipping_method', function (Order $item) {
     return $item->ShippingMethod?->method_name ?? '-';
 })
+            /*
+             * P2-04-11 / WS E8 -- WHICH PATH CREATED THE ORDER.
+             *
+             * A LABEL FOR A RECORDED SOURCE, AND A DIFFERENT KIND OF THING FOR AN ABSENT ONE.
+             * `order_source` is NULL on every order written before the column existed, so the
+             * cell has to distinguish "a storefront order" from "nobody recorded where this came
+             * from" -- and it must not do that with colour alone. A recorded source renders as a
+             * badge; an unrecorded one renders as a dash with its reason in the tooltip, which is
+             * a difference in KIND and survives greyscale, dark mode and a screen reader.
+             * `OrderSourceAttributionTest` pins exactly that: a legacy order must not read as a
+             * storefront order.
+             *
+             * The variants carry no judgement -- neutral for the storefront (the ordinary case),
+             * `--info` for a typed order, `--brand` for the till -- and the DS's own rule applies:
+             * "colour alone never carries the meaning, the text label beside it does".
+             */
+            ->editColumn('order_source', function ($item) {
+                $label = Order::orderSourceLabel($item->order_source);
+
+                if ($label === null) {
+                    /*
+                     * A BARE DASH, which is this table's own idiom for an absent value
+                     * (`payment_type`, `shipping_method` and `dateOrDash` all render `'-'`), so
+                     * the cell inherits the surrounding colour and needs no new class. The only
+                     * addition is the tooltip, which says WHY it is empty -- the cell must not
+                     * leave a merchant guessing whether the source is missing or the order is
+                     * odd. `.ss-muted` was written here first and does not exist in
+                     * `store-syria-ds.css`; it would have rendered as unstyled default text.
+                     */
+                    return '<span data-bs-toggle="tooltip" title="'
+                        . e(__('This order was created before the source was recorded.'))
+                        . '">-</span>';
+                }
+
+                $variant = match ($item->order_source) {
+                    Order::SOURCE_POS => ' ss-badge--brand',
+                    Order::SOURCE_MANUAL => ' ss-badge--info',
+                    default => '',
+                };
+
+                return '<span class="ss-badge' . $variant . '">' . e($label) . '</span>';
+            })
             ->editColumn('delivered_status', function ($item) {
                 /*
                  * THE DESIGN SYSTEM'S BADGE, NOT THE VENDORED THEME'S BUTTONS.
@@ -212,7 +254,7 @@ class OrderDataTable extends DataTable
 
                 return OrderStatusTone::badge($status, $label);
             })
-            ->rawColumns(['action', 'product_order_id', 'order_date', 'customer_id', 'final_price', 'payment_type', 'delivered_status']);
+            ->rawColumns(['action', 'product_order_id', 'order_date', 'customer_id', 'final_price', 'payment_type', 'order_source', 'delivered_status']);
         return $dataTable;
     }
 
@@ -360,6 +402,23 @@ class OrderDataTable extends DataTable
             $query->where('return_status', 1);
         }
 
+        /*
+         * P2-04-11. SOURCE, matched against `Order::SOURCES` so an unrecognised value adds no
+         * predicate and the filter can only ever narrow.
+         *
+         * THERE IS NO "NOT RECORDED" OPTION, deliberately. NULL is the absence of a record, not
+         * a fourth source, and offering it beside the three real ones would present an absence
+         * of evidence as a category a merchant could reason about. The three values are also the
+         * three the vocabulary holds, read from the model rather than written out again here, so
+         * a value added to `Order::SOURCES` cannot become filterable in one place and not the
+         * other.
+         */
+        $source = $request->query('ss_source');
+
+        if (is_string($source) && in_array($source, Order::SOURCES, true)) {
+            $query->where('order_source', $source);
+        }
+
         $from = self::parseDate($request->query('ss_from'));
 
         if ($from !== null) {
@@ -452,6 +511,14 @@ class OrderDataTable extends DataTable
         'shipping_method' => [
             'title' => __('Shipping Method'),
             'orderable' => false,
+            'searchable' => false,
+        ],
+
+        // P2-04-11. Not searchable: the stored value is a machine vocabulary ('pos'), while the
+        // cell shows a translated label, so a free-text search box matching the column would
+        // answer for one and display the other. The `ss_source` filter is the way in.
+        'order_source' => [
+            'title' => __('Source'),
             'searchable' => false,
         ],
 

@@ -3227,5 +3227,10 @@
     "Returns": "Returns",
     "Awaiting a decision": "Awaiting a decision",
     "return is waiting for a decision|returns are waiting for a decision": "return is waiting for a decision|returns are waiting for a decision",
-    "order is still unpaid|orders are still unpaid": "order is still unpaid|orders are still unpaid"
+    "order is still unpaid|orders are still unpaid": "order is still unpaid|orders are still unpaid",
+    "Point of sale": "Point of sale",
+    "Entered manually": "Entered manually",
+    "Source": "Source",
+    "Any source": "Any source",
+    "This order was created before the source was recorded.": "This order was created before the source was recorded."
 }

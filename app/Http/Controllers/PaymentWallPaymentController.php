@@ -169,6 +169,7 @@ class PaymentWallPaymentController extends Controller
                         }
 
                         $order                 = new Order();
+                        $order->order_source = Order::SOURCE_STOREFRONT;
                         $order->order_id       = $orderID;
                         $order->name           = $user->name;
                         $order->card_number    = '';

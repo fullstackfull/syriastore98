@@ -364,6 +364,9 @@ public function store(Request $request)
             'return_status' => 0,
             'additional_note' => $request->additional_note ?? '',
             'store_id' => $storeId,
+            // P2-04-11. The merchant typed this order into the web form; that is the one fact
+            // this column records, and it is recorded by the writer rather than inferred later.
+            'order_source' => \App\Models\Order::SOURCE_MANUAL,
             'created_by' => auth()->id(),
             
             'currency_code' => $currentCurrencyCode,
@@ -657,7 +660,27 @@ public function store(Request $request)
                 if (!empty($order['message'])) {
                     return redirect()->back()->with('error', __('Order Not Found.'));
                 }
-                return view('order.view', compact('order', 'store', 'order_notes', 'deliveryboys'));
+                /*
+                 * P2-04-11. READ SEPARATELY AND SCOPED, rather than taken from `order_detail()`.
+                 *
+                 * `Order::order_detail()` builds the array THIS VIEW renders and the array the
+                 * order-detail API returns to the Flutter and Lynomia clients -- the same method,
+                 * the same keys. Adding the source there would widen both payloads for every
+                 * order in both repositories, and the source is wanted on this screen only, so
+                 * it is read here and passed on its own. The API wire format is untouched.
+                 *
+                 * SCOPED BY `store_id` even though `OrderDocumentAccessGuard` already refuses a
+                 * foreign order on this uri. `Order` is NOT in `config/tenancy.php`'s
+                 * `scoped_models`, so `Order::find()` adds no predicate for ANY principal, and a
+                 * tenant predicate here is cheaper than depending on the guard never moving.
+                 * Fails closed to null, which the view renders as "Not recorded" -- an absence,
+                 * never another store's answer.
+                 */
+                $orderSource = Order::where('id', $id)
+                    ->where('store_id', getCurrentStore())
+                    ->value('order_source');
+
+                return view('order.view', compact('order', 'store', 'order_notes', 'deliveryboys', 'orderSource'));
             } catch (DecryptException $e) {
                 return redirect()->back()->with('error', __('Something was wrong.'));
             } catch (\Exception $e) {

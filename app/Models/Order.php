@@ -44,11 +44,68 @@ class Order extends Model
         'additional_note',
         'deliveryboy_id',
         'store_id',
+        'order_source',   // P2-04-11. REQUIRED here: both `Order::create([...])` writers pass
+                          // it by key, and Laravel silently DISCARDS an unfillable key -- the
+                          // exact trap `created_by` fell into below.
         'created_by',   // orders.created_by added by the schema work; without this
                         // entry Laravel silently discards the value that
                         // OrderController.php:161 passes to Order::create().
 
     ];
+
+    /**
+     * P2-04-11 / WS E8 -- THE `order_source` VOCABULARY: which path created this order.
+     *
+     * Recorded BY THE WRITER, never inferred afterwards. Three columns look as though they
+     * already answer this and none of them does -- `payment_type` is a payment method and is
+     * written through the translator by POS, `created_by` is NULL for every row older than
+     * 2026-10-12 and for two of the three merchant paths, and `is_guest` answers a different
+     * question. The migration's docblock carries that measurement in full.
+     *
+     * THERE IS DELIBERATELY NO `SOURCE_UNKNOWN`. An order with no source has NULL, and NULL is
+     * the ABSENCE of a record, not a fourth category: it means the order predates the column.
+     * Giving that absence a name would let it be stored, compared and filtered as though
+     * somebody had established it, which is the fabrication the owner's approval forbids.
+     */
+    public const SOURCE_POS = 'pos';
+    public const SOURCE_MANUAL = 'manual';
+    public const SOURCE_STOREFRONT = 'storefront';
+
+    /** The whole vocabulary, in the order the filter offers it. */
+    public const SOURCES = [
+        self::SOURCE_POS,
+        self::SOURCE_MANUAL,
+        self::SOURCE_STOREFRONT,
+    ];
+
+    /**
+     * The merchant-facing name of a source, or NULL when the order carries none.
+     *
+     * NULL IN, NULL OUT -- and every caller must render that absence as an absence. Returning a
+     * label here for an unrecorded source is the one thing this method must not do: the list
+     * and the detail page both have a test asserting that a legacy order is not presented as a
+     * storefront order, and this `default` arm is what those tests are really pinning.
+     */
+    public static function orderSourceLabel($source): ?string
+    {
+        return match ((string) $source) {
+            self::SOURCE_POS => __('Point of sale'),
+            self::SOURCE_MANUAL => __('Entered manually'),
+            self::SOURCE_STOREFRONT => __('Storefront'),
+            default => null,
+        };
+    }
+
+    /**
+     * NOT IN `$appends`, DELIBERATELY. Everything in `$appends` is serialised into every API
+     * response that returns an Order, so appending this would widen the Flutter and Lynomia
+     * payloads for every order in both repositories. The accessor exists for the two Blade
+     * surfaces that ask for it by name; the wire format stays byte-identical.
+     */
+    public function getOrderSourceLabelAttribute(): ?string
+    {
+        return self::orderSourceLabel($this->order_source);
+    }
 
     /**
      * Attribute casts.

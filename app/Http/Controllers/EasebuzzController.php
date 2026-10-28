@@ -825,6 +825,7 @@ class EasebuzzController extends Controller
 
             // add in  Order table  start
             $order = new Order();
+            $order->order_source = Order::SOURCE_STOREFRONT;
             $order->product_order_id = $product_order_id;
             $order->order_date = date('Y-m-d H:i:s');
             $order->customer_id = $orderCustomerId;   // F46

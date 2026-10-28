@@ -275,6 +275,7 @@ class PosController extends Controller
                     ->pluck('value', 'name')->toArray();
 
                 $pos                  = new Order();
+                $pos->order_source = Order::SOURCE_POS;
                 $pos->product_order_id = $new_pos_id;
                 $pos->order_date = date('Y-m-d H:i:s');
                 $pos->customer_id            = isset($customer->id) ? $customer->id : '0';
@@ -292,7 +293,24 @@ class PosController extends Controller
                 $pos->coupon_price = (float)$discount;
                 $pos->delivery_price = '';
                 $pos->tax_price = $tax_amount;
-                $pos->payment_type = __('POS');
+                /*
+                 * F146. THE LITERAL, NOT `__('POS')`.
+                 *
+                 * `App\Models\Order` compares `payment_type` against the literal 'POS' in three
+                 * places -- the product-line reshape, the tax/coupon block and the customer
+                 * block -- and all three shape the array `Order::order_detail()` returns, which
+                 * IS the order-detail API response the Flutter admin app and Lynomia read. Going
+                 * through the translator made the stored discriminator depend on the UI language
+                 * of the session that rang up the sale, so a one-word edit to `ar.json` would
+                 * have changed an API contract and the buyer name shown for every Arabic-created
+                 * till order, with no code or data change anywhere.
+                 *
+                 * THIS CHANGES NO STORED VALUE TODAY: both shipped locales map "POS" to "POS",
+                 * so the row written is byte-identical. No migration, no backfill, no payment
+                 * behaviour. `PosPaymentTypeLocaleTest::test_the_landmine_is_real` arms the
+                 * mechanism and measures the response difference it produced.
+                 */
+                $pos->payment_type = 'POS';
                 $pos->payment_status = 'Paid';
                 $pos->store_id = $store->id;
                 $pos->save();

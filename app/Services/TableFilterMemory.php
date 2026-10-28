@@ -80,7 +80,10 @@ final class TableFilterMemory
            `describe()` returns `[]`, the Clear button's render condition is `describe(…) !== []`,
            so the merchant gets a sticky filter, no receipt and no way out. That is the
            "my orders are gone" screen the restore is only safe if it prevents. */
-        'order' => ['ss_status', 'ss_payment', 'ss_return', 'ss_from', 'ss_to'],
+        /* `ss_source` added by P2-04-11, for the same reason `ss_return` is here: a filter the
+           DataTable reads but the memory does not know about is remembered by neither leg, so
+           the bar forgets it on the next visit and the receipt never mentions it. */
+        'order' => ['ss_status', 'ss_payment', 'ss_return', 'ss_source', 'ss_from', 'ss_to'],
     ];
 
     /** The submit button's name. Its PRESENCE is the only thing that writes the memory. */
@@ -291,7 +294,7 @@ final class TableFilterMemory
         $heading = [
             'ss_status' => 'Status', 'ss_variant' => 'Variants', 'ss_stock' => 'Stock',
             'ss_category' => 'Category', 'ss_payment' => 'Payment', 'ss_from' => 'From',
-            'ss_to' => 'To', 'ss_return' => 'Returns',
+            'ss_to' => 'To', 'ss_return' => 'Returns', 'ss_source' => 'Source',
         ];
 
         if (! isset($heading[$name])) {
@@ -354,6 +357,17 @@ final class TableFilterMemory
                    filter that narrows nothing — which is the silence this class reserves for
                    values that really do nothing. */
                 'ss_return' => ['1' => __('Awaiting a decision')],
+                /* READ FROM `Order::SOURCES`, not written out again, so the receipt cannot name
+                   a value the filter refuses or miss one it accepts. No entry for NULL: an
+                   unrecorded source is not a filterable value, so there is nothing for the
+                   receipt to announce. */
+                'ss_source' => array_combine(
+                    \App\Models\Order::SOURCES,
+                    array_map(
+                        static fn (string $v): string => (string) \App\Models\Order::orderSourceLabel($v),
+                        \App\Models\Order::SOURCES
+                    ),
+                ),
                 'ss_payment' => array_combine(
                     \App\DataTables\OrderDataTable::PAYMENT_STATUSES,
                     array_map(static fn (string $s): string => __($s),

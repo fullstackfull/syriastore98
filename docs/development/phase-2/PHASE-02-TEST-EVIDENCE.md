@@ -4587,3 +4587,72 @@ anything: the suite would pass while no longer exercising the thing that broke i
 |---|---|
 | `tests/Feature/Commerce/OrderStoreOwnershipTest` | **11 passed, 62 assertions** |
 | `tests/Feature/Commerce` (whole directory, 43 files) | **662 passed, 7 skipped, 0 failed** |
+
+## P2-04-11 — `orders.order_source` (2026-10-28)
+
+**New tests — 22.**
+
+| file | n | what it pins |
+|---|---|---|
+| `tests/Feature/Merchant/OrderSourceAttributionTest.php` | 16 | the column's shape (nullable, **no default**); the three writers a merchant reaches record the right value; a legacy row is **not** presented as a storefront order, in the list cell and on the detail row; a recorded source is named and renders as a badge while an absent one renders as a dash — a difference in KIND, not colour; the filter narrows, cannot reach another tenant, adds no predicate for an unrecognised value, and survives an array value; the bar offers exactly the vocabulary the query reads |
+| `tests/Unit/Database/OrderSourceWriterCensusTest.php` | 4 | **the ratchet**: every host-`Order` writer in `app/` stamps the column, every stamp uses an `Order::SOURCE_*` constant rather than a bare string, the scan is not vacuous, and the vocabulary has no name for an absent source |
+| `tests/Feature/Commerce/PosPaymentTypeLocaleTest.php` | 2 | **F146**: the landmine is real (armed with `Lang::addLines` — the same walk-in sale rung up in Arabic comes back naming the buyer `' '` instead of `Walk-in Customer`), and the till now writes the literal |
+
+**Suites run — the set was derived from what the change is driven by, not from memory (owner §5).**
+
+| suite | result |
+|---|---|
+| `tests/Unit` + `Feature/Commerce` + `Feature/Merchant` + `Feature/Platform` + `Feature/Lynomia` + `Feature/Tenancy` | **2712 passed, 13 skipped, 0 failed** |
+| `--testsuite=Contract` | **26 passed** — the Flutter wire format is unchanged |
+| `tests/Feature/Security` | **4087 passed** |
+
+Why those six: a **new migration** reaches `Feature/Platform` (`AddonMigrationStrandingTest`,
+`FreshInstallAddonMigrationsTest`) and `Feature/Lynomia` (`LynomiaMigrationIntegrityTest`); a **new
+`orders` column** reaches `Feature/Tenancy`, which iterates `Schema::getColumns()` to build fixtures
+(it skips nullable columns, so the column cannot reach it — verified by reading, then by running);
+**thirteen payment controllers** reach `Feature/Commerce`; and `Feature/Commerce` **builds its own
+`orders` table**, with `OrderStoreOwnershipTest:485` calling `(new OrderController())->store()`
+directly — the same shape as the failure that reddened commit `638d06c1`.
+
+**Guards bitten — 8 of 8 confirmed to fail when reverted.**
+
+| reverted | test that went red |
+|---|---|
+| the `CinetPayController` stamp removed | `census > every order writer records its source` |
+| `->default('storefront')` added to the migration | `attribution > the column exists and holds no default` |
+| `default => __('Storefront')` in `orderSourceLabel()` | `census > the vocabulary has no name for an absent source` |
+| **`'order_source'` commented out of `$fillable`** | `attribution > the merchant order form records a manual source` |
+| the list cell given `?? __('Storefront')` | `attribution > a legacy order is not presented as a storefront order` |
+| the detail row given `Storefront` instead of `Not recorded` | `attribution > the detail page of a legacy order invents no source` |
+| the filter's strict `in_array` replaced by `!== null` | `attribution > an unrecognised source value adds no predicate` |
+| the census regex pointed at `new ZZOrder()` | `census > the census is not vacuous` |
+
+The fourth is the one worth keeping: it is the **`created_by` trap**. That column exists, the
+controller passes it, and it is discarded in silence because the key is not fillable — so a test that
+only drove the handler and checked for no error would have reported this slice working with the value
+never stored.
+
+**Three test defects of my own, found by running rather than by reading.**
+
+1. `?ss_source=pos ` (trailing space) was in the "unrecognised value" list and the filter narrowed
+   anyway. Not a defect: `Illuminate\Foundation\Http\Middleware\TrimStrings` is global, so there is no
+   space left by the time `applyFilters()` runs. Moved into its own test that **pins** the trimming,
+   because the obvious "hardening" — reading the raw query string behind the framework — would make
+   this one control behave unlike every other on the page. Its neighbour
+   `ConvertEmptyStringsToNull` is why `?ss_source=` correctly adds no predicate.
+2. The admin API create asserted HTTP 200; the endpoint answers **201**. Asserted exactly rather than
+   `assertNotSame(422, …)`, which a 500 would also satisfy.
+3. **F146's first assertion was based on a misreading of the code it tests.** I recorded
+   `Order.php:503` as *skipping* the billing block for a POS order and asserted the key was absent. It
+   is not — there is an `else` branch building the same key from the `Customer` row. The real
+   consequence is the **contents**, which is a quieter defect than the one I had written down, and the
+   failing assertion is what sent me back to read the branch properly.
+
+**One tooling defect worth recording, because it nearly shipped.** The bite-test harness restored a
+reverted line with `s.replace(new, old)` — and for the census bite, `new` was the **empty string**, so
+the restore inserted the stamp between every character of `CinetPayController.php`: 73,485 insertions
+in one file, with `php -l` still clean and the test suite still green. Caught by reading
+`git diff --stat` before committing, not by any test. The file was restored from `HEAD` and re-stamped
+at its single site. **A clean lint and a green suite do not establish that a diff is what you think it
+is** — the diff itself has to be read, and `249 insertions / 6 deletions across 22 files`, with every
+deletion accounted for as a line-rewrite, is the evidence that it is.

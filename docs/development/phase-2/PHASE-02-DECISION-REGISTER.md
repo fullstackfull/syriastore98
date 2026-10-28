@@ -1162,3 +1162,53 @@ isolation.
 | P2-04-11 | `orders.order_source` to distinguish POS, manual and storefront | **old rows stay unattributed** unless there is reliable evidence to classify them; payment and stock logic unchanged |
 | P2-03-4 | the smallest addition compatible with the existing media model, **if proven necessary** | no parallel media engine; no change to variant identity; no deletion of variant references. If it exceeds supporting today's variants and becomes a Phase 03 feature, document the deferral and do not let it block closing approved requirements |
 | P2-04-6 | an **optional** author on NEW notes | appropriate permissions, honest display, and **old notes must not be attributed** to the current employee or to a presumed author |
+
+### D-25 — P2-04-11 `orders.order_source`: the five decisions taken inside the owner's approval
+
+The owner approved this migration on 2026-10-28 (§1, "عند ثبوت الحاجة") with four conditions, recorded
+in **D-24d**. Need was proven before anything was written, and five choices inside that approval are
+recorded here because each one could reasonably have gone the other way.
+
+**1. NEED. No column already in `orders` answers the question — measured, not assumed.**
+Three candidates were read before a new column was accepted:
+
+| candidate | why it does not answer "which path created this order" |
+|---|---|
+| `payment_type` | a payment METHOD. A storefront COD order and a merchant-typed cash order both read `cod`. It is also the wrong KIND of value: POS wrote it through the translator, so the stored discriminator depended on the UI language — recorded and fixed as **F146** |
+| `created_by` | added 2026-10-12, so NULL for every historical row, and NULL for the POS and admin-API paths. It cannot separate "storefront" from "before the column existed" |
+| `is_guest` | whether a *customer* was signed in. Orthogonal: a merchant-typed order for a known customer and a storefront order by that customer both read `0` |
+
+**2. NO DEFAULT.** This is the owner's condition («أبقِ السجلات القديمة مجهولة المصدر») expressed in DDL
+rather than in prose. A default of `'storefront'` applies to NEW inserts too, so any writer the change
+failed to reach would silently CLAIM a provenance nobody established. That is not hypothetical: the
+first census of the writers **missed five of sixteen** because the grep output was truncated, and with a
+default those five would have produced confident false attributions instead of visible NULLs.
+`OrderSourceWriterCensusTest` is the standing guard, and the no-default DDL is what makes an unstamped
+writer honest in the meantime.
+
+**3. NO BACKFILL.** Every pre-migration row keeps NULL. A historical order's provenance is not
+recoverable from the schema (see the table above), so an UPDATE here would be invention. The list cell
+and the detail row both render that absence as an absence, and two tests assert the negative directly —
+a legacy order must not be presented as a storefront order.
+
+**4. A COMPOSITE INDEX `(store_id, order_source)`, not a single-column one.** The only query that
+filters the column is the merchant order list, which is always store-scoped, so the real predicate is
+`WHERE store_id = ? AND order_source = ?`. A standalone index on a three-value column is close to
+useless to the planner. **Production note for whoever is authorised to run this:** the column add is
+instant on MySQL 8, the index is a build and wants an online DDL path. Neither statement reads or
+rewrites existing row values. **This migration has not been run anywhere but an isolated test
+environment, per the owner's prohibition.**
+
+**5. THE FLUTTER AND LYNOMIA CONTRACTS ARE DELIBERATELY NOT WIDENED.** Two separate restraints:
+the `order_source_label` accessor is kept OUT of `$appends` (everything in `$appends` is serialised into
+every API response returning an Order), and `OrderController::order_view` reads the source itself rather
+than taking it from `Order::order_detail()`, which builds the web view's array **and** the order-detail
+API response. The wire format is therefore byte-identical, confirmed by `--testsuite=Contract` (26 pass).
+The cost is recorded rather than hidden: parity gap **G8** — the admin app cannot yet show the source,
+and widening the API to let it is a deliberate later decision, not a side effect of this slice.
+
+**What was NOT decided here, and stays as it is:** the vocabulary has three values because the owner
+named three (POS, manual, storefront); the admin app's order form records `manual`, the same as the web
+form, because the column records the PATH that created the order and not the device that reached it.
+Phase 04's approved scope includes "channels", which is why the column is a widenable string rather than
+an enum — but no channel value is invented now.

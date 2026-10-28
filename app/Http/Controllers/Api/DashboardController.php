@@ -6234,6 +6234,11 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('defult_currancy_sy
             'return_status' => 0,
             'additional_note' => $validated['additional_note'] ?? '',
             'store_id' => $storeId, 
+            // P2-04-11. Entered by a merchant in the admin app's order form -- the SAME source
+            // as the web form, because the provenance recorded is the path that created the
+            // order, not the device that reached it. A column that separated web from app would
+            // answer a question nobody on this screen asks and would double the vocabulary.
+            'order_source' => \App\Models\Order::SOURCE_MANUAL,
             'created_by' => $userId,
         ]);
 

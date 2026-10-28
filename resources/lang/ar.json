@@ -3256,5 +3256,10 @@
     "Returns": "المرتجعات",
     "Awaiting a decision": "بانتظار القرار",
     "return is waiting for a decision|returns are waiting for a decision": "مرتجع بانتظار القرار|مرتجعات بانتظار القرار",
-    "order is still unpaid|orders are still unpaid": "طلب غير مدفوع|طلبات غير مدفوعة"
+    "order is still unpaid|orders are still unpaid": "طلب غير مدفوع|طلبات غير مدفوعة",
+    "Point of sale": "نقطة البيع",
+    "Entered manually": "مُدخَل يدوياً",
+    "Source": "المصدر",
+    "Any source": "أي مصدر",
+    "This order was created before the source was recorded.": "أُنشئ هذا الطلب قبل تسجيل المصدر."
 }

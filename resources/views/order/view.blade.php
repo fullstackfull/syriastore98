@@ -494,6 +494,30 @@ class="text-start ps-3"><b>{{ order_currency_format_with_sym($order['coupon_pric
 
 
 
+                                    {{-- P2-04-11. WHICH PATH CREATED THIS ORDER.
+
+                                         Two different statements, not one with a blank value. A
+                                         recorded source is named; an unrecorded one says so IN
+                                         WORDS rather than showing a dash, because this page has
+                                         the room and because "-" beside the labelled rows around
+                                         it reads as "the field is empty" instead of "nobody
+                                         recorded this". Every order written before the column
+                                         existed is in the second case, and presenting those as
+                                         storefront orders is the one thing this row must not do.
+
+                                         `$orderSource` is passed by `OrderController::order_view`
+                                         and is store-scoped there; it is NOT part of
+                                         `order_detail()`'s array, so no API payload changed. --}}
+                                    <li class="d-flex justify-content-end">
+                                        <span>{{ __('Source') }} :</span>
+                                        <span class="text-start ps-3">
+                                            @if (\App\Models\Order::orderSourceLabel($orderSource ?? null) !== null)
+                                                <b>{{ \App\Models\Order::orderSourceLabel($orderSource) }}</b>
+                                            @else
+                                                <b title="{{ __('This order was created before the source was recorded.') }}">{{ __('Not recorded') }}</b>
+                                            @endif
+                                        </span>
+                                    </li>
                                     <li class="d-flex justify-content-end">
                                         <span>{{ __('Order Status') }} :</span>
                                         <span class="text-start ps-3"><b>{{ $order['order_status_text'] }}</b></span>

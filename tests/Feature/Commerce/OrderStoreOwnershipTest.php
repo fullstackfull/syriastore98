@@ -805,6 +805,14 @@ class OrderStoreOwnershipTest extends TestCase
             $table->string('currency_symbol', 8)->nullable();
             $table->unsignedBigInteger('created_by')->nullable()->index();
             $table->unsignedBigInteger('store_id')->nullable()->index();
+            // P2-04-11. THIS FILE BUILDS ITS OWN `orders` TABLE, and `test_*` below calls
+            // `(new OrderController())->store($request)` directly -- the writer that now stamps
+            // `order_source`. Without this column that call dies with "no such column", which is
+            // exactly how commit 638d06c1 reddened the gate: the Commerce suite's schema is
+            // hand-built because `2024_05_16_054044_add_id_to_currency_table.php` cannot run on
+            // sqlite, so a migration does NOT reach it. Any future column a tested writer sets
+            // has to be added here too.
+            $table->string('order_source', 20)->nullable();
             $table->timestamps();
         });
 

@@ -3816,6 +3816,7 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
 
         // add in  Order table  start
         $order = new Order();
+        $order->order_source = Order::SOURCE_STOREFRONT;
         $order->product_order_id = $customerId . date('YmdHis');
         $order->order_date = date('Y-m-d H:i:s');
         $order->customer_id = $customerId;
@@ -9003,6 +9004,7 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
 
         // add in  Order table  start
         $order = new Order();
+        $order->order_source = Order::SOURCE_STOREFRONT;
         $order->product_order_id = $product_order_id;
         $order->order_date = date('Y-m-d H:i:s');
         $order->customer_id = !empty($customer_id) ? $customer_id : 0;

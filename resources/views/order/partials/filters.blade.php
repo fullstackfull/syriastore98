@@ -99,6 +99,27 @@
         </select>
     </div>
 
+    {{-- P2-04-11. SOURCE -- which path created the order.
+
+         The options are read from `Order::SOURCES` and labelled by `Order::orderSourceLabel()`,
+         so the bar cannot offer a value `OrderDataTable::applyFilters()` refuses, and a value
+         added to the vocabulary appears here without a second edit.
+
+         THERE IS NO "Not recorded" OPTION. Orders written before the column existed carry NULL,
+         and NULL is the absence of a record rather than a fourth source; an option for it would
+         invite a merchant to read "we have no idea" as a provenance. The list cell says so in
+         words on each such row instead. --}}
+    <div class="ss-filterbar__field">
+        <label class="ss-label" for="ss-filter-source">{{ __('Source') }}</label>
+        <select class="ss-select" id="ss-filter-source" name="ss_source">
+            <option value="">{{ __('Any source') }}</option>
+            @foreach (\App\Models\Order::SOURCES as $ssSource)
+                <option value="{{ $ssSource }}"
+                    @selected(request()->query('ss_source') === $ssSource)>{{ \App\Models\Order::orderSourceLabel($ssSource) }}</option>
+            @endforeach
+        </select>
+    </div>
+
     <div class="ss-filterbar__field">
         <label class="ss-label" for="ss-filter-from">{{ __('From') }}</label>
         {{-- `type="date"`, and the trade is worth stating. The VALUE it submits is always
