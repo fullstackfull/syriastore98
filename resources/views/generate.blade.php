@@ -93,6 +93,22 @@
     
 </div>
     <script>
+    /* P2-01-19. CLOSING THE SIDE PANEL INSTEAD OF THE SECOND MODAL.
+       This view used to close itself with `$('#commanModelOver').modal('hide')` -- it knew the
+       container it was loaded into by id, which is why moving the trigger alone would have left
+       three dead close calls and a form that generated content and then never went away.
+       Wrapped in one helper, and GUARDED: if `store-syria-ds.js` were blocked or failed to load,
+       a bare `window.StoreSyriaDS.closePanel(...)` would throw inside an AJAX success handler and
+       take the rest of it -- including the field that receives the generated text -- with it. The
+       panel staying open is a far better failure than the content never arriving. */
+    function ssCloseGenerate() {
+        try {
+            if (window.StoreSyriaDS && window.StoreSyriaDS.closePanel) {
+                window.StoreSyriaDS.closePanel('ai-generate');
+            }
+        } catch (e) {}
+    }
+
         function copyText() {
             var selected = $('input[name="template_name"]:checked').attr('data-name');
             var copied = $("#ai-description").val();
@@ -109,7 +125,7 @@
                 }
             }
             show_toastr('success', 'Result text has been copied successfully', 'success');
-            $('#commanModelOver').modal('hide');
+            ssCloseGenerate();
         }
         function copySelectedText() {
             var selected = $('input[name="template_name"]:checked').attr('data-name');
@@ -129,11 +145,11 @@
                
             }
             show_toastr('success', 'Result text has been copied successfully', 'success');
-            $('#commanModelOver').modal('hide');
+            ssCloseGenerate();
         
         }
         $('body').on('shown.bs.modal', function () {
-            $("#commanModelOver input:radio:first").prop("checked", true).trigger("change");
+            $("#ai-generate input:radio:first").prop("checked", true).trigger("change");
         });
         $('body').on('change','.template_name',function(){
             var templateId = $(this).val();
@@ -184,7 +200,7 @@
                     $('#generate').text('Re-Generate');
                     if(data.message){
                         show_toastr('error', data.message, 'error');
-                        //$('#commanModelOver').modal('hide');
+                        //ssCloseGenerate();
                     }
                     else{
                         $('#ai-description').val(data)

@@ -2,8 +2,8 @@
 
 @if (isset(auth()->user()->currentPlan) && auth()->user()->currentPlan->enable_chatgpt == 'on')
     <div class="mb-1 d-flex justify-content-end">
-        <a href="#" class="btn btn-primary me-2 ai-btn btn-badge" data-size="lg" data-ajax-popup-over="true"
-            data-url="{{ route('generate', ['coupan']) }}" data-bs-toggle="tooltip" data-bs-placement="top"
+        <a href="#" class="btn btn-primary me-2 ai-btn btn-badge" data-size="lg" data-ss-panel-open="ai-generate"
+            data-ss-panel-url="{{ route('generate', ['coupan']) }}" data-bs-toggle="tooltip" data-bs-placement="top"
             title="{{ __('Generate') }}" data-title="{{ __('Generate Content With AI') }}">
             <i class="fas fa-robot"></i> {{ __('Generate with AI') }}
         </a>

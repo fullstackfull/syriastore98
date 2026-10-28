@@ -534,6 +534,29 @@
 
     @include('partision.settingPopup')
     {{-- P2-06-2: the global search palette, once per admin page. --}}
+    {{-- P2-01-19 — THE "GENERATE WITH AI" SURFACE, AS A SIDE PANEL INSTEAD OF A SECOND MODAL.
+
+         Nineteen buttons across sixteen create/edit views carried the nested-dialog attribute
+         (spelled out in AjaxPopupContractRatchetTest rather than here, because that ratchet counts
+         raw occurrences and would count this comment),
+         which `custom.js:72` loads into `#commanModelOver` and opens OVER the modal those views are
+         themselves rendered in -- two stacked dialog levels, which the master prompt asks to
+         eliminate. They now open this panel, which is a sibling of the modal rather than a child of
+         it, so there is never a second dialog level.
+
+         DECLARED HERE, NOT IN THE SIXTEEN VIEWS, and that is the reason it works: those views are
+         fetched by AJAX INTO the modal's body, so a panel declared inside one of them would be
+         nested in the very dialog this change exists to get out of. The layout is already rendered
+         and sits outside it.
+
+         ONE PANEL, ONE TITLE: all nineteen buttons carried the same `data-title`
+         ("Generate Content With AI"), measured rather than assumed, so a fixed title loses nothing.
+
+         The AJAX contract is untouched -- same `route('generate', [...])` per site, now in
+         `data-ss-panel-url`, which the design system's panel loads with its own loading and error
+         states. Each site's permission gate (`currentPlan->enable_chatgpt == 'on'`) is unchanged. --}}
+    <x-ss.panel id="ai-generate" title="{{ __('Generate Content With AI') }}" />
+
     @include('partision.command-palette')
 
     @include('partision.footerlink')

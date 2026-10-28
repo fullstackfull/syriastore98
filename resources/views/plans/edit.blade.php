@@ -19,7 +19,7 @@
             <h3 class="h4 m-0">{{ __('Edit Plan') }}</h3>
             <div class="d-flex align-items-center justify-content-end flex-wrap g-2">
                 @if (auth()->user()->type == 'super admin' && isset($setting['chatgpt_key']))
-                <a href="#" class="btn btn-primary btn-badge me-2 ai-btn" data-size="lg" data-ajax-popup-over="true" data-url="{{ route('generate',['plan']) }}" data-bs-toggle="tooltip" data-bs-placement="top" title="{{ __('Generate') }}" data-title="{{ __('Generate Content With AI') }}">
+                <a href="#" class="btn btn-primary btn-badge me-2 ai-btn" data-size="lg" data-ss-panel-open="ai-generate" data-ss-panel-url="{{ route('generate',['plan']) }}" data-bs-toggle="tooltip" data-bs-placement="top" title="{{ __('Generate') }}" data-title="{{ __('Generate Content With AI') }}">
                     <i class="fas fa-robot"></i> {{ __('Generate with AI') }}
                 </a>
                 @endif

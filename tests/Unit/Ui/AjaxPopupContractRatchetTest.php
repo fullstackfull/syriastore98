@@ -42,9 +42,29 @@ class AjaxPopupContractRatchetTest extends TestCase
     private const PLAIN_FLOOR = 128;
     private const PLAIN_FILES_FLOOR = 83;
 
-    /** Measured 2026-10-28. P2-01-19 owns bringing this DOWN, deliberately and with a note. */
-    private const NESTED_EXACT = 19;
-    private const NESTED_FILES_EXACT = 16;
+    /**
+     * **ZERO, as of P2-01-19 on 2026-10-28, and this is the note that rule asked for.**
+     *
+     * Was 19 occurrences across 16 views, measured the same day. Every one of them was the SAME
+     * button -- "Generate with AI", `data-ajax-popup-over="true"` with
+     * `data-url="{{ route('generate', [...]) }}"` and, measured rather than assumed, the identical
+     * `data-title` on all nineteen. `custom.js:72` loaded it into `#commanModelOver` and opened it
+     * OVER the modal those create/edit views are themselves rendered in: two stacked dialog levels.
+     *
+     * They now open the design system's side panel (`data-ss-panel-open="ai-generate"` +
+     * `data-ss-panel-url`), declared once in `layouts/app.blade.php` so it is a SIBLING of the
+     * modal rather than a child of it. Same route, same permission gate, no second dialog level.
+     *
+     * `generate.blade.php` changed with them, and that is the half a trigger-only change would have
+     * missed: the view knew its container by id and closed itself with
+     * `$('#commanModelOver').modal('hide')` in two live places. Those are now one guarded helper.
+     *
+     * STILL AN EQUALITY, AND STILL AT ZERO FOR A REASON: the floor it guards is not "do not grow
+     * from 19" but "do not reintroduce stacked dialogs at all". If a new one is ever genuinely
+     * needed, this number moves in the change that adds it, with its own note.
+     */
+    private const NESTED_EXACT = 0;
+    private const NESTED_FILES_EXACT = 0;
 
     /** @return array{0:int,1:int} [occurrences, files] */
     private function tally(string $needle): array

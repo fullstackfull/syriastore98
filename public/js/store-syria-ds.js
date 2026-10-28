@@ -68,6 +68,69 @@
         };
     }
 
+    /* P2-01-19. A PANEL OPENED FROM INSIDE A BOOTSTRAP MODAL LOSES FOCUS TO IT, AND THAT IS
+       MEASURED RATHER THAN SUSPECTED.
+
+       Moving "Generate with AI" out of its second modal and into this panel left three things
+       broken, and all three had ONE cause. Driven on a real create screen (Bootstrap 5.1.3):
+
+         - openPanel() focuses the panel heading, and 0ms later `document.activeElement` is the
+           MODAL's `.btn-close`, and still is at 50, 200 and 600ms;
+         - Tab therefore cycles the modal: 10 of 10 presses landed outside the panel;
+         - Escape reached the modal and closed the merchant's half-filled create form.
+
+       The cause is `Modal.prototype._focustrap`: Bootstrap installs a `focusin` listener that pulls
+       focus back inside the modal whenever it leaves, and the panel is deliberately a SIBLING of
+       the modal rather than a child, which is the whole point of the row. So the trap is doing
+       exactly its job on a surface it cannot know about.
+
+       SO THE TRAP IS SUSPENDED WHILE A PANEL IS OPEN AND RESTORED WHEN IT CLOSES. Bootstrap 5.1
+       offers no public API for that -- `focus: false` is construction-time only, and the modal here
+       is the host theme's shared `#commanModel`, constructed by code this project does not own --
+       so `_focustrap` is reached directly. That is a private field, and every assumption about it
+       is GUARDED: no Bootstrap, no instance, no `_focustrap`, or no `deactivate` and this is a
+       no-op that leaves today's behaviour exactly as it is. If a Bootstrap upgrade renames it, the
+       panel does not break -- it goes back to losing focus, and
+       `check-ai-panel-live.cjs` fails and says so.
+
+       ONLY MODALS THAT ARE ACTUALLY OPEN are touched, and each one is remembered so that closing
+       the panel restores precisely what it suspended rather than activating traps that were never
+       on. */
+    var suspendedTraps = [];
+
+    function suspendModalFocusTraps() {
+        suspendedTraps = [];
+
+        try {
+            if (!window.bootstrap || !window.bootstrap.Modal
+                || typeof window.bootstrap.Modal.getInstance !== 'function') {
+                return;
+            }
+
+            Array.prototype.forEach.call(document.querySelectorAll('.modal.show'), function (el) {
+                var instance = window.bootstrap.Modal.getInstance(el);
+                var trap = instance && instance._focustrap;
+
+                if (trap && typeof trap.deactivate === 'function') {
+                    trap.deactivate();
+                    suspendedTraps.push(trap);
+                }
+            });
+        } catch (e) {
+            suspendedTraps = [];
+        }
+    }
+
+    function restoreModalFocusTraps() {
+        try {
+            suspendedTraps.forEach(function (trap) {
+                if (trap && typeof trap.activate === 'function') { trap.activate(); }
+            });
+        } catch (e) {}
+
+        suspendedTraps = [];
+    }
+
     function openPanel(id, trigger) {
         var els = panelEls(id);
         if (!els.panel) { return; }
@@ -87,6 +150,10 @@
 
         // The list behind must not scroll while the panel is over it.
         document.body.style.overflow = 'hidden';
+
+        // BEFORE the focus move, not after: the trap fires on `focusin`, so suspending it
+        // afterwards would let it steal the very focus this is about to set.
+        suspendModalFocusTraps();
 
         var heading = els.panel.querySelector('.ss-panel__title');
         if (heading) {
@@ -113,6 +180,10 @@
         // prefers-reduced-motion drops the transition, so transitionend never
         // fires and the panel would stay in the tree. Belt and braces.
         setTimeout(done, 300);
+
+        // Restored BEFORE focus goes back, so the trigger -- which is typically inside the
+        // modal -- is handed to a modal whose own trap is live again.
+        restoreModalFocusTraps();
 
         // Focus returns to whatever opened it, which is the whole point of
         // tracking the trigger.

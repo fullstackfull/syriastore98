@@ -5881,3 +5881,73 @@ every `__()` string already there has Arabic, so this closes a **latent** gap ra
 live defect, and it now enforces the new strings automatically. Adding the six keys then tripped
 `TranslationFileIntegrityTest`, which caps how many keys `ar.json` may declare beyond `en.json`
 (31); they went into both files.
+
+---
+
+## P2-01-19 — "Generate with AI" out of the nested dialog (2026-10-28)
+
+`docs/development/phase-2/tools/check-ai-panel-live.cjs` — 9 checks × `en` and `ar`, **0 failures**.
+`tests/Unit/Ui/AjaxPopupContractRatchetTest.php` — `NESTED_EXACT` 19 → 0.
+
+**All 19 sites were the same button.** Measured first: `data-ajax-popup-over="true"` appears 19
+times in 16 views and **zero times in `packages/workdo/`**, so *"لا تعدّل WorkDo مباشرة"* was
+satisfied by the shape of the problem rather than by care. Every one carried the identical
+`data-title` ("Generate Content With AI"), checked per button rather than assumed, so one panel with
+one fixed title loses nothing.
+
+**The panel is declared in the layout, and that is load-bearing.** Those create/edit views are
+fetched by AJAX *into* the shared modal's body, so a panel declared inside one of them would be
+nested in the very dialog this row exists to escape. In the layout it is a **sibling** of the modal.
+
+**The markup swap alone created three real defects, and the live check found all three.** Driven on
+a real category create screen, in both languages:
+
+| check | before the fix | cause |
+|---|---|---|
+| focus moved into the panel | FAIL | `document.activeElement` was the **modal's** `.btn-close` at 0, 50, 200 and 600 ms |
+| Tab stays inside the panel | FAIL — **10/10 escaped** | same |
+| the create form underneath is still open | FAIL | Escape reached the modal and closed the merchant's half-filled form |
+
+One cause: **Bootstrap 5.1.3's `Modal._focustrap`**, a `focusin` listener that pulls focus back
+inside the modal whenever it leaves — doing exactly its job on a sibling surface it cannot know
+about. Suspended while a panel is open and restored on close: **before** the focus move (the trap
+fires on `focusin`, so suspending after would let it steal the focus being set) and **before** focus
+returns to the trigger (which is typically inside the modal). Bootstrap 5.1 has no public API for
+this — `focus: false` is construction-time only and the modal is the host theme's shared
+`#commanModel` — so the private field is reached directly, with every assumption guarded: no
+Bootstrap, no instance, no `_focustrap`, or no `deactivate`, and it is a no-op leaving today's
+behaviour untouched. A rename in a future Bootstrap degrades the panel to losing focus again and
+this tool says so.
+
+**Bitten:** removing the suspension fails exactly those three checks in both languages and leaves
+the other five passing per language.
+
+### Two of the probe's own readings were artifacts, caught before they were believed
+
+**"The panel loaded the generate form over AJAX" failed on the first run.** It was reading the
+panel's body as soon as the open state flipped, and `loadPanel()` opens the panel *first* and fills
+it from a `fetch` — deliberately, so the click has immediate feedback. The probe was measuring the
+loading placeholder. A probe's own race is not a defect in the thing it measures.
+
+**And its first target had no button to click.** `/coupon` carries no *visible* create trigger for
+this fixture: the only `data-ajax-popup` elements on the page are the header's Quick Add entries,
+sitting in a closed dropdown — so a selector matching the attribute alone found three hidden links
+and the click timed out. The screen's own button is absent because the dev merchant holds
+`Manage Coupon` and **not** `Create Coupon`, which is the permission gate working. Retargeted to
+`/category`, and the trigger is now chosen by visibility.
+
+### `generate.blade.php` changed with the triggers
+
+A trigger-only change would have left the view generating content and then never going away: it knew
+its container by id and called `$('#commanModelOver').modal('hide')` in two live places. Those are
+now one **guarded** helper — a bare `window.StoreSyriaDS.closePanel(...)` would throw inside an AJAX
+success handler if the DS script were blocked or failed to load, taking the rest of the handler,
+including the field that receives the generated text, with it. The panel staying open is a far
+better failure than the content never arriving.
+
+### One ratchet trap, for the second time in this project
+
+The ratchet counts raw occurrences of the attribute, and the explanatory comment written in
+`layouts/app.blade.php` **contained the attribute spelled out**, so the count read 1 instead of 0.
+The same trap the breadcrumb contract test hit. The comment now points at the ratchet for the exact
+spelling instead of repeating it.
