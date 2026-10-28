@@ -1086,6 +1086,17 @@ approved**.
 
 ### D-24a — P2-01-18: which create-actions belong in the command palette
 
+> **DECIDED 2026-10-28 — APPROVED.** The owner named the set, which is the part this entry said
+> was theirs to choose: **create a product, create a manual order, add a customer, create a
+> coupon** — four create-actions, in the existing palette. Conditions carried verbatim into the
+> work: take the routes from the real registration or `MerchantPageDirectory`; show nothing when
+> the page or module is unavailable; check the employee's permission **and** the current store both
+> when rendering and when the request runs; grant no new permission; **no delete, payment or refund
+> action inside the palette**; build no second search or action mechanism; keep Ctrl/Cmd+K and
+> keyboard navigation; keep RTL and both languages; and test the merchant, a limited employee, the
+> operator, and a store switch. The entry's own recommendation — inherit P2-06-8's "nothing
+> destructive" — is therefore confirmed by the owner rather than assumed by me.
+
 **The original requirement** (WS B5 / H5, ledger P2-01-18): *"a quick-action surface a merchant can
 reach from anywhere, and from search results"*.
 
@@ -1109,6 +1120,13 @@ hides. That is narrow and reversible. It is **not** taken as approved, because c
 the part the owner owns.
 
 ### D-24b — P2-04-12: the invoice-preview clause is module-owned
+
+> **DECIDED 2026-10-28 — APPROVED: KEEP WORKDO.** The existing WorkDo invoice preview stays.
+> `packages/workdo/AutomaticOrderPrinting/` is not edited, no parallel invoicing system is built,
+> no existing feature is copied into the first-party codebase, and the current permissions and
+> guards are kept. **The absence of a new first-party preview is NOT a Phase 02 shortfall** now
+> that this scope decision is recorded; any further preview work is deferred to a later phase.
+> So P2-04-12's invoice-preview clause is CLOSED by scope, not left open.
 
 **The original requirement** (WS E10, ledger P2-04-12): *"printing and export UI where already
 supported"*, including an invoice preview.
@@ -1215,6 +1233,20 @@ an enum — but no channel value is invented now.
 
 ## D-25 — the shared merchant chrome on the design system: ONE scope question, three rows waiting on it
 
+> **DECIDED 2026-10-28 — APPROVED: PHASED DESIGN-SYSTEM MIGRATION, in a fixed order.**
+> **Step 1 — shared header:** measure it, convert the shared components to `ss-*`, **keep every
+> element id, event handler, link and permission**, delete no WorkDo element, and test the shared
+> screens before and after. **Step 2 — shared action buttons:** convert the export button and its
+> three neighbours **as one unit**, changing no action behaviour and breaking no form submission or
+> Bootstrap/JavaScript contract. **Step 3 — order detail page:** finish the shell with the
+> `ss-card` / `ss-row` components that already exist, preserving order data, notes, deletion,
+> status, invoices and permissions; duplicated note-rendering branches may be unified **only if
+> their equivalence is proved**. Mandatory verification for each step: Arabic and English, RTL and
+> LTR, dark and light, phone and desktop, AA contrast, keyboard access, the screens that inherit
+> the header with representative coverage of the 70 modules, and a before/after behaviour
+> comparison. **If a functional break appears, stop widening that step, fix or revert it, then
+> continue with the next slice.** No broad change in one go.
+
 **Raised 2026-10-28, out of P2-01-17. Nothing has been changed; this is a question, not a plan.**
 
 **Why it is recorded once instead of three times.** Three rows carry a PARTIAL whose remainder is
@@ -1264,6 +1296,17 @@ three times.
 
 ## D-26 — P2-03-4: per-variant media and bulk edit across combinations are NEW capability
 
+> **DECIDED 2026-10-28 — APPROVED WITH PHASE BOUNDARIES, and the split this entry costed is the
+> one taken.** Phase 02 gets **one image per product variant**: the existing media model, reusing
+> the gallery upload path and `UploadLimits`; the image bound to the correct variant id **and the
+> correct store**; add, replace and remove supported; no loss of a variant's price, stock or SKU;
+> no change to variant identity; **no access to another store's media**; save and edit compatible
+> with existing data; and the smallest additive migration only where the need is proved, in
+> **DEV/TEST only**. **Deferred as approved:** bulk edit across combinations → **Phase 04**;
+> gallery image reorder → **Phase 03** (D-06, unchanged). No parallel media engine, and no new
+> price or stock engine. F76, F73 and the remaining file-type-acceptance problems are to be handled
+> in their own proved slice, keeping downloadable files and video working.
+
 **Raised 2026-10-28, scoping P2-03-4 against the decisions already approved. Nothing has been
 changed.**
 
@@ -1309,3 +1352,46 @@ ignores dark mode — recorded, worked around, not fixed), **F73** (`$safe_str` 
 differing only in a special character), and the missing `accept` on `downloadable_product` /
 `preview_video`, which needs its own per-field setting because the server's single configured list
 is an image list and would wrongly constrain a video or a ZIP.
+
+---
+
+## D-27 — the owner's final execution directive of 2026-10-28, and what each decision became
+
+**Recorded at the start of the work it authorises, so no slice below has to re-derive its mandate.**
+The four entries above (D-24a, D-24b, D-25, D-26) now carry the owner's answer inline; this entry
+holds the eleven further decisions and tracks execution.
+
+**The directive's own framing matters and is kept:** *"execute the approved decisions, not prepare a
+new plan or re-ask what the owner has answered"*, and — the line that governs every disputed
+slice — *"if a financial or security path's safety cannot be proved, do not guess and do not change
+dangerous commercial behaviour; put that slice in BLOCKED with clear evidence, then continue with
+the rest"*.
+
+| # | decision | owner's answer | state |
+|---|---|---|---|
+| 1 | **D-24a** quick actions | APPROVED — product, manual order, customer, coupon | tracked in D-24a |
+| 2 | **D-24b** invoice preview | APPROVED — keep WorkDo; absence of a new preview is not a shortfall | **CLOSED by scope** |
+| 3 | **D-25** shared chrome | APPROVED — phased: header → action buttons → order detail | tracked in D-25 |
+| 4 | **D-26** variant media | APPROVED — one image per variant; bulk edit → P04, reorder → P03 | tracked in D-26 |
+| 5 | **P2-01-19** nested dialogs | APPROVED — move *Generate with AI* out of the stacked dialog into a side panel or full page; preserve every AJAX contract; batches, not one sweep | — |
+| 6 | **financial confirmations** | **CONDITIONAL** — unify only if equivalence is proved across permissions, amount, payee, ordering, payment state, execution count, cancel, double-submit and failure/timeout; withdrawal approve-and-paid needs its own single-execution test; **if equivalence cannot be proved, leave the site as it is and document it** | — |
+| 7 | **F158** dark mode | APPROVED — incremental, measured in a real browser, starting from sites that actually failed; no single sweeping theme-wide rule | — |
+| 8 | **F153** reward points | APPROVED — export the stored `orders.reward_points`; remove the literal `1`; export stays read-only | — |
+| 9 | **F157** operator on coupons | **READ AND EXPORT ONLY** — no create, edit, delete or value change on a merchant's coupons; unify `CouponController` so export and read agree; keep the store explicit and tenant-isolated, with no default that could expose an unintended store | — |
+| 10 | **F150** payment keys | **FORWARD-ONLY canonical keys** — the database stores canonical identifiers, the UI shows translated names; per-writer slices; **no backfill, no historical edit, no amount or state change, no re-charge, and an ambiguous value stays as it is** | — |
+| 11 | **security & commerce** | APPROVED with business-logic restrictions — D-13/D-18 stock drain, D-22/F121, D-20, E13, F95/F96, each as its own slice, each proved by driving the scenario rather than reading the source | — |
+| 12 | **F159** Flutter CI | **DRAFT PR AUTHORIZED** — draft only, no merge, no auto-merge, no change to `main` | **DONE** — PR #4 opened, CI subscribed |
+| 13 | **token security** | APPROVED — staged: observability → explicit abilities → **30-day expiry for NEW merchant tokens only**; customers and drivers out of scope; no Sanctum global expiration; no mass invalidation | — |
+| 14 | **MySQL/MariaDB** | APPROVED — isolated sandbox, synthetic or scrubbed data only, no production connection; **if unavailable, record the test BLOCKED and never substitute a SQLite result** | — |
+| 15 | **Issue #120** | **DEFERRED BY OWNER** — no key rotation, no production handling, no new workstream this cycle; must not be called FIXED, CLOSED or safe; stays in the risk report as deferred by owner decision | **held as deferred** |
+
+**Two standing limits that cut across all of them, quoted because they decide close calls:** an
+escalation is required if a security fix *"would change material commercial behaviour not previously
+approved"* — then that slice alone stops and the options are presented; and for F150, *"if
+canonicalising a given writer requires a change to collection logic or to a payment callback's
+result, leave that writer out and record it for independent review"*.
+
+**Not authorised by any of the above, and unchanged:** merge to `main`, production deployment,
+production migrations, production backfill, production secret rotation, force-push, history
+rewriting, breaking payment or inventory behaviour, deleting historical data or altering
+settlements, editing `packages/workdo/`, and starting Phase 2.5 or Phase 03.
