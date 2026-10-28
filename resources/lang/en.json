@@ -3244,5 +3244,7 @@
     "Saved view created.": "Saved view created.",
     "Saved view updated.": "Saved view updated.",
     "Saved view deleted.": "Saved view deleted.",
-    "Select at least one filter before saving a view.": "Select at least one filter before saving a view."
+    "Select at least one filter before saving a view.": "Select at least one filter before saving a view.",
+    "Private Note": "Private Note",
+    "To Customer": "To Customer"
 }

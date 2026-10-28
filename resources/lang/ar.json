@@ -3273,5 +3273,7 @@
     "Saved view created.": "تم إنشاء العرض المحفوظ.",
     "Saved view updated.": "تم تحديث العرض المحفوظ.",
     "Saved view deleted.": "تم حذف العرض المحفوظ.",
-    "Select at least one filter before saving a view.": "اختر مرشحاً واحداً على الأقل قبل حفظ العرض."
+    "Select at least one filter before saving a view.": "اختر مرشحاً واحداً على الأقل قبل حفظ العرض.",
+    "Private Note": "ملاحظة خاصة",
+    "To Customer": "إلى العميل"
 }

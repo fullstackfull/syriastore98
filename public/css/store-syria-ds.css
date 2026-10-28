@@ -1979,6 +1979,20 @@
    `.ss-menu__item` was already authored for a <button> (transparent background, zero border,
    full width), so the only thing the interposed form must not do is add box spacing. */
 .ss-workspace__form { margin: 0; padding: 0; border: 0; }
+/* P2-04-6. A destructive item in a menu. The order detail page's "Cancel Order" used
+   Bootstrap's `.text-danger`, which measured 4.00:1 in LIGHT mode and 3.28:1 in dark -- below AA
+   in both, on the one irreversible action in that menu. The DS had `--danger` tones for badges,
+   buttons, alerts and progress but not for a menu item, so this is the missing one rather than a
+   local override. */
+/* P2-04-6. The emphasised text of a row -- a product name in an order's item list, measured at
+   3.71:1 in dark mode where `.h6 .text-sm` leaves it. It is a VALUE, not a heading, so it takes
+   the DS foreground and the DS weight rather than a heading utility. */
+.ss-text-strong { color: var(--ss-fg); font-weight: var(--ss-weight-medium); }
+
+.ss-menu__item--danger { color: var(--ss-danger-fg); }
+.ss-menu__item--danger:hover,
+.ss-menu__item--danger:focus-visible { background: var(--ss-danger-bg); color: var(--ss-danger-fg); }
+
 .ss-menu__sep { height: 1px; margin: var(--ss-space-2) 0; background: var(--ss-border); border: 0; }
 .ss-menu__group {
     padding: var(--ss-space-2) var(--ss-space-3) var(--ss-space-1);

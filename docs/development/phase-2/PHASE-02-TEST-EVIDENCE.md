@@ -4938,3 +4938,62 @@ this model fails closed with `whereRaw('1 = 0')`.
 
 **Suites:** `Unit` + `Merchant` + `Commerce` + `Platform` + `Lynomia` + `Tenancy` — **2741 passed,
 13 skipped, 0 failed**.
+
+### P2-04-6 design-system pass on the order detail page (2026-10-28)
+
+**The contract was pinned first.** `OrderDetailContractTest` (7 tests) fixes the five posted field
+names, every route the page targets, one delete control per note, every note shape's text and the
+summary figures — and deliberately pins **no markup, class, order or label**, all of which the
+restyle is meant to change. A test that pinned those would be rewritten by the change it guards.
+Bitten three ways: rename a field → 3 red, add a stray field → 1 red, drop a route → 1 red.
+
+Two defects in that test found by running it, both the same shape as earlier ones:
+
+1. the field-name scan matched the layout's `<meta name=...>` tags, then (one layer in) field names
+   written as **JS strings** inside a `<script>`. Scripts are now stripped and only
+   `input|select|textarea` are scanned.
+2. it compared a full URL containing `Crypt::encrypt($id)` — **which is randomised**, carrying a
+   fresh IV per call, so the comparison could never match. Prefixes are now derived from `route()`
+   itself rather than hand-written (the first hand-written one, `/shippinglabel-pdf/`, was wrong
+   against the real `/shippinglabel/pdf/`).
+
+**Then measured, in the four REAL configurations.** Dark mode here is the `cust_darklayout` store
+setting choosing `style-dark.css` / `rtl-style-dark.css`, so it is captured **server-side**; it
+cannot be toggled in the browser.
+
+| | before | after |
+|---|---|---|
+| LTR light | 2 failures | **0** |
+| LTR dark | 12 failures | **1** (the shared breadcrumb) |
+| RTL light | 2 failures | **0** |
+| RTL dark | 12 failures | **1** (the shared breadcrumb) |
+
+Each fix followed its own measurement: both `<select>`s and the note-type select gained `ss-select`
+(options at 4.03:1 in dark); the status button now uses **the same `OrderStatusTone` the order list
+uses** — its old `$btn_class` measured **2.52:1 in LIGHT mode**, on the most prominent control on
+the page — so "what colour is this status" has one answer instead of two; the status menu gained
+`ss-menu`/`ss-menu__item`; the two destructive items took a new **`.ss-menu__item--danger`** that
+the design system lacked (it had `--danger` tones for badges, buttons, alerts and progress but not
+for a menu item, and Bootstrap's `.text-danger` measured 4.00:1 light / 3.28:1 dark on the one
+irreversible action in that menu); the item name took a new `.ss-text-strong` (3.71:1 dark).
+
+**Every DS class was ADDED, not substituted**, apart from the two pure colour utilities.
+`form-control`, `btn`, `btn-badge`, `dropdown-item` and `order_status_btn` all remain, because a
+restyle that silently drops a class a handler or the theme matches breaks the control rather than
+recolouring it — and the five note tone classes are all styled in `custom.css` **and**
+`rtl-custom.css`, checked before touching them.
+
+**MY FIRST MEASUREMENT WAS INVALID IN A WAY THAT WOULD HAVE PRODUCED 34 FALSE DEFECTS.** It
+toggled `data-ss-theme` in the browser while the host stylesheet stayed light, so DS-dark text sat
+on a light host and the order summary read **1.18:1**. Those failures do not exist in the real dark
+mode. Capturing the four configurations server-side is what showed the figures were clean. This is
+the second measurement-validity error in one session — the first was toggling `data-theme`, an
+attribute this design system does not use — and the rule that caught both is the same: **prove the
+toggle changes something before trusting what it reports.**
+
+The one remaining dark failure is the shared breadcrumb at 4.03:1, recorded as **F151** against
+P2-01 (whose "Breadcrumbs موحدة" row owns that surface) rather than fixed inside an order-page
+slice. The broader layout chrome measured below AA in dark too, and is named in F151 so the P2-01
+row starts from evidence.
+
+**Suites:** `Unit` + `Merchant` + `Commerce` — **1524 passed, 7 skipped, 0 failed**.

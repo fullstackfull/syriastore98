@@ -89,22 +89,31 @@
                             <div class="col-xxl-2 col-lg-3 col-sm-4 col-12 px-2 d-flex align-items-center">
                                 <div class="btn-group w-100" id="deliver_btn">
                                     <button
-                                        class="btn-badge w-100  d-flex align-items-center  justify-content-between text-wrap  btn {{ $btn_class }} {{ in_array($order['order_status'], [0, 1, 4, 5, 6]) ? 'dropdown-toggle' : '' }} order_status_btn"
+                                        {{-- P2-04-6. `ss-badge` + THE SAME TONE THE ORDER LIST USES.
+                                             `OrderStatusTone` already answers "what colour is this
+                                             status" for `OrderDataTable`; before this, the detail
+                                             page answered it differently with `$btn_class`, which
+                                             measured 2.52:1 in LIGHT mode -- below AA on the most
+                                             prominent control on the page. Added rather than
+                                             substituted: `btn`, `btn-badge` and `order_status_btn`
+                                             are kept because the dropdown's own behaviour and the
+                                             theme's sizing hang off them. --}}
+                                        class="btn-badge w-100  d-flex align-items-center  justify-content-between text-wrap  btn {{ $btn_class }} ss-badge ss-badge--{{ \App\Support\OrderStatusTone::for((int) $order['order_status']) }} {{ in_array($order['order_status'], [0, 1, 4, 5, 6]) ? 'dropdown-toggle' : '' }} order_status_btn"
                                         type="button" {{ in_array($order['order_status'], [2, 3]) ? 'data-bs-toggle="dropdown"' : '' }}
                                         data-bs-toggle="dropdown" aria-haspopup="true" aria-expanded="true">
                                         {{ __('Status') }} : {{ $order['order_status_text'] }}
                                     </button>
                                     @if (in_array($order['order_status'], [0, 1, 4, 5, 6, 7, 8]))
-                                        <div class="dropdown-menu" data-popper-placement="bottom-start">
-                                            <h5 class="dropdown-header text-wrap" style="font-size: 14px;">{{ __('Set order status') }}</h5>
+                                        <div class="dropdown-menu ss-menu" data-popper-placement="bottom-start">
+                                            <h5 class="dropdown-header text-wrap ss-menu__group" style="font-size: 14px;">{{ __('Set order status') }}</h5>
                                             @if ($order['order_status'] == 0 || $order['order_status'] == 8)
-                                                <a class="dropdown-item order_status" href="#" data-value="confirmed">
+                                                <a class="dropdown-item order_status ss-menu__item" href="#" data-value="confirmed">
                                                     <i class="fa fa-check-circle text-success me-1" style="margin-left: -5px;"></i> {{ __(' Confirmed') }}
                                                 </a>
                                                 @stack('AddOrderStatus')
                                             @endif
                                             @if ($order['order_status'] == 0 || $order['order_status'] == 4 || $order['order_status'] == 7 || $order['order_status'] == 8)
-                                                <a class="dropdown-item order_status" href="#" data-value="pickedup">
+                                                <a class="dropdown-item order_status ss-menu__item" href="#" data-value="pickedup">
                                                     <i class="fa fa-truck text-success me-1" style="margin-left: -5px;"></i> {{ __(' Picked Up') }}
                                                 </a>
                                             @endif
@@ -114,7 +123,7 @@
                                                     $order['order_status'] == 4 ||
                                                     $order['order_status'] == 7 ||
                                                     $order['order_status'] == 8)
-                                                <a class="dropdown-item order_status" href="#" data-value="shipped">
+                                                <a class="dropdown-item order_status ss-menu__item" href="#" data-value="shipped">
                                                     <i class="fa fa-spinner text-success me-1" style="margin-left: -5px;"></i> {{ __(' Shipped') }}
                                                 </a>
                                             @endif
@@ -125,7 +134,7 @@
                                                     $order['order_status'] == 6 ||
                                                     $order['order_status'] == 7 ||
                                                     $order['order_status'] == 8)
-                                                <a class="dropdown-item order_status" href="#" data-value="delivered">
+                                                <a class="dropdown-item order_status ss-menu__item" href="#" data-value="delivered">
                                                     <i class="fa fa-check text-success me-1" style="margin-left: -5px;"></i> {{ __(' Delivered') }}
                                                 </a>
                                             @endif
@@ -135,12 +144,12 @@
                                                     $order['order_status'] == 5 ||
                                                     $order['order_status'] == 7 ||
                                                     $order['order_status'] == 8)
-                                                <a class="dropdown-item order_status text-danger" href="#" data-value="cancel">
+                                                <a class="dropdown-item order_status ss-menu__item ss-menu__item--danger" href="#" data-value="cancel">
                                                     <i class="fa fa-check text-danger me-1" style="margin-left: -5px;"></i> {{ __(' Cancel Order') }}
                                                 </a>
                                             @endif
                                             @if ($order['order_status'] == 1 && $order['is_guest'] == 0)
-                                                <a class="dropdown-item order_status text-danger" href="#" data-value="return">
+                                                <a class="dropdown-item order_status ss-menu__item ss-menu__item--danger" href="#" data-value="return">
                                                     <i class="fa fa-check text-danger me-1" style="margin-left: -5px;"></i> {{ __(' Return Order') }}
                                                 </a>
                                             @endif
@@ -149,8 +158,14 @@
                                 </div>
                             </div>
                             <div class="col-xxl-2 col-lg-3 col-sm-4 col-12  px-2 d-flex align-items-center">
+                                {{-- P2-04-6. `ss-select` ADDED, not substituted. Measured in the
+                                     running page: this control's options read 4.03:1 in dark mode,
+                                     below AA. The existing classes stay because `form-control` and
+                                     `select category` may be matched by theme CSS or a handler, and
+                                     a restyle that silently removed a hook would break the control
+                                     rather than recolour it. --}}
                                 {!! Form::select('delivery_boy', $deliveryboys, $order['deliveryboy_id'], [
-                                    'class' => 'form-control select category h-100',
+                                    'class' => 'form-control select category h-100 ss-select',
                                     'style' => 'padding-right: 35px !important;',
                                     'id' => 'delivery_boy',
                                     'disabled' => $disableSelectBox,
@@ -168,8 +183,9 @@
                                     $ssPaymentOptions = collect(App\Models\Order::payment_status())
                                         ->map(fn ($label) => __($label))->all();
                                 @endphp
+                                {{-- P2-04-6. `ss-select` added; see the delivery select above. --}}
                                 {!! Form::select('payment_status', $ssPaymentOptions, $order['payment_status'], [
-                                    'class' => 'form-control select category btn-badge h-100',
+                                    'class' => 'form-control select category btn-badge h-100 ss-select',
                                     'id' => 'payment_status',
                                 ]) !!}
                             </div>
@@ -359,7 +375,7 @@
                                                          item is a record of what was ordered, including products
                                                          that have since been deleted, so there is nothing it can
                                                          reliably link to. --}}
-                                                    <span class="h6 text-sm">{{ $item['name'] }}</span> <br>
+                                                    <span class="h6 text-sm ss-text-strong">{{ $item['name'] }}</span> <br>
                                                     <span class="text-sm"> {{ $item['variant_name'] }} </span>
                                                 </td>
                                                 <td>
@@ -714,8 +730,15 @@ class="text-start ps-3"><b>{{ order_currency_format_with_sym($order['coupon_pric
                                 </div>
                                 <div class="form-group col-md-4">
                                     {!! Form::label('', __('Note Type'), ['class' => 'form-label']) !!}
-                                    {!! Form::select('note_type', ['private_note' => 'Private Note', 'to_customer' => 'To Customer'], null, [
-                                        'class' => 'form-control',
+                                    {{-- P2-04-6. `ss-select` added: these two options measured
+                                         4.03:1 in dark mode. The labels are translated at the call
+                                         site for the same reason the payment select's are -- the
+                                         KEY is what gets posted and stored. --}}
+                                    {!! Form::select('note_type', [
+                                        'private_note' => __('Private Note'),
+                                        'to_customer' => __('To Customer'),
+                                    ], null, [
+                                        'class' => 'form-control ss-select',
                                     ]) !!}
                                 </div>
                                 <div class="form-group col-md-4">
