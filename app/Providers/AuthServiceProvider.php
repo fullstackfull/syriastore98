@@ -22,6 +22,10 @@ class AuthServiceProvider extends ServiceProvider
         // the payments workstream -- the same division PlatformOperatorOnly documents for
         // order.approve/order.reject on that same controller.
         \App\Models\PlanOrder::class => \App\Policies\PlanOrderPolicy::class,
+        // P2-04-9. Registered so `$user->can('view', $savedView)` resolves; the screen-scoped
+        // abilities (`viewAny`, `create`) take a string and are called on the policy instance
+        // through the gate, which Laravel supports for a policy bound to the model class.
+        \App\Models\SavedView::class => \App\Policies\SavedViewPolicy::class,
     ];
 
     /**

@@ -164,3 +164,73 @@
         @endif
     </div>
 </form>
+
+{{--
+    P2-04-9 — SAVED VIEWS. A SIBLING OF THE FILTER FORM, NEVER NESTED INSIDE IT: the bar above is
+    one GET form, and a `<form>` inside a `<form>` is invalid HTML that browsers resolve by
+    dropping the inner one — the save button would silently submit the filter bar instead.
+
+    EVERY ACTION IS A POST. The neighbouring controllers have a recorded history of
+    state-changing GETs (ledger F14, F30, F31), so applying and deleting both carry a token.
+
+    WHAT A SAVED VIEW HOLDS IS ONLY FILTER VALUES. The hidden inputs below are built from
+    `TableFilterMemory::vocabularyFor('order')`, so nothing outside the screen's own allowlist can
+    be posted into one, and `SavedView::sanitiseFilters()` applies the same list again on write
+    AND on read. Sharing stays what P2-04-8 made it: a link carrying values, never a store id,
+    never a view id, never a row.
+--}}
+@php($ssSavedViews = $ssSavedViews ?? collect())
+@php($ssVocabulary = \App\Services\TableFilterMemory::vocabularyFor('order'))
+@php($ssCurrentFilters = collect($ssVocabulary)->mapWithKeys(fn ($k) => [$k => (string) request()->query($k, '')])->filter(fn ($v) => $v !== ''))
+
+<div class="ss-scope ss-filterbar__saved">
+    @if ($ssSavedViews->isNotEmpty())
+        <div class="ss-chips" role="group" aria-label="{{ __('Saved views') }}">
+            @foreach ($ssSavedViews as $ssView)
+                <span class="ss-chip ss-chip--static">
+                    <form method="POST" action="{{ route('saved-views.apply', $ssView->id) }}" class="d-inline">
+                        @csrf
+                        <button type="submit" class="ss-btn ss-btn--ghost ss-btn--sm"
+                                title="{{ __('Apply this saved view') }}">{{ $ssView->name }}</button>
+                    </form>
+                    <form method="POST" action="{{ route('saved-views.destroy', $ssView->id) }}" class="d-inline">
+                        @csrf
+                        @method('DELETE')
+                        {{-- The shared confirmation component, as every other destructive control
+                             on this screen uses (P2-01's one dialog, 124 call sites). --}}
+                        <button type="button"
+                                class="ss-chip__remove show_confirm"
+                                data-confirm="{{ __('Are You Sure?') }}"
+                                data-text="{{ __('This action can not be undone. Do you want to continue?') }}"
+                                data-text-yes="{{ __('Yes') }}" data-text-no="{{ __('No') }}"
+                                aria-label="{{ __('Delete the saved view :name', ['name' => $ssView->name]) }}">
+                            <i class="ti ti-x" aria-hidden="true"></i>
+                        </button>
+                    </form>
+                </span>
+            @endforeach
+        </div>
+    @endif
+
+    {{-- OFFERED ONLY WHEN THERE IS SOMETHING TO SAVE. An empty filter set is not a view, and a
+         permanently visible "save" box on an unfiltered list teaches merchants to ignore it —
+         the same reasoning as P2-04-13's attention block having no empty state. --}}
+    @if ($ssCurrentFilters->isNotEmpty())
+        <form method="POST" action="{{ route('saved-views.store') }}" class="ss-filterbar__save">
+            @csrf
+            <input type="hidden" name="screen" value="order">
+            @foreach ($ssCurrentFilters as $ssKey => $ssValue)
+                <input type="hidden" name="filters[{{ $ssKey }}]" value="{{ $ssValue }}">
+            @endforeach
+
+            <div class="ss-filterbar__field">
+                <label class="ss-label" for="ss-saved-view-name">{{ __('Save these filters as') }}</label>
+                <input class="ss-input" id="ss-saved-view-name" name="name" type="text"
+                       maxlength="60" required
+                       placeholder="{{ __('e.g. Unpaid this week') }}">
+            </div>
+
+            <button type="submit" class="ss-btn ss-btn--secondary">{{ __('Save view') }}</button>
+        </form>
+    @endif
+</div>

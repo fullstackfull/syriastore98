@@ -52,7 +52,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/ProductStockService.php:127` | Stock decremented below zero on an order path that cannot refuse |
 | `app/Services/ProductStockService.php:210` | Stock decremented below zero on an order path that cannot refuse |
 
-### `warning` — 120 lines
+### `warning` — 122 lines
 
 | line | message |
 |---|---|
@@ -88,15 +88,15 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/KhaltiPaymnetController.php:251` | Khalti plan purchase NOT activated: the capture was not confirmed for the server price |
 | `app/Http/Controllers/KhaltiPaymnetController.php:774` | Khalti verification refused: no server-computed payable in the stored state. |
 | `app/Http/Controllers/NMIPayController.php:428` | Pending partial payment refused: the balance named does not belong to this customer. |
-| `app/Http/Controllers/OrderController.php:1276` | Return approval restored no stock: order carries no readable product_json |
-| `app/Http/Controllers/OrderController.php:1322` | Return approval skipped a line whose stock was already credited |
-| `app/Http/Controllers/OrderController.php:1342` | Return approval skipped a line with an unusable product id or quantity |
-| `app/Http/Controllers/OrderController.php:1363` | Return approval skipped a line whose product is not in the order |
-| `app/Http/Controllers/OrderController.php:1390` | Return approval skipped a line whose variant does not belong to its product |
-| `app/Http/Controllers/OrderController.php:1736` | Order cancellation skipped a line with an unusable product id or quantity |
-| `app/Http/Controllers/OrderController.php:1751` | Order cancellation skipped a line whose product is not in the order |
-| `app/Http/Controllers/OrderController.php:1773` | Order cancellation skipped a line whose variant does not belong to its product |
-| `app/Http/Controllers/OrderController.php:1942` | Order assignment refused: the delivery boy is not in a store this caller owns |
+| `app/Http/Controllers/OrderController.php:1283` | Return approval restored no stock: order carries no readable product_json |
+| `app/Http/Controllers/OrderController.php:1329` | Return approval skipped a line whose stock was already credited |
+| `app/Http/Controllers/OrderController.php:1349` | Return approval skipped a line with an unusable product id or quantity |
+| `app/Http/Controllers/OrderController.php:1370` | Return approval skipped a line whose product is not in the order |
+| `app/Http/Controllers/OrderController.php:1397` | Return approval skipped a line whose variant does not belong to its product |
+| `app/Http/Controllers/OrderController.php:1743` | Order cancellation skipped a line with an unusable product id or quantity |
+| `app/Http/Controllers/OrderController.php:1758` | Order cancellation skipped a line whose product is not in the order |
+| `app/Http/Controllers/OrderController.php:1780` | Order cancellation skipped a line whose variant does not belong to its product |
+| `app/Http/Controllers/OrderController.php:1949` | Order assignment refused: the delivery boy is not in a store this caller owns |
 | `app/Http/Controllers/OrderController.php:322` | Manual order total did not match its components; the computed total was stored |
 | `app/Http/Controllers/OrderRefundController.php:1167` | Refund settled but the order totals were left unchanged: product_json is unparseable |
 | `app/Http/Controllers/OrderRefundController.php:180` | Refund transition refused: unrecognised current state |
@@ -129,6 +129,8 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/PaystackPaymentController.php:388` | Paystack plan activation refused: this reference is already recorded against a different buyer or plan. |
 | `app/Http/Controllers/PaystackPaymentController.php:455` | Paystack plan activation refused: the captured payment does not match the plan being activated. |
 | `app/Http/Controllers/PosController.php:246` | POS sale skipped a line whose product is not this store |
+| `app/Http/Controllers/SavedViewController.php:117` | Saved view apply refused: not the owner or no such view |
+| `app/Http/Controllers/SavedViewController.php:136` | Saved view delete refused: not the owner or no such view |
 | `app/Http/Controllers/SenangPayController.php:140` | SenangPay plan return refused: the return hash could not be verified. |
 | `app/Http/Controllers/SenangPayController.php:150` | SenangPay plan return refused: return hash mismatch. |
 | `app/Http/Controllers/SofortController.php:106` | Sofort return rejected: plaintext plan parameter disagrees with the signed token. |

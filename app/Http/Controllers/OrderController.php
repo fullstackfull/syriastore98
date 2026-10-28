@@ -562,7 +562,14 @@ public function store(Request $request)
 
             \App\Services\TableFilterMemory::remember($request, 'order');
 
-            return $dataTable->render('order.index', $this->orderAttentionCounts());
+            /*
+             * P2-04-9. The signed-in employee's saved views for THIS screen, in THIS store.
+             * `forCurrentPrincipal()` carries both predicates and fails closed when no store
+             * resolves; the guard above has already established that one does.
+             */
+            return $dataTable->render('order.index', $this->orderAttentionCounts() + [
+                'ssSavedViews' => \App\Models\SavedView::forCurrentPrincipal('order')->get(),
+            ]);
         } else {
             return redirect()->back()->with('error', __('Permission denied.'));
         }

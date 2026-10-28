@@ -3234,5 +3234,15 @@
     "Any source": "Any source",
     "The source of this order was not recorded.": "The source of this order was not recorded.",
     "No store is selected.": "No store is selected.",
-    "by": "by"
+    "by": "by",
+    "Saved views": "Saved views",
+    "Apply this saved view": "Apply this saved view",
+    "Delete the saved view :name": "Delete the saved view :name",
+    "Save these filters as": "Save these filters as",
+    "e.g. Unpaid this week": "e.g. Unpaid this week",
+    "Save view": "Save view",
+    "Saved view created.": "Saved view created.",
+    "Saved view updated.": "Saved view updated.",
+    "Saved view deleted.": "Saved view deleted.",
+    "Select at least one filter before saving a view.": "Select at least one filter before saving a view."
 }

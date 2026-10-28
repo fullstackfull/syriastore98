@@ -1161,6 +1161,16 @@ Route::get(
     Route::get('order-grid', [OrderController::class, 'order_grid_view'])->name('order.grid');
 
     /*
+     * P2-04-9 -- saved filter views. Inside this group, so `auth` applies; every handler then
+     * derives the store and the employee from the principal and checks `SavedViewPolicy`.
+     * POST and DELETE only: nothing here is a state-changing GET, which is the defect class
+     * F14/F30/F31 record on this very controller's neighbours.
+     */
+    Route::post('saved-views', [\App\Http\Controllers\SavedViewController::class, 'store'])->name('saved-views.store');
+    Route::post('saved-views/{id}/apply', [\App\Http\Controllers\SavedViewController::class, 'apply'])->name('saved-views.apply');
+    Route::delete('saved-views/{id}', [\App\Http\Controllers\SavedViewController::class, 'destroy'])->name('saved-views.destroy');
+
+    /*
      * P2-06-2. The merchant's global search.
      *
      * Inside the authenticated admin group, so it is never anonymous, and every SECTION of the

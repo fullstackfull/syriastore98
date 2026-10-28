@@ -86,6 +86,29 @@ final class TableFilterMemory
         'order' => ['ss_status', 'ss_payment', 'ss_return', 'ss_source', 'ss_from', 'ss_to'],
     ];
 
+    /**
+     * The filter keys a screen recognises — THE SAME ALLOWLIST the session memory uses, exposed
+     * so `SavedView` validates against one list rather than a second copy of it.
+     *
+     * P2-04-9 needs this because a saved view that could store an arbitrary key would be a way to
+     * smuggle a parameter past the vocabulary: the whole reason `VOCABULARY` is explicit is to
+     * stop a `?redirect=` or `?page=` becoming part of a merchant's filters, and a saved view is
+     * just a filter set that outlives the session.
+     *
+     * @return list<string> empty for a screen with no vocabulary, which callers must treat as
+     *                      "nothing may be saved for this screen" rather than "anything may"
+     */
+    public static function vocabularyFor(string $screen): array
+    {
+        return self::VOCABULARY[$screen] ?? [];
+    }
+
+    /** Every screen that has a filter vocabulary at all. */
+    public static function screens(): array
+    {
+        return array_keys(self::VOCABULARY);
+    }
+
     /** The submit button's name. Its PRESENCE is the only thing that writes the memory. */
     public const APPLY = 'ss_apply';
 

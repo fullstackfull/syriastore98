@@ -3263,5 +3263,15 @@
     "Any source": "أي مصدر",
     "The source of this order was not recorded.": "لم يُسجَّل مصدر هذا الطلب.",
     "No store is selected.": "لم يتم اختيار متجر.",
-    "by": "بواسطة"
+    "by": "بواسطة",
+    "Saved views": "العروض المحفوظة",
+    "Apply this saved view": "تطبيق هذا العرض المحفوظ",
+    "Delete the saved view :name": "حذف العرض المحفوظ :name",
+    "Save these filters as": "احفظ هذه المرشحات باسم",
+    "e.g. Unpaid this week": "مثال: غير مدفوع هذا الأسبوع",
+    "Save view": "حفظ العرض",
+    "Saved view created.": "تم إنشاء العرض المحفوظ.",
+    "Saved view updated.": "تم تحديث العرض المحفوظ.",
+    "Saved view deleted.": "تم حذف العرض المحفوظ.",
+    "Select at least one filter before saving a view.": "اختر مرشحاً واحداً على الأقل قبل حفظ العرض."
 }

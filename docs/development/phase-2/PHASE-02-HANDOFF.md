@@ -659,3 +659,42 @@ Two further things the same review found, both of which generalise:
 - **An appended attribute makes a string assertion lie.** `assertStringContainsString('final_price')`
   passed because `final_price` is in `Product::$appends`, so it appeared in the top-products block
   whether or not the `recent_order` block was served. Assert the **key**, in the block you mean.
+
+## Resume point — 2026-10-28, after P2-04-9
+
+**Branch:** `claude/store-syria-p02-continuation-smlpwi` (both repos). **Do not merge to `main`,
+do not deploy, do not run any migration against production.**
+
+**Last commits (Laravel), newest first:**
+
+| commit | what | gate state |
+|---|---|---|
+| *this one* | P2-04-9 saved views | derived suites green; **full Feature gate not yet run over it** |
+| `58edb0e2` | P2-04-6 order-note author + §3 PaymentWall integrity | derived suites green |
+| `a336703b` | §2 wording + §4 F149 null-store refusal | derived suites green |
+| `be901ad8` | evidence: the Feature gate PASSED over `427c2c03` | — |
+| `427c2c03` | P2-04-11 order source + F146 | **full Feature gate PASSED** (6374 passed, 0 errors, outcome set matches the manifest exactly) |
+
+**Three migrations exist and have run in DEV/TEST ONLY.** None has been run anywhere else and
+none may be: `2026_10_28_000001` (`orders.order_source`), `2026_10_28_000002`
+(`order_notes.created_by`), `2026_10_28_000003` (`saved_views`). The first carries a production
+note stating that it must be applied before or atomically with its code, because sixteen writers
+stamp the column unconditionally.
+
+**Exact resume point.** The next required action is the **full Feature gate over the final tree**,
+with the known-outcome assertion, then the remaining Phase 02 rows in this order: P2-04-6's
+design-system restyle of the order detail shell, the orders Kanban, P2-04-12 printing/export,
+then P2-03 (variants and media, product editor), then P2-01 (breadcrumbs, header, quick actions,
+loading/success states, nested dialogs, keyboard focus), then the remaining P2-06/P2-07 partials,
+then **P2-08**.
+
+**What must not be re-done:** P2-04-10, P2-04-11, P2-04-13, P2-04-14, P2-04-15, P2-04-6's author
+half, P2-04-9, P2-07-9…-13, P2-01-16, P2-05 (all eight rows), F146, F147, F149. The ledger rows
+carry their evidence.
+
+**Open and deliberately not closed:** D-13, D-20, E13, D-22/F121, Issue #120, token lifetime, and
+**MySQL remains UNVERIFIED** — every figure in the evidence file is SQLite, and no claim of MySQL
+coverage has been made. F150 (34 of 40 `payment_type` values written through the translator; 23 of
+40 absent from the display map) is recorded for an owner decision with its analysis in
+`docs/security/F146-POS-PAYMENT-TYPE-DATA-INVENTORY.md`; no backfill exists or may be run.
+P2-04-12's invoice-preview clause is the one scope decision still open (D-24b).

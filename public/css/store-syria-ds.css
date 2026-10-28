@@ -2790,6 +2790,39 @@ a.ss-setup__item:focus-visible {
     min-width: 0;
 }
 
+/* P2-04-9 -- saved views. A SIBLING of the filter form, never inside it: the bar is a GET form
+   and a nested <form> is dropped by the browser, so the save button would submit the filters
+   instead. Laid out as its own row beneath the bar, wrapping on narrow screens. Logical
+   properties throughout, so it mirrors in RTL without a second rule. */
+.ss-filterbar__saved {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: var(--ss-space-3);
+    /* IT CARRIES THE SURFACE, and the first version did not -- which was a real dark-mode
+       failure, measured in the browser rather than guessed at. The block is a SIBLING of the
+       filter form (a nested <form> is dropped by browsers), so without a background of its own it
+       resolved up to the host's page wrapper -- which is LIGHT even in dark mode. A DS label
+       colour on the host's light wrapper measured 2.41:1 against the same label reading 5.21:1
+       inside the bar. `.ss-filterbar` sets `background: var(--ss-surface)` for exactly this
+       reason; so does this. */
+    padding: var(--ss-space-4);
+    border: 1px solid var(--ss-border);
+    border-radius: var(--ss-radius-lg);
+    background: var(--ss-surface);
+    /* Pulled up under the bar so the two read as one control, since the bar carries its own
+       margin-block-end. */
+    margin-block-start: calc(var(--ss-space-4) * -1 + var(--ss-space-2));
+    margin-block-end: var(--ss-space-4);
+}
+
+.ss-filterbar__save {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: var(--ss-space-2);
+}
+
 .ss-filterbar__actions {
     display: flex;
     flex-wrap: wrap;

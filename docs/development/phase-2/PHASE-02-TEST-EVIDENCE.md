@@ -4871,3 +4871,70 @@ activation gate is still closed. Reverting F147 turns two of them red **and** th
 
 **Suites:** `Unit` + `Merchant` + `Commerce` + `Platform` + `Lynomia` + `Tenancy` — **2733 passed,
 13 skipped, 0 failed**. `tests/Feature/Security` — **4097 passed, 0 failed**.
+
+### P2-04-9 saved views (2026-10-28)
+
+**29 new tests, and the isolation/permission half was written before any Blade existed**, which
+was the owner's instruction and not a preference: a UI built first would have had to be re-read
+against whatever the tests later turned out to require.
+
+| file | n | what it pins |
+|---|---|---|
+| `tests/Feature/Security/SavedViewIsolationTest.php` | 19 | ownership from the principal not request input; two employees of one merchant are isolated; views do not follow a merchant across stores; another tenant cannot apply or delete; a colleague cannot delete; **the operator cannot read**; a foreign id and a missing id answer identically; filters outside the screen's vocabulary are dropped; an unknown screen is refused; no store means no creation; the unique index exists; **a shared link grants nothing** |
+| `tests/Feature/Merchant/SavedViewInterfaceTest.php` | 10 | the block renders with the employee's own views and not a colleague's; no empty state; the save form carries only vocabulary keys; **the forms are siblings of the filter form, not nested**; every action is a POST with a token; Arabic and English both render; accessible names on the icon button, the chip group and the label |
+
+**Two of six bite tests did not bite — that is the finding, not an aside.**
+
+| reverted | result | what it revealed |
+|---|---|---|
+| the employee predicate | 2 failed | ok |
+| the store predicate | 1 failed | ok |
+| the operator made exempt | 1 failed | ok |
+| the vocabulary allowlist | 2 failed | ok |
+| **ownership made mass-assignable** | **0 failed** | the test pinned the CONTROLLER, not `$fillable` |
+| **the screen allowlist removed** | **0 failed** | the test pinned the POLICY, not the controller's check |
+
+Both gaps are now covered by tests that pin the mechanism actually at risk:
+`test_ownership_cannot_be_mass_assigned`, and
+`test_every_screen_with_a_vocabulary_has_a_permission_and_the_reverse`. Writing the first of those
+also corrected what I believed the outcome was: both ownership columns are NOT NULL, so Laravel
+drops the unfillable keys and the **database refuses the row outright** — a mass-assigned saved
+view cannot be created at all, mis-owned or otherwise. My first version asserted it was created
+with NULL ownership.
+
+**The browser check found a real dark-mode defect that no test in this repository would have.**
+Measured with Playwright against the rendered page in all four configurations, computing each text
+node's contrast against its resolved background:
+
+| | light | dark |
+|---|---|---|
+| `Save these filters as` (before) | 16.06:1 | **2.41:1 — FAIL** |
+| `Save these filters as` (after) | 16.06:1 | **5.21:1** |
+
+The cause is structural rather than cosmetic: the saved-views block is a **sibling** of the filter
+form, because a `<form>` inside a `<form>` is dropped by browsers and the save button would have
+submitted the filter bar instead. As a sibling it had no surface of its own, so it resolved up to
+the host's page wrapper — `rgb(249,250,251)`, **light even in dark mode** — and carried DS dark
+text on it. `.ss-filterbar` sets `background: var(--ss-surface)` for precisely this reason; the
+block now does too, plus `ss-scope`.
+
+**And the first measurement was wrong in a way that looked like success.** It toggled
+`data-theme`; this design system switches on **`data-ss-theme`**. Light and dark returned
+identical numbers and every reading passed. What caught it was noticing the identity, then dumping
+the tokens to prove the toggle did anything at all (`--ss-fg` `#1a2322` → `#e8eded`). A
+measurement that cannot be shown to vary with the thing it measures is not a measurement.
+
+Also checked and **not** a finding, recorded because it sits next to this slice: the order list
+reflects every query parameter into the DataTable's `ajax.url` inside a `<script>` block. A
+`</script>` payload cannot break out — it arrives percent-encoded. `json_encode`'s slash escaping,
+which I first assumed was the protection, is not what does it; the premise assertion in
+`test_a_reflected_parameter_cannot_break_out_of_the_script` is what corrected that.
+
+**`SavedView` is classified in the tenancy census and NOT allowlisted for the global scope**
+(94→95 models, 57→58 carrying `store_id`), beside `MerchantFavouritePage` and for the same reason:
+the scope would supply only `store_id`, the weaker half of the ownership pair, and
+`null_tenant => 'open'` means it supplies nothing exactly when a tenant fails to resolve — where
+this model fails closed with `whereRaw('1 = 0')`.
+
+**Suites:** `Unit` + `Merchant` + `Commerce` + `Platform` + `Lynomia` + `Tenancy` — **2741 passed,
+13 skipped, 0 failed**.
