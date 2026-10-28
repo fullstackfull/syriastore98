@@ -6232,3 +6232,29 @@ on `Order`. Both branches bitten separately.
 The third is the **fifth** instance of this trap in this repository, so the stripper is now a
 shared trait (`tests/Support/StripsSourceComments.php`) naming all five, rather than a tenth
 private copy.
+
+### The gate, after F169–F174 — 2026-10-28
+
+```
+php artisan test --testsuite=Unit        601 passed (3114 assertions)
+php artisan test --testsuite=Contract     26 passed (83 assertions)
+php artisan test --testsuite=Feature       2 failed, 17 skipped, 6582 passed (33190 assertions)
+
+php .github/scripts/assert-known-test-outcomes.php …
+  testcases observed : 6601  (manifest floor 1000)
+  failures observed  : 2   (manifest declares 2)
+  errors observed    : 0   (always expected: 0)
+  skips observed     : 17  (manifest declares 17)
+  OK: the observed outcome set matches the manifest exactly.
+```
+
+The two failures are the declared ones — `new users can register` and
+`profile page is displayed`. As the gate's own output insists, this is not a statement that the
+suite is green; it is a statement that it is failing and skipping exactly what the project has
+recorded.
+
+The run immediately before these fixes was 3 failed / 17 skipped / 6576 passed, and the gate
+rejected it on **one error** — a zero-error baseline with no manifest section, because an error
+means a test could not run at all. That was `PaymentTypeDisplayTest`'s fixture naming a
+`customers.name` column that does not exist. Failures and skips already matched; the error was the
+only violation.
