@@ -7582,3 +7582,169 @@ second order.
 | the positive control | F95's `test_an_ordinary_request_is_not_refused_by_the_guard` — a guard that refused everything would satisfy the refusal case perfectly |
 | not driven, stated | F96's claim. `Cache::lock`/`Cache::add` on the `array` driver are process-local, and the handler's own pre-lock gates stop a staged request reaching the region (measured above) |
 | client-visible change | none. The F95 refusal is `$this->error([...])` — HTTP 200 with `status: 0`, the shape this path already answers with. No new 401 and no new 429 on any path a client calls |
+
+## Token security stage 1 — the instrument, not the measurement — 2026-10-29
+
+Decision Register row 13 approves the token work staged: *"observability → explicit abilities →
+**30-day expiry for NEW merchant tokens only**; customers and drivers out of scope; no Sanctum
+global expiration; no mass invalidation"*. That authorises three of
+`P01-TOKEN-EXPIRY-PROPOSAL.md`'s stages and not the rest — stage 4 (idle expiry) is not in the
+decision, stage 5 is out of scope by it, and stage 6 (pruning) only becomes available once an expiry
+exists.
+
+Stage 1 is the one the proposal insists comes first, for a stated reason: *"Nothing today can answer
+'how old is the oldest token still in use?' … **Decision gate:** if the oldest actively-used token is
+older than any expiry being considered, that expiry will log people out. Measure before choosing."*
+
+**`tokens:inventory` is the instrument. It measures nothing here, and that is not a shortfall** —
+the figure stage 3 must be chosen against lives in production data and this container has none.
+Run against a fixture, it produces:
+
+```
+TOKEN INVENTORY  (personal_access_tokens)
+--------------------------------------------------------------
+  total tokens                       5
+  never used                         1
+  with an expiry set                 1
+  with no expiry                     4
+
+by principal
+  App\Models\Customer                2
+  App\Models\DeliveryBoy             1
+  App\Models\User                    2
+
+age of token (created_at)
+  0-7 days                           1
+  8-30 days                          1
+  31-90 days                         0
+  91-365 days                        1
+  over 365 days                      2
+
+last used (last_used_at)
+  0-7 days ago                       3
+  8-30 days ago                      0
+  31-90 days ago                     1
+  91-365 days ago                    0
+  over 365 days ago                  0
+
+DECISION GATE -- oldest in use, per principal
+  App\Models\Customer                900 days  (last seen 5 days ago)
+  App\Models\DeliveryBoy             95 days  (last seen 40 days ago)
+  App\Models\User                    400 days  (last seen 1 day ago)
+
+  in use and older than 30 days, per principal
+  App\Models\Customer                1 of 1 in use
+  App\Models\DeliveryBoy             1 of 1 in use
+  App\Models\User                    1 of 2 in use
+
+  READ THE TWO TOGETHER. The gate is an UPPER BOUND set by one token, and it
+  counts a token that has EVER been presented -- so a dormant or orphaned
+  token inflates it. The count below it is the number the rollout turns on:
+  how many tokens a 30-day expiry would have refused.
+  Tokens never used are excluded from both: nobody is holding them.
+```
+
+### Two things it does that the proposal did not ask for, both load-bearing
+
+**It separates "oldest token" from "oldest token still in use".** A 400-day token nobody presents
+tells you nothing about who an expiry would log out. `last_used_at` makes the distinction
+measurable, and conflating the two is the single way this report could be confidently wrong — so a
+case drives it with a 400-day unused token beside a 40-day used one and asserts the gate names 40.
+
+**It reports the gate per principal.** The approved expiry is for *merchants only*. A single global
+figure would be set by whichever shopper holds the oldest token, and in the fixture above that is
+900 days against the merchants' 400 — it would answer the wrong question by a factor of two.
+
+### The premise stage 3 needs, verified while building this
+
+| claim | measured |
+|---|---|
+| an `expires_at` passed at mint time is actually enforced | **yes** — `CustomAuth:66`: `if ($accessToken->expires_at && $accessToken->expires_at->isPast())`. Without this, minting `expiresAt` would produce a token that *looks* constrained and is not |
+| the gate has data to work from | **yes** — `CustomAuth:88` writes `last_used_at` on every authenticated request |
+| narrowing abilities (stage 2) breaks nothing today | **yes** — exactly five `createToken(` sites, and **nothing anywhere calls `tokenCan()`**; `CheckAbilities` is imported in `routes/api.php` and never used |
+
+The mint-site census, which stages 2 and 3 both need:
+
+| site | method | principal | routed |
+|---|---|---|---|
+| `Api\AuthController:316` | `register` | Customer | yes |
+| `Api\AuthController:398` | `login` | Customer | **no** — unrouted, so customers still have no login endpoint |
+| `Api\AuthController:619` | `forgot_password_verify_otp` | Customer | yes |
+| `Api\DashboardController:846` | `login` | **User (merchant)** — the stage-3 target | yes |
+| `Api\DashboardController:4771` | `deliveryLogin` | DeliveryBoy | yes |
+
+The proposal names the merchant mint site as `DashboardController:687`; it is `:846`. The four
+`packages/workdo/` hits for `createToken(` are CKEditor bundles, not mint sites.
+
+### The review found a live defect in the instrument
+
+Clean on everything it was asked about — no credential printed, no person identified, no input that
+could make it print more, no HTTP path to artisan, and the whole-table read is explicit
+(`DB::table()`, so `StoreScope` cannot apply at all, rather than depending on `null_tenant => 'open'`
+to do it by accident). Five correctness findings, all taken.
+
+**The paging was wrong, and the interference I had thought about was the wrong one.** The command
+read with `chunk()`, which is `LIMIT n OFFSET m`. I had reasoned about `CustomAuth:88` updating
+`last_used_at` under the read — and an `UPDATE` cannot disturb offset paging, because it cannot move
+a row within `ORDER BY id`. **Deletes can**, and this table is deleted from constantly: *every login
+revokes first*, via `$user->tokens()->delete()` at ten call sites (merchant login, driver login,
+customer login, three logouts, three password resets). Each delete below the current offset shifts
+the window up and skips exactly one row.
+
+The error direction is the bad one: a skipped row can be the single oldest in-use token, so the
+under-count makes a **shorter expiry look safer than it is**. `chunkById()` is keyset paging and is
+immune — and it also removes the `O(N²/1000)` offset re-traversal on a table nothing prunes.
+
+Driven rather than asserted from the source: the page size is shrunk to 2 on the registered command
+instance, five tokens are inserted, and a `DB::listen` hook deletes the lowest id after the first
+page — which is the interleave a login produces. The row offset paging loses is the 900-day one, so
+the gate is what changes: 900 days with keyset paging, **10 days with offset paging**.
+
+**The gate said "has ever been presented" while claiming to mean "is still in use".** A token last
+seen 380 days ago is as unheld as one never used, and an orphan — tokenable row deleted, so
+`CustomAuth:72` refuses it — can never be presented again yet still pinned the maximum. Both inflate
+the figure, which is the conservative direction, so it was not dangerous; what was, is a reader
+unable to tell an inflated bound from a live constraint. The gate now carries the dormancy of the
+token that set it.
+
+**And the gate could not answer the question the rollout turns on.** It is a maximum with no
+cardinality, and the age distribution is over *all* tokens including never-used ones, so no
+percentile could be read off either. The report now states, per principal, how many in-use tokens
+the **owner's approved 30 days** would have refused — `1 of 2 in use` above. That is the number a
+rollout is decided on; the gate is the upper bound beside it.
+
+**Two smaller ones.** `EDGES` and a hand-written `LAST_EDGE` could drift apart, which would have made
+`bucketFor()` return a label `emptyBuckets()` never created — an "Undefined array key" and a phantom
+row; the last edge is now derived. And one assertion was dead: `assertStringNotContainsString('Division
+by zero', ...)` cannot fail, because the command contains no division and a `DivisionByZeroError`
+would throw out of `Artisan::call` before the assertion ran.
+
+**One claim of mine the review falsified, and the correction is worth keeping.** The channel census
+docblock said *"the console is the only channel"*. That is false independently of the command's
+source: if the command throws, Laravel's exception handler writes to `laravel.log`. Nothing sensitive
+can reach it, for two reasons now written down rather than assumed — the `token` column is never
+selected, and this query's only bindings are the paging integers, so a `QueryException` message has
+no credential to interpolate. The census is a **ratchet over one file**, not a closure proof, and it
+now says so.
+
+The list itself was also wrong in both directions, which the first run caught: `printf` matched the
+`sprintf()` the command legitimately uses for column alignment, and a bare `info(` would have matched
+`$this->info()` — which *is* the console. Channels are now matched as whole calls with a lookbehind
+excluding an identifier character, `$` and `>`.
+
+### Evidence
+
+| | |
+|---|---|
+| `tests/Feature/Security/TokenInventoryReportTest.php` | **13 cases** — counts by principal · the four bucket edges driven individually (7/8, 30/31, 90/91, 365/366) · never-used as its own row · the gate ignoring an unused token · the gate per principal · the gate's dormancy · the rollout count against the approved 30 days · the expiry-coverage count · a row deleted mid-read · no token value or principal id in the output · the channel census · an unparseable timestamp excluded rather than called fresh · the empty table |
+| bites | **13 distinct, every one bit** |
+| the two bites that did not bite at first | and the fix was to the **test**, not the bite — see below |
+| behaviour change | none. Read-only, no arguments, no writes |
+
+**The disclosure case overclaimed, and a bite found it.** `test_it_prints_no_token_value_and_no_principal_id`
+inspects `Artisan::output()`. A bite that leaked the hash with `echo` **did not fail it**, because
+`echo` writes past the buffer `Artisan::output()` captures — so "the report prints no token value"
+was true of one channel only. Two changes: the bites now leak through `$this->line()`, which is the
+channel the command really uses, and a second case asserts the command's source contains no `Log::`,
+`echo`, `var_dump`, `print_r`, `fwrite`, `dd(`, `dump(` or `error_log`. S4 in the security queue is a
+token reaching a **log**, which the output case cannot observe at all, so the claim needs the pair.
