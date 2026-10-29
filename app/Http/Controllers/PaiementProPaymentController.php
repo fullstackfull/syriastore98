@@ -68,7 +68,11 @@ class PaiementProPaymentController extends Controller
         $orderID = strtoupper(str_replace('.', '', uniqid('', true)));
         $user = \Auth::user();
         if ($plan) {
-            try {
+            /* Declared with the try so the catch can always read it: the compensation is gated
+           on whether the ORDER was written, not on whether anything threw. */
+        $ssOrderWritten = false;
+
+        try {
 
                 $price = $plan->price;
                 if (!empty($request->coupon))
@@ -234,6 +238,38 @@ class PaiementProPaymentController extends Controller
 
     public function getProductStatus(Request $request, $slug)
     {
+        /*
+         * D-13. THE STOCK LOOP RUNS INSIDE THIS METHOD, and until this wrapper nothing gave the
+         * inventory back if the ORDER WRITE threw. Between the last decrement and the end of the order write
+         * the handler creates the order, its billing detail, its tax rows, its notes and its coupon usage,
+         * with NO transaction and NO catch -- measured across all seven first-party gateway writers; the only
+         * `catch` blocks in that region are the narrow SMTP ones around mail. MEASURED by injecting a failure
+         * at `Order::creating`: `product_stock` stayed down and no order was written.
+         *
+         * `OrderWriteTransactionTest` pins exactly this property -- "a rolled-back order write must give back
+         * the stock it consumed" -- for PaymentController::getProductStatus, PaymentService::getProductStatus
+         * and PaymentController::whatsapp. The four gateway RETURN handlers were not in its data provider.
+         *
+         * THE EXCEPTION IS RETHROWN, so the response the caller sees is unchanged. This adds compensation and
+         * changes nothing about whether a payment is accepted, which is what keeps it inside D-13's condition
+         * of not altering unapproved collection rules.
+         *
+         * `?? []` because `$appliedStockChanges` is initialised deep inside the body: a failure before the
+         * loop has nothing to give back, and an undefined variable must not become a second error inside the
+         * handler for the first one.
+         *
+         * THE WHOLE BODY IS WRAPPED rather than the order-write region, and the reason is NOT that a
+         * narrower wrap is impossible -- the independent review corrected that claim. Wrapping from
+         * `$order = new Order()` to the method's closing brace is brace-balanced but not
+         * STATEMENT-balanced (the order write sits inside an `if` whose `else` comes later, so the
+         * inserted `}` closed the `if` and all four files stopped parsing), but a narrower
+         * statement-balanced run of statements DOES exist. It would not have helped: the order is
+         * COMMITTED inside any such region, so narrowing moves the problem rather than solving it.
+         * The gate on `$ssOrderWritten` is what solves it, and with the gate in place the width of
+         * the try no longer matters. A method body is balanced by definition, so that is what it
+         * wraps.
+         */
+        try {
         /*
          * =========================================================================================
          *  THIS HANDLER'S ONLY GATEWAY CHECK WAS COMMENTED OUT, SO IT WROTE AN ORDER FOR ANY RETURN.
@@ -1050,6 +1086,10 @@ class PaiementProPaymentController extends Controller
             $order->additional_note = $request->additional_note;
             $order->store_id = $store->id;
             $order->save();
+            /* THE ORDER NOW EXISTS. From here a failure must NOT give the stock back: an order
+               that exists claims its goods, and returning them puts the shopper's items on the
+               shelf for someone else while their order stands. */
+            $ssOrderWritten = true;
             // add in  Order table end
             if (module_is_active('CheckoutAttachment')) {
                 \Workdo\CheckoutAttachment\app\Models\CheckoutAttachment::CheckoutAttachment($order, $slug , $request);
@@ -1279,5 +1319,12 @@ class PaiementProPaymentController extends Controller
         // } else {
         //     return redirect()->back()->with('error', __('Transaction Unsuccesfull'));
         // }
+        } catch (\Throwable $ssStockGuardError) {
+            if (! ($ssOrderWritten ?? false)) {
+                $this->restoreStockDecrements($appliedStockChanges ?? []);
+            }
+
+            throw $ssStockGuardError;
+        }
     }
 }

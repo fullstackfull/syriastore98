@@ -378,6 +378,136 @@ class GatewayStockBeforeVerificationTest extends SecurityTestCase
         );
     }
 
+    /**
+     * D-13, 2026-10-29 — **AN EXCEPTION DURING THE ORDER WRITE LOSES THE STOCK.**
+     *
+     * The register's remedy for this slice was "move each stock loop below verification or adopt
+     * the `AppliesCartStockChanges` trait". Both are done: all four handlers route every decrement
+     * through `decrementStockOrFail` and give it back on every IN-LOOP exit, ratcheted by
+     * `GatewayStockDecrementRoutingTest` and independently re-censused (0 unrestored returns
+     * between the first decrement and the order write, in all five writers).
+     *
+     * WHAT NEITHER COVERS IS THE WINDOW AFTER THE LOOP. Between the last decrement and the end of
+     * the order write the handler creates the order, its billing detail, its tax rows, its notes,
+     * its coupon usage. **None of these four handlers wraps that in a transaction, and none has a
+     * catch that gives the stock back** — measured across all seven first-party gateway writers;
+     * the only `catch` blocks in that region are the narrow SMTP ones around mail sending. So an
+     * exception there leaves the stock gone and, depending where it lands, no order at all.
+     *
+     * `OrderWriteTransactionTest` pins exactly this property — *"a rolled-back order write must
+     * give back the stock it consumed"* — for `PaymentController::getProductStatus`,
+     * `PaymentService::getProductStatus` and `PaymentController::whatsapp`. **The four gateway
+     * RETURN handlers are not in its data provider.**
+     *
+     * IT IS NOT A COLLECTION RULE, which is what makes it closeable under the owner's D-13
+     * condition: this changes nothing about whether a payment is accepted. It gives back inventory
+     * that a failed write consumed.
+     *
+     * THE FAILURE IS INJECTED THROUGH A MODEL EVENT rather than by editing the handler, so the
+     * test measures the PROPERTY ("any failure during the order write is compensated") instead of
+     * one trigger. That is the honest subject: F89 proved this window throws in production — a
+     * charged card ending in a 500 on `NMIPayController:1328` — and the next one will not be the
+     * same line.
+     */
+    /**
+     * D-13, 2026-10-29 — **AND THE COMPENSATION MUST NOT FIRE ONCE THE ORDER EXISTS.**
+     *
+     * THIS IS THE DEFECT THE INDEPENDENT REVIEW FOUND IN MY OWN FIX, which is the fourth time in
+     * this project that the reviewer has found the defect inside the remedy. The first wrapper put
+     * a `try` around the WHOLE method body, and there is no transaction — so a throw AFTER
+     * `$order->save()` returned the basket's stock to the catalogue while the order row, its
+     * billing detail, its coupon rows and its tax rows stayed durably written. **That is the
+     * inverse of the defect D-13 set out to close:** the shopper has an order, the merchant has a
+     * sale, and the goods are back on the shelf for someone else to buy.
+     *
+     * THE PROJECT'S OWN PATTERN ALREADY SAYS SO. `PaymentController::getProductStatus` opens its
+     * `try` AT the order write, commits, and closes the `try` before the mail, the SMS, the
+     * Firebase push and the cart clearing — so its `restoreStockDecrements()` is only ever reached
+     * in company with `DB::rollBack()`. `OrderWriteTransactionTest::
+     * test_the_stock_loop_is_outside_the_boundary_and_is_compensated_on_failure` encodes that as
+     * `assertGreaterThan($rollback, $restore)`. The invariant is **restore only when the order
+     * does not exist**, and the first wrapper broke it.
+     *
+     * THE PATHS ARE NOT HYPOTHETICAL. The review named six that throw after `$order->save()`:
+     * `Utility::affiliateTransaction()` assigning a property on a null `Customer` when a referrer
+     * row is gone; the first coupon branch's unguarded `$Coupon->id` where its own sibling branch
+     * guards; `$owner->email` on a store whose owner row is deleted (the F121 shape);
+     * `event(new GetProductStatus(...))`, whose module listeners send mail and SMS unwrapped; the
+     * unguarded `$requests_data['tax_price']` read; and `OrderObserver::created()`, which catches
+     * `\Exception` and therefore not `\Error`.
+     *
+     * The injection is at `OrderBillingDetail::creating` — the first child row, written straight
+     * after the order — so the subject is "the order exists and something later failed", which is
+     * the condition the flag has to recognise.
+     */
+    public function test_a_failure_after_the_order_is_written_keeps_the_stock_consumed(): void
+    {
+        [, $store, $customer, $product] = $this->checkout();
+        $this->fakeKhalti(['status_code' => 200, 'data' => ['amount' => self::SERVER_PAISA]]);
+
+        \App\Models\OrderBillingDetail::creating(static function (): void {
+            throw new \RuntimeException('simulated failure AFTER the order row was written');
+        });
+
+        $this->withoutExceptionHandling();
+
+        $threw = null;
+        try {
+            $this->postReturn($store, $customer, self::SERVER_PAISA);
+        } catch (\Throwable $e) {
+            $threw = $e;
+        }
+
+        $this->assertNotNull($threw, 'the injected failure did not reach the billing-detail write');
+
+        /* The premise that makes the rest meaningful: the ORDER really is there. */
+        $this->assertSame(
+            1,
+            (int) DB::table('orders')->where('store_id', $store->id)->count(),
+            'the premise: the order row committed before the injected failure'
+        );
+
+        $this->assertSame(
+            self::OPENING_STOCK - 1,
+            $this->stockOf($product),
+            'an order that EXISTS claims its goods. Giving the stock back here puts the shopper\'s'
+            . ' items on the shelf for someone else while their order stands — the inverse of the'
+            . ' defect this slice closes, and the reason the compensation is gated on whether the'
+            . ' order was written rather than on whether anything threw.'
+        );
+    }
+
+    public function test_a_failure_during_the_order_write_gives_the_stock_back(): void
+    {
+        [, $store, $customer, $product] = $this->checkout();
+        $this->fakeKhalti(['status_code' => 200, 'data' => ['amount' => self::SERVER_PAISA]]);
+
+        \App\Models\Order::creating(static function (): void {
+            throw new \RuntimeException('simulated failure during the order write');
+        });
+
+        $this->withoutExceptionHandling();
+
+        $threw = null;
+        try {
+            $this->postReturn($store, $customer, self::SERVER_PAISA);
+        } catch (\Throwable $e) {
+            $threw = $e;
+        }
+
+        /* The premise: the injection really fired, and it fired AFTER the loop. */
+        $this->assertNotNull($threw, 'the injected failure did not reach the order write');
+        $this->assertSame(0, (int) DB::table('orders')->where('store_id', $store->id)->count());
+
+        $this->assertSame(
+            self::OPENING_STOCK,
+            $this->stockOf($product),
+            'a failure during the order write must give back the stock the loop consumed.'
+            . ' Without it the shopper has no order, the merchant has no sale, and the inventory'
+            . ' is gone — the drain D-13 exists to close, reachable with no forged payment at all.'
+        );
+    }
+
     // ---------------------------------------------------------------- fixture
 
     private array $state = [];

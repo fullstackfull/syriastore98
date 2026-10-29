@@ -35,14 +35,15 @@ entirely pre-existing third-party-integration failure reporting, `info` (22) and
 diagnostics; none of them is a security signal and enumerating them would bury the ones that are.
 
 
-### `critical` — 14 lines
+### `critical` — 15 lines
 
 | line | message |
 |---|---|
-| `app/Http/Controllers/Concerns/AppliesCartStockChanges.php:111` | Insufficient stock on an order path that cannot refuse; order kept, stock oversold |
+| `app/Http/Controllers/Concerns/AppliesCartStockChanges.php:115` | Insufficient stock on an order path that cannot refuse; order kept, stock oversold |
+| `app/Http/Controllers/Concerns/AppliesCartStockChanges.php:164` | Stock compensation failed: inventory was consumed and could not be returned. |
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:954` | Gateway return gave up after the capture was classified: |
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:966` | Gateway return refused: the basket names a product or variant row that no longer exists. |
-| `app/Http/Controllers/KhaltiPaymnetController.php:1309` | Khalti order written for RECONCILIATION: the gateway could not be asked whether money moved |
+| `app/Http/Controllers/KhaltiPaymnetController.php:1349` | Khalti order written for RECONCILIATION: the gateway could not be asked whether money moved |
 | `app/Http/Controllers/PaymentController.php:469` | Paymera status poll ABANDONED: no API credential is configured |
 | `app/Http/Controllers/PaymentController.php:580` | Paymera callback REJECTED: the payment status could not be established |
 | `app/Http/Controllers/PaymentController.php:840` | Paymera callback REJECTED: inbound signature not verified |
@@ -72,7 +73,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/AuthorizeNetPaymnetController.php:381` | AuthorizeNet capture refused: no server-computed payable in the stored state. |
 | `app/Http/Controllers/CartController.php:222` | product_cart: refused a non-positive or non-integer quantity |
 | `app/Http/Controllers/CartController.php:275` | product_cart: refused a product belonging to another store |
-| `app/Http/Controllers/CinetPayController.php:480` | Pending partial payment refused: the balance named does not belong to this customer. |
+| `app/Http/Controllers/CinetPayController.php:516` | Pending partial payment refused: the balance named does not belong to this customer. |
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:133` | Gateway return refused: no server-stored checkout state. |
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:282` | Gateway return carries no claimable identity; falling back to the session control alone. |
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:296` | Gateway return refused: already claimed. |
@@ -86,10 +87,10 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/DeliverySyriaStatusController.php:179` | Zid store not found for order status sync. |
 | `app/Http/Controllers/DeliverySyriaStatusController.php:95` | Delivery Syria status webhook: invalid credentials. |
 | `app/Http/Controllers/ESewaPaymentController.php:196` | Plan payment return rejected: claimed amount does not match the plan price. |
-| `app/Http/Controllers/EasebuzzController.php:350` | Pending partial payment refused: the balance named does not belong to this customer. |
-| `app/Http/Controllers/KhaltiPaymnetController.php:251` | Khalti plan purchase NOT activated: the capture was not confirmed for the server price |
-| `app/Http/Controllers/KhaltiPaymnetController.php:416` | Khalti verification refused: no server-computed payable in the stored state. |
-| `app/Http/Controllers/KhaltiPaymnetController.php:461` | Khalti order refused before any stock moved: the gateway rejected the capture |
+| `app/Http/Controllers/EasebuzzController.php:386` | Pending partial payment refused: the balance named does not belong to this customer. |
+| `app/Http/Controllers/KhaltiPaymnetController.php:255` | Khalti plan purchase NOT activated: the capture was not confirmed for the server price |
+| `app/Http/Controllers/KhaltiPaymnetController.php:452` | Khalti verification refused: no server-computed payable in the stored state. |
+| `app/Http/Controllers/KhaltiPaymnetController.php:497` | Khalti order refused before any stock moved: the gateway rejected the capture |
 | `app/Http/Controllers/NMIPayController.php:428` | Pending partial payment refused: the balance named does not belong to this customer. |
 | `app/Http/Controllers/OrderController.php:1308` | Return approval restored no stock: order carries no readable product_json |
 | `app/Http/Controllers/OrderController.php:1354` | Return approval skipped a line whose stock was already credited |
@@ -108,8 +109,8 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/OrderRefundController.php:749` | Refund restock skipped a line with an unusable quantity |
 | `app/Http/Controllers/OrderRefundController.php:765` | Refund restock clamped to the units the order lines lost |
 | `app/Http/Controllers/OzowController.php:217` | Ozow plan return refused: no TransactionId to key on. |
-| `app/Http/Controllers/PaiementProPaymentController.php:320` | PaiementPro return recorded PENDING: this gateway is not provider-verified |
-| `app/Http/Controllers/PaiementProPaymentController.php:433` | Pending partial payment refused: the balance named does not belong to this customer. |
+| `app/Http/Controllers/PaiementProPaymentController.php:356` | PaiementPro return recorded PENDING: this gateway is not provider-verified |
+| `app/Http/Controllers/PaiementProPaymentController.php:469` | Pending partial payment refused: the balance named does not belong to this customer. |
 | `app/Http/Controllers/PayHerePaymnetController.php:64` | PayHere plan checkout refused: the integration is retired (owner decision). |
 | `app/Http/Controllers/PayHerePaymnetController.php:76` | PayHere plan checkout refused: the PayHere SDK is not installed. |
 | `app/Http/Controllers/PayUPaymentController.php:287` | Pending partial payment refused: the balance named does not belong to this customer. |

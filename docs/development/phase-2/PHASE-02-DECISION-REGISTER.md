@@ -394,6 +394,63 @@ PaiementPro dereference `$plan->shipping_method` unguarded *before* the stock lo
 resolvable plan, both handlers 500 before any stock moves and these two paths are latent. One query
 settles it. **NOT ESTABLISHED from the repository.**
 
+---
+
+### 2026-10-29 — **ONE MORE DRAIN FOUND AND CLOSED, and it needed no collection-rule change**
+
+**The question the owner's directive asks is "analysis and closure of possible stock-drain paths
+without changing unapproved collection rules", so the analysis came first and it is recorded in
+full.**
+
+**1. The census of stock-reducing code is complete.** Every site in `app/` that reduces
+`products.product_stock` or `product_variants.variant_stock` routes through
+`AppliesCartStockChanges`, except three — `Api\DashboardController:2597`, `:2744` and
+`ProductController:2038` — which are `= $request->product_stock`, i.e. a merchant EDITING their own
+stock, not a checkout decrement. So the four-gateway census this entry names is still the whole of
+it.
+
+**2. The in-loop mechanics are closed and ratcheted.** All four handlers route every decrement
+through `decrementStockOrFail` and restore on every in-loop exit, pinned by
+`GatewayStockDecrementRoutingTest`. Re-censused independently: **0 unrestored `return`s between
+the first decrement and the order write**, in all five writers that have one.
+
+**3. THE WINDOW AFTER THE LOOP WAS NOT.** Between the last decrement and the end of the order write
+the handler writes the order, its billing detail, its tax rows, its notes and its coupon usage —
+with **no transaction and no catch**. The only `catch` blocks in that region are the narrow SMTP
+ones around mail. **MEASURED** by injecting a failure at `Order::creating`: `product_stock` stayed
+down and no order was written. `OrderWriteTransactionTest` pins exactly this property for
+`PaymentController::getProductStatus`, `PaymentService::getProductStatus` and
+`PaymentController::whatsapp`; **the four gateway RETURN handlers are not in its data provider.**
+
+**This is not a collection rule**, which is what makes it closeable here: it changes nothing about
+whether a payment is accepted. It gives back inventory that a failed write consumed.
+
+**AND THE FIRST VERSION OF THE FIX HAD THE DEFECT INSIDE IT — the fourth time the mandated review
+has found that.** Wrapping the whole method body meant a throw AFTER `$order->save()` returned the
+stock while the order row and its children stayed durably written: the shopper's goods back on the
+shelf while their order stands, the inverse of what this closes. The review named six concrete
+post-save throw sites — `Utility::affiliateTransaction()` assigning on a null `Customer`, the first
+coupon branch's unguarded `$Coupon->id` (its own sibling branch guards), `$owner->email` on a
+deleted store owner, `event(new GetProductStatus(...))` whose module listeners send mail and SMS
+unwrapped, the unguarded `$requests_data['tax_price']` read, and `OrderObserver::created()` catching
+`\Exception` and so not `\Error`.
+
+The compensation is now gated on `$ssOrderWritten`, set immediately after `$order->save()` —
+**restore only when the order does not exist**, which is the invariant the project already holds
+elsewhere (`PaymentController::getProductStatus` reaches its restore only in company with
+`DB::rollBack()`).
+
+**The review also found the ratchet I wrote could not fail for that defect, and actively forbade
+the remedy** — it required the restore to be the first statement in the catch. Both corrected, and
+it now reads `code()` rather than the raw source, which is the comment-matching trap this project
+has been bitten by before.
+
+**WHAT REMAINS BLOCKED IS UNCHANGED.** On PaiementPro, CinetPay and Easebuzz an unverified return
+still decrements and writes a `Pending` order, because those gateways have no verifier to hoist.
+Closing that means refusing an unverified return, which IS a collection rule and is reserved.
+
+---
+
 **F91 is listed here but is a different question.** `CyberSourceController` takes `store_id` from
 request input and uses it to choose **which merchant's gateway credentials sign the charge** — the
 caller-supplied tenant predicate, applied to credentials. It is bounded today only because the

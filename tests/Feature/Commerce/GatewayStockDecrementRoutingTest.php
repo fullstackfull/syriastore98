@@ -380,6 +380,88 @@ class GatewayStockDecrementRoutingTest extends TestCase
      * by `tests/Feature/Security/AdminApiStockRefusalContractTest.php`, because it is the shipped
      * Flutter admin app's order writer and its refusal shape is a client contract.
      */
+    /**
+     * D-13, 2026-10-29 — **THE ORDER WRITE IS COMPENSATED, not just the loop.**
+     *
+     * `test_each_authorised_handler_gives_back_what_it_took_on_every_in_loop_exit` covers the
+     * exits INSIDE the loop. What it cannot see is the window after it: the order, its billing
+     * detail, its tax rows, its notes and its coupon usage are written with no transaction, and
+     * until 2026-10-29 with no catch — measured across all seven first-party gateway writers, the
+     * only `catch` blocks in that region being the narrow SMTP ones around mail. An exception
+     * there left the inventory gone and, depending where it landed, no order at all.
+     *
+     * DRIVEN, not only read: `GatewayStockBeforeVerificationTest::
+     * test_a_failure_during_the_order_write_gives_the_stock_back` injects a failure at
+     * `Order::creating` and watches `product_stock` come back. This is the ratchet that stops the
+     * wrapper being removed from any of the four.
+     *
+     * THE WHOLE BODY IS WRAPPED rather than the order-write region, and the reason is recorded
+     * because the obvious version fails: the order write sits inside an `if` whose `else` comes
+     * later, so a `try` opened at `$order = new Order()` and closed before the method's final
+     * brace is brace-balanced but not STATEMENT-balanced — the inserted `}` closes the `if`, and
+     * all four files stop parsing. A method body is balanced by definition.
+     */
+    public function test_each_gateway_return_handler_compensates_a_failed_order_write(): void
+    {
+        /*
+         * THE FOUR D-13 NAMES. The other three authorised writers reach this property through
+         * `OrderWriteTransactionTest`, whose data provider covers them and not these.
+         *
+         * `code()`, NOT `source()` -- and that is the independent review's correction. `source()`
+         * is the RAW file, and the corrected comments in these handlers QUOTE the expressions they
+         * describe; this very file provides `code()` precisely because of that trap (see its note).
+         * Nothing in the four files satisfied the assertions from a comment today, so it was not a
+         * live false pass -- it was one explanatory sentence away from being one.
+         */
+        foreach (['KhaltiPaymnetController', 'PaiementProPaymentController',
+                  'CinetPayController', 'EasebuzzController'] as $controller) {
+            $source = $this->code($controller);
+
+            $this->assertStringContainsString(
+                'catch (\\Throwable $ssStockGuardError) {',
+                $source,
+                "$controller no longer catches a failed order write, so an exception after the"
+                . ' stock loop leaves the inventory consumed and, depending where it lands, no'
+                . ' order either.'
+            );
+
+            /*
+             * THE GATE IS PART OF THE CONTRACT, not an implementation detail -- and the first
+             * version of this assertion FORBADE it. It required the restore to be the FIRST
+             * statement in the catch, so adding `if (! $ssOrderWritten)` broke the ratchet rather
+             * than the ratchet catching the absence of the gate. The review caught that too.
+             *
+             * Restore only when the order does NOT exist is the invariant the project already
+             * holds elsewhere: `PaymentController::getProductStatus` reaches
+             * `restoreStockDecrements()` only in company with `DB::rollBack()`, and
+             * `OrderWriteTransactionTest` asserts `assertGreaterThan($rollback, $restore)`.
+             */
+            $this->assertMatchesRegularExpression(
+                '/catch \(\\\\Throwable \$ssStockGuardError\) \{\s*if \(! \(\$ssOrderWritten \?\? false\)\) \{\s*\$this->restoreStockDecrements\(\$appliedStockChanges \?\? \[\]\);/',
+                $source,
+                "$controller gives the stock back without asking whether the ORDER was written."
+                . ' There is no transaction here, so a throw after `$order->save()` would return'
+                . " the shopper's goods to the catalogue while their order stands — the inverse"
+                . ' of the defect this closes.'
+            );
+
+            $this->assertStringContainsString(
+                '$ssOrderWritten = true;',
+                $source,
+                "$controller never records that the order was written, so the gate above can only"
+                . ' ever be false and the compensation fires on every failure again.'
+            );
+
+            $this->assertMatchesRegularExpression(
+                '/\$this->restoreStockDecrements\(\$appliedStockChanges \?\? \[\]\);\s*\}\s*throw \$ssStockGuardError;/',
+                $source,
+                "$controller swallows the failure instead of rethrowing it. The compensation adds"
+                . ' a restore; it must not change the response the caller sees, which is the same'
+                . ' rule OrderWriteTransactionTest states for the other three writers.'
+            );
+        }
+    }
+
     public function test_the_unauthorised_writers_are_left_alone(): void
     {
         $this->assertSame([], self::NOT_AUTHORISED,

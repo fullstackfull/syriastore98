@@ -6961,3 +6961,125 @@ order. (A) remains the owner's decision.
 | review | `tenant-authz-reviewer`, no tenancy hole, no new 500 path, 2 items taken, 1 recorded |
 | suites | Security **4248 passed, 4 skipped (the declared set), 0 failed** · Unit **642 passed** |
 | observability | the 4 moved log rows re-pointed with `resync-observability-inventory.py`; the new `Log::error` is outside the inventory's scope, which is `critical` and `warning` |
+
+## D-13 — the stock-drain window after the loop — 2026-10-29
+
+**The owner's item is "analysis and closure of possible stock-drain paths without changing
+unapproved collection rules", so the analysis came first — and it is what found the window.**
+
+### The analysis, in three parts
+
+**1. The census of stock-reducing code is complete.** Every site in `app/` that reduces
+`products.product_stock` or `product_variants.variant_stock` routes through
+`AppliesCartStockChanges`, except three — `Api\DashboardController:2597`, `:2744` and
+`ProductController:2038` — and those are `= $request->product_stock`: a merchant **editing** their
+own stock, not a checkout decrement. The four-gateway census the register names is still the whole
+of it.
+
+**2. The in-loop mechanics are closed and ratcheted.** `GatewayStockDecrementRoutingTest` pins that
+every decrement goes through the trait and every in-loop exit restores. Re-censused independently
+for this slice: **0 unrestored `return`s** between the first decrement and the order write, in all
+five writers that have one.
+
+**3. The window after the loop was not.** Between the last decrement and the end of the order write
+the handler writes the order, its billing detail, its tax rows, its notes and its coupon usage —
+with **no transaction and no catch**. The only `catch` blocks in that region are the narrow SMTP
+ones around mail.
+
+```
+inject a failure at Order::creating, drive the return
+  →  orders: 0     product_stock: 49 of 50      ← the stock is gone and there is no order
+```
+
+`OrderWriteTransactionTest` pins exactly this property — *"a rolled-back order write must give back
+the stock it consumed"* — for `PaymentController::getProductStatus`,
+`PaymentService::getProductStatus` and `PaymentController::whatsapp`. **The four gateway RETURN
+handlers are not in its data provider.**
+
+**It is not a collection rule**, which is what makes it closeable under the owner's condition: it
+changes nothing about whether a payment is accepted.
+
+### And the first version of the fix had the defect inside it
+
+The fourth time the mandated review has found the defect inside the remedy.
+
+Wrapping the whole method body meant a throw **after** `$order->save()` returned the basket's stock
+while the order row, its billing detail, its coupon rows and its tax rows stayed durably written —
+**the shopper's goods back on the shelf while their order stands.** The review named six concrete
+post-save throw sites:
+
+| | |
+|---|---|
+| `Utility::affiliateTransaction()` | assigns a property on a null `Customer` when the referrer row is gone |
+| the first coupon branch | `$UserCoupon->coupon_id = $Coupon->id` unguarded — its own sibling branch guards |
+| `$owner->email` | a store whose owner row is deleted; the F121 shape |
+| `event(new GetProductStatus(...))` | module listeners send mail and SMS unwrapped |
+| `$requests_data['tax_price']` | unguarded array read in a block entered on `tax_id_value` alone |
+| `OrderObserver::created()` | catches `\Exception` and therefore **not** `\Error` |
+
+**The project's own pattern already says what the invariant is.**
+`PaymentController::getProductStatus` opens its `try` **at** the order write, commits, and closes it
+before the mail, the SMS, the Firebase push and the cart clearing — so its
+`restoreStockDecrements()` is only ever reached in company with `DB::rollBack()`, and
+`OrderWriteTransactionTest` encodes that as `assertGreaterThan($rollback, $restore)`. **Restore only
+when the order does not exist.**
+
+The compensation is now gated on `$ssOrderWritten`, set immediately after `$order->save()`:
+
+```php
+} catch (\Throwable $ssStockGuardError) {
+    if (! ($ssOrderWritten ?? false)) {
+        $this->restoreStockDecrements($appliedStockChanges ?? []);
+    }
+
+    throw $ssStockGuardError;
+}
+```
+
+### The review also found my ratchet could not fail for that defect — and forbade the remedy
+
+`test_each_gateway_return_handler_compensates_a_failed_order_write` asserted the mechanism, not the
+condition: it passed identically against a catch that restores stock for a committed order. Worse,
+its regex required the restore to be the **first** statement in the catch, so adding the gate broke
+the ratchet instead of the ratchet catching the gate's absence. Both corrected.
+
+It also read `$this->source()` — the raw file — where this very test class provides `code()`, which
+strips comments through `token_get_all()` *precisely because* the corrected comments in these
+handlers quote the expressions they describe. Not a live false pass, but one explanatory sentence
+away from one. Now `code()`.
+
+### Two smaller corrections from the same pass
+
+- **A comment claimed a narrower wrap was impossible.** It is not — a narrower statement-balanced
+  region does exist. It would not have helped, because the order commits inside any such region, so
+  narrowing moves the problem rather than solving it. But a reviewer must not be told something
+  false, because the next person will believe it.
+- **The new `Log::critical` was written across two lines**, which made it **invisible to
+  `SecurityLogInventoryTest`'s census** — that census matches the call and its first string literal
+  on ONE line. The line would have existed with no stated destination and no reader, and the ratchet
+  would have passed. Found by watching `source lines : 137` stay at 137 after adding one. The
+  message is now on the call's own line, and the inventory carries its row.
+
+### Hardening deferred, with the reason
+
+`restoreStockDecrements` does not clear the accumulator and **cannot** — the parameter is by value.
+A future restore that is not immediately followed by a `return` would therefore double. Unreachable
+today: every in-loop restore returns, and the gate stops the catch doubling. Making the parameter
+by-reference would break the `?? []` expression the catch passes, so it is recorded rather than
+done.
+
+### What remains BLOCKED, unchanged
+
+On PaiementPro, CinetPay and Easebuzz an unverified return still decrements and writes a `Pending`
+order, because those gateways have no verifier to hoist. Closing that means refusing an unverified
+return, which **is** a collection rule and is reserved.
+
+### Evidence
+
+| | |
+|---|---|
+| driven | `GatewayStockBeforeVerificationTest` +2 (khalti, both directions) · `GatewaySiblingMissingProductTest` +6 (the three unverified gateways, both directions) |
+| ratchet | `GatewayStockDecrementRoutingTest::test_each_gateway_return_handler_compensates_a_failed_order_write` |
+| bites | **8**, every one bit — four removing the compensation, four removing or neutralising the gate |
+| review | `tenant-authz-reviewer`: tenancy clean, control-flow clean, double-restore clean; **one defect inside the fix**, taken; one ratchet defect, taken |
+| suites | Security + Commerce **4925 passed, 11 skipped (the declared set), 0 failed** · Merchant + Unit clean in the same run |

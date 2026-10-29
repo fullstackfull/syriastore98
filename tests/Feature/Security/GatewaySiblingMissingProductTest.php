@@ -364,6 +364,88 @@ class GatewaySiblingMissingProductTest extends SecurityTestCase
         );
     }
 
+    /**
+     * D-13 — **A FAILURE DURING THE ORDER WRITE GIVES THE STOCK BACK**, on all four handlers.
+     *
+     * `GatewayStockBeforeVerificationTest` drives this on Khalti, which is the only one with a
+     * verifier. The other three have none, so they are the ones where the loop runs on no payment
+     * evidence at all — which makes compensating a failed write matter more there, not less.
+     *
+     * The failure is injected at `Order::creating` rather than by editing a handler, so the
+     * subject is the PROPERTY ("any failure during the order write is compensated") and not one
+     * trigger. F89 is why that is the right subject: a charged card ended in a 500 on
+     * `NMIPayController:1328`, and the next one will not be the same line.
+     *
+     * @dataProvider unverifiedGatewayRoutes
+     */
+    public function test_a_failed_order_write_gives_the_stock_back(string $uri): void
+    {
+        [, $store] = $this->tenant();
+        $product = $this->productIn($store);
+        $sid = $this->guestCart($store, $product);
+
+        $opening = (int) DB::table('products')->where('id', $product->id)->value('product_stock');
+        $this->assertGreaterThan(0, $opening, 'the premise: the fixture product has stock to lose');
+
+        \App\Models\Order::creating(static function (): void {
+            throw new \RuntimeException('simulated failure during the order write');
+        });
+
+        $this->drive($store, $uri, $sid);
+
+        $this->assertSame(
+            0,
+            (int) DB::table('orders')->where('store_id', $store->id)->count(),
+            $uri . ': the injected failure must have stopped the order write'
+        );
+        $this->assertSame(
+            $opening,
+            (int) DB::table('products')->where('id', $product->id)->value('product_stock'),
+            $uri . ': a failure during the order write must give back the stock the loop consumed.'
+            . ' Without it the shopper has no order, the merchant has no sale, and the inventory is'
+            . ' gone — a drain reachable with no forged payment at all.'
+        );
+    }
+
+    /**
+     * D-13 — **AND A FAILURE AFTER THE ORDER IS WRITTEN KEEPS THE STOCK CONSUMED**, on all three
+     * gateways with no verifier.
+     *
+     * The companion case above proves the compensation fires. This proves it is GATED, which is
+     * the defect the independent review found in the first version of the fix: with no transaction
+     * and a try around the whole body, a throw after `$order->save()` returned the basket's stock
+     * while the order row and its children stayed written — the shopper's goods back on the shelf
+     * while their order stands.
+     *
+     * @dataProvider unverifiedGatewayRoutes
+     */
+    public function test_a_failure_after_the_order_is_written_keeps_the_stock_consumed(string $uri): void
+    {
+        [, $store] = $this->tenant();
+        $product = $this->productIn($store);
+        $sid = $this->guestCart($store, $product);
+
+        $opening = (int) DB::table('products')->where('id', $product->id)->value('product_stock');
+
+        \App\Models\OrderBillingDetail::creating(static function (): void {
+            throw new \RuntimeException('simulated failure AFTER the order row was written');
+        });
+
+        $this->drive($store, $uri, $sid);
+
+        $this->assertSame(
+            1,
+            (int) DB::table('orders')->where('store_id', $store->id)->count(),
+            $uri . ': the premise — the order row committed before the injected failure'
+        );
+        $this->assertLessThan(
+            $opening,
+            (int) DB::table('products')->where('id', $product->id)->value('product_stock'),
+            $uri . ': an order that EXISTS claims its goods. Giving the stock back here is the'
+            . ' inverse of the defect this slice closes.'
+        );
+    }
+
     // ---------------------------------------------------------------- fixture
 
     private function drive($store, string $uri, string $sid): array

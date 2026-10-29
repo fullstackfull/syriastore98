@@ -67,6 +67,9 @@ trait AppliesCartStockChanges
             $applied[] = [
                 'kind' => $kind,
                 'id' => $model->id,
+                // Recorded so a failed compensation can name its tenant. The model is the row
+                // that was just decremented, so this is its own store and not a caller's claim.
+                'store_id' => $model->store_id ?? null,
                 'quantity' => $result['quantity'],
             ];
 
@@ -104,6 +107,7 @@ trait AppliesCartStockChanges
                 $applied[] = [
                     'kind' => $kind,
                     'id' => $model->id,
+                    'store_id' => $model->store_id ?? null,
                     'quantity' => $forced['quantity'],
                 ];
             }
@@ -127,10 +131,43 @@ trait AppliesCartStockChanges
     private function restoreStockDecrements(array $applied): void
     {
         foreach ($applied as $change) {
-            if (($change['kind'] ?? null) === 'variant') {
-                $this->stockService()->restoreVariantStock($change['id'], $change['quantity']);
-            } else {
-                $this->stockService()->restoreProductStock($change['id'], $change['quantity']);
+            /*
+             * D-13, 2026-10-29. EACH RESTORE IS INDEPENDENT, and that became load-bearing when the
+             * four gateway return handlers began calling this from a `catch`.
+             *
+             * From a catch, a throw in here REPLACES the original exception: the handler's real
+             * failure -- the one the merchant needs in the log -- is lost and replaced by whatever
+             * went wrong giving one line's stock back. And a basket's later lines would keep their
+             * decrement because the loop died on an earlier one.
+             *
+             * So a failed restore is logged and the loop continues. It is the correct direction
+             * for a compensation: the alternatives are losing the original error, or abandoning
+             * the rest of the inventory to protect a log line.
+             */
+            try {
+                if (($change['kind'] ?? null) === 'variant') {
+                    $this->stockService()->restoreVariantStock($change['id'], $change['quantity']);
+                } else {
+                    $this->stockService()->restoreProductStock($change['id'], $change['quantity']);
+                }
+            } catch (\Throwable $restoreFailure) {
+                /*
+                 * THE MESSAGE IS ON THE SAME LINE AS THE CALL, deliberately.
+                 * `SecurityLogInventoryTest`'s census matches `Log::critical(` and its first
+                 * string literal on ONE line, so a call split across two lines is invisible to the
+                 * inventory -- the line would exist with no stated destination and no reader, and
+                 * the ratchet would pass. Found by writing it the other way first and watching
+                 * `source lines : 137` stay at 137 after adding a line.
+                 */
+                /* The STORE too, which the review asked for: without it this line names a product
+                   id and a quantity and leaves whoever reconciles it to find the tenant. */
+                \Illuminate\Support\Facades\Log::critical('Stock compensation failed: inventory was consumed and could not be returned.', [
+                    'kind' => $change['kind'] ?? null,
+                    'id' => $change['id'] ?? null,
+                    'store_id' => $change['store_id'] ?? null,
+                    'quantity' => $change['quantity'] ?? null,
+                    'message' => $restoreFailure->getMessage(),
+                ]);
             }
         }
     }
