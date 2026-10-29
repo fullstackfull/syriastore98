@@ -159,10 +159,27 @@ class OrderWriteTransactionTest extends TestCase
 
         // ...so the catch must give the inventory back.
         $rollback = strpos($source, 'DB::rollBack()');
-        $restore = strpos($source, '$this->restoreStockDecrements(');
 
+        /*
+         * SEARCHED FROM THE ROLLBACK, NOT FROM THE START, AND THE OFFSET IS THE WHOLE POINT.
+         *
+         * This assertion means "the compensation inside the transaction's catch comes after the
+         * rollback". It was written when `restoreStockDecrements(` appeared exactly once, so
+         * position zero was good enough. F192 added a SECOND give-back to two of these three
+         * writers -- in a catch that covers the window between the stock loop and
+         * `beginTransaction()`, which is necessarily BEFORE the rollback -- and a search from zero
+         * then finds that one and reads it as the compensation being in the wrong place.
+         *
+         * So the offset is not a relaxation. Without it this case reports a defect that is not
+         * there; with it, it still fails if the transaction's own catch loses its give-back.
+         */
+        $restore = strpos($source, '$this->restoreStockDecrements(', (int) $rollback);
+
+        $this->assertNotFalse($rollback, 'the transaction must still roll back on failure');
         $this->assertNotFalse($restore,
-            'a rolled-back order write must give back the stock it consumed');
+            'a rolled-back order write must give back the stock it consumed. A give-back BEFORE'
+            . ' the boundary (F192) does not satisfy this: the rolled-back lines are a different'
+            . ' set from the ones a pre-transaction throw leaves behind.');
         $this->assertGreaterThan($rollback, $restore,
             'the compensation belongs in the catch, after the rollback');
     }

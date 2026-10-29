@@ -1137,8 +1137,8 @@ private function paymeraOrderHighWaterMark(mixed $storeId): int
  * `$pending['processed']` still false, and **no in-process marker of either**: not a return
  * value, not a binding, not a flag. The only witness is the row.
  *
- * (Measured 2026-10-29: `DB::beginTransaction()` :3239, `DB::commit()` :3410, `$owner->email`
- * :3466, `OrderCompleteBinding::remember()` :3555. These are STRUCTURAL claims and the numbers
+ * (Measured 2026-10-29: `DB::beginTransaction()` :3275, `DB::commit()` :3446, `$owner->email`
+ * :3502, `OrderCompleteBinding::remember()` :3591. These are STRUCTURAL claims and the numbers
  * drift -- two earlier versions of this comment cited lines this very change had already moved,
  * which is why `PaymeraPostCommitClaimTest::test_the_cited_anchors_still_name_what_they_claim`
  * now asserts them. Read the structure as the claim and the numbers as a pointer.)
