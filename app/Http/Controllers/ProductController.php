@@ -2914,9 +2914,82 @@ $Product->cost_price = $request->cost_price;
 
     public function attribute_combination_data(Request $request)
     {
-        $product_stock = ProductVariant::where('product_id', $request->id)->where('store_id', getCurrentStore())
-            ->get();
-        $Shipping = Shipping::where('store_id', getCurrentStore())->pluck('name', 'id')->prepend('Same as parent', '');
+        /*
+         * F175 -- PERMISSION, WHICH THIS METHOD DID NOT HAVE AT ALL.
+         *
+         * It is the renderer the product editor injects from `$(document).ready` and the one the
+         * SHOW screen loads, so it is the variant panel a merchant sees FIRST -- and it read
+         * `ProductVariant::where('product_id', $request->id)` with no gate above it. Every
+         * sibling on this controller carries one: `attribute_combination_edit()` takes
+         * `Manage Products` OR `Edit Products`, `product_attribute_delete()` and `file_delete()`
+         * take `Edit Products`. This one was missed.
+         *
+         * WHAT THAT EXPOSED is a merchant's commercial data -- every variant's price, sale price,
+         * stock, SKU, low-stock threshold and shipping, rendered in full -- to any authenticated
+         * principal in the `web` group, including a staff member hired for support or content
+         * with no product permission whatsoever.
+         *
+         * `Manage Products` OR `Edit Products`, AND THE REASON IS IN THE TWO CALLERS rather than
+         * in a preference. `resources/views/product/show.blade.php:743` loads this endpoint and
+         * `ProductController::show()` is gated on `Manage Products`, so gating the data it needs
+         * on `Edit Products` alone would break the read-only screen for a role that is allowed to
+         * use it. The sibling records the same reasoning for the same pair of screens. This grants
+         * nobody a new capability: both names already exist and both already open a screen that
+         * displays this data.
+         *
+         * THE REFUSAL RENDERS AN EMPTY PANEL, 200, AND THAT IS A CONTRACT DECISION. Both callers
+         * do `$('...').html(data)` with NO `error` handler (`edit.blade.php:1034`,
+         * `show.blade.php:743`), and `$('#loader').fadeOut()` lives only in `success` -- so a 403
+         * would leave the container untouched and a loader spinning for ever. An empty render
+         * keeps the contract exactly, discloses nothing, and is indistinguishable from "this
+         * product has no variants", which is the safe direction for an unauthorised reader to be
+         * unable to tell apart. The refusal is recorded in the log instead, as every other
+         * ownership refusal on this controller is.
+         */
+        $refuse = fn (): \Illuminate\Contracts\View\View => view('product.attribute_combinations_data', [
+            'product_stock' => collect(),
+            'Shipping' => collect()->prepend('Same as parent', ''),
+            'variantImages' => collect(),
+        ]);
+
+        if ($this->lacksProductPermission(['Manage Products', 'Edit Products'])) {
+            return $refuse();
+        }
+
+        /*
+         * OWNERSHIP ON A PRODUCT NAMED BY REQUEST INPUT, resolved through the PRODUCT -- not by
+         * filtering variants on `product_variants.store_id`, which is what this did.
+         *
+         * That column is nullable and S36 records that it "is not the authority on who owns it",
+         * and the predicate it fed had two further edges. For a principal with no store
+         * `getCurrentStore()` returns null and `where('store_id', null)` becomes `whereNull`,
+         * matching every STORE-LESS variant row rather than nothing -- fail-open. And for the
+         * platform operator the helper returns the hardcoded literal `1` (helper.php:636-637), so
+         * the operator was served STORE 1's variants for any product id, which is the F157 trap:
+         * not a leak, but a confident wrong answer about somebody's catalogue.
+         *
+         * Resolving the product first and then scoping variants by `product_id` fixes all three
+         * at once, and is also what makes the response contain only the requested product's
+         * variants.
+         */
+        $product = Product::find($request->id);
+
+        if (empty($product) || $this->productIsOutsideCurrentStore($product)) {
+            \Illuminate\Support\Facades\Log::warning(
+                'variant panel refused: the product is missing or belongs to another store',
+                [
+                    'product_id' => $request->id,
+                    'product_store_id' => $product->store_id ?? null,
+                    'current_store' => getCurrentStore(),
+                    'user_id' => optional(auth()->user())->id,
+                ]
+            );
+
+            return $refuse();
+        }
+
+        $product_stock = ProductVariant::where('product_id', $product->id)->get();
+        $Shipping = Shipping::where('store_id', $product->store_id)->pluck('name', 'id')->prepend('Same as parent', '');
 
         /*
          * D-26 -- each variant's one image, resolved once and keyed by variant id.
@@ -2927,8 +3000,8 @@ $Product->cost_price = $request->cost_price;
          * the cost lands on every page load rather than on an interaction.
          *
          * Narrowed by the VARIANT IDS ALREADY RESOLVED above, not by `$request->id`: those ids
-         * have been through this method's own `store_id` predicate, so the media lookup inherits
-         * it instead of repeating a weaker version of it.
+         * belong to a product whose ownership has been proved, so the media lookup inherits that
+         * rather than repeating a weaker version of it.
          */
         $variantImages = ProductImage::whereIn('variant_id', $product_stock->pluck('id'))
             ->whereNotNull('variant_id')

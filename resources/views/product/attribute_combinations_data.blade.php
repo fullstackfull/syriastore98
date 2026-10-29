@@ -328,8 +328,17 @@
            load, and replacing `.attribute_combination`'s HTML does not unbind a document-level
            handler. The button that fires it is the sibling view's --
            attribute_combinations_edit.blade.php's own `.delete_option` button renders it with
-           `data-id="{{ $str }}"`, the RAW key -- so both handlers run on one click and this one
-           throws on a term like `M/L`. */
+           `data-id="@{{ $str }}"`, the RAW key -- so both handlers run on one click and this one
+           throws on a term like `M/L`.
+
+           F176: THE `@` IS NOT DECORATION. Blade compiles its own expressions ANYWHERE in a file,
+           including inside a JavaScript comment -- CLAUDE.md records exactly that -- so the
+           unescaped form of the line above compiled to a live `echo e($str)`. `$str` is defined
+           only inside the combination loop, so for a product with NO VARIANTS the loop never ran
+           and this endpoint answered 500. MEASURED on the running app: editing a variant-less
+           product produced `500 products/attribute_combination_data/edit` on every page load,
+           silently, because neither caller defines an AJAX error handler. `@{{ ... }}` is Blade's
+           own escape and renders the braces literally. */
         var id = ssSelectorKey($(this).attr('data-id'));
         $('.remove_option_' + id).remove();
     });

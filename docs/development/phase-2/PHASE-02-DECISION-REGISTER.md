@@ -1941,8 +1941,44 @@ because a resolver that only reads cannot backfill, re-charge or reinterpret any
 unattributable value such as `'没有'` resolves to NULL and renders an absence, which is what *"أبقِ
 القيم الملتبسة على حالها"* asks for.
 
-**One question for the owner, deliberately not decided here.** `Setting::paymentList()` spells one
-provider **SenaGePay** and `getPaymentGateways()` spells it **SenanGpay**. One is a typo and
-nothing in the codebase settles which. Both spellings resolve to a label, because dropping either
-would turn a stored row into a dash on a guess; it is recorded rather than chosen.
+**The SenaGePay / SenanGpay question — INVESTIGATED 2026-10-29, and the answer is BLOCKED rather
+than undecided.**
+
+The provider is real and its name is not in doubt: senangPay, a Malaysian gateway, and `Senang*`
+outnumbers `Senage*` 174 to 20 across first-party code. What is in doubt is something narrower and
+more consequential: **which string is the technical identifier**, and there are TWO live answers,
+each self-consistent on its own surface.
+
+| site | spelling | role |
+|---|---|---|
+| `PaymentSettingController::getPaymentGateways():758` | `Senangpay` | the id the ADMIN picker posts, and the settings key `is_Senangpay_enabled` derives from it |
+| `Setting::paymentList()` `['name']` (`Setting.php:818`) | **`SenagePay`** | the value the STOREFRONT checkout posts — `payment_list.blade.php:12` renders `value="{{ $payment_data->name }}"` |
+| `PaymentService.php:404` | `case 'SenagePay':` | the storefront's own dispatch |
+| `Utility.php:1842` | `if ($payment == 'SenagePay')` | the storefront's second consumer |
+| `SenangPayController:166` | `__('SenangPay')` | what is STORED in `plan_orders.payment_type` — translated, and replay-keyed |
+| `routes/customer.php:346` | `plan.pay.with.senagapay` | a third spelling, in a route NAME |
+
+**So `SenagePay` is not a typo in the sense that matters — it is the storefront's working
+identifier, posted and branched on consistently**, and `'Senangpay'` appears in **no** storefront
+branch at all. The two surfaces never meet. Changing either one to match the other would alter a
+payment identifier on a live commercial path: renaming `paymentList()`'s `name` would stop the
+storefront's two `SenagePay` branches matching, and renaming the registry id would break
+`is_Senangpay_enabled`.
+
+**Nothing is changed, per the owner's condition** (*"لا تغيّر Payment ID أو Callback Route أو
+بيانات دفع تاريخية اعتماداً على اختلاف إملائي فقط"*). The callback route, the registry id, the
+settings keys and every historical row stay exactly as they are.
+
+**The safe accommodation is already shipped and needs no identifier change:**
+`App\Payments\PaymentTypeLabel` folds case and resolves all six observed spellings, so every
+stored row renders a label whichever surface wrote it. `SenagePay` → "SenagePay",
+`Senangpay`/`SenangPay`/`senangpay` → "SenangPay". That is read-side only.
+
+**What a future unification would need, and why it is not a Phase 02 slice:** evidence of which
+identifier the merchant-facing settings and any live integration actually require, a migration
+decision for historical `orders`/`plan_orders` rows carrying the other spelling, and a plan for
+`SenangPayController:166`, which is one of the three writers keyed by
+`GuardsPlanActivation::existingPlanOrderForProviderTxn` — so changing what it stores changes which
+historical row a returning callback matches. **That is a payment-callback result, which the
+standing limit reserves for independent review.** Recorded as BLOCKED.
 

@@ -171,7 +171,12 @@ const ENV = Object.assign({}, process.env, {
                  activatedName: t?.getAttribute('name') };
       }),
       preview: panels.map(pan => {
-        const input = pan.querySelector('input[type=file]');
+        /* SCOPED TO `.download-product`. D-26 added a SECOND file input to every panel -- the
+           variant image -- and it renders BEFORE this one, so a bare
+           `querySelector('input[type=file]')` started returning the variant input, which carries
+           no `onchange`, and this probe reported every preview target as null. The measurement
+           was of the wrong element, not of a regression. */
+        const input = pan.querySelector('.download-product input[type=file]');
         const m = (input?.getAttribute('onchange') || '').match(/getElementById\('([^']+)'\)/);
         const t = m ? document.getElementById(m[1]) : null;
         return { term: termOf(pan), targets: m ? m[1] : null, ownsIt: !!(t && pan.contains(t)) };
@@ -207,12 +212,12 @@ const ENV = Object.assign({}, process.env, {
       ariaAllOwn: panels.length > 0 && panels.every(pan =>
         owns(pan, pan.querySelector('.accordion-collapse')?.getAttribute('aria-labelledby'))),
       previewAllOwn: panels.length > 0 && panels.every(pan => {
-        const m = (pan.querySelector('input[type=file]')?.getAttribute('onchange') || '')
+        const m = (pan.querySelector('.download-product input[type=file]')?.getAttribute('onchange') || '')
           .match(/getElementById\('([^']+)'\)/);
         return owns(pan, m && m[1]);
       }),
       previewTargets: panels.map(pan => {
-        const m = (pan.querySelector('input[type=file]')?.getAttribute('onchange') || '')
+        const m = (pan.querySelector('.download-product input[type=file]')?.getAttribute('onchange') || '')
           .match(/getElementById\('([^']+)'\)/);
         return m ? m[1] : null;
       }),

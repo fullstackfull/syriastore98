@@ -6295,3 +6295,69 @@ which judges a stored path against **the owning store's folder**, so every uploa
 `uploads/<store_id>` (`ProductController:598`) and so does this now. My own test fixtures made the
 identical mistake and failed for the identical reason, which is the clearest evidence the policy
 is doing its job.
+
+---
+
+## F175 / F176 — the unguarded variant panel, and the comment that 500ed it — 2026-10-29
+
+### The seven scenarios the owner asked for, measured before the fix
+
+Ten tests, written first. **Six failed against the unfixed code**, and two of those failures were a
+different defect (F176) rather than the permission gap:
+
+| scenario | before | after |
+|---|---|---|
+| 1. authorised merchant | sees variants ✓ | sees variants ✓ |
+| 2. authorised employee (`Manage Products`) | sees variants ✓ | ✓ |
+| 2b. authorised employee (`Edit Products`) | sees variants ✓ | ✓ |
+| 3. **employee with no product permission** | **read price, stock and SKU** | empty panel |
+| 4. another store | **500** (F176) | empty panel |
+| 4b. store-less principal | **500** (F176) | empty panel |
+| 5. platform operator | **served store 1's variants** | the product's own |
+| 6. product that does not exist | **500** | empty panel |
+| 6b. operator + missing product | **500** | empty panel |
+| 7. only this product's variants | ✓ | ✓ |
+
+Four bites, each failing its own tests: removing the gate; gating on `Edit Products` alone (which
+fails three, including the merchant's own access — this is why both names are required); dropping
+the ownership check; and reverting to the `getCurrentStore()` variant filter, which fails the
+operator scenario *and* scenario 7.
+
+### F176, measured on the running app
+
+```
+product 2 (variants=0): failed combination requests = ["500 products/attribute_combination_data/edit"]  panel length 0
+product 1 (variants=8): failed combination requests = []                                               panel length 113186
+```
+
+After escaping the comment:
+
+```
+product 2 (variants=0): failed combination requests = []  panel length 9212
+product 1 (variants=8): failed combination requests = []  panel length 113918
+```
+
+### The compiler's real behaviour, since the first version of the guard got it wrong
+
+The first detector flagged four false positives — a minified Tailwind stylesheet, a comment in
+`dashboard.blade.php` and two of my own. Each boundary was then measured:
+
+| construct | compiles to PHP? |
+|---|---|
+| braces in a JavaScript comment | **yes** |
+| a parenthesised directive in a JS comment | **yes** |
+| `@if (…)` in a JS comment | **yes** |
+| a bare directive name, no parentheses | no |
+| anything inside a `{{-- --}}` Blade comment | no |
+| anything inside a `@php … @endphp` block | no |
+
+The last two are why the sweep removes those regions first; the bare-name exemption is why prose
+such as *"the nine icons used to live in a @php block"* is not an offence. The table is pinned by
+its own test.
+
+### And a probe that measured the wrong element
+
+`check-variant-edit-keys-live.cjs` reported every preview target as `null` after D-26. Not a
+regression: D-26 added a **second** file input to each panel, rendered before the downloadable one,
+so `querySelector('input[type=file]')` started returning the variant input, which carries no
+`onchange`. Scoped to `.download-product` and recorded in the tool.
