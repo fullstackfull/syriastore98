@@ -2135,3 +2135,122 @@ decision for historical `orders`/`plan_orders` rows carrying the other spelling,
 historical row a returning callback matches. **That is a payment-callback result, which the
 standing limit reserves for independent review.** Recorded as BLOCKED.
 
+
+---
+
+## D-28 — the owner's security and data-integrity directive of 2026-10-29: three approvals
+
+**APPROVAL AND IMPLEMENTATION ARE SEPARATE COLUMNS HERE, deliberately.** The owner's directive says
+these decisions are final at the development and testing level and must not be re-requested. It does
+**not** say the work is done, and it explicitly forbids declaring engineering complete because
+targeted tests passed. So each sub-decision below records *what was approved* and, beneath it, *what
+has actually shipped and what has not* — and the second half is the one that may change.
+
+The directive also restates the standing boundaries, unchanged: no merge to `main`, no deployment,
+no production database writes or migrations, no production environment-variable or infrastructure
+changes, no production cache clearing, no secret rotation, no force-push or history rewriting, no
+edits to vendored WorkDo files, and no start on Phase 2.5 or Phase 03. Issue #120 remains deferred
+by owner decision and must not be reported as resolved.
+
+### D-28a — F194: **OPTION A APPROVED** — real isolation of the model cache from payment-critical cache
+
+**What was approved.** Separate the store laravel-model-caching flushes from the store that holds
+payment replay claims, pending payment records and idempotency locks, using the library's own
+`MODEL_CACHE_STORE` capability if it proves sound. Saving a model must never erase a payment-critical
+cache entry.
+
+**The owner's explicit conditions.**
+
+- Different store *names* are **not** sufficient if they still share a physical backend or a
+  namespace that a flush erases globally. Table, Redis-instance or key-namespace independence must be
+  verified against the real design.
+- Model-cache invalidation must keep working — no stale reads after a model changes.
+- `MODEL_CACHE_ENABLED=false` is **not** the approved option and must not be chosen as a permanent
+  substitute.
+- Array-cache tests passing is **not** evidence; the measurement must be on MariaDB with the database
+  cache store, because that is where F194 was measured (one `Setting` save erased 4 of 4 payment keys
+  there, and 0 of 4 on the array store).
+- If the separation needs infrastructure that does not exist here, prepare and document its
+  configuration for testing only and do not assume production availability.
+- **F194 does not close F186 or F188.** Any other reachable path that erases the payment cache stays
+  separately open, and F194 must not be declared complete while one does.
+
+**Implementation status: NOT STARTED at the time this decision was recorded.** See the F194 row in
+`PHASE-02-TASK-LEDGER.md` for what ships.
+
+### D-28b — F196: **OPTION A APPROVED** — the refusal must precede persistence
+
+**What was approved.** Move the variant-removal refusal checks ahead of the product save and ahead of
+every side effect, so a refused request leaves nothing changed. **Option B — leave the ordering and
+issue a fresh optimistic-lock token — is REJECTED**, in the owner's words because it would leave the
+data in an inconsistent state and then paper over it with a new token.
+
+**The owner's explicit conditions.**
+
+- The check must precede the product save, variant-row writes, `product_attribute` mutation, file
+  upload or removal, and any event, observer or non-database operation that changes state.
+- Moving a single line is not sufficient if another branch produces side effects before the check.
+- On refusal, **BEFORE == AFTER** for `products.product_attribute`, `products.updated_at`,
+  `product_variants`, variant prices, SKUs, stock, variant images, relations and files.
+- *"Nothing has been changed"* may only be said when it is actually true. Partially updating a
+  product and then refusing the rest is not allowed.
+- The existing `ss_last_seen_at` optimistic lock must be preserved and must **not** be bypassed to
+  make a confirmation succeed. Another person's edit must remain a real reason to refuse — not an
+  artefact of the same person's own refused attempt.
+- Any check-then-delete race must be closed with existing concurrency mechanisms or a lock proven on
+  MariaDB, not with a separate check that can be overtaken in time.
+- Both variant-update paths must be tested, with database state compared before and after rather
+  than an HTTP status alone.
+
+**Implementation status: NOT STARTED at the time this decision was recorded.**
+
+### D-28c — F195: **KEEP THE FIX. DO NOT REVERT.** And complete every deletion door
+
+**What was approved.** The existing F195 fix is consistent with D-20 and the owner approves its
+continuation — so the scope question raised at the end of the previous session ("is this a behaviour
+change needing sign-off?") is answered: it stays. But F195 is **not complete** while another path
+deletes a variant without the same safety rules.
+
+**The owner's explicit conditions.**
+
+- **One authoritative deletion policy** across every reachable path — `ProductController::update()`,
+  `product_attribute_delete()`, `Api\DashboardController::DeleteVariant()` and any other first-party
+  writer of the same delete — via a shared service or policy. **No duplicated reference-check
+  implementation**, and **no calling a web controller from an API controller** as a workaround.
+- Permissions must be scoped to the **target store**, not a union across all of the caller's stores.
+  The difference between `MerchantPermissions`, `isAbleTo()` and `lacksProductPermission()` must be
+  resolved — without rewriting the permission system unnecessarily.
+- Ownership follows the variant's **parent product**, not `ProductVariant.store_id` alone.
+- Cases to cover: merchant, authorised staff, unauthorised staff, staff with permission in another
+  store, platform operator, missing product, orphan variant, variant belonging to another product,
+  and no store resolved. The operator's commercial permissions must not be broadened generally.
+- **Mandatory historical-reference protection:** cart, wishlist, order history and product-level
+  historical references are checked before any delete. If a product appears in historical orders and
+  the removed variant cannot be *proven* absent from that history, deletion stays blocked. **A
+  merchant's confirmation does not make an unsafe operation safe.**
+- **F184 is approved as part of this:** an explicit visible confirmation before every *permitted*
+  delete, naming the right variant, stating that the delete is final and that price, stock and SKU
+  may be lost, with clear Cancel and Confirm. **The trash click itself is not the confirmation and
+  must not start the delete.** No confirmation may override a hard block. Use the Design System's
+  existing confirmation components, preserve AJAX contracts where possible, and use a verifiable
+  explicit-consent signal on the API path rather than permitting a plain API call. Any API contract
+  change must be documented and compatibility-tested, without assuming Flutter is the only client.
+- On refusal: an appropriate response and **not** HTTP 500; the variant row is not deleted; the
+  variant card does not disappear from the DOM; a correct message in Arabic and English; no false
+  success; no leakage of another store's information. On success: only the authorised variant is
+  deleted, other variants keep their prices, stock and files, and no historical record is removed.
+- **WorkDo boundary:** `AuctionProductController` inside `packages/workdo/` stays unedited. It must
+  be documented at its real severity as a separate risk, with a compatible protection point proposed
+  if one exists — and **it is not permissible to declare all variant-deletion paths closed while that
+  path remains live and outside the policy.**
+
+**Implementation status at the time of recording:** the trash-path guard and the API permission check
+shipped in `e00ace58`/`aea28d08`; the shared policy, the store-scoped authorization, the API path's
+reference guard and the F184 confirmation UI had **not**.
+
+### What this directive does not change
+
+No completed row is reopened and no later phase is started. The owner's six-phase scope, the Phase 01
+closure gates and the outstanding items listed in §8 of the directive (F186, F188, D-13, D-22/F121,
+E13, F95/F96 residuals, Flutter PR #4 CI evidence, the approved token-security stages, F76 and the
+product media/file-type gaps, and the P2-08 acceptance matrix) all stand as previously recorded.
