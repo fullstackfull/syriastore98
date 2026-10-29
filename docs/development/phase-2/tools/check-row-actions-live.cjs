@@ -193,7 +193,29 @@ const PROBE = `(function () {
      * names -- two unnamed controls per row on each, plus an unnamed primary "Add" button in the
      * page header, all of them carrying a `title` the tooltip plugin had already blanked.
      */
-    for (const screen of [{ name: 'orders', url: '/order' }, { name: 'products', url: '/product' }, { name: 'customers', url: '/customer' }, { name: 'categories', url: '/category' }, { name: 'attributes', url: '/product-attributes' }, { name: 'staff', url: '/user-list' }, { name: 'roles', url: '/roles' }]) {
+    /*
+     * D-25 STEP 2 adds `brands` and `labels`, and the reason they are the two that were added is
+     * worth recording, because it is a limit on what this harness can prove about that slice.
+     *
+     * Step 2 converted the THIRTY remaining action.blade.php partials under resources/views.
+     * (The glob is spelled out rather than written, because the star-slash in it CLOSES this
+     * block comment -- which it duly did, and node refused the file.) Of the
+     * thirty, the dev fixture merchant can reach exactly these two list screens with data rows on
+     * them: `/tag`, `/taxes`, `/deliveryboy` and `/faq` all redirect (the fixture holds no
+     * `Manage Tag`, `Manage Taxes`, `Manage DeliveryBoy` or `Manage FAQs`), and `/coupon`,
+     * `/page` and `/support` render an empty list. Measured, by driving all nine.
+     *
+     * That is ENOUGH for what this file measures and NOT enough for what the slice changed:
+     *
+     *   - ENOUGH for contrast and for the rendered button, because there is no per-screen CSS.
+     *     All thirty now carry the same four DS classes, so `.ss-btn--ghost`'s icon colour and
+     *     `.ss-btn--danger-quiet`'s are measured once per configuration here and are the same
+     *     rules on the other twenty-eight.
+     *   - NOT enough for the accessible NAME, which is per-file text. That is asserted over all
+     *     thirty-seven partials by Tests\Unit\Ui\ActionPartialAccessibleNameTest, which reads
+     *     the files; this measures that the name survives the tooltip plugin on a real page.
+     */
+    for (const screen of [{ name: 'orders', url: '/order' }, { name: 'products', url: '/product' }, { name: 'customers', url: '/customer' }, { name: 'categories', url: '/category' }, { name: 'attributes', url: '/product-attributes' }, { name: 'staff', url: '/user-list' }, { name: 'roles', url: '/roles' }, { name: 'brands', url: '/product-brand' }, { name: 'labels', url: '/product-label' }]) {
         /*
          * P2-05-5 adds `staff` and `roles`. NOTE THE STAFF URL: `/user-list`, not `/users`.
          * `/users` renders a CARD GRID (`delivery-user-cards`) with its own inline controls and

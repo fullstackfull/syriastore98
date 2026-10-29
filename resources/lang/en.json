@@ -3271,5 +3271,15 @@
     "Uploading…": "Uploading…",
     "Image uploaded successfully.": "Image uploaded successfully.",
     "Please select an image.": "Please select an image.",
-    "The file was not accepted.": "The file was not accepted."
+    "The file was not accepted.": "The file was not accepted.",
+    "Accept :thing": "Accept :thing",
+    "Delete :thing": "Delete :thing",
+    "Edit :thing": "Edit :thing",
+    "Refund :thing": "Refund :thing",
+    "Reject :thing": "Reject :thing",
+    "Reply :thing": "Reply :thing",
+    "Send Mail :thing": "Send Mail :thing",
+    "Send Message :thing": "Send Message :thing",
+    "Show :thing": "Show :thing",
+    "Plan Order": "Plan Order"
 }

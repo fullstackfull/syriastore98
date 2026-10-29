@@ -3300,5 +3300,15 @@
     "Uploading…": "جارٍ الرفع…",
     "Image uploaded successfully.": "تم رفع الصورة بنجاح.",
     "Please select an image.": "يرجى اختيار صورة.",
-    "The file was not accepted.": "لم يتم قبول الملف."
+    "The file was not accepted.": "لم يتم قبول الملف.",
+    "Accept :thing": "قبول :thing",
+    "Delete :thing": "حذف :thing",
+    "Edit :thing": "تعديل :thing",
+    "Refund :thing": "استرداد :thing",
+    "Reject :thing": "رفض :thing",
+    "Reply :thing": "الرد على :thing",
+    "Send Mail :thing": "إرسال بريد إلى :thing",
+    "Send Message :thing": "إرسال رسالة إلى :thing",
+    "Show :thing": "عرض :thing",
+    "Plan Order": "طلب الخطة"
 }

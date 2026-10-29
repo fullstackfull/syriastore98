@@ -6461,3 +6461,140 @@ Removing `dash-header` from one of the two `<header>` branches left
 appeared somewhere in the file and the other branch still carried it. A whole-file containment
 check cannot see a half-applied change — the exact failure mode the sibling branch test exists for.
 Now asserted per `<header>` tag, and re-bitten.
+
+## P2-05-9 — the remaining 30 row-action partials — 2026-10-29
+
+**Not D-25 Step 2.** Step 2 is the shared `action-button` page-header region — the export control
+and its three siblings, per the owner's decision of 2026-10-28. This is the WS J row-action work
+that P2-05-2, P2-05-4 and P2-05-5 started, finishing the other 30 of 37 partials.
+
+### What was wrong
+
+`resources/views/<entity>/action.blade.php` is the cell every merchant list renders at the end of
+each row. Measured across the 37 files before the change: **159 `title` attributes against 25
+`aria-label`s**, so about **134 controls had no accessible name at all.**
+
+`title` is not a name on these controls. They all carry `data-bs-toggle="tooltip"`, and Bootstrap
+**moves** that attribute into `data-bs-original-title` and blanks it when the plugin initialises.
+So the DOM a PHPUnit test renders has a name and the page a merchant uses does not — which is why
+`check-row-actions-live.cjs` waits 900ms before measuring, and why the first version of that
+harness found three of four controls unnamed on screens whose source looked fine.
+
+### How a 30-file mechanical conversion was made checkable
+
+`docs/development/phase-2/tools/census-action-partials.php` reduces each partial to the things that
+must be invariant — permission names, the `@permission`/`@endpermission` balance, routes,
+data-attributes, JS handler classes, form boundaries, element counts, icon names, `title` and
+`data-title` counts — plus, separately, **every route reference together with the stack of
+permission gates enclosing it.** `php census-action-partials.php HEAD` compares the working tree
+against any ref and exits non-zero if an invariant field moved.
+
+Final reading: **0 of 15 invariant fields differing across all 37 files**, and **all 92 route
+references under byte-identical gate stacks.** Intended movement: `aria_labels` 25 → 100,
+`ds_classes` 7 → 37 files, `bootstrap_btn_classes` 30 → 0 files, `dead_classes` 17 → 0 files.
+
+The gate-stack pass is there because the field census cannot answer the question that matters. The
+`permissions` field proves the SET of gate names is unchanged and `permission_count` proves the
+directives balance; neither proves the delete button is still **inside** `@permission('Delete Tag')`.
+A conversion could move a control across a gate boundary and leave both identical.
+
+### Three bugs in the converter, caught by the census rather than by reading the diff
+
+1. **22 of 30 files got `data-aria-label` and no accessible name.** The insertion anchored on
+   `\btitle="`, which also matches the tail of `data-title="`. The result was a junk data
+   attribute — the exact opposite of the fix, and invisible in a diff already full of new
+   attributes. Reverted with `git checkout resources/views/`, re-anchored to the start of the
+   attribute list where nothing can be inside another attribute, re-run, re-diffed.
+2. **`btn-badge` vanished from a field declared invariant.** That forced the question of whether
+   the class is load-bearing instead of assuming it. It is not: grepped across every first-party
+   and vendored stylesheet and script, it is selected by no script and styled by no rule. It now
+   has its own census field, so dropping it reads as a named, intentional change.
+3. **Three icons in `store/` stayed announced.** They are written `class="ti ti-trophy py-1"`, and
+   the converter's icon pattern required the class attribute to end after the icon name. The
+   test's first pattern had the identical blind spot — **two blind spots of the same shape agree
+   with each other, which reads as a pass.** Both widened.
+
+### A defect the slice found rather than introduced
+
+`deliveryboy/action.blade.php` and `store/action.blade.php` each carried **two `class` attributes
+on one `<a>`**, and had since the files existed:
+
+```html
+<a href="#" class="btn btn-sm btn-danger bs-pass-para show_confirm" …
+   class="btn btn-sm btn-secondary" data-bs-toggle="tooltip" …>
+```
+
+Measured in a real Chromium rather than assumed: the parser keeps the **first** and discards the
+second entirely — `getAttribute('class')` returns the first, `classList` holds none of the second's
+tokens, and the tag's other attributes survive. So `btn-secondary` had never applied and the
+control had always rendered red. The dead attribute is removed; a test refuses a new one, because
+a second `class` is a silent way for a conversion to look applied and not be.
+
+### The bilingual defect, which only an Arabic reader would have found
+
+The converter composes names as `__('Delete :thing', ['thing' => __('Cart')])`. **None of the nine
+new message keys existed in either language file.** All 56 pre-existing keys in these partials are
+translated in both, so this came from the conversion and nothing else.
+
+`__()` falls back to the key, so nothing failed:
+
+| | rendered |
+|---|---|
+| en | `Delete Cart` — **correct by accident**, because the key is English |
+| ar | `Delete عربة` — the English key with an Arabic noun substituted into it |
+
+Nine keys added to both files, plus the noun `Plan Order` (the converter had derived *"Plans"* from
+the directory name, which is in neither file). All thirteen composed labels are now printed through
+the real translator in both locales:
+
+```
+ar  حذف عربة · حذف علامة · حذف فتى التسليم · حذف المستخدم · تعديل منطقة الشحن
+    عرض كوبون · الرد على الدعم · قبول طلب الخطة · استرداد طلب الخطة
+    إرسال بريد إلى قائمة أمنيات · إرسال رسالة إلى عربة
+```
+
+`Tests\Unit\Ui\ActionPartialContractTest::test_every_label_these_partials_compose_is_translated_in_both_languages`
+now checks both halves of every composed name against both catalogues. That pass also turned up
+**F178**: `Menu` is translated `قائمة الطعام` — "food menu" — for the storefront's navigation menu.
+Recorded, not changed: it is a pre-existing shared line, read by the sidebar, the settings panels
+and the vendored modules.
+
+### Three labels that were a bare verb
+
+`deliveryboy/` and `store/` said *"Delete"*; `shippingzone/` said *"Edit"*. The converter preferred
+each file's own `data-title` and in those three that attribute is just the verb. Fifty rows
+announcing *"Delete"* is the defect this slice set out to fix, not a fix of it. Each now names the
+noun its own file already uses, and `test_no_accessible_name_is_a_bare_verb` refuses a new one.
+
+### What the browser can and cannot prove here
+
+`check-row-actions-live.cjs` gained `brands` and `labels`: **448 cases, 448 passed**, 9 screens ×
+en/ar × light/dark.
+
+The dev fixture merchant can reach **only 2 of the 30 converted screens with data rows on them**,
+and that was measured by driving all nine candidates rather than assumed: `/tag`, `/taxes`,
+`/deliveryboy` and `/faq` redirect for want of a permission — two of them landing on the
+*previous* screen in the loop, which is the trap P2-05-4's docblock records — and `/coupon`,
+`/page` and `/support` render an empty list.
+
+That is **enough** for contrast and the rendered control, because there is no per-screen CSS: all
+30 now carry the same four DS classes, so `.ss-btn--ghost`'s icon colour and
+`.ss-btn--danger-quiet`'s are measured once per configuration and are the same rules everywhere
+else. It is **not enough** for the accessible name, which is per-file text. Hence the 8 source
+tests over all 37 files, and all 37 compiled through the real Blade compiler and PHP-linted.
+
+### Evidence
+
+| | |
+|---|---|
+| `tests/Unit/Ui/ActionPartialContractTest.php` | 8 tests, 629 assertions |
+| bites | **9**, one per defect, each confirmed to fail with the defect reintroduced, residue checked against a pre-bite census rather than against `HEAD` |
+| census | `0` invariant fields differing, `92/92` gate stacks identical |
+| compile | 37 partials through `blade.compiler` + `php -l`, 0 failures |
+| live | `check-row-actions-live.cjs` 448/448 |
+| suites | Unit 622 · Merchant Feature 366 · Contract 26 |
+
+The residue check is worth its own line because the first version of it was wrong: it ran
+`git diff --quiet resources/views/`, which reports the **conversion itself** as a difference, and
+so printed "RESIDUE LEFT" and listed all 30 files after six bites that had each restored their file
+correctly. It now compares a census taken before the bites with one taken after.
