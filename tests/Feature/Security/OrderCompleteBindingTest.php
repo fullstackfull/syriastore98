@@ -213,7 +213,7 @@ class OrderCompleteBindingTest extends TestCase
             'app/Http/Controllers/PaiementProPaymentController.php' => 1,
             'app/Http/Controllers/CinetPayController.php' => 1,
             /*
-             * SIX, and the count is worth spelling out because the first version of this test said
+             * SEVEN, and the count is worth spelling out because the first version of this test said
              * six when the real number was five and failed: the file also NAMES the service in a
              * comment, and `withoutComments()` removes that before counting. The calls are the two
              * Paymera replay branches (holds), the generic storefront writer and the
@@ -221,8 +221,19 @@ class OrderCompleteBindingTest extends TestCase
              * before/after pair that names the order a write created without trusting "the latest in
              * the store". SESSION_KEY is referenced there too and is deliberately NOT counted: the
              * pattern asks for calls, and a constant read is not one.
+             *
+             * SIX UNTIL 2026-10-29, AND THE SEVENTH IS AN ADDITION RATHER THAN A MOVE. F96 added a
+             * THIRD replay branch to the browser callback -- the refusal taken when the durable
+             * write claim cannot be had -- and it answers with the same completion redirect the two
+             * existing replay branches use, `holds()` included. That is the point of counting them:
+             * a new branch that flashes the order number without the binding is exactly what this
+             * ratchet is for, and the right way past it is to carry the binding, not to raise the
+             * number. Which this branch does; the number follows. (The gateway trigger's matching
+             * refusal adds none, because the trigger answers JSON and reads
+             * `$pending['product_order_id']` directly -- recorded as F185, with the reason it was
+             * not changed inside a payment slice.)
              */
-            'app/Http/Controllers/PaymentController.php' => 6,
+            'app/Http/Controllers/PaymentController.php' => 7,
             // P1-ORD-13 FOLLOW-UP: the one provider that had none (the buyer's order is written in
             // the buyer's own session here, so the key is recordable exactly as at the other nine).
             'app/Http/Controllers/KhaltiPaymnetController.php' => 1,

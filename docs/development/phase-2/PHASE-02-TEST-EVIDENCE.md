@@ -7310,18 +7310,26 @@ and its comment said *"the write did not complete"*. It does complete, often eno
 
 ```
 getProductStatus()
-  :3187  DB::commit()                          <- the order EXISTS from here on
-  :3193  clearCartLines()                      (inside the try, deliberately)
-  :3194  } catch (...) { rollBack; restore; throw }
-  :3217..:3333  ~110 lines, NO try              <- every one of these can throw
-         StoreNotificationService->orderCreated($order)
-         ActivityLog::order_entry(...)
-         $owner = User::find($store->created_by); $owner->email   <- null deref
-         OrderNote::order_note_data(...) x3
-         event(new GetProductStatus(...))        (synchronous listeners)
-         Utility::affiliateTransaction($order)
-  :3332  OrderCompleteBinding::remember($order->id)   <- the LAST statement
+  DB::beginTransaction()
+  ... the order write ...
+  DB::commit()                              <- the order EXISTS from here on
+  clearCartLines()                           (inside the try, deliberately)
+  } catch (...) { rollBack; restore; throw }
+  ~145 lines, NO try                        <- every one of these can throw
+      StoreNotificationService->orderCreated($order)
+      ActivityLog::order_entry(...)
+      $owner = User::find($store->created_by); $owner->email   <- null deref
+      OrderNote::order_note_data(...) x3
+      event(new GetProductStatus(...))       (synchronous listeners)
+      Utility::affiliateTransaction($order)
+  OrderCompleteBinding::remember($order->id) <- the LAST statement
 ```
+
+(No line numbers in that sketch, deliberately. Hand-written references into this method rotted
+**four times** in this one slice — twice in the code comment, once in its own fix, once in this
+document — because every edit above them shifts them. The code comment keeps one measured set
+because a reviewer standing in the file needs somewhere to start, and
+`test_the_cited_anchors_still_name_what_they_claim` asserts that set rather than trusting it.)
 
 A throw anywhere in that tail leaves an order written, `$pending['processed']` still false, and **no
 in-process marker of either** — not a return value, not a session binding, not a flag, because the
@@ -7456,10 +7464,13 @@ moving nothing into or out of the guarded region.
 
 Two findings came out of it that are **not** this change's:
 
-- **F185** — the Paymera trigger's two pre-existing branches answer with `product_order_id` and no
+- **F185** — two pre-existing branches of the Paymera trigger answer with `product_order_id` and no
   `OrderCompleteBinding::holds()` test, where the browser callback has one. Behind `auth`, so the
   caller is any logged-in user who names a live reference. Recorded, not fixed: the one-line fix
-  changes what a machine caller is answered on a payment route.
+  changes what a machine caller is answered on a payment route. **One correction to the review that
+  raised it:** it named the `status === 'A'` branch as one of the two, and that branch returns no
+  order number at all. Checked before recording — the measurement is the already-`processed` branch
+  and the in-lock re-check-returned-null branch.
 - **F95's own asymmetry** — the 30-second lock spans `Utility::send_twilio_msg()` calls, so it can
   lapse inside its own critical region on a store with Twilio enabled. Which is exactly F96's
   argument against timed locks. Deliberate rather than overlooked: a durable claim on an intake route
