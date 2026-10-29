@@ -44,14 +44,14 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:954` | Gateway return gave up after the capture was classified: |
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:966` | Gateway return refused: the basket names a product or variant row that no longer exists. |
 | `app/Http/Controllers/KhaltiPaymnetController.php:1349` | Khalti order written for RECONCILIATION: the gateway could not be asked whether money moved |
-| `app/Http/Controllers/PaymentController.php:1306` | Paymera write threw AFTER the order committed; the claim is kept so no replay can write a second order |
+| `app/Http/Controllers/PaymentController.php:1355` | Paymera write threw and a committed order cannot be ruled out; the claim is kept so no replay can write a second order |
 | `app/Http/Controllers/PaymentController.php:469` | Paymera status poll ABANDONED: no API credential is configured |
 | `app/Http/Controllers/PaymentController.php:580` | Paymera callback REJECTED: the payment status could not be established |
-| `app/Http/Controllers/PaymentController.php:804` | Paymera write threw AFTER the order committed; the claim is kept so no replay can write a second order |
-| `app/Http/Controllers/PaymentController.php:918` | Paymera callback REJECTED: inbound signature not verified |
-| `app/Http/Controllers/PaymentController.php:947` | Paymera callback REJECTED: captured amount not verified |
-| `app/Http/Controllers/PaymentController.php:3325` | Order write failed and was rolled back; stock decrements were given back |
-| `app/Http/Controllers/PaymentController.php:4716` | Order write failed and was rolled back; stock decrements were given back |
+| `app/Http/Controllers/PaymentController.php:808` | Paymera write threw and a committed order cannot be ruled out; the claim is kept so no replay can write a second order |
+| `app/Http/Controllers/PaymentController.php:922` | Paymera callback REJECTED: inbound signature not verified |
+| `app/Http/Controllers/PaymentController.php:951` | Paymera callback REJECTED: captured amount not verified |
+| `app/Http/Controllers/PaymentController.php:3374` | Order write failed and was rolled back; stock decrements were given back |
+| `app/Http/Controllers/PaymentController.php:4765` | Order write failed and was rolled back; stock decrements were given back |
 | `app/Services/PaymentService.php:187` | Insufficient stock on an order path that cannot refuse; order kept, stock oversold |
 | `app/Services/PaymentService.php:3021` | Order write failed and was rolled back; stock decrements were given back |
 | `app/Services/ProductStockService.php:127` | Stock decremented below zero on an order path that cannot refuse |
@@ -116,24 +116,24 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/PayHerePaymnetController.php:64` | PayHere plan checkout refused: the integration is retired (owner decision). |
 | `app/Http/Controllers/PayHerePaymnetController.php:76` | PayHere plan checkout refused: the PayHere SDK is not installed. |
 | `app/Http/Controllers/PayUPaymentController.php:287` | Pending partial payment refused: the balance named does not belong to this customer. |
-| `app/Http/Controllers/PaymentController.php:1292` | Paymera trigger could not identify the order it created; the pending record names none |
-| `app/Http/Controllers/PaymentController.php:1217` | Paymera trigger refused: this payment is already being written. |
-| `app/Http/Controllers/PaymentController.php:1500` | checkout: refused, basket names a product from another store |
-| `app/Http/Controllers/PaymentController.php:1540` | checkout: refused, basket holds a non-positive quantity |
-| `app/Http/Controllers/PaymentController.php:2194` | Checkout refused: this payment method cannot settle an outstanding balance. |
-| `app/Http/Controllers/PaymentController.php:2211` | Checkout refused: no recorded balance matches this pending payment. |
-| `app/Http/Controllers/PaymentController.php:2229` | Checkout refused: the posted pending-payment amount disagrees with the record. |
-| `app/Http/Controllers/PaymentController.php:2545` | Pending partial payment refused: the balance named does not belong to this customer. |
-| `app/Http/Controllers/PaymentController.php:3719` | Telegram order message not sent: the store has no bot token or chat id |
-| `app/Http/Controllers/PaymentController.php:3735` | Telegram refused an order message |
-| `app/Http/Controllers/PaymentController.php:3741` | Telegram order message could not be sent |
-| `app/Http/Controllers/PaymentController.php:3809` | Whatsapp order writer: posted slug does not match the route slug; the route wins. |
-| `app/Http/Controllers/PaymentController.php:3925` | Order intake refused: this basket is already being written. |
+| `app/Http/Controllers/PaymentController.php:1341` | Paymera trigger could not identify the order it created; the pending record names none |
+| `app/Http/Controllers/PaymentController.php:1266` | Paymera trigger refused: this payment is already being written. |
+| `app/Http/Controllers/PaymentController.php:1549` | checkout: refused, basket names a product from another store |
+| `app/Http/Controllers/PaymentController.php:1589` | checkout: refused, basket holds a non-positive quantity |
+| `app/Http/Controllers/PaymentController.php:2243` | Checkout refused: this payment method cannot settle an outstanding balance. |
+| `app/Http/Controllers/PaymentController.php:2260` | Checkout refused: no recorded balance matches this pending payment. |
+| `app/Http/Controllers/PaymentController.php:2278` | Checkout refused: the posted pending-payment amount disagrees with the record. |
+| `app/Http/Controllers/PaymentController.php:2594` | Pending partial payment refused: the balance named does not belong to this customer. |
+| `app/Http/Controllers/PaymentController.php:3768` | Telegram order message not sent: the store has no bot token or chat id |
+| `app/Http/Controllers/PaymentController.php:3784` | Telegram refused an order message |
+| `app/Http/Controllers/PaymentController.php:3790` | Telegram order message could not be sent |
+| `app/Http/Controllers/PaymentController.php:3858` | Whatsapp order writer: posted slug does not match the route slug; the route wins. |
+| `app/Http/Controllers/PaymentController.php:3974` | Order intake refused: this basket is already being written. |
 | `app/Http/Controllers/PaymentController.php:550` | Paymera replay refused: the session presenting the reference did not place the order |
 | `app/Http/Controllers/PaymentController.php:693` | Paymera callback refused: this payment is already being written. |
-| `app/Http/Controllers/PaymentController.php:771` | Paymera callback could not identify the order it created; the pending record names none |
-| `app/Http/Controllers/PaymentController.php:863` | Paymera pending record vanished before the order was created |
-| `app/Http/Controllers/PaymentController.php:933` | Paymera callback signature NOT verified and not enforced |
+| `app/Http/Controllers/PaymentController.php:775` | Paymera callback could not identify the order it created; the pending record names none |
+| `app/Http/Controllers/PaymentController.php:867` | Paymera pending record vanished before the order was created |
+| `app/Http/Controllers/PaymentController.php:937` | Paymera callback signature NOT verified and not enforced |
 | `app/Http/Controllers/PaystackPaymentController.php:301` | Paystack plan activation refused: the transaction is not a matching success. |
 | `app/Http/Controllers/PaystackPaymentController.php:388` | Paystack plan activation refused: this reference is already recorded against a different buyer or plan. |
 | `app/Http/Controllers/PaystackPaymentController.php:455` | Paystack plan activation refused: the captured payment does not match the plan being activated. |
@@ -254,10 +254,18 @@ with the same caveat.
 
 ### The two rows added 2026-10-29 by the review of that change, `critical`
 
-**`PaymentController.php:804` (`handlePaymeraCallback`) and `:1306` (`handlePaymeraTrigger`) — the
+**`PaymentController.php:808` (`handlePaymeraCallback`) and `:1355` (`handlePaymeraTrigger`) — the
 post-commit throw.** These are `critical` where the three refusals above are `warning`, and the
-difference is the whole point of the line: it fires when **an order committed and then the request
-threw**, so money moved, stock moved, and the buyer was handed a 500. The duplicate-write claim is
+difference is the whole point of the line: it fires when **a committed order cannot be ruled out**
+and the request then threw — so money may have moved, stock may have moved, and the buyer was handed
+a 500.
+
+**THE WORDING IS DELIBERATE AND IT WAS CORRECTED ONCE.** The test behind it is a high-water mark
+over the store's paymera orders, not a per-payment identity — an `orders` row carries no paymera
+reference — so with two Paymera payments running in one store it can read the *other* payment's
+row. An earlier version of this line asserted *"AFTER the order committed"*, which on that path
+would have told the reconciler a commit happened when none had. A reader must therefore **check**,
+not assume: the line narrows the search to one store and one reference, it does not settle it. The duplicate-write claim is
 deliberately **kept** in that arm — releasing it would let the buyer's refresh write a second order
 — so the shopper's refresh lands on the completion page with **no order number**, because
 `OrderCompleteBinding::remember()` is the last statement of the tail that threw and was never

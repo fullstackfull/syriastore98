@@ -7343,20 +7343,106 @@ is the only record the order exists.
 which the first version was **worse** than the lock it replaced, and it is why the lifetime is now a
 named constant with its bounds written down.
 
-| | two hours (first version) | ten minutes (now) |
+| | two hours (first version) | sixty minutes (now) |
 |---|---|---|
-| worker dies mid-write (fpm `request_terminate_timeout`, `memory_limit` E_ERROR, SIGKILL, deploy restart) — `catch` does not run | claim stands for 2h with `processed` false | claim stands for 10 min |
-| the buyer's refresh, the **only** retry path (F97: the gateway's trigger route is behind `auth`) | refused for 2h | refused for 10 min |
-| `paymera_pending_<reference>`, which that retry needs | **expires at the same time** → no order, ever | still has ~110 minutes left |
+| worker dies mid-write (fpm `request_terminate_timeout`, `memory_limit` E_ERROR, SIGKILL, deploy restart) — `catch` does not run | claim stands for 2h with `processed` false | claim stands for 1h |
+| the buyer's refresh, the **only** retry path (F97: the gateway's trigger route is behind `auth`) | refused for 2h | refused for 1h |
+| `paymera_pending_<reference>`, which that retry needs | **expires at the same time** → no order, ever | an equal hour left to recover in |
 
-The lower bound is the writer's worst case: its slow part is outbound SMTP and SMS inside the stock
-loop, PHP's `default_socket_timeout` is 60 seconds, and any `request_terminate_timeout` worth setting
-is far below ten minutes — a request still running after ten minutes has been killed by the platform,
-so there is nothing left to protect. The upper bound is the record's own two hours. Ten minutes sits
-an order of magnitude inside both.
+**Sixty minutes is half the record's life, and that is the rule rather than a feel.** The largest
+claim that still leaves a stranded buyer as long to come back as the claim held them off. It took
+three attempts to land, because the second review pass showed the two bounds are not the only
+tension. There are **three** residuals, and no value closes any of them — the TTL only chooses which
+is likeliest:
 
-**Not** "write `processed` first", which stays wrong for the reason already recorded: a crash
-mid-write would leave a payment marked processed with no order.
+| residual | what happens | wants the TTL |
+|---|---|---|
+| **A — a writer slower than the claim** | the claim expires, `processed` is still false, a replay writes a second order: F96 itself, reopened | **longer** |
+| **B — a stranded claim** | a legitimate retry is refused until it expires; at or beyond the record's 2h, refused *permanently* | **shorter** |
+| **C — the post-commit arm is a delay, not a cure** | the claim is deliberately kept, but `processed` was never set and the record outlives the claim, so a replay in the gap still writes the second order (at 60 min that gap is 60 min; at 10 it was 110) | **longer** |
+
+(A)'s original justification was an unmeasured deployment premise — *"any `request_terminate_timeout`
+worth setting is far below ten minutes"* — and the review was right to reject it: **nothing in this
+repository sets `request_terminate_timeout` or a web-request `max_execution_time`**, and PHP's own
+limit does not count time blocked in stream I/O. A large enough basket with every send timing out on
+the 60-second `default_socket_timeout` can exceed any TTL.
+
+Two alternatives were rejected, both for recorded reasons. Writing `processed` **before** the writer:
+a crash mid-write would leave a payment marked processed with no order. Writing `processed` in the
+**post-commit arm**, once a commit is established — which would close (C) outright: the establishing
+test is a high-water mark, not a per-payment identity, so on its imprecise path it would mark
+*another* payment processed and that buyer could then never get their order. A bounded delay is an
+acceptable cost of imprecision; a permanent loss is not.
+
+So (A) and (C) want it larger, (B) wants it smaller, and the tie is broken on asymmetry of harm: (A)
+and (C) duplicate an order, its stock movement and its merchant credit, needing manual
+reconciliation; (B) makes a buyer wait. **The real fix is none of these** — it is moving the
+notification I/O out of the writer's stock loop, which is F96's open structural slice and the only
+change that stops the post-commit tail throwing at all.
+
+### And a second pass over those fixes found a defect in them too
+
+The fixes for the two findings above are themselves new code on a money path, so they got their own
+review. It found one real defect, one comment that asserted more than the code established, and
+three test-strength gaps — **including one where reverting the first fix would have kept the suite
+green**. All five are closed.
+
+**The new catch could throw instead of rethrowing**, two independent ways, same consequence:
+
+- `$ssPaymeraOrdersBefore` is assigned by the first statement inside the new `try` that can throw at
+  all. If *that* read is what threw, the catch runs with the variable never assigned — Laravel's
+  `HandleExceptions::handleError()` turns the undefined-variable warning into a thrown
+  `ErrorException`, so `throw $ssPaymeraError;` never runs and the claim is never released.
+- The question is itself a database read, inside a catch whose exception is **most plausibly a
+  database failure** — the writer's work is database work. A connection-level fault fails this query
+  too: the original exception is replaced, the rethrow is skipped, and the `critical` log that is the
+  only record of a post-commit order never fires.
+
+Either way: nothing committed, yet the claim stands for its whole lifetime, refusing every retry —
+the opposite of the rule the fix exists to implement. Closed by initialising the mark to `0` before
+each `try` (the sibling F95 code already does exactly this with `$ssIntakeLock = null`) and by giving
+both helpers their own `catch`, so "fail closed when the question cannot be asked" now covers a
+*failing query* and not only an unusable store id.
+
+**The imprecision is real, and the comment's reason for dismissing it was a non-sequitur.** The
+test is a high-water mark over the store's paymera orders, so with two references in flight in one
+store it can read the other payment's row:
+
+```
+T0  R2 reads mark = 100
+T1  R1's writer commits order 101
+T2  R2's writer throws BEFORE committing
+T3  R2's catch sees 101, keeps R2's claim  -> R2's buyer refused, nothing written for them
+```
+
+The trade is right — never a second order, at the cost of a bounded delay — but the old comment
+justified it with *"the callers hold `paymera_lock_<reference>` while they ask"*, which excludes
+nothing: the lock is keyed **per reference**, and two different references is the only case the
+imprecision bites. For the same reference it is the **claim** that serialises this read, not the
+lock, whose ten seconds F96's own premise says the writer outlives. The predicate is unchanged —
+an `orders` row carries no paymera reference, so no exact predicate exists — but the comment now
+says why, and the log line says *"a committed order cannot be ruled out"* instead of asserting a
+commit. A line that tells the reconciler a commit happened when none did is the misleading-report
+failure this project treats as a defect in its own right.
+
+**The cited line anchors had rotted — twice, then a third time during the fix.** The docblock cites
+four lines of the order writer to establish that its post-commit tail is unguarded. The structural
+claim is true and was independently verified; the numbers were stale by ~123 lines because this very
+change inserted that many above them. The fix for that was itself stale by one line before it was
+committed, because correcting a four-line comment to five lines moved everything below it.
+
+So the pointers are now **ratcheted rather than trusted**:
+`PaymeraPostCommitClaimTest::test_the_cited_anchors_still_name_what_they_claim` parses the four
+`` `token` :line `` pairs out of the docblock and asserts that each line really contains that token.
+It caught the third rot on its first run, which is the only reason this paragraph is not wrong too.
+
+**Two assertions could not fail, and one test did not fence what it named.**
+
+| gap | what closed it |
+|---|---|
+| `test_the_claim_is_released_only_when_no_order_committed` pinned only `catch < asked < forget`, so a mutation that **keeps the call** and releases unconditionally passed it — i.e. the first fix could be reverted with the suite green | it now asserts an `else` token sits between the question and the release, which is what makes the release conditional. Bitten with exactly that mutation |
+| `assertSame(0, $this->highWaterMark($storeId))` in the unusable-store case could not fail: on an empty table `max('id')` is `null → 0` with the guard, without it, and under a degraded `whereNull('store_id')` predicate | moved to its own case that first **inserts** the rows a degraded predicate would pick up — one paymera order each at `store_id` NULL, `0` and `-1` — so the assertion has a premise that can fail |
+| the TTL case asserted only `$minutes > 0`, so a future value of 1 minute would pass while reopening F96 far more often than today | a real lower bound, with the reasoning in the docblock |
 
 ### What the review cleared, and the two things it recorded instead
 
@@ -7386,7 +7472,8 @@ Two findings came out of it that are **not** this change's:
 | `tests/Feature/Security/WhatsappOrderConcurrencyTest.php` | **6 cases** — the refusal without a write · the positive control · the release · the cross-principal key · the Arabic refusal · the telegram route |
 | `tests/Feature/Commerce/PaymeraCallbackIdempotencyTest.php` | 22 → **26 cases**; the five F96 assertions run over both entry points through a `guardedEntryPoints()` provider |
 | `tests/Feature/Commerce/PaymeraPostCommitClaimTest.php` | **10 driven cases** over the two new helpers — nothing committed · a commit after the mark · a commit that predates it · **another store's** commit · another payment type · five unusable store ids, all fail-closed |
-| bites | **18 distinct, every one bit.** F95 (4): no lock (driven against both routes) · key from the body (pre-captured) · lock never released · the Arabic key dropped. F96 (5): the claim removed from each entry point separately · `Cache::forget` removed · the claim hoisted above the re-check · the key carrying the caller's IP. The review's fixes (9): each entry point's release made unconditional · the commit test ignoring the store, the payment type, the mark · the unanswerable question failing open · the claim lengthened to the record's own two hours · the record's life changed under the margin |
+| bites | **23 distinct mutations, 24 runs, every one bit** (the no-lock mutation is driven against two different cases). F95 (4): no lock (driven against both routes) · key from the body (pre-captured) · lock never released · the Arabic key dropped. F96 (5): the claim removed from each entry point separately · `Cache::forget` removed · the claim hoisted above the re-check · the key carrying the caller's IP. The review's fixes (9): each entry point's release made unconditional · the commit test ignoring the store, the payment type, the mark · the unanswerable question failing open · the claim lengthened to the record's own two hours · the claim shortened to barely more than the lock · the record's life changed under the margin. The second pass's fixes (5): the release made unconditional **while keeping the call** · each helper rethrowing instead of failing closed · the mark ignoring an unusable store id · a cited anchor off by one line |
+| `tests/Feature/Commerce/PaymeraPostCommitClaimTest.php` | 10 → **14 driven cases** — the four added by the second pass: the question failing · the mark failing · an unusable store id with the rows a degraded predicate would match · the docblock's four cited anchors |
 | the positive control | F95's `test_an_ordinary_request_is_not_refused_by_the_guard` — a guard that refused everything would satisfy the refusal case perfectly |
 | not driven, stated | F96's claim. `Cache::lock`/`Cache::add` on the `array` driver are process-local, and the handler's own pre-lock gates stop a staged request reaching the region (measured above) |
 | client-visible change | none. The F95 refusal is `$this->error([...])` — HTTP 200 with `status: 0`, the shape this path already answers with. No new 401 and no new 429 on any path a client calls |

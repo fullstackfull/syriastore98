@@ -701,6 +701,10 @@ public function handlePaymeraCallback(Request $request, string $orderId)
                     : '');
         }
 
+        /* Defined BEFORE the try, so the catch always has a value: an undefined variable read
+           inside the handler for another failure would throw in the catch and skip its rethrow. */
+        $ssPaymeraOrdersBefore = 0;
+
         try {
 
         $pending = $fresh;
@@ -801,7 +805,7 @@ public function handlePaymeraCallback(Request $request, string $orderId)
              * set on success, so a retry is correct today, and a surviving claim would refuse it.
              */
             if ($this->paymeraOrderCommittedSince($requestData['store_id'] ?? null, $ssPaymeraOrdersBefore)) {
-                \Illuminate\Support\Facades\Log::critical('Paymera write threw AFTER the order committed; the claim is kept so no replay can write a second order', [
+                \Illuminate\Support\Facades\Log::critical('Paymera write threw and a committed order cannot be ruled out; the claim is kept so no replay can write a second order', [
                     'paymera_reference' => $orderId,
                     'store_id' => $requestData['store_id'] ?? null,
                     'error' => $ssPaymeraError->getMessage(),
@@ -1031,29 +1035,50 @@ public function handlePaymeraCallback_backup($orderId)
 /**
  * How long a Paymera write may hold its duplicate-write claim.
  *
- * TEN MINUTES IS BOUNDED BY TWO CONSTRAINTS, not chosen by feel, and the upper one is a defect
- * the review found in the first version of this guard (which used two hours).
+ * SIXTY MINUTES -- HALF THE LIFE OF `paymera_pending_<reference>`, WHICH IS TWO HOURS. The rule is
+ * the largest claim that still leaves a stranded buyer as long to come back as the claim held them
+ * off. It took three attempts and two review passes to get here, so the three residuals it
+ * balances are written down rather than left to be rediscovered. NONE of them is closed by any
+ * value; the TTL only chooses which is likeliest.
  *
- *   LOWER BOUND -- it must outlast the writer's worst case, or the window F96 names reopens. The
- *   writer's slow part is outbound SMTP and SMS inside its stock loop; PHP's
- *   `default_socket_timeout` is 60 seconds and the tail makes a handful of such calls, and any
- *   php-fpm `request_terminate_timeout` worth setting is far below ten minutes. A request still
- *   running after ten minutes has been killed by the platform, so there is nothing left to
- *   protect.
+ *   (A) A WRITER SLOWER THAN THE CLAIM reopens F96 itself -- the claim expires, `processed` is
+ *   still false, and a replay writes a second order. The writer's slow part is outbound SMTP and
+ *   SMS inside its per-line stock loop, bounded only by PHP's 60-second `default_socket_timeout`:
+ *   nothing in this repository sets `request_terminate_timeout` or a web-request
+ *   `max_execution_time`, and PHP's own limit does not count time blocked in stream I/O. So a
+ *   large enough basket with every send timing out can exceed any TTL. A LONGER claim makes this
+ *   less likely. (The first version's "a request still running after ten minutes has been killed
+ *   by the platform" was an unmeasured deployment premise, and the review was right to reject it.)
  *
- *   UPPER BOUND -- it must expire well inside the life of `paymera_pending_<reference>`, which is
- *   two hours. `catch` does not run when a WORKER DIES (an fpm request_terminate_timeout, a
- *   `memory_limit` E_ERROR, a SIGKILL, a deploy restart), so a claim can be stranded with
- *   `processed` still false. While it stands, every retry is refused -- and the gateway's own
- *   retry cannot help, because F97 measured the trigger route to sit behind `auth`, so the
- *   buyer's refresh of the anonymous callback is the ONLY retry path there is. A claim that
- *   outlived the pending record would therefore turn a captured payment into **no order at all**.
- *   Ten minutes strands the buyer for ten minutes; two hours stranded them permanently.
+ *   (B) A STRANDED CLAIM refuses a legitimate retry. `catch` does not run when a WORKER DIES (an
+ *   fpm `request_terminate_timeout`, a `memory_limit` E_ERROR, a SIGKILL, a deploy restart), so
+ *   the claim can outlive the request with `processed` still false. The gateway's own retry cannot
+ *   help: F97 measured the trigger route to sit behind `auth`, so the buyer's refresh of the
+ *   anonymous callback is the ONLY retry path there is. A SHORTER claim makes this shorter. A
+ *   claim at or beyond the record's two hours made it PERMANENT -- a captured payment with no
+ *   order ever -- which is the defect the first review found, when this was two hours.
  *
- * Shortening it is the mitigation that fits the failure. Writing `processed` first is not -- a
- * crash mid-write would then leave a payment marked processed with no order, which is worse.
+ *   (C) THE POST-COMMIT ARM IS A DELAY, NOT A CURE, and this is the one the second review
+ *   surfaced. When the writer throws after committing, the catch deliberately KEEPS the claim --
+ *   but `processed` was never set, and the record outlives the claim. So a replay arriving in the
+ *   window between the claim expiring and the record expiring still passes the re-check and writes
+ *   the second order. A LONGER claim shrinks that window (at 60 the window is 60 minutes; at 10 it
+ *   was 110).
+ *
+ * TWO REJECTED ALTERNATIVES, both for recorded reasons. Writing `processed` BEFORE the writer: a
+ * crash mid-write would leave a payment marked processed with no order. Writing `processed` in the
+ * post-commit arm, once a commit is established, which would close (C) outright: the establishing
+ * test is a high-water mark, not a per-payment identity (see paymeraOrderCommittedSince()), so on
+ * its imprecise path it would mark ANOTHER payment processed and that buyer could then never get
+ * their order. A bounded delay is an acceptable cost of imprecision; a permanent loss is not.
+ *
+ * (A) and (C) both want this larger and (B) wants it smaller, so the choice is where the harms are
+ * not symmetric: (A) and (C) duplicate an order, its stock movement and its merchant credit, which
+ * needs manual reconciliation; (B) makes a buyer wait. THE REAL FIX IS NONE OF THESE -- it is
+ * moving the notification I/O out of the writer's stock loop, which is F96's open structural slice
+ * and the only change that makes the post-commit tail unable to throw.
  */
-private const PAYMERA_CLAIM_MINUTES = 10;
+private const PAYMERA_CLAIM_MINUTES = 60;
 
 /**
  * The highest `orders.id` this store has for a paymera payment, read BEFORE the writer runs.
@@ -1068,21 +1093,38 @@ private function paymeraOrderHighWaterMark(mixed $storeId): int
         return 0;
     }
 
-    return (int) Order::where('store_id', $storeId)
-        ->where('payment_type', 'paymera')
-        ->max('id');
+    try {
+        return (int) Order::where('store_id', $storeId)
+            ->where('payment_type', 'paymera')
+            ->max('id');
+    } catch (\Throwable $ssMarkUnreadable) {
+        /* A MARK THAT CANNOT BE READ IS 0, NOT AN EXCEPTION. This read runs in the normal path,
+           inside the writer's own try, so a throw here would be handled by the catch below with
+           `$ssPaymeraOrdersBefore` never assigned -- an undefined variable inside the handler for
+           a different failure. 0 is also the safe value: the writer has not run yet, so nothing
+           can have committed, and 0 makes paymeraOrderCommittedSince() answer from the rows
+           rather than from a guess. */
+        return 0;
+    }
 }
 
 /**
  * Did an order COMMIT for this store's paymera payments since that mark?
  *
- * WHY THIS IS ASKED OF THE DATABASE AND NOT OF THE WRITER. `getProductStatus()` commits at
- * `:3187` and then runs roughly 110 lines of **unguarded** post-commit work -- the store
- * notification, the activity log, the store owner's email (a null dereference if the owner row
- * is missing), three order notes, an event with synchronous listeners, the affiliate transaction
- * -- and `OrderCompleteBinding::remember()` is the **last** of them. So a throw anywhere in that
- * tail leaves an order written, `$pending['processed']` still false, and **no in-process marker
- * of either**: not a return value, not a binding, not a flag. The only witness is the row.
+ * WHY THIS IS ASKED OF THE DATABASE AND NOT OF THE WRITER. `getProductStatus()` commits -- its
+ * `DB::commit()` -- and then runs roughly 145 lines of **unguarded** post-commit work: the store
+ * notification, the activity log, the store owner's email (`$owner = User::find(...)` then
+ * `$owner->email`, a null dereference when the owner row is missing), three order notes, an event
+ * with synchronous listeners, the affiliate transaction. `OrderCompleteBinding::remember()` is
+ * the **last** statement of that tail. So a throw anywhere in it leaves an order written,
+ * `$pending['processed']` still false, and **no in-process marker of either**: not a return
+ * value, not a binding, not a flag. The only witness is the row.
+ *
+ * (Measured 2026-10-29: `DB::beginTransaction()` :3209, `DB::commit()` :3380, `$owner->email`
+ * :3436, `OrderCompleteBinding::remember()` :3525. These are STRUCTURAL claims and the numbers
+ * drift -- two earlier versions of this comment cited lines this very change had already moved,
+ * which is why `PaymeraPostCommitClaimTest::test_the_cited_anchors_still_name_what_they_claim`
+ * now asserts them. Read the structure as the claim and the numbers as a pointer.)
  *
  * FAIL CLOSED WHEN THE QUESTION CANNOT BE ASKED. Without a usable store id this returns `true`,
  * i.e. "assume an order committed", because the caller's only use of the answer is whether to
@@ -1091,11 +1133,27 @@ private function paymeraOrderHighWaterMark(mixed $storeId): int
  * cache entries tidy would be the wrong direction for a money control"*). The claim's TTL bounds
  * what that costs.
  *
- * NOT A PERFECT IDENTITY, AND THE IMPRECISION IS IN THE SAFE DIRECTION. Two Paymera payments
- * committing in one store inside the same request would make either one's catch read the other's
- * row. The result is a kept claim and a delayed retry, never a second order -- and the callers
- * hold `paymera_lock_<reference>` while they ask, so the two requests are not racing this read
- * for the same payment.
+ * NOT A PERFECT IDENTITY, AND THE REASON IS THAT NO PER-PAYMENT WITNESS EXISTS. An `orders` row
+ * carries no paymera reference -- `payment_type` is the only paymera marker on it -- so "did an
+ * order commit for THIS payment" is not a question the table can answer. This asks the nearest
+ * one it can: did this store gain a paymera order since the mark.
+ *
+ * SO IT CAN READ ANOTHER PAYMENT'S ROW, over a window as long as the writer runs. Reference R2
+ * takes its mark; R1's writer commits; R2's writer throws BEFORE committing; R2's catch sees R1's
+ * row and keeps R2's claim. R2's buyer is then refused for the claim's lifetime although nothing
+ * was written for them. This file records at orderWrittenBy() that two concurrent Paymera payments
+ * in one store is a real case -- that method exists for it.
+ *
+ * THE TRADE IS DELIBERATE: never a second order, at the cost of a bounded delay. Which is the
+ * right way round for a money control, and it is the same direction as the fail-closed branch
+ * above. **It is NOT excluded by the lock**, and an earlier version of this comment claimed it
+ * was: `paymera_lock_<reference>` is keyed per reference, so for two DIFFERENT references -- the
+ * only case the imprecision bites -- it excludes nothing. For the same reference it is the CLAIM
+ * that serialises this read, not the lock, whose ten seconds F96's whole premise says the writer
+ * outlives.
+ *
+ * WHAT THE CALLER MUST NOT DO is report the answer as certainty. The log the callers write says a
+ * committed order cannot be ruled out, not that one committed.
  */
 private function paymeraOrderCommittedSince(mixed $storeId, int $highWaterMark): bool
 {
@@ -1105,10 +1163,19 @@ private function paymeraOrderCommittedSince(mixed $storeId, int $highWaterMark):
         return true;
     }
 
-    return Order::where('store_id', $storeId)
-        ->where('payment_type', 'paymera')
-        ->where('id', '>', $highWaterMark)
-        ->exists();
+    try {
+        return Order::where('store_id', $storeId)
+            ->where('payment_type', 'paymera')
+            ->where('id', '>', $highWaterMark)
+            ->exists();
+    } catch (\Throwable $ssQuestionUnanswerable) {
+        /* FAIL CLOSED, AND DO NOT RETHROW. This runs inside the handler's catch, and the exception
+           being handled there is most plausibly a DATABASE failure -- the writer's work is
+           database work -- so this query is liable to fail for the same reason. Rethrowing would
+           replace the exception the handler was already raising, skip its `throw`, and skip the
+           critical log that on a post-commit throw is the ONLY record the order exists. */
+        return true;
+    }
 }
 
 private function orderWrittenBy(callable $write, bool $sessionPlacedIt): ?int
@@ -1179,6 +1246,9 @@ public function handlePaymeraTrigger($orderId)
         $lock = Cache::lock('paymera_lock_' . $orderId, 10);
 
         if ($lock->get()) {
+            /* Defined BEFORE the try -- see the browser callback. */
+            $ssPaymeraOrdersBefore = 0;
+
             try {
                 /*
                  * RE-CHECK UNDER THE LOCK -- see freshPaymeraPendingOrNull().
@@ -1303,7 +1373,7 @@ public function handlePaymeraTrigger($orderId)
                     /* The same rule as the browser callback's catch, for the same reason: released
                        only if nothing committed. See paymeraOrderCommittedSince(). */
                     if ($this->paymeraOrderCommittedSince($pending['request_data']['store_id'] ?? null, $ssPaymeraOrdersBefore)) {
-                        \Illuminate\Support\Facades\Log::critical('Paymera write threw AFTER the order committed; the claim is kept so no replay can write a second order', [
+                        \Illuminate\Support\Facades\Log::critical('Paymera write threw and a committed order cannot be ruled out; the claim is kept so no replay can write a second order', [
                             'paymera_reference' => $orderId,
                             'store_id' => $pending['request_data']['store_id'] ?? null,
                             'error' => $ssPaymeraError->getMessage(),

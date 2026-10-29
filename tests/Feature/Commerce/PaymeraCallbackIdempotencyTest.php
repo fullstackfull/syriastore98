@@ -739,6 +739,27 @@ class PaymeraCallbackIdempotencyTest extends TestCase
             $method . ': the claim is released before the question is asked, so the answer cannot'
             . ' affect it'
         );
+
+        /*
+         * AND THE ANSWER MUST GATE THE RELEASE, not merely precede it. A second review produced
+         * the mutation that defeated the three assertions above:
+         *
+         *     if ($this->paymeraOrderCommittedSince(...)) { Log::critical(...); }
+         *     Cache::forget($ssPaymeraClaim);          // unconditional again
+         *
+         * Every ordering still holds, the question is still asked, and the defect is fully back.
+         * The `else` between the two is what makes the release conditional, so that is what is
+         * asserted. (`executableSourceOf()` strips comments, so no comment can satisfy this.)
+         */
+        $between = substr($source, $asked, $forget - $asked);
+
+        $this->assertMatchesRegularExpression(
+            '/\belse\b/',
+            $between,
+            $method . ': the question is asked and then the claim is released regardless of the'
+            . ' answer. That is the unconditional release this case exists to prevent -- it keeps'
+            . ' the call, so ordering alone cannot tell the two apart.'
+        );
     }
 
     public function test_the_claim_key_is_the_payment_reference_and_nothing_else(): void
@@ -785,11 +806,18 @@ class PaymeraCallbackIdempotencyTest extends TestCase
         $claim = new \ReflectionClassConstant(PaymentController::class, 'PAYMERA_CLAIM_MINUTES');
         $minutes = (int) $claim->getValue();
 
-        $this->assertGreaterThan(
-            0,
+        /*
+         * A REAL LOWER BOUND. The first version asserted only `> 0`, which a second review pointed
+         * out would pass a one-minute claim -- reopening F96 far more often than today while still
+         * satisfying the test. The floor is "comfortably above the ten-second lock it supplements":
+         * below a couple of minutes the claim is barely more than the mutex whose lapsing is the
+         * entire finding.
+         */
+        $this->assertGreaterThanOrEqual(
+            2,
             $minutes,
-            'a claim with no life cannot close F96: the window it covers is the time the writer'
-            . ' spends inside the lock'
+            'the claim is barely longer than the ten-second lock it supplements, so it reopens the'
+            . ' very window F96 names: the writer outruns it and a replay writes a second order'
         );
 
         $source = $this->executableSourceOf(PaymentController::class, 'handlePaymeraCallback');
@@ -801,12 +829,19 @@ class PaymeraCallbackIdempotencyTest extends TestCase
             . ' asserts is measured against the wrong number -- re-derive it'
         );
 
-        $this->assertLessThan(
+        /*
+         * THE CEILING IS THE RULE THE CONSTANT IS CHOSEN BY: half the record's life, so a stranded
+         * buyer has as long to come back as the claim held them off. At or beyond the record's own
+         * two hours the strand is PERMANENT -- a captured payment with no order, ever -- which is
+         * what the first review found when this was two hours.
+         */
+        $this->assertLessThanOrEqual(
             120 / 2,
             $minutes,
-            'the claim can outlive, or nearly outlive, the pending record a retry needs. A worker'
-            . ' that dies mid-write strands the claim with `processed` still false, and once the'
-            . ' record expires the captured payment has no order and no path to one.'
+            'the claim now exceeds half the life of the pending record a retry needs. A worker that'
+            . ' dies mid-write strands it with `processed` still false, and the closer the claim'
+            . ' gets to the record\'s two hours the less of a window the buyer has to recover --'
+            . ' at or beyond it, none.'
         );
     }
 
