@@ -500,12 +500,33 @@ foreach (Order::where('store_id', $store->id)->get() as $ssOrder) {
 foreach (Order::where('store_id', $store->id)->get() as $ssNoteOrder) {
     if (\App\Models\OrderNote::where('order_id', $ssNoteOrder->id)->exists()) { continue; }
 
+    /*
+     * THE FIRST FIVE ARE THE SHAPES `order/view.blade.php` HAS BRANCHES FOR. The last three are
+     * the shapes its OTHER writers produce, and they are in the fixture because the page DROPS
+     * them -- F180. Measured, not reasoned: with all eight rows present for one order, the page
+     * renders five.
+     *
+     *   `OrderNote::addOrderNote()` writes 'Order Created' / 'Stock Manage' /
+     *   'Order status change', which the view knows. But `OrderController::store()` writes
+     *   'Order created' with a LOWERCASE c, `Api\DashboardController` writes the same, and it
+     *   also writes 'Customer note' / 'customer', which matches no branch at all. Those notes are
+     *   stored and never shown.
+     *
+     * They stay in the fixture so that any later probe of this page sees the drop rather than a
+     * tidy five-note timeline, and so the fix -- when it is taken as its own slice -- has
+     * something to measure against.
+     */
     foreach ([
         ['Stock Manage',        null,            'Stock reduced by 2 for Damask Cotton Scarf.'],
         ['Order Created',       null,            'Order placed from the storefront.'],
         ['Order status change', null,            'Status changed to Confirmed.'],
         ['',                    'private_note',  'Customer asked for delivery after 5pm. Not visible to them.'],
         ['',                    'to_customer',   'Your order is being prepared and ships tomorrow.'],
+        // F180: written by OrderController::store() and never rendered.
+        ['Order created',       'created',       'Order created manually by admin.'],
+        // F180: written by Api\DashboardController and never rendered.
+        ['Order created',       'system',        'Order created via Admin API.'],
+        ['Customer note',       'customer',      'Please leave the parcel with the concierge.'],
     ] as [$ssStatus, $ssType, $ssText]) {
         \App\Models\OrderNote::create([
             'order_id' => $ssNoteOrder->id,

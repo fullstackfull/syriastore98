@@ -289,7 +289,18 @@ const PROBE = `(function () {
             const file = `${vp.name}-${locale}-${theme}`;
             await page.screenshot({ path: path.join(OUT, `01-order-detail-${file}.png`), fullPage: false });
 
-            const notes = page.locator('.card').filter({ has: page.locator('.card-header.note-bg-color') }).first();
+            /*
+             * THE PANEL, NOT ONE NOTE. This read `.card` alone, which was the outer panel until
+             * D-25 Step 3 converted it to `ss-card` -- after which the first `.card` containing a
+             * tinted header was the NOTE ITEM, and the evidence screenshot silently went from the
+             * whole panel (50KB) to a single note (6.8KB). Nothing failed; the run still reported
+             * 112/112. Caught by the file size in `git status`, which is a poor detector, so the
+             * selector names both surfaces and takes the outermost (document order puts the panel
+             * before the note it contains).
+             */
+            const notes = page.locator('.ss-card, .card')
+                .filter({ has: page.locator('.card-header.note-bg-color') })
+                .first();
             if (await notes.count() > 0) {
                 await notes.screenshot({ path: path.join(OUT, `02-order-notes-${file}.png`) }).catch(() => {});
             }

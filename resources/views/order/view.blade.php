@@ -14,23 +14,23 @@
 
         @if ($order['payment_receipt'])
             <a href="{{ asset($order['payment_receipt']) }}"
-                target="_blank" rel="noopener noreferrer" class="btn btn-badge mr-2 btn-sm btn-primary btn-icon d-flex align-items-center" data-bs-toggle="tooltip"
-                data-bs-placement="top" title="Payment Receipt" aria-label="Payment Receipt" download>
-                <i class="ti ti-download" style="font-size:20px"></i>
+                target="_blank" rel="noopener noreferrer" class="ss-btn ss-btn--sm ss-btn--icon ss-btn--secondary" data-bs-toggle="tooltip"
+                data-bs-placement="top" title="{{ __('Payment Receipt') }}" aria-label="{{ __('Payment Receipt') }}" download>
+                <i class="ti ti-download" aria-hidden="true"></i>
             </a>
         @endif
         @if (module_is_active('AutomaticOrderPrinting'))
             @stack('invoice-button')
         @else
             <a href="{{ route('shippinglabel.pdf', \Illuminate\Support\Facades\Crypt::encrypt($order['id'])) }}"
-                target="_blank" rel="noopener noreferrer" class="btn btn-badge mr-2 btn-sm btn-primary btn-icon d-flex align-items-center" data-bs-toggle="tooltip"
-                data-bs-placement="top" title="Print" aria-label="Print">
-                <i class="ti ti-printer" style="font-size:20px"></i>
+                target="_blank" rel="noopener noreferrer" class="ss-btn ss-btn--sm ss-btn--icon ss-btn--secondary" data-bs-toggle="tooltip"
+                data-bs-placement="top" title="{{ __('Print') }}" aria-label="{{ __('Print') }}">
+                <i class="ti ti-printer" aria-hidden="true"></i>
             </a>
         @endif
         <a href="{{ route('order.receipt', \Illuminate\Support\Facades\Crypt::encrypt($order['id'])) }}"
-            class="mx-1 btn btn-sm btn-badge mr-2 btn-primary btn-icon d-flex align-items-center" data-bs-toggle="tooltip"
-            data-bs-placement="top" title="{{ __('Receipt') }}"><i class="ti ti-receipt" style="font-size:20px"></i>
+            class="ss-btn ss-btn--sm ss-btn--icon ss-btn--secondary" data-bs-toggle="tooltip" aria-label="{{ __('Receipt') }}"
+            data-bs-placement="top" title="{{ __('Receipt') }}"><i class="ti ti-receipt" aria-hidden="true"></i>
         </a>
         {{--
             P2-04-6. THREE THINGS, one of which only breaks in production.
@@ -50,10 +50,9 @@
         --}}
         <a href="#"
             data-ss-copy="{{ config('app.url') . '/' . $store->slug . '/order/' . \Illuminate\Support\Facades\Crypt::encrypt($order['id']) }}"
-            class="btn btn-sm btn-primary btn-badge mr-2 btn-icon d-flex align-items-center" onclick="copyToClipboard(this)"
+            class="ss-btn ss-btn--sm ss-btn--icon ss-btn--secondary" onclick="copyToClipboard(this)"
             title="{{ __('Copy Link') }}" data-bs-toggle="tooltip" data-original-title="{{ __('Click to copy') }}"
-            aria-label="{{ __('Copy the public link to this order') }}"><i class="ti ti-link" aria-hidden="true"
-                style="font-size:20px"></i></a>
+            aria-label="{{ __('Copy the public link to this order') }}"><i class="ti ti-link" aria-hidden="true"></i></a>
         @php
             $btn_class = 'btn-info';
             if ($order['order_status'] == 2 || $order['order_status'] == 3) {
@@ -83,8 +82,8 @@
     <div class="row">
     <div class="col-md-12">
             <div class="mt-2 " id="multiCollapseExample1">
-                <div class="card">
-                    <div class="card-body">
+                <div class="ss-card">
+                    <div class="ss-card__body">
                         <div class="row row-gap  justify-content-end">
                             <div class="col-xxl-2 col-lg-3 col-sm-4 col-12 px-2 d-flex align-items-center">
                                 <div class="btn-group w-100" id="deliver_btn">
@@ -198,7 +197,7 @@
         <div class="col-sm-12">
             <div class="row" id="printableArea">
                 <div class="col-xxl-7">
-                    <div class="card">
+                    <div class="ss-card">
                         <div class="row">
                             <div class="col-md-6 col-sm-12 col-lg-6 ">
                                 <div class="p-3 d-flex gap-3">
@@ -217,35 +216,35 @@
                                     <h5 class="d-flex align-items-center mb-0" data-ss-address="shipping">{{ __('Shipping Information') }}</h5>
                                 </div>
 
-                                <div class="card-body pb-3 pt-0">
+                                <div class="ss-card__body pb-3 pt-0">
                                     <address class="mb-0 text-sm">
-                                        <dl class="row mb-0 align-items-center">
-                                            <dt class="col-sm-3 h6 text-sm">{{ __('Name') }}</dt>
-                                            <dd class="col-sm-9 text-sm">
+                                        <dl class="ss-deflist">
+                                            <dt class="ss-deflist__key">{{ __('Name') }}</dt>
+                                            <dd class="ss-deflist__val">
                                                 {{ !empty($order['delivery_informations']['name']) ? $order['delivery_informations']['name'] : '' }}
                                             </dd>
-                                            <dt class="col-sm-3 h6 text-sm">{{ __('Email') }}</dt>
-                                            <dd class="col-sm-9 text-sm">
+                                            <dt class="ss-deflist__key">{{ __('Email') }}</dt>
+                                            <dd class="ss-deflist__val">
                                                 {{ !empty($order['delivery_informations']['email']) ? $order['delivery_informations']['email'] : '' }}
                                             </dd>
-                                            <dt class="col-sm-3 h6 text-sm">{{ __('City') }}</dt>
-                                            <dd class="col-sm-9 text-sm">
+                                            <dt class="ss-deflist__key">{{ __('City') }}</dt>
+                                            <dd class="ss-deflist__val">
                                                 {{ !empty($order['delivery_informations']['city']) ? $order['delivery_informations']['city'] : '' }}
                                             </dd>
-                                            <dt class="col-sm-3 h6 text-sm">{{ __('State') }}</dt>
-                                            <dd class="col-sm-9 text-sm">
+                                            <dt class="ss-deflist__key">{{ __('State') }}</dt>
+                                            <dd class="ss-deflist__val">
                                                 {{ !empty($order['delivery_informations']['state']) ? $order['delivery_informations']['state'] : '' }}
                                             </dd>
-                                            <dt class="col-sm-3 h6 text-sm">{{ __('Country') }}</dt>
-                                            <dd class="col-sm-9 text-sm">
+                                            <dt class="ss-deflist__key">{{ __('Country') }}</dt>
+                                            <dd class="ss-deflist__val">
                                                 {{ !empty($order['delivery_informations']['country']) ? $order['delivery_informations']['country'] : '' }}
                                             </dd>
-                                            <dt class="col-sm-3 h6 text-sm">{{ __('Postal Code') }}</dt>
-                                            <dd class="col-sm-9 text-sm">
+                                            <dt class="ss-deflist__key">{{ __('Postal Code') }}</dt>
+                                            <dd class="ss-deflist__val">
                                                 {{ !empty($order['delivery_informations']['post_code']) ? $order['delivery_informations']['post_code'] : '' }}
                                             </dd>
-                                            <dt class="col-sm-3 h6 text-sm mb-0">{{ __('Phone') }}</dt>
-                                            <dd class="col-sm-9 text-sm mb-0">
+                                            <dt class="ss-deflist__key">{{ __('Phone') }}</dt>
+                                            <dd class="ss-deflist__val">
                                                 <a href="https://api.whatsapp.com/send?phone={{ !empty($order['delivery_informations']['phone']) ? $order['delivery_informations']['phone'] : '' }}&amp;text=Hi"
                                                     target="_blank" rel="noopener noreferrer">
                                                     {{ !empty($order['delivery_informations']['phone']) ? $order['delivery_informations']['phone'] : '' }}
@@ -269,34 +268,34 @@
                                 <h5 class="d-flex align-items-center mb-0" data-ss-address="billing">{{ __('Billing Information') }}</h5>
                             </div>
 
-                                <div class="card-body pb-3 pt-0">
-                                    <dl class="row mb-0 align-items-center">
-                                        <dt class="col-sm-3 h6 text-sm">{{ __('Name') }}</dt>
-                                        <dd class="col-sm-9 text-sm">
+                                <div class="ss-card__body pb-3 pt-0">
+                                    <dl class="ss-deflist">
+                                        <dt class="ss-deflist__key">{{ __('Name') }}</dt>
+                                        <dd class="ss-deflist__val">
                                             {{ !empty($order['billing_informations']['name']) ? $order['billing_informations']['name'] : '' }}
                                         </dd>
-                                        <dt class="col-sm-3 h6 text-sm">{{ __('Email') }}</dt>
-                                        <dd class="col-sm-9 text-sm">
+                                        <dt class="ss-deflist__key">{{ __('Email') }}</dt>
+                                        <dd class="ss-deflist__val">
                                             {{ !empty($order['billing_informations']['email']) ? $order['billing_informations']['email'] : '' }}
                                         </dd>
-                                        <dt class="col-sm-3 h6 text-sm">{{ __('City') }}</dt>
-                                        <dd class="col-sm-9 text-sm">
+                                        <dt class="ss-deflist__key">{{ __('City') }}</dt>
+                                        <dd class="ss-deflist__val">
                                             {{ !empty($order['billing_informations']['city']) ? $order['billing_informations']['city'] : '' }}
                                         </dd>
-                                        <dt class="col-sm-3 h6 text-sm">{{ __('State') }}</dt>
-                                        <dd class="col-sm-9 text-sm">
+                                        <dt class="ss-deflist__key">{{ __('State') }}</dt>
+                                        <dd class="ss-deflist__val">
                                             {{ !empty($order['billing_informations']['state']) ? $order['billing_informations']['state'] : '' }}
                                         </dd>
-                                        <dt class="col-sm-3 h6 text-sm">{{ __('Country') }}</dt>
-                                        <dd class="col-sm-9 text-sm">
+                                        <dt class="ss-deflist__key">{{ __('Country') }}</dt>
+                                        <dd class="ss-deflist__val">
                                             {{ !empty($order['billing_informations']['country']) ? $order['billing_informations']['country'] : '' }}
                                         </dd>
-                                        <dt class="col-sm-3 h6 text-sm">{{ __('Postal Code') }}</dt>
-                                        <dd class="col-sm-9 text-sm">
+                                        <dt class="ss-deflist__key">{{ __('Postal Code') }}</dt>
+                                        <dd class="ss-deflist__val">
                                             {{ !empty($order['billing_informations']['post_code']) ? $order['billing_informations']['post_code'] : '' }}
                                         </dd>
-                                        <dt class="col-sm-3 h6 text-sm mb-0">{{ __('Phone') }}</dt>
-                                        <dd class="col-sm-9 text-sm mb-0">
+                                        <dt class="ss-deflist__key">{{ __('Phone') }}</dt>
+                                        <dd class="ss-deflist__val">
                                             <a href="https://api.whatsapp.com/send?phone={{ !empty($order['billing_informations']['phone']) ? $order['billing_informations']['phone'] : '' }}&amp;text=Hi"
                                                 target="_blank" rel="noopener noreferrer">
                                                 {{ !empty($order['billing_informations']['phone']) ? $order['billing_informations']['phone'] : '' }}
@@ -307,11 +306,11 @@
                             </div>
                         </div>
                     </div>
-                    <div class="card">
-                        <div class="card-header d-flex justify-content-between">
+                    <div class="ss-card">
+                        <div class="ss-card__header d-flex justify-content-between">
                             <h4 class="mb-0">{{ __('Items from Order') }} {{ $order['order_id'] }} </h4>
                         </div>
-                        <div class="card-body">
+                        <div class="ss-card__body">
                             @php
                                 /* P2-04-6. ONE query each, scoped to the ORDER's store.
                                    Not the CALLER's: the platform operator legitimately opens another store's order
@@ -559,166 +558,72 @@ class="text-start ps-3"><b>{{ order_currency_format_with_sym($order['coupon_pric
                 </div>
                 <div class="col-xxl-5">
                     @permission('Manage Order Note')
-                    <div class="card  p-0">
-                        <div class="card-header d-flex justify-content-between pb-0">
+                    <div class="ss-card p-0">
+                        <div class="ss-card__header d-flex justify-content-between pb-0">
                             <h4 class="mb-4">{{ __('Order Notes') }}</h4>
                         </div>
-                        <div class="card-body">
-                            @foreach ($order_notes as $note)
-                                <div class="card">
-                                    @if ($note->status == 'Stock Manage')
-                                        <div class="card-header note-bg-color  stock-mange-note">
-                                            <span class="tl-btn licence-btn ">
-                                                {{ $note->notes }}
-                                            </span>
-                                            <div class="cart-time-wrapper">
-                                                {{-- P2-04-6. NO AUTHOR. This read
-                                                     `{{ __(' by ') }}{{ Auth::user()->name }}` -- the name of
-                                                     whoever is LOOKING at the page, so the same note read "by
-                                                     Amina" to Amina and "by Khalid" to Khalid. And there is no
-                                                     honest name to put in its place: `order_notes` has NO author
-                                                     column (one migration, no later one, nothing in
-                                                     `_gate_f_pending/`, nothing in any module), and `customer_id`
-                                                     is a FK to the SHOPPER while these notes are written by staff.
-                                                     Adding `created_by` is a migration and therefore an owner
-                                                     decision, so the timestamp stands alone. --}}
-                                                <span
-                                                    class="time">{{ $note->created_at->format('d M Y h:i A') }}</span>
-                                                @include('order.partials.note-author', ['note' => $note])
-                                                @permission('Delete Order Note')
-                                                {!! Form::open([
-                                                    'method' => 'DELETE',
-                                                    'route' => ['order-note.destroy', $note->id],
-                                                    'class' => 'd-inline',
-                                                ]) !!}
-                                                <button type="button"
-                                                    class="ss-btn ss-btn--sm ss-btn--icon ss-btn--danger-quiet show_confirm order-not-dlt"
-                                                    data-confirm="{{ __('Are You Sure?') }}"
-                                                    data-text="{{ __('This action can not be undone. Do you want to continue?') }}"
-                                                    data-text-yes="{{ __('Yes') }}" data-text-no="{{ __('No') }}"
-                                                    data-bs-toggle="tooltip" title="{{ __('Delete') }}"
-                                                    aria-label="{{ __('Delete this note') }}">
-                                                    <i class="ti ti-trash" aria-hidden="true"></i>
-                                                </button>
-                                                {!! Form::close() !!}
-                                                @endpermission
-                                            </div>
-                                        </div>
-                                    @elseif ($note->status == 'Order Created')
-                                        <div class="card-header note-bg-color order-create-note">
-                                            <span class="tl-btn licence-btn ">
-                                                {{ $note->notes }}
-                                            </span>
-                                            <div class="cart-time-wrapper">
-                                                <span
-                                                    class="time">{{ $note->created_at->format('d M Y h:i A') }}</span>
-                                                @include('order.partials.note-author', ['note' => $note])
-                                                @permission('Delete Order Note')
-                                                {!! Form::open([
-                                                    'method' => 'DELETE',
-                                                    'route' => ['order-note.destroy', $note->id],
-                                                    'class' => 'd-inline',
-                                                ]) !!}
-                                                <button type="button"
-                                                    class="ss-btn ss-btn--sm ss-btn--icon ss-btn--danger-quiet show_confirm order-not-dlt"
-                                                    data-confirm="{{ __('Are You Sure?') }}"
-                                                    data-text="{{ __('This action can not be undone. Do you want to continue?') }}"
-                                                    data-text-yes="{{ __('Yes') }}" data-text-no="{{ __('No') }}"
-                                                    data-bs-toggle="tooltip" title="{{ __('Delete') }}"
-                                                    aria-label="{{ __('Delete this note') }}">
-                                                    <i class="ti ti-trash" aria-hidden="true"></i>
-                                                </button>
-                                                {!! Form::close() !!}
-                                                @endpermission
-                                            </div>
-                                        </div>
-                                    @elseif ($note->status == 'Order status change')
-                                        <div class="card-header note-bg-color order-status-note">
-                                            <span class="tl-btn licence-btn ">
-                                                {{ $note->notes }}
-                                            </span>
-                                            <div class="cart-time-wrapper">
-                                                <span
-                                                    class="time">{{ $note->created_at->format('d M Y h:i A') }}</span>
-                                                @include('order.partials.note-author', ['note' => $note])
-                                                @permission('Delete Order Note')
-                                                {!! Form::open([
-                                                    'method' => 'DELETE',
-                                                    'route' => ['order-note.destroy', $note->id],
-                                                    'class' => 'd-inline',
-                                                ]) !!}
-                                                <button type="button"
-                                                    class="ss-btn ss-btn--sm ss-btn--icon ss-btn--danger-quiet show_confirm order-not-dlt"
-                                                    data-confirm="{{ __('Are You Sure?') }}"
-                                                    data-text="{{ __('This action can not be undone. Do you want to continue?') }}"
-                                                    data-text-yes="{{ __('Yes') }}" data-text-no="{{ __('No') }}"
-                                                    data-bs-toggle="tooltip" title="{{ __('Delete') }}"
-                                                    aria-label="{{ __('Delete this note') }}">
-                                                    <i class="ti ti-trash" aria-hidden="true"></i>
-                                                </button>
-                                                {!! Form::close() !!}
-                                                @endpermission
-                                            </div>
-                                        </div>
-                                    @elseif ($note->status == '' && $note->note_type == 'private_note')
-                                        <div class="card-header note-bg-color admin-private-note">
-                                            <span class="tl-btn licence-btn ">
-                                                {{ $note->notes }}
-                                            </span>
-                                            <div class="cart-time-wrapper">
-                                                <span
-                                                    class="time">{{ $note->created_at->format('d M Y h:i A') }}</span>
-                                                @include('order.partials.note-author', ['note' => $note])
-                                                @permission('Delete Order Note')
-                                                {!! Form::open([
-                                                    'method' => 'DELETE',
-                                                    'route' => ['order-note.destroy', $note->id],
-                                                    'class' => 'd-inline',
-                                                ]) !!}
-                                                <button type="button"
-                                                    class="ss-btn ss-btn--sm ss-btn--icon ss-btn--danger-quiet show_confirm order-not-dlt"
-                                                    data-confirm="{{ __('Are You Sure?') }}"
-                                                    data-text="{{ __('This action can not be undone. Do you want to continue?') }}"
-                                                    data-text-yes="{{ __('Yes') }}" data-text-no="{{ __('No') }}"
-                                                    data-bs-toggle="tooltip" title="{{ __('Delete') }}"
-                                                    aria-label="{{ __('Delete this note') }}">
-                                                    <i class="ti ti-trash" aria-hidden="true"></i>
-                                                </button>
-                                                {!! Form::close() !!}
-                                                @endpermission
-                                            </div>
-                                        </div>
-                                    @elseif ($note->status == '' && $note->note_type == 'to_customer')
-                                        <div class="card-header note-bg-color customer-note">
-                                            <span class="tl-btn licence-btn ">
-                                                {{ $note->notes }}
-                                            </span>
-                                            <div class="cart-time-wrapper">
-                                                <span
-                                                    class="time">{{ $note->created_at->format('d M Y h:i A') }}</span>
-                                                @include('order.partials.note-author', ['note' => $note])
-                                                @permission('Delete Order Note')
-                                                {!! Form::open([
-                                                    'method' => 'DELETE',
-                                                    'route' => ['order-note.destroy', $note->id],
-                                                    'class' => 'd-inline',
-                                                ]) !!}
-                                                <button type="button"
-                                                    class="ss-btn ss-btn--sm ss-btn--icon ss-btn--danger-quiet show_confirm order-not-dlt"
-                                                    data-confirm="{{ __('Are You Sure?') }}"
-                                                    data-text="{{ __('This action can not be undone. Do you want to continue?') }}"
-                                                    data-text-yes="{{ __('Yes') }}" data-text-no="{{ __('No') }}"
-                                                    data-bs-toggle="tooltip" title="{{ __('Delete') }}"
-                                                    aria-label="{{ __('Delete this note') }}">
-                                                    <i class="ti ti-trash" aria-hidden="true"></i>
-                                                </button>
-                                                {!! Form::close() !!}
-                                                @endpermission
-                                            </div>
-                                        </div>
-                                    @endif
+                        <div class="card-body ss-card__body">
+                            {{-- D-25 STEP 3 — ONE BLOCK, WHERE THERE WERE FIVE.
 
-                                </div>
+                                 The five `@elseif` branches differed in exactly one token: the
+                                 tone class. PROVED rather than asserted — normalising whitespace
+                                 and substituting that class made all five byte-identical, 912
+                                 characters each. So this is one block and four copies of the
+                                 delete form are gone, which is what
+                                 `OrderDetailContractTest::test_every_note_has_exactly_one_delete_control`
+                                 was written to guard.
+
+                                 `timelineTone()` RETURNS NULL FOR A NOTE THE OLD CHAIN DROPPED,
+                                 and that is deliberate. The chain had no `@else`, so a note
+                                 matching none of the five rendered nothing — reachable, and
+                                 recorded as F180: three of the four `order_notes` writers produce
+                                 shapes no branch matches, measured as 5 blocks rendered against 8
+                                 rows. Step 3's condition is to PRESERVE notes, so it reproduces
+                                 the drop exactly instead of quietly changing it. The fix is its
+                                 own slice, and `OrderNote::timelineTone()` is now the single place
+                                 it has to touch. --}}
+                            @foreach ($order_notes as $note)
+                                @php($ssNoteTone = $note->timelineTone())
+                                @if ($ssNoteTone)
+                                    <div class="card">
+                                        <div class="card-header note-bg-color {{ $ssNoteTone }}">
+                                            <span class="tl-btn licence-btn ">
+                                                {{ $note->notes }}
+                                            </span>
+                                            <div class="cart-time-wrapper">
+                                                {{-- P2-04-6. The author comes from
+                                                     `order_notes.created_by`, added by that slice;
+                                                     before it, this read `Auth::user()->name` —
+                                                     the name of whoever was LOOKING at the page, so
+                                                     one note read "by Amina" to Amina and "by
+                                                     Khalid" to Khalid. `authorNameFor()` returns
+                                                     null for a system note and for an author
+                                                     outside the viewer's tenant, and the partial
+                                                     renders nothing then. --}}
+                                                <span
+                                                    class="time">{{ $note->created_at->format('d M Y h:i A') }}</span>
+                                                @include('order.partials.note-author', ['note' => $note])
+                                                @permission('Delete Order Note')
+                                                {!! Form::open([
+                                                    'method' => 'DELETE',
+                                                    'route' => ['order-note.destroy', $note->id],
+                                                    'class' => 'd-inline',
+                                                ]) !!}
+                                                <button type="button"
+                                                    class="ss-btn ss-btn--sm ss-btn--icon ss-btn--danger-quiet show_confirm order-not-dlt"
+                                                    data-confirm="{{ __('Are You Sure?') }}"
+                                                    data-text="{{ __('This action can not be undone. Do you want to continue?') }}"
+                                                    data-text-yes="{{ __('Yes') }}" data-text-no="{{ __('No') }}"
+                                                    data-bs-toggle="tooltip" title="{{ __('Delete') }}"
+                                                    aria-label="{{ __('Delete this note') }}">
+                                                    <i class="ti ti-trash" aria-hidden="true"></i>
+                                                </button>
+                                                {!! Form::close() !!}
+                                                @endpermission
+                                            </div>
+                                        </div>
+                                    </div>
+                                @endif
                             @endforeach
                             @permission('Create Order Note')
                             {{ Form::open(['route' => 'order-note.store', 'method' => 'POST', 'id' => 'choice_form', 'enctype' => 'multipart/form-data']) }}

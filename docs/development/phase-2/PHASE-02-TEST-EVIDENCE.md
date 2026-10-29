@@ -6735,3 +6735,109 @@ trustworthy.
 | compile | both views through `blade.compiler` + `php -l`, 0 failures |
 | suites | Unit 629 · Merchant + Commerce Feature **1034 passed, 7 skipped (the declared set), 0 failed** · the four order/export Feature files + `DesignSystemStylesheetScopeTest` 43 passed |
 | blast radius | both views are LEAF screens — grepped, neither is `@include`d by any first-party or vendored view — and nothing shared was edited: `loader.js` was only read, the DS stylesheet untouched |
+
+## D-25 Step 3 — the order detail page's shell — 2026-10-29
+
+**What the owner approved.** *"Step 3 — order detail page: finish the shell with the `ss-card` /
+`ss-row` components that already exist, preserving order data, notes, deletion, status, invoices
+and permissions; duplicated note-rendering branches may be unified **only if their equivalence is
+proved**."*
+
+Four pieces, each compiled and measured before the next: the note branches, the address lists, the
+shell cards, the header actions. 959 lines → 864.
+
+### The equivalence was proved — and then it proved something else
+
+The five `@elseif` branches differed in exactly one token, the tone class. Normalising whitespace
+and substituting that class made all five **byte-identical, 912 characters each**. So the collapse
+is sound: 156 lines became 62 and four copies of the delete form are gone, which is what
+`OrderDetailContractTest::test_every_note_has_exactly_one_delete_control` was written to guard.
+
+But the chain had **no `@else`**, so a note matching none of the five rendered nothing. That is
+reachable, and it is **F180**:
+
+| writer | status | note_type | renders |
+|---|---|---|---|
+| `OrderNote::addOrderNote()` | `Stock Manage` / `Order Created` / `Order status change` | — | **yes** |
+| the merchant note form | `''` | `private_note` / `to_customer` | **yes** |
+| `OrderController::store():417` | `Order created` — **lowercase c** | `created` | **no** |
+| `Api\DashboardController:6274` | `Order created` | `system` | **no** |
+| `Api\DashboardController:6284` | `Customer note` | `customer` | **no** |
+
+**Measured end to end, not reasoned from two string literals.** With all eight shapes present for
+one order, the rendered page shows **5 note blocks of 8 rows**, and the three inserted texts are
+absent from `document.body.innerText`. The irony is in the code: the comment at
+`OrderController:414` says the earlier fix means the note *"now actually appears"*, and it does
+not.
+
+Step 3 **reproduces the drop exactly**, because its condition is to preserve notes rather than
+change them. `OrderNote::timelineTone()` returns null for those three shapes, pinned by a
+data-provider test naming all eight, so the fix for F180 has one place to change and a test that
+will notice when it happens. The three shapes are now in `database/seed-p2dev.php`, so any later
+probe sees the drop rather than a tidy five-note timeline.
+
+### The dependency that would have broken silently
+
+`custom.css` and `rtl-custom.css` tint the five note tones through `.card-body .card-header.<tone>`
+— **twenty selectors across four stylesheets** once the `html[data-ss-theme="dark"]` variants are
+counted. Those dark variants are P2-04-6's measured fix for tints that read 1.24–2.95:1.
+
+A shell conversion that renamed either class would have left every note rendering in **no colour at
+all**, with nothing failing: the notes still appear, the tests still pass, the page still loads.
+So:
+
+- the notes panel's body keeps `card-body` as the ancestor hook **and** gains `ss-card__body` — the
+  design system loads after `custom.css` (`layouts/app.blade.php:225`), so the DS padding wins
+  while the hook survives;
+- the note item itself stays on Bootstrap's `card` / `card-header`;
+- the test asserts the dependency **from both sides** — the view's two class strings, and all ten
+  tint selectors in the two stylesheets. Moving the rules to `ss-` names is allowed; moving them
+  without the view is not, and a bite proves the test says so.
+
+### One bite caught a worthless assertion
+
+`test_the_page_shell_uses_design_system_cards` first used an **allow-list** of permitted class
+strings. Turning a converted `ss-card` back into `card` produced a second `class="card"`, which the
+allow-list happily accepted — **the test passed with the defect reintroduced.** An allow-list
+cannot tell one permitted element from five. It is now a count per form (`card` ×1,
+`card-header note-bg-color {{ $ssNoteTone }}` ×1, `card-body ss-card__body` ×1), and the same bite
+bites.
+
+### The address lists
+
+Two `<dl class="row mb-0 align-items-center">` with 14 `col-sm-3` keys and 14 `col-sm-9` values
+became `ss-deflist` / `__key` / `__val` — a two-column CSS grid (`minmax(6rem, 10rem) 1fr`) that is
+direction-aware without an RTL override, and drops the `h6` / `text-sm` type overrides for the DS's
+own key and value tokens. The `ss-card` they now sit in also owns its foreground (the F140 rule),
+so the values stop inheriting the vendored theme's body colour — which is byte-identical in all
+four of its stylesheets, the dark one included.
+
+### And the Arabic page said "Print"
+
+Three of the four header actions carried **bare English** `title` and `aria-label` strings —
+`Print`, `Payment Receipt` — although both lines are **already in `ar.json`**. The view simply was
+not calling the translator. A fourth, `Receipt`, had a translated `title` and no `aria-label` at
+all, so once the tooltip plugin ran its accessible name was the icon font's glyph — exactly the
+defect Step 2 measured on the order list. All four now carry `ss-btn ss-btn--sm ss-btn--icon
+ss-btn--secondary`, a translated `aria-label`, and a decorative icon, and the copy-link control's
+two hooks (`data-ss-copy`, `onclick="copyToClipboard(this)"`) are pinned.
+
+### What was deliberately not done
+
+The Bootstrap 12-column responsive grid (`row` / `col-*`) stays. `.ss-row` is a flex row, not a
+12-column grid, so swapping them is a layout rewrite rather than a conversion — and the owner's
+rule for these steps is to stop widening rather than carry one further than it was scoped.
+
+F180 is recorded and not fixed, for the reason above.
+
+### Evidence
+
+| | |
+|---|---|
+| `tests/Unit/Ui/OrderDetailShellContractTest.php` | 13 tests, 74 assertions |
+| bites | **12**, every one bit — and one of them rewrote an assertion that had been worthless |
+| live | `check-order-detail-live.cjs` **112/112 before and after**, en/ar × light/dark × desktop/mobile |
+| note rendering | byte-identical: same 5 blocks, same 5 tones in the same order, same texts, same 3 drops |
+| existing tests | the 22 order-detail Feature tests pass unchanged |
+| compile | the view through `blade.compiler` + `php -l` after each of the four pieces, 0 failures |
+| suites | Unit 642 · Merchant + Commerce Feature 1034 passed, 7 skipped (the declared set), 0 failed |

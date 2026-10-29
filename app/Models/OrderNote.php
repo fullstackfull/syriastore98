@@ -58,6 +58,49 @@ class OrderNote extends Model
      * author to the merchant. That is deliberate on both counts: platform staff identity is not
      * a merchant's business, and showing nothing is never false.
      */
+    /**
+     * D-25 STEP 3 — THE TIMELINE TONE THIS NOTE RENDERS IN, or NULL if the page shows it at all.
+     *
+     * `order/view.blade.php` carried FIVE near-identical branches, one per tone, which this
+     * replaces. The owner's condition for Step 3 was that duplicated note-rendering branches may
+     * be unified *"only if their equivalence is proved"*, and it was: normalising whitespace and
+     * substituting the single tone class made all five byte-identical, 912 characters each.
+     *
+     * NULL IS NOT A TIDY-UP OF THE OLD BEHAVIOUR, IT REPRODUCES IT. The old chain had no `@else`,
+     * so a note matching none of the five conditions rendered NOTHING. That is reachable and it
+     * is **F180**: `OrderController::store()` writes `status => 'Order created'` with a lowercase
+     * c, `Api\DashboardController` writes the same and also `'Customer note'` / `'customer'`, and
+     * none of the three matches a branch. MEASURED on the running page with all eight shapes
+     * present for one order: 5 note blocks rendered of 8 rows.
+     *
+     * So this method returns null for those, Step 3 changes no behaviour, and the fix for F180 is
+     * its own slice — where this one method is the only place that has to change, which is the
+     * point of moving the decision out of the view.
+     */
+    public function timelineTone(): ?string
+    {
+        $status = (string) $this->status;
+        $type = (string) $this->note_type;
+
+        if ($status === 'Stock Manage') {
+            return 'stock-mange-note';
+        }
+        if ($status === 'Order Created') {
+            return 'order-create-note';
+        }
+        if ($status === 'Order status change') {
+            return 'order-status-note';
+        }
+        if ($status === '' && $type === 'private_note') {
+            return 'admin-private-note';
+        }
+        if ($status === '' && $type === 'to_customer') {
+            return 'customer-note';
+        }
+
+        return null;
+    }
+
     public function authorNameFor(?User $viewer): ?string
     {
         if ($this->created_by === null || $viewer === null) {
