@@ -8536,3 +8536,107 @@ sink if that renders markup, though the Save path already renders the same `msg`
 **And an adjacent dead door, verified:** `ProductController::VariantDelete()` (`:5119`) deletes with
 no ownership check, gated on `can('Delete Variants')` which `permissions_as_gates => false` makes
 always false — and it is **unrouted**. Latent, not live, and not counted among F195's four paths.
+
+---
+
+## F197 — every login ran `cache:clear` (2026-10-29)
+
+Found while doing D-28a's §2.1 census of flush paths, and it outranks F194.
+
+`AuthenticatedSessionController::store():83` calls `Utility::addNewData()` unconditionally after
+`$request->authenticate()`, and `addNewData():2725` was `Artisan::call('cache:clear')`. In production
+(`CACHE_STORE=database`) that store holds `gateway-return-claim:*` — `Cache::add()` with a 48-hour
+TTL, so a forgotten key is an **un-taken claim** — plus `paymera_pending_*`, `paymera_claim_*`,
+`paymera_lock_*` and the `rememberForever` `settings_store_*`.
+
+**So the replay control's real lifetime was *until the next login by anybody*, not 48 hours** — an
+invariant the F185 and F186 docblocks quote as the reason those changes are safe. A second path,
+`GET /config-cache`, let any logged-in merchant do the same on demand with no permission check.
+
+**F194 cannot fix either**, because both are explicit flushes of the *default* store rather than
+model-triggered ones. That is the condition D-28a sets, so F194 is not declared complete.
+
+### The obvious fix was not enough
+
+Removing the explicit `cache:clear` from `/config-cache` left it still destroying everything:
+`OptimizeClearCommand::getOptimizeClearTasks()` lists `'cache' => 'cache:clear'` **first**.
+
+| on MariaDB 10.11.14, database store | payment keys surviving |
+|---|---|
+| bare `optimize:clear` | **0 of 5** |
+| `optimize:clear --except=cache` | **5 of 5** |
+| `route:clear`, `view:clear`, `config:clear` each | 5 of 5 |
+| the route's whole sequence as it now stands | **5 of 5**, and the settings entry gone |
+
+**And `Artisan::call('optimize')` was never the culprit** — its task list is `config:cache`,
+`event:cache`, `route:cache`, `view:cache`. Asserted from the framework's own method rather than by
+running it, for the reason below. 8 checks, 0 failures.
+
+### A hazard this slice caused, and the gate run it contaminated
+
+The first version of the Feature test drove `/config-cache`, which calls `Artisan::call('optimize')`
+— and that **writes** `bootstrap/cache/config.php`, `events.php` and `routes-v7.php`. Those persist
+after the process ends, so every later `php artisan test` boots from them.
+
+The baseline gate on `aea28d08` reported two failures beyond the declared pair —
+`RoleEscalationTest::test_role_update_cannot_grant_superadminaccess_permissions` (which reads
+`config('superadminaccess')`) and
+`ResidualSafetyCorrectionsTest::test_a_coupon_code_is_still_case_sensitive`. Both passed in
+isolation, and deleting the three cached files restored the suite (42/42). **That run was discarded
+rather than cited; `aea28d08`'s outcome set is the 2 declared failures.**
+
+`RouteShadowingTest:500` already noted `Artisan::call('optimize')` is "process-global on a
+shared-database SaaS". It is worse — it is **run-global**. No test now drives that route or calls
+`optimize`.
+
+### Two of this slice's own cases passed for the wrong reason
+
+Both **survived their bites** and were moved rather than left standing. `optimize` re-resolves the
+container's managers: on the array store that hands back a fresh empty `ArrayStore`, and seeding
+through `Cache::store('database')` does not help either, because this suite's database is SQLite
+`:memory:` and re-resolving the database manager discards the whole in-memory database, `cache` table
+included. Neither effect exists in production.
+
+### Evidence
+
+| | |
+|---|---|
+| `tests/Feature/Security/LoginDoesNotFlushPaymentCacheTest.php` | **5 cases** — a successful login leaves every payment key · a seeding run that really creates something still invalidates (the half that had to keep working) · a no-op seeding run invalidates nothing · the route still forgets `settings_store_<id>` · a ratchet requiring both the seed guard and `optimize:clear`'s exclusion |
+| `tests/Support/Security/bin/verify-login-and-settings-cache-paths-on-mysql.php` | **8 checks, 0 failures** on MariaDB 10.11.14 — the two cases that could not be measured in the suite, plus the bare-vs-excluded `optimize:clear` comparison that shows the exclusion is load-bearing |
+| bites | **4, every one bit** — the flush made unconditional again · a bare `optimize:clear` (which the first ratchet would have passed) · the explicit `cache:clear` restored · the targeted forget removed |
+| census drift | `EloquentScopeBypassInventoryTest` and `ResidualTenancyExposureTest` shifted **+58** by this slice's docblock; sites re-verified as the same `truncate()` calls and updated, exactly as the previous +56 shift was recorded |
+| still open | `/config-cache` has **no permission check**; and a targeted Laratrust invalidation would beat the conditional whole-store flush, but a role change must invalidate every user deriving permissions from it, and getting that set wrong locks a merchant out of a permission they hold |
+
+---
+
+## F194 — the model cache isolated from the payment cache (2026-10-29, D-28a Option A)
+
+**The owner's condition on store names decided the design.** `DatabaseStore::flush()` is
+`$this->table()->delete()` — the whole table, ignoring any key prefix — so two store names over one
+table are one store for a flush. **The boundary has to be the table.**
+
+Ships **inert**: `MODEL_CACHE_STORE` is unset, so `Caching::cache()` takes its `if ($config)` branch
+as false and nothing changes on merge. `DatabaseStore` has no fallback for a missing table and
+`Cachable` wraps ordinary Eloquent reads, so an environment deployed before the migration would fail
+every model read on every page — which is why activation is an operator step with an ordered runbook.
+
+A `model_cache_file` alternative is offered and **not** chosen: no migration needed, but a file store
+is per server, so behind more than one app server a flush on one node leaves the others stale — the
+exact failure D-28a forbids.
+
+### Evidence — 16 checks, 0 failures on MariaDB 10.11.14
+
+`tests/Support/Security/bin/verify-model-cache-isolation-on-mysql.php`: the two store classes differ
+in taggability (the mechanism); application and model stores are the **same driver, different
+tables**; a full flush of the model store leaves all five payment keys; `updateOrCreate`, `create`,
+`save`, `delete` and an explicit `flushCache()` each leave them; and the model cache serves the
+**new** value after a write and a flush. **Section F deliberately shows an application-store flush
+still erasing all five**, so a green run cannot be read as "the payment cache is safe".
+
+Plus `tests/Unit/Security/ModelCacheIsolationConfigTest.php` — 4 cases, **3 bites every one bit**
+(the model store sharing the application table · activation by default · model caching disabled). It
+reads the config **files** rather than booting the application, because a stale
+`bootstrap/cache/config.php` can fool a booted read — which happened for real in this session.
+
+**F194 is not a payment guarantee.** It closes the model flush only; three reachable explicit flushes
+of the application store remain (two of them F197, one F188).

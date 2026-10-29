@@ -522,12 +522,12 @@ class ResidualTenancyExposureTest extends TestCase
             // numbers moves whenever a comment does, which is why the D13 store-less
             // declaration in OwnedPathRawQueryInventoryTest keys on a statement fragment
             // instead.
-            'app/Models/Utility.php:3254',
-            'app/Models/Utility.php:3256',
-            'app/Models/Utility.php:3279',
-            'app/Models/Utility.php:3281',
-            'app/Models/Utility.php:3295',
-            'app/Models/Utility.php:3297',
+            'app/Models/Utility.php:3312',
+            'app/Models/Utility.php:3314',
+            'app/Models/Utility.php:3337',
+            'app/Models/Utility.php:3339',
+            'app/Models/Utility.php:3353',
+            'app/Models/Utility.php:3355',
 
         ], $sites, 'The raw-query inventory in the owned models changed. A NEW site here is '
             . 'invisible to every global scope and needs an explicit predicate written at the '

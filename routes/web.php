@@ -773,14 +773,52 @@ Route::get(
     Route::any('/plan/sslcommerz/status/{plan_id}', [SSLCommerzPaymentController::class, 'planGetSSLCommerzStatus'])->name('plan.get.sslcommerz.status');
 
     ///*************************cache setting******************** ***/
+    /*
+     * F197 (b). `cache:clear` REMOVED FROM THIS ROUTE, and the compiled-artifact clears kept.
+     *
+     * This is a GET inside the `['auth','xss','setlocate','verified']` group with NO permission
+     * check, so any logged-in merchant could reach it -- and `cache:clear` empties the DEFAULT
+     * store, which in production holds every tenant's `gateway-return-claim:*`,
+     * `paymera_pending_*`, `paymera_claim_*` and `paymera_lock_*`. One merchant pressing "Clear
+     * Cache" on their own settings screen destroyed another merchant's in-flight checkout and
+     * un-took the replay claim that stops one capture becoming two paid orders.
+     *
+     * WHAT THE BUTTON IS FOR, and why the replacement is not a loss. The other five commands clear
+     * COMPILED ARTEFACTS -- routes, views, config, the optimisation manifest -- which is what a
+     * settings screen's "clear cache" is for and which carries no payment state. The one thing
+     * `cache:clear` additionally bought was dropping `settings_store_<id>`, the `rememberForever`
+     * entry `Utility::GetValByName()` writes and which nothing else forgets. That is forgotten
+     * directly, for the store the caller is actually in, which is the same targeted shape the F188
+     * slice used on the language routes.
+     *
+     * STILL OPEN AND RECORDED, NOT FIXED HERE: this route has no permission check. That is a
+     * separate question from the payment-cache destruction, and narrowing who may press a button
+     * that now only clears compiled artefacts is a smaller matter than the flush was. See F197.
+     */
     Route::get('/config-cache', function () {
       session()->put(['setting_tab' => 'cache_setting']);
       Artisan::call('optimize');
-      Artisan::call('cache:clear');
       Artisan::call('route:clear');
       Artisan::call('view:clear');
-      Artisan::call('optimize:clear');
+
+      /*
+       * `--except=cache`, AND REMOVING THE EXPLICIT `cache:clear` WAS NOT ENOUGH WITHOUT IT.
+       *
+       * `optimize:clear` runs `cache:clear` as the FIRST of its six tasks
+       * (`OptimizeClearCommand::getOptimizeClearTasks()`: cache, compiled, config, events, routes,
+       * views). So dropping the explicit call left this route still emptying the whole store
+       * through `optimize:clear` — the test drove the real route and caught it, which a
+       * source-level assertion would not have.
+       *
+       * `--except` takes either the task key or the command name and is rejected from the task
+       * list before anything runs, so this keeps `clear-compiled`, `config:clear`, `event:clear`,
+       * `route:clear` and `view:clear` exactly as before and drops only the destructive one.
+       */
+      Artisan::call('optimize:clear', ['--except' => 'cache']);
       Artisan::call('config:clear');
+
+      \Illuminate\Support\Facades\Cache::forget('settings_store_' . getCurrentStore());
+
       return redirect()->back()->with('success', 'Clear Cache successfully.');
     })->withoutMiddleware('setlocate');
 

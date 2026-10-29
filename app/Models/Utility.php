@@ -2719,10 +2719,47 @@ class Utility extends Model
         }
     }
 
+    /**
+     * F197 -- THIS RAN `cache:clear` ON EVERY SUCCESSFUL LOGIN, AND THAT ERASED EVERY TENANT'S
+     * PAYMENT STATE.
+     *
+     * `AuthenticatedSessionController::store()` calls this method unconditionally after
+     * `$request->authenticate()`, and the first thing it did was `Artisan::call('cache:clear')` --
+     * a flush of the whole default store. In production (`CACHE_STORE=database`) that store holds:
+     *
+     *   `gateway-return-claim:*`   the replay control that stops ONE capture becoming TWO paid
+     *                              orders. It is `Cache::add()` with a 48-hour TTL, so a forgotten
+     *                              key is an UN-TAKEN claim.
+     *   `paymera_pending_*`        a buyer mid-checkout. Losing it gives them a captured payment
+     *                              and no order (F186's outcome), caused by a stranger's login.
+     *   `paymera_claim_*`, `paymera_lock_*`   F96's duplicate-order window.
+     *   `settings_store_*`         `rememberForever`, so every store re-reads its settings.
+     *
+     * So on a multi-tenant platform the replay control's real lifetime was "until the next login
+     * by anybody", not 48 hours -- which falsifies the invariant F186's own reasoning rests on.
+     * F194's model-cache isolation does NOT help here: this is an explicit flush of the DEFAULT
+     * store, not a model-triggered one.
+     *
+     * THE SMALLEST CORRECT FIX, per the owner's §2.3 ("a safe local change consistent with existing
+     * rules"): keep the invalidation EXACTLY as it is, and run it only when this method actually
+     * created or granted something. On a normal login nothing is created -- the permission rows and
+     * role grants already exist -- so the flush simply does not happen. The semantics when a change
+     * DOES occur are byte-identical to before, so no permission can go stale that would not have
+     * gone stale before.
+     *
+     * WHY NOT A TARGETED LARATRUST INVALIDATION, which would be better still: Laratrust caches
+     * under `laratrust_permissions_for_role_<id>`, `laratrust_roles_for_<model>_<id>` and
+     * `laratrust_permissions_for_<model>_<id>`, so a ROLE change has to invalidate every USER whose
+     * permissions derive from it. Establishing that set correctly is a larger change than this
+     * defect warrants, and getting it wrong leaves a merchant unable to use a permission they
+     * hold. Recorded as the follow-up on the F197 row; this change narrows the exposure from every
+     * login to the first login after a deploy that adds a permission name.
+     */
     public static function addNewData()
     {
-        \Artisan::call('cache:forget spatie.permission.cache');
-        \Artisan::call('cache:clear');
+        /* Counts every write this method makes. Nothing is invalidated unless one of them fires. */
+        $ssSeedChanges = 0;
+
         $usr = \Auth::user();
 
         $arrPermissions = [
@@ -2977,6 +3014,7 @@ class Utility extends Model
             $permission = (clone $permissionQuery)->where('name', 'LIKE', $ap)->first();
             if (empty($permission)) {
                 (clone $permissionQuery)->create(['name' => $ap, 'guard_name' => 'web']);
+                $ssSeedChanges++;
             }
         }
         $companyRole = Role::where('name', 'LIKE', 'admin')->first();
@@ -3194,6 +3232,7 @@ class Utility extends Model
             // role is present.
             if ($companyRole && !$companyRole->hasPermission($op)) {
                 $companyRole->givePermission($op);
+                $ssSeedChanges++;
             }
         }
 
@@ -3243,7 +3282,26 @@ class Utility extends Model
             // a database with no super-admin role, with the same 500 on login/registration.
             if ($superadminRole && !$superadminRole->hasPermission($op)) {
                 $superadminRole->givePermission($op);
+                $ssSeedChanges++;
             }
+        }
+
+        /*
+         * F197. THE INVALIDATION, AND ONLY WHEN SOMETHING WAS SEEDED.
+         *
+         * Identical to what ran unconditionally at the top of this method before -- same two
+         * commands, same order -- so when a permission row or a role grant is actually created the
+         * behaviour is exactly as it was. What changed is that a login which creates nothing now
+         * invalidates nothing, and that is every login after the first on a given deploy.
+         *
+         * `cache:forget spatie.permission.cache` is kept rather than deleted. It is a no-op here --
+         * this application uses Laratrust, not spatie/laravel-permission -- but it costs one
+         * forget of a key nothing writes, and removing a line whose only effect is to document a
+         * previous author's intent is not worth the risk of being wrong about who writes that key.
+         */
+        if ($ssSeedChanges > 0) {
+            \Artisan::call('cache:forget spatie.permission.cache');
+            \Artisan::call('cache:clear');
         }
 
         return true;
