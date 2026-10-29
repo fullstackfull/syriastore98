@@ -915,9 +915,25 @@
         if (item) { cmdClose(); }
     });
 
-    /* The sidebar's own search keeps filtering the NAVIGATION -- a different job, and merchants
-       use it. Focusing it offers the palette; ignoring the offer changes nothing. */
-    document.addEventListener('focusin', function (e) {
+    /* F177 -- `click`, NOT `focusin`, AND THE OLD COMMENT HERE WAS WRONG IN A WAY THAT COST THE
+       WHOLE KEYBOARD. It said: "Focusing it offers the palette; ignoring the offer changes
+       nothing." Ignoring the offer is precisely what a keyboard user cannot do, because
+       `cmdOpen()` ends with `cmd.input.focus()` -- the offer TAKES their focus, into a dialog with
+       its own Tab cycle.
+
+       MEASURED on /dashboard before this change: the page has 75 tabbable elements and the shared
+       header's seven controls begin at index 37. Of 80 Tab presses from the top of the document,
+       ZERO reached the header. Press 3 sat on `#ss-workspace-trigger` with the palette
+       `display:none`; by press 4 focus was on `#ss-command-input` and the palette was
+       `display:block`, and from there the sequence cycled six elements for ever. Escape returns
+       focus to the search, and the next Tab re-opens it -- so 72 of 75 controls were unreachable
+       by keyboard on every merchant screen.
+
+       A click is a DELIBERATE gesture: a mouse user clicking the search still gets the palette,
+       which is the only discoverable way in since the chrome carries no visible trigger, while Tab
+       and Enter on a text input produce no click. The sidebar's own navigation filter is bound
+       separately on `keyup` (layouts/app.blade.php:654) and is untouched. */
+    document.addEventListener('click', function (e) {
         if (e.target && e.target.id === 'sideBarsearch' && cmdEls() && cmd.root.hidden) {
             cmdOpen(e.target);
         }

@@ -6361,3 +6361,47 @@ its own test.
 regression: D-26 added a **second** file input to each panel, rendered before the downloadable one,
 so `querySelector('input[type=file]')` started returning the variant input, which carries no
 `onchange`. Scoped to `.download-product` and recorded in the tool.
+
+---
+
+## F177 — the keyboard was unusable on every merchant screen — 2026-10-29
+
+Found by the probe written for D-25 Step 1, **before** the conversion it was built to verify.
+
+`docs/development/phase-2/tools/check-keyboard-traversal-live.cjs`, `/dashboard`, 80 Tab presses
+from the top of the document:
+
+| | SIDE | HEADER | MAIN | PALETTE | BODY |
+|---|---|---|---|---|---|
+| **before** | 3 | **0** | 0 | **77** | 0 |
+| **after** | 17 | **7** | 55 | 0 | 1 |
+
+The page has 75 tabbable controls and the shared header's seven begin at DOM index 37. Before the
+fix, press 3 sat on `#ss-workspace-trigger` with the palette `display:none, hidden=true`; by press
+4 focus was on `#ss-command-input` and the palette was `display:block, hidden=false`. From there
+the sequence cycled six elements for ever — the palette's input, three quick-create links, a
+favourite and its remove button. **72 of 75 controls were unreachable by keyboard**, including the
+header's Notifications, Quick Add, store switcher and language switcher.
+
+Escape closes the palette and returns focus to the search, and the next Tab re-opens it — so there
+was no way through, not merely an obstacle.
+
+### Both open paths still work, both directions
+
+| | `light/ltr/en` | `dark/rtl/ar` |
+|---|---|---|
+| initial state | closed | closed |
+| click the sidebar search | **open**, focus inside | open, focus inside |
+| Escape | closed | closed |
+| Ctrl+K | **open** | open |
+| Escape | closed | closed |
+| the sidebar's own nav filter | **14 items → 0** | 14 → 0 |
+
+### A measurement that was wrong first, and would have produced a pointless change
+
+An earlier probe focused a header control with `element.focus()` and recorded
+`outlineStyle: none` — apparently no focus ring. A programmatic focus does **not** set
+`:focus-visible`. Driven with real Tab presses, every header stop shows
+`outline: solid 2px rgb(8, 145, 127)` — the DS teal focus token, already applied. So D-25 Step 1
+does not need to touch focus, and "adding" a ring would have been work against a defect that does
+not exist.
