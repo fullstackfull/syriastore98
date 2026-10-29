@@ -5,6 +5,7 @@ namespace Tests\Feature\Security;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Support\StripsSourceComments;
 
 /**
  * F195 — THE D-20 VARIANT-REMOVAL BLOCK HAD A TWO-CLICK BROWSER BYPASS.
@@ -43,6 +44,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 class VariantDeleteReferenceGuardTest extends SecurityTestCase
 {
     use RefreshDatabase;
+    use StripsSourceComments;
 
     /** A product with two variants, nothing referencing either. */
     private function arrange(): array
@@ -199,6 +201,24 @@ class VariantDeleteReferenceGuardTest extends SecurityTestCase
             . ' so this tells the merchant the variant is gone while it is still in the database —'
             . ' worse than the bypass this fix closes.'
         );
+
+        /*
+         * A 500 IS NOT A REFUSAL, and the first cut of this case accepted one. `< 200 || >= 300`
+         * is satisfied by a thrown exception, so a change that broke the endpoint outright would
+         * have read as the guard working. Exception handling is on by default in this suite, so a
+         * throw really does arrive here as 500.
+         */
+        $this->assertLessThan(500, $status,
+            'the endpoint answered ' . $status . '. That is a thrown exception, not a refusal: the'
+            . ' guard is not refusing this delete, the handler is broken.');
+
+        /*
+         * AND THE ROW HAS TO SURVIVE. Its two sibling cases assert this and this one did not —
+         * which made it the only wishlist-blocker case in the file and the only one that could
+         * pass while the variant was deleted.
+         */
+        $this->assertTrue($this->stillExists($doomed->id),
+            'the refusal was reported and the row is gone, so it was cosmetic');
     }
 
     /**
@@ -226,17 +246,30 @@ class VariantDeleteReferenceGuardTest extends SecurityTestCase
         $this->assertFalse($this->stillExists($spare->id), 'the row survived a permitted delete');
     }
 
-    /** The guard has to run BEFORE the delete, or it is decoration. */
+    /**
+     * The guard has to run BEFORE the delete, or it is decoration.
+     *
+     * TWO THINGS WERE WRONG WITH THE FIRST CUT, AND THE REVIEW CAUGHT BOTH. It searched the raw
+     * method body for `ssRefuseVariantRemoval(` — which matches the PROSE in this very fix's own
+     * docblock ("checks lived only in `ssRefuseVariantRemoval()`...") several lines ABOVE the real
+     * call. So deleting the call and keeping the comment passed all three assertions. That is the
+     * sixth time this repository has made that exact mistake: `Tests\Support\StripsSourceComments`
+     * exists for it and names the previous five in its own docblock. It is used here, and the
+     * needle now carries `$this->`, which appears on the real call and in no comment.
+     */
     public function test_the_guard_runs_before_the_delete_on_the_trash_path(): void
     {
         $m = new \ReflectionMethod(\App\Http\Controllers\ProductController::class, 'product_attribute_delete');
-        $body = implode('', array_slice(
-            file($m->getFileName()),
-            $m->getStartLine() - 1,
-            $m->getEndLine() - $m->getStartLine() + 1
-        ));
 
-        $guard = strpos($body, 'ssRefuseVariantRemoval(');
+        /* The whole file with comments stripped, then narrowed to this method by its signature.
+           Stripping first is what makes the narrowing safe: a comment cannot carry the signature. */
+        $code = $this->sourceWithoutComments('app/Http/Controllers/ProductController.php');
+        $open = strpos($code, 'public function product_attribute_delete(');
+        $this->assertNotFalse($open, 'the trash handler is gone or renamed; re-derive this case');
+
+        $body = substr($code, $open);
+
+        $guard = strpos($body, '$this->ssRefuseVariantRemoval(');
         $delete = strpos($body, '$attribute->delete();');
 
         $this->assertNotFalse($guard, 'the trash handler no longer consults the reference guard at'
@@ -244,6 +277,11 @@ class VariantDeleteReferenceGuardTest extends SecurityTestCase
         $this->assertNotFalse($delete, 'the delete is gone; re-derive this case');
         $this->assertLessThan($delete, $guard,
             'the guard is asked AFTER the row is deleted, so it cannot refuse anything');
+        /* Arguments this way round: expected-less-than first. The first cut had them reversed and
+           asserted `4000 < distance`, which the real 787 characters failed. */
+        $this->assertLessThan(4000, $delete - $guard,
+            'the guard match is thousands of characters from the delete, which suggests this is'
+            . ' matching a different method further down the file rather than this one');
     }
 
     /**
@@ -288,6 +326,20 @@ class VariantDeleteReferenceGuardTest extends SecurityTestCase
                 $view . ' has no `error:` handler on its delete request, so the 409 this fix'
                 . ' introduces is invisible: no toast, no loader reset, and the row stays. A silent'
                 . ' failure on a destructive button is worse than the old silent success.');
+
+            /*
+             * THE HANDLER HAS TO SURFACE THE SERVER'S MESSAGE, not merely exist. Review's point:
+             * `error:` is a six-character file-wide match that stops being a ratchet the first
+             * time either file gains any other error handler, and it says nothing about the
+             * merchant being told anything. These two needles tie it to reading the refusal body
+             * and showing it.
+             */
+            $this->assertStringContainsString('responseJSON', $source,
+                $view . "'s error handler does not read the response body, so the server's reason"
+                . ' for refusing never reaches the merchant');
+            $this->assertStringContainsString("show_toastr('{{ __('Error') }}'", $source,
+                $view . "'s error handler does not show an error toast, so a refused delete is"
+                . ' still silent');
         }
     }
 

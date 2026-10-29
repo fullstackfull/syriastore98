@@ -8498,3 +8498,41 @@ revert:** delete the `$ssRemovalRefusal` block in `product_attribute_delete()`.
 | bites | **8, every one bit** — the guard call removed · the refusal served as 200 · the confirmation read from the request (the naive fix) · the signature taking a `Request` again · one panel's `error:` handler removed · the API permission check removed · the delete moved above the guard |
 | regression | the 32 existing variant tests (`ProductVariantOrdinarySaveGuardTest`, `VariantDeleteScopeTest`) all still pass through the changed signature |
 | two cases passed for the wrong reason first | one used `actingAs()` on a route carrying `custom.auth`, which resolves a **Sanctum bearer token** and refuses before the handler runs — so removing the permission check left it green; and one asserted on the top-level `message`, which `ApiResponser::error()` sets to the literal **"fail"** for every refusal. Both caught by biting, and a permitted-case sibling now makes the refusal attributable |
+
+### The mandated review of F195: clean on the fix, three weaknesses in the tests
+
+No tenancy or permission hole, no new 401, no reliance on the global scope, correct ordering on both
+paths, and nothing broken that depended on the old signature — it traced every caller and confirmed
+the six existing cases that drive the trash route still behave.
+
+**The ordering case could not fail, and it is the sixth repetition of one mistake.** It searched the
+raw method body for `ssRefuseVariantRemoval(`, which matches **this fix's own docblock prose**
+twenty-one lines above the real call — so deleting the call and keeping the comment passed all three
+assertions. `Tests\Support\StripsSourceComments` exists for exactly this and names the previous five
+in its own docblock. Now used, with `$this->` in the needle and a proximity assertion. **Bitten with
+that mutation**, which was green before and now fails.
+
+Two more: the not-2xx case **accepted a 500** (a thrown exception satisfies `< 200 || >= 300`) and
+was the only wishlist-blocker case not asserting the row survived; and the view assertion was a
+six-character file-wide match for `error:` that said nothing about the handler belonging to the
+delete request. Both tightened. And one of my own new assertions had its arguments reversed and
+failed against working code at the real 787 characters.
+
+### Four findings recorded rather than fixed
+
+| | |
+|---|---|
+| a behaviour change I had not seen | `productIsOutsideCurrentStore(null)` does **not** refuse a null product for the operator — the operator short-circuit precedes the `empty($product)` limb — so a null `$owner` reaches the guard and fails safe to 409. **An orphan variant was previously deletable by the operator and now is not.** No test either way |
+| the API path is now stricter than its web sibling | `MerchantPermissions` filters roles **by store**; `isAbleTo()` unions across all roles with no store predicate. A staff member whose `Edit Products` role is scoped to store A is refused for store B on the API and permitted on the web panel. Same tenant, so not a tenancy violation |
+| a correction in my favour | the SKU/price/stock enumeration **cannot be reached from the trash path** — it is in the `! $confirmed` branch and this path passes `true`. The 409 body carries the variant name and reference counts only |
+| one click still hard-deletes an unreferenced variant | with no prompt. D-20 condition 3 is satisfied by **the endpoint being separate**, not by anything the merchant sees — F184's territory, and not closed by this |
+
+Three further residuals: two full `orders.product_json` scans per trash click (pre-existing shape,
+new frequency on a merchant-triggerable endpoint); a shopper can plant a **permanent** blocker with a
+cart row, since the guard's `Cart::withoutGlobalScopes()` is deliberately cross-store; and the
+refusal text reaches `notifier.show()` carrying merchant-authored variant names — a same-tenant HTML
+sink if that renders markup, though the Save path already renders the same `msg` as HTML on purpose.
+
+**And an adjacent dead door, verified:** `ProductController::VariantDelete()` (`:5119`) deletes with
+no ownership check, gated on `can('Delete Variants')` which `permissions_as_gates => false` makes
+always false — and it is **unrouted**. Latent, not live, and not counted among F195's four paths.
