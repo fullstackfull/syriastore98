@@ -28,10 +28,72 @@ class VariantImageOwnershipTest extends SecurityTestCase
 {
     use RefreshDatabase;
 
+    /**
+     * A FILENAME NO PRODUCT CONTENT WOULD EVER CARRY, so the cleanup below can be exact.
+     *
+     * The first version of this test uploaded `swatch.png`, which is also what the live browser
+     * probe uses, and deleting `*_swatch.png` would have been a guess about which files were
+     * whose.
+     */
+    private const FIXTURE_FILENAME = 'ss-phpunit-variant-fixture.png';
+
     protected function setUp(): void
     {
         parent::setUp();
+
+        /*
+         * `Storage::fake('public')` DOES NOT CONTAIN THIS TEST, and believing it did is what put
+         * a generated PNG into a commit.
+         *
+         * `ProductController::variant_image_store()` uploads through `Utility::upload_file()`,
+         * which writes to the application's own disk at `uploads/<store_id>/` — not through the
+         * `public` disk this fakes. So every run of this file wrote TWO real files into the
+         * repository, one per tenant it creates. `/uploads/1/` is gitignored (it is the dev
+         * fixture's store), which hid the first; the second landed in `uploads/2/`, which is NOT
+         * ignored because other store ids hold tracked product content — and a `git add -A` swept
+         * it into `8c462acd`.
+         *
+         * The fake is kept because it does contain anything that genuinely uses the `public`
+         * disk, but it is not the control: `tearDown()` is.
+         */
         Storage::fake('public');
+    }
+
+    /**
+     * REMOVE WHAT THIS TEST CAUSED TO BE WRITTEN, and prove it was removed.
+     *
+     * Scoped by the fixture filename, so it cannot touch a file this test did not create. The
+     * assertion matters as much as the unlink: if the upload destination ever moves, this fails
+     * instead of silently leaving artefacts in the working tree for the next `git add -A`.
+     */
+    protected function tearDown(): void
+    {
+        $root = base_path('uploads');
+        $left = [];
+
+        if (is_dir($root)) {
+            foreach (glob($root . '/*/*' . self::FIXTURE_FILENAME) ?: [] as $file) {
+                @unlink($file);
+
+                if (file_exists($file)) {
+                    $left[] = $file;
+                }
+            }
+
+            $still = glob($root . '/*/*' . self::FIXTURE_FILENAME) ?: [];
+        } else {
+            $still = [];
+        }
+
+        parent::tearDown();
+
+        $this->assertSame([], $left, 'a fixture upload could not be removed: ' . implode(', ', $left));
+        $this->assertSame(
+            [],
+            $still,
+            'this test left uploaded fixtures in the working tree, where a `git add -A` will '
+            . 'commit them: ' . implode(', ', $still)
+        );
     }
 
     private function makeCategory(int $storeId): int
@@ -83,7 +145,7 @@ class VariantImageOwnershipTest extends SecurityTestCase
     {
         return $this->actingAs($as)->post(route('product.variant.image.store'), [
             'variant_id' => $variantId,
-            'variant_image' => $file ?? UploadedFile::fake()->image('swatch.png', 40, 40),
+            'variant_image' => $file ?? UploadedFile::fake()->image(self::FIXTURE_FILENAME, 40, 40),
         ]);
     }
 
@@ -115,7 +177,8 @@ class VariantImageOwnershipTest extends SecurityTestCase
         $this->upload($merchant, (int) $variant->id)->assertOk();
         $first = \DB::table('product_images')->where('variant_id', $variant->id)->value('id');
 
-        $this->upload($merchant, (int) $variant->id, UploadedFile::fake()->image('other.png', 40, 40))->assertOk();
+        $this->upload($merchant, (int) $variant->id,
+            UploadedFile::fake()->image('other-' . self::FIXTURE_FILENAME, 40, 40))->assertOk();
 
         $rows = \DB::table('product_images')->where('variant_id', $variant->id)->get();
 
