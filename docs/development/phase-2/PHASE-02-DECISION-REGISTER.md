@@ -1792,6 +1792,23 @@ approval before it is taken, and the sequencing is the part the owner owns.
 each stay PARTIAL and each point here, so the remainder is tracked once rather than re-described
 three times.
 
+---
+
+### Where the three steps stand — 2026-10-29
+
+| step | state |
+|---|---|
+| **Step 1 — shared header** | **DONE [2026-10-29].** Additive `ss-appbar` scope on both `<header>` branches; the header's inherited text colour onto `--ss-fg-muted`. 24-capture contract diff: only `style.color` moved. The probe written for its keyboard condition found **F177** first. |
+| **Step 2 — shared action buttons** | **DONE [2026-10-29].** The order list's four controls and the grid view's three on `ss-btn`, one primary action and the utilities outlined. 16-capture before/after contract: **0 invariant differences** — hrefs, the `.export-btn` hook, the `filename` attribute, the tooltip wiring, the icon classes, the region's layout classes and the export handler's real clicked behaviour all identical. **56 glyph-named accessible names → 0**, and dark-mode icon contrast **2.59:1 → 8.92/11.1** against the 3:1 non-text minimum. Closes P2-04-12's second remainder. Found **F179** (an Arabic export downloads as `download`, no extension) and did not fix it, because a download filename is action behaviour. |
+| **Step 3 — order detail page shell** | **NOT STARTED.** The 107-class page shell, with the `ss-card` / `ss-row` components that already exist, preserving order data, notes, deletion, status, invoices and permissions. The decision's condition — *"the page shell following only if that first step measures clean"* — is now met by Steps 1 and 2. |
+
+**The 49 other `action-button` regions stay unconverted and that is the decision, not an
+oversight.** Forty-nine more first-party views carry an `action-button` region with the same
+`btn btn-sm btn-primary btn-icon` classes. Step 2 converted the two the owner named and the one
+that shares a screen with them. Converting the rest is a general theme change of exactly the kind
+this entry exists to hold back; it needs its own slice, and it should follow Step 3 rather than
+precede it, because Step 3 is where the page shell those regions sit in gets decided.
+
 ## D-26 — P2-03-4: per-variant media and bulk edit across combinations are NEW capability
 
 > **DECIDED 2026-10-28 — APPROVED WITH PHASE BOUNDARIES, and the split this entry costed is the

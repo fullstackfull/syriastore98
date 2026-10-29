@@ -3,29 +3,30 @@
 @section('page-title', __('Order'))
 
 @section('action-button')
-<div class="text-end">
+<div class="text-end d-flex flex-wrap gap-2 justify-content-end">
     {{-- ✅ زر إضافة طلبية جديدة (الإجراء الأساسي) --}}
-        <a href="{{ route('order.create') }}" class="btn btn-sm btn-primary me-2">
-            <i class="ti ti-plus"></i> {{ __('Create Order') }}
+        <a href="{{ route('order.create') }}" class="ss-btn ss-btn--sm ss-btn--primary">
+            <i class="ti ti-plus" aria-hidden="true"></i>{{ __('Create Order') }}
         </a>
 
 
     {{-- الأزرار الموجودة مسبقاً --}}
-        <a class="btn btn-sm btn-primary btn-icon export-btn" href="{{ route('order.export') }}" data-bs-toggle="tooltip" data-bs-placement="top" title="{{ __('Export') }}" filename="{{ __('Order') }}">
-            <i class="ti ti-file-export"></i>
+        <a class="ss-btn ss-btn--sm ss-btn--icon ss-btn--secondary export-btn" href="{{ route('order.export') }}" aria-label="{{ __('Export') }}" data-bs-toggle="tooltip" data-bs-placement="top" title="{{ __('Export') }}" filename="{{ __('Order') }}">
+            <i class="ti ti-file-export" aria-hidden="true"></i>
         </a>
 
-    <a href="{{ route('order.grid') }}" data-bs-toggle="tooltip" data-bs-original-title="{{ __('Grid View') }}" class="btn btn-sm btn-primary btn-icon">
-        <i class="ti ti-layout-grid"></i>
+    <a href="{{ route('order.grid') }}" aria-label="{{ __('Grid View') }}" data-bs-toggle="tooltip" data-bs-original-title="{{ __('Grid View') }}" class="ss-btn ss-btn--sm ss-btn--icon ss-btn--secondary">
+        <i class="ti ti-layout-grid" aria-hidden="true"></i>
     </a>
     {{-- P2-04-12: the board's entry point. The route existed from P2-04-7 with nothing linking
          to it, so the board was reachable only by typing the URL -- every one of that slice's
          twelve tests drove `route('order.kanban')` directly and so none of them could notice.
          `request()->query()` carries the active filters across, which is the same contract
          `kanban.blade.php`'s own link back to this list keeps. Classed like its three siblings
-         rather than converted alone: this whole `action-button` region is P2-01's header work. --}}
-    <a href="{{ route('order.kanban', request()->query()) }}" data-bs-toggle="tooltip" data-bs-original-title="{{ __('Board View') }}" class="btn btn-sm btn-primary btn-icon">
-        <i class="ti ti-layout-kanban"></i>
+         rather than converted alone -- and D-25 Step 2 then converted all four together, which is
+         what "as one unit" was waiting for. --}}
+    <a href="{{ route('order.kanban', request()->query()) }}" aria-label="{{ __('Board View') }}" data-bs-toggle="tooltip" data-bs-original-title="{{ __('Board View') }}" class="ss-btn ss-btn--sm ss-btn--icon ss-btn--secondary">
+        <i class="ti ti-layout-kanban" aria-hidden="true"></i>
     </a>
 </div>
 @endsection

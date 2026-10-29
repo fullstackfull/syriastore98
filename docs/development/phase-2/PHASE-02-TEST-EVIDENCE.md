@@ -6598,3 +6598,140 @@ The residue check is worth its own line because the first version of it was wron
 `git diff --quiet resources/views/`, which reports the **conversion itself** as a difference, and
 so printed "RESIDUE LEFT" and listed all 30 files after six bites that had each restored their file
 correctly. It now compares a census taken before the bites with one taken after.
+
+## D-25 Step 2 — the shared `action-button` page-header region — 2026-10-29
+
+**What the owner approved.** *"Step 2 — shared action buttons: convert the export button and its
+three neighbours as one unit, changing no action behaviour and breaking no form submission or
+Bootstrap/JavaScript contract."*
+
+**Scope, and what was left alone.** The region is `@yield('action-button')` in
+`layouts/app.blade.php`, filled per screen. The four controls are the order list's Create Order,
+Export, Grid View and Board View. `order/grid.blade.php` carries the same export control and its
+neighbours on the same screen in its other view mode, so it is converted with them — a merchant
+toggling the view would otherwise cross between two visual languages. **Forty-nine more
+first-party views have an `action-button` region with these classes and are not touched**: the
+decision says the page shell follows *"only if that first step measures clean"*.
+
+### It was not a styling change: 56 accessible names were an icon-font glyph
+
+Chromium includes an icon font's generated `::before` content in the accessible-name computation.
+So `<i class="ti ti-file-export">` **named** the export control:
+
+| | Chromium's computed name, before |
+|---|---|
+| Create Order | `" Create Order"` |
+| Export | `""` |
+| Grid View | `""` |
+| Board View | `""` |
+
+Those are private-use codepoints from Tabler. The name is not missing — it is gibberish, which is
+why this had survived: a source review sees a `title` and moves on, a DOM assertion sees a name and
+passes, and an "is it empty" check reports zero problems. The measurement that finds it is
+**Chromium's own accessibility tree**, read through `ariaSnapshot()` **after** the 900ms the
+tooltip plugin needs, which is the only point at which the question is the merchant's.
+
+`aria-hidden="true"` removes the glyph from the computation and `aria-label` supplies the name.
+Across all 16 captures: **56 glyph-named links → 0**, with **0** empty-named links before or
+after. Chromium now reports `Create Order`, `Export`, `Grid View`, `Board View` and, on the grid,
+`Export`, `List View`, `Board View`.
+
+### And it fixed a real dark-mode AA failure
+
+| | icon contrast |
+|---|---|
+| dark, all 8 captures, before | **2.59:1** — under the 3:1 non-text minimum (WCAG 1.4.11) |
+| dark, after | **8.92:1** on the list, **11.1:1** on the grid |
+| light, before → after | 6.92:1 → **5.68:1** on the list, **16.06:1** on the grid |
+
+2.59:1 is white on the brand green — the same figure F9 recorded for the selected sidebar item.
+Light mode passed before, so the failure existed in one theme only. The light-mode worst moved
+**down**, to the primary button's own token pair; it is still above both the 4.5:1 text and 3:1
+non-text thresholds, and it is recorded as a decrease rather than described as an improvement.
+
+### The hierarchy is a deliberate visual change
+
+Four brand-filled buttons in a row means no primary action at all. Create Order stays
+`ss-btn--primary`; the utilities became `ss-btn--secondary`. That is the DS's own hierarchy **and**
+it is what fixed the contrast, since `--ss-fg` on `--ss-surface` is the DS's AA-checked pair. A
+test asserts both class names are present, so a later edit that flattens the hierarchy fails.
+
+### The behaviour comparison: 16 captures, 0 invariant differences
+
+`docs/development/phase-2/tools/capture-page-actions-contract.cjs` records en/ar × light/dark ×
+desktop/phone × two screens. Invariant per control: `href`, `id`, `export-btn`, `filename`,
+`data-bs-toggle`, `data-bs-placement`, the icon's class. Invariant per region: its layout classes,
+`display`, `gap`, `flex-wrap`, and whether the row overflows the viewport. **All identical.**
+
+Two of these contracts are invisible in the markup, so the capture drives them:
+
+- **`.export-btn` is bound by a delegated jQuery handler at `public/js/loader.js:116`.** It
+  preventDefaults the click, fetches the href as a blob and sets
+  `a.download = this.getAttribute('filename') + '.xlsx'`. The capture **clicks it for real** with
+  the route intercepted and records three things: the href the handler fetched, that the page did
+  not navigate (so preventDefault held), and the filename the handler computed. Identical before
+  and after in all 16.
+- **The tooltip** is the name a sighted mouse user gets, and removing `data-bs-toggle="tooltip"`
+  removes it silently while leaving a `title` in the markup.
+
+### The wrapper had no gap, and dropping `me-2` exposed it
+
+`.page-header-icon` is `d-flex flex-wrap gap-2` — but these two screens wrap their controls in
+their own `<div>`, so that div is the region's **only** flex child and the region's gap never
+reached the controls. The spacing was `me-2` on Create Order plus the ~3.5px of HTML whitespace
+between inline-flex siblings.
+
+Dropping `me-2` for the DS left the primary action ~3.5px from Export. **Measured, not noticed:**
+the region went 238 → 235 wide in the capture. The wrapper now carries the repo's own prevailing
+pattern — `product/index`, `coupon/index` and `tag/index` all use a flex row with a gap, so these
+two were the outliers — with the DS's 8px and `justify-content-end`, whose logical `end` follows
+`direction` and so stays correct in RTL.
+
+| | before | after |
+|---|---|---|
+| region, en/ltr | 238 × 31 | **248 × 32** |
+| region, ar/rtl | 215 × 31 | **227 × 32** |
+| Create Order | 123 wide | **128** |
+| icon controls | 32 × 31 | **32 × 32** (the DS `--sm` 32px minimum, above the 24×24 target floor) |
+| overflows at 390px | no | **no**, in all 16 |
+
+### F179, found by the capture and deliberately not fixed
+
+Clicking the export control for real reported the download as `Order.xlsx` in English and
+**`download`** — no extension — in Arabic. Root cause measured directly in Chromium on three
+values:
+
+```
+a.download = "Order.xlsx"      -> suggestedFilename "Order.xlsx"
+a.download = "الطلب.xlsx"       -> suggestedFilename "download"
+a.download = "طلب الخطة.xlsx"   -> suggestedFilename "download"
+```
+
+Chromium rejects a non-ASCII `a.download` outright. It affects every `.export-btn` in the app, in
+Arabic only. Step 2 does not fix it: a download filename is action behaviour, which Step 2 is
+forbidden to change, and it is not fixable in these two views anyway — an ASCII attribute would
+change the English name too, and a blob URL carries no `Content-Disposition`. The fix belongs on
+the export route. Recorded with that proposal.
+
+### Two bugs in the probe, both of which first read as findings about the page
+
+1. **Every icon control reported `(unnamed)` in the tab order.** The reader trimmed *after*
+   choosing among the name candidates, so an icon-only `<a>` whose `textContent` is `"\n        "`
+   — whitespace, which is **truthy** — won the `||` chain and then trimmed to empty. The page was
+   fine; the probe was not.
+2. **`/order/grid` is not the grid's URI.** `routes/web.php:1172` names it `order-grid`, so the
+   first run captured a 404 for all eight grid entries and reported them as unreachable.
+
+Both were fixed before the before-capture was taken, which is what makes the contract diff
+trustworthy.
+
+### Evidence
+
+| | |
+|---|---|
+| `tests/Unit/Ui/PageActionRegionContractTest.php` | 7 tests, 97 assertions |
+| bites | **12**, every one bit — including the `export-btn` hook renamed, the `filename` attribute dropped, and `loader.js` changed to read a different attribute; all three files verified byte-identical to a pre-bite snapshot afterwards |
+| contract | 16 captures, **0 invariant differences** |
+| compile | both views through `blade.compiler` + `php -l`, 0 failures |
+| suites | Unit 629 · Merchant + Commerce Feature **1034 passed, 7 skipped (the declared set), 0 failed** · the four order/export Feature files + `DesignSystemStylesheetScopeTest` 43 passed |
+| blast radius | both views are LEAF screens — grepped, neither is `@include`d by any first-party or vendored view — and nothing shared was edited: `loader.js` was only read, the DS stylesheet untouched |
