@@ -113,12 +113,29 @@ class PaymeraCallbackIdempotencyTest extends TestCase
      * `status === 'A'` guard does not cover it. The processed branch is what
      * must answer, and it must name the order that already exists rather than
      * create another.
+     *
+     * [2026-10-29] THIS CASE PINNED F185 AND HAD TO BE CORRECTED, which is worth recording rather
+     * than quietly fixing. It drove the branch with NO session binding and asserted the order
+     * number came back -- which is exactly the disclosure F185 names: on this route, behind `auth`,
+     * that caller is any logged-in `web` user who guessed a live reference. The INTENT is still
+     * right and is still asserted: the replay reports the existing order rather than creating
+     * another. What changed is who is told. The record now carries an `order_id` and the session is
+     * bound to it, so this exercises the legitimate path; `PaymeraTriggerOrderNumberTest` covers
+     * the refusal, the shape and the `auth` premise.
+     *
+     * Note `OrderCompleteBinding::holds(null)` is FALSE -- `asId()` rejects a non-scalar -- so a
+     * record with no `order_id`, which is what `putPending()` defaults to, can never be told the
+     * number. That is fail-closed and is why this case has to name one.
      */
     public function test_the_processed_guard_reports_the_existing_order(): void
     {
+        $this->bindSession();
+        \App\Services\OrderCompleteBinding::remember(9102);
+
         $this->putPending([
             'status' => 'P',
             'processed' => true,
+            'order_id' => 9102,
             'product_order_id' => '0202501010102',
         ]);
 
@@ -130,7 +147,9 @@ class PaymeraCallbackIdempotencyTest extends TestCase
         $this->assertSame(
             '0202501010102',
             $payload['product_order_id'] ?? null,
-            'the replay must report the order that already exists, not make a new one'
+            'the replay must report the order that already exists, not make a new one -- to the'
+            . ' session that placed it. If this is null, F185\'s binding test is refusing the'
+            . ' legitimate caller as well as the stranger, which is a regression and not a fix.'
         );
     }
 

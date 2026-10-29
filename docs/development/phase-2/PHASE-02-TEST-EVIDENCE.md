@@ -8207,3 +8207,52 @@ touched — the method reads two columns and returns a CSS class.
 | `tests/Feature/Merchant/OrderNoteVisibilityTest.php` | **4 cases** — all **eight** stored shapes appear on a really-rendered page (driven through `/order-view/<encrypted id>` with the permissions the page needs) · the block count equals the row count, which catches a note rendered **twice** as readily as one not rendered at all · the return type can no longer withhold a note · the view carries no conditional around the loop |
 | bites | **2, both bit** — `timelineTone()` back to `?string`/`null`; the view's `@if` restored |
 | the deliberately-pinned test | `OrderDetailShellContractTest`'s provider PINNED the drop while D-25 Step 3 was required to preserve behaviour, and its own message said *"fixing F180 is its own slice"*. Changing those three expectations from `null` to `''` is that deliberate act |
+
+---
+
+## F185 — the Paymera trigger no longer hands a stranger another tenant's order number (2026-10-29)
+
+Three branches of `handlePaymeraTrigger` answered
+`['status' => 'A', 'ok' => true, 'product_order_id' => $pending['product_order_id'] ?? null]` with
+no test of who was asking: the already-`processed` branch, the in-lock
+`freshPaymeraPendingOrNull()`-returned-null branch, and the F96 claim refusal. The browser
+callback's equivalent branches already tested it — P1-ORD-13 added `OrderCompleteBinding::holds()`
+there precisely so a replayed reference could not disclose the buyer's order. The trigger never got
+the same test.
+
+The route is inside `['auth','xss','setlocate','verified']`, so the caller is **any logged-in `web`
+user** — any merchant, any staff member, any tenant — who names a live `uniqid('paymera_')`
+reference.
+
+### The objection that kept this recorded, and why it is answered rather than overruled
+
+The objection: the trigger exists for the **gateway**, which holds no session, so `holds()` would be
+false and a machine caller would stop receiving the number. **A machine caller cannot reach the
+handler at all** — `auth` redirects a sessionless POST to /login first. That is F97's measurement,
+not a judgement, and it is ratcheted. So every caller that reaches these branches has a `web`
+session, and `holds()` is the right question for it.
+
+Measured across both repositories as well: nothing calls `store/paymera/trigger/*` — not
+`resources/`, not `public/js/`, and the Flutter admin app contains **no Paymera reference at all**.
+The compatibility half is evidence, not inference.
+
+### Three branches, not two
+
+The ledger row named two. The F96 claim-refusal branch reads the same field, and the row argued it
+discloses nothing because it is reachable only while `processed !== true`. True today, and exactly
+the kind of argument a later edit invalidates — so all **three** answer through one helper and a
+count asserts it.
+
+### The shape is unchanged
+
+`status` and `ok` are untouched; `product_order_id` stays **present** and carries null rather than
+being omitted, so no client parsing the success response sees a new shape in the refusal. A stranger
+cannot tell *not yours* from *no order yet*.
+
+### Evidence
+
+| | |
+|---|---|
+| `tests/Feature/Security/PaymeraTriggerOrderNumberTest.php` | **6 cases** — the route is still authenticated (the premise, asserted here rather than borrowed) · the session that placed the order still receives its number · a stranger is refused · no session is refused rather than erroring · the refusal carries **every key** the success answer has · no branch answers the number directly, helper counted at 3 |
+| bites | **3, every one bit** — the helper disclosing unconditionally · one branch reverted to the direct literal · the route hoisted out of the `auth` group |
+| residual, tied to the ratchet | moving the route out of `auth` (the functional half of F97, an owner decision) would refuse a real gateway the number. The two changes must be re-derived together, which is why the premise test lives in this file and bites on that move |

@@ -1154,8 +1154,8 @@ private function paymeraOrderHighWaterMark(mixed $storeId): int
  * `$pending['processed']` still false, and **no in-process marker of either**: not a return
  * value, not a binding, not a flag. The only witness is the row.
  *
- * (Measured 2026-10-29: `DB::beginTransaction()` :3457, `DB::commit()` :3628, `$owner->email`
- * :3684, `OrderCompleteBinding::remember()` :3773. These are STRUCTURAL claims and the numbers
+ * (Measured 2026-10-29: `DB::beginTransaction()` :3503, `DB::commit()` :3674, `$owner->email`
+ * :3730, `OrderCompleteBinding::remember()` :3819. These are STRUCTURAL claims and the numbers
  * drift -- two earlier versions of this comment cited lines this very change had already moved,
  * which is why `PaymeraPostCommitClaimTest::test_the_cited_anchors_still_name_what_they_claim`
  * now asserts them. Read the structure as the claim and the numbers as a pointer.)
@@ -1354,6 +1354,59 @@ private function paymeraOrderCommittedSince(mixed $storeId, int $highWaterMark):
  * A deadline already past makes `Cache::put()` forget the key, which is the correct outcome: the
  * record's life is over.
  */
+/**
+ * WHAT THE TRIGGER ANSWERS WHEN IT WRITES NOTHING — and who is allowed to see the order number.
+ * (F185)
+ *
+ * Three branches of `handlePaymeraTrigger` answered `['product_order_id' => $pending[...]]` with no
+ * test of who was asking: the already-`processed` branch, the in-lock re-check-returned-null
+ * branch, and the F96 claim refusal. The browser callback's equivalent branches DO test it —
+ * P1-ORD-13 added `OrderCompleteBinding::holds()` there precisely so a replayed reference could not
+ * hand a stranger the buyer's order number. The trigger never got the same test.
+ *
+ * WHO COULD READ IT. The route sits inside the `['auth','xss','setlocate','verified']` group
+ * (measured as F97, and pinned by
+ * `PaymeraCallbackIdempotencyTest::test_the_paymera_trigger_route_is_still_behind_auth`), so the
+ * caller is any logged-in `web` user — any merchant, any staff member, any tenant — who names a
+ * live payment reference. References are `uniqid('paymera_')` (`PaymentService.php:457`),
+ * microtime-derived.
+ *
+ * WHY THE COMPATIBILITY OBJECTION IS ANSWERED RATHER THAN ASSUMED, which is what kept this
+ * recorded-not-fixed. The objection was that the trigger exists for the GATEWAY, which holds no
+ * session, so `holds()` would be false and a machine caller would stop receiving the number. But a
+ * machine caller cannot reach this handler at all: `auth` redirects it to /login first. That is not
+ * a judgement, it is the measurement F97 made and the ratchet above keeps — so every caller that
+ * reaches this code has a `web` session, and `holds()` is exactly the right question for it.
+ * Measured on both repositories as well: nothing calls `store/paymera/trigger/*` — not
+ * `resources/`, not `public/js/`, and the Flutter admin app contains no Paymera reference at all.
+ *
+ * THE RESIDUAL, AND IT IS TIED TO THE RATCHET. If the route is ever moved OUT of the `auth` group
+ * — the functional half of F97, and an owner decision — a real gateway POST would arrive with no
+ * session and be refused the number. The two changes have to be re-derived together, which is why
+ * the test asserting the `auth` gate and the test asserting this test are deliberately in the same
+ * file.
+ *
+ * THE SHAPE IS UNCHANGED. `status` and `ok` are untouched and `product_order_id` stays present,
+ * carrying null rather than being omitted, so no client parsing this response can see a new shape.
+ * A stranger cannot tell "not yours" from "no order yet": both answer null.
+ */
+private function paymeraTriggerAnswer(array $pending, string $orderId)
+{
+    $mine = \App\Services\OrderCompleteBinding::holds($pending['order_id'] ?? null);
+
+    if (! $mine) {
+        \Log::warning('Paymera trigger replay refused the order number: the session presenting the reference did not place the order', [
+            'paymera_reference' => $orderId,
+        ]);
+    }
+
+    return response()->json([
+        'status' => 'A',
+        'ok' => true,
+        'product_order_id' => $mine ? ($pending['product_order_id'] ?? null) : null,
+    ]);
+}
+
 private function paymeraRecordDeadline(array $pending): \Illuminate\Support\Carbon
 {
     $stored = $pending['ss_expires_at'] ?? null;
@@ -1416,11 +1469,8 @@ public function handlePaymeraTrigger($orderId)
      * set here, so a trigger followed by a callback created the order TWICE.
      */
     if (($pending['processed'] ?? false) === true) {
-        return response()->json([
-            'status' => 'A',
-            'ok' => true,
-            'product_order_id' => $pending['product_order_id'] ?? null,
-        ]);
+        /* F185: the order number goes only to the session that placed the order. */
+        return $this->paymeraTriggerAnswer($pending, $orderId);
     }
 
     $statusData = $this->pollPaymentStatus(
@@ -1458,11 +1508,8 @@ public function handlePaymeraTrigger($orderId)
                 $fresh = $this->freshPaymeraPendingOrNull($orderId);
 
                 if ($fresh === null) {
-                    return response()->json([
-                        'status' => 'A',
-                        'ok' => true,
-                        'product_order_id' => $pending['product_order_id'] ?? null,
-                    ]);
+                    /* F185, same rule. */
+                    return $this->paymeraTriggerAnswer($pending, $orderId);
                 }
 
                 /*
@@ -1486,11 +1533,10 @@ public function handlePaymeraTrigger($orderId)
                         'paymera_reference' => $orderId,
                     ]);
 
-                    return response()->json([
-                        'status' => 'A',
-                        'ok' => true,
-                        'product_order_id' => $pending['product_order_id'] ?? null,
-                    ]);
+                    /* F185. This branch is reachable only while `processed !== true`, so the
+                       field it used to read is null here anyway -- but that is a reason the next
+                       edit can invalidate, and the three branches now answer identically. */
+                    return $this->paymeraTriggerAnswer($pending, $orderId);
                 }
 
                 try {
