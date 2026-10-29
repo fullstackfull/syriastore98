@@ -8364,3 +8364,65 @@ written** from the victim's cached `request_data`, with the stock decrement and 
 implies. The binding is stripped afterwards so they cannot read the thank-you page (P1-ORD-13). That
 is F96/F186/GATE G(4) territory, neither introduced nor closed here, and it is more consequential
 than the number this slice refuses.
+
+---
+
+## The final Known-Outcome Gate earned its place (2026-10-29)
+
+The owner's closure condition — *"re-run the Known-Outcome Gate on the final HEAD"* and *"do not let
+a Merchant and Security pass stand in for the full gate"* — is not ceremony. On the final HEAD the
+gate found **two undeclared failures that no targeted run had surfaced**, and they came from this
+session's own earlier commit.
+
+```
+failures observed    : 4  (manifest declares 2)
+::error::NEW FAILURE, not in the manifest:
+  RawQueryTenancyInventoryTest::test_the_raw_entry_point_totals_are_the_measured_one_hundred_and_sixty_eight
+  RawQueryTenancyInventoryTest::test_the_per_table_raw_query_exposure_is_exactly_this
+```
+
+### What had drifted
+
+Stage 1's `App\Console\Commands\TokenInventoryReport` — the read-only operator report the token
+expiry proposal requires before any expiry policy can be chosen — reads
+`personal_access_tokens` through `DB::table()`. That is a raw query-builder entry point, and
+**four** counts in `RawQueryTenancyInventoryTest` track those exactly:
+
+| | was | now |
+|---|---|---|
+| raw entry points in `app/` | 145 | **146** |
+| total entry points | 190 | **191** |
+| literal-table sites | 162 | **163** |
+| statements with no `store_id` | 77 | **78** |
+| `personal_access_tokens` row | `[2, 2]` | **`[3, 3]`** |
+
+None of the targeted suites I had been running covers `tests/Feature/Tenancy`, so Commerce,
+Security, Merchant and Unit were all green while the gate was not. **That is precisely the gap the
+owner's condition closes.**
+
+### Why the new site is correct, rather than tolerated
+
+`personal_access_tokens` has **no `store_id` column** — this very test file classifies it as a
+platform table and says in terms that counting such tables as exposure *"would have inflated the
+finding by eight sites, which is the kind of error this project has already made in both
+directions"*. So the no-`store_id` column rising is the only possible shape here, and the sibling
+assertion keeps the distinction honest: if that table ever gained a `store_id` column it would move
+to the discriminated list and fail there first.
+
+**And the query is raw for a security reason**, which is worth stating because this file's default
+assumption is the opposite. It is
+`->select(['id','tokenable_type','created_at','last_used_at','expires_at'])` — an explicit
+allow-list that never names `token`, the SHA-256 secret half. An Eloquent read would hydrate the
+model and make "the secret is not loaded" a convention; the explicit select makes it structural.
+
+### Bitten
+
+Replacing the raw query with `PersonalAccessToken::query()` fails two of the three cases, so the
+raised numbers track the real site rather than being bumped to get green.
+
+### One thing observed and not fixed
+
+The method name says *"one hundred and sixty eight"* and its own comment trail shows 168 → 191
+across nine deltas, none of them a rename. It is a historical label rather than a live claim, and
+renaming it would make this delta's diff about something other than the one site it adds — so it is
+recorded here instead.

@@ -264,7 +264,22 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // caught it. Raw and not Eloquent because `cod_collection_events` has no model and no
         // table yet: it is a GATE F draft, so an Eloquent class would be a model for a table that
         // does not exist, and the service's isAvailable() gate is what keeps both sites inert.
-        $this->assertSame(['app' => 145, 'packages' => 45], $perDir,
+        // 145 -> 146 WITH THE STAGE 1 TOKEN INVENTORY REPORT, and the new site is correct by
+        // construction rather than tolerated. `App\Console\Commands\TokenInventoryReport` is the
+        // read-only operator report the token-expiry proposal's Stage 1 requires before any expiry
+        // policy can be chosen, and it reads `personal_access_tokens` -- a table this very file's
+        // DO-NOT-SCOPE list classifies as "platform; tokens belong to a user, not a store". There
+        // is no `store_id` column to predicate on, so the per-table row below moving [2,2] -> [3,3]
+        // is the expected shape and not an exposure: its no-store_id column rises because no such
+        // column exists, which is the one case this ratchet's warning does not describe.
+        //
+        // RAW AND NOT ELOQUENT FOR A SECURITY REASON, which is worth stating because this file's
+        // default assumption is the opposite. The statement is
+        // `->select(['id','tokenable_type','created_at','last_used_at','expires_at'])`, an explicit
+        // allow-list that NEVER names `token` -- the SHA-256 secret half. An Eloquent read would
+        // hydrate the model and make "the secret is not loaded" a convention; the explicit select
+        // makes it structural. The report prints aggregates only, never a row.
+        $this->assertSame(['app' => 146, 'packages' => 45], $perDir,
             'The raw query-builder entry-point count moved. Every one of these is invisible to '
             . 'every Eloquent global scope, so a NEW site needs an explicit `store_id` predicate '
             . 'written at the call site -- there is no other remedy. A REMOVED one probably means '
@@ -288,7 +303,12 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // 188 -> 190 with the two CodCollectionService sites above. The per-table row for
         // `cod_collection_events` is NEW at [2, 0] -- both statements name store_id -- so the
         // unscoped sum below does not move.
-        $this->assertSame(190, array_sum($perDir));
+        // 190 -> 191 with the Stage 1 token inventory report (see the note above the per-directory
+        // assertion). NOTE THE METHOD NAME IS A HISTORICAL LABEL, not a live claim: it says "one
+        // hundred and sixty eight" and the trail above shows 168 -> 191 across eight deltas, none
+        // of them a rename. Observed rather than renamed, so this delta's diff stays about the one
+        // site it adds.
+        $this->assertSame(191, array_sum($perDir));
     }
 
     /**
@@ -399,7 +419,11 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             'owner_menu_items' => [1, 1],
             'owner_menu_settings' => [1, 1],
             'owner_menus' => [1, 1],
-            'personal_access_tokens' => [2, 2],
+            // [2,2] -> [3,3] WITH THE STAGE 1 TOKEN INVENTORY REPORT. Both columns rise because
+            // this table has NO `store_id` column -- it is on the DO-NOT-SCOPE list below -- so
+            // "no store_id predicate" is the only possible shape here and the rise is not the
+            // cross-tenant read this ratchet's message warns about. See the per-directory note.
+            'personal_access_tokens' => [3, 3],
             // NEW WITH P1-INV-19, and the [1, 0] is a HEURISTIC ARTIFACT worth naming rather than
             // reading as reassurance. AuctionBidIdentityGuard:118 is
             // `DB::table('products')->where('id', $productId)->first(['id', 'store_id'])` -- it
@@ -510,8 +534,11 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // `cod_collection_events` literally and both carry a store_id predicate, so the unscoped
         // sum below does not move. They are literals rather than `self::TABLE` precisely so this
         // assertion and the map above can see them -- see the row's own note.
-        $this->assertSame(162, array_sum(array_map(fn ($r) => $r[0], $actual)),
-            '162 literal-table sites of the 190 entry points; the other 28 build their table name '
+        // 162 -> 163 with the Stage 1 token inventory report's `personal_access_tokens` read. It
+        // names the table literally, so it is attributable here; the unattributable remainder is
+        // unchanged at 28 (191 - 163).
+        $this->assertSame(163, array_sum(array_map(fn ($r) => $r[0], $actual)),
+            '163 literal-table sites of the 191 entry points; the other 28 build their table name '
             . 'from a variable and so cannot be attributed (see LIMIT 2 in this class docblock).');
         // 66 -> 71: +9 (campaigns 1, helpdesk_tickets 1, email_templates 1, user_email_templates 1, order_refunds 1, stores 2, plus the Duo/credential reads) and -2 (zid_orders)
         // 71 -> 73: of the five new sites only the two `stores` slug resolutions carry no `store_id` in their statement
@@ -519,7 +546,16 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // `products` note above: the cascading foreign key does not read the column, so a predicate would make each
         // count read zero against a populated category and permit the very cascade the refusal exists to stop.
         // 76 -> 77 with the D3 duplicate-refund check, store-less for the reason stated on the `order_refunds` row.
-        $this->assertSame(77, array_sum(array_map(fn ($r) => $r[1], $actual)));
+        // 77 -> 78 with the Stage 1 token inventory report. THIS IS THE ONE SUM WHOSE RISE IS
+        // ROUTINELY A FINDING, so the reason is spelled out rather than assumed:
+        // `personal_access_tokens` has NO `store_id` column -- the sibling test below classifies it
+        // as a platform table, and says in terms that counting such tables as exposure "would have
+        // inflated the finding by eight sites, which is the kind of error this project has already
+        // made in both directions". So this +1 is in the numerator of "statements with no store_id"
+        // and NOT in any count of cross-tenant reads. The sibling assertion is what keeps that
+        // distinction honest: if `personal_access_tokens` ever gained a `store_id` column it would
+        // move to the discriminated list and fail there first.
+        $this->assertSame(78, array_sum(array_map(fn ($r) => $r[1], $actual)));
     }
 
     /**
