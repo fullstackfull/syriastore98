@@ -7183,3 +7183,210 @@ is deleted — and it is product-editor UI work rather than a defect in the guar
 | bites | **5 distinct**, every one bit |
 | review | `tenant-authz-reviewer`: the change is correct and a strict improvement; two further defects in the same block, both fixed; one test gap, closed; one product finding, recorded |
 | suites | Merchant + Security + Commerce + Unit **5938 passed, 11 skipped (the declared set), 0 failed** |
+
+
+## F95 / F96 — the two replay windows on the order-writing paths — 2026-10-29
+
+Two findings from the E14 payment review, both reported and neither changed at the time because
+each looked like it needed an owner decision. Re-read, **one of them does and one of them does
+not**, and separating the halves is most of the work.
+
+### F95 — the race is closed, the rate is not
+
+`POST {storeSlug?}/whatsapp` and `POST {storeSlug?}/telegram` both reach
+`PaymentController::whatsapp()`, which writes an order and decrements stock, and had **no replay
+guard of any kind** — no `claimGatewayReturn`, no `Cache::lock`, no `Cache::add`, no lookup of an
+existing order. F95 names two things with that one sentence:
+
+| half | needs | status |
+|---|---|---|
+| the **rate** (no throttle, while the neighbour route that writes nothing has one) | real traffic data; a limit set too low answers 429 on a legitimate checkout | **the owner's**, unchanged, one line |
+| the **race** (two concurrent posts both read a non-empty cart before either delete runs) | nothing but a mutex over the read-then-write | **closed** |
+
+The race half refuses nothing anybody does deliberately: it is a lost update, and the sequential
+case is already handled incidentally because the cart rows are gone by the second attempt. So it
+was closed without asking.
+
+`Cache::lock('ss_order_intake:' . (int) $store->id . ':' . $ssIntakePrincipal, 30)` is taken before
+the cart read and released in a `finally`. The `finally` is not decoration — the guarded body has a
+dozen `return $this->error(...)` exits, and a lock outliving a refusal the shopper could fix and
+retry immediately would block that shopper for the lock's whole TTL.
+
+**The key is the principal's own basket:** `customer:<auth('customers')->id>` when a customer
+resolves, else `guest:<cart cookie>`. A caller with neither identity **skips** the lock rather than
+taking one on an empty string that every such caller would share — and such a caller has no basket
+for the cart read to find, so it reaches no write.
+
+That pairing is not a safety margin, it is the exact identity of the raced resource. `Cart.php:26`
+records that **a logged-in customer's basket rows carry `cookie_session_id` NULL** — their basket is
+keyed by `customer_id`, a guest's by the cookie — so each arm of the key names precisely the basket
+the cart read will find. Which matters for what the guard **costs**: the lock spans a body that can
+sit on SMTP (F96's whole premise), so a key broader than the basket would refuse a legitimate second
+checkout of a *different* basket for as long as that took. There is no such case; a logged-in
+customer has one basket.
+
+### The bite that did not bite, and what it established
+
+A one-line bite rebuilding the key from `$request->customer_id` — the defect shape the test names —
+**did not bite**. A probe on the lock line printed `cust=''` for a request that posted `4242`:
+
+```
+PROBE key=ss_order_intake:1:customer: cust=''
+```
+
+`$request->merge(['customer_id' => $customer_id])` at `PaymentController:3753-3754` has already
+forced the field to the **authenticated** value — empty for a guest — before the key is built. So
+no body value reaches the key by **two independent mechanisms**, and expressing the defect at all
+needed the posted value captured ahead of that merge. The test now says that, rather than implying
+that one line carries the property.
+
+### The Arabic refusal took two more measurements
+
+The guard adds one new customer-facing string, and a new `__()` literal with no `ar.json` entry
+renders the key — which reads correctly **in English, by accident**. F86 and F170 are both that
+shape, so the string is in both files and the refusal is **driven in Arabic**. Getting there found
+something worth recording for any later storefront test:
+
+- `$this->app->setLocale('ar')` does **not** survive the request. `SetLocate` is appended to the
+  `web` group (`bootstrap/app.php:36`) and calls `App::setLocale()` itself.
+- Driving `Session::get('LANGUAGE')`, which is what `SetLocate` reads, did not work either. This
+  route sits inside `Route::middleware([ActiveTheme::class, 'themelanguage'])`
+  (`routes/customer.php:49`), and `ThemeLanguage` runs **after** `SetLocate` and reads
+  **`Cookie::get('LANGUAGE')`**, falling back to the platform admin's own language.
+
+On the storefront the cookie is the only lever. The first two versions of the test failed on the
+locale rather than on the translation they name.
+
+### F96 — a durable claim, on both entry points
+
+The triage was right that all three obvious patches are wrong: raising the ten-second TTL fixes
+nothing if the writer is waiting on SMTP; writing `processed = true` first is worse, because a crash
+mid-write leaves a payment marked processed with no order; and moving the notification I/O out of the
+writer's stock loop is a restructuring that touches every gateway sharing that writer. **That
+restructuring is still open as its own slice. It is no longer the only way to close F96.**
+
+`Cache::add()` is atomic and **has no owner to expire** — the first caller to add the key wins and
+every later one is refused for as long as the key lives, whatever the first caller is doing
+meanwhile. It is the same primitive `claimGatewayReturn()` already uses for every other gateway
+return; this path was the one using a mutex where the others use a claim.
+
+| | |
+|---|---|
+| where | **both** routed entry points: `handlePaymeraCallback` and `handlePaymeraTrigger` |
+| key | `'paymera_claim_' . $orderId` — the payment, nothing the caller supplies |
+| position | **after** the in-lock re-check, **before** the writer. Ahead of the re-check, a request the re-check would have turned away still consumes the claim |
+| on failure | `catch (\Throwable)` → `Cache::forget` → rethrow. `processed` is only set on success, so a failed write is retryable today; a claim outliving it would refuse that retry for two hours — the failure mode the "write `processed` first" patch was rejected for |
+| refusal | the **same** completion redirect (callback) or JSON (trigger) the existing replay branch answers with, `OrderCompleteBinding::holds()` included, so a stranger's replay is still not handed the buyer's order number (P1-ORD-13) |
+
+**The second entry point is the part the finding understated.** F96 names the callback;
+`handlePaymeraTrigger` has the identical shape — ten-second lock, re-check, writer, then
+`processed = true` — and therefore the identical window. Guarding one would have left the other
+reachable, which is the F46/F50 shape where fixing the file somebody read left the control
+bypassable by choosing another route.
+
+### Three driven tests that were all worthless
+
+F96's row already said a Feature test cannot stage the interleave. Three driven cases written first
+proved something sharper: a `fwrite(STDERR)` probe on the claim line printed **nothing** for any of
+them. `handlePaymeraCallback` polls Paymera **before** the lock and returns at the `status != 'A'`
+gate, and even with `Http::fake()` supplying an `'A'`, a later gate still turns the request away
+before the lock region. **One of the three was GREEN anyway**, because that early return is also a
+redirect to the completion page — so it passed for a reason with nothing to do with the guard it
+named.
+
+They were replaced with source assertions in the file's own established style, next to
+`test_the_recheck_sits_between_the_lock_and_the_order_write`, which pins this very region the same
+way and for the same reason. The ordering assertions are **positional `strpos`**, not a contiguous
+regex: the first version required `Cache::forget` to be the next token after the catch's brace and
+failed against correct code because an explanatory comment sits between them.
+
+### The mandated review found two defects inside the remedy
+
+The third package in a row where the independent review's finding was in the **fix** rather than in
+the original defect. Both are fixed; neither was a regression, and both were worth fixing anyway.
+
+**1. The catch's stated premise was false in a reachable arm.** The claim release was unconditional,
+and its comment said *"the write did not complete"*. It does complete, often enough:
+
+```
+getProductStatus()
+  :3187  DB::commit()                          <- the order EXISTS from here on
+  :3193  clearCartLines()                      (inside the try, deliberately)
+  :3194  } catch (...) { rollBack; restore; throw }
+  :3217..:3333  ~110 lines, NO try              <- every one of these can throw
+         StoreNotificationService->orderCreated($order)
+         ActivityLog::order_entry(...)
+         $owner = User::find($store->created_by); $owner->email   <- null deref
+         OrderNote::order_note_data(...) x3
+         event(new GetProductStatus(...))        (synchronous listeners)
+         Utility::affiliateTransaction($order)
+  :3332  OrderCompleteBinding::remember($order->id)   <- the LAST statement
+```
+
+A throw anywhere in that tail leaves an order written, `$pending['processed']` still false, and **no
+in-process marker of either** — not a return value, not a session binding, not a flag, because the
+binding is set last. Releasing the claim there hands the buyer's refresh exactly the second order the
+guard exists to prevent.
+
+It is **not a regression** — the ten-second lock lapsed the same way — but the remedy did not cover
+the arm, and the comment told the next reviewer that it was impossible, which is worse than the code
+being wrong quietly.
+
+The release is now conditional on `paymeraOrderCommittedSince()`, which asks the **row**, because
+the row is the only witness. It **fails closed** when the question cannot be asked, following this
+codebase's own doctrine for a partial money claim (`GuardsGatewayReturn:252-255`: *"un-refusing it to
+keep two cache entries tidy would be the wrong direction for a money control"*). A kept claim logs
+`critical`: the buyer's refresh then reaches the completion page with no order number, so that line
+is the only record the order exists.
+
+**2. A stranded claim turned a captured payment into no order at all.** This is the one direction in
+which the first version was **worse** than the lock it replaced, and it is why the lifetime is now a
+named constant with its bounds written down.
+
+| | two hours (first version) | ten minutes (now) |
+|---|---|---|
+| worker dies mid-write (fpm `request_terminate_timeout`, `memory_limit` E_ERROR, SIGKILL, deploy restart) — `catch` does not run | claim stands for 2h with `processed` false | claim stands for 10 min |
+| the buyer's refresh, the **only** retry path (F97: the gateway's trigger route is behind `auth`) | refused for 2h | refused for 10 min |
+| `paymera_pending_<reference>`, which that retry needs | **expires at the same time** → no order, ever | still has ~110 minutes left |
+
+The lower bound is the writer's worst case: its slow part is outbound SMTP and SMS inside the stock
+loop, PHP's `default_socket_timeout` is 60 seconds, and any `request_terminate_timeout` worth setting
+is far below ten minutes — a request still running after ten minutes has been killed by the platform,
+so there is nothing left to protect. The upper bound is the record's own two hours. Ten minutes sits
+an order of magnitude inside both.
+
+**Not** "write `processed` first", which stays wrong for the reason already recorded: a crash
+mid-write would leave a payment marked processed with no order.
+
+### What the review cleared, and the two things it recorded instead
+
+Cleared, with the path traced in each case: cross-principal denial on both key shapes (the F95 key's
+three inputs each traced — the store segment only widens the attacker's own keyspace, the principal
+segment is session-derived, and colliding on the cookie needs the victim's session id, which is
+session takeover); the F96 key adding no reach beyond the `paymera_pending_<reference>` the record is
+already under; the lock-skip for a caller with neither identity (traced to `'Cart is empty.'` before
+the stock loop); no order number leaking from either new refusal branch; no new 401; and the `finally`
+moving nothing into or out of the guarded region.
+
+Two findings came out of it that are **not** this change's:
+
+- **F185** — the Paymera trigger's two pre-existing branches answer with `product_order_id` and no
+  `OrderCompleteBinding::holds()` test, where the browser callback has one. Behind `auth`, so the
+  caller is any logged-in user who names a live reference. Recorded, not fixed: the one-line fix
+  changes what a machine caller is answered on a payment route.
+- **F95's own asymmetry** — the 30-second lock spans `Utility::send_twilio_msg()` calls, so it can
+  lapse inside its own critical region on a store with Twilio enabled. Which is exactly F96's
+  argument against timed locks. Deliberate rather than overlooked: a durable claim on an intake route
+  with a dozen refusal exits would refuse legitimate retries. Recorded in the ledger.
+
+### Evidence
+
+| | |
+|---|---|
+| `tests/Feature/Security/WhatsappOrderConcurrencyTest.php` | **6 cases** — the refusal without a write · the positive control · the release · the cross-principal key · the Arabic refusal · the telegram route |
+| `tests/Feature/Commerce/PaymeraCallbackIdempotencyTest.php` | 22 → **26 cases**; the five F96 assertions run over both entry points through a `guardedEntryPoints()` provider |
+| `tests/Feature/Commerce/PaymeraPostCommitClaimTest.php` | **10 driven cases** over the two new helpers — nothing committed · a commit after the mark · a commit that predates it · **another store's** commit · another payment type · five unusable store ids, all fail-closed |
+| bites | **18 distinct, every one bit.** F95 (4): no lock (driven against both routes) · key from the body (pre-captured) · lock never released · the Arabic key dropped. F96 (5): the claim removed from each entry point separately · `Cache::forget` removed · the claim hoisted above the re-check · the key carrying the caller's IP. The review's fixes (9): each entry point's release made unconditional · the commit test ignoring the store, the payment type, the mark · the unanswerable question failing open · the claim lengthened to the record's own two hours · the record's life changed under the margin |
+| the positive control | F95's `test_an_ordinary_request_is_not_refused_by_the_guard` — a guard that refused everything would satisfy the refusal case perfectly |
+| not driven, stated | F96's claim. `Cache::lock`/`Cache::add` on the `array` driver are process-local, and the handler's own pre-lock gates stop a staged request reaching the region (measured above) |
+| client-visible change | none. The F95 refusal is `$this->error([...])` — HTTP 200 with `status: 0`, the shape this path already answers with. No new 401 and no new 429 on any path a client calls |

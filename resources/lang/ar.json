@@ -3310,5 +3310,6 @@
     "Send Mail :thing": "إرسال بريد إلى :thing",
     "Send Message :thing": "إرسال رسالة إلى :thing",
     "Show :thing": "عرض :thing",
-    "Plan Order": "طلب الخطة"
+    "Plan Order": "طلب الخطة",
+    "This order is already being processed. Please wait a moment before trying again.": "هذا الطلب قيد المعالجة بالفعل. يرجى الانتظار لحظة قبل المحاولة مرة أخرى."
 }

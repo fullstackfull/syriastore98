@@ -519,6 +519,33 @@ stock because its payment path normally does. Whether a durable record exists th
 
 ---
 
+### Re-verified 2026-10-29 — **STILL BLOCKED, and both blockers were measured rather than assumed**
+
+The owner's directive of 2026-10-29 lists E13 as work to continue. It is re-checked here rather
+than re-asked, and **nothing has changed in either of the two things that block it**:
+
+| blocker | measured |
+|---|---|
+| **No refund to the customer is possible at all.** Condition 3 separates reversing the merchant's balance from a real refund; condition 6 refuses the automatic path for any collected payment whose refund is not provably correct. | `RefundIntegrityService::hasGatewayRefundDriver()` is still a hardcoded `return false;`, and `RefundIntegrityService` is still the **only** file under `app/Services/` that references the gateway refund clients — they have **zero callers**. So *every* collected payment falls into condition 6's refusal, not a subset of them. Already ratcheted by `RefundIntegrityTest::test_no_gateway_refund_driver_exists`. |
+| **No stock evidence exists.** Conditions 4 and 5 forbid treating the original as having consumed stock, or marking it as such, without evidence from the real processing path. | No movement store exists. `E13-STOCK-EVIDENCE-ANALYSIS.md` establishes that building one first would produce a record that cannot be trusted while most order writers are uninstrumented, and that D-18 authorises enrolling only four of the nine writers. D-13's 2026-10-29 work compensated the post-loop window on those four; it did **not** create evidence, and did not claim to. |
+
+**So not even the unpaid scenario is implementable**, which is the part worth stating because it is
+not obvious. A cancel-and-replace on an order where nothing was collected still has to decide
+whether to give the original's stock back — and whether the original consumed stock is **exactly
+the unprovable thing** conditions 4 and 5 are about. The payment blocker and the stock blocker do
+not have disjoint scopes; the stock one reaches the unpaid case too.
+
+**There is also nothing to refuse yet.** Grepped: no cancel-and-replace route, controller or
+service exists in either repository. E13 is design-only, so condition 6's "refuse or disable the
+automatic replacement path" has no subject — there is no path to disable, and writing one in order
+to refuse it would be building the thing the conditions block.
+
+Per the owner's own instruction — *"إن تعذّر إثبات سلامة أحد السيناريوهات، اتركه BLOCKED مع سببه،
+واستكمل السيناريوهات الآمنة"* — E13 stays BLOCKED with its reason, and the work continues on the
+items that are not.
+
+---
+
 ## D-16 — D-09: design A1 approved (owner, 2026-10-26) — IMPLEMENTED 2026-10-26
 
 **Approved.** Edit existing variants **in place**, without rebuilding every variant when a price,

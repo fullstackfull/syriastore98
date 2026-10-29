@@ -5,6 +5,7 @@ namespace Tests\Feature\Commerce;
 use App\Http\Controllers\PaymentController;
 use App\Services\PaymentService;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 /**
@@ -560,6 +561,253 @@ class PaymeraCallbackIdempotencyTest extends TestCase
         }, false);
 
         $this->assertSame(['mine' => 'KEEP-FIXTURE'], \Illuminate\Support\Facades\Session::get('request_data'));
+    }
+
+    /*
+     * ------------------------------------------------------------------------------------------
+     * F96 — THE WINDOW THE TEN-SECOND LOCK LEAVES OPEN, 2026-10-29.
+     *
+     * `processed` is not written until the ORDER WRITER returns, and that writer makes external
+     * calls — `Utility::sendEmailTemplate()` and `Utility::SendMsgs()` — inside its stock loop.
+     * An SMTP or SMS timeout alone can exceed the lock's ten seconds. If the writer runs long the
+     * lock LAPSES while `processed` is still false, a concurrent replay acquires it, the re-check
+     * inside the lock still reads false, and a second order is written for one payment.
+     *
+     * The project's own reasoning establishes the premise one layer down: the comment at
+     * `PaymentController:2878-2886` says the database transaction was deliberately placed OUTSIDE
+     * that loop because *"holding row locks across an external call is the mistake this boundary
+     * exists to avoid"*. The cache lock is held across exactly those calls.
+     *
+     * `Cache::lock` on the `array` driver these tests run under is process-local, so no Feature
+     * test can stage two genuinely concurrent requests and watch the lock lapse. What a test CAN
+     * do is stage the STATE that interleave produces — the claim already taken, `processed` still
+     * false — and measure what the handler does with it. That is the thing the fix changes.
+     * ------------------------------------------------------------------------------------------
+     */
+
+    /*
+     * ------------------------------------------------------------------------------------------
+     * F96 — THE WINDOW THE TEN-SECOND LOCK LEAVES OPEN, closed 2026-10-29.
+     *
+     * `processed` is not written until the ORDER WRITER returns, and that writer makes external
+     * calls — `Utility::sendEmailTemplate()` and `Utility::SendMsgs()` — inside its stock loop.
+     * An SMTP or SMS timeout alone can exceed the lock's ten seconds. If the writer runs long the
+     * lock LAPSES while `processed` is still false, a concurrent replay acquires it, the re-check
+     * inside the lock still reads false, and a second order is written for one payment.
+     *
+     * The project's own reasoning establishes the premise one layer down: the comment at
+     * `PaymentController:2878-2886` says the database transaction was deliberately placed OUTSIDE
+     * that loop because *"holding row locks across an external call is the mistake this boundary
+     * exists to avoid"*. The cache lock is held across exactly those calls.
+     *
+     * THE FIX IS A DURABLE CLAIM, not a longer lock. `Cache::add()` is atomic and has no owner to
+     * expire, so the first caller to add the key wins and every later one is refused for as long
+     * as the key lives — whatever the first caller is doing meanwhile. It is the same primitive
+     * `claimGatewayReturn()` already uses for every other gateway return; this path was using a
+     * mutex where the others use a claim. Raising the TTL fixes nothing (no TTL is long enough if
+     * the writer is waiting on SMTP) and writing `processed` first is worse (a crash mid-write
+     * would leave a payment marked processed with no order).
+     *
+     * THESE ARE SOURCE ASSERTIONS, AND THE REASON IS MEASURED RATHER THAN ASSUMED. Three driven
+     * cases were written first and all three were worthless: a `fwrite(STDERR)` probe on the claim
+     * line printed NOTHING for any of them, because `handlePaymeraCallback` polls Paymera before
+     * the lock and returns at the `status != 'A'` gate — and even with `Http::fake()` supplying
+     * an `'A'`, a later gate still turns the request away before the lock region. One of the three
+     * was GREEN anyway, because the early return is also a redirect to the completion page, so it
+     * was passing for a reason that had nothing to do with the guard it named.
+     *
+     * Staging a Paymera callback all the way to the writer is fixture work this file deliberately
+     * avoids — `test_the_recheck_sits_between_the_lock_and_the_order_write` pins the ordering of
+     * this very region the same way, and for the same reason. The claim is therefore **not
+     * driven**, and that is stated rather than implied.
+     * ------------------------------------------------------------------------------------------
+     */
+
+    /** @return array<string, string> the two ROUTED entry points, as the file's own census names them */
+    public static function guardedEntryPoints(): array
+    {
+        return [
+            'the browser callback' => ['handlePaymeraCallback'],
+            'the gateway trigger' => ['handlePaymeraTrigger'],
+        ];
+    }
+
+    /**
+     * @dataProvider guardedEntryPoints
+     */
+    public function test_the_durable_claim_sits_between_the_recheck_and_the_order_write(string $method): void
+    {
+        $source = $this->executableSourceOf(PaymentController::class, $method);
+
+        $recheck = strpos($source, 'freshPaymeraPendingOrNull(');
+        $claim = strpos($source, "Cache::add(\$ssPaymeraClaim");
+        $write = strpos($source, '$this->getProductStatus(');
+
+        $this->assertNotFalse($recheck, $method . ' must still re-read the pending record');
+        $this->assertNotFalse(
+            $claim,
+            $method . ' takes no durable claim, so the ten-second lock is the only thing standing'
+            . ' between a slow writer and a second order for one payment'
+        );
+        $this->assertNotFalse($write, $method . ' must still create the order');
+
+        $this->assertGreaterThan(
+            $recheck,
+            $claim,
+            $method . ': the claim must come AFTER the re-check — ahead of it, a request that the'
+            . ' re-check would have turned away still consumes the claim'
+        );
+        $this->assertLessThan(
+            $write,
+            $claim,
+            $method . ': the claim must be taken BEFORE the writer runs, because the window it'
+            . ' closes is exactly the time the writer spends inside the lock'
+        );
+    }
+
+    /**
+     * @dataProvider guardedEntryPoints
+     */
+    public function test_a_failed_write_forgets_the_claim_so_a_retry_is_still_possible(string $method): void
+    {
+        $source = $this->executableSourceOf(PaymentController::class, $method);
+
+        /*
+         * POSITIONAL, NOT A CONTIGUOUS REGEX. The first version required `Cache::forget` to be
+         * the very next token after the catch's brace, and failed against code that is correct
+         * because an explanatory comment sits between them. The file's own
+         * `test_the_recheck_sits_between_the_lock_and_the_order_write` asserts ordering with
+         * `strpos`; this does the same.
+         */
+        $catch = strpos($source, 'catch (\\Throwable $ssPaymeraError)');
+        $forget = strpos($source, 'Cache::forget($ssPaymeraClaim);');
+        $rethrow = strpos($source, 'throw $ssPaymeraError;');
+
+        $this->assertNotFalse(
+            $catch,
+            $method . ': a failed write must be caught so the claim can be released (when nothing'
+            . ' committed -- see test_the_claim_is_released_only_when_no_order_committed).'
+            . ' `processed` is only set on success, so a failed write is retryable today, and a'
+            . ' claim that outlived a failure would refuse that retry for two hours. That is the'
+            . ' failure mode the "write processed first" patch was rejected for, and the claim'
+            . ' must not reintroduce it.'
+        );
+        $this->assertNotFalse($forget, $method . ': the claim is never forgotten, so a failed write blocks the retry');
+        $this->assertNotFalse($rethrow, $method . ': the failure must be rethrown, not swallowed');
+
+        $this->assertGreaterThan($catch, $forget, $method . ': the claim must be forgotten inside the catch');
+        $this->assertGreaterThan($forget, $rethrow, $method . ': forget the claim, then rethrow, not the other way round');
+    }
+
+    /**
+     * THE RELEASE IS CONDITIONAL, AND THE CONDITION IS THE DEFECT THE REVIEW FOUND IN THIS FIX.
+     *
+     * The first version of the catch released the claim unconditionally and said in a comment that
+     * the write "did not complete". `getProductStatus()` commits at `PaymentController:3187` and
+     * then runs ~110 lines of unguarded post-commit work whose last statement is
+     * `OrderCompleteBinding::remember()`, so a throw in that tail leaves an order written,
+     * `processed` still false, and no in-process marker of either. Releasing the claim there hands
+     * the next replay the second order this guard exists to prevent.
+     *
+     * The behaviour of the condition itself is DRIVEN, in `PaymeraPostCommitClaimTest`. What this
+     * pins is that the catch asks the question **before** it releases anything — an ordering a
+     * driven test cannot reach, for the reason this file's header records.
+     *
+     * @dataProvider guardedEntryPoints
+     */
+    public function test_the_claim_is_released_only_when_no_order_committed(string $method): void
+    {
+        $source = $this->executableSourceOf(PaymentController::class, $method);
+
+        $catch = strpos($source, 'catch (\\Throwable $ssPaymeraError)');
+        $asked = strpos($source, 'paymeraOrderCommittedSince(');
+        $forget = strpos($source, 'Cache::forget($ssPaymeraClaim);');
+
+        $this->assertNotFalse($catch, $method . ': the failure must still be caught');
+        $this->assertNotFalse(
+            $asked,
+            $method . ' releases its claim without asking whether an order committed. A throw in'
+            . ' the writer\'s post-commit tail leaves the order written and `processed` false, so'
+            . ' an unconditional release hands the next replay a SECOND order for one payment.'
+        );
+        $this->assertNotFalse($forget, $method . ': a failed write with nothing committed must still release the claim');
+
+        $this->assertGreaterThan($catch, $asked, $method . ': the question belongs inside the catch');
+        $this->assertLessThan(
+            $forget,
+            $asked,
+            $method . ': the claim is released before the question is asked, so the answer cannot'
+            . ' affect it'
+        );
+    }
+
+    public function test_the_claim_key_is_the_payment_reference_and_nothing_else(): void
+    {
+        /*
+         * The key names the PAYMENT, not the caller. A key carrying anything a caller supplies
+         * would let one request block another's payment; a key carrying less than the reference
+         * would let one payment's claim block a different payment.
+         */
+        foreach (array_keys(self::guardedEntryPoints()) as $what) {
+            [$method] = self::guardedEntryPoints()[$what];
+            $source = $this->executableSourceOf(PaymentController::class, $method);
+
+            $this->assertStringContainsString(
+                "\$ssPaymeraClaim = 'paymera_claim_' . \$orderId;",
+                $source,
+                $what . ': the claim key must be built from the payment reference alone'
+            );
+        }
+    }
+
+    /**
+     * THE CLAIM MUST EXPIRE WELL INSIDE THE LIFE OF THE RECORD A RETRY NEEDS.
+     *
+     * This is the second defect the review found in the F96 remedy, and it is the one direction in
+     * which the first version made things WORSE than the ten-second lock it replaced. `catch` does
+     * not run when a worker DIES -- an fpm `request_terminate_timeout`, a `memory_limit` E_ERROR,
+     * a SIGKILL, a deploy restart -- so a claim can be stranded with `processed` still false. While
+     * it stands every retry is refused, and the gateway's own retry cannot help: F97 measured the
+     * trigger route to sit behind `auth`, so the buyer's refresh of the anonymous callback is the
+     * only retry path there is.
+     *
+     * The first version used TWO HOURS, which is exactly the life of `paymera_pending_<reference>`.
+     * A claim that outlives that record turns a captured payment into **no order at all**: the
+     * retry is refused until the claim expires, and by then the record it needs is gone. The
+     * constraint is therefore not a preference — it is "strictly shorter, by enough that a buyer
+     * who comes back still finds their payment".
+     *
+     * Both halves are asserted, because the margin is only meaningful against the record's own
+     * TTL: shorten the record and this test asks you to revisit the claim.
+     */
+    public function test_the_claim_expires_well_before_the_pending_record_does(): void
+    {
+        $claim = new \ReflectionClassConstant(PaymentController::class, 'PAYMERA_CLAIM_MINUTES');
+        $minutes = (int) $claim->getValue();
+
+        $this->assertGreaterThan(
+            0,
+            $minutes,
+            'a claim with no life cannot close F96: the window it covers is the time the writer'
+            . ' spends inside the lock'
+        );
+
+        $source = $this->executableSourceOf(PaymentController::class, 'handlePaymeraCallback');
+
+        $this->assertStringContainsString(
+            "Cache::put(\n            'paymera_pending_' . \$orderId,\n            \$pending,\n            now()->addHours(2)",
+            $source,
+            'the pending record is no longer written with a two-hour life, so the margin this test'
+            . ' asserts is measured against the wrong number -- re-derive it'
+        );
+
+        $this->assertLessThan(
+            120 / 2,
+            $minutes,
+            'the claim can outlive, or nearly outlive, the pending record a retry needs. A worker'
+            . ' that dies mid-write strands the claim with `processed` still false, and once the'
+            . ' record expires the captured payment has no order and no path to one.'
+        );
     }
 
     private function bindSession(): void
