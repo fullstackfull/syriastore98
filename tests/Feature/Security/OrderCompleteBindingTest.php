@@ -228,12 +228,32 @@ class OrderCompleteBindingTest extends TestCase
              * existing replay branches use, `holds()` included. That is the point of counting them:
              * a new branch that flashes the order number without the binding is exactly what this
              * ratchet is for, and the right way past it is to carry the binding, not to raise the
-             * number. Which this branch does; the number follows. (The gateway trigger's matching
-             * refusal adds none, because the trigger answers JSON and reads
-             * `$pending['product_order_id']` directly -- recorded as F185, with the reason it was
-             * not changed inside a payment slice.)
+             * number. Which this branch does; the number follows.
+             *
+             * EIGHT SINCE F185, LATER THE SAME DAY, AND IT IS THE SAME RULE APPLIED AGAIN. The
+             * parenthetical that stood here said the gateway trigger's matching refusal "adds none,
+             * because the trigger answers JSON and reads `$pending['product_order_id']` directly --
+             * recorded as F185, with the reason it was not changed inside a payment slice." F185 is
+             * now fixed, so that sentence is false and is removed rather than left: the trigger's
+             * THREE branches that could answer the order number -- the already-`processed` one, the
+             * in-lock re-check, and the F96 claim refusal -- now go through one
+             * `paymeraTriggerAnswer()` helper that calls `holds()` once. So the count rose because
+             * the binding was carried, which is the only way this ratchet is meant to be passed.
+             *
+             * ONE HELPER AND NOT THREE CALLS, deliberately: counting call SITES would have made this
+             * 10 and tied the number to a refactor rather than to the control. The helper's three
+             * call sites are counted instead by
+             * `PaymeraTriggerOrderNumberTest::test_no_trigger_branch_answers_the_order_number_directly`,
+             * as a floor, so a fourth branch is free to appear but cannot answer the number without
+             * the guard.
+             *
+             * WHAT F185 IS AND IS NOT, because the number alone invites the wrong reading: the
+             * three branches provably answered null before the fix -- `product_order_id` is written
+             * only together with `status = 'A'`, and the trigger returns on `status === 'A'` before
+             * reaching them -- so this is defence in depth, not a closed disclosure. See that test's
+             * class docblock.
              */
-            'app/Http/Controllers/PaymentController.php' => 7,
+            'app/Http/Controllers/PaymentController.php' => 8,
             // P1-ORD-13 FOLLOW-UP: the one provider that had none (the buyer's order is written in
             // the buyer's own session here, so the key is recordable exactly as at the other nine).
             'app/Http/Controllers/KhaltiPaymnetController.php' => 1,
