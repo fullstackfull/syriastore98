@@ -2265,6 +2265,52 @@ public function UpdateCoupon(Request $request)
             ]);
         }
 
+        /*
+         * F195 (a) -- THIS HANDLER HAD NO PERMISSION CHECK AT ALL.
+         *
+         * Not `Edit Products`, not anything: `resolveOwnedStore()` answered the tenancy question
+         * and the delete followed. Its web sibling, `ProductController::product_attribute_delete`,
+         * requires `Edit Products` for a reason it states -- the row carries stock. So any
+         * principal holding a token for a store could destroy its variants and their stock
+         * regardless of what their role allowed.
+         *
+         * `MerchantPermissions::allowsAny()` rather than `isAbleTo()`: it resolves the permission
+         * against the store the principal is actually in and gives the platform operator the
+         * wildcard, because `isAbleTo()` alone REFUSES the operator in this codebase. An
+         * operator-last check here would be a lockout rather than a tightening.
+         *
+         * NOT A SHIPPED-CLIENT CHANGE, measured rather than assumed: nothing in the Flutter admin
+         * app at /home/user/StoreSyria_app98 calls `deletevariant` (a case-insensitive grep over
+         * `lib/` finds no occurrence), so no client loses an operation it was performing.
+         */
+        if (! \App\Services\MerchantPermissions::allowsAny(\Auth::user(), ['Edit Products'], $store->id)) {
+            return $this->error(['message' => __('Permission denied.')]);
+        }
+
+        /*
+         * F195 (b) -- THE D-20 REFERENCE BLOCK IS **NOT** APPLIED HERE, AND THAT IS RECORDED RATHER
+         * THAN SILENT.
+         *
+         * The checks that refuse a delete when a cart line, a wishlist entry or an order references
+         * the variant live in `ProductController::ssRefuseVariantRemoval()`, which is PRIVATE to a
+         * web controller. Reaching them from here needs one of: extracting them into a service that
+         * both controllers call (correct, and the named fix), duplicating the queries here (which
+         * is how two copies of a control drift apart -- this project has a row for exactly that),
+         * or making the method public and instantiating a web controller from an API one. The
+         * extraction is a refactor of a guard with sixteen tests driving it through `update()`, and
+         * it does not belong in the same change as a missing-permission fix.
+         *
+         * SO THIS PATH STILL DELETES A REFERENCED VARIANT, for a caller who now also needs
+         * `Edit Products`. It is narrower than it was and it is not closed. See the F195 row.
+         *
+         * One mitigation it has by accident: `->where('store_id', $store->id)` below narrows on
+         * `ProductVariant.store_id`, which `product_attribute_delete`'s own comment records (S36)
+         * as *"not the authority on who owns it"* -- that handler resolves ownership through the
+         * variant's PRODUCT instead. Here the effect is fail-closed: a variant with a NULL
+         * `store_id` matches nothing and cannot be deleted through this endpoint at all. Left as it
+         * is rather than widened, because widening it would make MORE variants reachable from a
+         * path whose reference block is still missing.
+         */
         $ProductVariant = ProductVariant::where('id', $request->variant_id)
             ->where('store_id', $store->id)
             ->first();

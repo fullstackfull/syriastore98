@@ -8426,3 +8426,75 @@ The method name says *"one hundred and sixty eight"* and its own comment trail s
 across nine deltas, none of them a rename. It is a historical label rather than a live claim, and
 renaming it would make this delta's diff about something other than the one site it adds — so it is
 recorded here instead.
+
+---
+
+## F195 — the D-20 variant-removal block had a two-click browser bypass (2026-10-29)
+
+Found by a four-agent investigation of **F184** whose three adversarial verifiers all refuted the
+premise they were given, then verified at the source before anything was recorded.
+
+`ProductController::ssRefuseVariantRemoval()` holds every D-20 reference check and was reached from
+exactly two call sites, both inside `update()`. Two other routed paths reached
+`ProductVariant::delete()` without it:
+
+| path | permission | ownership | reference guard |
+|---|---|---|---|
+| `DELETE product-attribute-delete/{id}` | `Edit Products` | via the variant's **product** | **none** |
+| `DELETE api/admin/deletevariant` | **none at all** | `resolveOwnedStore()` + `ProductVariant.store_id` | **none** |
+
+The first is wired to a per-variant trash button in **both** variant panels, and a grep for
+`show_confirm`/`data-confirm` across those two files returns nothing — so a merchant holding
+`Edit Products` on their own product could delete, in two clicks and with no dialog, the exact
+variant the Save path hard-blocks. A fourth path in vendored `AuctionProduct` has no guard either;
+out of scope per CLAUDE.md, but it makes the class four paths rather than two. And the census built
+to catch a third path greps **one file** for **one spelling**, so it sees none of them.
+
+### Why this inverted the priority
+
+F184 is *a legitimate narrowing cannot be completed from a browser* — **fail-safe**, nothing gets
+deleted, which is why it was recorded rather than built. This is **fail-open**: the thing D-20
+exists to prevent happens. Fitting a confirmation dialog to the Save path while an unguarded trash
+button sits in the same panel is a lock on one door of two, so F184 now **depends on** this.
+
+### Three facts that make the obvious fix wrong
+
+1. **The naive bolt-on breaks the common case.** The guard's last condition refuses unless
+   confirmed, so passing the absent flag through would fail every ordinary trash click. That
+   endpoint IS D-20 condition 3's *separate operation requiring explicit confirmation*, so it takes
+   the blocks and not the confirmation refusal — which means the guard has to take the confirmation
+   as a parameter, and that is also what lets a handler with no `Request` call it at all. **Bitten.**
+2. **The refusal must not be 2xx.** Both callers announce *"Variant Deleted Successfully!"* and
+   remove the row from the DOM on any 2xx without reading the body. The guard's own
+   200-with-`flag:error` shape would hide a variant that still exists — worse than the bypass. 409,
+   with *not 2xx* pinned separately from *409*.
+3. **A non-2xx is silent today.** Neither caller had an `error:` handler, so the merchant would get
+   no toast, no loader reset and a row that stays. Those handlers ship with the guard.
+
+### What is closed and what is not
+
+The trash path is closed. The API path gained the permission check it never had — with
+`MerchantPermissions::allowsAny()` rather than `isAbleTo()`, because that helper gives the platform
+operator the wildcard where `isAbleTo()` alone refuses them — but **not** the reference guard:
+reaching a private web-controller method from an API controller needs an extraction that refactors a
+guard with sixteen tests, and that does not belong in the same change as a missing-permission fix.
+**Narrower, not closed.**
+
+### Why it was applied rather than left for the owner
+
+It is a behaviour change on a destructive path. The reading taken is that extending an
+**already-approved** control (D-20) to a second door reaching the same write is *implementing* that
+decision rather than making a new one — and the owner's own F184 instruction ("the confirmation UI
+must not bypass the block on deleting variants with unsafe historical references") shows the block is
+something they are already protecting. The direction is conservative: the failure mode is that a
+merchant cannot delete a variant an order references, which is what D-20 says should happen. **To
+revert:** delete the `$ssRemovalRefusal` block in `product_attribute_delete()`.
+
+### Evidence
+
+| | |
+|---|---|
+| `tests/Feature/Security/VariantDeleteReferenceGuardTest.php` | **9 cases** — a cart reference refuses · an order naming the product refuses (the hard block) · the refusal is **not a 2xx**, asserted separately from the code · a reference-free variant still deletes in one click · the guard runs **before** the delete · the guard takes the confirmation as a **parameter** · both panels surface a refusal · the API refuses without `Edit Products` **and** permits with it |
+| bites | **8, every one bit** — the guard call removed · the refusal served as 200 · the confirmation read from the request (the naive fix) · the signature taking a `Request` again · one panel's `error:` handler removed · the API permission check removed · the delete moved above the guard |
+| regression | the 32 existing variant tests (`ProductVariantOrdinarySaveGuardTest`, `VariantDeleteScopeTest`) all still pass through the changed signature |
+| two cases passed for the wrong reason first | one used `actingAs()` on a route carrying `custom.auth`, which resolves a **Sanctum bearer token** and refuses before the handler runs — so removing the permission check left it green; and one asserted on the top-level `message`, which `ApiResponser::error()` sets to the literal **"fail"** for every refusal. Both caught by biting, and a permitted-case sibling now makes the refusal attributable |

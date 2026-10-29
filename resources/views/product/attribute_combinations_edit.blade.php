@@ -427,6 +427,27 @@
                     show_toastr('{{ __('Success') }}',
                         '{{ __('Variant Deleted Successfully!') }}', 'success');
                     $(this).closest('.media').remove();
+                },
+                /*
+                 * F195. WITHOUT THIS A REFUSAL IS SILENT, which is why it ships with the guard
+                 * rather than after it.
+                 *
+                 * This request had `success:` only. jQuery calls it on 2xx alone, so the 409 the
+                 * server now returns when a cart line, a wishlist entry or an order still
+                 * references the variant would fade no loader, show no toast, and leave the row in
+                 * place -- the merchant clicks again and concludes the button is broken.
+                 *
+                 * The row is deliberately NOT removed here: the variant still exists, and removing
+                 * it would reproduce the lie the old any-2xx success path told.
+                 */
+                error: function(xhr) {
+                    $('#loader').fadeOut();
+
+                    var payload = xhr.responseJSON || {};
+                    var message = payload.message || payload.msg ||
+                        '{{ __('This variant could not be deleted.') }}';
+
+                    show_toastr('{{ __('Error') }}', message, 'error');
                 }
             });
         });

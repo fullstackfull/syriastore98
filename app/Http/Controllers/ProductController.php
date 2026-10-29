@@ -108,7 +108,28 @@ class ProductController extends Controller
      * @param  \Illuminate\Support\Collection  $removed  the variant rows the posted set no longer covers
      * @return array<string,mixed>|null
      */
-    private function ssRefuseVariantRemoval(Request $request, $product, $removed): ?array
+    /**
+     * F195 -- THE CONFIRMATION IS NOW A PARAMETER, NOT A REQUEST READ, AND THAT IS THE WHOLE
+     * REFACTOR THAT LETS A SECOND CALLER USE THIS GUARD.
+     *
+     * `$request` was used for exactly ONE thing in this method -- `$request->boolean(
+     * 'ss_confirm_variant_removal')` at the last condition -- so taking a request at all tied the
+     * guard to a path that HAS one. `product_attribute_delete($id)` does not: it is a
+     * `DELETE product-attribute-delete/{id}` handler with no request parameter and no confirmation
+     * field, and it reached `ProductVariant::delete()` with none of these checks. Reading the key at
+     * the CALL SITES instead makes this a pure function of (product, removed, confirmed), so that
+     * handler can ask the same question.
+     *
+     * WHY THE TRASH PATH PASSES `true`. D-20 condition 3 is *a deliberate delete is a separate
+     * operation requiring explicit confirmation*. `product_attribute_delete` IS that separate
+     * operation -- a dedicated per-variant endpoint reached by its own button, not a side effect of
+     * a Save that happens to narrow a term list. So it needs the BLOCKS (the cart and wishlist
+     * references, the store-less refusals, the order lines carrying a variant_id, and the
+     * unverifiable order history) WITHOUT the confirmation refusal, which would otherwise fail
+     * every ordinary trash click on a reference-free variant. Bolting the guard on without that
+     * distinction is the naive fix and it breaks the common case.
+     */
+    private function ssRefuseVariantRemoval($product, $removed, bool $confirmed): ?array
     {
         if ($removed->isEmpty()) {
             return null;
@@ -287,7 +308,7 @@ class ProductController extends Controller
         }
 
         /* --- condition 3: a deliberate delete is a separate, confirmed act ----------------- */
-        if (! $request->boolean('ss_confirm_variant_removal')) {
+        if (! $confirmed) {
             /* Condition 2: the names, the count, and what each one carries, so the merchant is
                deciding about real data rather than about a number. */
             $detail = $removed->map(function ($v) {
@@ -2420,7 +2441,7 @@ $Product->cost_price = $request->cost_price;
                         })
                         ->values();
 
-                    $ssChoiceRefusal = $this->ssRefuseVariantRemoval($request, $product, $ssChoiceRemoved);
+                    $ssChoiceRefusal = $this->ssRefuseVariantRemoval($product, $ssChoiceRemoved, $request->boolean('ss_confirm_variant_removal'));
 
                     if ($ssChoiceRefusal !== null) {
                         return $ssChoiceRefusal;
@@ -2570,7 +2591,7 @@ $Product->cost_price = $request->cost_price;
                             })
                             ->values();
 
-                        $ssRemovalRefusal = $this->ssRefuseVariantRemoval($request, $product, $ssRemovedVariants);
+                        $ssRemovalRefusal = $this->ssRefuseVariantRemoval($product, $ssRemovedVariants, $request->boolean('ss_confirm_variant_removal'));
 
                         if ($ssRemovalRefusal !== null) {
                             return $ssRemovalRefusal;
@@ -3833,6 +3854,51 @@ $Product->cost_price = $request->cost_price;
              * the first version cited one caller at the wrong lines.
              */
             return response()->json(['message' => __('Permission denied.')], 403);
+        }
+
+        /*
+         * F195 -- THE SAME D-20 BLOCK THE SAVE PATH APPLIES, ON THE DOOR THAT HAD NONE.
+         *
+         * This handler had `Edit Products` and ownership and then deleted the row. The reference
+         * checks lived only in `ssRefuseVariantRemoval()`, reached from two call sites both inside
+         * `update()` -- so a merchant could delete, in two clicks from the trash button in either
+         * variant panel, the exact variant the Save path hard-blocks because an order names its
+         * product. A control with a button next to it that skips it is not a control.
+         *
+         * `true` for the confirmation: see the guard's own docblock. This endpoint IS D-20
+         * condition 3's separate deliberate operation, so it takes the blocks and not the
+         * confirmation refusal.
+         *
+         * 409 AND NOT 200, AND THAT IS LOAD-BEARING. The guard's refusal array is what `update()`
+         * returns with HTTP 200 and `flag: 'error'`, because the product form reads `data.flag`.
+         * BOTH callers of THIS endpoint announce "Variant Deleted Successfully!" and remove the row
+         * from the DOM on ANY 2xx without reading the body -- the comment above says so, and it is
+         * still true -- so returning the guard's shape here would tell the merchant the variant was
+         * deleted, hide it from the panel, and leave it in the database. 409 Conflict is the honest
+         * code: the delete conflicts with references that exist.
+         *
+         * The message is carried so the new `error:` handlers in both panels can show it. Without
+         * those handlers a non-2xx is SILENT -- neither caller had one, which is why they are part
+         * of this change rather than a follow-up.
+         */
+        $ssRemovalRefusal = $this->ssRefuseVariantRemoval($owner, collect([$attribute]), true);
+
+        if ($ssRemovalRefusal !== null) {
+            \Illuminate\Support\Facades\Log::warning(
+                'product variant delete refused: the variant is still referenced',
+                [
+                    'variant_id' => $attribute->id,
+                    'product_id' => $attribute->product_id,
+                    'blocked' => $ssRemovalRefusal['ss_variant_removal']['blocked'] ?? null,
+                    'user_id' => optional(auth()->user())->id,
+                ]
+            );
+
+            return response()->json([
+                'flag' => 'error',
+                'message' => $ssRemovalRefusal['msg'],
+                'msg' => $ssRemovalRefusal['msg'],
+            ], 409);
         }
 
         $attribute->delete();
