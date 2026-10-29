@@ -7187,6 +7187,21 @@ is deleted — and it is product-editor UI work rather than a defect in the guar
 
 ## F95 / F96 — the two replay windows on the order-writing paths — 2026-10-29
 
+> **STATUS, CORRECTED 2026-10-29 ON THE OWNER'S INSTRUCTION.** Neither finding is *fully closed*,
+> and this section no longer says so. The owner's standing rule — *"لا تصف D-13 أو D-22 أو F95/F96
+> بأنها مغلقة بالكامل إن بقيت حالات الدفع أو استنزاف المخزون غير المثبتة مفتوحة"* — applies to all
+> four, so each is reported as **narrowed** with its residual named:
+>
+> | | narrowed | still open |
+> |---|---|---|
+> | **F95** | the lost-update race is refused within the lock's 30 seconds | the **rate** (no throttle) is the owner's; the lock spans Twilio calls and can lapse inside its own critical region |
+> | **F96** | the duplicate-order window on both routed entry points | **F186** — a pre-commit throw leaves a captured payment with no order and no path to one; the post-commit arm is a **delay, not a cure**; and no TTL is a proof |
+> | **D-13** | the post-loop stock window on the four handlers D-18 enrols | no stock **movement store** exists, so no path can be reconciled after the fact; five of nine order writers are uninstrumented |
+> | **D-22** | a capture that produced no order is a record the merchant sees | the customer still has no order, which that row already declined to claim |
+>
+> The sections below describe what was built and measured. They are not a release claim, and
+> **nothing here is release-ready while the captured-payment risk is unresolved.**
+
 Two findings from the E14 payment review, both reported and neither changed at the time because
 each looked like it needed an owner decision. Re-read, **one of them does and one of them does
 not**, and separating the halves is most of the work.
