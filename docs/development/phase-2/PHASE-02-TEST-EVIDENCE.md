@@ -7083,3 +7083,103 @@ return, which **is** a collection rule and is reserved.
 | bites | **8**, every one bit — four removing the compensation, four removing or neutralising the gate |
 | review | `tenant-authz-reviewer`: tenancy clean, control-flow clean, double-restore clean; **one defect inside the fix**, taken; one ratchet defect, taken |
 | suites | Security + Commerce **4925 passed, 11 skipped (the declared set), 0 failed** · Merchant + Unit clean in the same run |
+
+## D-20 — the variant-removal guard was looking in the wrong store — 2026-10-29
+
+**D-20's implementation was already there and tested** — 11 cases covering the owner's six
+conditions. What this slice found is that **three of its queries asked about the wrong tenant**,
+and that a fourth path skipped the guard altogether.
+
+### The defect, measured
+
+`ProductController::update()` detects which variants a save would remove, refuses unless the
+merchant confirms, hard-blocks on a live reference, and then deletes the uncovered rows. Three of
+those queries were scoped `->where('store_id', getCurrentStore())` — **the caller's store**. The
+subject of the question is the **product**, and its references live in its own store.
+
+They coincide for every ordinary merchant, because the ownership check at the top of `update()`
+refuses a non-operator unless `getCurrentStore() == $product->store_id`. They do **not** coincide
+for the platform operator: `getCurrentStore()` returns the **hardcoded literal 1** for a
+`super admin` whose `current_store` is empty (`helper.php:636`).
+
+Driven, with the caller an operator and the product in a second tenant:
+
+```
+detection query (caller's store 1)   →  0 variants found
+  → $ssRemovedVariants empty → the refusal returns null and never runs
+the delete at the bottom of the same block carries NO store predicate
+  → it removes the real rows anyway
+flag: success
+```
+
+**Detection and deletion were asking different questions.** Both now ask the same one:
+`$product->store_id`. A product with no store is refused outright rather than queried, because
+`where('store_id', null)` compiles to `whereNull` and would have reported safety it never
+established.
+
+The delete gaining a predicate can only **narrow** it — it had none — so no principal gains
+anything from the change.
+
+### The review found two more, in the same block
+
+**F182 — an operator's no-op save moved the variants into store 1.** `:2614` was
+`$product_stock->store_id = getCurrentStore();`, and the upsert above it resolves by `product_id` +
+`variant` with no store predicate, so it **rewrote** `product_variants.store_id` on existing rows.
+A store-7 product's variants became store 1's while `products.store_id` stayed 7 — after which
+every store-scoped reader stops seeing them, including
+`Api\DashboardController::UpdateVariant`'s own predicate and the store teardown's
+`ProductVariant::where('store_id', …)->delete()`, so **a drifted row survives the deletion of its
+own store**. One line. `store()`'s equivalent write is deliberately unchanged: there the product is
+being created by this caller, so the caller's store *is* the product's.
+
+**F183 — a second narrowing path bypassed the guard entirely.** `update()` has two complete variant
+rebuilds. The attribute path is the one D-20 governs; the `choice_no` / `choice_options_N` path
+deleted every uncovered row with **no store predicate, no reference check, no confirmation and no
+message** — the silent hard delete the owner's condition 5 forbids by name. No browser reaches it
+(`edit.blade.php` posts no `choice_no`) and nothing validates it away, so a merchant holding
+`Edit Products` can hand-post the fields. It now runs through the same
+`ssRefuseVariantRemoval()`, **above its upsert loop** for the owner's own reason: a refusal must
+leave every row as it was rather than half-upserting the survivors first.
+
+### The test gap the review named, and what it measures
+
+No case had a variant whose `store_id` differed from its product's.
+`test_a_variant_whose_store_drifted_is_neither_named_nor_deleted` adds one, and it records the
+**safe direction rather than the ideal one**: a drifted row is invisible to the store-scoped
+detection, so a narrowing neither names it nor deletes it — the merchant is told the removal
+succeeded and the row survives. That is strictly better than the old behaviour, where the
+unpredicated delete destroyed it silently while the caller-scoped detection had already failed to
+name it. Recorded as a measured limit rather than left to be found.
+
+### And a bite that did not bite
+
+Reverting `:2614` left `test_the_order_history_check_looks_in_the_products_store_not_the_callers`
+green — correctly, because that case is about the **detection predicate** and `:2614` is a
+**write**. The drifted-variant case asserts what happens *given* drift, not that drift is
+prevented. `test_an_operator_save_does_not_move_the_variants_into_another_store` is the case that
+measures the write, and the bite then bites.
+
+### Two improvements the review suggested, both taken
+
+- the no-store refusal discarded the cart/wishlist blockers it had already found, so a store-less
+  product whose variant *is* in a cart got the vaguer message. It now names them.
+- the operator case asserted only `flag`. It is a conjunction — it fails if any of the three
+  predicates regresses — so it now also pins `ss_variant_removal.blocked`, which says **which**
+  refusal fired.
+
+### Recorded, not built
+
+**F184 — `ss_confirm_variant_removal` has no UI.** The flag appears nowhere under
+`resources/views/`, so from a browser a legitimate narrowing cannot be completed: the merchant gets
+the refusal toast and has no control to confirm with. Fail-safe — the failure mode is that nothing
+is deleted — and it is product-editor UI work rather than a defect in the guard.
+
+### Evidence
+
+| | |
+|---|---|
+| `tests/Feature/Merchant/ProductVariantOrdinarySaveGuardTest.php` | 11 → **16** cases |
+| new cases | the operator's detection store · the operator's no-op write · the `choice_no` bypass · the drifted variant · the wishlist reference (the implementation checked it and nothing covered it) |
+| bites | **5 distinct**, every one bit |
+| review | `tenant-authz-reviewer`: the change is correct and a strict improvement; two further defects in the same block, both fixed; one test gap, closed; one product finding, recorded |
+| suites | Merchant + Security + Commerce + Unit **5938 passed, 11 skipped (the declared set), 0 failed** |

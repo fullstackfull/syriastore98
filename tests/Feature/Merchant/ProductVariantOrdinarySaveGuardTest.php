@@ -466,6 +466,107 @@ class ProductVariantOrdinarySaveGuardTest extends SecurityTestCase
     }
 
     /**
+     * CONDITION 4, AND THE STORE THE REFERENCE CHECK ACTUALLY LOOKS IN.
+     *
+     * The two order queries in `ssRefuseVariantRemoval()` were scoped
+     * `->where('store_id', getCurrentStore())` — the CALLER's store, not the PRODUCT's. The
+     * product being edited is the subject of the question, and its references live in its own
+     * store, so the two coincide only when the caller's current store happens to be the product's.
+     *
+     * They do not coincide for the platform operator, and CLAUDE.md names the reason: **the helper
+     * returns the hardcoded literal `1`** for a `super admin` whose `current_store` is empty
+     * (`helper.php:636`). So an operator narrowing a store-7 product would have had its history
+     * checked against **store 1's** orders, found none, and been offered a confirmation for a
+     * delete whose safety was never established. The same shape with `null` — a merchant with no
+     * resolvable store — compiles to `whereNull('store_id')` and matches nothing, which is the
+     * open-tenant failure mode CLAUDE.md warns about by name.
+     *
+     * The predicate is now `$product->store_id`: the store of the row being edited, derived from
+     * the record and not from the caller.
+     */
+    public function test_the_order_history_check_looks_in_the_products_store_not_the_callers(): void
+    {
+        [$merchant, $product, $categoryId, $variants] = $this->arrangeTwelve();
+
+        /*
+         * THE FIXTURE'S FIRST TENANT IS STORE 1, which is exactly the store the helper's
+         * hardcoded fallback names — so with one tenant the bug is invisible: the wrong answer and
+         * the right one coincide. A SECOND tenant is created and the product moved into it, so
+         * `getCurrentStore()`'s literal 1 and the product's store are genuinely different.
+         *
+         * The first version of this case asserted the premise against the unmoved product and
+         * failed on it, which is the premise doing its job.
+         */
+        [, $otherStore] = $this->makeTenant();
+        $product->store_id = $otherStore->id;
+        $product->save();
+        \DB::table('product_variants')->where('product_id', $product->id)
+            ->update(['store_id' => $otherStore->id]);
+
+        $this->assertNotSame(1, (int) $product->store_id,
+            'the premise: the product must not live in store 1, or the trap cannot be exercised');
+
+        \DB::table('orders')->insert([
+            'product_order_id' => 'POI-' . uniqid(),
+            'customer_id' => 0,
+            'is_guest' => 1,
+            'product_id' => $product->id,
+            'delivery_id' => 0,
+            'delivered_status' => 0,
+            'return_status' => 0,
+            'reward_points' => 0,
+            'order_date' => now(),
+            'payment_status' => 'Paid',
+            'final_price' => 100,
+            'store_id' => $product->store_id,
+            'product_json' => json_encode([[
+                'product_id' => $product->id,
+                'name' => 'Scarf',
+                'qty' => 1,
+                'price' => 100,
+                'final_price' => 100,
+                'total_orignal_price' => 100,
+            ]]),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        /* Eloquent, not a raw update: `User` is Cachable, so a raw write leaves the handler's own
+           read serving the pre-write row — a trap this project has measured twice. */
+        $merchant->type = 'super admin';
+        $merchant->current_store = null;
+        $merchant->save();
+        \Illuminate\Support\Facades\Cache::forget('admin_details');
+
+        $this->assertSame(1, (int) getCurrentStore($merchant->id),
+            'the premise: the helper really answers the hardcoded 1 for this principal');
+
+        $payload = $this->ordinarySavePayload($product, $categoryId, $variants);
+        $payload['options_datas'] = ['S-Red', 'M-Red'];
+        $payload['ss_confirm_variant_removal'] = 1;
+
+        $response = $this->actingAs($merchant)->put(route('product.update', $product->id), $payload);
+        $response->assertOk();
+
+        $this->assertSame(
+            'error',
+            $response->json('flag'),
+            'the order-history check looked in the CALLER\'s store, not the product\'s, so an'
+            . ' operator was offered a confirmed delete whose safety had been checked against'
+            . ' another tenant\'s orders.'
+        );
+        /* The BRANCH, not just the flag -- this case is a conjunction (it fails if any of the
+           three predicates regresses), so naming the branch says WHICH refusal fired. */
+        $this->assertSame(
+            'unverifiable_order_history',
+            $response->json('ss_variant_removal.blocked'),
+            'the refusal fired, but not the one this case is about'
+        );
+
+        $this->assertCount(12, $this->readAll($product->id), 'a blocked narrowing deleted rows anyway');
+    }
+
+    /**
      * CONDITION 4 — a reference that CAN be seen is a hard refusal, and confirming does not make
      * it safe. A cart line holding one of the variants about to be deleted is exactly that.
      */
@@ -498,6 +599,204 @@ class ProductVariantOrdinarySaveGuardTest extends SecurityTestCase
         $this->assertStringContainsString('L-Sand', (string) $response->json('msg'),
             'the refusal must name the referenced variant');
         $this->assertStringContainsString('cart', strtolower((string) $response->json('msg')),
+            'the refusal must say WHAT references it, or the merchant cannot clear the block');
+
+        $this->assertCount(12, $this->readAll($product->id),
+            'a blocked narrowing still deleted rows');
+    }
+
+    /**
+     * THE SECOND NARROWING PATH — `choice_no`, which bypassed the D-20 guard entirely.
+     *
+     * `update()` has two complete variant rebuilds. The attribute path is the one D-20 was built
+     * around; this one deleted every uncovered row with no store predicate, no reference check, no
+     * confirmation and no message. `edit.blade.php` posts no `choice_no`, so no browser reaches
+     * it — but nothing validates it away either, so a merchant holding `Edit Products` can
+     * hand-post the fields and destroy their own product's variants with the guard never running.
+     *
+     * The owner's D-20 condition 5 is *"if the delete's safety is not established, refuse with a
+     * clear message. No silent hard delete."* A silent hard delete is exactly what this was.
+     *
+     * Found by the mandated review of the attribute path's store-predicate fix.
+     */
+    public function test_the_choice_no_path_cannot_delete_variants_without_the_guard(): void
+    {
+        [$merchant, $product, $categoryId, $variants] = $this->arrangeTwelve();
+
+        $payload = $this->ordinarySavePayload($product, $categoryId, $variants);
+
+        /* The hand-built shape no view emits: a `choice_no` rebuild naming two combinations,
+           which would uncover the other ten. No confirmation flag. */
+        $payload['variant_product'] = 1;
+        $payload['choice_no'] = [1];
+        $payload['choice_options_1'] = ['S-Red', 'M-Red'];
+        unset($payload['options_datas']);
+
+        $response = $this->actingAs($merchant)->put(route('product.update', $product->id), $payload);
+        $response->assertOk();
+
+        $this->assertSame(
+            'error',
+            $response->json('flag'),
+            'the `choice_no` path deleted variants with no confirmation and no reference check —'
+            . ' the silent hard delete the owner\'s condition 5 forbids'
+        );
+
+        $this->assertCount(
+            12,
+            $this->readAll($product->id),
+            'a refused narrowing on the choice_no path still removed rows'
+        );
+    }
+
+    /**
+     * **AN OPERATOR'S NO-OP SAVE MUST NOT MOVE THE VARIANTS INTO ANOTHER STORE.**
+     *
+     * `$product_stock->store_id = getCurrentStore()` ran on every upserted row, and the upsert
+     * resolves by `product_id` + `variant` with no store predicate — so it REWROTE
+     * `product_variants.store_id` on existing rows. For an operator with an empty `current_store`
+     * the helper returns the hardcoded literal 1 (`helper.php:636`), so an ordinary save of a
+     * store-2 product, changing nothing, stamped all twelve variants with store 1 while
+     * `products.store_id` stayed 2.
+     *
+     * The consequence is not cosmetic: every store-scoped reader then stops seeing them — the
+     * D-20 detection, `Api\DashboardController::UpdateVariant`'s own `where('store_id', …)`, and
+     * the store teardown's `ProductVariant::where('store_id', …)->delete()`, so a drifted row
+     * survives the deletion of its own store.
+     *
+     * `store()`'s equivalent write is deliberately NOT changed: there the product is being created
+     * by this caller, so the caller's store IS the product's.
+     *
+     * Found by the mandated review of the detection fix.
+     */
+    public function test_an_operator_save_does_not_move_the_variants_into_another_store(): void
+    {
+        [$merchant, $product, $categoryId, $variants] = $this->arrangeTwelve();
+
+        [, $otherStore] = $this->makeTenant();
+        $product->store_id = $otherStore->id;
+        $product->save();
+        \DB::table('product_variants')->where('product_id', $product->id)
+            ->update(['store_id' => $otherStore->id]);
+
+        $merchant->type = 'super admin';
+        $merchant->current_store = null;
+        $merchant->save();
+        \Illuminate\Support\Facades\Cache::forget('admin_details');
+
+        $this->assertSame(1, (int) getCurrentStore($merchant->id),
+            'the premise: the helper really answers the hardcoded 1 for this principal');
+        $this->assertNotSame(1, (int) $product->store_id,
+            'the premise: the product is not in store 1, or the trap cannot be exercised');
+
+        /* An ORDINARY save: every combination posted back, nothing removed. */
+        $response = $this->actingAs($merchant)
+            ->put(route('product.update', $product->id), $this->ordinarySavePayload($product, $categoryId, $variants));
+        $response->assertOk();
+
+        $stores = \DB::table('product_variants')
+            ->where('product_id', $product->id)
+            ->pluck('store_id')
+            ->unique()
+            ->values()
+            ->all();
+
+        $this->assertSame(
+            [(int) $product->store_id],
+            array_map('intval', $stores),
+            'a no-op save moved this product\'s variants into the CALLER\'s store. They now'
+            . ' disagree with their product, so every store-scoped reader stops seeing them —'
+            . ' including the D-20 detection that decides whether a later narrowing is safe.'
+        );
+    }
+
+    /**
+     * THE DRIFTED VARIANT — the gap the review named, and the case that measures the consequence
+     * of the `:2614` write.
+     *
+     * `product_variants.store_id` is nullable with no default, `ProductVariant` carries no scope
+     * and is absent from `config/tenancy.php`'s `scoped_models`, so nothing populates it
+     * implicitly. Two producers existed: the `:2614` write, which stamped the CALLER's store onto
+     * existing rows (so an operator's no-op save drifted every variant of a store-7 product to
+     * store 1), and the `choice_no` path, which created variants without setting it at all. Both
+     * are fixed; legacy rows can still carry NULL.
+     *
+     * WHAT THIS ASSERTS IS THE SAFE DIRECTION, NOT THE IDEAL ONE. A drifted row is invisible to
+     * the store-scoped detection, so a narrowing neither names it nor deletes it: the merchant is
+     * told the removal succeeded and the row survives. That is strictly better than the old
+     * behaviour — the unpredicated delete destroyed it silently while the caller-scoped detection
+     * had already failed to name it — and it is recorded here as a measured limit rather than
+     * left to be discovered.
+     */
+    public function test_a_variant_whose_store_drifted_is_neither_named_nor_deleted(): void
+    {
+        [$merchant, $product, $categoryId, $variants] = $this->arrangeTwelve();
+
+        $drifted = $this->readAll($product->id)['L-Sand'];
+        \DB::table('product_variants')->where('id', $drifted['id'])->update(['store_id' => null]);
+
+        $payload = $this->ordinarySavePayload($product, $categoryId, $variants);
+        $payload['options_datas'] = ['S-Red', 'M-Red'];
+        $payload['ss_confirm_variant_removal'] = 1;
+
+        $response = $this->actingAs($merchant)->put(route('product.update', $product->id), $payload);
+        $response->assertOk();
+
+        $after = \DB::table('product_variants')->where('product_id', $product->id)->pluck('variant')->all();
+
+        $this->assertContains(
+            'L-Sand',
+            $after,
+            'the drifted row was deleted by a predicate that never examined it. Detection and'
+            . ' deletion must ask the SAME question: the old code detected in the caller\'s store'
+            . ' and deleted with no predicate at all, which is how a row could be destroyed'
+            . ' without ever appearing in the refusal.'
+        );
+
+        /* And the rows that did NOT drift were removed exactly as the confirmed narrowing asks. */
+        $this->assertNotContains('L-Red', $after, 'an uncovered, undrifted variant must still go');
+        $this->assertContains('S-Red', $after, 'a covered variant must stay');
+    }
+
+    /**
+     * CONDITION 4 — A WISHLIST REFERENCE, which the implementation checks and no test covered.
+     *
+     * `ssRefuseVariantRemoval()` names three reference kinds: a cart line, a wishlist entry and an
+     * order line that carries the id. Carts and orders each had a case; wishlists had none, so
+     * the branch that counts them had never been executed by a test and could have been deleted
+     * without anything failing.
+     *
+     * It is the same hazard as the cart: a shopper is holding this exact variant, and confirming
+     * does not make deleting it safe.
+     */
+    public function test_a_variant_in_a_wishlist_cannot_be_removed_even_with_confirmation(): void
+    {
+        [$merchant, $product, $categoryId, $variants] = $this->arrangeTwelve();
+
+        $doomed = $this->readAll($product->id)['L-Sand'];
+
+        \DB::table('wishlists')->insert([
+            'customer_id' => 1,
+            'product_id' => $product->id,
+            'variant_id' => $doomed['id'],
+            'status' => 1,
+            'store_id' => $product->store_id,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $payload = $this->ordinarySavePayload($product, $categoryId, $variants);
+        $payload['options_datas'] = ['S-Red', 'M-Red'];
+        $payload['ss_confirm_variant_removal'] = 1;
+
+        $response = $this->actingAs($merchant)->put(route('product.update', $product->id), $payload);
+        $response->assertOk();
+
+        $this->assertSame('error', $response->json('flag'),
+            'a variant sitting in a shopper wishlist was deleted on a confirmed narrowing');
+        $this->assertStringContainsString('L-Sand', (string) $response->json('msg'),
+            'the refusal must name the referenced variant');
+        $this->assertStringContainsString('wishlist', strtolower((string) $response->json('msg')),
             'the refusal must say WHAT references it, or the merchant cannot clear the block');
 
         $this->assertCount(12, $this->readAll($product->id),

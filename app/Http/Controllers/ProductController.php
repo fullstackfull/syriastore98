@@ -139,9 +139,62 @@ class ProductController extends Controller
            reference and this finds it. The PRODUCT id, by contrast, is on every line — measured,
            14 of 14 in the fixture — and that asymmetry is what makes a provable case possible
            at all. See $ordersNamingProduct below. */
+        /*
+         * THE PRODUCT'S STORE, NOT THE CALLER'S — and the difference is a live defect, not a
+         * tidy-up. Both order queries below were `->where('store_id', getCurrentStore())`. The
+         * product being edited is the subject of the question and its references live in its own
+         * store; the caller's current store coincides only by accident.
+         *
+         * It does not coincide for the platform operator. `getCurrentStore()` returns the
+         * HARDCODED LITERAL 1 for a `super admin` whose `current_store` is empty
+         * (`helper.php:636`), so an operator narrowing a store-7 product had its history checked
+         * against STORE 1's orders, found none, and was offered a confirmation for a delete whose
+         * safety had never been established. Measured by driving exactly that.
+         *
+         * And `getCurrentStore()` can answer NULL for a merchant with no resolvable store, which
+         * Laravel compiles to `whereNull('store_id')` — matching nothing, so the check passes for
+         * the same wrong reason. A product with no store is refused outright below rather than
+         * queried, because an unscoped reference check is worse than no check: it reports safety
+         * it did not establish.
+         */
+        $ssProductStore = $product->store_id ?? null;
+
+        /*
+         * THE BLOCKERS FOUND ABOVE ARE NAMED EVEN HERE. A store-less product whose variant IS in
+         * a cart was getting the vaguer "nothing can establish whether anything refers to them"
+         * instead of "a shopper cart line holds it" -- both refuse, but one of them tells the
+         * merchant what to clear and the other does not.
+         */
+        if (empty($ssProductStore) && $blockers !== []) {
+            return [
+                'flag' => 'error',
+                'msg' => __('These variants cannot be deleted: :names. They are referenced by :blockers. Deleting them would break that reference and destroy their prices, SKUs and stock. Nothing has been changed.', [
+                    'names' => implode(', ', $names),
+                    'blockers' => implode(', ', $blockers),
+                ]),
+                'ss_variant_removal' => [
+                    'variants' => $names,
+                    'count' => count($names),
+                    'blocked' => 'live_reference',
+                ],
+            ];
+        }
+
+        if (empty($ssProductStore)) {
+            return [
+                'flag' => 'error',
+                'msg' => __('These variants cannot be deleted: the product has no store, so nothing can establish whether anything refers to them. Nothing has been changed.'),
+                'ss_variant_removal' => [
+                    'variants' => $names,
+                    'count' => count($names),
+                    'blocked' => 'unresolvable_store',
+                ],
+            ];
+        }
+
         $inOrders = 0;
         foreach (\App\Models\Order::withoutGlobalScopes()
-            ->where('store_id', getCurrentStore())
+            ->where('store_id', $ssProductStore)
             ->whereNotNull('product_json')
             ->pluck('product_json') as $json) {
             $lines = json_decode((string) $json, true);
@@ -200,7 +253,7 @@ class ProductController extends Controller
         $ordersNamingProduct = 0;
 
         foreach (\App\Models\Order::withoutGlobalScopes()
-            ->where('store_id', getCurrentStore())
+            ->where('store_id', $ssProductStore)
             ->whereNotNull('product_json')
             ->pluck('product_json') as $json) {
             $lines = json_decode((string) $json, true);
@@ -2318,6 +2371,62 @@ $Product->cost_price = $request->cost_price;
                 $sku_array = [];
                 $total_stock = 0;
                 $combinations = $this->combinations($options);
+
+                /*
+                 * THE SECOND NARROWING PATH, and until now it ran with NO guard at all.
+                 *
+                 * `update()` has two complete variant rebuilds. The attribute path below is the
+                 * one D-20 governs. THIS one -- driven by `choice_no` / `choice_options_N` --
+                 * deleted every uncovered row with no store predicate, no reference check, no
+                 * confirmation and no message. `edit.blade.php` posts no `choice_no`, so no
+                 * browser reaches it; nothing validates it away either, so a merchant holding
+                 * `Edit Products` can hand-post the fields and destroy their own product's
+                 * variants with the guard never running.
+                 *
+                 * The owner's D-20 condition 5 is "if the delete's safety is not established,
+                 * refuse with a clear message. No silent hard delete." A silent hard delete is
+                 * exactly what this was. Confined to the caller's own tenant by the ownership
+                 * check at the top of `update()`, which is why it was a guard bypass rather than
+                 * a cross-tenant hole.
+                 *
+                 * IT RUNS BEFORE THE UPSERT LOOP, like the attribute path's, and for the owner's
+                 * own reason: a refusal must leave every row exactly as it was rather than
+                 * half-upserting the survivors and then refusing. The combination names are known
+                 * here -- `$combinations` is already built -- so the removal set can be computed
+                 * before anything is written.
+                 *
+                 * Found by the mandated review of the attribute path's store-predicate fix.
+                 */
+                $ssChoiceCovered = [];
+
+                foreach ($combinations as $ssCombination) {
+                    $ssName = '';
+
+                    foreach ((array) $ssCombination as $ssIndex => $ssItem) {
+                        $ssName .= ($ssIndex > 0 ? '-' : '') . str_replace(' ', '', (string) $ssItem);
+                    }
+
+                    if ($ssName !== '') {
+                        $ssChoiceCovered[] = $ssName;
+                    }
+                }
+
+                if ($ssChoiceCovered !== []) {
+                    $ssChoiceRemoved = ProductVariant::where('product_id', $product->id)
+                        ->where('store_id', $product->store_id)
+                        ->get(['id', 'variant', 'sku', 'variation_price', 'price', 'stock'])
+                        ->reject(function ($ssRow) use ($ssChoiceCovered) {
+                            return in_array((string) $ssRow->variant, $ssChoiceCovered, true);
+                        })
+                        ->values();
+
+                    $ssChoiceRefusal = $this->ssRefuseVariantRemoval($request, $product, $ssChoiceRemoved);
+
+                    if ($ssChoiceRefusal !== null) {
+                        return $ssChoiceRefusal;
+                    }
+                }
+
                 if (count($combinations[0]) > 0) {
                     $product->variant_product = 1;
                     foreach ($combinations as $key => $combination) {
@@ -2353,7 +2462,10 @@ $Product->cost_price = $request->cost_price;
                             $product_update->save();
                         }
                     }
-                    ProductVariant::where('product_id', $product->id)->whereNotIn('variant', $sku_array)->delete();
+                    ProductVariant::where('product_id', $product->id)
+                        ->where('store_id', $product->store_id)
+                        ->whereNotIn('variant', $sku_array)
+                        ->delete();
                     $product->product_stock = $total_stock;
                     $tag_data_id = [];
                     $tag_ids = [];
@@ -2437,8 +2549,21 @@ $Product->cost_price = $request->cost_price;
 
                         $ssPostedCombinations = array_values(array_unique($ssPostedCombinations));
 
+                        /*
+                         * THE PRODUCT'S STORE, NOT THE CALLER'S — and this one decided whether
+                         * the refusal ran at all. `getCurrentStore()` returns the HARDCODED
+                         * LITERAL 1 for a `super admin` with an empty `current_store`
+                         * (`helper.php:636`), so for an operator editing a store-7 product this
+                         * query found NO variants, `$ssRemovedVariants` came back empty, the
+                         * refusal returned null — and the delete below, which carries no store
+                         * predicate of its own, removed the real rows anyway.
+                         *
+                         * Detection and deletion were asking different questions. They now ask the
+                         * same one. Measured by driving an operator with an emptied current_store
+                         * against a product in a second tenant.
+                         */
                         $ssRemovedVariants = ProductVariant::where('product_id', $product->id)
-                            ->where('store_id', getCurrentStore())
+                            ->where('store_id', $product->store_id)
                             ->get(['id', 'variant', 'sku', 'variation_price', 'price', 'stock'])
                             ->reject(function ($ssRow) use ($ssPostedCombinations) {
                                 return in_array((string) $ssRow->variant, $ssPostedCombinations, true);
@@ -2566,7 +2691,29 @@ $Product->cost_price = $request->cost_price;
                                     $product_stock->sku = str_replace(' ', '_', $request->name) . $ssPostedSku;
                                 }
 
-                                $product_stock->store_id = getCurrentStore();
+                                /*
+                                 * THE PRODUCT'S STORE, NOT THE CALLER'S -- and this one WRITES, so it is the more
+                                 * serious half of the same defect the detection query had.
+                                 *
+                                 * The upsert above resolves the row by `product_id` + `variant` with no store
+                                 * predicate, so this line REWRITES `product_variants.store_id` on EXISTING rows. For
+                                 * an operator -- `getCurrentStore()` returns the hardcoded literal 1 for a
+                                 * `super admin` with an empty `current_store` (`helper.php:636`) -- an ordinary no-op
+                                 * save of a store-7 product stamped every one of its variants with store 1 while
+                                 * `products.store_id` stayed 7.
+                                 *
+                                 * From that point the variants disagree with their product and every store-scoped
+                                 * reader stops seeing them: the D-20 detection above, `Api\DashboardController::
+                                 * UpdateVariant`'s `where('store_id', $store->id)`, and the store teardown's
+                                 * `ProductVariant::where('store_id', ...)->delete()` -- so a drifted row survives the
+                                 * deletion of its own store.
+                                 *
+                                 * Found by the mandated review of the detection fix. `store()`'s own equivalent at
+                                 * :1332 is NOT changed: there the product is being created by this caller, so the
+                                 * caller's store IS the product's. Writing the product's store here also self-heals a
+                                 * drifted row on the next save of any covered combination.
+                                 */
+                                $product_stock->store_id = $product->store_id;
 
                                 if (module_is_active('CartQuantityControl')) {
                                     \Workdo\CartQuantityControl\app\Models\CartQuantityControl::variantSaveData($request, $product_stock, $str);
@@ -2630,7 +2777,12 @@ $Product->cost_price = $request->cost_price;
                                Keeping the check up there rather than wrapping this line is the
                                owner's "no data loss on failure": a refusal must leave every row
                                untouched, not half-upsert the survivors first. */
+                            /* The same predicate the detection above uses, so the rows that were
+                               examined are exactly the rows that are removed. `ProductVariant` is
+                               not in `config/tenancy.php`'s `scoped_models`, so this `where` is
+                               the only control there is. */
                             ProductVariant::where('product_id', $product->id)
+                                ->where('store_id', $product->store_id)
                                 ->whereNotIn('variant', $com)
                                 ->delete();
                         }
