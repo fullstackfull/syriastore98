@@ -7476,14 +7476,108 @@ Two findings came out of it that are **not** this change's:
   argument against timed locks. Deliberate rather than overlooked: a durable claim on an intake route
   with a dozen refusal exits would refuse legitimate retries. Recorded in the ledger.
 
+### Then the premises were measured, and one of them was false
+
+The TTL reasoning above rested on two things I had read rather than measured: the writer's worst-case
+runtime, and whether a per-payment witness existed on `orders`. Both were measured independently, as
+was the complete surface of the three Paymera cache keys. The first two came back as follows.
+
+**The writer has no defensible finite worst case.** Three of its blocking call classes have no total
+timeout anywhere in code or config:
+
+| call | bound |
+|---|---|
+| `Utility::SendMsgs()` — the WhatsApp Graph POST, once per cart line **and** once in the tail | a raw curl handle with **neither `CURLOPT_TIMEOUT` nor `CURLOPT_CONNECTTIMEOUT`**. libcurl's default `CURLOPT_TIMEOUT` is 0 — never time out during transfer — so a server that accepts the connection and then stalls blocks **forever** |
+| `Utility::sendEmailTemplate()` — synchronous SMTP, `CommonEmailTemplate` is **not** `ShouldQueue` | `config/mail.php` sets `'timeout' => null`, and `MailManager` only calls `setTimeout()` when `isset($config['timeout'])` — so it never does. Falls back to `default_socket_timeout`, which bounds **each read** and resets on every byte |
+| google/auth's Firebase token fetch | no total timeout |
+
+Using only the calls that *do* carry a hard cap in code — two 60-second Twilio SMS per cart line —
+the **floor** is already `120n` seconds: 2 minutes at one line, 10 minutes at five, **40 minutes at
+twenty**, with no deployment premise required. So the first version's "ten minutes" was below the
+measured floor for a basket of five, and sixty minutes is below it for a basket of thirty. The
+constant's own concession — *"a large enough basket with every send timing out can exceed any TTL"* —
+is confirmed and sharpened: it is not a large basket that is needed, it is **one stalled untimed
+call**.
+
+**No per-payment witness exists on `orders`, and narrowing by customer id would be worse.** Measured:
+39 columns, none reference-shaped; the writer assigns 22 and none of them a payment identifier; every
+sibling table it populates is keyed by `order_id` / `product_order_id`, both knowable only *after*
+the row exists; the reference itself is `uniqid('paymera_')` and is never persisted to any column.
+The five columns that *look* like they could hold it do not — `payment_receipt` is a bank-transfer
+receipt and is explicitly stripped from the stored state at Paymera initiation.
+
+And the narrowing I had considered and rejected on instinct is now rejected on measurement. The
+stored state's `customer_id` is the un-validated checkout POST; the one the writer persists is
+overridden by the authenticated customer whenever a `customers` session is live — which is the live
+browser callback. Three reachable disagreements: a guest checkout where the shopper signs in before
+the return, a posted `customer_id` differing from the signed-in one, and the guest default of `0`. On
+each, a narrowed predicate **misses its own order, releases the claim, and lets a replay write the
+second order** — the dangerous direction, where the imprecision we keep only ever costs a delay.
+
+### And a premise of the TTL fix turned out to be false — F186
+
+The claim was shortened from two hours so that a stranded claim would not refuse a legitimate retry
+until after the pending record had expired. **That retry is mostly refused anyway**, by a claim
+twenty-four times longer that none of this work touched:
+
+```
+handlePaymeraCallback
+  paymera_lock_<ref>            10 seconds
+  paymera_claim_<ref>           60 minutes   <- this slice
+  getProductStatus()
+      gateway-return-claim:checkout:<sha1 nonce>    48 HOURS, above every write,
+                                                    never released on a throw
+      ... the order write ...
+  $pending['processed'] = true  <- set UNCONDITIONALLY, whatever the writer returned
+  paymera_pending_<ref>         2 hours
+```
+
+So a Paymera write that throws before committing leaves nothing written and the writer's claim taken.
+The buyer's refresh passes the `processed` gate, the lock and the F96 claim — which this slice
+correctly releases — reaches the writer, and meets `gatewayReturnReplayRefusal()`. The callback then
+marks the payment `processed` with no order identified, and every later attempt is turned away at the
+first gate. **A captured payment, no order, no path to one.**
+
+Neither half is a regression: the 48-hour claim and the unconditional `processed = true` both predate
+this slice. But it means the F96 claim's length decides the retry's fate only in the window *before*
+the writer's claim is taken — a database read and one outbound status poll — and it falsifies the
+first review's premise that two hours "stranded a recoverable payment". Which is an argument for a
+claim at or beyond the record's life, closing residual (C) outright, and it is deliberately **not
+taken**: both readings are on record, neither has been driven, and a money path whose safety cannot
+be proven does not get the braver setting. `test_the_writers_own_claim_is_what_really_bounds_a_retry`
+ratchets the premise so shortening the writer's claim fails CI and asks for the analysis again.
+
+Recorded as **F186**, with the two fixes that look obvious and are not: releasing the writer's claim
+on a pre-commit throw is the undo its own docblock forbids as a general move, on a path every gateway
+shares; and setting `processed` only when an order was identified is *worse*, because when an order
+was written but `orderWrittenBy()` failed to name it, not setting `processed` lets a replay write the
+second order.
+
+### Two more writers and an operator action, from the same pass
+
+- **F187** — `handlePaymeraCallback_backup()` is an **unrouted** handler in the same file that takes
+  the lock, rewrites the pending record, and calls the shared order writer with no claim, no
+  re-check, and no `processed`. F94's shape one method along. Measured as unreachable: both Paymera
+  routes are singly declared (booted-router probe, no duplicate method+URI slot), and `paymera`
+  appears **zero** times under `packages/`, in `app/Console/`, in `app/Jobs/` (empty) or in
+  `routes/console.php`.
+- **F188** — `Cache::flush()` in `sideMenuCacheForget('all')`, called on module enable and disable,
+  drops every live `paymera_claim_*`, `paymera_lock_*` and `paymera_pending_*` at once. Fail-safe
+  against duplication (no record, no write) and not against loss — F186's outcome reached by an
+  operator action.
+- One reachability fact, not a defect: the callback route answers **HEAD as well as GET**, because
+  Laravel registers HEAD with every GET and the handler does not distinguish them. The guards apply
+  identically, so it adds no exposure beyond GET — but it is part of the claim's reachable surface
+  and was named nowhere.
+
 ### Evidence
 
 | | |
 |---|---|
 | `tests/Feature/Security/WhatsappOrderConcurrencyTest.php` | **6 cases** — the refusal without a write · the positive control · the release · the cross-principal key · the Arabic refusal · the telegram route |
-| `tests/Feature/Commerce/PaymeraCallbackIdempotencyTest.php` | 22 → **26 cases**; the five F96 assertions run over both entry points through a `guardedEntryPoints()` provider |
+| `tests/Feature/Commerce/PaymeraCallbackIdempotencyTest.php` | 22 → **26 cases**; the F96 assertions run over both entry points through a `guardedEntryPoints()` provider, plus the TTL bounds and the F186 premise ratchet |
 | `tests/Feature/Commerce/PaymeraPostCommitClaimTest.php` | **10 driven cases** over the two new helpers — nothing committed · a commit after the mark · a commit that predates it · **another store's** commit · another payment type · five unusable store ids, all fail-closed |
-| bites | **23 distinct mutations, 24 runs, every one bit** (the no-lock mutation is driven against two different cases). F95 (4): no lock (driven against both routes) · key from the body (pre-captured) · lock never released · the Arabic key dropped. F96 (5): the claim removed from each entry point separately · `Cache::forget` removed · the claim hoisted above the re-check · the key carrying the caller's IP. The review's fixes (9): each entry point's release made unconditional · the commit test ignoring the store, the payment type, the mark · the unanswerable question failing open · the claim lengthened to the record's own two hours · the claim shortened to barely more than the lock · the record's life changed under the margin. The second pass's fixes (5): the release made unconditional **while keeping the call** · each helper rethrowing instead of failing closed · the mark ignoring an unusable store id · a cited anchor off by one line |
+| bites | **24 distinct mutations, 25 runs, every one bit** (the no-lock mutation is driven against two different cases); the 24th shortens the writer's own 48-hour claim below the pending record's life, which must fail the F186 premise ratchet. F95 (4): no lock (driven against both routes) · key from the body (pre-captured) · lock never released · the Arabic key dropped. F96 (5): the claim removed from each entry point separately · `Cache::forget` removed · the claim hoisted above the re-check · the key carrying the caller's IP. The review's fixes (9): each entry point's release made unconditional · the commit test ignoring the store, the payment type, the mark · the unanswerable question failing open · the claim lengthened to the record's own two hours · the claim shortened to barely more than the lock · the record's life changed under the margin. The second pass's fixes (5): the release made unconditional **while keeping the call** · each helper rethrowing instead of failing closed · the mark ignoring an unusable store id · a cited anchor off by one line |
 | `tests/Feature/Commerce/PaymeraPostCommitClaimTest.php` | 10 → **14 driven cases** — the four added by the second pass: the question failing · the mark failing · an unusable store id with the rows a degraded predicate would match · the docblock's four cited anchors |
 | the positive control | F95's `test_an_ordinary_request_is_not_refused_by_the_guard` — a guard that refused everything would satisfy the refusal case perfectly |
 | not driven, stated | F96's claim. `Cache::lock`/`Cache::add` on the `array` driver are process-local, and the handler's own pre-lock gates stop a staged request reaching the region (measured above) |

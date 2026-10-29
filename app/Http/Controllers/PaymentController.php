@@ -1054,9 +1054,26 @@ public function handlePaymeraCallback_backup($orderId)
  *   fpm `request_terminate_timeout`, a `memory_limit` E_ERROR, a SIGKILL, a deploy restart), so
  *   the claim can outlive the request with `processed` still false. The gateway's own retry cannot
  *   help: F97 measured the trigger route to sit behind `auth`, so the buyer's refresh of the
- *   anonymous callback is the ONLY retry path there is. A SHORTER claim makes this shorter. A
- *   claim at or beyond the record's two hours made it PERMANENT -- a captured payment with no
- *   order ever -- which is the defect the first review found, when this was two hours.
+ *   anonymous callback is the ONLY retry path there is. A SHORTER claim makes this shorter.
+ *
+ *   BUT (B) IS MUCH NARROWER THAN THE REVIEW THAT RAISED IT ASSUMED, AND SAYING SO IS NOT A
+ *   DEFENCE OF A LONGER CLAIM -- it is F186. The retry this claim is being shortened to permit is
+ *   mostly refused by something else: the shared writer takes its OWN claim,
+ *   `gateway-return-claim:checkout:<sha1 nonce>`, above every write, for **48 hours**
+ *   (`GuardsGatewayReturn::GATEWAY_RETURN_CLAIM_TTL`), and nothing releases it when the writer
+ *   throws. So once control has reached that line, a retry meets `gatewayReturnReplayRefusal()`
+ *   however short this claim is -- and the callback then sets `processed = true` with no order
+ *   identified, making the loss permanent. This claim's length only decides the retry's fate in
+ *   the window BEFORE that one is taken, which is not negligible (it spans a database read and
+ *   one outbound status poll) but is far from the whole failure.
+ *
+ *   WHICH IS AN ARGUMENT FOR A CLAIM AT OR BEYOND THE RECORD'S TWO HOURS, and it is deliberately
+ *   NOT TAKEN. At that length the record expires first, so a replay meets "payment session
+ *   expired" rather than the writer -- closing (C) outright and (A) for any writer shorter than
+ *   the record. The first review called exactly that value a defect, on the premise that it
+ *   stranded a recoverable payment; that premise is now known to be mostly false. Both readings
+ *   are on record and neither has been DRIVEN, so the value stays where both reviews' concerns
+ *   are tolerable. A money path whose safety cannot be proven does not get the braver setting.
  *
  *   (C) THE POST-COMMIT ARM IS A DELAY, NOT A CURE, and this is the one the second review
  *   surfaced. When the writer throws after committing, the catch deliberately KEEPS the claim --
@@ -1120,8 +1137,8 @@ private function paymeraOrderHighWaterMark(mixed $storeId): int
  * `$pending['processed']` still false, and **no in-process marker of either**: not a return
  * value, not a binding, not a flag. The only witness is the row.
  *
- * (Measured 2026-10-29: `DB::beginTransaction()` :3209, `DB::commit()` :3380, `$owner->email`
- * :3436, `OrderCompleteBinding::remember()` :3525. These are STRUCTURAL claims and the numbers
+ * (Measured 2026-10-29: `DB::beginTransaction()` :3239, `DB::commit()` :3410, `$owner->email`
+ * :3466, `OrderCompleteBinding::remember()` :3555. These are STRUCTURAL claims and the numbers
  * drift -- two earlier versions of this comment cited lines this very change had already moved,
  * which is why `PaymeraPostCommitClaimTest::test_the_cited_anchors_still_name_what_they_claim`
  * now asserts them. Read the structure as the claim and the numbers as a pointer.)
@@ -1133,10 +1150,23 @@ private function paymeraOrderHighWaterMark(mixed $storeId): int
  * cache entries tidy would be the wrong direction for a money control"*). The claim's TTL bounds
  * what that costs.
  *
- * NOT A PERFECT IDENTITY, AND THE REASON IS THAT NO PER-PAYMENT WITNESS EXISTS. An `orders` row
- * carries no paymera reference -- `payment_type` is the only paymera marker on it -- so "did an
- * order commit for THIS payment" is not a question the table can answer. This asks the nearest
+ * NOT A PERFECT IDENTITY, AND THE REASON IS THAT NO PER-PAYMENT WITNESS EXISTS. MEASURED, not
+ * assumed: `orders` has 39 columns and not one is reference-shaped; `payment_type` is the only
+ * paymera marker on the row; the writer assigns 22 columns and none of them a payment identifier;
+ * no sibling table it populates carries one either (each is keyed by `order_id` /
+ * `product_order_id`, both knowable only AFTER the row exists, i.e. not available here); and the
+ * reference itself lives only as a cache key -- `uniqid('paymera_')`, never persisted. So "did an
+ * order commit for THIS payment" is not a question the schema can answer. This asks the nearest
  * one it can: did this store gain a paymera order since the mark.
+ *
+ * AND NARROWING BY `customer_id` WOULD BE WORSE, WHICH IS WHY IT IS NOT DONE. The stored state's
+ * `customer_id` is the un-validated checkout POST; the one the writer persists is overridden by
+ * the authenticated customer whenever a `customers` session is live -- which is the live browser
+ * callback. Three reachable disagreements: a guest checkout where the shopper signs in before the
+ * return (persisted = auth id, stored = `''`); a posted `customer_id` that differs from the
+ * signed-in one; and the guest default of `0`. On each, a narrowed predicate MISSES its own order,
+ * releases the claim, and lets a replay write the second order -- the dangerous direction, where
+ * the imprecision above only ever costs a delay.
  *
  * SO IT CAN READ ANOTHER PAYMENT'S ROW, over a window as long as the writer runs. Reference R2
  * takes its mark; R1's writer commits; R2's writer throws BEFORE committing; R2's catch sees R1's

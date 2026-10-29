@@ -51,6 +51,10 @@ class PaymeraCallbackIdempotencyTest extends TestCase
     {
         Cache::forget('paymera_pending_' . self::REFERENCE);
         Cache::forget('paymera_lock_' . self::REFERENCE);
+        /* The third prefix, added with F96. Nothing leaks today -- `CACHE_STORE=array` with a fresh
+           application per test -- but a tearDown that cleans two of three keys is the kind of
+           asymmetry that becomes a cross-test false green the moment the store changes. */
+        Cache::forget('paymera_claim_' . self::REFERENCE);
 
         parent::tearDown();
     }
@@ -842,6 +846,56 @@ class PaymeraCallbackIdempotencyTest extends TestCase
             . ' dies mid-write strands it with `processed` still false, and the closer the claim'
             . ' gets to the record\'s two hours the less of a window the buyer has to recover --'
             . ' at or beyond it, none.'
+        );
+    }
+
+    /**
+     * WHAT REALLY BOUNDS A PAYMERA RETRY IS NOT THIS FILE'S CLAIM, AND THE REASONING DEPENDS ON IT.
+     *
+     * `PAYMERA_CLAIM_MINUTES` was shortened from two hours so that a claim stranded by a worker
+     * death would not refuse a legitimate retry until after the pending record had expired. A
+     * measurement pass then established that the retry is mostly refused by something else
+     * entirely: the shared order writer takes its own claim,
+     * `gateway-return-claim:checkout:<sha1 nonce>`, **above every write** and for
+     * `GuardsGatewayReturn::GATEWAY_RETURN_CLAIM_TTL` -- 48 hours -- and nothing releases it when
+     * the writer throws. Past that line a retry meets `gatewayReturnReplayRefusal()` however short
+     * this file's claim is, and the callback then marks the payment `processed` with no order
+     * identified. That is F186, recorded rather than fixed: releasing a claim taken above a write
+     * is the undo `releaseGatewayReturnClaim()`'s own docblock forbids as a general move.
+     *
+     * So the ORDERING is load-bearing for the comment at `PAYMERA_CLAIM_MINUTES`, and it is
+     * asserted rather than assumed. Shorten the writer's claim below the record's life and the
+     * recovery analysis changes materially -- this fails and asks for it to be re-derived.
+     */
+    public function test_the_writers_own_claim_is_what_really_bounds_a_retry(): void
+    {
+        $writerClaim = (int) (new \ReflectionClassConstant(
+            \App\Http\Controllers\Concerns\GuardsGatewayReturn::class,
+            'GATEWAY_RETURN_CLAIM_TTL'
+        ))->getValue();
+
+        $paymeraClaim = 60 * (int) (new \ReflectionClassConstant(
+            PaymentController::class,
+            'PAYMERA_CLAIM_MINUTES'
+        ))->getValue();
+
+        $pendingRecord = 2 * 60 * 60;
+
+        $this->assertGreaterThan(
+            $paymeraClaim,
+            $writerClaim,
+            'the writer\'s own gateway-return claim is now SHORTER than this path\'s claim, which'
+            . ' inverts the reasoning recorded at PAYMERA_CLAIM_MINUTES: that comment says the'
+            . ' writer\'s claim is what really refuses a retry'
+        );
+
+        $this->assertGreaterThan(
+            $pendingRecord,
+            $writerClaim,
+            'the writer\'s claim no longer outlives the pending record. While it did, a failed'
+            . ' Paymera write was unrecoverable past the writer\'s own claim line whatever this'
+            . ' file did -- which is why F186 is the fix target and the claim length is not.'
+            . ' Re-derive both before changing either.'
         );
     }
 
