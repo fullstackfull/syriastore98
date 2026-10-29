@@ -961,7 +961,7 @@ trait GuardsGatewayReturn
         ]);
     }
 
-    protected function gatewayReturnMissingProductRefusal(Request $request, string $gateway, $verification = null, $amount = null)
+    protected function gatewayReturnMissingProductRefusal(Request $request, string $gateway, $verification = null, $amount = null, $store = null)
     {
         Log::critical('Gateway return refused: the basket names a product or variant row that no longer exists.', [
             'gateway' => $gateway,
@@ -972,6 +972,57 @@ trait GuardsGatewayReturn
             'capture_was_confirmed' => $verification !== null ? $verification->isVerified() : null,
             'expected_total' => $amount === null ? null : (string) $amount,
         ]);
+
+        /*
+         * D-22's OPEN HALF, CLOSED AS FAR AS IT CAN BE CLOSED HERE.
+         *
+         * A `critical` log is not a merchant-visible record. This writes the capture to
+         * `store_notifications`, which the web bell and the shipped app both already read, so a
+         * merchant can settle or refund it deliberately instead of meeting it in a support
+         * ticket. It creates no order, moves no stock and changes no money -- writing the ORDER
+         * is option (A) in the register and stays BLOCKED, because its safety is a claim about
+         * how a second repository renders a line whose product is gone.
+         *
+         * THE CAPTURE STATE IS THE HONEST ONE OF THREE, not a guess:
+         *
+         *   confirmed - a verifier positively said so. Only Khalti has one on this path.
+         *   unknown   - either the gateway has NO verifier at all, or its verifier answered
+         *               UNVERIFIABLE. `PaymentVerificationService` holds three provider verifiers
+         *               and Easebuzz, PaiementPro and CinetPay are none of them, so every return
+         *               there is unproven by construction; and `UNVERIFIABLE` is defined on
+         *               `PaymentVerificationResult` as "verification could not be performed at
+         *               all -- a missing field name, a missing shared secret, an unreachable
+         *               gateway", with the explicit note that it is NOT success. In both cases the
+         *               money may already have been taken.
+         *   rejected  - the gateway was reachable and said NO. No notification: nothing was
+         *               captured, so there is nothing to settle, and a bell that rings for failed
+         *               payments is a bell nobody reads.
+         *
+         * THE FIRST VERSION OF THESE THREE LINES COLLAPSED `unverifiable` INTO `rejected`, with
+         * `$verification->isVerified() ? 'confirmed' : 'rejected'` -- so an unreachable gateway or
+         * a missing shared secret would have told the merchant nothing while the customer's card
+         * may well have been charged. A sibling test's khalti data set failed on it, which is the
+         * only reason it is not in this file today.
+         */
+        if ($verification === null) {
+            $captureState = 'unknown';
+        } elseif ($verification->isVerified()) {
+            $captureState = 'confirmed';
+        } elseif ($verification->outcome === \App\Services\PaymentVerificationResult::REJECTED) {
+            $captureState = 'rejected';
+        } else {
+            $captureState = 'unknown';
+        }
+
+        if ($captureState !== 'rejected' && $store !== null && ! empty($store->id)) {
+            app(\App\Services\StoreNotificationService::class)->captureWithoutOrder(
+                (int) $store->id,
+                $gateway,
+                $amount === null ? null : (string) $amount,
+                $captureState,
+                'missing_product_row'
+            );
+        }
 
         return redirect()->back()->with(
             'error',

@@ -557,7 +557,7 @@ class CinetPayController extends Controller
              * but the failure is now a message and a `critical` log instead of a stack trace.
              */
             if ($this->basketHasMissingProductRow($store)) {
-                return $this->gatewayReturnMissingProductRefusal($request, 'cinetpay', null, $this->serverPayableAmount($requests_data));
+                return $this->gatewayReturnMissingProductRefusal($request, 'cinetpay', null, $this->serverPayableAmount($requests_data), $store);
             }
 
             $cartlist_final_price = 0;

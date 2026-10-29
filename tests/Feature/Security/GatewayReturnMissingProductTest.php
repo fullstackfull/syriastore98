@@ -196,6 +196,234 @@ class GatewayReturnMissingProductTest extends SecurityTestCase
         );
     }
 
+    /*
+     * ------------------------------------------------------------------------------------------
+     * D-22's SECOND HALF, 2026-10-29 — the capture is no longer only a log line.
+     *
+     * The cases above establish what the slice closed in October: no 500, no decrement, and no
+     * order. The last of those is the part the owner's instruction names —
+     * *"so that a paid order is not lost"* — and it is still not an order. What it IS now is a
+     * `store_notifications` row the merchant sees in the web bell and in the shipped app, so a
+     * confirmed capture can be settled or refunded deliberately instead of being discovered in a
+     * support ticket. Writing the ORDER is option (A) in the register and stays BLOCKED, because
+     * its safety is a claim about how a second repository renders a line whose product is gone.
+     * ------------------------------------------------------------------------------------------
+     */
+
+    public function test_a_confirmed_capture_that_produced_no_order_reaches_the_merchant(): void
+    {
+        [, $store, $customer, $product] = $this->checkout();
+        $this->fakeKhalti(['status_code' => 200, 'data' => ['amount' => self::SERVER_PAISA]]);
+        DB::table('products')->where('id', $product->id)->delete();
+
+        $this->driveAuthenticated($store, $customer);
+
+        $row = DB::table('store_notifications')
+            ->where('store_id', $store->id)
+            ->where('type', 'payment_needs_attention')
+            ->first();
+
+        $this->assertNotNull(
+            $row,
+            'a CONFIRMED capture produced no order and left the merchant nothing to act on.'
+            . ' A `critical` log is not a merchant-visible record.'
+        );
+
+        $data = json_decode((string) $row->data, true);
+        $this->assertSame('khalti', $data['gateway'] ?? null);
+        $this->assertSame('confirmed', $data['capture_state'] ?? null, 'the capture state must be the proven one');
+        $this->assertSame('missing_product_row', $data['cause'] ?? null);
+        $this->assertNotEmpty($row->message, 'the notification must say what happened');
+
+        /*
+         * `reference_type` IS THE FLUTTER CONTRACT, and it is asserted here rather than trusted.
+         * `notification_screen.dart` gates BOTH its order footer and its tap-to-open on
+         * `referenceType == 'order'`. A row that claimed to be an order notification and carried
+         * no order id would render an empty footer and a tap that goes nowhere.
+         */
+        $this->assertSame('payment', $row->reference_type, 'this is not an order notification');
+        $this->assertNull($row->reference_id, 'there is no order to reference -- that is the point');
+
+        $this->assertSame(0, (int) DB::table('orders')->where('store_id', $store->id)->count(),
+            'recording the capture must NOT be mistaken for writing the order');
+    }
+
+    /**
+     * A REJECTED CAPTURE RINGS NO BELL — AND THE FIRST VERSION OF THIS TEST PASSED FOR THE WRONG
+     * REASON, which a bite caught.
+     *
+     * It asserted only that no notification exists, and that is true for a reason that has nothing
+     * to do with the condition it was written to pin: `KhaltiPaymnetController` refuses a REJECTED
+     * capture at the verification, which D-22 hoisted ABOVE the cart read, so the basket guard is
+     * never reached and the code that writes the bell never runs. Deleting the
+     * `$captureState !== 'rejected'` test from the refusal left this green.
+     *
+     * So it now asserts the MECHANISM: the handler refuses before the guard. If the verification
+     * is ever moved back below the cart read, this fails — which is the regression that matters,
+     * because that move is also what makes F121's crash reachable again.
+     */
+    public function test_a_rejected_capture_is_refused_before_the_basket_guard_is_reached(): void
+    {
+        [, $store, $customer, $product] = $this->checkout();
+        // An amount that does not match the server's expectation -> the verifier REJECTS it.
+        $this->fakeKhalti(['status_code' => 200, 'data' => ['amount' => 100]]);
+        DB::table('products')->where('id', $product->id)->delete();
+
+        $o = $this->driveAuthenticated($store, $customer);
+
+        $this->assertNull($o['exception']);
+        $this->assertSame(0, $o['orders']);
+        $this->assertSame(
+            0,
+            (int) DB::table('store_notifications')->where('type', 'payment_needs_attention')->count(),
+            'no money was captured, so there is nothing for the merchant to settle — and the'
+            . ' handler does not even reach the code that would decide that, because the'
+            . ' verification sits above the cart read.'
+        );
+    }
+
+    /**
+     * AN UNVERIFIABLE CAPTURE IS THE DANGEROUS ONE, and it is the branch the bite matrix showed
+     * was untested.
+     *
+     * `KhaltiPaymnetController` refuses only when the capture is `! isVerified() && ! unverifiable`
+     * — so VERIFIED and UNVERIFIABLE both fall through to the basket guard. `UNVERIFIABLE` is
+     * defined on `PaymentVerificationResult` as *"verification could not be performed at all"*,
+     * with the explicit note that it is NOT success: an unreachable gateway or a missing shared
+     * secret. The card may well have been charged.
+     *
+     * A `status_code` of 0 is exactly that case (`verifyKhaltiCapture`, `$status === 0`).
+     *
+     * The first mapping I wrote collapsed this into `rejected` and told the merchant nothing. No
+     * test reached it, because the three unverified gateways produce `$verification === null` and
+     * take a different branch — so the bite "unverifiable is collapsed into rejected" did NOT
+     * bite, and that is why this case exists.
+     */
+    public function test_an_unverifiable_capture_tells_the_merchant_the_state_is_unknown(): void
+    {
+        [, $store, $customer, $product] = $this->checkout();
+        // No status at all -> the gateway could not be reached -> UNVERIFIABLE, not rejected.
+        $this->fakeKhalti(['data' => ['amount' => self::SERVER_PAISA]]);
+        DB::table('products')->where('id', $product->id)->delete();
+
+        $o = $this->driveAuthenticated($store, $customer);
+
+        $this->assertNull($o['exception']);
+        $this->assertSame(0, $o['orders']);
+
+        $row = DB::table('store_notifications')
+            ->where('store_id', $store->id)
+            ->where('type', 'payment_needs_attention')
+            ->first();
+
+        $this->assertNotNull(
+            $row,
+            'an UNVERIFIABLE capture reaches the basket guard and may already have charged the'
+            . ' card. Saying nothing is the worst of the three answers.'
+        );
+
+        $data = json_decode((string) $row->data, true);
+        $this->assertSame(
+            'unknown',
+            $data['capture_state'] ?? null,
+            'unverifiable is NOT rejected: the gateway could not be reached, so the state is'
+            . ' unknown and the message must not claim the payment was confirmed'
+        );
+    }
+
+    public function test_a_refreshed_return_does_not_ring_the_bell_twice(): void
+    {
+        [, $store, $customer, $product] = $this->checkout();
+        $this->fakeKhalti(['status_code' => 200, 'data' => ['amount' => self::SERVER_PAISA]]);
+        DB::table('products')->where('id', $product->id)->delete();
+
+        $this->driveAuthenticated($store, $customer);
+        $this->driveAuthenticated($store, $customer);
+        $this->driveAuthenticated($store, $customer);
+
+        $this->assertSame(
+            1,
+            (int) DB::table('store_notifications')
+                ->where('store_id', $store->id)
+                ->where('type', 'payment_needs_attention')
+                ->count(),
+            'the gateway return is reachable by refresh, so three returns must leave one row'
+        );
+    }
+
+    /**
+     * THE TENANCY CLAIM, DRIVEN RATHER THAN DECORATED — and the first version of this case was
+     * half decorative, which the independent review caught.
+     *
+     * It asserted that store B got no row while nothing in the request, the fixture or the code
+     * mentioned store B at all: store B had no cart, no checkout state and no product, so that
+     * assertion could not have failed however the handler behaved. A test that cannot fail is not
+     * evidence of isolation.
+     *
+     * The assertion that CAN fail is the one below: the return request carries a crafted
+     * `store_id` and `slug` naming store B while the session state names store A. If any handler
+     * on this path ever derives its store from request input — the single most productive defect
+     * shape in this codebase — the row lands in store B's bell and this fails.
+     */
+    public function test_a_crafted_store_in_the_return_request_cannot_move_the_notification(): void
+    {
+        [, $storeA, $customerA, $productA] = $this->checkout();
+        [, $storeB] = $this->makeTenant();
+
+        $this->fakeKhalti(['status_code' => 200, 'data' => ['amount' => self::SERVER_PAISA]]);
+        DB::table('products')->where('id', $productA->id)->delete();
+
+        $this->withoutExceptionHandling();
+
+        try {
+            $this->actingAs($customerA, 'customers')
+                ->withSession(['request_data' => $this->state])
+                ->post('/' . $storeA->slug . '/order-khalti', [
+                    'payload' => ['token' => 'tok-' . uniqid(), 'amount' => self::SERVER_PAISA],
+                    // The attacker-supplied half. Neither may be believed.
+                    'store_id' => $storeB->id,
+                    'slug' => $storeB->slug,
+                ]);
+        } catch (\Throwable $e) {
+            $this->fail('the crafted return must not throw: ' . get_class($e) . ': ' . $e->getMessage());
+        }
+
+        $this->assertSame(
+            1,
+            (int) DB::table('store_notifications')
+                ->where('store_id', $storeA->id)->where('type', 'payment_needs_attention')->count(),
+            'the capture belongs to the store whose checkout state the session holds'
+        );
+        $this->assertSame(
+            0,
+            (int) DB::table('store_notifications')
+                ->where('store_id', $storeB->id)->where('type', 'payment_needs_attention')->count(),
+            'a store_id or slug in the REQUEST must not move another tenant\'s capture into this'
+            . " bell. `StoreNotification` is not in `config/tenancy.php`'s `scoped_models`, so the"
+            . ' explicit store predicate is the only control there is.'
+        );
+    }
+
+    public function test_the_new_type_is_registered_with_a_permission(): void
+    {
+        /*
+         * `MerchantNotificationController` REFUSES AN UNREGISTERED TYPE, so a row written by the
+         * service and absent from the registry would never reach the web bell -- the capture
+         * would be recorded and still invisible, which is the defect this half set out to fix.
+         * The registry is also what stops the bell becoming a way around `Manage Order`: this
+         * message names a gateway and an amount.
+         */
+        $this->assertArrayHasKey(
+            'payment_needs_attention',
+            \App\Http\Controllers\MerchantNotificationController::TYPE_PERMISSIONS,
+            'the type the gateway refusal writes is not registered, so the web bell drops it'
+        );
+        $this->assertSame(
+            'Manage Order',
+            \App\Http\Controllers\MerchantNotificationController::TYPE_PERMISSIONS['payment_needs_attention']
+        );
+    }
+
     // ---------------------------------------------------------------- measurement
 
     private function driveAuthenticated($store, $customer): array

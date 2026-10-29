@@ -76,9 +76,9 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:133` | Gateway return refused: no server-stored checkout state. |
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:282` | Gateway return carries no claimable identity; falling back to the session control alone. |
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:296` | Gateway return refused: already claimed. |
-| `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:984` | Gateway return refused: basket names a product from another store. |
-| `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:1020` | Gateway return refused: the gateway request could not be built. |
-| `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:1037` | Gateway return refused: basket holds a non-positive quantity. |
+| `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:1035` | Gateway return refused: basket names a product from another store. |
+| `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:1071` | Gateway return refused: the gateway request could not be built. |
+| `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:1088` | Gateway return refused: basket holds a non-positive quantity. |
 | `app/Http/Controllers/Concerns/GuardsPlanActivation.php:85` | Plan activation refused: provider is disabled pending verification. |
 | `app/Http/Controllers/Concerns/ResolvesPendingPartialPayment.php:135` | Pending partial payment lookup failed; the payment is refused. |
 | `app/Http/Controllers/Customer/Auth/CustomerLoginController.php:716` | customer login: refused a social row still holding its module-assigned password |
@@ -176,7 +176,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/ShopifyAdminApi.php:173` | a Shopify Admin API call answered with a redirect, which was not followed |
 | `app/Services/SocialIdentity/JwksProvider.php:74` | social-identity: provider key fetch failed |
 | `app/Services/SocialIdentity/SocialIdentityVerifier.php:239` | social-identity: facebook debug_token call failed |
-| `app/Services/StoreNotificationService.php:157` | No active Firebase devices found for store. |
+| `app/Services/StoreNotificationService.php:311` | No active Firebase devices found for store. |
 | `app/Services/StoredUpload.php:108` | a stored upload path names another tenant |
 | `app/Services/StoredUpload.php:81` | a stored upload path points outside the uploads directory and was not touched |
 | `app/Services/StoredUpload.php:90` | a stored upload path names a platform default and was not touched |

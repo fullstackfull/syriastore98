@@ -1240,6 +1240,56 @@ that changes a contract the Flutter app reads.** That is an owner decision, not 
 so it is recorded here and the slice stops. The structured refusal is in place meanwhile, so the
 failure mode is a message and a log rather than a 500.
 
+---
+
+### 2026-10-29 — **(B) IS IMPLEMENTED. (A) STAYS BLOCKED.**
+
+**Why (B) and not (A), under the owner's own standing rules.** Directive B of 2026-10-29 says *"أي
+مسار مالي لا يمكن إثبات سلامته يبقى BLOCKED"* — a financial path whose safety cannot be proved stays
+blocked. (A)'s safety is a claim about how a **second repository** renders an order line whose
+product row is gone; it cannot be proved from here, so it stays blocked. (B) invents nothing,
+changes no contract, and is the smaller functional change, which is the tie-breaker the same
+directive set for a choice between technical routes.
+
+**What (B) turned out to cost: no schema and no contract.** `store_notifications` already carries
+every column needed; it is already read by the merchant web bell and by the shipped app through
+`GET api/admin/notification`; and the app tolerates an unknown `type` — **read from its source, not
+assumed**: `notification_screen.dart`'s `_getTypeColor` and `_getNotificationIcon` both end in a
+`default:` branch, and its order footer and tap-to-navigate are both gated on
+`referenceType == 'order'`. So the row carries `reference_type = 'payment'` and
+`reference_id = null`, and the app renders its title and message with the default bell and does
+nothing on a tap.
+
+**The capture state is one of three, and the first version of the mapping got it wrong.**
+`confirmed` when a verifier positively said so; `rejected` — **no notification** — only when the
+gateway was reachable and answered no; `unknown` otherwise, which covers both a gateway with no
+verifier at all (Easebuzz, PaiementPro and CinetPay have none) and `UNVERIFIABLE`, defined on
+`PaymentVerificationResult` as *"verification could not be performed at all"* and explicitly NOT
+success. The first mapping collapsed `unverifiable` into `rejected`, so an unreachable gateway or a
+missing shared secret would have told the merchant nothing while the card may well have been
+charged. A sibling test's data set failed on it, and the bite matrix then showed the branch had no
+test at all — hence
+`test_an_unverifiable_capture_tells_the_merchant_the_state_is_unknown`.
+
+**The mandated `tenant-authz-reviewer` pass found no tenancy hole and no new 500 path**, and
+verified the store is server-derived at all four call sites, that `app()` resolution outside the
+try/catch cannot throw (`StoreNotificationService`'s one dependency is a concrete class with no
+constructor and no binding), and that the dedupe is scoped. It produced two actionable items, both
+taken:
+
+- **the dedupe key.** It traced a reachable path by which a shopper reaches the `unknown` state at
+  will, so a varying basket total would have multiplied both rows and FCM pushes. The amount is now
+  part of the key only for `confirmed`, which cannot be reached without a verifier answering
+  VERIFIED.
+- **a test that could not fail.** The tenancy case asserted that store B got no row while nothing
+  in the request, the fixture or the code mentioned store B. It now posts a crafted `store_id` and
+  `slug` naming store B while the session names store A.
+
+and one finding recorded rather than fixed: **F181**, the ungated `GET api/admin/notification`.
+
+**What is still not done, and is still not claimed:** the customer has no order. (B) makes the
+money recoverable and visible; it does not make it an order. (A) remains the owner's decision.
+
 **Bite matrix**, because the owner attached *"لا تعتمد على اختبارات تمر حتى بعد التراجع عن
 الإصلاح"* to this finding — and running it corrected one of my own tests:
 

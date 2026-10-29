@@ -84,6 +84,15 @@ class MerchantNotificationController extends Controller
     public const TYPE_PERMISSIONS = [
         'order_created' => 'Manage Order',
         'order_paid' => 'Manage Order',
+        /*
+         * D-22. A gateway capture that produced no order, because the basket named a product or
+         * variant row that had been deleted. `Manage Order` for the same reason as the two above:
+         * the message names a gateway and an amount, so letting a staff member who may not open
+         * the order list read it would route money information around that permission through
+         * the bell. `Show Order` is NOT the right gate here -- there is no order to show, which
+         * is the whole content of the notification.
+         */
+        'payment_needs_attention' => 'Manage Order',
     ];
 
     /** The full-page list. */

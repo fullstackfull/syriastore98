@@ -492,7 +492,7 @@ class KhaltiPaymnetController extends Controller
          * inventing a substitute product or variant. That decision is in the register.
          */
         if ($this->basketHasMissingProductRow($store)) {
-            return $this->gatewayReturnMissingProductRefusal($request, 'khalti', $khaltiVerification, $serverPayable);
+            return $this->gatewayReturnMissingProductRefusal($request, 'khalti', $khaltiVerification, $serverPayable, $store);
         }
 
         $cartlist_final_price = 0;

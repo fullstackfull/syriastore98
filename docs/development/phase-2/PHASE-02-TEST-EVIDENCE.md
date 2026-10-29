@@ -6841,3 +6841,123 @@ F180 is recorded and not fixed, for the reason above.
 | existing tests | the 22 order-detail Feature tests pass unchanged |
 | compile | the view through `blade.compiler` + `php -l` after each of the four pieces, 0 failures |
 | suites | Unit 642 · Merchant + Commerce Feature 1034 passed, 7 skipped (the declared set), 0 failed |
+
+## D-22 second half — the capture that produced no order, made visible — 2026-10-29
+
+**The half that was open.** The pre-collection half closed on 2026-10-28: a basket naming a deleted
+`products` or `product_variants` row gets a structured refusal instead of
+`ErrorException: Attempt to read property "id" on null`. What stayed open was *"after proof, do not
+lose the paid order"* — a customer whose product was deleted mid-checkout still gets no order, and
+all the merchant had was a `critical` line in a log file nobody reads.
+
+**Why (B) and not (A).** The register costed three options. (A) writes the order from the surviving
+`carts` facts and is the only one that satisfies the instruction literally — and it changes what an
+order line contains, a shape the merchant UI, the invoice modules and the **Flutter app** all read.
+The owner's standing rule is that a financial path whose safety cannot be proved stays BLOCKED, and
+(A)'s safety is a claim about a second repository. (B) — make the capture a first-class record the
+merchant can settle from — invents nothing and is the smaller functional change.
+
+**(B) cost no schema and no contract**, which was not obvious until it was checked:
+
+| | |
+|---|---|
+| table | `store_notifications` already carries every column needed — no migration |
+| web | `MerchantNotificationController` already reads it, gated per type |
+| app | `GET api/admin/notification` already reads it |
+| app tolerance | **read from the app's source, not assumed**: `notification_screen.dart`'s `_getTypeColor` and `_getNotificationIcon` both end in `default:`, and its order footer and tap-to-navigate are both gated on `referenceType == 'order'`. The row carries `reference_type = 'payment'`, so the app renders the title and message with its default bell and does nothing on a tap. |
+
+### The capture state, and the mapping that was wrong first
+
+| state | when | notification |
+|---|---|---|
+| `confirmed` | a verifier positively answered VERIFIED. Khalti is the only verifier on this path. | yes — "settle or refund it directly with the customer" |
+| `rejected` | the gateway was reachable and said no | **none.** No money was captured; a bell that rings for failed payments is a bell nobody reads |
+| `unknown` | the gateway has **no verifier at all** (Easebuzz, PaiementPro, CinetPay), **or** its verifier answered `UNVERIFIABLE` | yes — "check the gateway before asking the customer to pay again" |
+
+The first mapping was `isVerified() ? 'confirmed' : 'rejected'`, which collapsed `UNVERIFIABLE`
+into `rejected`. `PaymentVerificationResult` defines that outcome as *"verification could not be
+performed at all — a missing field name, a missing shared secret, an unreachable gateway"*, with
+the explicit note that it is **not** success. So an unreachable gateway would have told the
+merchant nothing while the card may well have been charged.
+
+**A data set caught it and the bite matrix showed why no test had.** The three unverified gateways
+pass `$verification === null` and take a different branch, so the `unverifiable` branch had no test
+at all — the bite "unverifiable is collapsed into rejected" did **not** bite until
+`test_an_unverifiable_capture_tells_the_merchant_the_state_is_unknown` existed. That test drives a
+Khalti response with no `status_code`, which is `verifyKhaltiCapture`'s `$status === 0` path.
+
+### A test of mine that passed for the wrong reason
+
+`test_a_rejected_capture_rings_no_bell` asserted only that no notification exists — which is true
+for a reason that has nothing to do with the condition it was written to pin.
+`KhaltiPaymnetController` refuses a REJECTED capture at the verification, which D-22 hoisted
+**above** the cart read, so the basket guard is never reached and the code that writes the bell
+never runs. Deleting the `$captureState !== 'rejected'` test left it green.
+
+It now asserts the **mechanism** — the handler refuses before the guard — and its bite is moving
+the basket guard above the verification, which is the regression that matters, because that move is
+also what makes F121's crash reachable again.
+
+### The mandated independent review
+
+`tenant-authz-reviewer` was run on the uncommitted diff, as CLAUDE.md requires for a payment path.
+It found **no tenancy hole and no new 500 path**, and verified four things by reading rather than
+by taking the description on trust:
+
+- the store is server-derived at all four call sites — the stored state's `slug` is written by
+  `PaymentController::processBillingInfo`, which merges `$store->slug` over any posted one before
+  the state is stored, so a posted slug never reaches `getStore()`;
+- `app()` resolution sits outside the try/catch, which is the right thing to suspect — and it
+  cannot throw: `StoreNotificationService`'s one dependency is a concrete class with no constructor
+  and no container binding, so auto-wiring is a plain `new`, and the credential checks live inside
+  `sendToToken`, which runs inside the try;
+- the dedupe is scoped by an explicit `where('store_id', …)`, which is the only control there is
+  because `StoreNotification` is absent from `scoped_models`;
+- the merchant view already guards its order button on `reference_type === 'order' && reference_id`,
+  so the new row with a null reference renders without calling `route('order.preview', null)`.
+
+**Two actionable items, both taken:**
+
+1. **The dedupe key.** The review traced a reachable path to the `unknown` state —
+   `getValidPaymentTypes()` is a static list of ~50 gateway names rather than the store's enabled
+   set; `PaymentService::processCinetPay` stores the checkout state **before** its cURL call and
+   whether or not the store has credentials; the return route is `Route::any`, so reachable by GET
+   with no gateway round trip; and a dangling `variant_id` can be planted afterwards through
+   `FrequentlyProductController::product_cartlist`, which writes `$request->variant_id` verbatim.
+   Varying the basket total would then have multiplied both rows and FCM pushes. The amount is now
+   part of the dedupe key **only for `confirmed`**, which cannot be reached without a verifier
+   answering VERIFIED. Driven by `test_a_varying_total_does_not_multiply_the_bell_on_an_unverified_gateway`.
+2. **A test that could not fail.** `test_the_notification_belongs_to_the_store_whose_checkout_it_was`
+   asserted that store B got no row while nothing in the request, the fixture or the code mentioned
+   store B — no cart, no state, no product. It is replaced by one that posts a crafted `store_id`
+   and `slug` naming store B while the session names store A.
+
+   **That one needed a two-part bite**, and the reason is itself the finding: the claim is protected
+   by **two** independent layers. `adoptStoredCheckoutState()` does `$request->merge($state)` before
+   the refusal, so by the time the notification is written the crafted value is already gone —
+   MEASURED: with store B posted, the refusal sees `store_id=1`. The realistic regression is a
+   handler reading input on a path where that merge has not run, which that method's own docblock
+   warns is exactly what five of these handlers do on the guest arm. The bite drops the merge and
+   then reads the input, and it bites.
+
+**One finding recorded rather than fixed: F181.** `GET api/admin/notification` has no type filter
+and no permission check, so any `User` token whose `current_store` is that store reads every
+notification. Pre-existing — the two existing types already ship `final_price` through the same
+endpoint — and its `count` is the Flutter badge's arithmetic, so changing it is a shipped-API change
+and an owner decision.
+
+### What is still not done
+
+The customer has no order. (B) makes the money recoverable and visible; it does not make it an
+order. (A) remains the owner's decision.
+
+### Evidence
+
+| | |
+|---|---|
+| `tests/Feature/Security/GatewayReturnMissingProductTest.php` | 12 cases |
+| `tests/Feature/Security/GatewaySiblingMissingProductTest.php` | 22 cases |
+| bites | **9**, every one bit — including the two the review asked for, and one that needed two edits because the claim has two layers |
+| review | `tenant-authz-reviewer`, no tenancy hole, no new 500 path, 2 items taken, 1 recorded |
+| suites | Security **4248 passed, 4 skipped (the declared set), 0 failed** · Unit **642 passed** |
+| observability | the 4 moved log rows re-pointed with `resync-observability-inventory.py`; the new `Log::error` is outside the inventory's scope, which is `critical` and `warning` |

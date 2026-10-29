@@ -186,6 +186,184 @@ class GatewaySiblingMissingProductTest extends SecurityTestCase
         );
     }
 
+    /**
+     * @return array<string, array{0: string}>
+     */
+    public static function unverifiedGatewayRoutes(): array
+    {
+        /*
+         * KHALTI IS DELIBERATELY ABSENT, and its absence is asserted by its own case below rather
+         * than left as a gap. `PaymentVerificationService` holds three provider verifiers;
+         * PaiementPro, CinetPay and Easebuzz are none of them, so a return on those three is
+         * unproven BY CONSTRUCTION and reaches the basket guard. Khalti's guest arm verifies
+         * FIRST -- D-22 moved the verification above the cart read -- so with no gateway response
+         * faked it is refused at verification and the basket guard is never reached.
+         */
+        return [
+            'paiementpro' => ['get-payment-paiementpro'],
+            'cinetpay' => ['get-payment-cinetPay'],
+            'easebuzz' => ['get-payment-easebuzz'],
+        ];
+    }
+
+    /**
+     * D-22's SECOND HALF, ON THE GATEWAYS THAT VERIFY NOTHING.
+     *
+     * Those three gateways have no verifier at all, so the money may well have been taken before
+     * the redirect. The honest capture state is `unknown` -- neither `confirmed` nor `rejected` --
+     * and the merchant still needs to be told, because a capture nobody checks is worse than one
+     * that is merely uncertain.
+     *
+     * @dataProvider unverifiedGatewayRoutes
+     */
+    public function test_a_capture_that_produced_no_order_reaches_the_merchant(string $uri): void
+    {
+        [, $store] = $this->tenant();
+        $product = $this->productIn($store);
+        $sid = $this->guestCart($store, $product);
+
+        DB::table('products')->where('id', $product->id)->delete();
+
+        $outcome = $this->drive($store, $uri, $sid);
+        $this->assertReachedTheHandler($uri, $outcome);
+
+        $row = DB::table('store_notifications')
+            ->where('store_id', $store->id)
+            ->where('type', 'payment_needs_attention')
+            ->first();
+
+        $this->assertNotNull(
+            $row,
+            $uri . ': the return refused and left the merchant nothing to act on. On a gateway'
+            . ' with no verifier the money may already be taken, which is exactly when a merchant'
+            . ' needs to know.'
+        );
+
+        $data = json_decode((string) $row->data, true);
+
+        $this->assertSame(
+            'unknown',
+            $data['capture_state'] ?? null,
+            $uri . ': a gateway with no verifier must report its capture state as unknown, not'
+            . ' claim one. (The first version of the mapping collapsed `unverifiable` into'
+            . ' `rejected`, so an unreachable gateway would have told the merchant nothing while'
+            . ' the card may well have been charged.)'
+        );
+        $this->assertSame($uri === 'get-payment-cinetPay' ? 'cinetpay' : ($uri === 'get-payment-easebuzz' ? 'easebuzz' : 'paiementpro'), $data['gateway'] ?? null);
+
+        $this->assertSame('payment', $row->reference_type, $uri . ': this is not an order notification');
+        $this->assertNull($row->reference_id, $uri . ': there is no order to reference');
+        $this->assertSame(0, $outcome['orders'], $uri . ': and recording it is not writing the order');
+    }
+
+    /**
+     * A VARYING TOTAL MUST NOT MULTIPLY THE BELL — the hardening the independent review asked
+     * for, driven rather than reasoned.
+     *
+     * The review traced a reachable path to the `unknown` state: `getValidPaymentTypes()` is a
+     * static list of ~50 gateway names rather than the store's enabled set, so any gateway name
+     * passes on any store; `PaymentService::processCinetPay` puts the checkout state in the
+     * session BEFORE its cURL call and whether or not the store has credentials; the return route
+     * is `Route::any`, so it is reachable by GET with no gateway round trip. An amount-keyed
+     * dedupe would therefore let a shopper vary the basket total and multiply both rows and FCM
+     * pushes — a nuisance primitive, not a cross-tenant one, but one worth closing.
+     *
+     * So for `unknown` the key is the store and the gateway, and the amount is part of it only
+     * for `confirmed`, which cannot be reached without a verifier positively answering VERIFIED.
+     */
+    public function test_a_varying_total_does_not_multiply_the_bell_on_an_unverified_gateway(): void
+    {
+        [, $store] = $this->tenant();
+        $product = $this->productIn($store);
+        $sid = $this->guestCart($store, $product);
+
+        DB::table('products')->where('id', $product->id)->delete();
+
+        /*
+         * Three returns whose STORED TOTAL differs, which is the shape the dedupe has to survive.
+         * The amount the refusal records is `serverPayableAmount()`, read from the session state's
+         * `cartlist_final_price` -- so the state is seeded directly here rather than through
+         * `drive()`, which hardcodes one total. (The first version of this case tried to vary it
+         * through `carts.quantity`; that column is `qty`, and varying it would not have moved the
+         * recorded amount anyway, since the amount comes from the stored state and not from the
+         * basket.)
+         */
+        $this->withoutExceptionHandling();
+
+        foreach ([100.00, 250.00, 999.00] as $total) {
+            $state = $this->checkoutState($store);
+            $state['cartlist_final_price'] = $total;
+
+            try {
+                $this->withCookie('cart', $sid)
+                    ->withSession(['request_data' => $state, 'easebuzz_request_data' => $state])
+                    ->post('/' . $store->slug . '/get-payment-cinetPay', []);
+            } catch (\Throwable $e) {
+                $this->fail('a varied-total return must not throw: ' . get_class($e) . ': ' . $e->getMessage());
+            }
+        }
+
+        $amounts = DB::table('store_notifications')
+            ->where('store_id', $store->id)
+            ->where('type', 'payment_needs_attention')
+            ->pluck('data')
+            ->map(fn ($d) => json_decode((string) $d, true)['amount'] ?? null)
+            ->all();
+
+        $this->assertNotSame([], $amounts, 'the premise: at least one return reached the refusal');
+
+        $this->assertSame(
+            1,
+            (int) DB::table('store_notifications')
+                ->where('store_id', $store->id)
+                ->where('type', 'payment_needs_attention')
+                ->count(),
+            'three unverified returns with three different totals must leave ONE row (recorded'
+            . ' amounts: ' . implode(', ', array_map(fn ($a) => var_export($a, true), $amounts)) . ').'
+            . " The merchant action for an unknown capture is \"check the gateway\", which is one"
+            . ' action however many totals were tried, and every occurrence is still in the'
+            . ' critical log.'
+        );
+    }
+
+    /**
+     * WHY KHALTI'S GUEST ARM IS NOT IN THE PROVIDER ABOVE — asserted, not assumed.
+     *
+     * D-22 moved the verification ABOVE the cart read, so on Khalti an unverified return is
+     * refused before the basket guard is ever asked. With no gateway response faked, that is what
+     * happens here: the handler refuses at verification, writes no order, and writes no
+     * `payment_needs_attention` row because the guard that writes it was never reached.
+     *
+     * That is the hoist working, not a gap in this half — and it is pinned so that a later change
+     * which moves the verification back below the cart read fails here rather than silently
+     * restoring the crash D-22 removed. (`GatewayReturnMissingProductTest` drives the Khalti arm
+     * WITH a faked response and asserts the notification is written there.)
+     */
+    public function test_khalti_refuses_at_verification_before_the_basket_guard_is_reached(): void
+    {
+        [, $store] = $this->tenant();
+        $product = $this->productIn($store);
+        $sid = $this->guestCart($store, $product);
+
+        DB::table('products')->where('id', $product->id)->delete();
+
+        $outcome = $this->drive($store, 'order-khalti', $sid);
+
+        $this->assertNull($outcome['exception'], 'the refusal must still not be an exception');
+        $this->assertSame(0, $outcome['orders'], 'and it must write no order');
+        $this->assertSame(
+            0,
+            (int) DB::table('store_notifications')
+                ->where('store_id', $store->id)
+                ->where('type', 'payment_needs_attention')
+                ->count(),
+            'khalti verifies BEFORE the cart read, so an unverified return never reaches the'
+            . ' basket guard and there is no capture to record. If this starts writing a row, the'
+            . ' verification has moved back below the cart read and the 500 D-22 removed is'
+            . ' reachable again.'
+        );
+    }
+
     // ---------------------------------------------------------------- fixture
 
     private function drive($store, string $uri, string $sid): array
