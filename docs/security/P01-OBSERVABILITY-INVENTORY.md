@@ -35,23 +35,25 @@ entirely pre-existing third-party-integration failure reporting, `info` (22) and
 diagnostics; none of them is a security signal and enumerating them would bury the ones that are.
 
 
-### `critical` — 17 lines
+### `critical` — 19 lines
 
 | line | message |
 |---|---|
 | `app/Http/Controllers/Concerns/AppliesCartStockChanges.php:115` | Insufficient stock on an order path that cannot refuse; order kept, stock oversold |
-| `app/Http/Controllers/Concerns/AppliesCartStockChanges.php:164` | Stock compensation failed: inventory was consumed and could not be returned. |
+| `app/Http/Controllers/Concerns/AppliesCartStockChanges.php:180` | Stock compensation failed: inventory was consumed and could not be returned. |
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:954` | Gateway return gave up after the capture was classified: |
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:966` | Gateway return refused: the basket names a product or variant row that no longer exists. |
 | `app/Http/Controllers/KhaltiPaymnetController.php:1349` | Khalti order written for RECONCILIATION: the gateway could not be asked whether money moved |
+| `app/Http/Controllers/PaymentController.php:3266` | Order write failed before the transaction opened; stock decrements were given back |
+| `app/Http/Controllers/PaymentController.php:4702` | Order write failed before the transaction opened; stock decrements were given back |
 | `app/Http/Controllers/PaymentController.php:1406` | Paymera write threw and a committed order cannot be ruled out; the claim is kept so no replay can write a second order |
 | `app/Http/Controllers/PaymentController.php:469` | Paymera status poll ABANDONED: no API credential is configured |
 | `app/Http/Controllers/PaymentController.php:580` | Paymera callback REJECTED: the payment status could not be established |
 | `app/Http/Controllers/PaymentController.php:808` | Paymera write threw and a committed order cannot be ruled out; the claim is kept so no replay can write a second order |
 | `app/Http/Controllers/PaymentController.php:922` | Paymera callback REJECTED: inbound signature not verified |
 | `app/Http/Controllers/PaymentController.php:951` | Paymera callback REJECTED: captured amount not verified |
-| `app/Http/Controllers/PaymentController.php:3425` | Order write failed and was rolled back; stock decrements were given back |
-| `app/Http/Controllers/PaymentController.php:4816` | Order write failed and was rolled back; stock decrements were given back |
+| `app/Http/Controllers/PaymentController.php:3461` | Order write failed and was rolled back; stock decrements were given back |
+| `app/Http/Controllers/PaymentController.php:4888` | Order write failed and was rolled back; stock decrements were given back |
 | `app/Services/PaymentService.php:187` | Insufficient stock on an order path that cannot refuse; order kept, stock oversold |
 | `app/Services/PaymentService.php:3021` | Order write failed and was rolled back; stock decrements were given back |
 | `app/Services/ProductStockService.php:127` | Stock decremented below zero on an order path that cannot refuse |
@@ -124,11 +126,11 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/PaymentController.php:2311` | Checkout refused: no recorded balance matches this pending payment. |
 | `app/Http/Controllers/PaymentController.php:2329` | Checkout refused: the posted pending-payment amount disagrees with the record. |
 | `app/Http/Controllers/PaymentController.php:2645` | Pending partial payment refused: the balance named does not belong to this customer. |
-| `app/Http/Controllers/PaymentController.php:3819` | Telegram order message not sent: the store has no bot token or chat id |
-| `app/Http/Controllers/PaymentController.php:3835` | Telegram refused an order message |
-| `app/Http/Controllers/PaymentController.php:3841` | Telegram order message could not be sent |
-| `app/Http/Controllers/PaymentController.php:3909` | Whatsapp order writer: posted slug does not match the route slug; the route wins. |
-| `app/Http/Controllers/PaymentController.php:4025` | Order intake refused: this basket is already being written. |
+| `app/Http/Controllers/PaymentController.php:3855` | Telegram order message not sent: the store has no bot token or chat id |
+| `app/Http/Controllers/PaymentController.php:3871` | Telegram refused an order message |
+| `app/Http/Controllers/PaymentController.php:3877` | Telegram order message could not be sent |
+| `app/Http/Controllers/PaymentController.php:3945` | Whatsapp order writer: posted slug does not match the route slug; the route wins. |
+| `app/Http/Controllers/PaymentController.php:4061` | Order intake refused: this basket is already being written. |
 | `app/Http/Controllers/PaymentController.php:550` | Paymera replay refused: the session presenting the reference did not place the order |
 | `app/Http/Controllers/PaymentController.php:693` | Paymera callback refused: this payment is already being written. |
 | `app/Http/Controllers/PaymentController.php:775` | Paymera callback could not identify the order it created; the pending record names none |
@@ -282,6 +284,24 @@ order notes, an event with synchronous listeners, the affiliate transaction).
 
 **Destination:** the same channel as every other row here (section 2), with the same caveat — which
 matters more for these two than for most, because nothing else in the system knows.
+
+### The two rows added 2026-10-29 for F192, `critical`
+
+**`PaymentController.php` — the pre-transaction stock give-back, once in each order writer.** They
+are `critical` for the same reason the transaction's own give-back is: inventory moved and no order
+accounts for it. What distinguishes them from that one is **which window** the failure happened in,
+and the message says so — *"before the transaction opened"* against *"was rolled back"*. Keep them
+distinguishable: a run of the pre-transaction line points at a throw between the stock loop and
+`beginTransaction`, which is a different code region with different causes.
+
+**Reader:** whoever reconciles inventory. `restored_lines` is the count given back and `error`
+carries the throw's message. On a gateway-return path this line also means the buyer has **paid**,
+so a single occurrence is worth a look rather than a trend.
+
+**What they do NOT mean:** that stock was lost. They fire when it was given *back*. The silent case
+is the one to fear, and it is now covered in both windows of both writers.
+
+**Destination:** the same channel as every other row here (section 2), with the same caveat.
 
 ---
 

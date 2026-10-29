@@ -2854,6 +2854,30 @@ public function handlePaymeraTrigger00($orderId)
         // a later product in the same cart cannot be fulfilled and the order is
         // therefore never written. Without this, a rejected checkout would
         // silently consume the inventory of the products it got through first.
+        /*
+         * F192: THE STOCK IS GIVEN BACK FOR A THROW BEFORE THE TRANSACTION OPENS, TOO.
+         *
+         * D-13 added compensation inside the transaction's own catch, below. That covers a throw
+         * once `beginTransaction()` has run -- and the decrements happen roughly 350 lines ABOVE
+         * it. Everything between the first `decrementStockOrFail()` and that line was an
+         * uncompensated window: stock down, no order, nothing given back.
+         *
+         * IT IS NOT A THEORETICAL WINDOW. Two deterministic throws live in it, both measured:
+         * the reward-points division (`$rewardSetting['reward_points'] ?? 0` as a DIVISOR, which
+         * raises DivisionByZeroError when that setting is absent or zero, on a line that also
+         * dereferences a `$customerDetail` that is null for a guest), and `$plan->shipping_method`
+         * where `$plan` comes from a `Plan::find()` that returns null for a missing `plan_id` --
+         * a value the code itself guards with `if ($plan && ...)` a few hundred lines earlier.
+         *
+         * ON A GATEWAY RETURN THAT MEANS THE BUYER HAS PAID, THE STOCK IS GONE AND NO ORDER
+         * EXISTS. That is F186's root, and closing this window is what makes F186's own remedy
+         * safe: releasing the writer's replay claim so a buyer can retry is only sound once a
+         * failed attempt leaves nothing behind.
+         *
+         * NO DOUBLE RESTORE: this catch ends where the transaction begins, and the transaction's
+         * catch handles everything after. The two regions do not overlap.
+         */
+        try {
         $appliedStockChanges = [];
 
         // Cart lines to empty once the order has COMMITTED -- see the
@@ -3236,6 +3260,18 @@ public function handlePaymeraTrigger00($orderId)
         // The exception is RE-THROWN, so the caller sees exactly what it saw
         // before: the transaction adds atomicity and stock compensation without
         // changing the happy path or the failure response.
+        } catch (\Throwable $ssPreTransactionFailure) {
+            $this->restoreStockDecrements($appliedStockChanges ?? []);
+
+            \Log::critical('Order write failed before the transaction opened; stock decrements were given back', [
+                'store_id' => $store->id ?? null,
+                'payment_type' => $requests_data['payment_type'] ?? null,
+                'restored_lines' => count($appliedStockChanges ?? []),
+                'error' => $ssPreTransactionFailure->getMessage(),
+            ]);
+
+            throw $ssPreTransactionFailure;
+        }
         \Illuminate\Support\Facades\DB::beginTransaction();
 
         try {
@@ -4273,6 +4309,30 @@ $result = app(\App\Services\StoreNotificationService::class)
         // a later product in the same cart cannot be fulfilled and the order is
         // therefore never written. Without this, a rejected checkout would
         // silently consume the inventory of the products it got through first.
+        /*
+         * F192: THE STOCK IS GIVEN BACK FOR A THROW BEFORE THE TRANSACTION OPENS, TOO.
+         *
+         * D-13 added compensation inside the transaction's own catch, below. That covers a throw
+         * once `beginTransaction()` has run -- and the decrements happen roughly 350 lines ABOVE
+         * it. Everything between the first `decrementStockOrFail()` and that line was an
+         * uncompensated window: stock down, no order, nothing given back.
+         *
+         * IT IS NOT A THEORETICAL WINDOW. Two deterministic throws live in it, both measured:
+         * the reward-points division (`$rewardSetting['reward_points'] ?? 0` as a DIVISOR, which
+         * raises DivisionByZeroError when that setting is absent or zero, on a line that also
+         * dereferences a `$customerDetail` that is null for a guest), and `$plan->shipping_method`
+         * where `$plan` comes from a `Plan::find()` that returns null for a missing `plan_id` --
+         * a value the code itself guards with `if ($plan && ...)` a few hundred lines earlier.
+         *
+         * ON A GATEWAY RETURN THAT MEANS THE BUYER HAS PAID, THE STOCK IS GONE AND NO ORDER
+         * EXISTS. That is F186's root, and closing this window is what makes F186's own remedy
+         * safe: releasing the writer's replay claim so a buyer can retry is only sound once a
+         * failed attempt leaves nothing behind.
+         *
+         * NO DOUBLE RESTORE: this catch ends where the transaction begins, and the transaction's
+         * catch handles everything after. The two regions do not overlap.
+         */
+        try {
         $appliedStockChanges = [];
 
         // Cart lines to empty once the order has COMMITTED -- see the
@@ -4636,6 +4696,18 @@ $result = app(\App\Services\StoreNotificationService::class)
          * buys nothing: PHP does not read indentation, and the begin/commit
          * markers delimit the block unambiguously.
          */
+        } catch (\Throwable $ssPreTransactionFailure) {
+            $this->restoreStockDecrements($appliedStockChanges ?? []);
+
+            \Log::critical('Order write failed before the transaction opened; stock decrements were given back', [
+                'store_id' => $store->id ?? null,
+                'payment_type' => $requests_data['payment_type'] ?? null,
+                'restored_lines' => count($appliedStockChanges ?? []),
+                'error' => $ssPreTransactionFailure->getMessage(),
+            ]);
+
+            throw $ssPreTransactionFailure;
+        }
         \Illuminate\Support\Facades\DB::beginTransaction();
 
         try {

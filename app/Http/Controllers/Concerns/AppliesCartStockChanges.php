@@ -124,6 +124,22 @@ trait AppliesCartStockChanges
 
         $this->restoreStockDecrements($applied);
 
+        /*
+         * CLEARED, BECAUSE THE ACCUMULATOR IS BY REFERENCE AND THESE LINES HAVE NOW BEEN GIVEN
+         * BACK. Without this they stay recorded, so a caller that gives the basket back here and
+         * then fails again later restores the SAME entries a second time -- which ADDS stock that
+         * was never taken, the opposite error and a harder one to notice.
+         *
+         * IT IS NOT REACHABLE TODAY and the line is hardening, not a fix: every one of the 39
+         * `decrementStockOrFail()` call sites in the repository passes `$rejectOnShortfall = false`
+         * explicitly, so this branch is dead. It became worth closing when F192 added a second
+         * give-back to each order writer's pre-transaction catch: a future decrement added inside
+         * one of those guarded regions that simply OMITS the fifth argument would take the default
+         * `true`, land here, and arm exactly that double restore. Found by the review of F192,
+         * which is the change that made it worth a line.
+         */
+        $applied = [];
+
         return ['message' => __('Insufficient stock. Please review your cart and try again.')];
     }
 

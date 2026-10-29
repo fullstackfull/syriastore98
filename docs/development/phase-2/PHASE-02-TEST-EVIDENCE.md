@@ -7763,3 +7763,84 @@ was true of one channel only. Two changes: the bites now leak through `$this->li
 channel the command really uses, and a second case asserts the command's source contains no `Log::`,
 `echo`, `var_dump`, `print_r`, `fwrite`, `dd(`, `dump(` or `error_log`. S4 in the security queue is a
 token reaching a **log**, which the output case cannot observe at all, so the claim needs the pair.
+
+## F192 — the stock window before the transaction — 2026-10-29
+
+D-13 put stock compensation in each order writer's transaction catch. The decrements happen roughly
+350 lines **above** `DB::beginTransaction()`, so everything in between was uncompensated: stock
+down, no order, nothing given back. On a gateway return that means the buyer has **paid**.
+
+Both writers — `getProductStatus()` (the gateway returns, and the routed
+`{storeSlug?}/get-payment-status`) and `whatsapp()` (the storefront and telegram intake) — now wrap
+that region. The catch gives the stock back, logs one `critical` whose wording distinguishes it from
+the transaction's own, and rethrows.
+
+### Driving it corrected the finding twice, which is most of the value here
+
+**The `$plan` throw loses no stock.** There is a **fourth** unguarded `$plan->shipping_method` read,
+at `:2803`, and it sits *above* the stock loop. So a null `$plan` is a 500 with no inventory
+consequence — and the first version of the test passed on "stock unchanged" for exactly that reason,
+with no compensation involved. That is the vacuous-assertion trap this project keeps meeting, and it
+is now its own driven case: if a later change moves the decrements above `:2803`, that case fails and
+asks for the record to be re-derived.
+
+**The window has no caller-reachable entrance today**, measured three ways:
+
+| attempt | what it established |
+|---|---|
+| a null `$plan` | throws at `:2803`, above the loop — no stock taken |
+| a query-keyed injection | between the stock `UPDATE` and `beginTransaction` the only query is the decrement's own stock re-read. The `select * from "settings"` that follows runs **inside** the transaction, so the injected throw fired the transaction's give-back instead of this one |
+| caller-supplied arithmetic | every post-loop operand is server-derived — `taxResolver()->resolve()`, `$cartlist['total_final_price']`, the coupon amount — so no posted value can raise a TypeError there |
+
+So the window's only **measured** live entrance is the reward-points division
+(`$rewardSetting['reward_points'] ?? 0` as a divisor), which needs `RewardClubPoint` active.
+
+**The review then corrected that in the other direction, and it was right to.** I had written this
+up as "defence in depth on a module-gated window". Three entrances in the region after a decrement
+are **not** module-gated:
+
+- any **driver-level failure** — a lost connection, a deadlock, a timeout — on the
+  `User::find($store->created_by)` read, on the decrement's own stock re-read, or on hydrating the
+  order. This is the realistic operational case and it is the main thing the compensation buys.
+- `$order_email = $billing['email'];` — an unguarded array access on the notify-customer-at-threshold
+  branch, while the dereferences either side of it *are* wrapped in `try/catch`.
+- `in_array('enable_low_stock', json_decode($settings['notification']))` — a `TypeError` when a
+  merchant's setting holds a JSON scalar rather than an array, because `!empty()` passes it and
+  `in_array()` then receives a string.
+
+None of those is measured, so each is stated as reachable-by-reading. What stays measured is the
+narrower claim: **no posted value** can raise a throw there. The compensation is pinned structurally
+plus the one driven correction, and the reason it is not driven is written into the test:
+activating a WorkDo module in-process pollutes the Composer ClassLoader for the rest of the run,
+this repository's own documented hazard.
+
+**And the scope was overstated: this is two writers of ELEVEN.** The identical shape sits in nine
+more accumulator sites that did not get the guard — `PaymentService.php` and the writers in
+CinetPay, PaiementPro, Easebuzz, Khalti, NMI, PayU, AuthorizeNet and the two in `ApiController`. The
+class is **not** closed, and the count of nine is now asserted rather than described, so a tenth
+writer gaining the guard fails CI and asks for the scope sentence to be re-derived.
+
+**One latent hazard this very change armed, closed in one line.** `decrementStockOrFail()`'s
+`$rejectOnShortfall` defaults to `true`, and on that branch it gave the basket back *without
+clearing the by-reference accumulator*. A future decrement added inside one of the new guarded
+regions that simply omitted the fifth argument would restore those entries there and have the new
+catch restore them **again** — inflating stock, the opposite error and a harder one to notice. Dead
+today (all 39 call sites pass `false` explicitly), and it only became worth a line because F192
+added the second give-back.
+
+### Why it still had to land first
+
+F186's remedy is to release the writer's 48-hour replay claim so a buyer whose write failed can
+retry. That is only sound once a failed attempt leaves nothing behind — otherwise each retry re-runs
+the stock loop, and `releaseGatewayReturnClaim()`'s own docblock forbids the call after "an order
+row, a stock movement or a capture". Closing this window turns the no-order branch into a genuine
+"nothing happened".
+
+### Evidence
+
+| | |
+|---|---|
+| `tests/Feature/Security/PreTransactionStockGiveBackTest.php` | **3 cases** — the window is compensated (structural, with the ordering and a count) · both writers carry it · the plan throw happens before any stock is taken (driven) |
+| bites | **5 distinct, every one bit** — one writer unguarded · both unguarded · the failure swallowed · the guard opening below the accumulator · the restore moved below the transaction (which also exposed that the first version of the ordering assertion could not see an *added* restore, closed by the count) |
+| observability | two new `critical` rows, with reader and destination, worded to stay distinguishable from the transaction's own give-back |
+| residual, recorded | `decrementStockOrFail()` appends to the accumulator only *after* `decrementProductStock()` returns, so a throw **during** the decrement leaves stock down with an empty accumulator — a narrower window, inside the stock service rather than the writer |
