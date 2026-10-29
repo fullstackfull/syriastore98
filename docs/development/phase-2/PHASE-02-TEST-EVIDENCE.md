@@ -7844,3 +7844,366 @@ row, a stock movement or a capture". Closing this window turns the no-order bran
 | bites | **5 distinct, every one bit** — one writer unguarded · both unguarded · the failure swallowed · the guard opening below the accumulator · the restore moved below the transaction (which also exposed that the first version of the ordering assertion could not see an *added* restore, closed by the count) |
 | observability | two new `critical` rows, with reader and destination, worded to stay distinguishable from the transaction's own give-back |
 | residual, recorded | `decrementStockOrFail()` appends to the accumulator only *after* `decrementProductStock()` returns, so a throw **during** the decrement leaves stock down with an empty accumulator — a narrower window, inside the stock service rather than the writer |
+
+---
+
+## F186 — a verified Paymera payment that produced no order (2026-10-29)
+
+`$pending['processed']` is not a progress marker. `handlePaymeraCallback`'s top guard and the
+in-lock re-check in `freshPaymeraPendingOrNull()` key on it **and on nothing else**, so writing it
+asserts that the checkout finished. Both entry points wrote `true` unconditionally, after a writer
+whose every non-writing exit is a `return` rather than a throw — an empty basket, a stock failure, a
+quantity or foreign-product refusal, a missing product row, `User not found`. Nothing throws, so
+F96's catch never runs, and the record was stamped `processed` with `order_id => null`: the gateway
+had captured, no order existed, and the record said otherwise.
+
+It is now written only when an order is established to exist (`paymeraOrderEstablished()`): the row
+the session binding named, re-read under this store and `payment_type = 'paymera'`; failing that,
+`paymeraOrderCommittedSince()`, which **fails closed** on an unusable store id or a throwing query.
+
+### The premise this slice first wrote was false, and the correction is the more useful record
+
+A first version said the shared writer takes **no** gateway-return claim on the Paymera path,
+because the stored `request_data` carries no `checkout_nonce`. **It carries one.**
+
+- `PaymentService::process()` stamps it at `:325` — `stampCheckoutNonce()` merges
+  `self::CHECKOUT_NONCE_KEY` into the request **before** the gateway switch.
+- `processPaymera()` builds `$requestData = $request->except('attachment','payment_receipt')`
+  (`:481`), which includes merged input, and stores it as `request_data` (`:509`).
+- `GuardsGatewayReturn:88-91` states that design in terms: stamping in `process()` rather than at
+  the 46 `Session::put('request_data', …)` sites means **every branch inherits it**.
+
+**How it went wrong:** a grep for the literal `checkout_nonce` in `PaymentService.php` finds
+nothing, because the key is only ever written as the constant. *A census keyed on a literal cannot
+see a constant* — the same shape that has bitten this project before. The correction was established
+by **execution**: stamp a request, take `except('attachment','payment_receipt')`, hand the result to
+`gatewayReturnClaimKeys()`, and it yields `gateway-return-claim:checkout:<sha1>`.
+
+Worse, the two cases written to *pin* that premise were built from a hand-written state array with
+the key omitted — true by construction, unfalsifiable, and advertised in the file as the missing
+premise. Both are replaced by cases that derive the state the way production does.
+
+### So the fix does not recover the capture
+
+The claim is taken at `:2663`, above every refusal in the writer, for 48 hours — longer than the
+record's own two. A retry past the 60-minute `paymera_claim_<reference>` re-enters the writer and
+meets `gatewayReturnReplayRefusal()`. What the fix buys:
+
+1. the record stops asserting a checkout that does not exist, and an operator can tell "never
+   written" from "written but the binding lost its name";
+2. a captured payment with no order is `critical` rather than a `warning` about a missing order id
+   that says nothing about the money;
+3. it is the prerequisite for any later decision to release that claim.
+
+**And the path is latent by default:** `config/services.php:264` defaults
+`require_callback_signature` to true with the four signature keys unset, so the callback is refused
+before the lock, the claim and the writer. Reaching this code needs an owner who has set
+`PAYMERA_REQUIRE_CALLBACK_SIGNATURE=false`.
+
+### The new cost, bounded
+
+A record left unprocessed no longer short-circuits, so a repeated anonymous GET re-drives the status
+poll and the verification, and once per 60 minutes a writer pass. The `critical` is therefore written
+**once per record** (`ss_unreconciled_capture`): turning a paging line into a repeatable one for any
+holder of a live reference would be a worse defect than the one being fixed. The outbound poll repeat
+is left alone — idempotent, already present for every pass before `processed` was ever set, and
+bounding it would add a second short-circuit a future release design would have to undo.
+
+### F10 — the second review pass found a defect this slice introduced
+
+`Cache::put('paymera_pending_<ref>', …, now()->addHours(2))` re-sets the record's TTL on every pass
+that reaches it. Harmless while the first pass stamped `processed` and later ones short-circuited —
+the put ran once. With `processed` left false, an unprocessed record reaches a put once per 60
+minutes, so **one anonymous GET an hour kept the record alive indefinitely.**
+
+That falsifies the invariant quoted in two docblocks as the reason the change is safe: *the writer's
+claim is 48 hours, longer than the record's own two*. At T+48h the claim lapses — a refused
+`Cache::add` does not extend it — while the record is still live, so the next pass clears
+`claimGatewayReturn()` and enters the writer for real: an order written two days after the capture,
+on the signed-in branch against the **live cart** rather than the basket that was paid for. Not a
+duplicate, and latent behind the same signature gate, but the broken invariant is the point.
+
+**Fixed** with an absolute deadline: `PaymentService` stamps `ss_expires_at` at initiation and
+`paymeraRecordDeadline()` honours it at all four live put sites. The two unrouted twins keep the
+rolling form and the count is asserted, so a fifth live put cannot arrive with a rolling window. An
+old record carries no deadline and keeps the old two hours — nothing in flight at deploy is dropped,
+and the renewal therefore persists for those records until they lapse, which is the honest limit. An
+unreadable deadline falls back rather than dropping the record: fail-closed here would mean deleting
+a live payment record.
+
+### Four further review findings, all prose, all fixed
+
+1. **Citation drift inside the text written to correct a wrong premise.** The rewrite moved
+   everything below it by +4 and +48; `:2663`, `:933-945` and ten refusal lines were stale, and the
+   anchors ratchet guards only the four in the `(Measured …)` block. The unratcheted citations now
+   **name symbols** instead of numbers, with the reason written in.
+2. **The pre-correction premise survived verbatim in three places**, one of them an *assertion
+   message* — read at exactly the moment someone is debugging. All three corrected.
+3. **"the only one that survives a cache flush" was true for one interleaving, not in general.**
+   F188's flush drops the record *and* the claims, so a replay is normally refused by the missing
+   record. Narrowed to the reachable interleaving: the flush landing after the claim is taken and
+   before the pass's final put.
+4. **`executableSource()`'s regex stripped inside string literals** — `'https://egate-t.paymera.cc'`
+   became `'https:` — so a future string containing a block-comment opener could blank a needle and
+   turn a ratchet green for an unrelated reason. Now `token_get_all()` filtered on
+   `T_COMMENT`/`T_DOC_COMMENT`. Writing the comment that explains this demonstrated the hazard a
+   second time: quoting the pattern put a comment terminator inside a block comment and the file
+   stopped parsing.
+
+**One accepted limitation:** the new premise case drives the real stamp but *mirrors* the carry
+(`except('attachment','payment_receipt')` is written in the test, not read from `processPaymera()`),
+so an explicit allowlist there would stop the nonce reaching `request_data` with the case still
+green.
+
+**Recorded, not fixed:** `recordVerification('paymera', …)` passes no `$checkoutNonce` at either
+entry point, so the cross-checkout binding added 2026-10-24 is unwired for Paymera although the
+state provably carries the nonce.
+
+### Evidence
+
+| | |
+|---|---|
+| `tests/Feature/Commerce/PaymeraCapturedWithoutOrderTest.php` | **16 cases** — 6 driven over the decision (nothing anywhere · the binding's row · a commit the binding could not name · an unusable store id · another store's order · **the same-store neighbour residual, pinned**) · 2 driving the corrected premise (the stored state really carries a nonce; the writer's claim really refuses the replay) · 3 structural (no unconditional `true` survives; the decision and helper appear in both entry points; the `critical` is guarded against repetition in both) |
+| bites | **9 distinct, every one bit** — the helper always true · the helper ignoring the row the binding named · each entry point back to `= true`, separately · the trigger's `critical` downgraded to `warning` · the nonce no longer stamped · revert-to-comment · the callback's repetition guard removed · the guard flag never written. One had to be re-run: its anchor matched as a **substring** of the 16-space sibling line, the same trap this slice hit earlier, closed by anchoring on the newline |
+| ratchets hardened | the three source assertions now match the controller with **comments stripped**; review's point was that a whole-file string match is satisfied by a comment, so revert-to-comment passed them |
+| review findings fixed | the four cited anchors in `paymeraOrderCommittedSince()`'s docblock had drifted **+82** and broke a declared-green ratchet — re-measured, then again after the docblock rewrite moved them a second time; two dead fixture keys (`order_id`, `price`) in neither `Order::$fillable` nor the `orders` table; and the wrong "correction" written **over a correct paragraph** in `PaymeraCallbackIdempotencyTest`, reverted |
+| residuals, pinned | the **same-store concurrent neighbour** (another buyer's paymera order in this store inside this writer's window marks this capture processed and routes it to `warning`) — unclosable with the identifiers available, since an `orders` row carries no paymera reference; and an order committed under a different `store_id` or `payment_type` |
+| BLOCKED | releasing the writer's claim, with three options in the ledger row. (a) is taken by default as the only one that cannot create a duplicate |
+
+## F188 — an anonymous language switch emptied every tenant's payment cache (2026-10-29)
+
+The F188 row recorded this as an operator enabling a module. Measuring it found something wider.
+All three `LanguageController` switch handlers opened with `Artisan::call('cache:clear')`, and a
+brace-depth walk of `routes/web.php` shows **two of the three routes take no authentication**:
+
+| route | middleware | |
+|---|---|---|
+| `GET change-language-store/{lang}` (`:1511`) | `web` | anonymous |
+| `GET change-languages/{lang}` (`:387`) | `web` + `setlocate` | anonymous |
+| `GET change-language/{lang}` (`:1308`) | `['auth','xss','setlocate','verified']` | authenticated |
+
+`web` appends guards but never a rate limiter, and a GET needs no CSRF token. So one
+unauthenticated, repeatable request emptied the default cache store for every tenant at once —
+including `gateway-return-claim:*`, the replay control for **every** gateway return. That control is
+`Cache::add()`, so a forgotten key is an *un-taken* claim: a stranger clearing it between replays of
+one captured payment lets each replay write its own paid order. It also drops `paymera_pending_*`
+(F186's outcome, caused by a third party rather than a crash) and `paymera_claim_*`.
+
+### Why it could not simply be deleted
+
+`Utility::GetValByName()` caches each store's settings under `settings_store_<id>` with
+`rememberForever()`, and **nothing in the codebase forgets that key**. The flush was the only thing
+making a freshly written `SITE_RTL`/`defult_language` visible.
+
+### What shipped
+
+The storefront handler writes no setting — only a cookie and the session — so its flush is removed
+outright. The other two forget `settings_store_<the store being changed>` plus
+`sideMenuCacheForget()` for the acting user, **after** the writes rather than before (the flush ran
+first, so a read in the gap re-cached the old value *forever*). In the anonymous-capable
+`changelanguage` that invalidation sits inside the `Auth::check()` branch.
+
+`ModuleController`'s `sideMenuCacheForget('all')` is untouched — that is the operator action the row
+describes, and module management is out of scope.
+
+### What this slice does NOT close, measured on a real database cache store
+
+Review raised a mechanism the Feature suite is structurally blind to, and
+`tests/Support/Security/bin/verify-model-cache-flush-scope-on-mysql.php` measured it. `Setting` and
+`User` are both `Cachable`; laravel-model-caching flushes after every save; and `Caching::cache()`
+tags the repository **only when the store is taggable**. `ArrayStore` extends `TaggableStore`;
+production's `DatabaseStore` does not.
+
+**MariaDB 10.11.14, database store: one `Setting::updateOrCreate()` emptied 4 of 4 seeded payment
+keys. The identical write on the array store left all four.**
+
+So the authenticated language switch still empties every tenant's in-flight payment state in
+production — without `cache:clear` being involved at all — and the Feature test beside this change
+passes because of `phpunit.xml`'s `CACHE_STORE=array`. Its authenticated case is renamed
+`test_the_authenticated_switch_takes_no_whole_store_flush_of_its_own` and scoped explicitly; it still
+proves the handler reaches for no whole-store flush of its own, which is what would regress if
+`cache:clear` came back.
+
+**What IS closed is engine-independent:** neither anonymous path writes a `Cachable` model, so the
+unauthenticated, unthrottled, CSRF-free wipe is gone. The authenticated one is **F194**, a
+platform-wide defect recorded with four options for the owner.
+
+### Two of this slice's own stated reasons were false
+
+1. It said a global flush was *the only way* the `SITE_RTL`/`defult_language` rows became visible.
+   **Nothing** reads either name through `GetValByName()` — direction and language come from the
+   uncached `GetValueByName()`, the uncached `Utility::Setting()` and direct `Setting::where(...)`
+   queries. The forget is correct and its ordering is a real improvement; it is not load-bearing.
+2. It described `sideMenuCacheForget()` as dropping the translated menu cache. **`sidebar_menu_*`
+   has no writer anywhere in the tree.** The calls are kept as the right hook for when one appears,
+   with the comment corrected to say they invalidate nothing today.
+
+And one of the test's own narratives was wrong: it blamed a false reading on a null
+`email_verified_at`, but `UserFactory` sets it and `EmailIsVerified` only fires when
+`email_verification == 'on'`. The real cause was the `KeyForgotten`-without-seeding diagnosis.
+`assertHandlerRan()` is still the right guard; it is not what closed that reading.
+
+**F188 is narrowed, not closed.**
+
+### Three of this file's own cases were wrong first
+
+Each would have read as a verdict on the code:
+
+1. The authenticated cases accepted a 302 as proof the route was reached. A factory user with a null
+   `email_verified_at` is redirected by `EmailIsVerified` — also a 302 — so the handler never ran and
+   two cases passed against a request that reached no code. Closed by `assertHandlerRan()`, which
+   asserts the `defult_language` row the handler writes.
+2. A `KeyForgotten` listener read *nothing forgotten* off a forget that worked:
+   `Repository::forget()` wraps the event in `if ($result)` and the array store returns false for an
+   absent key.
+3. Letting `GetValByName()` populate its own entry produced no shadowing value, so the invalidation
+   case **survived its own bite**. The cause is a second defect, recorded not fixed: that method
+   caches under the store-wide key but its closure queries `where('name', $name)` only, so the entry
+   holds at most the one name first asked for and every later read of a different setting for that
+   store silently takes the utility default. Closed here by seeding the stale entry explicitly and
+   asserting as a premise that it is being served.
+
+### Evidence
+
+| | |
+|---|---|
+| `tests/Feature/Security/LanguageSwitchCacheScopeTest.php` | **5 cases** — 3 driven over real HTTP requests asserting four seeded payment keys survive each switch · 1 end-to-end proving the authenticated switch still makes a newly written `defult_language` readable · 1 ratchet forbidding `cache:clear`, `Cache::flush(` and `sideMenuCacheForget('all')` in this controller's executable text |
+| bites | **4 distinct, every one bit** — the flush restored in each anonymous handler separately · the targeted forget removed · the targeted forget replaced by `sideMenuCacheForget('all')`, which fails the payment case and the ratchet while still passing the invalidation case |
+| recorded, not fixed | `GetValByName()`'s one-name-per-store-key cache; `ModuleController` and `Utility::addNewData()` still flush globally on an operator action |
+
+---
+
+## The approved MySQL/MariaDB sandbox, run 2026-10-29
+
+The owner asked for the approved sandbox to be run and for concurrency, stock and financial closure
+to be exercised on it. The Feature suite runs on SQLite `:memory:` and
+`tests/Support/TestDatabaseGuard.php` aborts any PHPUnit run whose connection is not sqlite, so this
+evidence lives in the standalone scripts under `tests/Support/Security/bin/` and their runner.
+
+**Server:** MariaDB **10.11.14** (`10.11.14-MariaDB-0ubuntu0.24.04.1`), throwaway, provisioned in
+this container with its data directory under the session scratchpad and shut down afterwards.
+`@@collation_server` = **`utf8mb4_general_ci`** — the case- and accent-insensitive default the
+collation findings (P1-INV-18, the lottery and role-name scripts, the host-claim script) exist to
+test, and the one SQLite's BINARY collation hides. `sql_mode` =
+`STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION`.
+
+**Result:** `passed: 23   failed: 0`. Every script creates and drops its own database.
+
+Covering the three areas named: `verify-stock-oversell-concurrency-on-mysql` (**14 checks**),
+`verify-gateway-return-claim-on-mysql` (**12 checks**), `verify-pending-partial-payment-lookup-on-mysql`,
+`verify-refund-freshness-lock-and-limiter-keys-on-mysql`, `verify-order-export-column-order-on-mysql`,
+`verify-cost-price-migration-on-mysql`, `verify-cart-quantity-guard-on-mysql`,
+`verify-guest-cart-clear-coercion-on-mysql`, `verify-store-id-coercion-on-mysql`,
+`verify-module-order-mutation-id-coercion-on-mysql`, plus the ownership, cascade, collation and
+schema-coercion scripts.
+
+### Two gaps the run itself exposed — neither is a code defect, both are evidence defects
+
+**1. The runner counts a SKIPPED script as passed.** `verify-reserved-role-name-collation-on-mysql`
+is the only one of the 24 that does not honour `MYSQL_SOCK` — it connects to `127.0.0.1` only. Against
+a socket-only server it printed `SKIP: no MySQL reachable at 127.0.0.1` and the runner still tallied
+it under `passed:`, so the run reported *"every MySQL verification script reported all assertions
+held"* while one script asserted nothing. **So the honest count is 22 verified, 1 skipped, not 23.**
+
+Re-running that script against the same server with TCP enabled did not rescue it: it requires
+**`utf8mb4_0900_ai_ci`**, which is a MySQL 8 collation that MariaDB does not have, and it aborts with
+`Unknown collation: 'utf8mb4_0900_ai_ci'`. That is a genuine precondition, not a defect — the script
+needs MySQL 8, and the sandbox available here is MariaDB. **Recorded as owed evidence.**
+
+**2. One script is not in the runner's roster at all.** `verify-gate-f-schema-on-mysql` exists in
+`bin/` but the runner enumerates 23 of the 24, so it has to be run by hand. Worth knowing before
+anyone reads `passed: 23` as "all of them".
+
+Both are harness honesty problems of exactly the kind this project counts as its own defect class: a
+green summary that does not mean what it says. Neither is fixed in this slice — the runner is Phase 01
+tooling — and both are stated here so the number is read correctly.
+
+---
+
+## F194 — in production, any `Cachable` model save empties the whole cache (2026-10-29)
+
+Found by the mandated review of the F188 slice; **measured** rather than argued, because the Feature
+suite cannot see it.
+
+`App\Models\Setting`, `App\Models\User` and `App\Models\Order` all `use Cachable`.
+laravel-model-caching flushes after every create/save/delete (`ModelCaching.php:66-76` →
+`Caching::checkCooldownAndFlushAfterPersisting()` → `flushCache()`), and `Caching::cache()` tags the
+repository **only when the store is taggable**:
+
+```php
+// vendor/genealabs/laravel-model-caching/src/Traits/Caching.php:95
+if (is_subclass_of($cache->getStore(), TaggableStore::class)) { $cache = $cache->tags($tags); }
+```
+
+`Illuminate\Cache\ArrayStore` **extends** `TaggableStore`. `Illuminate\Cache\DatabaseStore` does
+**not**. `phpunit.xml` sets `CACHE_STORE=array`; production is `CACHE_STORE=database`.
+
+### The measurement
+
+`tests/Support/Security/bin/verify-model-cache-flush-scope-on-mysql.php`, MariaDB 10.11.14:
+
+| store | seeded | after one `Setting::updateOrCreate()` |
+|---|---|---|
+| `database` (production) | 4 payment keys | **0 survive** |
+| `array` (the suite) | 4 payment keys | **4 survive** |
+
+The lost keys are `gateway-return-claim:checkout:…`, `gateway-return-claim:payment:khalti:…`,
+`paymera_pending_…` and `paymera_claim_…`. The script asks both store classes directly, runs both
+engines in one pass, and **reports rather than fails** — it is evidence, not a gate.
+
+### Why it outranks F188
+
+F188 was framed as an operator toggling a module, then widened to an anonymous language switch. This
+needs no special route at all: an ordinary **order save** flushes the same store. So the
+gateway-return replay control is **not durable in production** — `claimGatewayReturn()` is
+`Cache::add()` with a 48-hour TTL, and a forgotten key is an *un-taken* claim, which is what lets one
+capture be replayed into a second paid order. It also bears on **F186**, whose reasoning leans on
+that claim outliving the two-hour pending record.
+
+### Not fixed — four options for the owner
+
+| | option | cost |
+|---|---|---|
+| (a) | point `MODEL_CACHE_STORE` at its own store (or a taggable one such as Redis) | infrastructure only, no application code — the owner's call |
+| (b) | move the payment controls onto a table with its own lifetime | correct and durable; new schema, therefore GATE F |
+| (c) | `MODEL_CACHE_ENABLED=false` | one setting; costs whatever the caching buys, unmeasured here |
+| (d) | leave it | a replayed gateway return can write a second paid order whenever a model save intervenes |
+
+**No production access, migration or configuration change is implied by this record.** The
+measurement is the deliverable.
+
+---
+
+## F180 — every stored order note is rendered (2026-10-29)
+
+The order detail page branched on five exact `status`/`note_type` shapes with **no `@else`**, so a
+note matching none of them rendered nothing. Three of the four `order_notes` writers produce exactly
+such shapes — `OrderController::store()` writes `'Order created'` with a lowercase c, one character
+from the branch it misses, and `Api\DashboardController` writes that plus
+`'Customer note'`/`note_type => 'customer'`, which matched nothing at all. So a note a merchant
+typed into the manual order form, and every note the admin API recorded, was stored and never shown.
+The original measurement was **5 rendered blocks against 8 stored rows**.
+
+`OrderNote::timelineTone()` now returns `''` instead of `null` and **its return type is
+non-nullable**, so there is no value that means *skip*; the view's `@if ($ssNoteTone)` is gone. The
+return type is the real guarantee — a nullable one would let the drop return through any caller that
+tests for null, which is how F180 happened.
+
+**`''` rather than a sixth tint:** `note-bg-color` is the base class every note header already
+carries and it is styled in both themes, including the dark-mode contrast work at
+`public/css/custom.css:4660-4662`. An unmatched note renders with the base styling and no tint —
+visible, legible, **no new CSS**. A sixth tint would have meant a sixth colour to contrast-check for
+a note whose meaning the page cannot classify.
+
+**Why not normalise the three writers,** the other option the ledger named: larger, it changes what
+those handlers store, and it cannot retrofit rows already written. The owner's condition is
+compatibility with old records, and only the rendering fix satisfies it. No financial data is
+touched — the method reads two columns and returns a CSS class.
+
+### Evidence
+
+| | |
+|---|---|
+| `tests/Feature/Merchant/OrderNoteVisibilityTest.php` | **4 cases** — all **eight** stored shapes appear on a really-rendered page (driven through `/order-view/<encrypted id>` with the permissions the page needs) · the block count equals the row count, which catches a note rendered **twice** as readily as one not rendered at all · the return type can no longer withhold a note · the view carries no conditional around the loop |
+| bites | **2, both bit** — `timelineTone()` back to `?string`/`null`; the view's `@if` restored |
+| the deliberately-pinned test | `OrderDetailShellContractTest`'s provider PINNED the drop while D-25 Step 3 was required to preserve behaviour, and its own message said *"fixing F180 is its own slice"*. Changing those three expectations from `null` to `''` is that deliberate act |

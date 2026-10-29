@@ -503,7 +503,30 @@ $requestData['slug'] = $slug;
 $requestData['store_id'] = $store->id;
                 Session::put('request_data', $requestData);
 
+                /*
+                 * F10 (found reviewing F186) -- THE RECORD'S DEADLINE IS ABSOLUTE, NOT ROLLING.
+                 *
+                 * Every `Cache::put('paymera_pending_<ref>', ...)` in PaymentController re-sets the
+                 * TTL to two hours from now. That was harmless while the first pass stamped
+                 * `processed` and every later one short-circuited: the put ran once. F186 made a
+                 * failed pass leave `processed` false, so an unprocessed record reaches a put once
+                 * per 60 minutes (the `paymera_claim_` lifetime) and ONE anonymous GET an hour kept
+                 * it alive indefinitely. That falsifies the invariant F186's own reasoning rests
+                 * on -- that the writer's 48-hour gateway-return claim outlives the record's two
+                 * hours -- because at T+48h the claim lapses while the record is still there, and
+                 * the next pass enters the writer for real and writes an order two days after the
+                 * capture, for the signed-in branch against the LIVE cart rather than the basket
+                 * that was paid for.
+                 *
+                 * Stored once, here, and honoured by `paymeraRecordDeadline()`. A record written
+                 * before this change carries no deadline and keeps the old rolling two hours, so
+                 * nothing in flight at deploy breaks; the renewal therefore persists for those
+                 * until they lapse, which is stated rather than hidden.
+                 */
+                $ssPaymeraDeadline = now()->addHours(2);
+
                 Cache::put('paymera_pending_' . $orderId, [
+                    'ss_expires_at' => $ssPaymeraDeadline->toIso8601String(),
                     'payment_id' => $responseData['Data']['paymentId'] ?? null,
                     'slug'       => $slug,
                     'request_data' => $requestData,
@@ -524,7 +547,7 @@ $requestData['store_id'] = $store->id;
                         str_replace($CURRENCY, '', (string) $cartlist_final_price)
                     ),
                     'amount_sent' => $totalprice,
-                ], now()->addHours(2));
+                ], $ssPaymeraDeadline);
 
                 return $responseData['Data']['url'];
             }

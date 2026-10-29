@@ -824,13 +824,40 @@ class PaymeraCallbackIdempotencyTest extends TestCase
             . ' very window F96 names: the writer outruns it and a replay writes a second order'
         );
 
+        /*
+         * WHERE THE RECORD'S TWO-HOUR LIFE IS DECIDED, AND THIS ASSERTION MOVED BECAUSE THE ANSWER
+         * MOVED. [2026-10-29]
+         *
+         * It used to read the literal `now()->addHours(2)` out of `handlePaymeraCallback`'s own
+         * `Cache::put`. **F10** replaced that with `$this->paymeraRecordDeadline($pending)`: a put
+         * minting a fresh two hours on every pass made the record RENEWABLE, and one anonymous GET
+         * an hour kept it alive past the writer's 48-hour claim. This case failed on that change
+         * and its message said to re-derive the number, which is exactly what it is for.
+         *
+         * The two hours still exist -- they are now stamped ONCE, at initiation, as
+         * `$ssPaymeraDeadline = now()->addHours(2)` in `PaymentService::processPaymera()`. So both
+         * halves are pinned, and more tightly than before: the figure the ceiling below is measured
+         * against, and the fact that the callback CONSULTS the stored deadline instead of minting
+         * its own.
+         */
+        $service = $this->executableSourceOf(\App\Services\PaymentService::class, 'processPaymera');
+
+        $this->assertStringContainsString(
+            '$ssPaymeraDeadline = now()->addHours(2);',
+            $service,
+            'the pending record is no longer stamped with a two-hour deadline at initiation, so the'
+            . ' margin this test asserts is measured against the wrong number -- re-derive it'
+        );
+
         $source = $this->executableSourceOf(PaymentController::class, 'handlePaymeraCallback');
 
         $this->assertStringContainsString(
-            "Cache::put(\n            'paymera_pending_' . \$orderId,\n            \$pending,\n            now()->addHours(2)",
+            '$this->paymeraRecordDeadline($pending)',
             $source,
-            'the pending record is no longer written with a two-hour life, so the margin this test'
-            . ' asserts is measured against the wrong number -- re-derive it'
+            'the callback writes the record with a TTL of its own again instead of the deadline the'
+            . ' record carries. That is F10: the record becomes renewable, and the invariant this'
+            . ' test exists to protect -- the claim fits inside the record\'s life -- stops holding'
+            . ' because the record no longer has a fixed life'
         );
 
         /*
@@ -860,8 +887,27 @@ class PaymeraCallbackIdempotencyTest extends TestCase
      * `GuardsGatewayReturn::GATEWAY_RETURN_CLAIM_TTL` -- 48 hours -- and nothing releases it when
      * the writer throws. Past that line a retry meets `gatewayReturnReplayRefusal()` however short
      * this file's claim is, and the callback then marks the payment `processed` with no order
-     * identified. That is F186, recorded rather than fixed: releasing a claim taken above a write
-     * is the undo `releaseGatewayReturnClaim()`'s own docblock forbids as a general move.
+     * identified. That is F186.
+     *
+     * [2026-10-29] THE `processed` HALF IS FIXED; THE CLAIM HALF IS STILL RECORDED RATHER THAN
+     * FIXED. `processed` is now written only when an order is established to exist
+     * (`paymeraOrderEstablished()`), so the record no longer asserts a checkout that does not
+     * exist and a captured payment with no order is logged at `critical`. What that does NOT do is
+     * recover the capture: the paragraph above is correct, the 48-hour claim IS taken on this path
+     * (`PaymentService::process()` stamps `checkout_nonce` into the request before the gateway
+     * switch and `processPaymera()` carries it into `request_data`), so the retry the new
+     * `processed => false` permits meets `gatewayReturnReplayRefusal()` and writes nothing.
+     * Releasing that claim is the general undo `releaseGatewayReturnClaim()`'s own docblock
+     * forbids, and it stays BLOCKED for an owner decision.
+     *
+     * A DRAFT OF THIS NOTE CLAIMED THE OPPOSITE — that the claim is never taken for Paymera — and
+     * overwrote the correct paragraph above with it. It was wrong, and the way it went wrong is
+     * worth keeping: it rested on a grep for the LITERAL `checkout_nonce` in `PaymentService.php`,
+     * which finds nothing because the key is only ever written as `self::CHECKOUT_NONCE_KEY`. A
+     * census keyed on a literal cannot see a constant. The mandated review caught it, and the
+     * premise is now DRIVEN rather than asserted in prose, by
+     * `PaymeraCapturedWithoutOrderTest::test_the_paymera_state_really_does_carry_a_checkout_nonce`
+     * and `::test_the_writer_claims_the_paymera_return_and_refuses_the_replay`.
      *
      * So the ORDERING is load-bearing for the comment at `PAYMERA_CLAIM_MINUTES`, and it is
      * asserted rather than assumed. Shorten the writer's claim below the record's life and the

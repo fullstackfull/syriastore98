@@ -14,13 +14,106 @@ use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\App;
 use App\Models\AddOnManager;
 use App\Facades\ModuleFacade as Module;
-use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Cache;
 
 class LanguageController extends Controller
 {
+    /**
+     * F188 -- WHY THESE THREE HANDLERS NO LONGER FLUSH THE WHOLE CACHE.
+     *
+     * `Artisan::call('cache:clear')` stood as the FIRST statement of all three, and two of the
+     * three routes are ANONYMOUS. Measured against `routes/web.php` and a brace-depth walk of its
+     * groups:
+     *
+     *   GET change-language-store/{lang}  :1511  -> `web` only                    ANONYMOUS
+     *   GET change-languages/{lang}       :387   -> `web` + `setlocate`           ANONYMOUS
+     *   GET change-language/{lang}        :1308  -> inside `['auth','xss','setlocate','verified']`
+     *
+     * `web` carries no throttle (`bootstrap/app.php` appends guards, never a rate limiter). So an
+     * unauthenticated GET -- repeatable, and needing no CSRF token because it is a GET -- emptied
+     * the default cache store for every tenant at once. What lives there:
+     *
+     *   `gateway-return-claim:*`      the replay control for EVERY gateway return. Clearing it is
+     *                                 what lets one capture be replayed into a second paid order:
+     *                                 `claimGatewayReturn()` is `Cache::add()`, so a forgotten key
+     *                                 is an un-taken claim.
+     *   `paymera_pending_*`           a buyer mid-checkout loses the record their callback needs
+     *                                 and meets "انتهت صلاحية جلسة الدفع" -- a captured payment
+     *                                 with no order, i.e. F186's outcome reached by a stranger.
+     *   `paymera_claim_*`, `paymera_lock_*`   F96's duplicate-order window, reopened.
+     *
+     * That is wider than the F188 row recorded (it named an operator enabling a module) and wider
+     * than F186's analysis, which assumed a crash rather than a third party.
+     *
+     * WHAT REPLACES IT, AND WHAT THE FLUSH WAS AND WAS NOT FOR -- both corrected after review.
+     *
+     * `Utility::GetValByName()` caches each store's settings under `settings_store_<id>` with
+     * `Cache::rememberForever()` (`Utility.php:245-259`) and nothing in the codebase forgets that
+     * key -- a tree-wide search finds the string only at its own definition. So the forget below is
+     * that one key, for the one store being changed, and it is ordered AFTER the `updateOrCreate`
+     * calls, which the flush was not: the flush ran first, so a read landing in the gap re-cached
+     * the OLD value *forever*. That ordering is a real improvement and it stands on its own.
+     *
+     * BUT AN EARLIER VERSION OF THIS NOTE SAID THE FLUSH WAS *THE ONLY WAY* THE `SITE_RTL` AND
+     * `defult_language` ROWS BECAME VISIBLE, AND THAT IS FALSE. Review traced every caller:
+     * nothing reads either name through `GetValByName()`. Its real callers read `CURRENCY`,
+     * `CURRENCY_NAME`, `logo_dark` and the `is_*_enabled` flags. Direction and language come from
+     * the UNCACHED `Utility::GetValueByName()` (`Utility.php:206-236`) at `layouts/app.blade.php:20`
+     * and `layouts/theme_layout.blade.php:23`, from the uncached `Utility::Setting()` in
+     * `layouts/guest.blade.php`, and from direct `Setting::where(...)` queries for the Flutter
+     * app. So no renderer was ever served direction or labels from a cache the flush uniquely
+     * reached. The forget is correct and cheap; it is not load-bearing, and claiming it was would
+     * tell the next reader that removing it breaks a merchant's layout.
+     *
+     * `sideMenuCacheForget()` IS CURRENTLY A NO-OP, and that is also worth stating rather than
+     * leaving as an implied control. It forgets `sidebar_menu_<id>` -- but a tree-wide search finds
+     * that key ONLY in the three `Cache::forget()` calls inside the helper itself. Nothing in
+     * `app/`, `resources/` or `packages/` ever WRITES it, `SidebarCustomization` contains no
+     * `Cache::` call at all. The calls are kept, not deleted, because the per-user forget is the
+     * right hook the moment a writer appears and because the helper also carries the `'all'` path
+     * the module system uses -- but today they invalidate nothing. They dereference
+     * `auth()->user()->type`, so they are called only where a user exists, never on the storefront
+     * route.
+     *
+     * NOT CHANGED: `ModuleController`'s two `sideMenuCacheForget('all')` calls. Those are the
+     * operator action the F188 row describes, they sit behind the module permission, and module
+     * management is explicitly out of scope for this slice.
+     *
+     * =============================================================================================
+     * WHAT THIS SLICE DOES **NOT** CLOSE, MEASURED ON A REAL DATABASE CACHE STORE.
+     * =============================================================================================
+     *
+     * Review raised, and
+     * `tests/Support/Security/bin/verify-model-cache-flush-scope-on-mysql.php` then MEASURED, that
+     * the authenticated path still empties the whole cache in production -- for a reason that has
+     * nothing to do with `cache:clear`:
+     *
+     *   - `App\Models\Setting` and `App\Models\User` both `use Cachable`, and
+     *     laravel-model-caching flushes after every save (`ModelCaching.php:66-76`).
+     *   - `Caching::cache()` tags the repository ONLY when the store is taggable
+     *     (`Caching.php:95`). `ArrayStore` extends `TaggableStore`; `DatabaseStore` does not.
+     *   - Production is `CACHE_STORE=database`.
+     *
+     * Measured on MariaDB 10.11 with the database store: ONE `Setting::updateOrCreate()` emptied
+     * **4 of 4** seeded payment keys -- both `gateway-return-claim:*`, the `paymera_pending_*` and
+     * the `paymera_claim_*`. The same write on the array store left all four. So the Feature test
+     * beside this change passes because of `phpunit.xml`'s `CACHE_STORE=array`, and it could never
+     * have said anything about production.
+     *
+     * SO: THE ANONYMOUS, UNTHROTTLED, CSRF-FREE WIPE IS CLOSED BY THIS SLICE -- neither anonymous
+     * path writes a `Cachable` model (`changeLanquageStore` writes only a cookie and the session;
+     * `changelanguage`'s writes are all inside `Auth::check()`). The AUTHENTICATED wipe is not
+     * closed, and it is far wider than the language routes: `App\Models\Order` is `Cachable` too,
+     * so in production any order save already empties every tenant's gateway-return claims. That
+     * is a platform-wide defect in `Cachable` plus a non-taggable store, recorded separately, and
+     * it is NOT what this change is. Do not read the comment above as "a language switch can no
+     * longer empty the payment cache"; read it as "an anonymous one cannot".
+     */
     public function changeLanquageStore($lang = '')
     {
-        Artisan::call('cache:clear');
+        /* No flush and no forget: this handler writes NO setting at all -- only a cookie and the
+           session, both of which `SetLocate`/`ThemeLanguage` read fresh on the next request. There
+           is nothing cached for it to invalidate, and it is the anonymous storefront route. */
         Cookie::queue('LANGUAGE',$lang, 1440);
         Session::put(['LANGUAGE' => $lang]);
         return redirect()->back()->with('success', __('Language change successfully.'));
@@ -28,7 +121,6 @@ class LanguageController extends Controller
 
     public function changeLanquage($lang)
     {
-        Artisan::call('cache:clear');
         // Cookie::queue('LANGUAGE',$lang, 1440);
         // Session::put(['LANGUAGE' => $lang]);
         $user = auth()->user();
@@ -76,6 +168,11 @@ class LanguageController extends Controller
                 'created_by'    => auth()->user()->id,
             ]
         );
+        /* F188: forget exactly what was written, AFTER writing it. See the note above
+           changeLanquageStore(). */
+        Cache::forget('settings_store_' . getCurrentStore());
+        sideMenuCacheForget();
+
         // Set the application locale to the selected language
         App::setLocale($lang);
 
@@ -84,7 +181,6 @@ class LanguageController extends Controller
 
     public function changelanguage($lang = '')
     {
-        Artisan::call('cache:clear');
         Cookie::queue('LANGUAGE',$lang, 1440);
         Session::put(['LANGUAGE' => $lang]);
        
@@ -133,6 +229,11 @@ class LanguageController extends Controller
                     'created_by'    => auth()->user()->id ?? 0,
                 ]
             );
+
+            /* F188: inside the authenticated branch, because that is the one that wrote settings.
+               An anonymous caller reaches neither the writes nor the invalidation. */
+            Cache::forget('settings_store_' . getCurrentStore());
+            sideMenuCacheForget();
         }
         // Set the application locale to the selected language
         //App::setLocale($lang);

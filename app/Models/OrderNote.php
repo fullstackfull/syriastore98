@@ -77,7 +77,40 @@ class OrderNote extends Model
      * its own slice — where this one method is the only place that has to change, which is the
      * point of moving the decision out of the view.
      */
-    public function timelineTone(): ?string
+    /**
+     * THE TINT THIS NOTE'S HEADER CARRIES ON THE ORDER DETAIL PAGE. (F180)
+     *
+     * It used to return NULL for a shape none of the five branches matched, and the view skipped
+     * such a note entirely — because the `@elseif` chain this method replaced had no `@else`. That
+     * was reproduced deliberately when the branches were collapsed (D-25 Step 3's condition was to
+     * preserve behaviour), and recorded as F180: three of the four `order_notes` writers produce
+     * shapes no branch matches, measured as **5 rendered blocks against 8 stored rows**.
+     *
+     *   `OrderController::store()`      `status => 'Order created'` — a LOWERCASE c, so it misses
+     *                                   `'Order Created'` by one character
+     *   `Api\DashboardController`       the same lowercase shape, and
+     *                                   `status => 'Customer note'` / `note_type => 'customer'`,
+     *                                   which matches nothing at all
+     *
+     * So a note a merchant typed into the manual order form, and every note the admin API records,
+     * was stored and never shown. The irony was in the code: the comment at `OrderController:414`
+     * said the earlier fix meant the note *"now actually appears"*, and it did not.
+     *
+     * NOW IT RETURNS `''`, NOT A NEW CLASS. `note-bg-color` is the base class every note header
+     * already carries and it is styled in both themes, including the dark-mode contrast work at
+     * `public/css/custom.css:4660-4662`. An unmatched note therefore renders with the base
+     * styling and no tint — visible, legible, and needing no CSS that did not exist. Inventing a
+     * sixth tint would have meant a sixth colour to contrast-check for a note whose meaning the
+     * page cannot classify anyway.
+     *
+     * THE RETURN TYPE IS NOW NON-NULLABLE, which is the real guarantee: the view can no longer
+     * skip a note, because there is no value that means "skip". Normalising the three writers onto
+     * `OrderNote::addOrderNote()` was the alternative; it is larger, it changes what those handlers
+     * store, and it cannot retrofit the rows already written — this renders old rows too, which is
+     * what the owner's "compatible with old records" requires. No financial data is touched: this
+     * method reads `status` and `note_type` and returns a CSS class.
+     */
+    public function timelineTone(): string
     {
         $status = (string) $this->status;
         $type = (string) $this->note_type;
@@ -98,7 +131,8 @@ class OrderNote extends Model
             return 'customer-note';
         }
 
-        return null;
+        /* F180. Every note renders; a shape with no tint of its own gets the base styling. */
+        return '';
     }
 
     public function authorNameFor(?User $viewer): ?string

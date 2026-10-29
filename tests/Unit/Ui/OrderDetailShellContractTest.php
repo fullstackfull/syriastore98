@@ -60,10 +60,24 @@ class OrderDetailShellContractTest extends TestCase
             'order status change' => ['Order status change', null, 'order-status-note'],
             'private note' => ['', 'private_note', 'admin-private-note'],
             'note to customer' => ['', 'to_customer', 'customer-note'],
-            // F180: the three the page drops, each written by a real handler
-            'OrderController::store' => ['Order created', 'created', null],
-            'admin API order created' => ['Order created', 'system', null],
-            'admin API customer note' => ['Customer note', 'customer', null],
+            /*
+             * F180 — FIXED 2026-10-29, AND THIS IS THE DELIBERATE CHANGE THIS CASE ASKED FOR.
+             *
+             * These three shapes are written by real handlers (`OrderController::store()` and two
+             * in `Api\DashboardController`) and the page used to DROP them: the old `@elseif`
+             * chain had no `@else`, and `timelineTone()` reproduced that with `null` because D-25
+             * Step 3's condition was to preserve behaviour. The assertion message below told the
+             * next reader that fixing F180 was its own slice; that slice is done.
+             *
+             * They now expect `''` — the base `note-bg-color` styling with no tint — and the
+             * method's return type is non-nullable, so no caller can skip a note. The visibility
+             * guarantee itself is driven in
+             * `tests/Feature/Merchant/OrderNoteVisibilityTest.php`; what this provider still pins
+             * is that the five tinted shapes keep the tints the old chain gave them.
+             */
+            'OrderController::store' => ['Order created', 'created', ''],
+            'admin API order created' => ['Order created', 'system', ''],
+            'admin API customer note' => ['Customer note', 'customer', ''],
         ];
     }
 
@@ -71,7 +85,7 @@ class OrderDetailShellContractTest extends TestCase
     public function test_the_tone_method_reproduces_the_old_branch_chain(
         string $status,
         ?string $type,
-        ?string $expected
+        string $expected
     ): void {
         $note = new OrderNote();
         $note->status = $status;
@@ -80,11 +94,11 @@ class OrderDetailShellContractTest extends TestCase
         $this->assertSame(
             $expected,
             $note->timelineTone(),
-            $expected === null
+            $expected === ''
                 ? sprintf(
-                    'status=%s note_type=%s must return NULL. The old chain had no `@else`, so this'
-                    . " shape rendered nothing, and Step 3 is required to PRESERVE that — fixing\n"
-                    . 'F180 is its own slice.',
+                    'status=%s note_type=%s must return the EMPTY tone, not null and not a tint:'
+                    . ' F180 renders it with the base `note-bg-color` styling. A null here would'
+                    . ' let a caller testing for null drop the note again.',
                     var_export($status, true),
                     var_export($type, true)
                 )

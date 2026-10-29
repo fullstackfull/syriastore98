@@ -771,15 +771,32 @@ public function handlePaymeraCallback(Request $request, string $orderId)
             ->where('payment_type', 'paymera')
             ->first();
 
-        if ($latestOrder === null) {
+        /* F186. `processed` asserts that an order exists, so it is only written when one does.
+           See paymeraOrderEstablished() for why this path's retry has no other backstop. */
+        $ssOrderExists = $this->paymeraOrderEstablished(
+            $latestOrder,
+            $requestData['store_id'] ?? null,
+            $ssPaymeraOrdersBefore
+        );
+
+        if ($latestOrder === null && $ssOrderExists) {
             \Log::warning('Paymera callback could not identify the order it created; the pending record names none', [
+                'paymera_reference' => $orderId,
+                'store_id' => $requestData['store_id'] ?? null,
+            ]);
+        } elseif (! $ssOrderExists && empty($pending['ss_unreconciled_capture'])) {
+            /* ONCE PER RECORD, not once per refresh. The record no longer short-circuits, and the
+               callback route is anonymous and unthrottled, so a per-pass critical would let a
+               reference holder flood the channel this line exists to page on. */
+            \Log::critical('Paymera payment verified but no order was written; the capture is unreconciled', [
                 'paymera_reference' => $orderId,
                 'store_id' => $requestData['store_id'] ?? null,
             ]);
         }
 
         $pending['status'] = 'A';
-        $pending['processed'] = true;
+        $pending['processed'] = $ssOrderExists;
+        $pending['ss_unreconciled_capture'] = ! $ssOrderExists;
         $pending['order_id'] = $latestOrder?->id;
         $pending['product_order_id'] =
             $latestOrder?->product_order_id;
@@ -787,7 +804,7 @@ public function handlePaymeraCallback(Request $request, string $orderId)
         Cache::put(
             'paymera_pending_' . $orderId,
             $pending,
-            now()->addHours(2)
+            $this->paymeraRecordDeadline($pending)
         );
 
         return $response;
@@ -981,7 +998,7 @@ public function handlePaymeraCallback_backup($orderId)
         if ($lock->get()) {
             try {
                 $pending['status'] = 'A';
-                Cache::put('paymera_pending_' . $orderId, $pending, now()->addHours(2));
+                Cache::put('paymera_pending_' . $orderId, $pending, $this->paymeraRecordDeadline($pending));
 
                 // ⭐ نرجّع بيانات الطلب للـ Session، مشان getProductStatus يشتغل متل ما هو بالضبط
                 Session::put('request_data', $pending['request_data']);
@@ -1137,8 +1154,8 @@ private function paymeraOrderHighWaterMark(mixed $storeId): int
  * `$pending['processed']` still false, and **no in-process marker of either**: not a return
  * value, not a binding, not a flag. The only witness is the row.
  *
- * (Measured 2026-10-29: `DB::beginTransaction()` :3275, `DB::commit()` :3446, `$owner->email`
- * :3502, `OrderCompleteBinding::remember()` :3591. These are STRUCTURAL claims and the numbers
+ * (Measured 2026-10-29: `DB::beginTransaction()` :3457, `DB::commit()` :3628, `$owner->email`
+ * :3684, `OrderCompleteBinding::remember()` :3773. These are STRUCTURAL claims and the numbers
  * drift -- two earlier versions of this comment cited lines this very change had already moved,
  * which is why `PaymeraPostCommitClaimTest::test_the_cited_anchors_still_name_what_they_claim`
  * now asserts them. Read the structure as the claim and the numbers as a pointer.)
@@ -1206,6 +1223,157 @@ private function paymeraOrderCommittedSince(mixed $storeId, int $highWaterMark):
            critical log that on a post-commit throw is the ONLY record the order exists. */
         return true;
     }
+}
+
+/**
+ * MAY `$pending['processed']` BE SET? ONLY IF AN ORDER REALLY EXISTS. (F186)
+ *
+ * `processed` is not a progress marker. It is the LAST thing that refuses a second pass at the
+ * Paymera writer -- `handlePaymeraCallback`'s top guard and `freshPaymeraPendingOrNull`'s in-lock
+ * re-check both key on it and on nothing else -- so writing it is an assertion that the checkout
+ * finished. Both entry points used to write `true` unconditionally, after a writer whose every
+ * non-writing exit is a `return` rather than a throw: `'Cart is empty.'` (twice), a
+ * `decrementStockOrFail()` shortfall (three times), `gatewayReturnQuantityRefusal()`,
+ * `gatewayReturnForeignProductRefusal()`, `'Product not found .'` (twice) and `'User not
+ * found.'`. (NO LINE NUMBERS ON PURPOSE: three successive versions of this docblock cited lines
+ * that the very change writing them had already moved -- twice caught by a ratchet, once by
+ * review. Only the four anchors in `paymeraOrderCommittedSince()` are ratcheted; these are not,
+ * so they name symbols, which do not drift.) Each returns a refusal, nothing threw, so
+ * the catch below never ran and the record was stamped `processed` with `order_id => null`.
+ *
+ * WHAT THAT COST -- AND A PREMISE OF THIS DOCBLOCK WAS WRONG; THE CORRECTION MATTERS MORE THAN
+ * THE ORIGINAL CLAIM. An earlier version said the shared writer's 48-hour claim is **never taken**
+ * for Paymera, because the Paymera `request_data` carries no `checkout_nonce`. It does carry one.
+ * `PaymentService::process()` stamps it into the request at `:325` -- `stampCheckoutNonce()`
+ * (`:314-321`) does `$request->merge([self::CHECKOUT_NONCE_KEY => (string) Str::uuid()])` **before**
+ * the gateway switch -- and `processPaymera()` then builds `$requestData = $request->except(
+ * 'attachment', 'payment_receipt')` (`:481`), which includes merged input, and stores it as
+ * `request_data` (`:509`). `GuardsGatewayReturn:88-91` states that design in terms: stamping in
+ * `process()` rather than at the 46 `Session::put('request_data', ...)` sites means every branch
+ * inherits it.
+ *
+ * HOW THE WRONG VERSION HAPPENED, because the shape recurs: it rested on a grep for the literal
+ * `checkout_nonce` in `PaymentService.php`, which finds **nothing** -- the key is only ever
+ * written as `self::CHECKOUT_NONCE_KEY`. A census keyed on a literal cannot see a constant. The
+ * correction was established by EXECUTION rather than by reading: stamp a request, take
+ * `except('attachment','payment_receipt')`, hand the result to `gatewayReturnClaimKeys()`, and it
+ * yields `gateway-return-claim:checkout:<sha1>`. `PaymeraCapturedWithoutOrderTest` drives exactly
+ * that, so the premise can no longer be asserted in prose alone.
+ *
+ * SO THIS CHANGE DOES NOT RECOVER THE CAPTURE, and must not be described as if it did. The claim
+ * is taken by the writer's own `claimGatewayReturn($request, 'storefront-return', $requests_data)`
+ * call, **above** every refusal listed earlier, for
+ * `GuardsGatewayReturn::GATEWAY_RETURN_CLAIM_TTL` = 48 hours -- longer than the record's own two.
+ * A retry past the 60-minute `paymera_claim_<reference>` re-enters the writer and meets
+ * `gatewayReturnReplayRefusal()`. The money is still owed and still unreconciled.
+ *
+ * WHAT IT DOES BUY, which is smaller than the first version claimed and still worth having:
+ *
+ *   - THE RECORD STOPS ASSERTING A CHECKOUT THAT DOES NOT EXIST. `processed => true` with
+ *     `order_id => null` is a false statement, and it is the statement an operator reads when
+ *     reconciling. It also could not be told apart from "written, but the binding lost its name".
+ *   - A CAPTURED PAYMENT WITH NO ORDER IS NOW `critical`. It was a `warning` about a missing
+ *     order id and said nothing about the money. That line is the only record the reconciliation
+ *     is owed, and it is the paging channel.
+ *   - IT IS THE PREREQUISITE for the owner's option of releasing the writer's claim: without this
+ *     discipline, a release would hand the retry a record already marked processed.
+ *
+ * WHAT IT COSTS. A record left unprocessed no longer short-circuits at `:535`, so a repeated
+ * anonymous GET re-drives the status poll and the verification, and once per 60 minutes a writer
+ * pass as far as that `claimGatewayReturn()` call. No write, no second order, no disclosure --
+ * but it is unauthenticated
+ * repetition, so the `critical` is written ONCE per record (`ss_unreconciled_capture` on the
+ * stored record) rather than once per refresh. Turning a paging line into a repeatable one would
+ * be a worse defect than the one being fixed. The outbound poll repeat is left as it is: it is
+ * idempotent, it already happens for every pass before `processed` was ever set, and bounding it
+ * would mean a second short-circuit that a future release design would have to undo.
+ *
+ * AND THE PATH IS LATENT UNDER THE SHIPPED DEFAULT, which the first version also overstated.
+ * `config/services.php:264` defaults `require_callback_signature` to **true** and the four
+ * signature keys are env-sourced and unset, so `PaymentVerificationService` answers
+ * `unverifiable('paymera_signature_scheme_not_configured')`, the callback is refused where it logs
+ * *'Paymera callback REJECTED: inbound signature not verified'*
+ * and returns before the lock, the claim and the writer. Reaching this code at all needs an owner
+ * who has set `PAYMERA_REQUIRE_CALLBACK_SIGNATURE=false`. So this is a correctness fix on a path
+ * that is latent by default, not a measured live loss.
+ *
+ * THE DUPLICATE SIDE, which is the half that must not regress. Returning false only ever ADDS a
+ * second pass. The FIRST thing refusing that pass is the writer's own 48-hour claim above, not
+ * this decision -- an earlier version of this paragraph said the no-duplicate property "now rests
+ * here", which followed from the wrong premise. This is the second layer, and it still has to be
+ * right, for two narrower reasons than the first version gave. (a) A future decision to release
+ * the writer's claim removes the first layer outright. (b) A cache flush (**F188**) normally
+ * removes BOTH -- the record and the claims live in the same default store, so a replay is then
+ * refused by the MISSING RECORD rather than by anything here -- but a flush landing AFTER the
+ * writer's claim is taken and BEFORE this pass's final `Cache::put` re-creates the record without
+ * the claims, and `processed` is the only layer left. That interleaving is reachable: F188's
+ * trigger was an unauthenticated repeatable GET and the writer's post-commit tail is ~145 lines.
+ * Stated as that interleaving rather than as the general property an earlier version claimed.
+ * Two tests, exact one first:
+ *
+ *   - `$named` is the row `orderWrittenBy()`'s session binding identified, re-read under this
+ *     store and `payment_type = 'paymera'`. Exact. Non-null is the normal success path and its
+ *     behaviour is unchanged.
+ *   - `paymeraOrderCommittedSince()` only runs when the binding named nothing, and FAILS CLOSED:
+ *     an unusable store id or a throwing query answers true, so an unanswerable question marks the
+ *     payment processed. For this decision closed is the safe direction -- it refuses the retry.
+ *
+ * RESIDUAL, stated rather than implied: an order that committed under a DIFFERENT `store_id` than
+ * the stored state's, or a `payment_type` other than `'paymera'`, is missed by both tests and a
+ * retry would write a second one. That requires the writer to disagree with its own input -- it
+ * derives both from `$requests_data` -- and it is the same residual already recorded for this
+ * helper's use in the catch blocks. It is NOT closed by this change.
+ *
+ * WHAT THIS DOES NOT DO. It does not release the writer's gateway-return claim. For a gateway
+ * whose state DOES carry a nonce that claim is taken above the write and outlives the record, and
+ * releasing it is the general undo `releaseGatewayReturnClaim()`'s own docblock forbids -- it
+ * would re-open the replay that control closes. That half of F186 is left BLOCKED for an owner
+ * decision; see PHASE-02-TASK-LEDGER.md.
+ *
+ * @param  \App\Models\Order|null  $named  the row the session binding identified, or null
+ */
+/**
+ * HOW LONG THIS PAYMERA RECORD HAS LEFT — an absolute deadline, not two more hours. (F10)
+ *
+ * Found by the mandated review of the F186 change, in the change itself. Every put of
+ * `paymera_pending_<reference>` wrote `now()->addHours(2)`, which was harmless while the first
+ * pass stamped `processed` and later ones short-circuited at the top. F186 made a failed pass
+ * leave `processed` false, so an unprocessed record reaches a put once per 60 minutes -- the
+ * `paymera_claim_` lifetime -- and one anonymous GET an hour kept it alive for as long as anyone
+ * cared to ask. Both F186 docblocks reason from "the writer's claim is 48 hours, longer than the
+ * record's own two", and a renewable record makes that false: at T+48h the writer's claim lapses
+ * (a refused `Cache::add` does not extend it) while the record is still live, so the next pass
+ * clears `claimGatewayReturn()` and enters the writer for real -- writing an order two days after
+ * the capture, and for the signed-in branch against the LIVE cart rather than the basket that was
+ * paid for.
+ *
+ * `PaymentService` now stamps `ss_expires_at` at initiation. A record written before that change
+ * has none and keeps the old rolling two hours, so nothing in flight at deploy breaks -- and the
+ * renewal persists for those records until they lapse, which is the honest limit of this fix.
+ *
+ * A deadline already past makes `Cache::put()` forget the key, which is the correct outcome: the
+ * record's life is over.
+ */
+private function paymeraRecordDeadline(array $pending): \Illuminate\Support\Carbon
+{
+    $stored = $pending['ss_expires_at'] ?? null;
+
+    if (is_string($stored) && trim($stored) !== '') {
+        try {
+            return \Illuminate\Support\Carbon::parse($stored);
+        } catch (\Throwable $ssUnparseableDeadline) {
+            /* A record whose deadline cannot be read falls back to the old behaviour rather than
+               being dropped: losing a live payment record is the worse failure. */
+        }
+    }
+
+    return now()->addHours(2);
+}
+
+private function paymeraOrderEstablished(mixed $named, mixed $storeId, int $highWaterMark): bool
+{
+    return $named !== null
+        || $this->paymeraOrderCommittedSince($storeId, $highWaterMark);
 }
 
 private function orderWrittenBy(callable $write, bool $sessionPlacedIt): ?int
@@ -1333,7 +1501,7 @@ public function handlePaymeraTrigger($orderId)
                 $ssPaymeraOrdersBefore = $this->paymeraOrderHighWaterMark($pending['request_data']['store_id'] ?? null);
 
                 $pending['status'] = 'A';
-                Cache::put('paymera_pending_' . $orderId, $pending, now()->addHours(2));
+                Cache::put('paymera_pending_' . $orderId, $pending, $this->paymeraRecordDeadline($pending));
 
                 $this->paymentVerifier()->recordVerification(
                     'paymera',
@@ -1388,17 +1556,31 @@ public function handlePaymeraTrigger($orderId)
                     ->where('payment_type', 'paymera')
                     ->first();
 
-                if ($latestOrder === null) {
+                /* F186, the same rule as the browser callback and for the same reason. */
+                $ssOrderExists = $this->paymeraOrderEstablished(
+                    $latestOrder,
+                    $pending['request_data']['store_id'] ?? null,
+                    $ssPaymeraOrdersBefore
+                );
+
+                if ($latestOrder === null && $ssOrderExists) {
                     \Log::warning('Paymera trigger could not identify the order it created; the pending record names none', [
+                        'paymera_reference' => $orderId,
+                        'store_id' => $pending['request_data']['store_id'] ?? null,
+                    ]);
+                } elseif (! $ssOrderExists && empty($pending['ss_unreconciled_capture'])) {
+                    /* Once per record; see the browser callback. */
+                    \Log::critical('Paymera trigger verified the payment but wrote no order; the capture is unreconciled', [
                         'paymera_reference' => $orderId,
                         'store_id' => $pending['request_data']['store_id'] ?? null,
                     ]);
                 }
 
-                $pending['processed'] = true;
+                $pending['processed'] = $ssOrderExists;
+                $pending['ss_unreconciled_capture'] = ! $ssOrderExists;
                 $pending['order_id'] = $latestOrder?->id;
                 $pending['product_order_id'] = $latestOrder?->product_order_id;
-                Cache::put('paymera_pending_' . $orderId, $pending, now()->addHours(2));
+                Cache::put('paymera_pending_' . $orderId, $pending, $this->paymeraRecordDeadline($pending));
                 } catch (\Throwable $ssPaymeraError) {
                     /* The same rule as the browser callback's catch, for the same reason: released
                        only if nothing committed. See paymeraOrderCommittedSince(). */

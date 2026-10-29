@@ -573,18 +573,18 @@ class="text-start ps-3"><b>{{ order_currency_format_with_sym($order['coupon_pric
                                  `OrderDetailContractTest::test_every_note_has_exactly_one_delete_control`
                                  was written to guard.
 
-                                 `timelineTone()` RETURNS NULL FOR A NOTE THE OLD CHAIN DROPPED,
-                                 and that is deliberate. The chain had no `@else`, so a note
-                                 matching none of the five rendered nothing — reachable, and
-                                 recorded as F180: three of the four `order_notes` writers produce
-                                 shapes no branch matches, measured as 5 blocks rendered against 8
-                                 rows. Step 3's condition is to PRESERVE notes, so it reproduces
-                                 the drop exactly instead of quietly changing it. The fix is its
-                                 own slice, and `OrderNote::timelineTone()` is now the single place
-                                 it has to touch. --}}
+                                 F180 IS NOW FIXED, AND THE `@if` THAT DROPPED A NOTE IS GONE.
+                                 `timelineTone()` used to return NULL for a shape none of the five
+                                 branches matched, and this loop skipped it, reproducing the old
+                                 chain's missing `@else` deliberately: D-25 Step 3's condition was
+                                 to preserve behaviour. Three of the four `order_notes` writers
+                                 produce such shapes, measured as 5 rendered blocks against 8
+                                 stored rows. The method now returns `''` and is NON-NULLABLE, so
+                                 there is no value that means "skip" and this loop renders every
+                                 note; an unmatched one gets the base `note-bg-color` styling with
+                                 no tint, which is already contrast-checked in both themes. --}}
                             @foreach ($order_notes as $note)
                                 @php($ssNoteTone = $note->timelineTone())
-                                @if ($ssNoteTone)
                                     <div class="card">
                                         <div class="card-header note-bg-color {{ $ssNoteTone }}">
                                             <span class="tl-btn licence-btn ">
@@ -623,7 +623,6 @@ class="text-start ps-3"><b>{{ order_currency_format_with_sym($order['coupon_pric
                                             </div>
                                         </div>
                                     </div>
-                                @endif
                             @endforeach
                             @permission('Create Order Note')
                             {{ Form::open(['route' => 'order-note.store', 'method' => 'POST', 'id' => 'choice_form', 'enctype' => 'multipart/form-data']) }}
