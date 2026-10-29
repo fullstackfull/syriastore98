@@ -98,6 +98,32 @@ Every token carries `['*']`, so a token read out of a log (see S4) is a universa
 - **Do not add `CheckAbilities` to routes in the same release.** Mint first, enforce later, so the
   two can be rolled back independently and tokens minted before the change are not stranded.
 
+> **ADDENDUM 2026-10-29 — STAGE 2 IS DONE, AND A MEASUREMENT FROM IT CHANGES WHAT ENFORCEMENT
+> COSTS (F189).** The abilities are now minted: `storefront` for the three customer sites,
+> `merchant` for `DashboardController::login` (which serves the operator too), `delivery` for
+> `deliveryLogin`. But the "enforce later" half is **not** a small follow-up, and the reason was
+> measured during the review rather than assumed:
+>
+> `CustomAuth` logs the principal in with `auth('…')->login($tokenable)` and **never calls
+> `withAccessToken($accessToken)`**. So `currentAccessToken()` is null on every `custom.auth`
+> route; `HasApiTokens::tokenCan()` short-circuits to **false for every principal**, a `['*']`
+> token included; and Sanctum's `CheckAbilities` throws `AuthenticationException` — a **401** — the
+> moment it sees a null `currentAccessToken()`. `$request->user()` with no argument also resolves
+> the default `web` guard, so a driver or customer token is null there too.
+>
+> **Adding `abilities:` to a route today would therefore 401 every caller of it**, and the shipped
+> Flutter app force-logs-out on any 401. Enforcement's first job is to attach the token in
+> `CustomAuth` (or to check in-handler), not to add middleware.
+>
+> **Stage 3 below is unaffected.** The merchant expiry does not go through Sanctum's guard:
+> `CustomAuth:66` reads `expires_at` directly and refuses a past one. Measured, and it is the
+> premise the stage rests on.
+>
+> Two further facts for whoever writes the enforcement stage, both in the ledger: **F191** — seven
+> `api/admin` routes are reachable by more than one principal (and `adminlogout` by all three), so
+> they need `CheckForAnyAbility` or an in-handler check rather than one ability each; and the
+> merchant mint site is `DashboardController:846`, not the `:687` named below.
+
 ### Stage 3 — expiry for merchants only. **Owner approval: required.**
 
 Merchants are the one principal whose client we can read and whose re-authentication path we know

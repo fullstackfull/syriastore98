@@ -466,8 +466,10 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                                     <div class="choose-file">
                                         <label for="downloadable_product"
                                             class="form-label">{{ __('Downloadable Product') }}</label>
+                                        {{-- `accept` from UploadLimits -- see create.blade.php. --}}
                                         <input type="file" class="form-control" name="downloadable_product"
                                             id="downloadable_product"
+                                            accept="{{ $ssUpload['accept'] }}"
                                             onchange="document.getElementById('downloadable_product').src = window.URL.createObjectURL(this.files[0]);"
                                             multiple>
                                         @if ($product->downloadable_product != '')
@@ -485,8 +487,10 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                                     <div class="choose-file">
                                         <label for="preview_video"
                                             class="form-label">{{ __('Preview Video') }}</label>
+                                        {{-- `accept` from UploadLimits -- see create.blade.php, and F190. --}}
                                         <input type="file" class="form-control" name="preview_video"
                                             id="preview_video"
+                                            accept="{{ $ssUpload['accept'] }}"
                                             value="{{ $product->preview_type == 'Video File' ? $product->preview_content : '' }}"
                                             onchange="document.getElementById('preview_video').src = window.URL.createObjectURL(this.files[0]);"
                                             multiple>

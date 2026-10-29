@@ -3367,9 +3367,51 @@ a.ss-setup__item:focus-visible {
    redefined for dark, so it stays #5b6665 in every configuration, and that is 5.94:1 on white --
    exactly what light mode already measured. A hardcoded hex would do the same thing while hiding
    from the token audit; this does not.
-   The panel ignoring dark mode is recorded separately as F76: fixing the panel itself would change
-   a surface shared by every upload screen in the platform, which is not this slice's business. */
+   The panel ignoring dark mode was recorded separately as F76 and is NOW FIXED below, on the
+   owner's instruction of 2026-10-29. The two are coupled and had to move together -- see F76. */
 .ss-upload-hint--on-light { color: var(--ss-grey-600) !important; }
+
+/* ---- F76: the upload panel finally follows the theme, and the hint follows it back ----
+   THE TWO ARE ONE FIX, which is why F76 waited. `--ss-grey-600` above is correct only while the
+   panel stays white; theming the panel without touching the hint would leave #5b6665 on #1f2a28,
+   MEASURED at **2.49:1** -- an AA failure introduced by fixing an appearance bug. That is the F8 /
+   F68 / tab-rail lesson a fourth time: the token is not wrong, the SURFACE under it moved.
+
+   So in dark mode the panel takes the sunken surface and the hint goes back to the
+   theme-switching `--ss-fg-muted`, measured **6.79:1** on it. Light mode is untouched: the panel
+   stays white and the hint stays `--ss-grey-600` at 5.94:1.
+
+   `!important` on the background because the host's own `.dropzone` rule sets white and this file
+   already keeps a documented Host-override defence list for exactly that reason. Scoped to
+   `[data-ss-theme=...]` so a page that has not opted in is unaffected -- the panel is shared by
+   every upload screen in the platform, and that breadth is why this needed the instruction. */
+[data-ss-theme="dark"] .dropzone,
+[data-ss-theme="dark"] .dropzone.dz-clickable {
+    background-color: var(--ss-surface-sunken) !important;
+    border-color: var(--ss-border) !important;
+    color: var(--ss-fg);
+}
+
+[data-ss-theme="dark"] .dropzone .ss-upload-hint--on-light,
+[data-ss-theme="dark"] .dropzone .dz-message,
+[data-ss-theme="dark"] .dropzone .dz-message * {
+    color: var(--ss-fg-muted) !important;
+}
+
+@media (prefers-color-scheme: dark) {
+    [data-ss-theme="auto"] .dropzone,
+    [data-ss-theme="auto"] .dropzone.dz-clickable {
+        background-color: var(--ss-surface-sunken) !important;
+        border-color: var(--ss-border) !important;
+        color: var(--ss-fg);
+    }
+
+    [data-ss-theme="auto"] .dropzone .ss-upload-hint--on-light,
+    [data-ss-theme="auto"] .dropzone .dz-message,
+    [data-ss-theme="auto"] .dropzone .dz-message * {
+        color: var(--ss-fg-muted) !important;
+    }
+}
 
 /* ---- Vertical tab rail: the active pill's text contrast ----
    P2-05-3. MEASURED 2.59:1 in all four configurations -- white on the host's brand green

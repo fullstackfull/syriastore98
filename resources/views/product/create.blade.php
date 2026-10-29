@@ -422,7 +422,12 @@
                   <div class=" col-12" id="downloadable-product-div">
                       <div class="choose-file">
                         <label for="downloadable_product" class="form-label">{{ __('Downloadable Product') }}</label>
+                        {{-- `accept` from UploadLimits, the SAME source the gallery upload already uses: the
+                             picker must advertise what the server will actually take. Without it this field
+                             offered every file type and the save then refused most of them -- F75's defect
+                             shape, one field over. See F190 for what the server's list does NOT contain. --}}
                         <input type="file" class="form-control" name="downloadable_product" id="downloadable_product"
+                          accept="{{ $ssUpload['accept'] }}"
                           onchange="document.getElementById('downloadable_product').src = window.URL.createObjectURL(this.files[0]);"
                           multiple>
                         <div class="invalid-feedback">{{ __('invalid form file') }}</div>
@@ -435,7 +440,10 @@
                   <div class=" col-md-6 col-12" id="preview-video-div">
                       <div class="choose-file">
                         <label for="preview_video" class="form-label">{{ __('Preview Video') }}</label>
+                        {{-- See the downloadable field above. F190: on a default install this list holds no
+                             video format at all, so this field cannot accept the thing it is named for. --}}
                         <input type="file" class="form-control" name="preview_video" id="preview_video"
+                          accept="{{ $ssUpload['accept'] }}"
                           onchange="document.getElementById('preview_video').src = window.URL.createObjectURL(this.files[0]);"
                           multiple>
                         <div class="invalid-feedback">{{ __('invalid form file') }}</div>

@@ -843,7 +843,7 @@ public function noti(Request $request)
         $user_array['permissions'] = MerchantPermissions::names($user_data, $user_data->current_store);
 
         $user->tokens()->delete();
-        $token = $user->createToken('auth_token')->plainTextToken;
+        $token = $user->createToken('auth_token', ['merchant'])->plainTextToken;
         $user_array['token'] = $token;
         $user_array['token_type'] = 'Bearer';
         return $this->success($user_array);
@@ -4768,7 +4768,7 @@ public function DeleteStore(Request $request)
         $user_array['contact'] = $user_data->contact;
 
         $user->tokens()->delete();
-        $token = $user->createToken('auth_token')->plainTextToken;
+        $token = $user->createToken('auth_token', ['delivery'])->plainTextToken;
         $user_array['token'] = $token;
         $user_array['token_type'] = 'Bearer';
         return $this->success($user_array);
