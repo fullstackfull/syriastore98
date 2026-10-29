@@ -107,12 +107,20 @@ class PaymeraCallbackIdempotencyTest extends TestCase
      * The `processed` guard specifically -- reached when the record is marked
      * processed but its status is not 'A'.
      *
-     * This is not a contrived state: `handlePaymeraCallback` sets `processed`
-     * and `status` in one `Cache::put`, but a trigger arriving between a
-     * callback's order write and that put sees exactly this, and the earlier
-     * `status === 'A'` guard does not cover it. The processed branch is what
-     * must answer, and it must name the order that already exists rather than
-     * create another.
+     * THIS STATE IS SYNTHETIC, AND THE REASON GIVEN HERE FOR IT WAS FALSE. [corrected 2026-10-29]
+     *
+     * It said "a trigger arriving between a callback's order write and that put sees exactly
+     * this". It does not: `handlePaymeraCallback` writes `status`, `processed`, `order_id` and
+     * `product_order_id` in ONE `Cache::put`, so that interleaving sees `processed = false`. The
+     * mandated review of F185 traced it, and the conclusion is sharper than the old sentence:
+     * **no writer produces `processed === true` with `status !== 'A'`**, so the trigger's
+     * already-`processed` branch is unreachable in current code — the `status === 'A'` guard above
+     * it returns first.
+     *
+     * The case is kept because it is the only test of that branch's CONTRACT (report the existing
+     * order rather than create another, and report it only to the session that placed it), and
+     * because the branch becomes reachable the moment a third writer or a reordered guard appears.
+     * What it is NOT is evidence of a reachable path, and it should not be read as one.
      *
      * [2026-10-29] THIS CASE PINNED F185 AND HAD TO BE CORRECTED, which is worth recording rather
      * than quietly fixing. It drove the branch with NO session binding and asserted the order
@@ -150,6 +158,49 @@ class PaymeraCallbackIdempotencyTest extends TestCase
             'the replay must report the order that already exists, not make a new one -- to the'
             . ' session that placed it. If this is null, F185\'s binding test is refusing the'
             . ' legitimate caller as well as the stranger, which is a regression and not a fix.'
+        );
+    }
+
+    /**
+     * F185 DRIVEN THROUGH THE HANDLER, not just through the helper. Review's F6.5.
+     *
+     * `PaymeraTriggerOrderNumberTest` drives `paymeraTriggerAnswer()` by reflection, which pins the
+     * helper's contract but not the wiring: a branch that stopped calling it would pass every case
+     * there. The positive wiring is covered by the case above; this is the negative half, and it is
+     * the one that matters, because it is the disclosure.
+     *
+     * Same synthetic state as the case above and for the same reason (no writer produces
+     * `processed === true` with `status !== 'A'` — see that docblock), but with NO binding. A
+     * session that did not place the order must be answered null.
+     */
+    public function test_the_processed_guard_refuses_a_session_that_did_not_place_the_order(): void
+    {
+        $this->bindSession();
+        \App\Services\OrderCompleteBinding::remember(1);
+
+        $this->putPending([
+            'status' => 'P',
+            'processed' => true,
+            'order_id' => 4242,
+            'product_order_id' => '0202501010102',
+        ]);
+
+        $response = $this->controller()->handlePaymeraTrigger(self::REFERENCE);
+        $payload = json_decode($response->getContent(), true);
+
+        $this->assertSame('A', $payload['status'] ?? null, 'the response shape changed');
+        $this->assertTrue($payload['ok'] ?? false, 'the response shape changed');
+        $this->assertArrayHasKey(
+            'product_order_id',
+            $payload,
+            'the refusal omits the key instead of nulling it, which is a shape a client can tell'
+            . ' apart from the success'
+        );
+        $this->assertNull(
+            $payload['product_order_id'],
+            'a logged-in session that placed a DIFFERENT order was handed this one\'s number'
+            . ' through the handler — so the branch is not wired to the guard, whatever the'
+            . ' helper\'s own tests say'
         );
     }
 
@@ -241,7 +292,7 @@ class PaymeraCallbackIdempotencyTest extends TestCase
      * whether the path is safe.
      *
      * `routes/web.php` declares `POST store/paymera/trigger/{orderId}` inside the
-     * `['auth','xss','setlocate','verified']` group that opens at :400 and closes at :1434, so a
+     * `['auth','xss','setlocate','verified']` group that opens at :400 and closes at :1491, so a
      * server-to-server poke from Paymera is redirected to /login and never reaches
      * `handlePaymeraTrigger`. The CSRF exemption at `bootstrap/app.php:412` is real but does not
      * help: exempting CSRF on a route behind `auth` only changes which refusal it gets.

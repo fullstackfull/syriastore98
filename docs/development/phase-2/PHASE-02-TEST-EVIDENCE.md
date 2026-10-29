@@ -8220,9 +8220,37 @@ callback's equivalent branches already tested it — P1-ORD-13 added `OrderCompl
 there precisely so a replayed reference could not disclose the buyer's order. The trigger never got
 the same test.
 
-The route is inside `['auth','xss','setlocate','verified']`, so the caller is **any logged-in `web`
-user** — any merchant, any staff member, any tenant — who names a live `uniqid('paymera_')`
-reference.
+### It is defence in depth, not a live disclosure — and the first version of this said otherwise
+
+The mandated review traced the reachability. `product_order_id` is written into the record **only**
+in the same `Cache::put` as `status = 'A'`, and the trigger's **first** guard returns on
+`status === 'A'` without that field. So `product_order_id !== null` implies the request already
+returned:
+
+- the already-`processed` branch needs `processed === true` **with** `status !== 'A'`, which no
+  writer produces — **unreachable in current code**;
+- the other two read the **pre-lock** record, which passed that same test, so the field is null.
+
+**All three branches answered null before the fix.** The only conceivable live limb is a record left
+by an older deployment whose callback set `processed` without `status` — speculative, and bounded by
+a two-hour record life. What the fix buys is that the field *stays* null if a future edit makes it
+non-null there. *Correct by construction today, kept correct by a test.* The `status === 'A'`
+short-circuit is now asserted **inside `handlePaymeraTrigger`'s own source**, so losing it fails CI
+and asks for the severity to be re-derived. This is the third overclaim in this file corrected by
+measurement.
+
+A collateral falsehood went with it: the sibling docblock justified that branch's reachability as "a
+trigger arriving between a callback's order write and that put sees exactly this". The callback
+writes all four keys in **one** `Cache::put`, so that interleave sees `processed = false`.
+
+And a claim 330 lines above the new docblock said the opposite of its premise —
+`PaymentController:1032` called the route "ANONYMOUS and CSRF-exempt (bootstrap/app.php:373)". It is
+CSRF-exempt at `:420` and **not** anonymous. F97 records that a stale *this route is anonymous*
+claim in this file is what delayed that finding.
+
+The route is inside `['auth','xss','setlocate','verified']`, so if it ever became reachable the
+caller would be **any logged-in `web` user** who names a live `uniqid('paymera_')` reference —
+**not the buyer**, who is a `Customer` and is redirected to /login exactly like the gateway.
 
 ### The objection that kept this recorded, and why it is answered rather than overruled
 
@@ -8232,9 +8260,12 @@ handler at all** — `auth` redirects a sessionless POST to /login first. That i
 not a judgement, and it is ratcheted. So every caller that reaches these branches has a `web`
 session, and `holds()` is the right question for it.
 
-Measured across both repositories as well: nothing calls `store/paymera/trigger/*` — not
-`resources/`, not `public/js/`, and the Flutter admin app contains **no Paymera reference at all**.
-The compatibility half is evidence, not inference.
+One correction to that argument, from the same review: "nothing calls the route" is not accurate —
+Paymera is **told** to call it at every initiation (`PaymentService:464`, and a second copy at
+`:594`). The accurate premise is that **the only caller is the gateway, and `auth` refuses it at the
+door**, which is load-bearing in a way an absence of callers would not be. No product surface drives
+it: `paymera` appears nowhere in `resources/` or `public/`, and the Flutter admin app contains no
+Paymera reference at all.
 
 ### Three branches, not two
 
@@ -8256,3 +8287,80 @@ cannot tell *not yours* from *no order yet*.
 | `tests/Feature/Security/PaymeraTriggerOrderNumberTest.php` | **6 cases** — the route is still authenticated (the premise, asserted here rather than borrowed) · the session that placed the order still receives its number · a stranger is refused · no session is refused rather than erroring · the refusal carries **every key** the success answer has · no branch answers the number directly, helper counted at 3 |
 | bites | **3, every one bit** — the helper disclosing unconditionally · one branch reverted to the direct literal · the route hoisted out of the `auth` group |
 | residual, tied to the ratchet | moving the route out of `auth` (the functional half of F97, an owner decision) would refuse a real gateway the number. The two changes must be re-derived together, which is why the premise test lives in this file and bites on that move |
+
+---
+
+## F181 — the admin API's notification list is gated on the web bell's permissions (2026-10-29)
+
+`Api\DashboardController::noti` was `StoreNotification::where('store_id', $user->current_store)` with
+no type filter and no permission test, behind `['custom.auth','AdminApiLog']` — and `AdminApiLog`
+only logs. So **any `User` Sanctum token** whose `current_store` is that store — a staff member
+holding nothing but `Manage Products` — read every notification's title and message, including
+`order_created` and `order_paid`, which carry `final_price`, `payment_type` and `payment_status`.
+The web bell gates each type; the API did not, so the registry was not the only door.
+
+It now applies the same registry through `readableNotificationTypes()`, with the **operator tested
+first** (no super-admin bypass exists here, so `isAbleTo()` alone is a lockout) and a
+`whereIn('type', …)` so the LIMIT applies to rows the caller may see. **The count is filtered with
+the same predicate as the list.**
+
+### The owner's condition — "don't fix the leak by breaking the app's counter"
+
+Met by two measurements, not by hope:
+
+1. **The registry is complete.** `StoreNotificationService` writes exactly three types and all three
+   are gated, so the filter hides nothing that exists: a caller holding `Manage Order` sees an
+   identical list and an identical count. **For the ordinary merchant this change is a no-op.**
+2. **A count that drops is handled by the app itself.** `notification_controller.dart`'s
+   `_calculateUnreadCount()` computes `currentCount - lastSavedCount`, shows it only when positive,
+   and when `currentCount < lastCount` it **re-baselines** — overwrites the stored total, persists it
+   and shows 0. Read out of repo B's own source. So the only caller whose count changes is the one
+   who should never have seen those rows, and for them it is a one-time re-baseline.
+
+`count` keeps its meaning — *every notification in this store this caller may read*. It is
+deliberately **not** narrowed to unread: the app diffs totals and never reads `is_read`, so counting
+unread would change the arithmetic rather than the set.
+
+### The one way this fix could break the app, ratcheted
+
+`whereIn` hides any type absent from the registry. A fourth type written without a permission entry
+would vanish from this endpoint **and** the web bell, silently, for every caller including the
+operator. `test_the_registry_covers_every_type_the_service_writes` censuses the service's written
+types and asserts the two sets agree.
+
+### Evidence
+
+| | |
+|---|---|
+| `tests/Feature/Security/AdminApiNotificationScopeTest.php` | **6 cases** — a permitted caller sees all three types and the full count (the compatibility half) · a staff member with only `Manage Products` reads **nothing**, list and count · another store's rows are neither listed nor counted · the platform operator is not locked out · a caller the `web` guard does not recognise is refused rather than 500-ing · the registry census |
+| bites | **5, every one bit** — the type filter removed · the **count** left unfiltered while the list is filtered, which is the discrimination the owner's constraint needs · the operator limb removed · the null guard removed · an ungated type written |
+| also fixed | a `Customer` or `DeliveryBoy` token passes `custom.auth` while the `web` guard stays null; that was a 500 on `$user->current_store` and is now a structured refusal |
+
+### Five test weaknesses the review found, all closed
+
+1. The sessionless case called `bindSession()`, making it a duplicate of the stranger case. Without
+   it, it covers what it says — and establishes that `holds()` degrades to *refuse* rather than to a
+   500 outside the `web` group, which is what makes the residual small.
+2. The shape case compared two arms of **one** `response()->json()` literal, so it could not fail.
+   It now also asserts the **live** branch's shape, which omits `product_order_id` entirely — the
+   reason adding a null cannot break a client.
+3. The forbidden-literal ratchet was quote- and whitespace-exact, the trap the sibling file already
+   records from an earlier review. Now a regex, **bitten with a double-quoted key the old spelling
+   missed**.
+4. `assertSame(3, …)` on the helper's call sites would redden a legitimate fourth branch; it is a
+   floor.
+5. The negative case was never driven **through the handler** — added, and it is the half that
+   matters, because it is the disclosure.
+
+**One of my own new assertions failed its bite** and was fixed: a whole-file match for the
+`status === 'A'` guard could not fail, because the browser callback and the two unrouted twins carry
+it too. It is now scoped to `handlePaymeraTrigger`'s own source.
+
+### F185 closed is not "the trigger is safe"
+
+The same principal the row names — a logged-in `web` user holding a live **unprocessed** reference —
+can still drive the trigger through the poll and verification and cause **the victim's order to be
+written** from the victim's cached `request_data`, with the stock decrement and merchant credit that
+implies. The binding is stripped afterwards so they cannot read the thank-you page (P1-ORD-13). That
+is F96/F186/GATE G(4) territory, neither introduced nor closed here, and it is more consequential
+than the number this slice refuses.

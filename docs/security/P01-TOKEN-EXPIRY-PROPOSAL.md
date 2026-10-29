@@ -136,8 +136,46 @@ works (the app posts email + password and stores the result).
   `api/admin/*`. A spike means the value is too short.
 - Sanctum's `expiration` is **global**, so this stage cannot be done through that key alone without
   also expiring customer and driver tokens. Implement it by passing `expiresAt` at the
-  **merchant mint site only** (`DashboardController:687`), leaving the global default null. That is
-  the whole reason this is stage 3 and not stage 1.
+  **merchant mint site only** — `Api\DashboardController::adminlogin`, measured 2026-10-29 at
+  **`:927`** (this section cited `:687`) — leaving the global default null. That is the whole reason
+  this is stage 3 and not stage 1.
+
+#### Prepared 2026-10-29: everything Stage 3 needs already exists except the one argument
+
+Measured, so the remaining work is one line behind a flag rather than a design:
+
+| what Stage 3 needs | state |
+|---|---|
+| enforcement of `expires_at` | **already there.** `CustomAuth:66-68` — `if ($accessToken->expires_at && $accessToken->expires_at->isPast()) return $this->unauthenticated();` |
+| a 401 the shipped app turns into a re-login | **already there.** `CustomAuth::unauthenticated()` returns the exact `ApiResponser` envelope with status 401, which repo B's `lib/network/network.dart:285-288` turns into a forced logout — the behaviour this stage wants |
+| re-login minting a fresh token | **already there.** `adminlogin` does `$user->tokens()->delete()` then `createToken(...)`, so every login both revokes and re-issues |
+| old tokens left alone | **free.** Existing rows have `expires_at` null and `CustomAuth:66` only refuses when it is set, so nothing is mass-invalidated — which is the owner's explicit boundary |
+| customer and driver untouched | **free.** Their mint sites are `Api\AuthController:316/398/619` (`['storefront']`) and `DashboardController:4852` (`['delivery']`); none would take the argument |
+| no global expiry | **free.** There is still no `config/sanctum.php`, and this approach never writes one |
+
+So the whole of Stage 3 is: pass a third argument at `:927`, read from a config key that **defaults
+to off**, so merging the mechanism changes nothing until the owner turns it on.
+
+#### What remains BLOCKED, and it is not the mechanism
+
+The owner's condition is *"do not apply an expiry policy to real production without a real usage
+report and a review of its effect on active sessions"*. **That report cannot be produced from this
+environment**: `tokens:inventory` (Stage 1) is written, tested and read-only, but there is no
+production data here to run it against, and this session has no production access. The blocker is
+therefore **data availability, not engineering**, and it is recorded rather than worked around.
+
+What the owner needs before turning the flag on, in the order the report gives it:
+
+1. `php artisan tokens:inventory` against production — it prints, per principal type, the age
+   distribution across the 7/30/90/365-day edges, the dormant count, and specifically **how many
+   merchant tokens are both in use and older than 30 days**. That last number is the one that
+   decides whether 30 days is a re-login wave or a no-op.
+2. A 401 count on `api/admin/*` for a week before and after, which is the detection signal this
+   section already names.
+
+If (1) shows a large in-use-and-older-than-30-days population, the first value should be larger than
+30 days, or Stage 4 (idle expiry) should be preferred — `last_used_at` is already written on every
+request, so idle expiry needs no new data either.
 
 ### Stage 4 — idle expiry, as a cheaper alternative to absolute expiry. **Owner approval: required.**
 

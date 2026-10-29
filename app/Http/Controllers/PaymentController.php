@@ -1029,8 +1029,14 @@ public function handlePaymeraCallback_backup($orderId)
  *     writer (`getProductStatus()`), and `remember()` writes through the `session()` helper, which
  *     resolves THE CURRENT HTTP REQUEST'S session -- not the synthetic `Request::create(...)` the
  *     trigger hands the writer. The Paymera trigger
- *     (`POST /store/paymera/trigger/{orderId}`, routes/web.php:514) is ANONYMOUS and CSRF-exempt
- *     (bootstrap/app.php:373); it is a server-to-server URL given to the gateway at initiation. So
+ *     (`POST /store/paymera/trigger/{orderId}`, routes/web.php:514) is CSRF-exempt
+ *     (`bootstrap/app.php:420`) but **NOT anonymous** -- it sits inside the
+ *     `['auth','xss','setlocate','verified']` group (`routes/web.php:400-1491`), which is F97's
+ *     measurement and the premise F185 rests on. This sentence said "ANONYMOUS" until 2026-10-29,
+ *     330 lines above a docblock that states the opposite, and a stale "this route is anonymous"
+ *     claim IN THIS FILE is exactly what F97 records as having delayed that finding. It is a
+ *     server-to-server URL given to the gateway at initiation, and the gateway is refused at the
+ *     door. So
  *     an anonymous caller who POSTs it with a live `paymera_<uniqid>` reference -- a value that is
  *     in the buyer's history, the access log and any Referer, which is the threat model the replay
  *     refusal above is written against -- had the VICTIM'S order bound into THEIR OWN session, and
@@ -1154,8 +1160,8 @@ private function paymeraOrderHighWaterMark(mixed $storeId): int
  * `$pending['processed']` still false, and **no in-process marker of either**: not a return
  * value, not a binding, not a flag. The only witness is the row.
  *
- * (Measured 2026-10-29: `DB::beginTransaction()` :3503, `DB::commit()` :3674, `$owner->email`
- * :3730, `OrderCompleteBinding::remember()` :3819. These are STRUCTURAL claims and the numbers
+ * (Measured 2026-10-29: `DB::beginTransaction()` :3543, `DB::commit()` :3714, `$owner->email`
+ * :3770, `OrderCompleteBinding::remember()` :3859. These are STRUCTURAL claims and the numbers
  * drift -- two earlier versions of this comment cited lines this very change had already moved,
  * which is why `PaymeraPostCommitClaimTest::test_the_cited_anchors_still_name_what_they_claim`
  * now asserts them. Read the structure as the claim and the numbers as a pointer.)
@@ -1364,12 +1370,32 @@ private function paymeraOrderCommittedSince(mixed $storeId, int $highWaterMark):
  * P1-ORD-13 added `OrderCompleteBinding::holds()` there precisely so a replayed reference could not
  * hand a stranger the buyer's order number. The trigger never got the same test.
  *
- * WHO COULD READ IT. The route sits inside the `['auth','xss','setlocate','verified']` group
- * (measured as F97, and pinned by
- * `PaymeraCallbackIdempotencyTest::test_the_paymera_trigger_route_is_still_behind_auth`), so the
- * caller is any logged-in `web` user — any merchant, any staff member, any tenant — who names a
- * live payment reference. References are `uniqid('paymera_')` (`PaymentService.php:457`),
- * microtime-derived.
+ * THIS IS DEFENCE IN DEPTH, NOT A LIVE DISCLOSURE, and the first version of this docblock said
+ * otherwise. The mandated review traced the reachability and the claim does not survive it:
+ * `product_order_id` is only ever written into the record in the SAME `Cache::put` as
+ * `status = 'A'` — by the browser callback, and by the trigger after its own writer — and the
+ * trigger's FIRST guard is `if ($pending['status'] === 'A') { return ['status'=>'A','ok'=>true]; }`,
+ * which answers without the field at all. So `product_order_id !== null` implies `status === 'A'`
+ * implies the request already returned, and all three branches below answer null today:
+ *
+ *   - the already-`processed` branch needs `processed === true` AND `status !== 'A'`, which no
+ *     writer produces, so it is unreachable in current code;
+ *   - the other two read the PRE-LOCK `$pending`, which passed that `status !== 'A'` test, so its
+ *     `product_order_id` is null.
+ *
+ * WHAT THE TEST THEREFORE BUYS: the field stays null if a future edit makes it non-null there —
+ * a third writer, a reordered guard, a record left by an older deployment whose callback set
+ * `processed` without `status`. That last one is the only conceivable live limb and it is
+ * SPECULATIVE: it needs a deploy window and the record lives two hours. The honest claim is
+ * "correct by construction today, and kept correct by a test" — not "a stranger is reading order
+ * numbers". Overclaiming here is the exact failure this file has already corrected twice.
+ *
+ * WHO WOULD BE ASKING, if it ever became reachable. The route sits inside
+ * `['auth','xss','setlocate','verified']` (measured as F97), so the caller is any logged-in `web`
+ * user — any merchant, any staff member, any tenant — who names a live `uniqid('paymera_')`
+ * reference. Note the buyer is NOT among them: `auth` uses the `web` guard and a shopper is a
+ * `Customer`, so the buyer's browser is redirected to /login exactly like the gateway. The buyer's
+ * path is the callback, which already had this check.
  *
  * WHY THE COMPATIBILITY OBJECTION IS ANSWERED RATHER THAN ASSUMED, which is what kept this
  * recorded-not-fixed. The objection was that the trigger exists for the GATEWAY, which holds no
@@ -1377,8 +1403,13 @@ private function paymeraOrderCommittedSince(mixed $storeId, int $highWaterMark):
  * machine caller cannot reach this handler at all: `auth` redirects it to /login first. That is not
  * a judgement, it is the measurement F97 made and the ratchet above keeps — so every caller that
  * reaches this code has a `web` session, and `holds()` is exactly the right question for it.
- * Measured on both repositories as well: nothing calls `store/paymera/trigger/*` — not
- * `resources/`, not `public/js/`, and the Flutter admin app contains no Paymera reference at all.
+ *
+ * ONE CORRECTION TO THAT ARGUMENT, from the same review: it is NOT true that "nothing calls this
+ * route". Paymera is TOLD to call it at every initiation (`PaymentService.php:464`, and a second
+ * copy at `:594`). The accurate statement is that **the only caller is the gateway, and it is
+ * already refused at the door by `auth`** — which is the premise, and it is load-bearing in a way
+ * that an absence of callers would not be. No product surface drives it: `paymera` appears nowhere
+ * in `resources/` or `public/`, and the Flutter admin app contains no Paymera reference at all.
  *
  * THE RESIDUAL, AND IT IS TIED TO THE RATCHET. If the route is ever moved OUT of the `auth` group
  * — the functional half of F97, and an owner decision — a real gateway POST would arrive with no
@@ -1388,7 +1419,15 @@ private function paymeraOrderCommittedSince(mixed $storeId, int $highWaterMark):
  *
  * THE SHAPE IS UNCHANGED. `status` and `ok` are untouched and `product_order_id` stays present,
  * carrying null rather than being omitted, so no client parsing this response can see a new shape.
- * A stranger cannot tell "not yours" from "no order yet": both answer null.
+ * Both arms of this helper are one `response()->json()` literal, so there is no shape, status or
+ * timing difference between them.
+ *
+ * THAT IS A STATEMENT ABOUT THIS HELPER AND NOT ABOUT THE ENDPOINT, which the first version of
+ * this docblock blurred. The endpoint IS an existence oracle and was before this change: a missing
+ * record answers `404 {'error':'Payment context not found'}`, a `status === 'A'` record answers
+ * `200 {'status':'A','ok':true}`, anything else answers the poll result. Any logged-in `web` user
+ * can therefore distinguish "this reference exists" from "it does not", across tenants. Untouched
+ * here, and not claimed closed.
  */
 private function paymeraTriggerAnswer(array $pending, string $orderId)
 {
@@ -1570,7 +1609,8 @@ public function handlePaymeraTrigger($orderId)
                  *                                             EmailIsVerified
                  *
                  * `routes/web.php` declares the trigger inside the `['auth','xss','setlocate',
-                 * 'verified']` group that opens at :400 and closes at :1434. The CSRF half of the
+                 * 'verified']` group that opens at :400 and closes at :1491 (re-measured
+                 * 2026-10-29; it was cited as :1434). The CSRF half of the
                  * old claim is right -- `bootstrap/app.php:412` exempts `store/paymera/trigger/*`
                  * -- but exempting CSRF on a route behind `auth` only means the gateway's POST is
                  * redirected to /login instead of being rejected for a missing token. Either way

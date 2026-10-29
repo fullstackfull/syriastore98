@@ -693,24 +693,105 @@ $storeId = getCurrentStore();
 
 
 
+/**
+ * THE ADMIN APP'S NOTIFICATION LIST, NOW GATED ON THE SAME PERMISSION THE WEB BELL USES. (F181)
+ *
+ * WHAT WAS WRONG. This was `StoreNotification::where('store_id', $user->current_store)` with no
+ * type filter and no permission test, behind `['custom.auth','AdminApiLog']` -- and `AdminApiLog`
+ * only logs. So ANY `User` Sanctum token whose `current_store` is that store -- a staff member
+ * holding nothing but `Manage Products` -- read every notification's title and message, including
+ * `order_created` and `order_paid`, which carry `final_price`, `payment_type` and
+ * `payment_status`. The merchant WEB bell gates each type
+ * (`MerchantNotificationController::TYPE_PERMISSIONS`); the API did not, so the registry was not
+ * the only door and the API was the open one.
+ *
+ * THE FIX REUSES THAT REGISTRY RATHER THAN RESTATING IT. `TYPE_PERMISSIONS` is the single place a
+ * type's gate is declared, and `readableNotificationTypes()` below applies it with the operator
+ * tested FIRST -- `isAbleTo()` alone refuses the platform operator, which is this codebase's
+ * standing trap, so reversing those two limbs is a lockout rather than a tightening.
+ *
+ * WHY THIS DOES NOT BREAK THE FLUTTER BADGE, which is the owner's explicit condition and is
+ * measured rather than assumed, twice over:
+ *
+ *   1. THE REGISTRY IS COMPLETE. `StoreNotificationService` writes exactly three types --
+ *      `order_created` (:29), `order_paid` (:103), `payment_needs_attention` (:249) -- and all
+ *      three are in `TYPE_PERMISSIONS`. So `whereIn('type', ...)` hides nothing that exists, and a
+ *      caller holding `Manage Order` sees an IDENTICAL list and an IDENTICAL count to before. For
+ *      the ordinary merchant this change is a no-op. A fourth type added without a permission
+ *      entry would silently vanish from this endpoint, so a ratchet asserts the registry covers
+ *      every type the service writes.
+ *   2. A COUNT THAT DROPS IS HANDLED BY THE APP ITSELF. For a staff member who may read none of
+ *      the three, the count goes to 0. `notification_controller.dart`'s `_calculateUnreadCount()`
+ *      computes `currentCount - lastSavedCount` and shows it only when positive -- and when
+ *      `currentCount < lastCount` it RE-BASELINES: it overwrites the stored total, persists it and
+ *      shows 0. So a drop is a one-time re-baseline, not a stuck or negative badge. The counter is
+ *      not broken by this; it is given a correct set to count.
+ *
+ * `count` KEEPS ITS MEANING. It was "every notification in this store" and is now "every
+ * notification in this store this caller may read" -- the same arithmetic over the permitted set,
+ * which is what keeps the badge internally consistent. It is deliberately NOT narrowed to unread:
+ * the app diffs totals and never reads `is_read`, so counting unread here would change the
+ * arithmetic rather than the set.
+ *
+ * THE NULL GUARD IS NOT DEFENSIVE NOISE. `custom.auth` logs a token's owner into the guard matching
+ * the TOKENABLE CLASS, so a Customer or DeliveryBoy token passes the middleware while
+ * `Auth::user()` -- the `web` guard -- stays null. Today that is a 500 on `$user->current_store`.
+ * It becomes a structured refusal, the same shape `currency()` below already uses.
+ */
 public function noti(Request $request)
 {
-  $user = Auth::user();
+    $user = Auth::user();
+
+    if (! $user) {
+        return $this->error(['message' => __('User not found.')]);
+    }
+
     $storeId = $user->current_store;
+    $types = $this->readableNotificationTypes($user);
 
-    $notifications = StoreNotification::where('store_id', $storeId)
-        ->latest()
-        ->paginate(20);
+    /* `whereIn('type', ...)` rather than filtering after the fetch, so the LIMIT applies to rows
+       the caller may actually see -- the web bell's own reasoning at
+       MerchantNotificationController::scope(). An empty $types yields no rows, which is the
+       intended answer for a caller who may read none of the three. */
+    $scope = fn () => StoreNotification::whereIn('type', $types)->where('store_id', $storeId);
 
-
-
-   $count= StoreNotification::where('store_id', $storeId)->count();
+    $notifications = $scope()->latest()->paginate(20);
+    $count = (int) $scope()->count();
 
     return response()->json([
         'status' => true,
         'data' => $notifications,
-        'count' => $count, 
+        'count' => $count,
     ]);
+}
+
+/**
+ * The notification types this caller may read, from the web bell's own registry.
+ *
+ * OPERATOR FIRST. `users.type` is a string comparison and there is no super-admin bypass in
+ * Laratrust, so `isAbleTo()` alone refuses the platform operator. Same ordering as
+ * `MerchantNotificationController::readableTypes()`, and the same registry, so a new type is gated
+ * in one place rather than two.
+ *
+ * @return array<int, string>
+ */
+private function readableNotificationTypes($user): array
+{
+    $registry = \App\Http\Controllers\MerchantNotificationController::TYPE_PERMISSIONS;
+
+    if (strtolower(trim((string) $user->type)) === 'super admin') {
+        return array_keys($registry);
+    }
+
+    $readable = [];
+
+    foreach ($registry as $type => $permission) {
+        if ($user->isAbleTo($permission)) {
+            $readable[] = $type;
+        }
+    }
+
+    return $readable;
 }
 
 
