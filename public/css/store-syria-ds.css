@@ -3598,3 +3598,47 @@ a.ss-setup__item:focus-visible {
 /* The group's instruction sits between the legend and the options, where it is read before the
    choices rather than after them. */
 .ss-choicegroup > .ss-field__hint { margin-bottom: var(--ss-space-2); }
+
+/* =============================================================================================
+   THE SHARED HEADER (D-25 Step 1)
+   =============================================================================================
+
+   OWNER-APPROVED as the first of three phased steps. Its conditions are to preserve every
+   element id, event handler, link and permission, not to delete WorkDo's elements, and to stop
+   expanding a modification the moment anything breaks -- so this step changes ONE declaration
+   and establishes the scope the next two extend.
+
+   WHAT IT FIXES, AND WHAT IT DELIBERATELY DOES NOT CLAIM TO FIX.
+
+   The header's own `color` is `rgb(82, 91, 105)` in BOTH themes -- measured on the running
+   application -- while its background is white in light mode and `rgb(41, 42, 51)` in dark. On
+   that dark surface the inherited colour is 2.07:1, far below AA.
+
+   But that is LATENT, not live: all 30 visible text nodes in the header measure 0 below AA in
+   all four configurations, because F158 patched each selector by hand. The failure only bites
+   text that has no rule of its own -- which is to say, the NEXT thing anybody adds to this
+   header. Driven directly: a bare <span> appended to the header inherits `rgb(82, 91, 105)` in
+   dark mode, and would be unreadable.
+
+   So this declaration does not repair a visible defect. It makes the header's inheritance
+   token-driven, so the next element added to it is AA-correct without a fifth hand-patch in a
+   fifth stylesheet. That is what a phased design-system migration is FOR, and it is worth
+   stating plainly rather than dressed up as a contrast fix.
+
+   `--ss-fg-muted` RATHER THAN `--ss-fg`, because the register is right: the header carries
+   secondary chrome -- icon links, a store name, a language code -- not body copy. The token is
+   `#5b6665` in light and `#a7b2b1` in dark, and it tracks the theme through `data-ss-theme`.
+
+   NO SURFACE, NO BORDER, NO SPACING IN THIS STEP. The theme paints the header's background and
+   the sidebar beside it; moving one of them to a DS surface token and not the other would leave
+   two greys that nearly match, which is worse than either. That belongs to a step that moves
+   both, with its own before/after.
+
+   SPECIFICITY AND LOAD ORDER, so this wins without `!important`: this stylesheet is linked at
+   `layouts/app.blade.php:225`, after the theme's (`:106`, `:140`/`:144`) and after
+   `custom.css` (`:141`). Every rule the theme sets on a DESCENDANT still wins over an inherited
+   value, which is exactly why no rendered pixel changes.
+   ============================================================================================= */
+.ss-appbar {
+    color: var(--ss-fg-muted);
+}

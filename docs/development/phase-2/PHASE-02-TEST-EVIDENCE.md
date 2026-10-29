@@ -6405,3 +6405,59 @@ An earlier probe focused a header control with `element.focus()` and recorded
 `outline: solid 2px rgb(8, 145, 127)` — the DS teal focus token, already applied. So D-25 Step 1
 does not need to touch focus, and "adding" a ring would have been work against a defect that does
 not exist.
+
+---
+
+## D-25 Step 1 — the shared header's design-system scope — 2026-10-29
+
+### The before/after behaviour comparison, 24 captures
+
+`capture-header-contract.cjs` across six merchant screens × four theme/direction configurations,
+confirmed deterministic over two consecutive runs before being trusted. Of the eight fields it
+records per capture, **two changed and six are byte-identical in all 24**:
+
+| field | result |
+|---|---|
+| `ids` | identical |
+| `links` (href + accessible name) | identical |
+| `forms` | identical |
+| `toggles` (every dropdown clicked for real) | identical |
+| `dropdownsOpen` | identical |
+| `box` (height, offset) | identical |
+| `style.color` | **`rgb(82,91,105)` → `rgb(91,102,101)`** — the intended token change |
+| `tabOrder` | **`[]` → seven controls** — F177's fix, surfacing independently in a second tool |
+
+### The matrix D-25 requires, measured
+
+`check-appbar-viewports-live.cjs` — the colour a new, unstyled element inherits from the header,
+against the effective background behind it:
+
+| | light | dark |
+|---|---|---|
+| desktop 1400×900 | **5.94:1** | **6.55:1** |
+| phone 390×844 | **5.94:1** | **7.11:1** |
+
+AA in all eight (two viewports × AR/RTL and EN/LTR), no horizontal overflow, no page errors, 7
+visible controls on desktop and 8 on phone (the hamburger).
+
+Before: `rgb(82, 91, 105)` in **both** themes — **2.07:1** on the dark surface.
+
+### Why the subject of that measurement is the inherited colour and not the visible nodes
+
+`check-header-contrast-live.cjs` reports **30 text nodes, 0 below AA** in all four configurations
+— both before and after. Every visible node in this header already has a rule of its own, because
+F158 patched them one at a time. So a census of visible nodes cannot see the header's own
+inheritance, which was the thing that was wrong. The probe appends a bare `<span>`, reads what it
+inherits and removes it.
+
+This is also why Step 1 is not described as a contrast fix: it repairs nothing a merchant can
+currently see. It makes the next element added to the header AA-correct without a fifth hand-patch
+in a fifth stylesheet, which is what a phased migration is for.
+
+### A bite that did not bite
+
+Removing `dash-header` from one of the two `<header>` branches left
+`test_the_themes_load_bearing_names_are_preserved` **green**, because it asserted the string
+appeared somewhere in the file and the other branch still carried it. A whole-file containment
+check cannot see a half-applied change — the exact failure mode the sibling branch test exists for.
+Now asserted per `<header>` tag, and re-bitten.

@@ -12,10 +12,26 @@ $store = getStoreById(getCurrentStore());
 $theme_url = App\Http\Controllers\HomeController::getThemeUrl($store);
 @endphp
 
+{{-- D-25 STEP 1 -- THE DESIGN-SYSTEM SCOPE, ADDED ALONGSIDE THE THEME'S CLASSES RATHER THAN
+     REPLACING THEM.
+
+     The owner approved a PHASED conversion whose conditions are to preserve every element id,
+     event handler, link and permission, and not to delete WorkDo's elements. `dash-header` is
+     load-bearing for exactly those: `public/assets/js/dash.js` and `side-dash.js` select
+     `#mobile-collapse` inside it, the theme carries ~210 `.dash-header` rules including the
+     header's whole layout and background, and `style.css` targets
+     `.dash-header .dash-head-link#mobile-collapse` by id. Replacing those names would risk the
+     chrome on every merchant screen across 70 vendored modules for no benefit the scope class
+     does not already deliver.
+
+     So `ss-appbar` is ADDITIVE. It changes no selector the theme or its JavaScript depends on,
+     and it gives the design system a confined anchor -- `DesignSystemStylesheetScopeTest`
+     requires every DS selector to be confined by an `.ss-` class or a `data-ss-` attribute -- for
+     this step and the two that follow. --}}
 @if (isset($setting['cust_theme_bg']) && $setting['cust_theme_bg'] == 'on')
-<header class="dash-header transprent-bg">
+<header class="dash-header ss-appbar transprent-bg">
     @else
-    <header class="dash-header">
+    <header class="dash-header ss-appbar">
         @endif
         <div class="header-wrapper">
                 <ul class="list-unstyled gap-2">
