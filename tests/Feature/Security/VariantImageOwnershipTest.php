@@ -324,13 +324,26 @@ class VariantImageOwnershipTest extends SecurityTestCase
         ])->assertStatus(403);
     }
 
-    public function test_the_platform_operator_may_act_and_the_row_carries_the_products_store(): void
+    /**
+     * F206 [2026-10-30] — THE OPERATOR NO LONGER WRITES A MERCHANT'S VARIANT MEDIA.
+     *
+     * This asserted the opposite until today, and its careful decoy-tenant setup was there for a
+     * real reason: it proved the row is stamped with the PRODUCT'S store rather than with
+     * `getCurrentStore()`'s operator literal of 1 — the F157 trap, which an earlier operator test
+     * missed by letting the two coincide.
+     *
+     * The owner has now decided that the operator does not write a merchant's catalogue at all, and
+     * catalogue media is blocked with it (a judgement call, recorded in the F206 ledger row). So
+     * the operator is refused here, and the decoy tenant is KEPT — because the store-stamping
+     * question it protects is still live for the principal who may write, and the control below
+     * asks it of them.
+     */
+    public function test_the_platform_operator_may_not_write_variant_media(): void
     {
         /*
          * A DECOY TENANT FIRST, so the product is not in store 1 — otherwise `getCurrentStore()`'s
-         * operator literal and the product's store coincide and this test cannot tell the two
-         * candidate predicates apart. That exact gap made an earlier operator test pass under a
-         * bite that should have failed it.
+         * operator literal and the product's store coincide and the control below cannot tell the
+         * two candidate predicates apart.
          */
         $this->makeTenant();
 
@@ -341,16 +354,32 @@ class VariantImageOwnershipTest extends SecurityTestCase
 
         $operator = $this->makePlatformAdmin();
 
-        $this->upload($operator, (int) $variant->id)->assertOk();
+        $this->upload($operator, (int) $variant->id)->assertStatus(403);
+        $this->assertDatabaseMissing('product_images', ['variant_id' => $variant->id]);
+
+        $this->actingAs($operator)->delete(route('product.variant.image.destroy'), [
+            'variant_id' => $variant->id,
+        ])->assertStatus(403);
+
+        /*
+         * THE CONTROL, and it still asks the F157 question. The owning merchant, holding the
+         * permission, uploads — and the row must carry the PRODUCT'S store, not the acting user's
+         * current one.
+         */
+        $this->grantPermission($merchantB, 'Edit Products');
+        $merchantB = \App\Models\User::find($merchantB->id);
+
+        $this->upload($merchantB, (int) $variant->id)->assertOk();
 
         $row = \DB::table('product_images')->where('variant_id', $variant->id)->first();
 
-        $this->assertNotNull($row);
+        $this->assertNotNull($row, 'the permitted owner can no longer upload variant media, so the '
+            . 'refusals above prove nothing about WHO was refused');
         $this->assertSame(
             (int) $storeB->id,
             (int) $row->store_id,
-            "the row was stamped with getCurrentStore()'s operator literal instead of the "
-            . "product's own store -- the F157 trap"
+            "the row was stamped with getCurrentStore()'s literal instead of the product's own "
+            . "store -- the F157 trap"
         );
     }
 }

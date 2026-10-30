@@ -757,17 +757,20 @@ class MerchantProductOwnershipTest extends SecurityTestCase
     }
 
     /**
-     * THE LOCKOUT CONTROL. The platform operator holds no role and is still served.
+     * F206 [2026-10-30] — THE OPERATOR NO LONGER DELETES A MERCHANT'S PRODUCT IMAGE.
      *
-     * `makePlatformAdmin()` creates `type = 'super admin'` with no role and therefore no
-     * permissions at all, which is the live shape measured in
-     * verify-product-ownership-on-mysql.php. If this test fails, `lacksProductPermission()` has
-     * been reordered to put `isAbleTo` first and the operator can no longer manage product media
-     * anywhere on the platform.
+     * This test asserted the opposite until today, and it was right for its time: `isAbleTo()`
+     * refuses the operator, so `lacksProductPermission()`'s operator limb was what kept them from
+     * being locked out of platform media management.
+     *
+     * The owner has now decided the capability itself — read and diagnose a merchant's catalogue,
+     * do not write it. So the refusal is the requirement, and the test is rewritten rather than
+     * deleted: a door nobody asserts is one refactor from being open again. The merchant control
+     * is kept so this cannot pass by everything being broken.
      */
-    public function test_the_platform_operator_can_still_delete_a_product_image(): void
+    public function test_the_platform_operator_may_not_delete_a_product_image(): void
     {
-        [, $storeA] = $this->makeTenant();
+        [$merchantA, $storeA] = $this->makeTenant();
         $operator = $this->makePlatformAdmin();
 
         $this->assertFalse($operator->isAbleTo('Edit Products'),
@@ -779,10 +782,20 @@ class MerchantProductOwnershipTest extends SecurityTestCase
 
         $response = $this->actingAs($operator)->delete('/products/' . $imageId . '/delete');
 
-        $this->assertSame(200, $response->status(),
-            'THE PLATFORM OPERATOR IS LOCKED OUT of product media management. Body: '
+        $this->assertSame(403, $response->status(),
+            'F206: the platform operator deleted a merchant product image. Body: '
             . substr((string) $response->getContent(), 0, 200));
-        $this->assertFileDoesNotExist(base_path($relative));
+        $this->assertFileExists(base_path($relative), "the merchant's image file was unlinked");
+        $this->assertDatabaseHas('product_images', ['id' => $imageId]);
+
+        /* THE CONTROL: the owner, holding the permission, still deletes their own image. */
+        $this->grantPermission($merchantA, 'Edit Products');
+        $merchantA = \App\Models\User::find($merchantA->id);
+
+        $owned = $this->actingAs($merchantA)->delete('/products/' . $imageId . '/delete');
+        $this->assertSame(200, $owned->status(),
+            'the owner can no longer delete their own product image, so the refusal above proves '
+            . 'nothing about WHO was refused. Body: ' . substr((string) $owned->getContent(), 0, 200));
         $this->assertDatabaseMissing('product_images', ['id' => $imageId]);
     }
 
@@ -808,7 +821,7 @@ class MerchantProductOwnershipTest extends SecurityTestCase
      * Also the assertion that the limb was placed BEFORE `findOrFail()` without breaking the
      * 404 a genuinely missing id has always produced -- see the companion test below.
      */
-    public function test_the_platform_operator_can_still_delete_a_product_variant(): void
+    public function test_the_platform_operator_may_not_delete_a_product_variant(): void
     {
         [, $storeA] = $this->makeTenant();
         $operator = $this->makePlatformAdmin();
@@ -816,18 +829,33 @@ class MerchantProductOwnershipTest extends SecurityTestCase
         $product = $this->productIn($storeA, 'operator-variant', 50);
         $variantId = $this->variantFor($product, 'red', self::OWN_VARIANT_STOCK);
 
-        /* F184 applies to the operator too: no confirmation, no delete. */
+        /* F206 [2026-10-30]: refused WITHOUT consent — and the status is 403, not F184's 409,
+           because the capability is checked BEFORE the ceremony. That ordering is deliberate: an
+           operator who may not delete at all should not be told to confirm first. */
         $unconfirmed = $this->actingAs($operator)->delete('/product-attribute-delete/' . $variantId);
-        $this->assertSame(409, $unconfirmed->status(),
-            'the operator deleted a variant with no confirmation. Body: '
+        $this->assertSame(403, $unconfirmed->status(),
+            'F206: the operator was asked to confirm rather than refused outright. Body: '
             . substr((string) $unconfirmed->getContent(), 0, 200));
         $this->assertDatabaseHas('product_variants', ['id' => $variantId]);
 
+        /* And refused WITH consent, because consent does not restore a withdrawn capability any
+           more than it overrides a D-20 hard block. */
         $response = $this->trashWithConsent($operator, $variantId);
 
-        $this->assertSame(200, $response->status(),
-            'THE PLATFORM OPERATOR IS LOCKED OUT of variant management. Body: '
+        $this->assertSame(403, $response->status(),
+            'F206: the platform operator deleted a merchant variant. Body: '
             . substr((string) $response->getContent(), 0, 200));
+        $this->assertDatabaseHas('product_variants', ['id' => $variantId]);
+
+        /* THE CONTROL: the store's own merchant, with the permission, still deletes it. */
+        $owner = \App\Models\User::find($storeA->created_by);
+        $this->grantPermission($owner, 'Edit Products');
+        $owner = \App\Models\User::find($owner->id);
+
+        $ok = $this->trashWithConsent($owner, $variantId);
+        $this->assertSame(200, $ok->status(),
+            'the store\'s merchant can no longer delete their own variant, so the refusals above '
+            . 'prove nothing about WHO was refused. Body: ' . substr((string) $ok->getContent(), 0, 200));
         $this->assertDatabaseMissing('product_variants', ['id' => $variantId]);
     }
 

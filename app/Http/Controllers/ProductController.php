@@ -1669,6 +1669,28 @@ $Product->cost_price = $request->cost_price;
          */
         $ssActor = auth()->user();
 
+        /*
+         * F206 [2026-10-30] -- THE PLATFORM OPERATOR DOES NOT SAVE A MERCHANT'S PRODUCT.
+         *
+         * This is the door F195 opened: replacing `isAbleTo()` (which refuses the operator
+         * outright, there being no super-admin bypass in Laratrust) with the store-scoped
+         * `MerchantPermissions` read made the `PLATFORM_ADMIN` exemption in the ownership block
+         * below REACHABLE for the first time. The repository's own MariaDB script recorded that as
+         * a capability change rather than an accident, and the owner has now decided the
+         * capability: read and diagnose, yes; write, no.
+         *
+         * Measured before the fix, driving the real route: `{"flag":"success"}`, the name
+         * rewritten, and the **price rewritten from 100 to 1**.
+         *
+         * THE SHAPE MATTERS AS MUCH AS THE REFUSAL. `edit.blade.php` submits by `$.ajax` and its
+         * success handler reads `data.flag` / `data.msg` WITHOUT navigating, so a
+         * `redirect()->back()` reaches the merchant as a blank toast. The conflict-detection
+         * refusal further down this method already documents the same constraint.
+         */
+        if (\App\Services\OperatorCatalogueWrite::refuses($ssActor)) {
+            return \App\Services\OperatorCatalogueWrite::ajaxRefusal();
+        }
+
         if (
             $ssActor !== null
             && \App\Services\MerchantPermissions::allowsAny($ssActor, ['Edit Products'], $product->store_id)
@@ -3330,6 +3352,27 @@ $Product->cost_price = $request->cost_price;
          * Before the id is resolved, so a caller without the permission cannot learn from a 404
          * whether an image id exists.
          */
+        /*
+         * F206 [2026-10-30] -- the platform operator does not write a merchant's catalogue media.
+         *
+         * Placed at the WRITER rather than inside `lacksProductPermission()` or
+         * `productIsOutsideCurrentStore()`, both of which carry operator limbs: the read paths the
+         * owner wants preserved (`attribute_combination_data`, `attribute_combination_edit`,
+         * `show`, `product_preview`) share those two helpers with these three writers, so
+         * narrowing a helper would have closed the diagnosis surface too.
+         *
+         * These are irreversible disk writes — `StoredUpload` unlinks the file. Whether catalogue
+         * MEDIA falls under the owner's "products, prices, stock, variants" is a judgement call,
+         * and it is made toward blocking and recorded as such in the ledger, because deleting a
+         * merchant's image is not diagnosis. It is a one-line reversal if the owner wants it.
+         */
+        if (\App\Services\OperatorCatalogueWrite::refuses(auth()->user())) {
+            return response()->json([
+                'flag' => 'error',
+                'msg' => \App\Services\OperatorCatalogueWrite::message(),
+            ], 403);
+        }
+
         if ($this->lacksProductPermission(['Edit Products'])) {
             return response()->json([
                 'flag' => 'error',
@@ -3453,6 +3496,27 @@ $Product->cost_price = $request->cost_price;
          * only caller is the edit screen. Placed ahead of the lookup so a caller without the
          * permission cannot learn from the response whether a variant id exists.
          */
+        /*
+         * F206 [2026-10-30] -- the platform operator does not write a merchant's catalogue media.
+         *
+         * Placed at the WRITER rather than inside `lacksProductPermission()` or
+         * `productIsOutsideCurrentStore()`, both of which carry operator limbs: the read paths the
+         * owner wants preserved (`attribute_combination_data`, `attribute_combination_edit`,
+         * `show`, `product_preview`) share those two helpers with these three writers, so
+         * narrowing a helper would have closed the diagnosis surface too.
+         *
+         * These are irreversible disk writes — `StoredUpload` unlinks the file. Whether catalogue
+         * MEDIA falls under the owner's "products, prices, stock, variants" is a judgement call,
+         * and it is made toward blocking and recorded as such in the ledger, because deleting a
+         * merchant's image is not diagnosis. It is a one-line reversal if the owner wants it.
+         */
+        if (\App\Services\OperatorCatalogueWrite::refuses(auth()->user())) {
+            return response()->json([
+                'flag' => 'error',
+                'msg' => \App\Services\OperatorCatalogueWrite::message(),
+            ], 403);
+        }
+
         if ($this->lacksProductPermission(['Edit Products'])) {
             return response()->json([
                 'flag' => 'error',
@@ -3622,6 +3686,27 @@ $Product->cost_price = $request->cost_price;
      */
     public function variant_image_destroy(Request $request)
     {
+        /*
+         * F206 [2026-10-30] -- the platform operator does not write a merchant's catalogue media.
+         *
+         * Placed at the WRITER rather than inside `lacksProductPermission()` or
+         * `productIsOutsideCurrentStore()`, both of which carry operator limbs: the read paths the
+         * owner wants preserved (`attribute_combination_data`, `attribute_combination_edit`,
+         * `show`, `product_preview`) share those two helpers with these three writers, so
+         * narrowing a helper would have closed the diagnosis surface too.
+         *
+         * These are irreversible disk writes — `StoredUpload` unlinks the file. Whether catalogue
+         * MEDIA falls under the owner's "products, prices, stock, variants" is a judgement call,
+         * and it is made toward blocking and recorded as such in the ledger, because deleting a
+         * merchant's image is not diagnosis. It is a one-line reversal if the owner wants it.
+         */
+        if (\App\Services\OperatorCatalogueWrite::refuses(auth()->user())) {
+            return response()->json([
+                'flag' => 'error',
+                'msg' => \App\Services\OperatorCatalogueWrite::message(),
+            ], 403);
+        }
+
         if ($this->lacksProductPermission(['Edit Products'])) {
             return response()->json([
                 'flag' => 'error',

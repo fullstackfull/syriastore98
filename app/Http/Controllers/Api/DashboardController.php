@@ -2647,6 +2647,23 @@ private function deleteProductFile(?string $path): void
 
 public function DeleteProduct(Request $request)
 {
+    /*
+     * F206 [2026-10-30] -- THE PLATFORM OPERATOR DOES NOT WRITE A MERCHANT'S CATALOGUE.
+     *
+     * This door had **no permission check of any kind**. Its only control was
+     * `resolveOwnedStore()`, and that drops its `created_by` predicate for the operator -- so the
+     * operator reached it through the tenancy exemption rather than through any permission, and a
+     * fix scoped to `MerchantPermissions` call sites would have missed it entirely.
+     *
+     * `error()` is HTTP **200** with `status: 0`, which is this API's refusal convention. A new
+     * 401 here would force a logout in the shipped Flutter app, and a 403 is reserved for
+     * `refuseWithoutPermission()`'s permission refusals -- this is neither; it is a capability the
+     * owner has withdrawn from one principal.
+     */
+    if (\App\Services\OperatorCatalogueWrite::refuses(\Auth::user())) {
+        return $this->error(['message' => \App\Services\OperatorCatalogueWrite::message()]);
+    }
+
     $validator = Validator::make($request->all(), [
         'store_id'   => ['required', 'integer'],
         'product_id' => ['required', 'integer'],
@@ -2752,6 +2769,23 @@ public function DeleteProduct(Request $request)
 
 public function AddProduct(Request $request)
 {
+    /*
+     * F206 [2026-10-30] -- THE PLATFORM OPERATOR DOES NOT WRITE A MERCHANT'S CATALOGUE.
+     *
+     * This door had **no permission check of any kind**. Its only control was
+     * `resolveOwnedStore()`, and that drops its `created_by` predicate for the operator -- so the
+     * operator reached it through the tenancy exemption rather than through any permission, and a
+     * fix scoped to `MerchantPermissions` call sites would have missed it entirely.
+     *
+     * `error()` is HTTP **200** with `status: 0`, which is this API's refusal convention. A new
+     * 401 here would force a logout in the shipped Flutter app, and a 403 is reserved for
+     * `refuseWithoutPermission()`'s permission refusals -- this is neither; it is a capability the
+     * owner has withdrawn from one principal.
+     */
+    if (\App\Services\OperatorCatalogueWrite::refuses(\Auth::user())) {
+        return $this->error(['message' => \App\Services\OperatorCatalogueWrite::message()]);
+    }
+
     $store = $this->resolveOwnedStore($request->store_id);
     if (empty($store)) {
         return $this->error(['message' => __('Store not found!')]);
@@ -2895,6 +2929,23 @@ public function AddProduct(Request $request)
 
 public function UpdateProduct(Request $request)
 {
+    /*
+     * F206 [2026-10-30] -- THE PLATFORM OPERATOR DOES NOT WRITE A MERCHANT'S CATALOGUE.
+     *
+     * This door had **no permission check of any kind**. Its only control was
+     * `resolveOwnedStore()`, and that drops its `created_by` predicate for the operator -- so the
+     * operator reached it through the tenancy exemption rather than through any permission, and a
+     * fix scoped to `MerchantPermissions` call sites would have missed it entirely.
+     *
+     * `error()` is HTTP **200** with `status: 0`, which is this API's refusal convention. A new
+     * 401 here would force a logout in the shipped Flutter app, and a 403 is reserved for
+     * `refuseWithoutPermission()`'s permission refusals -- this is neither; it is a capability the
+     * owner has withdrawn from one principal.
+     */
+    if (\App\Services\OperatorCatalogueWrite::refuses(\Auth::user())) {
+        return $this->error(['message' => \App\Services\OperatorCatalogueWrite::message()]);
+    }
+
     $store = $this->resolveOwnedStore($request->store_id);
     if (empty($store)) {
         return $this->error(['message' => __('Store not found!')]);

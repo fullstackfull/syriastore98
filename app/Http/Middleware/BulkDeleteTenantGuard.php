@@ -338,9 +338,37 @@ class BulkDeleteTenantGuard
             }
         }
 
-        // THE ONE PLATFORM-OPERATOR BYPASS, same branch StoreScope::resolveTenant() takes and
-        // same as CountryController::destroy:128.
+        /*
+         * THE PLATFORM-OPERATOR BYPASS, NOW CATALOGUE-AWARE. F206 [2026-10-30].
+         *
+         * It used to be unconditional — the same branch `StoreScope::resolveTenant()` takes, and
+         * the same as `CountryController::destroy:128` — and that made this **the widest of the
+         * operator's thirteen catalogue-write doors**: it returns before the permission map,
+         * before the model map and before the tenant predicate, and the downstream handler is the
+         * vendored `BulkDeleteController`, whose body is
+         * `$model::whereIn('id', $request->ids)->delete()` with no store predicate of its own
+         * (`Product` registers a `StoreScope` but is NOT in `config/tenancy.php`'s
+         * `scoped_models`, so that query carries no predicate for anyone). One POST would have
+         * mass-deleted any merchant's products.
+         *
+         * It is narrowed rather than removed, because the owner's decision is specifically about a
+         * merchant's CATALOGUE: *"do not change other platform-administration functions unrelated
+         * to the merchant's catalogue."* Countries, states, cities, plan orders, newsletters and
+         * the rest are platform administration and the operator keeps them. The four types below
+         * are the ones whose model is `App\Models\Product`, read from this class's own MODEL_MAP
+         * rather than re-listed, so a new product alias added there cannot silently escape this.
+         */
         if ($this->isOperator($user)) {
+            $ssType = $request->input('type');
+
+            $ssIsCatalogue = is_string($ssType)
+                && array_key_exists($ssType, self::MODEL_MAP)
+                && self::MODEL_MAP[$ssType] === \App\Models\Product::class;
+
+            if ($ssIsCatalogue) {
+                return $this->reject(\App\Services\OperatorCatalogueWrite::message());
+            }
+
             return $next($request);
         }
 

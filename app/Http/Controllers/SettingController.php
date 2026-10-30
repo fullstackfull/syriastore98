@@ -1720,6 +1720,27 @@ $u->save();
             return redirect()->back()->with('error', __('Permission denied.'));
         }
 
+        /*
+         * F206 [2026-10-30] -- AND THE PLATFORM OPERATOR DOES NOT REWRITE A MERCHANT'S PRICE LIST.
+         *
+         * This handler reaches `StoreCurrencyConversionService::convertStoreCurrentValues()`,
+         * which rewrites EVERY product's `price`, `sale_price` and `cost_price` and EVERY
+         * variant's `price` and `variation_price` for the store — so one operator POST to
+         * `/currency-settings` is a whole-catalogue price change. The owner's decision names
+         * prices explicitly, so it is in scope even though it arrives through a settings screen.
+         *
+         * The limb is HERE and not inside `StoreSettingsAccess`, because that service also guards
+         * SMTP and payment-gateway credentials, which are platform administration the owner
+         * excluded from this narrowing. Blocking at the service would have taken those with it.
+         *
+         * The store is `getCurrentStore()`, which for an operator who has not switched returns the
+         * hardcoded literal **1** — so before this, an operator saving the currency tab rewrote
+         * store 1's prices whether or not they meant to look at store 1.
+         */
+        if (\App\Services\OperatorCatalogueWrite::refuses(auth()->user())) {
+            return redirect()->back()->with('error', \App\Services\OperatorCatalogueWrite::message());
+        }
+
     session()->put(['setting_tab' => 'currency_setting']);
 
     $storeId = getCurrentStore();

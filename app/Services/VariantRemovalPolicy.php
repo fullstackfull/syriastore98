@@ -93,12 +93,35 @@ final class VariantRemovalPolicy
         }
 
         /*
-         * THE OPERATOR IS EXEMPT FROM THE OWNERSHIP QUESTION ONLY, never from the reference checks.
-         * `MerchantPermissions` has already answered the permission question for them with the
-         * wildcard; this limb is about WHOSE product it is, and the platform operator's answer is
-         * "anyone's". `UserPolicy::isOperator()` is reused rather than re-derived -- it `rtrim`s
-         * SPACE only, to match MySQL's PAD SPACE, a distinction `trim()` gets wrong.
+         * F206 [2026-10-30] -- THE PLATFORM OPERATOR NO LONGER PASSES HERE, BY OWNER DECISION.
+         *
+         * What this block used to say, and why it was right at the time: the operator was exempt
+         * from the OWNERSHIP question only, never from the reference checks, because
+         * `MerchantPermissions` had already answered the permission question for them with the
+         * wildcard and this limb is about WHOSE product it is -- to which the platform operator's
+         * answer was "anyone's".
+         *
+         * The owner has now decided that it is not: *"the platform operator can read merchant
+         * catalogues and diagnose their problems, but cannot edit merchants' products, their
+         * prices, their stock or their variants, nor delete them."* So the refusal goes BEFORE the
+         * ownership exemption rather than replacing it -- the exemption is still the correct
+         * answer to the question it was written for, and F206 is a different question asked
+         * earlier.
+         *
+         * **This one placement closes FOUR doors**, which is the whole reason D-28c put the policy
+         * here: `product_attribute_delete`, `Api\DashboardController::DeleteVariant`,
+         * `Api\DashboardController::UpdateVariant` and the variant rebuild inside
+         * `ProductController::update`. A per-door copy would have been four chances to miss one,
+         * and the F195 review already caught exactly that mistake once.
          */
+        if (\App\Services\OperatorCatalogueWrite::refuses($user)) {
+            return [
+                'flag' => 'error',
+                'msg' => \App\Services\OperatorCatalogueWrite::message(),
+                'status' => 403,
+            ];
+        }
+
         if (UserPolicy::isOperator($user)) {
             return null;
         }

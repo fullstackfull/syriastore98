@@ -545,23 +545,44 @@ class ProductVariantOrdinarySaveGuardTest extends SecurityTestCase
         $payload['options_datas'] = ['S-Red', 'M-Red'];
         $payload['ss_confirm_variant_removal'] = 1;
 
+        /*
+         * [2026-10-30] F206 CHANGED WHAT THIS ROUTE ANSWERS, AND THE CASE IS SPLIT RATHER THAN
+         * RELAXED.
+         *
+         * The operator is only a DEVICE here: `getCurrentStore()` returns its hardcoded literal 1
+         * for a `super admin` with no `current_store`, which is the only way to make the caller's
+         * store and the product's store genuinely differ. The SUBJECT is the order-history check's
+         * predicate — does it look in the product's store or the caller's?
+         *
+         * F206 now refuses the platform operator any catalogue write, and that refusal is BEFORE
+         * the removal guard, so driving the subject through this route no longer reaches it. Both
+         * halves are asserted instead of dropping either:
+         *   1. through the route, the operator meets the F206 refusal — capability before anything
+         *      else, which is the new ordering and worth pinning;
+         *   2. against the policy directly, with the same store divergence, the order-history
+         *      predicate still fires `unverifiable_order_history` — the question this case exists
+         *      for, and one F206 does not touch.
+         */
         $response = $this->actingAs($merchant)->put(route('product.update', $product->id), $payload);
         $response->assertOk();
 
-        $this->assertSame(
-            'error',
-            $response->json('flag'),
-            'the order-history check looked in the CALLER\'s store, not the product\'s, so an'
-            . ' operator was offered a confirmed delete whose safety had been checked against'
-            . ' another tenant\'s orders.'
-        );
-        /* The BRANCH, not just the flag -- this case is a conjunction (it fails if any of the
-           three predicates regresses), so naming the branch says WHICH refusal fired. */
-        $this->assertSame(
-            'unverifiable_order_history',
-            $response->json('ss_variant_removal.blocked'),
-            'the refusal fired, but not the one this case is about'
-        );
+        $this->assertSame('error', $response->json('flag'),
+            'F206: the platform operator was allowed a catalogue write');
+        $this->assertNull($response->json('ss_variant_removal'),
+            'the operator reached the removal guard, so the F206 capability check is no longer '
+            . 'first — a principal who may not write at all should not be reasoned about as if '
+            . 'they might');
+
+        /* 2. THE SUBJECT, asked of the policy where it lives. */
+        $removed = \App\Services\VariantRemovalPolicy::variantsBeingRemoved($product, ['S-Red', 'M-Red']);
+        $refusal = \App\Services\VariantRemovalPolicy::refuse($product, $removed, true);
+
+        $this->assertIsArray($refusal,
+            'the order-history check looked in the CALLER\'s store, not the product\'s, so a'
+            . ' confirmed delete was offered whose safety had been checked against another'
+            . ' tenant\'s orders.');
+        $this->assertSame('unverifiable_order_history', $refusal['ss_variant_removal']['blocked'] ?? null,
+            'the refusal fired, but not the one this case is about: ' . json_encode($refusal));
 
         $this->assertCount(12, $this->readAll($product->id), 'a blocked narrowing deleted rows anyway');
     }

@@ -829,11 +829,25 @@ class VariantRemovalPolicyTest extends SecurityTestCase
     }
 
     /**
-     * THE PLATFORM OPERATOR. `isAbleTo()` REFUSES them — there is no super-admin bypass in this
-     * codebase and operator status is a string on `users.type` — so a permission check without an
-     * operator limb is a lockout rather than a tightening.
+     * THE PLATFORM OPERATOR — previously *"may delete a variant in any store"*.
+     *
+     * **[2026-10-30] F206 REVERSED THIS TEST'S EXPECTATION, BY OWNER DECISION.** What it used to
+     * assert is quoted above and was correct for its time: `isAbleTo()` refuses the operator —
+     * there is no super-admin bypass and operator status is a string on `users.type` — so a
+     * permission check with no operator limb was a lockout rather than a tightening, and the
+     * operator exemption existed to prevent that.
+     *
+     * The owner has now decided the capability itself: *"the platform operator can read merchant
+     * catalogues and diagnose their problems, but cannot edit merchants' products, their prices,
+     * their stock or their variants, nor delete them, except by explicit and specific
+     * delegation."* So the operator being refused here is the REQUIREMENT now, not a regression —
+     * and the test is rewritten to assert it rather than deleted, because a door nobody asserts
+     * is one refactor from being open again.
+     *
+     * The refusal must be a real refusal and not a crash, and a merchant must still succeed, or
+     * this proves only that something broke.
      */
-    public function test_the_platform_operator_may_delete_a_variant_in_any_store(): void
+    public function test_the_platform_operator_may_not_delete_a_variant_in_any_store(): void
     {
         [$merchant, $store, , $variant] = $this->arrange();
 
@@ -848,9 +862,20 @@ class VariantRemovalPolicyTest extends SecurityTestCase
 
         $response = $this->api($operator, $store->id, $variant->id);
 
-        $this->assertApiAllowed($response,
-            'the platform operator was refused their own platform: '
-            . json_encode($response->json()));
+        $this->assertLessThan(500, $response->getStatusCode(),
+            'the operator met a SERVER ERROR rather than a refusal, so this proves only that '
+            . 'something broke: ' . substr((string) $response->getContent(), 0, 200));
+        $this->assertApiRefused($response,
+            'F206: the platform operator deleted a merchant variant');
+        $this->assertTrue($this->stillExists($variant->id),
+            'the merchant variant is gone');
+
+        /* THE CONTROL. The owner of the variant must still be able to delete it, or this is a
+           lockout rather than an operator-specific block. */
+        $this->assertApiAllowed($this->api($merchant, $store->id, $variant->id),
+            'the merchant can no longer delete their own variant, so the refusal above proves '
+            . 'nothing about WHO was refused');
+        $this->assertFalse($this->stillExists($variant->id), 'the merchant\'s delete did not happen');
     }
 
     /**
