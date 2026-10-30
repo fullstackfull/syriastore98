@@ -346,6 +346,15 @@ run_one verify-gateway-reference-idempotency-on-mysql \
   "OGR_MYSQL_SOCKET=${SOCK}" "OGR_MYSQL_HOST=${HOST}" "OGR_MYSQL_PORT=${PORT}" \
   "OGR_MYSQL_DATABASE=ogr_verify" "OGR_MYSQL_USERNAME=${USER_NAME}" "OGR_MYSQL_PASSWORD=${PASS}"
 
+# F207 / D-29.2's "test concurrency, failure and retry" condition, which an adversarial sweep found
+# ARGUED RATHER THAN DRIVEN -- the row read VERIFIED while the script it pointed at contained zero
+# occurrences of concurrency, race, lock or a second connection. SQLite cannot answer it:
+# lockForUpdate() compiles to nothing and the in-memory database is one connection, so a race is
+# unobservable. Also records the transaction-wrapped deadlock as a hazard rather than discarding it.
+run_one verify-cart-reconciliation-concurrency-on-mysql \
+  "CARTREC_MYSQL_SOCKET=${SOCK}" "CARTREC_MYSQL_HOST=${HOST}" "CARTREC_MYSQL_PORT=${PORT}" \
+  "CARTREC_MYSQL_DATABASE=cartrec_verify" "CARTREC_MYSQL_USERNAME=${USER_NAME}" "CARTREC_MYSQL_PASSWORD=${PASS}"
+
 run_one verify-empty-variant-name-wipe-on-mysql \
   "F199_MYSQL_SOCKET=${SOCK}" "F199_MYSQL_HOST=${HOST}" "F199_MYSQL_PORT=${PORT}" \
   "F199_MYSQL_DATABASE=f199_verify" "F199_MYSQL_USERNAME=${USER_NAME}" "F199_MYSQL_PASSWORD=${PASS}"
