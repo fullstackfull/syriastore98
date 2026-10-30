@@ -15,6 +15,16 @@
 # them into a commit. Ignored by store id rather than by filename because the seeder and the
 # browser tests use different naming.
 /uploads/1/
+
+# THE SAME ARTEFACTS AT THE DOUBLED PREFIX, which is where the application REALLY writes them.
+# `Utility::upload_file()` and `keyWiseUpload_file()` prepend `uploads/` to a `$dir` their callers
+# already build as `uploads/<store id>`, so a product cover image or gallery image for store 1
+# lands at `uploads/uploads/1/` -- not at `uploads/1/`, which the rule above covers.
+# `StoredPathPolicy::resolve()` already documents that doubled prefix and peels it before reading
+# the tenant segment. Found when the F196/F199 bite runs -- which deliberately let the upload
+# branch execute -- left two files there that `git status` reported as untracked and a `git add -A`
+# would have committed. 105 files under OTHER store ids are tracked at this path and stay tracked.
+/uploads/uploads/1/
 /vendor/
 /node_modules/
 

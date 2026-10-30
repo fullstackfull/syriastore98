@@ -625,11 +625,20 @@ class ProductVariantOrdinarySaveGuardTest extends SecurityTestCase
 
         $payload = $this->ordinarySavePayload($product, $categoryId, $variants);
 
-        /* The hand-built shape no view emits: a `choice_no` rebuild naming two combinations,
-           which would uncover the other ten. No confirmation flag. */
+        /*
+         * The hand-built shape no view emits: a `choice_no` rebuild naming two combinations, which
+         * would uncover the other ten. No confirmation flag.
+         *
+         * ONE ELEMENT, COMMA-SEPARATED, and this was wrong until the F196 review caught it. The
+         * handler does `explode(',', implode('|', $request['choice_options_1']))`, so a TWO-element
+         * array collapses into the single axis value `'S-Red|M-Red'` — one junk combination name,
+         * and all twelve rows uncovered rather than ten. The case still refused, so it was never a
+         * false pass; it was just not the narrowing its own comment described, which is the kind of
+         * inaccuracy that makes a later reader trust the wrong premise.
+         */
         $payload['variant_product'] = 1;
         $payload['choice_no'] = [1];
-        $payload['choice_options_1'] = ['S-Red', 'M-Red'];
+        $payload['choice_options_1'] = ['S-Red,M-Red'];
         unset($payload['options_datas']);
 
         $response = $this->actingAs($merchant)->put(route('product.update', $product->id), $payload);
@@ -640,6 +649,14 @@ class ProductVariantOrdinarySaveGuardTest extends SecurityTestCase
             $response->json('flag'),
             'the `choice_no` path deleted variants with no confirmation and no reference check —'
             . ' the silent hard delete the owner\'s condition 5 forbids'
+        );
+
+        $this->assertSame(
+            10,
+            $response->json('ss_variant_removal.count'),
+            'premise: the payload must really cover TWO of the twelve combinations, leaving ten in'
+            . ' the removal set — otherwise this case is about a junk name rather than a narrowing: '
+            . json_encode($response->json('ss_variant_removal'))
         );
 
         $this->assertCount(

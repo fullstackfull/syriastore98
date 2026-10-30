@@ -1,0 +1,19 @@
+KNOWN-OUTCOME GATE RUN
+======================================================================
+HEAD            : aea28d082046c9dbc2013e8b96dfb72f7ba76c81
+HEAD subject    : F195 follow-up: the review was clean on the fix and found three weak tests
+tree            : 1 modified file(s)
+started         : 2026-10-29T22:25:08Z
+php             : 8.3.6
+
+### php artisan test --testsuite=Unit
+  Tests:    646 passed (4054 assertions)
+  Duration: 36.96s
+    wall: 48s
+
+### php artisan test --testsuite=Contract
+  Tests:    26 passed (83 assertions)
+  Duration: 3.06s
+    wall: 4s
+
+### php artisan test --testsuite=Feature --log-junit storage/logs/feature-junit.xml --log-teamcity storage/logs/feature-teamcity.txt

@@ -8640,3 +8640,216 @@ reads the config **files** rather than booting the application, because a stale
 
 **F194 is not a payment guarantee.** It closes the model flush only; three reachable explicit flushes
 of the application store remain (two of them F197, one F188).
+
+---
+
+## F196 — the variant-removal refusal ran after the save (2026-10-29, D-28b Option A)
+
+D-20 made a variant-destroying narrowing refusable. The refusal says *"Nothing has been changed."*
+It was not true, and the row that recorded F196 understated by how much.
+
+### What a refused save actually persisted
+
+Measured by comparing the **whole `products` row** before and after, on the attribute path:
+
+| column | before | after |
+|---|---|---|
+| `price` | 10 | **0** |
+| `product_stock` | 7 | **0** |
+| `description` | `'x'` | **NULL** |
+| `slug` | `f196-scarf-6ae3d5c597b4e` | `f196-scarf` |
+| `category_id` | NULL | 1 |
+| `product_attribute` | the stored json | re-encoded, **and corrupted** (see F198) |
+| `updated_at` | yesterday | now |
+
+The variant branch assigns `$product->price = 0` and `$product->product_stock = 0` unconditionally —
+correct for a variant product on a *successful* save, because price and stock live on the variants —
+and then `$product->save()` runs **before** the guard. So **a refused save priced the merchant's
+product at zero** and told them nothing had changed.
+
+Outside the database, the cover-image branch replaces `cover_image_path` / `cover_image_url` **and
+calls `StoredUpload::delete()` on the old path**. A refused save destroyed a file that no database
+rollback recovers.
+
+### Why the row's own framing was too narrow, and why that mattered
+
+The F196 ledger row named `product_attribute` and `updated_at` — the two columns the investigation
+had reasoned its way to. A whole-row comparison found seven. The lesson is the method, not the
+count: *"I know which columns this handler touches"* is a claim about 900 lines of branching, and the
+comparison that cannot be wrong about it is the one that reads every column.
+
+### Why a preflight and not a moved guard
+
+The owner's §3.2 asks this directly — *"a single moved line is not sufficient if another branch
+produces side effects before the check"* — and it is the right question here. Four
+`Utility::upload_file()` calls, a `ProductImage::create()` and the cover-image file deletion all
+precede **both** in-place guards. Moving either guard up a few lines would still have left a refusal
+standing behind them.
+
+`ssVariantRemovalPreflight()` therefore runs once, immediately after the validator: **after** the
+ownership check, the permission check, the `ss_last_seen_at` conflict guard and validation; **before**
+the storage-limit reservation, every upload, the gallery row and both `$product->save()` calls.
+
+Both in-place guards are **kept** as defence in depth — the sixteen existing tests drive them through
+`update()` and keep passing unchanged — and both now call the same two extracted helpers, so the
+preflight and the guards cannot disagree about what is being removed. The last time detection and
+deletion asked different questions in this method (`getCurrentStore()` in the query, no store
+predicate in the delete) an operator deleted rows the guard had reported as nothing.
+
+### `ss_last_seen_at` is untouched, which is the point
+
+The owner's condition is that the lock must be preserved and never bypassed to make a confirmation
+succeed. It is not modified at all. What changed is that the merchant's own refused save no longer
+moves `updated_at`, so confirm-and-retry — F184's whole premise — is possible for the first time:
+the retry carries the token the form was rendered with and the lock accepts it. A genuinely stale
+token is still refused as a conflict, asserted separately so the retry case cannot be satisfied by
+deleting the guard.
+
+### Evidence — 14 cases, 83 assertions, bitten three times
+
+`tests/Feature/Merchant/ProductUpdateRefusalPersistsNothingTest.php`. Whole-row comparisons on both
+rebuild paths; price and stock asserted on their own because no reader predicts that column; the
+retry and the genuine conflict asserted against each other; the cover-image file asserted to still
+exist; every `product_variants` row compared column by column; the hard block (an order naming the
+product) asserted to change nothing **even when confirmed**; and the ordering itself asserted against
+comment-stripped source.
+
+One case exists only because the review could not settle a question by reading, and marked its own
+answer *probable*: **can the preflight refuse a save the old code allowed?** It checks both posted
+sets on every request, where each in-place guard only ran inside its own branch. The derivation says
+no — the old code could only see a smaller set after a choice delete that the choice guard had
+itself allowed, which needs a confirmation and no references, so the preflight's extra rows are a
+subset of rows already proven reference-free. `test_both_posted_sets_with_a_confirmation_are_still_allowed_through`
+executes it: both sets posted, covering different pairs, confirmed, and the save succeeds. Probable
+is now measured.
+
+Against the committed pre-fix controller the finished file reads **11 failed, 3 passed**. Three
+bites after the fix: the preflight **call removed** → 7 fail; the preflight **moved one upload too
+late** → the same 7 fail; the F199 empty-name filter **restored** → exactly the 2 F199 cases fail
+and nothing else. Regression: Unit 650, Contract 26, `tests/Feature/Merchant` + `tests/Unit/Merchant`
+427, `tests/Feature/Security` 4,319 / 4 skipped / 0 failed, Tenancy + Commerce + the schema ratchet
+1,189 / 13 skipped / 0 failed, and the full MySQL roster **27 scripts passed / 0 failed**.
+
+### Three of this slice's own tests passed for the wrong reason first
+
+Each is recorded because each is a reusable trap, and none was caught by reading — the bites caught
+all three.
+
+1. **`?? ` treats a NULL value as a missing key.** The whole-row comparator reported thirteen
+   phantom `NULL -> '<<absent>>'` changes and buried the two real ones. `array_key_exists()`.
+2. **`$this->put($uri, $data)` passes an EMPTY files array to `call()`.** An `UploadedFile` placed in
+   `$data` is never uploaded — it lands in the request bag as an object, so `$request->cover_image`
+   is truthy for the wrong reason while `hasFile()` is false. Both cover-image cases were vacuous
+   until they went through `call('PUT', $uri, $payload, [], $files)`.
+3. **`Product` is `Cachable`.** A `DB::table('products')->update()` fixture was invisible to the
+   handler's own route-model binding, which served the row the fixture had already read into the
+   cache. A probe inside the request printed `cover_image_path=''` and
+   `StoredUpload::resolve()=NULL`, so the file deletion the case existed to detect was a silent
+   no-op — and the case passed against a live bite. CLAUDE.md said only `User` was cached; the real
+   census is **79 of the 95** models in `app/Models/`, and that section now names the 16 exceptions
+   instead of the rule.
+
+A fourth, smaller one: a column-only assertion is not a witness for a branch having *run*. Under the
+second bite the cover-image columns were still correct, because the assignment is in memory and the
+refusal returns before any `save()`. The file deletion is the observable the ordering actually moves.
+
+### The mandated review found one real defect, and it was the worst thing in the slice
+
+F199, and it is **pre-existing** rather than introduced: `git show
+ba34fce8:app/Http/Controllers/ProductController.php` carries the same filter, so the extraction
+inherited it faithfully. A hand-posted choice payload whose combination names all reduce to the
+empty string **deleted every variant of the product** — prices, SKUs and stock — and answered
+
+    HTTP 200  {"flag":"success","msg":"Product update successfully."}
+
+The guard and the delete disagreed about one payload. `choice_options_1[] = ''` gives
+`implode('|', [''])` → `''` → `explode(',', '')` → `['']`, so `$options = [['']]` and
+`combinations()` returns `[[0 => '']]`. The **guard** built the name `''`, dropped it, and saw an
+**empty covered set** — which it reads as *"nothing was posted, nothing to check"*, because that is
+exactly how an ordinary save posting no `choice_no` is skipped. The **delete**, gated on
+`count($combinations[0]) > 0` from the *unfiltered* build, saw 1, and ran
+`whereNotIn('variant', [''])`.
+
+The fix keeps the empty name, so the covered set mirrors `$sku_array` exactly and the two halves ask
+one question. The legitimate case is still skipped, because it is distinguished by `$options === []`
+— by nothing having been posted, not by what was posted being blank.
+
+**A WRONG EXPLANATION, RECORDED SO IT IS NOT RE-DERIVED.** The first reading of this was that the
+wipe needed production's `'strict' => false` (`config/database.php:55`) to coerce a NULL `price` into
+the NOT NULL `double`, because a payload carrying no price key dies on that constraint and the
+request 500s. **Measured on MariaDB 10.11.14: an explicit NULL into a NOT NULL column is refused as
+error 1048 on *both* settings.** Non-strict mode coerces out-of-range values and invalid dates; an
+explicit NULL is not one of those. The real mechanism needs no engine quirk — the payload also
+supplies the choice path's own `sku_`, `price_` and `stock_` keys, whose suffix for an empty name is
+empty — and it therefore reproduces on SQLite too. That is why the end-to-end proof is a Feature
+test, and why `tests/Support/Security/bin/verify-empty-variant-name-wipe-on-mysql.php` (**13 checks,
+0 failures**) exists to close off the wrong story rather than to carry the finding.
+
+### An eighth persisted side effect the whole-row comparison could not see
+
+`Utility::updateStorageLimit()` does `$user->storage_limit += $size; $user->save()`, and it ran
+before both guards. So a refused narrowing with a file attached **charged the merchant's storage
+quota permanently**, for a file they never got to keep. It is not in `products`, so no comparison of
+that row could have found it; the review did. Now asserted on the raw `users` row.
+
+### Three weak tests the review caught, all closed
+
+1. **`test_a_refused_narrowing_adds_no_product_image_row` could not fail.** The gallery write is
+   inside `if (!empty($request->product_image))` and the payload carried no `product_image`, so the
+   count was `0 === 0` under the fix, the revert and every bite. It now posts a real file through
+   the files bag, and it fails under the first bite.
+2. **The duplicate-query ratchet was pinned to indentation.** It counted a two-line needle including
+   the helper's own twelve spaces; a hand-rolled copy inside a rebuild branch sits at 24–28 and
+   would not have been counted, so the assertion could not detect the thing its message described.
+   It now counts a shape (`->reject(function`).
+3. **The choice-path payload did not narrow what its comment claimed.** `['S-Red', 'M-Red']` is
+   collapsed by `explode(',', implode('|', …))` into the single axis value `'S-Red|M-Red'` — one junk
+   name, all four rows uncovered. It is now `['S-Red,M-Red']`, a genuine two-of-four narrowing, with
+   the count asserted. **The older F195 test had the same inaccuracy and was corrected too** —
+   `ProductVariantOrdinarySaveGuardTest::test_the_choice_no_path_cannot_delete_variants_without_the_guard`
+   now posts one comma-separated element and asserts a removal count of **10** of its twelve, so its
+   premise matches its prose. Neither case was ever a false pass; both refused. They were just not
+   the narrowing their comments described, which is how a later reader comes to trust a wrong
+   premise.
+
+### Every review finding, classified (owner §6)
+
+| # | finding | classification | where it went |
+|---|---|---|---|
+| 1 | an all-empty choice payload wipes every variant, `flag => 'success'` | **FIXED** | F199 — the empty name is kept; 2 Feature cases + a 13-check MariaDB script |
+| 2 | `test_a_refused_narrowing_adds_no_product_image_row` cannot fail | **FIXED** | posts a real file through the files bag; fails under bite A |
+| 3 | two cases pass against the pre-fix code | **VERIFIED NON-ISSUE** | one is deliberate (the lock guard-rail); the other documents a property D-20 already had. Named as guard-rails in the evidence, not counted as F196 evidence |
+| 3b | the duplicate-query ratchet is pinned to indentation | **FIXED** | counts a shape (`->reject(function`) |
+| Q1 | is the extraction faithful? | **VERIFIED NON-ISSUE** except F199 | the choice helper is strictly more tolerant, and every shape it newly tolerates was a 500 before — reviewed line by line |
+| Q2 | can the preflight refuse what the old code allowed? | **VERIFIED NON-ISSUE**, now measured | the review marked its own answer *probable*; `test_both_posted_sets_with_a_confirmation_are_still_allowed_through` executes it |
+| Q3 | is `$product->store_id` right, including for the operator? | **VERIFIED NON-ISSUE** | never assigned in `update()`; both predicates derive from the bound row; the operator path is driven by an existing test |
+| Q4 | does the new ordering leak anything? | **VERIFIED NON-ISSUE** | permission and ownership both precede it; a refused caller sees no variant name, SKU, price or stock |
+| Q4b | `updateStorageLimit()` writes `users.storage_limit` before both guards | **FIXED** by the ordering | an eighth side effect the row comparison could not see; now asserted raw |
+| Q5 | the D-20 docblock is orphaned onto a helper | **FIXED** | the helpers moved below `ssRefuseVariantRemoval()` |
+| Q5 | nine stale line citations in the new test's docblocks | **FIXED** | de-numbered; the ordering is asserted instead |
+| Q5 | the choice payload does not narrow what its comment says | **FIXED**, in both files | one comma-separated element, with the removal count asserted (2 of 4 here, 10 of 12 in the older F195 test) |
+| Q5 | error precedence moved for one payload class | **VERIFIED NON-ISSUE** | same `flag => 'error'` shape the page already toasts; documented |
+| Q5 | the reference checks now run twice on an allowed removal | **OPEN RISK**, accepted | two full order-history scans on a confirmed save: the price of keeping both guards. A refusal still returns early |
+| — | `edit()` requires `Edit Products` with no operator limb | **VERIFIED NON-ISSUE**, pre-existing | deliberate and already documented in the code: `update()` requires it of everyone, so an operator bypass here would open a form the save refuses |
+
+Five of the fifteen were defects in this slice's own work, and three of those five were in its tests
+rather than in the fix.
+
+### What F196 does NOT close
+
+- **The check-then-delete race is still open.** The preflight narrows the window — the refusal now
+  precedes every write — but takes no row lock. `ss_last_seen_at` covers a concurrent *save*; it does
+  not cover an *order* placed between the reference check and the delete. The owner's condition names
+  a lock proven on MariaDB; that is not done, and is recorded rather than claimed.
+- **F198**, opened by this comparison: `update()` and `store()` reuse one `$item` array across the
+  attribute loop, so each stored `product_attribute` element inherits the previous element's keys.
+  Every reader found accesses the decoded elements by name, so nothing misreads it today. Not fixed
+  here: it changes the shape of data already in production rows.
+- **The reference checks now run twice on an allowed removal** — once in the preflight, once in the
+  in-place guard — which means two full `Order::…->pluck('product_json')` scans on a confirmed save.
+  That is the price of keeping both guards, and a refusal still returns early. Recorded as a known
+  trade rather than found later.
+- **Error precedence moved for one payload class.** A narrowing that *also* busts the storage limit
+  or carries a rejected cover image now returns the removal refusal instead of the storage or upload
+  error. Same `flag => 'error'` shape the page already toasts, so no client contract changes.
+- **F184 is unblocked, not built.** The confirmation UI is still absent.

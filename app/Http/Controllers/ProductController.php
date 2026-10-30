@@ -341,6 +341,226 @@ class ProductController extends Controller
     }
 
     /**
+     * THE COMBINATION NAMES A POSTED `choice_no` / `choice_options_N` PAYLOAD COVERS. (F196)
+     *
+     * Extracted verbatim from `update()`'s choice branch so the PREFLIGHT and the in-place check cannot
+     * disagree about what is being removed. Two copies of this arithmetic is how a guard and the delete
+     * it guards end up asking different questions -- which this file has already recorded once, when
+     * the attribute path's detection used `getCurrentStore()` while its delete used none.
+     *
+     * @return list<string>
+     */
+    private function ssChoiceCombinationNames(Request $request): array
+    {
+        $options = [];
+
+        if ($request->has('choice_no')) {
+            foreach ((array) $request->choice_no as $no) {
+                $name = 'choice_options_' . $no;
+
+                if (! $request->has($name)) {
+                    continue;
+                }
+
+                $options[] = explode(',', implode('|', (array) $request[$name]));
+            }
+        }
+
+        if ($options === []) {
+            return [];
+        }
+
+        $names = [];
+
+        foreach ($this->combinations($options) as $combination) {
+            $name = '';
+
+            foreach ((array) $combination as $index => $item) {
+                $name .= ($index > 0 ? '-' : '') . str_replace(' ', '', (string) $item);
+            }
+
+            /*
+             * F199 -- THE EMPTY NAME IS KEPT, AND THAT IS A SECURITY FIX RATHER THAN TIDYING.
+             *
+             * The code this was extracted from filtered it out (`if ($ssName !== '')`, and the same
+             * filter is in ba34fce8, so this defect PRE-DATES F196 rather than arriving with it).
+             * The filter made detection and deletion disagree about the same payload:
+             *
+             *   choice_options_1[] = ''   ->  implode('|', ['']) = ''  ->  explode(',', '') = ['']
+             *                             ->  $options = [['']]        ->  combinations = [[0 => '']]
+             *
+             *   the GUARD built the name '', dropped it, and saw an EMPTY covered set -- which means
+             *   "nothing was posted, nothing to check", because that is how the ordinary
+             *   no-`choice_no` save is skipped;
+             *
+             *   the DELETE, meanwhile, is gated on `count($combinations[0]) > 0` -- computed from the
+             *   UNFILTERED build, so 1 -- and ran `whereNotIn('variant', [''])`, which matches every
+             *   real row.
+             *
+             * THE MEASURED OUTCOME is HTTP 200 with `{"flag":"success","msg":"Product update
+             * successfully."}` and the product's four variants -- prices, SKUs and stock --
+             * replaced by one row named ''. On SQLite and on MariaDB 10.11 alike. D-20 condition 5
+             * is "no silent hard delete"; this was one.
+             *
+             * ONE HYPOTHESIS ABOUT THE MECHANISM WAS WRONG AND IS RECORDED SO IT IS NOT RE-RUN.
+             * The first reading of this was that it needed production's `'strict' => false`
+             * (`config/database.php:55`) to coerce a NULL `price` into the NOT NULL `double`.
+             * MEASURED ON MariaDB 10.11: an explicit NULL into a NOT NULL column is refused as
+             * error 1048 on BOTH settings -- non-strict mode coerces out-of-range values, not
+             * explicit NULLs -- so that route 500s and deletes nothing. The real mechanism needs no
+             * engine quirk: the payload simply also supplies the CHOICE path's own `sku_`, `price_`
+             * and `stock_` keys, whose suffix for an empty combination name is empty. The insert
+             * then succeeds normally and the delete follows.
+             *
+             * Keeping the name makes the covered set mirror `$sku_array` EXACTLY, so the guard and
+             * the delete answer the same question: a payload posting one blank combination is read
+             * as posting one blank combination, every other row is in the removal set, and the
+             * merchant gets the refusal naming them. The ordinary "no `choice_no` posted" case is
+             * still skipped, because it is distinguished by `$options === []` above -- by nothing
+             * having been posted, not by what was posted being blank.
+             *
+             * Found by the mandated independent review of the F196 reordering.
+             */
+            $names[] = $name;
+        }
+
+        return $names;
+    }
+
+    /**
+     * THE COMBINATION NAMES A POSTED ATTRIBUTE / `options_datas` PAYLOAD COVERS. (F196)
+     *
+     * The same extraction, for the other rebuild. `options_datas` is a flat list of combination names
+     * and the loop over `attribute_no` only decides WHETHER it counts -- a term is included when its
+     * `for_variation_<no>` is 1 -- so the result is the unique set of posted names.
+     *
+     * @return list<string>
+     */
+    private function ssAttributeCombinationNames(Request $request): array
+    {
+        $posted = [];
+
+        if ($request->attribute_no) {
+            foreach ((array) $request->attribute_no as $no) {
+                if ($request->input('for_variation_' . $no) != 1) {
+                    continue;
+                }
+
+                if (! $request->has('options_datas') || ! is_array($request['options_datas'])) {
+                    continue;
+                }
+
+                foreach ($request['options_datas'] as $item) {
+                    $posted[] = (string) $item;
+                }
+            }
+        }
+
+        return array_values(array_unique($posted));
+    }
+
+    /**
+     * THE EXISTING ROWS A POSTED COMBINATION SET WOULD DELETE. (F196)
+     *
+     * `$product->store_id` AND NOT `getCurrentStore()`, and that distinction is load-bearing rather
+     * than tidy: `getCurrentStore()` returns the hardcoded literal 1 for a `super admin` whose
+     * `current_store` is empty (`helper.php:636`), so for an operator editing a store-7 product it
+     * found no variants, the removal set came back empty, the refusal returned null -- and the delete,
+     * which carries no store predicate of its own, removed the real rows anyway. Detection and deletion
+     * were asking different questions. They ask the same one here.
+     *
+     * @param  list<string>  $coveredNames
+     */
+    private function ssVariantsBeingRemoved($product, array $coveredNames)
+    {
+        return ProductVariant::where('product_id', $product->id)
+            ->where('store_id', $product->store_id)
+            ->get(['id', 'variant', 'sku', 'variation_price', 'price', 'stock'])
+            ->reject(function ($row) use ($coveredNames) {
+                return in_array((string) $row->variant, $coveredNames, true);
+            })
+            ->values();
+    }
+
+    /**
+     * F196 / D-28b -- THE REFUSAL NOW HAPPENS BEFORE ANYTHING IS PERSISTED OR UPLOADED.
+     *
+     * WHAT WAS WRONG, measured in `update()`'s attribute path:
+     *
+     *   1. the merchant posts a narrower term set;
+     *   2. the attribute branch assigns the rebuilt json to `$product->product_attribute` and,
+     *      unconditionally, `$product->price = 0` and `$product->product_stock = 0`;
+     *   3. `$product->save()` persists all of it;
+     *   4. only then does the removal guard refuse -- saying *"Nothing has been changed."*, which
+     *      was FALSE about seven measured columns: `price` 10 -> 0, `product_stock` 7 -> 0,
+     *      `description` 'x' -> NULL, plus the slug, the category, a re-encoded
+     *      `product_attribute`, and `updated_at`;
+     *   5. the merchant confirms, and the form still carries the `ss_last_seen_at` it was rendered
+     *      with;
+     *   6. the optimistic-lock guard compares `$product->updated_at` to that token, finds they differ
+     *      BECAUSE OF THE MERCHANT'S OWN REFUSED SAVE, and answers *"Someone else saved this product
+     *      while you were editing it"* -- blaming a person who does not exist.
+     *
+     * So F184's confirm-and-retry was not merely unbuilt, it was impossible, and the merchant was told
+     * two false things on the way. The owner's D-28b approves moving the check ahead of persistence and
+     * REJECTS the alternative of leaving the ordering and issuing a fresh token.
+     *
+     * WHY A SEPARATE PREFLIGHT AND NOT A MOVED LINE, which the owner's §3.2 asks about directly: the
+     * uploads come FIRST. `update()` replaces `cover_image_path` -- and the same branch calls
+     * `StoredUpload::delete()` on the OLD path, so it destroys a file -- then `preview_video`, then
+     * `downloadable_product`, then creates a `ProductImage` row, and only then reaches either
+     * variant branch; `$product->save()` runs inside each branch. Moving one guard up a few lines
+     * would still leave a refusal standing behind four uploads and a file deletion. This runs
+     * before all of them.
+     *
+     * NO LINE NUMBERS IN THIS BLOCK ON PURPOSE: adding these helpers moved every line in `update()`
+     * by about 190, and a comment citing a line is wrong the moment anyone edits above it. The
+     * ordering is asserted against comment-stripped source instead, by
+     * ProductUpdateRefusalPersistsNothingTest::test_the_removal_preflight_runs_before_every_upload_and_save_in_update().
+     *
+     * BOTH REBUILDS ARE COVERED, not just the one D-20 named. Each posted set is checked independently
+     * against the rows it would remove, which is exactly what the two in-place guards do -- and those
+     * guards STAY, as defence in depth and because the sixteen tests that drive them through `update()`
+     * keep passing unchanged. A preflight that silently replaced them would be a bigger change with no
+     * extra safety.
+     *
+     * THE OPTIMISTIC LOCK IS UNTOUCHED AND IS CHECKED FIRST. This runs after it, so another person's
+     * edit is still refused as another person's edit; the owner's condition that `ss_last_seen_at` must
+     * not be bypassed to make a confirmation succeed is met by not touching it at all. With the
+     * preflight in place `updated_at` no longer moves on a refused save, so the retry meets the lock
+     * only when somebody really did save.
+     */
+    private function ssVariantRemovalPreflight(Request $request, $product): ?array
+    {
+        if ($request->variant_product == 0) {
+            return null;
+        }
+
+        $confirmed = $request->boolean('ss_confirm_variant_removal');
+
+        foreach ([
+            $this->ssChoiceCombinationNames($request),
+            $this->ssAttributeCombinationNames($request),
+        ] as $covered) {
+            if ($covered === []) {
+                continue;
+            }
+
+            $refusal = $this->ssRefuseVariantRemoval(
+                $product,
+                $this->ssVariantsBeingRemoved($product, $covered),
+                $confirmed
+            );
+
+            if ($refusal !== null) {
+                return $refusal;
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * What a per-variant value column should become on a save -- owner decision D-09 (A1).
      *
      * The product edit page renders the variant values panel on load, with no interaction, and
@@ -1813,6 +2033,41 @@ $Product->cost_price = $request->cost_price;
                 $msg['errors'] = $messages->toArray();   // F70, see store() for the reasoning
                 return $msg;
             }
+
+            /*
+             * F196 / D-28b. THE VARIANT-REMOVAL REFUSAL, BEFORE ANY UPLOAD AND BEFORE ANY SAVE.
+             *
+             * THE ORDER HERE IS THE WHOLE FIX, and each neighbour is deliberate:
+             *
+             *   - AFTER the ownership and permission checks, so a caller who may not edit this
+             *     product is still refused as unauthorised and learns nothing about its variants;
+             *   - AFTER the `ss_last_seen_at` conflict guard, so another person's edit is still
+             *     refused as another person's edit. The owner's condition is that the token must
+             *     not be bypassed to make a confirmation succeed, and it is not touched at all --
+             *     what changes is that the merchant's own REFUSED save no longer moves
+             *     `updated_at` and so no longer manufactures the conflict;
+             *   - AFTER validation, so a malformed payload is answered with its validation error
+             *     rather than with a removal refusal;
+             *   - and BEFORE everything that writes: the storage-limit reservation, the four
+             *     uploads, the old cover image's deletion from storage, the `ProductImage` row,
+             *     and both `$product->save()` calls.
+             *
+             * MEASURED, not assumed. Before this, a refused narrowing persisted seven columns of
+             * `products` -- `price` 10 -> 0, `product_stock` 7 -> 0, `description` 'x' -> NULL,
+             * the slug, the category, a re-encoded `product_attribute` and `updated_at` -- and
+             * then returned a message saying *"Nothing has been changed."* Two more side effects
+             * are outside that row and so outside what a row comparison can see:
+             * `Utility::updateStorageLimit()` does `$user->storage_limit += $size; $user->save()`,
+             * charging the merchant's quota for a file they never got to keep, and the cover-image
+             * branch calls `StoredUpload::delete()` on the OLD path -- a file no rollback
+             * recovers. Both were found by the mandated review rather than by the comparison.
+             */
+            $ssPreflightRefusal = $this->ssVariantRemovalPreflight($request, $product);
+
+            if ($ssPreflightRefusal !== null) {
+                return $ssPreflightRefusal;
+            }
+
             $request->sale_price = $request->sale_price ? $request->sale_price : 0;
             $totalImageSize = 0;
             if ($request->hasFile('cover_image')) {
@@ -2418,28 +2673,11 @@ $Product->cost_price = $request->cost_price;
                  *
                  * Found by the mandated review of the attribute path's store-predicate fix.
                  */
-                $ssChoiceCovered = [];
-
-                foreach ($combinations as $ssCombination) {
-                    $ssName = '';
-
-                    foreach ((array) $ssCombination as $ssIndex => $ssItem) {
-                        $ssName .= ($ssIndex > 0 ? '-' : '') . str_replace(' ', '', (string) $ssItem);
-                    }
-
-                    if ($ssName !== '') {
-                        $ssChoiceCovered[] = $ssName;
-                    }
-                }
+                /* F196: one copy of the arithmetic, shared with the preflight above. */
+                $ssChoiceCovered = $this->ssChoiceCombinationNames($request);
 
                 if ($ssChoiceCovered !== []) {
-                    $ssChoiceRemoved = ProductVariant::where('product_id', $product->id)
-                        ->where('store_id', $product->store_id)
-                        ->get(['id', 'variant', 'sku', 'variation_price', 'price', 'stock'])
-                        ->reject(function ($ssRow) use ($ssChoiceCovered) {
-                            return in_array((string) $ssRow->variant, $ssChoiceCovered, true);
-                        })
-                        ->values();
+                    $ssChoiceRemoved = $this->ssVariantsBeingRemoved($product, $ssChoiceCovered);
 
                     $ssChoiceRefusal = $this->ssRefuseVariantRemoval($product, $ssChoiceRemoved, $request->boolean('ss_confirm_variant_removal'));
 
@@ -2560,15 +2798,8 @@ $Product->cost_price = $request->cost_price;
                          * row — so the posted set was always a subset of the existing one and half
                          * the comparison was dead code.
                          */
-                        $ssPostedCombinations = [];
-
-                        foreach ($attribute_option as $ssCom) {
-                            foreach ((array) $ssCom as $ssItem) {
-                                $ssPostedCombinations[] = (string) $ssItem;
-                            }
-                        }
-
-                        $ssPostedCombinations = array_values(array_unique($ssPostedCombinations));
+                        /* F196: one copy of the arithmetic, shared with the preflight above. */
+                        $ssPostedCombinations = $this->ssAttributeCombinationNames($request);
 
                         /*
                          * THE PRODUCT'S STORE, NOT THE CALLER'S — and this one decided whether
@@ -2583,13 +2814,7 @@ $Product->cost_price = $request->cost_price;
                          * same one. Measured by driving an operator with an emptied current_store
                          * against a product in a second tenant.
                          */
-                        $ssRemovedVariants = ProductVariant::where('product_id', $product->id)
-                            ->where('store_id', $product->store_id)
-                            ->get(['id', 'variant', 'sku', 'variation_price', 'price', 'stock'])
-                            ->reject(function ($ssRow) use ($ssPostedCombinations) {
-                                return in_array((string) $ssRow->variant, $ssPostedCombinations, true);
-                            })
-                            ->values();
+                        $ssRemovedVariants = $this->ssVariantsBeingRemoved($product, $ssPostedCombinations);
 
                         $ssRemovalRefusal = $this->ssRefuseVariantRemoval($product, $ssRemovedVariants, $request->boolean('ss_confirm_variant_removal'));
 

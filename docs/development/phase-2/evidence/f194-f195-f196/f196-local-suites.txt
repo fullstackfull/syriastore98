@@ -1,0 +1,132 @@
+F196 — LOCAL SUITE EVIDENCE
+======================================================================
+tree            : ba34fce8 + the F196 working-tree change
+                  (app/Http/Controllers/ProductController.php,
+                   tests/Feature/Merchant/ProductUpdateRefusalPersistsNothingTest.php,
+                   CLAUDE.md and three phase-2 docs)
+php             : 8.3.6
+database        : sqlite :memory: (phpunit.xml), CACHE_STORE=array
+date            : 2026-10-29/30
+
+These are the per-slice runs. The authoritative whole-suite statement is the Known-Outcome Gate
+run recorded separately on the final HEAD; this file records what was executed for THIS slice and
+nothing more.
+
+### the FINAL test file against the UNFIXED controller (test-first, re-run deliberately)
+The controller was restored to `git show ba34fce8:app/Http/Controllers/ProductController.php` and
+the finished test file run against it, so this reading is of the committed pre-fix code and not of
+an intermediate state:
+
+php artisan test tests/Feature/Merchant/ProductUpdateRefusalPersistsNothingTest.php
+  Tests:    11 failed, 3 passed (59 assertions)
+
+  the eleven that fail on the unfixed controller:
+    a refused attribute narrowing persists no column of the product row
+    a refused attribute narrowing does not zero the products price or stock
+    a refusal does not invalidate the form token the retry carries
+    a refused choice narrowing persists no column of the product row
+    a choice payload of empty names cannot wipe every variant  (the empty string)      [F199]
+    a choice payload of empty names cannot wipe every variant  (a single space)        [F199]
+    a refused narrowing does not delete or replace the existing cover image
+    a refused narrowing adds no product image row
+    the unverifiable order history block changes nothing even when confirmed
+    the removal preflight runs before every upload and save in update
+    the removal set is computed in exactly one place
+
+  the three that pass on the unfixed controller, and are guard-rails rather than the finding:
+    a genuine concurrent edit is still refused as a conflict
+    a refused narrowing leaves every variant row byte identical
+      (D-20 already placed the in-place guard before the upsert loop, so variant ROWS were never
+       what F196 moved. Documented as a property D-20 already had, not claimed as F196 evidence.)
+    both posted sets with a confirmation are still allowed through
+      (it exists to prove the fix does NOT refuse what the old code allowed, so passing on BOTH
+       sides is the point -- the review had marked its own answer to this `probable`.)
+
+  TWO EARLIER, WEAKER READINGS OF THIS FILE, superseded and recorded because each was a trap:
+    `9 failed, 2 passed`  -- the comparator used `??`, which treats a NULL VALUE as a missing key,
+                             so it reported thirteen phantom changes and buried two real ones;
+    `8 failed, 3 passed`  -- before the mandated review, when the gallery case could not fail (no
+                             `product_image` was posted, so the write it guards never ran) and the
+                             two F199 cases did not exist.
+
+### the measured delta on a refusal, before the fix
+products row — seven columns persisted while the response said "Nothing has been changed.":
+  slug             'f196-scarf-6ae3d5c597b4e' -> 'f196-scarf'
+  category_id      NULL -> 1
+  price            10.0 -> 0.0
+  product_stock    7 -> 0
+  product_attribute  <stored json> -> re-encoded and key-contaminated (F198)
+  description      'x' -> NULL
+  updated_at       '2026-10-28 23:24:53' -> '2026-10-29 23:24:53'
+
+### the new file, against the fix
+php artisan test tests/Feature/Merchant/ProductUpdateRefusalPersistsNothingTest.php
+  Tests:    14 passed (83 assertions)
+
+### bite A — the preflight CALL removed, helpers left in place
+  Tests:    7 failed, 4 passed (48 assertions)
+  (`the removal set is computed in exactly one place` passes here, because the helpers still exist
+   and only the call site is gone — that case pins the single definition, not the ordering. The
+   ordering case is what fails in both bites.)
+
+### bite B — the preflight moved ONE UPLOAD too late
+  (inside `if ($request->cover_image)`, just after `$product->cover_image_url` is assigned)
+  Tests:    7 failed, 4 passed (50 assertions)
+
+  Bite B is the one that matters: it is the smallest wrong ordering, and it is what proved that a
+  column-only cover-image assertion was not a witness. The case was rewritten around the FILE
+  (`StoredUpload::delete()` on the old path) before bite B could fail it.
+
+### bite C — the F199 empty-name filter restored (the pre-fix arithmetic)
+  Tests:    2 failed, 11 passed (76 assertions)
+  Exactly the two F199 cases, and nothing else. The narrowest bite in the slice.
+
+### restored
+  Tests:    14 passed (83 assertions)
+
+### regression, same tree
+php artisan test --testsuite=Unit
+  Tests:    650 passed (4071 assertions)              Duration: 25.91s
+php artisan test --testsuite=Contract
+  Tests:    26 passed (83 assertions)                 Duration: 3.17s
+php artisan test tests/Feature/Merchant tests/Unit/Merchant
+  Tests:    427 passed (2621 assertions)              Duration: 68.53s
+php artisan test tests/Feature/Security
+  Tests:    4 skipped, 4319 passed (18172 assertions) Duration: 660.93s
+  (re-run on the final F196 + F199 tree, after the review's fixes)
+php artisan test tests/Feature/Tenancy tests/Unit/Schema/ProductNotNullWriteRatchetTest.php \
+                 tests/Unit/Merchant tests/Feature/Commerce
+  Tests:    13 skipped, 1189 passed (4377 assertions) Duration: 165.83s
+
+### one ratchet this slice tripped and had to satisfy
+tests/Unit/Ci/ClaudeConfigurationTest::test_claude_md_does_not_restate_the_large_documents
+asserts CLAUDE.md stays under 300 lines. The first version of the model-caching correction took it
+to 314. It was compressed to 298 — the narrative moved to PHASE-02-TEST-EVIDENCE.md, where it
+belongs — and the Unit suite went back to 650 passed.
+
+### MySQL / MariaDB
+
+tests/Support/Security/bin/verify-empty-variant-name-wipe-on-mysql.php   (new, F199)
+  server  : 10.11.14-MariaDB-0ubuntu0.24.04.1
+  checks  : 13      failures: 0
+
+MYSQL_SOCK=/var/run/mysqld/mysqld.sock tests/Support/Security/bin/run-mysql-verifications.sh
+  passed: 27   failed: 0
+  every MySQL verification script reported all assertions held.
+
+  FOUR SCRIPTS WERE ADDED TO THAT ROSTER IN THIS SLICE, and that is a finding of its own: the F194
+  and F197 scripts, and the F194 flush-scope one, were never in it — they had been run by hand and
+  a script nobody runs is documentation, not evidence. They use the FRESH_MYSQL_* prefix rather
+  than MYSQL_*, which is also why a reader scanning the runner for them found nothing. Only
+  verify-gate-f-schema-on-mysql is still deliberately off it (it reads a production dump that is
+  not in the repository), now stated in the runner itself.
+
+### what is NOT evidenced here
+- The F196 ORDERING itself has no MariaDB script, and does not need one: it is a reordering in PHP
+  control flow with no raw SQL and nothing schema-sensitive. F199, which the review found inside
+  the same code, DID need one — and the script's main job turned out to be refuting the first
+  explanation of it.
+- The check-then-delete race the owner's D-28b names is NOT closed and is NOT claimed. It is
+  schema-sensitive and needs the MariaDB lock proof the condition asks for.
+- No browser AR/EN pass. F196 and F199 add no UI. F184's confirmation dialog is the slice that
+  needs one.

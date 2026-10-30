@@ -2202,7 +2202,46 @@ data in an inconsistent state and then paper over it with a new token.
 - Both variant-update paths must be tested, with database state compared before and after rather
   than an HTTP status alone.
 
-**Implementation status: NOT STARTED at the time this decision was recorded.**
+**Implementation status (separate from approval, which was recorded above on 2026-10-29).**
+
+**IMPLEMENTED 2026-10-29.** `ProductController::update()` calls `ssVariantRemovalPreflight()`
+immediately after the validator and before every side effect, and returns its refusal array
+unchanged. Condition by condition:
+
+| Owner condition | Status | Evidence |
+|---|---|---|
+| Precedes the product save, variant writes, `product_attribute` mutation, uploads and removals | **MET** | the preflight sits after validation and before the storage-limit reservation, the four `Utility::upload_file()` calls, the `ProductImage::create()` and both `$product->save()` calls; asserted against comment-stripped source by `test_the_removal_preflight_runs_before_every_upload_and_save_in_update()` |
+| A single moved line is not sufficient | **MET** | a separate preflight, not a moved guard. Both in-place guards are KEPT as defence in depth and now share one removal-set definition (`ssVariantsBeingRemoved()`) with the preflight, so detection and deletion cannot drift apart |
+| BEFORE == AFTER on refusal | **MET, and the defect was larger than F196's row claimed** | a whole-`products`-row comparison found **seven** persisted columns before the fix: `price` 10 → 0, `product_stock` 7 → 0, `description` `'x'` → NULL, slug, category, re-encoded `product_attribute`, `updated_at`. Beyond the database the cover-image branch also called `StoredUpload::delete()` on the old path, destroying a file. All now unchanged; variant rows compared column by column |
+| *"Nothing has been changed"* only when true | **MET** | the message is unchanged and is now accurate; it is the same `ssRefuseVariantRemoval()` payload |
+| `ss_last_seen_at` preserved, never bypassed | **MET** | not touched. A genuinely stale token is still refused as a conflict (`test_a_genuine_concurrent_edit_is_still_refused_as_a_conflict`), and the merchant's own refused save no longer manufactures one (`test_a_refusal_does_not_invalidate_the_form_token_the_retry_carries`) |
+| Both variant-update paths tested with DB state, not status | **MET** | the `choice_no` rebuild and the attribute rebuild each have a whole-row case; every case reads the raw tables |
+| Check-then-delete race closed | **NOT ADDRESSED BY THIS CHANGE — SEPARATELY OPEN** | the preflight narrows the window (the refusal now precedes every write) but does not take a row lock. The existing `ss_last_seen_at` guard covers a concurrent *save*; it does not cover a concurrent *order* placed between the reference check and the delete. Recorded rather than claimed, and it needs the MariaDB lock proof the owner's condition names |
+
+**Evidence file:** `tests/Feature/Merchant/ProductUpdateRefusalPersistsNothingTest.php` — **14
+cases, 83 assertions**. Against the committed pre-fix controller the finished file reads **11
+failed, 3 passed**; bitten three times after the fix (preflight call removed → 7 fail; preflight
+moved one upload later → the same 7 fail; the F199 filter restored → exactly the 2 F199 cases). Regression: Unit 650, Contract 26, `tests/Feature/Merchant` 386,
+`tests/Feature/Security` 4,319 / 4 skipped / 0 failed, and Tenancy + Commerce + the schema ratchet
+1,189 / 13 skipped / 0 failed. Per-command record in
+`docs/development/phase-2/evidence/f194-f195-f196/f196-local-suites.txt`.
+
+**The mandated independent review (owner §6) found one real defect and three weak tests, and all
+four were fixed before the commit.** The defect — **F199** — is a pre-existing D-20 bypass this
+change inherited: a hand-posted choice payload whose combination names all reduce to the empty
+string deleted **every** variant and answered `flag => 'success'`. Fixed in the same change, with
+two Feature cases and a 13-check MariaDB script. The three weak tests were a vacuous gallery
+assertion, a duplicate-query ratchet pinned to indentation, and a choice payload that did not
+narrow what its comment claimed. The review also named an **eighth** persisted side effect the
+whole-row comparison could not see — `Utility::updateStorageLimit()` writes `users.storage_limit`,
+so a refused narrowing with a file attached charged the merchant's quota permanently — now asserted.
+
+**Two findings opened by this work and NOT fixed in it:** **F198**, the reused `$item` array that
+makes each stored `product_attribute` element inherit the previous element's keys (no reader
+misreads it today; it changes stored data shape, so it is a separate decision); and the
+**double order-history scan** — on an *allowed* confirmed removal the reference checks now run
+twice, once in the preflight and once in the in-place guard, which is the cost of keeping both. A
+refusal still returns early. Recorded as a known trade rather than discovered later.
 
 ### D-28c — F195: **KEEP THE FIX. DO NOT REVERT.** And complete every deletion door
 

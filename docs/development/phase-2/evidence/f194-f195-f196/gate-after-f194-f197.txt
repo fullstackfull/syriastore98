@@ -1,0 +1,53 @@
+KNOWN-OUTCOME GATE RUN
+======================================================================
+HEAD            : de31ce35e2af896110b3f8b70370b80f87919c77
+HEAD subject    : D-28 recorded, and F197: every login runs cache:clear
+tree            : 14 modified file(s)
+
+WHICH COMMIT THIS RESULT BELONGS TO
+-----------------------------------
+The run started before the commit was made, so the header records the parent. The 14 modified
+files in the tree are exactly the 14 files committed as **ba34fce8** ("F197 fixed and F194
+implemented under D-28a, both proven on real MariaDB") -- `git show --stat ba34fce8` lists 14
+files, 1268 insertions, 15 deletions, and no further edit touched them between the run starting
+and the commit. **So this is the gate result for ba34fce8.**
+started         : 2026-10-29T23:13:51Z
+php             : 8.3.6
+
+### php artisan test --testsuite=Unit
+  Tests:    650 passed (4071 assertions)
+  Duration: 26.16s
+    wall: 27s
+
+### php artisan test --testsuite=Contract
+  Tests:    26 passed (83 assertions)
+  Duration: 3.10s
+    wall: 3s
+
+### php artisan test --testsuite=Feature --log-junit storage/logs/feature-junit.xml --log-teamcity storage/logs/feature-teamcity.txt
+  ⨯ new users can register                                               0.13s  
+  ⨯ profile page is displayed                                            0.62s  
+  Tests:    2 failed, 17 skipped, 6733 passed (33799 assertions)
+  Duration: 1084.16s
+    wall: 1085s
+
+### php .github/scripts/assert-known-test-outcomes.php storage/logs/feature-junit.xml .github/known-test-outcomes.json storage/logs/feature-teamcity.txt
+KNOWN-OUTCOME GATE
+------------------------------------------------------------------------------
+junit log            : storage/logs/feature-junit.xml
+manifest             : .github/known-test-outcomes.json
+testcases observed   : 6752  (manifest floor 1000)
+failures observed    : 2  (manifest declares 2)
+errors observed      : 0  (always expected: 0)
+skips observed       : 17  (manifest declares 17)
+
+skip reasons parsed  : 17 from feature-teamcity.txt
+
+
+OK: the observed outcome set matches the manifest exactly -- 2 declared failures, 17 declared skips, 0 errors, and nothing undeclared.
+
+This is NOT a statement that the suite is green. It is a statement that the suite is
+failing and skipping exactly the tests the project has recorded, for the reasons it has
+recorded. Read .github/known-test-outcomes.json for what is still owed and to whom.
+    gate exit: 0
+finished        : 2026-10-29T23:32:26Z

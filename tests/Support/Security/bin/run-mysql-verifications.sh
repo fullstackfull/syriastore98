@@ -286,6 +286,37 @@ run_one verify-product-review-category-set-null-on-mysql \
   "MYSQL_SOCK=${SOCK}" "MYSQL_HOST=${HOST}" "MYSQL_PORT_NUM=${PORT}" \
   "MYSQL_DATABASE=p1inv24_verify" "MYSQL_USER_NAME=${USER_NAME}" "MYSQL_PASS=${PASS}"
 
+# ---------------------------------------------------------------------------------------------
+# THE FOUR SCRIPTS THAT WERE OFF THIS ROSTER, and why that mattered.
+#
+# A script nobody runs is documentation, not evidence. The F194 and F197 slices each wrote one and
+# ran it by hand; the ledger audit of 2026-10-29 counted one as "off-roster" without naming the
+# rest. These use the FRESH_MYSQL_* prefix rather than MYSQL_*, which is also why a reader
+# scanning this file for them found nothing.
+#
+# Still deliberately absent: verify-gate-f-schema-on-mysql (it reads a production dump that is not
+# in the repository), and the scripts that need no server at all --
+# verify-menu-render-parity, verify-remote-fetch-pin-with-curl, verify-sec06-shopify-redirect,
+# verify-backuprestore-module-gating, verify-module-order-mutation-route-cache,
+# verify-order-document-route-cache, verify-order-chart-operator-branch.
+# ---------------------------------------------------------------------------------------------
+
+run_one verify-model-cache-isolation-on-mysql \
+  "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
+  "FRESH_MYSQL_DATABASE=modelcache_verify" "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
+
+run_one verify-model-cache-flush-scope-on-mysql \
+  "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
+  "FRESH_MYSQL_DATABASE=flushscope_verify" "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
+
+run_one verify-login-and-settings-cache-paths-on-mysql \
+  "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
+  "FRESH_MYSQL_DATABASE=logincache_verify" "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
+
+run_one verify-empty-variant-name-wipe-on-mysql \
+  "F199_MYSQL_SOCKET=${SOCK}" "F199_MYSQL_HOST=${HOST}" "F199_MYSQL_PORT=${PORT}" \
+  "F199_MYSQL_DATABASE=f199_verify" "F199_MYSQL_USERNAME=${USER_NAME}" "F199_MYSQL_PASSWORD=${PASS}"
+
 echo "==========================================================================="
 echo "passed: ${#PASSED[@]}   failed: ${#FAILED[@]}"
 if [ "${#FAILED[@]}" -gt 0 ]; then

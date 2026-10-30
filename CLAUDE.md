@@ -86,15 +86,15 @@ Each of these has produced a real defect. Do not assume the framework default.
 
 **Model caching**
 
-- **`User` is `Cachable`** (`GeneaLabs\LaravelModelCaching\Traits\Cachable`, `app/Models/User.php:16`).
-  A raw-query write — `DB::table('users')->update(...)` — leaves Eloquent reads serving the
-  **pre-write** row, and with `CACHE_STORE=array` that stale entry lives for the rest of the test.
-  This has produced two measured false readings: a fixture that looked like it had not applied, and
-  a security test that passed against unfixed code because the handler's own `User::find()` also
-  read stale. Write through Eloquent (which flushes), or call `(new User)->flushCache()`.
-- Several handlers read the platform admin via `Cache::remember('admin_details', 3600, ...)`.
-  `Cache::forget('admin_details')` between a fixture and a request, or the request sees a `User`
-  captured before the fixture existed.
+- **79 of the 95 models in `app/Models/` are `Cachable`** — assume cached; the 16 exceptions are
+  `AuditLog`, `CurrencyRate`, `DeliveryBoy{Device,Notification}`, `DeliveryEarning`,
+  `OtpIntegration`, `Permission`, `Role`, `SavedView`, `Store{Device,Notification,Wallet,
+  WalletTransaction,Withdrawal}`, `Zid{Event,Store}`. A raw write (`DB::table('products')->update()`)
+  leaves Eloquent reads, **route-model binding included**, serving the pre-write row, and under
+  `CACHE_STORE=array` it lives for the rest of the test: **three measured false readings**, the last
+  a test that passed against a live bite. Write through Eloquent (it flushes) or
+  `(new User)->flushCache()`; `$model->timestamps = false` keeps an explicit past `updated_at`.- Several handlers read the platform admin via `Cache::remember('admin_details', 3600, ...)`, so
+  `Cache::forget('admin_details')` between a fixture and a request or it sees the pre-fixture `User`.
 
 **Scoped models — check before asserting absence**
 
