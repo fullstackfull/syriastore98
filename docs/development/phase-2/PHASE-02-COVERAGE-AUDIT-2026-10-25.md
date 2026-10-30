@@ -50,8 +50,12 @@ ledger itself records (`PaymentGatewayValidationIsDeadTest` → `PaymentGatewayR
 2. **E13's second clause** — see the ledger row; it is blocked on an owner decision and on three
    measured prerequisites.
 
-**And two smaller gaps nobody had claimed:** `resources/views/partision/sidebar.blade.php:38` gives
-`#sideBarsearch` a placeholder and no accessible name (a placeholder is not an accessible name), and
+**And two smaller gaps nobody had claimed:** `resources/views/partision/sidebar.blade.php:38` gave
+`#sideBarsearch` a placeholder and no explicit label — **though the audit's wording, "no accessible
+name", is too strong and a browser measurement refuted it.** Chromium computes a name from
+`placeholder` for a text input (accname step 2(f)), so the field was named; what it lacked was an
+EXPLICIT name that wins the precedence order and that survives the user typing. Fixed as a
+robustness improvement on that narrower basis, with 15 live checks in AR/RTL and EN/LTR. And
 seven slices with significant UI changes (P2-01-14/-15/-18/-20, P2-05-2, P2-05-8, P2-05-9) carry
 browser measurement logs but **no before/after screenshots**, which the Mandatory Visual Evidence
 rule asks for by name.

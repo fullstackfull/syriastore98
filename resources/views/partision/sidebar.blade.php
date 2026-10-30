@@ -35,13 +35,28 @@ $company_logo = get_file($company_logo);
 
                 <div class="d-flex align-items-center sidebar-input position-relative">
                     <i class="ti ti-search"></i>
-                    {{-- `aria-label` AND NOT A PLACEHOLDER. A placeholder is not an accessible name: it is
-                         announced inconsistently across screen readers, and it DISAPPEARS the moment the
-                         user types, so the field loses its name exactly when they need to confirm what
-                         they are typing into. Found by an independent audit of this phase; it is the same
-                         defect, and the same fix, as the mobile sidebar toggle under P2-01-17 -- a control
-                         that a screen reader announced only as "search" with no indication of what it
-                         searches. The visible placeholder stays, because it is useful to sighted users. --}}
+                    {{-- AN EXPLICIT `aria-label` ALONGSIDE THE PLACEHOLDER, and the reason is narrower than
+                         it first looked -- MEASURED IN A BROWSER, which refuted my first justification.
+
+                         An audit of this phase called this field nameless, and I repeated that. It was
+                         NOT. A live probe asserted that removing `aria-label` would stop the engine
+                         resolving a name, and that assertion FAILED in both Arabic and English: Chromium
+                         computes a name from `placeholder` for a text input, which is step 2(f) of the
+                         accname fallback and correct behaviour rather than a browser bug.
+
+                         SO THIS IS A ROBUSTNESS FIX, NOT THE REPAIR OF A NAMELESS CONTROL, and the two
+                         things it actually buys are both driven in
+                         `tools/check-sidebar-search-name-live.cjs` (15 checks, AR/RTL and EN/LTR):
+
+                           (1) the name is EXPLICIT and wins the precedence order, so it no longer
+                               depends on a fallback that older assistive technology implements
+                               inconsistently -- proven by setting the placeholder to a DIFFERENT string
+                               and watching the computed name still follow the label;
+                           (2) the name PERSISTS WHILE THE USER TYPES, where a placeholder is visually
+                               replaced by the user's own text -- the moment they most need to confirm
+                               what they are typing into.
+
+                         The visible placeholder stays, because it still helps sighted users. --}}
                     <input type="text" class="form-control" id="sideBarsearch"
                         aria-label="{{ __('Search here...') }}" placeholder="{{ __('Search here...') }}">
                     {{-- The collapsed rail is NOT new code. public/assets/js/dash.js:71
