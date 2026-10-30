@@ -219,7 +219,12 @@ class OrderAttentionCentreTest extends SecurityTestCase
         // `$ssNeedsAttention` expression near the top of the file, 170 lines above the item, so
         // the window never reached the href and the bite test passed against an injected
         // `ss_stock=out`. Found by reverting the fix and watching the test stay green.
-        $anchor = strpos($overview, "trans_choice('product is at or below the stock threshold");
+        /* The anchor text CHANGED with F222's follow-up: the item used to read "at or below the
+           stock threshold", which became false when F222 moved the count to the zero boundary --
+           the number was right and the sentence was wrong. The premise assertion below is what
+           turned that rename into a loud failure instead of a window that silently matched
+           nothing, which is the whole reason it is there. */
+        $anchor = strpos($overview, "trans_choice('product is out of stock");
 
         $this->assertNotFalse($anchor,
             'premise: the stock attention item was not found, so this test measures nothing');

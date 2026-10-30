@@ -223,7 +223,16 @@
             @if ($ssOutOfStock > 0)
                 <x-ss.attention-item
                     :count="$ssOutOfStock"
-                    :text="trans_choice('product is at or below the stock threshold|products are at or below the stock threshold', $ssOutOfStock)"
+                    {{-- F222 FOLLOW-UP: THE LABEL HAD TO MOVE WITH THE PREDICATE.
+                         F222 corrected the count from `stock <= out_of_stock_threshold` to
+                         `stock <= 0`, matching the product list -- and left this wording, which
+                         still says "at or below the stock threshold". So the number became right
+                         and the sentence became wrong: with the threshold at 5, a product at stock
+                         3 is "Low stock" on the list and correctly EXCLUDED from this count, while
+                         this sentence claimed to include it. In both languages. Found by an
+                         adversarial verification of F222 itself. "Out of stock" is what the
+                         predicate now means. --}}
+                    :text="trans_choice('product is out of stock|products are out of stock', $ssOutOfStock)"
                     :href="$ssMayProducts ? route('product.index') : null"
                     :action="$ssMayProducts ? __('Review stock') : null" />
             @endif
