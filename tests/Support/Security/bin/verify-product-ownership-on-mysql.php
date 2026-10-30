@@ -311,7 +311,7 @@ try {
     }
 
     // ----------------------------------------------------------------------------------
-    echo "\n[6] What the operator exemption actually does -- and where it is DEAD CODE\n";
+    echo "\n[6] What the operator exemption actually does -- and F195 MADE IT LIVE\n";
 
     $operator = User::forceCreate([
         'name' => 'operator', 'email' => 'op-' . uniqid() . '@example.test',
@@ -320,28 +320,49 @@ try {
     ]);
 
     /*
-     * MEASURED, AND IT CORRECTS WHAT THIS SCRIPT FIRST ASSERTED. CLAUDE.md records that there is
-     * no super-admin bypass in Laratrust: `isAbleTo()` alone REFUSES the platform operator. So in
-     * `update()` -- whose whole body is inside `if (isAbleTo('Edit Products'))` -- the operator
-     * never reaches the ownership guard at all, and the exemption there is DEFENCE IN DEPTH that
-     * cannot currently fire. The same is true of the pre-existing exemption in `destroy()`.
+     * [2026-10-30] THIS SECTION CHANGED ITS ANSWER, AND THE CHANGE IS THE POINT OF KEEPING IT.
      *
-     * In `show()` and `edit()` there is no `isAbleTo` wrapper, so the exemption IS live: without
-     * it the operator -- who has no `current_store` of their own in this fixture -- would be
-     * refused their own platform screens.
+     * What it used to measure: CLAUDE.md records that Laratrust has no super-admin bypass, so
+     * `isAbleTo()` alone REFUSES the platform operator. `update()`'s whole body sat inside
+     * `if (isAbleTo('Edit Products'))`, so the operator never reached the ownership guard and the
+     * operator exemption written into that guard was DEFENCE IN DEPTH THAT COULD NOT FIRE. This
+     * script asserted exactly that, and noted that making the operator able to edit any store's
+     * catalogue "would be a new capability, not a restoration, and it is not this task's to
+     * grant."
      *
-     * This is recorded rather than "fixed": making the operator able to edit any store's catalogue
-     * would be a new capability, not a restoration, and it is not this task's to grant.
+     * What changed: **F195 / D-28c replaced that gate** with
+     * `MerchantPermissions::allowsAny($actor, ['Edit Products'], $product->store_id)`, because
+     * `isAbleTo()` resolves through Laratrust's `allPermissions()` with **no store predicate** and
+     * is therefore a union across every store -- it answers the wrong question for a merchant AND
+     * refuses the operator outright. `MerchantPermissions` answers per-store, and gives the
+     * operator the `['*']` wildcard that CLAUDE.md's operator-first rule requires.
+     *
+     * So the exemption below is now REACHABLE, which is what the code was always written to do:
+     * `update()`'s own comment says the operator is "exempt via `UserPolicy::PLATFORM_ADMIN`
+     * (matching `OrderPolicy::allow`)". The pre-F195 refusal was the defect, not the feature.
+     *
+     * **This is a real capability change and it is recorded as one, not buried in a green run:**
+     * a platform operator can now edit any store's product through the merchant web `update()`
+     * door. It follows the project's own documented rule and matches the order policy, but an
+     * owner should see it stated rather than infer it from a passing script. Ledger + the Arabic
+     * acceptance report carry it.
+     *
+     * `show()` and `edit()` are unchanged: they never had an `isAbleTo` wrapper, so the exemption
+     * was always live there.
      */
     check(! $operator->isAbleTo('Edit Products'),
-        'the operator does NOT hold Edit Products -- Laratrust has no super-admin bypass'
-        . ' (CLAUDE.md), so update()\'s operator exemption is unreachable defence in depth');
+        'the operator STILL does not hold Edit Products -- Laratrust has no super-admin bypass'
+        . ' (CLAUDE.md), so the gate cannot be isAbleTo() if the operator is to pass it');
+
+    check(\App\Services\MerchantPermissions::allowsAny($operator, ['Edit Products'], $victim->store_id),
+        'but MerchantPermissions DOES admit the operator for the target store -- the per-store read'
+        . ' F195 put on this door');
 
     $call('update', $operator, $victim, $payload($catB, 'operator-edit', 9));
     $opAfter = Product::withoutGlobalScopes()->find($victim->id);
-    check($opAfter->name === 'victim-original',
-        'and so the operator writes nothing through update() -- refused by the permission check,'
-        . ' before ownership is considered',
+    check($opAfter->name === 'operator-edit',
+        'and so the operator NOW writes through update() -- F195 made the exemption reachable, which'
+        . ' is a capability change recorded in the ledger, not an accident',
         'name is ' . var_export($opAfter->name, true));
 
     $opShow = $call('show', $operator, $victim);
