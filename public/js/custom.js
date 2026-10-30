@@ -105,6 +105,26 @@ $(document).on('click', 'a[data-ajax-popup-over="true"], button[data-ajax-popup-
 });
 
 $(document).on('click', '.show_confirm', function (e) {
+    /*
+     * F204 -- CANCEL THE CLICK, BEFORE ANYTHING ELSE.
+     *
+     * SweetAlert is asynchronous: `fire()` returns a promise and the `.then()` below runs on a
+     * later tick. Without this line the click's OWN default action completes first, so a trigger
+     * that is a `type="submit"` inside the form submits it immediately -- and the row is deleted
+     * whether the merchant presses Yes or No. The dialog becomes a picture of a question that has
+     * already been answered, which is the defect F184 exists to prevent, reached through a
+     * different door.
+     *
+     * Measured blast radius rather than assumed: 65 `.show_confirm` triggers across 55 views. For
+     * a `type="button"` trigger (21 of the 30 single-line ones) there is no default action and
+     * this is a no-op -- which is why the defect survived. For the 7 anchors, every one is
+     * `href="#"` or `#!`, so it suppresses a jump to the top of the page, an improvement. The two
+     * that needed it are `setting/webhook_setting.blade.php` and
+     * `setting/pixel_field_setting.blade.php`, and the confirm branch below already calls
+     * `form.submit()` itself, so nothing is lost by stopping the native one.
+     */
+    e.preventDefault();
+
     var form = $(this).closest("form");
     var title = $(this).attr("data-confirm");
     var text = $(this).attr("data-text");

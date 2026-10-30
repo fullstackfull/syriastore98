@@ -136,4 +136,48 @@ class ConfirmationDialogContractTest extends TestCase
             'the confirmation component is no longer SweetAlert, which is what every '
             . '`.show_confirm` trigger in 80-odd views expects');
     }
+
+    /**
+     * F204 -- THE CONFIRMATION MUST CANCEL THE CLICK IT INTERCEPTS, OR IT IS DECORATION.
+     *
+     * The handler is delegated on `document` and opens a SweetAlert, then calls `form.submit()`
+     * from the `.then()`. SweetAlert is ASYNCHRONOUS, so the click's own default action runs to
+     * completion first. For a `type="button"` trigger there is no default action and nothing goes
+     * wrong, which is why this survived: 21 of the measured triggers are exactly that.
+     *
+     * But two triggers are `type="submit"` INSIDE the form -- `setting/webhook_setting.blade.php`
+     * and `setting/pixel_field_setting.blade.php` -- and there the browser submits the form on the
+     * same click. The row is deleted whether the merchant presses Yes or No; the dialog is a
+     * picture of a question that has already been answered. That is the same defect class F184
+     * exists to prevent ("do not treat the delete button itself as confirmation"), reached through
+     * a different door.
+     *
+     * The census was measured, not estimated: 65 occurrences across 55 views; of the 30 whose whole
+     * opening tag is on one line, 7 are anchors (every one `href="#"` or `#!`), 2 are
+     * `type="submit"`, 21 are other buttons. So `preventDefault()` is a no-op for the buttons, an
+     * improvement for the anchors (it suppresses the `#` jump), and the actual fix for the two
+     * submits -- whose confirm branch already calls `form.submit()` itself.
+     *
+     * This asserts the call is present AND that it precedes the dialog, because a `preventDefault`
+     * placed inside the `.then()` would run after the submit had already happened and would read
+     * as a fix without being one.
+     */
+    public function test_the_confirmation_handler_cancels_the_click_it_intercepts(): void
+    {
+        $js = (string) file_get_contents(dirname(__DIR__, 3) . '/public/js/custom.js');
+
+        $start = strpos($js, "$(document).on('click', '.show_confirm'");
+        $this->assertNotFalse($start, 'the delegated confirmation handler is no longer where this contract can read it');
+
+        $swal = strpos($js, 'swalWithBootstrapButtons.fire', $start);
+        $this->assertNotFalse($swal, 'the handler no longer opens the dialog');
+
+        $head = substr($js, $start, $swal - $start);
+
+        $this->assertMatchesRegularExpression('/\be\.preventDefault\(\)/', $head,
+            'the confirmation handler does not cancel the click it intercepts, so on a '
+            . '`type="submit"` trigger the browser submits the form on the same click and the '
+            . 'dialog is decorative -- the destructive action happens whether the merchant '
+            . 'confirms or cancels (F204)');
+    }
 }
