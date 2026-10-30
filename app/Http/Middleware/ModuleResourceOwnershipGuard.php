@@ -5,6 +5,7 @@ namespace App\Http\Middleware;
 use App\Http\Middleware\Concerns\ComparesRowOwnership;
 use Closure;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -116,6 +117,10 @@ class ModuleResourceOwnershipGuard
             'table' => 'products',
             'parameter' => 'auctionproduct',
             'permission' => 'Delete Auction Product',
+            // F207. The auction DELETE door resolves the HOST `products` table with no
+            // `product_type` predicate of its own, so an auction permission reached the whole
+            // catalogue. See the `product_type` note on this constant.
+            'product_type' => 'auction',
         ],
 
         // --- auctionsetting: the module's own table. The handlers check NO permission; the
@@ -236,6 +241,10 @@ class ModuleResourceOwnershipGuard
             'table' => 'products',
             'parameter' => 'digitalproduct',
             'permission' => 'Delete Digital Product',
+            // F207, the twin. `DigitalProductController::destroy():529` is the same shape and
+            // worse: it never deletes `ProductVariant` at all, so it orphans the variants as well
+            // as the carts. Zero `Cart` and zero `ProductVariant` references in the whole file.
+            'product_type' => 'digital',
         ],
         'DELETE digital-products/{id}/delete' => [
             'table' => 'digital_product_images',
@@ -354,6 +363,65 @@ class ModuleResourceOwnershipGuard
 
         if (! $this->storeMatches($user, $rowStore)) {
             return $this->deny($request, 'other store');
+        }
+
+        /*
+         * F207 — A MODULE'S DELETE DOOR MAY ONLY DELETE ITS OWN KIND OF PRODUCT.
+         * ==========================================================================================
+         *
+         * `AuctionProductController::destroy()` is `isAbleTo('Delete Auction Product')` followed by
+         * `Product::find($id)` — the HOST catalogue model — with **no `product_type` predicate**
+         * (zero occurrences between :1509 and :1561). So an auction permission reached every
+         * product in the caller's store. `DigitalProductController::destroy():529` is the identical
+         * shape and worse: it never deletes `ProductVariant` at all, and holds zero `Cart`
+         * references, so it orphans both.
+         *
+         * THE COST TO LEGITIMATE WORKFLOWS IS NIL, AND THAT IS MEASURED RATHER THAN HOPED. The
+         * predicate refuses every NULL, `''` and `'digital'` row at the auction door — which is
+         * almost the whole catalogue — and **not one of them can reach this door through any UI
+         * path**, because the auction screen filters on the same literal in both places that could
+         * produce a delete link:
+         *
+         *   - `AuctionProductController::index():47` — `where('product_type', 'auction')`
+         *   - `DataTables/AuctionProductData.php:68` — `where('product_type','auction')`
+         *
+         * and the destroy link has exactly ONE producer: `resources/views/action.blade.php:10`,
+         * rendered only from `AuctionProductData.php:29`, inside that filtered query. So every
+         * product whose delete button the auction screen renders already satisfies the predicate,
+         * and what this refuses is a hand-forged URL. The digital door narrows identically
+         * (`:35` and `DataTables/DigitalProductData.php:78`).
+         *
+         * `update()` NEVER WRITES `product_type`, so there is no "convert an old product into an
+         * auction product" workflow to protect: a NULL product edited through the auction screen
+         * stays NULL and is absent from the auction list on the next load.
+         *
+         * THE REAL POPULATION IS `NULL`, NOT `'simple_product'`. The F207 row's own measurement
+         * quoted a fixture value that **exists nowhere in this codebase** — the sole repo-wide
+         * occurrence of `simple_product` is an unrelated test method's name. The host's own product
+         * creator never writes the column; its migration is `->nullable()` with no default. The four
+         * values that occur in practice are `NULL` (ordinary), `'auction'`, `'digital'`, and `''`
+         * (ImportExport with no CSV column).
+         *
+         * STRICT COMPARISON, AND `NULL` MUST FAIL. `null !== 'auction'` and `'' !== 'auction'`. A
+         * loose compare would admit `''`. Fail closed.
+         *
+         * READ RAW, NOT THROUGH ELOQUENT, for the same reason `readRowStore()` does: `Product` is
+         * `Cachable`, so `Product::find()` can serve a pre-write row while a raw read sees the
+         * truth.
+         *
+         * WHAT THIS DOES NOT DO: it does not touch the carts of a genuine auction product deleted
+         * through this door. That orphan is unchanged — and it is a 500 rather than a mispriced
+         * line, because `Cart::cart_list_cookie()` dereferences the missing rows. Handling it means
+         * a guard performing a DELETE on the caller's behalf, which is an owner decision and is
+         * written up rather than taken. This limb strictly reduces the set of products that can
+         * reach the unguarded delete; it does not make the remaining case worse.
+         */
+        if (isset($target['product_type'])) {
+            $actualType = DB::table($target['table'])->where('id', $rowId)->value('product_type');
+
+            if ((string) $actualType !== (string) $target['product_type']) {
+                return $this->deny($request, 'wrong product type');
+            }
         }
 
         return $next($request);

@@ -150,6 +150,112 @@ class ModuleResourceOwnershipTest extends SecurityTestCase
     }
 
     /** A product owned by a store, inserted raw so no model hook or cache is involved. */
+    // =========================================================================================
+    // F207 — A MODULE'S DELETE DOOR MAY ONLY DELETE ITS OWN KIND OF PRODUCT
+    // =========================================================================================
+    //
+    // `AuctionProductController::destroy()` is `isAbleTo('Delete Auction Product')` then
+    // `Product::find($id)` — the HOST catalogue model — with no `product_type` predicate at all.
+    // `DigitalProductController::destroy():529` is the same shape and worse: zero `ProductVariant`
+    // references and zero `Cart` references in the whole file, so it orphans both.
+    //
+    // THE REAL POPULATION IS `NULL`. The F207 row's own measurement quoted `'simple_product'`,
+    // which exists NOWHERE in this codebase — the sole repo-wide occurrence is an unrelated test
+    // method's name. So these cases drive NULL, `''` and `'digital'`: the three values that
+    // actually occur and that a loose comparison would admit.
+
+    /** @return array<string, array{0: string|null}> */
+    public static function nonAuctionTypes(): array
+    {
+        return [
+            'NULL — an ordinary product, which is what the host creator produces' => [null],
+            'empty string — what ImportExport writes with no CSV column' => [''],
+            'digital — another module\'s product' => ['digital'],
+        ];
+    }
+
+    /**
+     * @dataProvider nonAuctionTypes
+     */
+    public function test_the_auction_delete_door_refuses_a_product_that_is_not_an_auction_product($type): void
+    {
+        $this->enableModules();
+
+        [$merchantA, $storeA] = $this->makeTenant();
+        $this->grantPermission($merchantA, 'Delete Auction Product');
+        $this->entitle($merchantA);
+
+        $id = $this->product($storeA, $type === null ? [] : ['product_type' => $type]);
+
+        $response = $this->actingAs($merchantA->fresh())->delete('/auctionproduct/' . $id);
+
+        $this->assertSame(403, $response->status(),
+            'An auction permission deleted a product of type ' . var_export($type, true)
+            . '. The auction door resolves the HOST `products` table with no type predicate of its '
+            . 'own, so without this guard an auction permission reaches the whole catalogue (F207).');
+
+        /* ASSERTED THROUGH `withoutGlobalScopes()`, and not as a formality: a plain `find()` here
+           answers against whichever tenant resolved, so an "it survived" assertion would pass
+           whether or not the guard works. CLAUDE.md records that costing a real false reading. */
+        $this->assertTrue(
+            \App\Models\Product::withoutGlobalScopes()->whereKey($id)->exists(),
+            'the product row was deleted despite the 403'
+        );
+    }
+
+    /**
+     * THE CONTROL, and without it the three cases above pass for a door that refuses everything.
+     */
+    public function test_the_auction_delete_door_still_deletes_a_real_auction_product(): void
+    {
+        $this->enableModules();
+
+        [$merchantA, $storeA] = $this->makeTenant();
+        $this->grantPermission($merchantA, 'Delete Auction Product');
+        $this->entitle($merchantA);
+
+        $id = $this->product($storeA, ['product_type' => 'auction']);
+
+        $response = $this->actingAs($merchantA->fresh())->delete('/auctionproduct/' . $id);
+
+        $this->assertNotSame(403, $response->status(),
+            'the guard refused a genuine auction product, which is a lockout rather than a '
+            . 'tightening — and it would make the three refusal cases above vacuous');
+    }
+
+    /**
+     * THE TWIN. `DigitalProductController::destroy()` has the identical defect and no variant
+     * delete, so it orphans more. The same guard entry closes it, and leaving one door fixed and
+     * the other open would close the dearer half of one defect.
+     */
+    public function test_the_digital_delete_door_refuses_an_auction_product(): void
+    {
+        /*
+         * BOTH MODULES, and the first version of this case did not say so: with only
+         * `AuctionProduct` enabled the digital route does not exist and the request is a 404.
+         * It failed rather than passed — because the assertion names 403 — but it is the exact
+         * vacuity this file's own docblock warns about, where a laxer assertion would have gone
+         * green by never reaching the guard.
+         */
+        $this->enableModules(['AuctionProduct', 'DigitalProduct']);
+
+        [$merchantA, $storeA] = $this->makeTenant();
+        $this->grantPermission($merchantA, 'Delete Digital Product');
+        $this->entitle($merchantA);
+
+        $id = $this->product($storeA, ['product_type' => 'auction']);
+
+        $response = $this->actingAs($merchantA->fresh())->delete('/digitalproduct/' . $id);
+
+        $this->assertSame(403, $response->status(),
+            'a digital permission deleted an AUCTION product. The digital door is the auction '
+            . 'door\'s twin and worse — it never deletes `ProductVariant` at all (F207).');
+        $this->assertTrue(
+            \App\Models\Product::withoutGlobalScopes()->whereKey($id)->exists(),
+            'the product row was deleted despite the 403'
+        );
+    }
+
     private function product(Store $store, array $attributes = []): int
     {
         return (int) DB::table('products')->insertGetId(array_merge([
@@ -439,7 +545,20 @@ class ModuleResourceOwnershipTest extends SecurityTestCase
         $this->grantPermission($merchantA, 'Delete Auction Product');
         $this->entitle($merchantA);
 
-        $own = $this->product($storeA);
+        /*
+         * F207 [2026-10-30]: `'product_type' => 'auction'` IS NOW REQUIRED HERE, and this is the
+         * ONE place in the suite where the new predicate takes something away. Stated rather than
+         * quietly applied.
+         *
+         * The helper's default leaves `product_type` NULL, which is what an ORDINARY product is —
+         * the host's own creator never writes the column and its migration is `->nullable()` with
+         * no default. Before F207 this door deleted such a product on an auction permission; that
+         * was the defect. What the fixture is losing is therefore a capability production never
+         * legitimately offered: the auction list filters on `product_type = 'auction'` in both
+         * places that render a delete link, so no NULL product has ever had a delete button on
+         * that screen.
+         */
+        $own = $this->product($storeA, ['product_type' => 'auction']);
 
         $response = $this->actingAs($merchantA->fresh())->delete('/auctionproduct/' . $own);
 
