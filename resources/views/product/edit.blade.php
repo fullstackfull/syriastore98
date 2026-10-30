@@ -56,6 +56,28 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
 --}}
 <input type="hidden" name="ss_last_seen_at" value="{{ optional($product->updated_at)->toJSON() }}">
 
+{{--
+    F184 / D-28c. THE SAVE PATH'S CONSENT FLAG.
+
+    `ProductController::ssVariantRemovalPreflight()` has read `ss_confirm_variant_removal` since
+    F196; what was missing was any UI that sets it, so a merchant whose save would destroy
+    variants got the refusal toast and had no control to confirm with. The confirmed branch was
+    reachable only by a hand-built request, which is why sixteen green tests coexisted with a path
+    no browser could walk.
+
+    INSIDE THE FORM, deliberately. `#submit-all` lives in `@section('action-button')`, OUTSIDE the
+    form, and the save handler sends `$('#choice_form').serializeArray()` -- so an input placed
+    beside the button would never be sent. This is the same route `ss_last_seen_at` above travels,
+    and the same one `_method=PUT` travels, which is why the save resolves to a PUT route at all.
+
+    `0` AT REST, AND RESET AFTER EVERY ATTEMPT. `$request->boolean()` reads "0" as false, so the
+    flag is inert until the dialog sets it. It is reset in every one of the four save handlers
+    because a refusal does NOT navigate away: without the reset, a merchant who confirmed and then
+    lost the `ss_last_seen_at` race would leave the flag at "1", and their next unrelated save
+    would confirm a second removal they were never shown.
+--}}
+<input type="hidden" name="ss_confirm_variant_removal" id="ss_confirm_variant_removal" value="0">
+
 <div class="row product-page-info">
     <div class="col-md-12">
       <div class="row">
@@ -774,6 +796,12 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
   </x-ss.actionbar>
 
 {!! Form::close() !!}
+
+{{-- F184: the confirmation shell AND the trash door's bridge, shared with the read-only product
+     screen so neither surface keeps a one-click delete. OUTSIDE the form, so nothing in it is ever
+     serialised into a save. The save path's own refusal handler is below and opens the same
+     shell. --}}
+@include('product._variant-delete-dialog')
 @endsection
 
     @push('custom-script')
@@ -1163,7 +1191,125 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
             }))
         }()
 
-        $('#submit-all').on('click', function() {
+
+        /* ==========================================================================
+           F184 / D-28c -- THE CONFIRMATION BRIDGE.
+           ==========================================================================
+
+           TWO CALLERS, ONE DIALOG. The trash buttons in both variant panels call
+           `window.ssConfirmVariantDelete()`; the save path calls
+           `ssHandleVariantRemovalRefusal()`. Both open the one `.ss-dialog` shell rendered after
+           the form, through `StoreSyriaDS.confirmDestructive()`.
+
+           EVERY STRING IS RENDERED BY BLADE AND PASSED IN. `store-syria-ds.js` has no translator,
+           which is why `applyFormErrors` below takes its labels as arguments. A literal here would
+           ship English to an Arabic merchant -- the F70 lesson.
+
+           `Are you sure?` IS NOT USED: `ar.json` renders it feminine-singular, which on a
+           destructive dialog reads as a grammatical error. The titles are pronoun-free. */
+
+        /* The trash door's bridge lives in `product/_variant-delete-dialog.blade.php`, beside the
+           shell, because the read-only product screen needs it too. This file adds only the SAVE
+           path, which that screen has no equivalent of. */
+
+        /* The save door.
+           ----------------------------------------------------------------------------
+           KEYED ON `ss_variant_removal.confirm_with`, NOT ON `flag == 'error'`, and that
+           distinction is the whole correctness of this function. The error branch is shared by
+           ordinary validation failures (which carry `data.errors` and drive `applyFormErrors`), by
+           the `ss_last_seen_at` concurrent-edit refusal, and by the D-20 HARD blocks. Keying on
+           `flag` would offer "delete these anyway" over a live cart reference -- the exact thing
+           the owner forbade -- and over a conflict, where confirming cannot help.
+
+           `confirm_with` is emitted by exactly one branch of `VariantRemovalPolicy::refuse()`: the
+           one where removal is provably safe and only consent is missing. Every blocking branch
+           emits `blocked` instead.
+
+           THE BODY IS THE SERVER'S OWN MESSAGE. It already names each variant with its SKU, price
+           and stock, says the loss is permanent, and is fully translated. Rebuilding that list from
+           the DOM would drift from what the server actually refused -- and the panels' SKU is
+           synthesised by the view rather than read from storage, so it would also be wrong.
+
+           Returns true when it handled the refusal, so the caller falls through to its existing
+           toast and `applyFormErrors` for everything else. */
+        function ssHandleVariantRemovalRefusal(data) {
+            var info = data && data.ss_variant_removal;
+            if (!info) { return false; }
+
+            var blocked = !!info.blocked;
+
+            /* `typeof … === 'function'`, NOT a truthiness check on `window.StoreSyriaDS`.
+               `confirmDestructive` is new in this change, and a merchant holding a CACHED
+               `store-syria-ds.js` from the previous slice has a `StoreSyriaDS` object that is
+               perfectly truthy and has no such method -- so this threw a TypeError inside jQuery's
+               `success` callback, which jQuery does not catch, and execution never reached the
+               `show_toastr()` below it. The merchant saw NOTHING: no dialog, no message, and a
+               save that appeared to do nothing at all. The sibling bridge in
+               `_variant-delete-dialog.blade.php` already guarded correctly, which is what made the
+               omission visible. (The asset token was bumped in the same change so a fresh load
+               cannot hit this at all; the guard is for the browser that is already holding the old
+               file.) */
+            var opened = window.StoreSyriaDS
+                && typeof StoreSyriaDS.confirmDestructive === 'function'
+                && StoreSyriaDS.confirmDestructive(window.SS_VARIANT_DIALOG, {
+                title: blocked
+                    ? @json(__('This variant could not be deleted.'))
+                    : @json(__('Remove these variants permanently?')),
+                message: data.msg || '',
+                note: blocked ? '' : @json(__('This cannot be undone.')),
+                blocked: blocked,
+                confirmText: @json(__('Delete permanently')),
+                cancelText: @json(__('Cancel')),
+                closeText: @json(__('Close'))
+            }, function () {
+                /* CONSENT IS SET, THEN THE SAVE IS RE-RUN THROUGH ITS OWN HANDLER, so the retry is
+                   byte-for-byte the request the merchant already made plus the flag. Re-reading the
+                   file inputs is why: `fd` is rebuilt from `cover_image`, `preview_video`,
+                   `downloadable_product`, every `.downloadable_product_variant` and the dropzone,
+                   and those sources are still there. The refused attempt uploaded them once --
+                   bandwidth, not corruption, because the preflight persists nothing. */
+                $('#ss_confirm_variant_removal').val('1');
+                ssSubmitProduct();
+            }, document.getElementById('submit-all'));
+
+            if (!opened) { return false; }   // no shell: fall through to the toast.
+
+            return true;
+        }
+
+        /* RESET AFTER EVERY ATTEMPT, and this is not housekeeping.
+
+           A refusal does NOT navigate away. So after a merchant confirms, the save can still be
+           refused by the `ss_last_seen_at` optimistic lock -- which `update()` checks BEFORE the
+           variant preflight -- and the page stays with the flag still at "1". The merchant then
+           edits something unrelated, clicks Save, and a second variant removal is confirmed
+           without a dialog ever being shown. Called from all four save handlers. */
+        function ssClearVariantConsent() {
+            $('#ss_confirm_variant_removal').val('0');
+        }
+
+        /* F184: THE SAVE IS A NAMED FUNCTION so the confirmation can re-run it. The click binding
+           below is unchanged in behaviour -- what changes is that there is now a second caller.
+
+           RE-ENTRANCY IS GUARDED BY `ssSaveInFlight`, NOT by `disabled`. `#submit-all` is an
+           `<a href="#">`, and the `disabled` ATTRIBUTE HAS NO EFFECT ON AN ANCHOR -- the jQuery
+           handler still fires, and `StoreSyriaDS.wireClickProxy()` calls `target.click()`
+           unconditionally. So the `attr('disabled', true)` below has never guarded anything, and
+           an impatient double-click on the dialog's Confirm would otherwise send two saves. */
+        var ssSaveInFlight = false;
+
+        function ssSubmitProduct() {
+            /* THE LATCH IS SET WHERE THE REQUEST IS ISSUED, NOT HERE, AND THAT IS A FIX RATHER
+               THAN A STYLE CHOICE. Setting it at the top left every exit BEFORE `$.ajax` stuck at
+               `true` for the life of the page -- and there is such an exit: the
+               CartQuantityControl branch's `return false` below, plus two unguarded dereferences
+               (`cover_image.files[0]`, the dropzone's `getAcceptedFiles()`) that can throw. Save
+               then went permanently dead with no feedback at all, because `attr('disabled', …)`
+               on an `<a>` has never done anything. Worst right after the merchant confirmed the
+               removal dialog, which is the one moment they have just told us to proceed.
+               Everything between this check and `$.ajax` is synchronous, so no second click can
+               interleave and the guard loses nothing by being set later. */
+            if (ssSaveInFlight) { return; }
 
             $('#submit-all').attr('disabled', true);
             var fd = new FormData();
@@ -1223,6 +1369,7 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                     show_toastr('Error', 'Please correct the error message before submitting the form.');
                     return false;
                 } else {
+                    ssSaveInFlight = true;
                     $.ajax({
                         url: "{{ route('product.update', $product->id) }}",
                         headers: {
@@ -1234,11 +1381,22 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                         type: 'POST',
                         success: function(data) {
                             $('#loader').fadeOut();
+                            ssSaveInFlight = false;
                             if (data.flag == "success") {
+                                ssClearVariantConsent();
                                 $('#submit-all').attr('disabled', true); 
                                 localStorage.setItem('success_msg', data.msg);
                                 window.location.href = "{{ route('product.index') }}" + '?id=2';
                             } else {
+                                ssClearVariantConsent();
+                                $('#submit-all').attr('disabled', false);
+
+                                /* F184. A variant-removal refusal is the one error the merchant can
+                                   ACT on, so it gets the dialog instead of a toast they can only
+                                   read. Everything else -- validation, the concurrent-edit conflict,
+                                   the D-20 hard blocks -- falls through unchanged. */
+                                if (ssHandleVariantRemovalRefusal(data)) { return; }
+
                                 show_toastr('Error', data.msg, 'error');
                                 /* F70. The toast says WHAT is wrong; this says WHERE. It marks each failed
                                    field, writes the message beside it, OPENS the collapsed section the field
@@ -1258,6 +1416,8 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                         },
                         error: function(data) {
                             $('#loader').fadeOut();
+                            ssSaveInFlight = false;
+                            ssClearVariantConsent();
 
                             $('#submit-all').attr('disabled', false);
                             // Dropzones.removeFile(file);
@@ -1270,6 +1430,7 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                     });
                 }
             } else {
+                ssSaveInFlight = true;
                 $.ajax({
                     url: "{{ route('product.update', $product->id) }}",
                     headers: {
@@ -1281,6 +1442,7 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                     type: 'POST',
                     success: function(data) {
                         $('#loader').fadeOut();
+                        ssSaveInFlight = false;
                         if (data.flag == "success") {
                             $('#submit-all').attr('disabled', true);
 
@@ -1295,10 +1457,20 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                                likewise on the module-only branch, so by default an edit save showed the
                                merchant nothing either. Both defaults now carry the message. */
                             try { localStorage.setItem('success_msg', data.msg); } catch (e) { /* private mode */ }
+                            ssClearVariantConsent();
                             window.location.href = "{{ route('product.index') }}" + '?id=2';
 
 
                         } else {
+                            ssClearVariantConsent();
+                            $('#submit-all').attr('disabled', false);
+
+                            /* F184. See the sibling branch above. BOTH are patched because
+                               `module_is_active('CartQuantityControl')` chooses between them and
+                               THIS is the ordinary case -- the file's own comment records a previous
+                               fix that patched only the other one and measured nothing. */
+                            if (ssHandleVariantRemovalRefusal(data)) { return; }
+
                             show_toastr('Error', data.msg, 'error');
                             /* F70. The toast says WHAT is wrong; this says WHERE. It marks each failed
                                field, writes the message beside it, OPENS the collapsed section the field
@@ -1318,6 +1490,8 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                     },
                     error: function(data) {
                         $('#loader').fadeOut();
+                        ssSaveInFlight = false;
+                        ssClearVariantConsent();
 
                         $('#submit-all').attr('disabled', false);
                         // Dropzones.removeFile(file);
@@ -1329,7 +1503,11 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                     },
                 });
             }
-        });  
+        }
+
+        $('#submit-all').on('click', function() {
+            ssSubmitProduct();
+        });
 
         /*
          * D-26 -- the one image a product variant may carry.

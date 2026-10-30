@@ -239,7 +239,25 @@ final class VariantRemovalPolicy
      * every ordinary trash click on a reference-free variant. Bolting the guard on without that
      * distinction is the naive fix and it breaks the common case.
      */
-    public static function refuse($product, $removed, bool $confirmed): ?array
+    /**
+     * THE FOURTH PARAMETER: WHICH CONSENT KEY THIS DOOR ACTUALLY READS, AND WHAT IT WANTS IN IT.
+     *
+     * Found by independent review of F184, inside F184's own change. This method hardcoded
+     * `'confirm_with' => 'ss_confirm_variant_removal'`, which is the BULK save door's key and
+     * carries a BOOLEAN (`$request->boolean()`). The two per-variant doors read different keys and
+     * want a different value — the trash door `ss_confirm_variant`, the API door
+     * `confirm_variant`, both compared against the stored variant NAME — and `DeleteVariant()`
+     * forwards this array to the client verbatim. So the signal the owner required to be
+     * *verifiable* was telling an API client to retry with a key that door does not read, carrying
+     * a value it would reject anyway.
+     *
+     * A descriptor rather than a key alone, because the key is useless without the value shape:
+     * `['key' => 'confirm_variant', 'value' => 'variant_name']`. Default: the bulk door, so every
+     * existing call site keeps its current contract untouched.
+     *
+     * @param  array{key:string,value:string}|null  $consent  the calling door's consent contract
+     */
+    public static function refuse($product, $removed, bool $confirmed, ?array $consent = null): ?array
     {
         if ($removed->isEmpty()) {
             return null;
@@ -453,14 +471,135 @@ final class VariantRemovalPolicy
                     'count' => count($names),
                     'detail' => implode(' | ', $detail),
                 ]),
-                'ss_variant_removal' => [
-                    'variants' => $names,
-                    'count' => count($names),
-                    'confirm_with' => 'ss_confirm_variant_removal',
-                ],
+                'ss_variant_removal' => self::consentAdvice($consent, $names, $removed),
             ];
         }
 
         return null;
+    }
+
+    /**
+     * What the merchant's client should send back, named so it is actionable.
+     *
+     * `confirm_value` is advertised only when there is exactly ONE variant to name, which is the
+     * per-variant doors by construction. A bulk narrowing covers many variants at once and its
+     * door reads a boolean, so there `confirm_value` is the literal `'true'` and the names stay in
+     * `variants` where the merchant reads them.
+     *
+     * @param  array{key:string,value:string}|null  $consent
+     * @param  array<int,string>  $names
+     * @return array<string,mixed>
+     */
+    private static function consentAdvice(?array $consent, array $names, $removed): array
+    {
+        $key = is_string($consent['key'] ?? null) && $consent['key'] !== ''
+            ? $consent['key']
+            : 'ss_confirm_variant_removal';
+
+        $wantsName = ($consent['value'] ?? 'true') === 'variant_name';
+
+        $advice = [
+            'variants' => $names,
+            'count' => count($names),
+            'confirm_with' => $key,
+        ];
+
+        /* A token can only be advertised when exactly one variant is being removed. Advertising
+           the first of several would invite a client to confirm one variant and delete the rest,
+           which is the replay the consent signal exists to prevent. */
+        if ($wantsName && count($names) === 1) {
+            $advice['confirm_value'] = self::consentToken($removed->first());
+        }
+
+        /* AND NOTHING IS ADVERTISED FOR THE BOOLEAN DOOR. Review's point, and it is about what the
+           server TELLS a client rather than what it enforces: that door reads
+           `$request->boolean()`, which `filter_var(..., FILTER_VALIDATE_BOOLEAN)` satisfies with
+           '1', 'true', 'yes' or 'on'. Publishing `confirm_value: 'true'` would be the server
+           advertising that a bare literal is sufficient — writing the asymmetry into the protocol
+           rather than leaving it as a recorded finding (F205) for the owner to decide. There is
+           nothing actionable to advertise: the flag is already a field in the form. */
+
+        return $advice;
+    }
+
+    /**
+     * THE CONSENT TOKEN FOR ONE VARIANT: what the merchant is shown, and what they must echo back.
+     *
+     * One implementation, used by both per-variant doors AND by the two variant panels that render
+     * the trash button, so the dialog cannot name one thing while the request confirms another.
+     *
+     * `Str::trim()`, not PHP `trim()`, and that is the whole point of the method existing. Laravel's
+     * global `TrimStrings` middleware normalises every incoming string with `Str::trim()`, whose
+     * charlist is Unicode `\s` **plus** `Str::INVISIBLE_CHARACTERS` — NBSP, ZWSP, BOM, the
+     * ideographic space and **RLM/ALM**. PHP's `trim()` strips only `" \t\n\r\0\x0B"`. Comparing a
+     * middleware-trimmed echo against a `trim()`-ed stored name could never match for such a name,
+     * so the variant became permanently undeletable: measured, `"Rouge\u{00A0}"` arrives as
+     * `"Rouge"` and was compared against `"Rouge\u{00A0}"`. RLM is what makes this real in a
+     * bilingual catalogue rather than theoretical.
+     *
+     * AND A NAMELESS VARIANT STILL NEEDS A TOKEN. `product_variants.variant` is NOT NULL with no
+     * default, and F199's measured outcome was a product whose variants were replaced by a single
+     * row named `''`. An empty echo cannot be consent — `ConvertEmptyStringsToNull` turns it into
+     * `null` before a handler sees it — so such a row would have been undeletable, which is a
+     * capability F184 would have TAKEN AWAY rather than guarded. `#<id>` is shown in the dialog and
+     * accepted by the doors: still verifiable, because the merchant is told exactly what to echo.
+     */
+    public static function consentToken($variant): string
+    {
+        $name = \Illuminate\Support\Str::trim((string) ($variant->variant ?? ''));
+
+        /* The token must SURVIVE THE REQUEST PIPELINE, or the merchant can never send it back.
+           `App\Http\Middleware\XSS` rewrites every request string on the web door — it strips
+           `alert`, `javascript`, `&lt;` and `&gt;` — so a variant named exactly `alert` normalises
+           to nothing and there is no value the merchant could type. Then the id is the only thing
+           they can echo, and showing it to them is what keeps the signal verifiable. */
+        return self::normaliseConsent($name) !== '' ? $name : '#' . (int) ($variant->id ?? 0);
+    }
+
+    /**
+     * Does this echo confirm THIS variant? The echo is normalised the same way the token is, so the
+     * comparison is symmetric whatever the middleware did to it on the way in.
+     */
+    public static function consentSatisfied($sent, $variant): bool
+    {
+        if (! is_string($sent)) {
+            return false;
+        }
+
+        $sent = self::normaliseConsent($sent);
+
+        return $sent !== '' && $sent === self::normaliseConsent(self::consentToken($variant));
+    }
+
+    /**
+     * ONE NORMALISER, APPLIED TO BOTH SIDES, SO THE COMPARISON IS SYMMETRIC WHATEVER THE REQUEST
+     * PIPELINE DID ON THE WAY IN.
+     *
+     * Two middlewares rewrite an incoming string before a handler sees it, and neither touches the
+     * stored column — so comparing the echo against the raw name could never match for a whole
+     * class of legitimate names, and the variant became permanently undeletable:
+     *
+     *   - `TrimStrings` runs `Str::trim()`, whose charlist is Unicode `\s` **plus**
+     *     `Str::INVISIBLE_CHARACTERS` — NBSP, ZWSP, BOM, the ideographic space and **RLM/ALM**.
+     *     Measured: `"Rouge\u{00A0}"` arrives as `"Rouge"`.
+     *   - `App\Http\Middleware\XSS` (on the web door's route group, NOT on the API door's) runs
+     *     `htmlspecialchars_decode()` then strips `&lt;`, `&gt;`, `javascript` and `alert`.
+     *     Measured: `"alert-Red"` arrives as `"-Red"`.
+     *
+     * Both are applied here, to the echo and to the token alike. The API door has no `xss` and the
+     * web door does, so normalising both sides is what lets ONE comparison serve both — the
+     * alternative is a per-door comparison, which is the duplicated implementation §4 forbids.
+     *
+     * This does not weaken the signal. It is idempotent (`str_replace` of the same needles twice
+     * changes nothing), and a caller still has to know the stored name to produce anything that
+     * normalises to the token: the row acted on is selected by its own id, so a collision between
+     * two names cannot delete a variant the merchant did not confirm.
+     */
+    private static function normaliseConsent(string $value): string
+    {
+        $value = htmlspecialchars_decode($value);
+        $value = str_replace(['&lt;', '&gt;', 'javascript', 'alert'], '', $value);
+
+        return \Illuminate\Support\Str::trim($value);
     }
 }

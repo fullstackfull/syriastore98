@@ -85,10 +85,22 @@ class VariantDeleteReferenceGuardTest extends SecurityTestCase
         return [$merchant, $product, $variants];
     }
 
-    private function trashDelete($merchant, ProductVariant $variant)
+    /**
+     * F184: the trash door now requires a VERIFIED consent echo — the variant's own name, which a
+     * caller can only supply by having read the row. The helper sends it by default because every
+     * case in this file asks what happens to a DELIBERATE deletion; `$consent = null` drives the
+     * bare click, which `VariantRemovalPolicyTest` asserts is refused.
+     */
+    private function trashDelete($merchant, ProductVariant $variant, $consent = '__echo__')
     {
-        return $this->actingAs($merchant)
-            ->delete(route('product.attribute.delete', $variant->id));
+        if ($consent === '__echo__') {
+            $consent = $variant->variant;
+        }
+
+        return $this->actingAs($merchant)->delete(
+            route('product.attribute.delete', $variant->id),
+            $consent === null ? [] : ['ss_confirm_variant' => $consent]
+        );
     }
 
     /** `ProductVariant` carries no StoreScope, but read without scopes anyway — the project's rule. */
@@ -415,15 +427,23 @@ class VariantDeleteReferenceGuardTest extends SecurityTestCase
             'the call reported success and the row is still there');
     }
 
-    private function apiDelete(\App\Models\User $user, ProductVariant $variant): array
+    /** F184: `confirm_variant` is the verifiable consent echo. See trashDelete() above. */
+    private function apiDelete(\App\Models\User $user, ProductVariant $variant, $consent = '__echo__'): array
     {
+        if ($consent === '__echo__') {
+            $consent = $variant->variant;
+        }
+
+        $payload = ['store_id' => $variant->store_id, 'variant_id' => $variant->id];
+
+        if ($consent !== null) {
+            $payload['confirm_variant'] = $consent;
+        }
+
         $response = $this->withHeader(
             'Authorization',
             'Bearer ' . $user->createToken('auth_token', ['merchant'])->plainTextToken
-        )->json('DELETE', '/api/admin/deletevariant', [
-            'store_id' => $variant->store_id,
-            'variant_id' => $variant->id,
-        ]);
+        )->json('DELETE', '/api/admin/deletevariant', $payload);
 
         return json_decode($response->getContent(), true) ?? [];
     }

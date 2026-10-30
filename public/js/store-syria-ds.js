@@ -288,6 +288,9 @@
     });
 
     document.addEventListener('keydown', function (e) {
+        // F184: a dialog is on top of a panel and handles its own Escape and Tab.
+        if (openDialogIds().length) { return; }
+
         var ids = openPanelIds();
         if (!ids.length) { return; }
         var id = ids[ids.length - 1];
@@ -326,6 +329,226 @@
         }
     }
 
+    /* -------------------------------------------------------------- dialog */
+
+    /* F184 / D-28c -- THE CONFIRMATION SURFACE FOR A DESTRUCTIVE ACTION.
+       ==========================================================================
+       The owner's condition is that a variant deletion must be preceded by a visible explicit
+       confirmation that names what is about to go, says the loss is permanent, and offers a clear
+       Cancel and Confirm -- and that the trash click itself is not that confirmation.
+
+       WHY THIS IS NEW CODE AND NOT A REUSE, which the owner's "use the existing Design System
+       components" deserves an answer to. `public/css/store-syria-ds.css:1332-1384` has carried a
+       complete `.ss-dialog` family since the design system was written -- backdrop, header, title,
+       body, footer, close -- with the RTL transform flip at :1355, the dark-mode contrast
+       restatement for `.ss-dialog__body` at :1399, the phone `column-reverse` footer at
+       :2633-2634, and a comment reserving solid danger for "the confirming action inside a dialog"
+       at :561. What it has never had is a renderer: nothing in the repository emitted `.ss-dialog`,
+       and `resources/views/components/ss/` holds 23 components and no dialog. So the styles are the
+       DS's; the opening, the focus and the keyboard are what was missing.
+
+       AND IT IS THE PANEL'S MACHINERY, NOT A SECOND COPY. `focusablesIn`, `containFocus`,
+       `suspendModalFocusTraps`/`restoreModalFocusTraps` and the scroll lock are all reused from
+       the side panel above, including the Bootstrap `_focustrap` suspension that P2-01-19 measured
+       the hard way -- a surface that is a sibling of the host theme's shared `#commanModel` loses
+       focus to it within 0ms and Escape closes the merchant's half-filled form instead of the
+       dialog. A dialog has exactly that problem, so it gets exactly that fix.
+
+       ESCAPE IS CANCEL, deliberately. For a destructive confirmation the safe direction is "do
+       nothing", so Escape, the backdrop and the close button all resolve as Cancel and the
+       `onConfirm` callback is never reached.
+
+       THE STRINGS COME FROM THE CALLER. This file has no translator -- the same reason
+       `applyFormErrors` takes `needsAttentionText` and `titleText` -- so every label is passed in
+       from Blade through `@json(__('...'))`. An inline English literal here would ship English to
+       an Arabic merchant, which is the F70 lesson. */
+
+    var dialogState = {}; // id -> { trigger: Element, onConfirm: Function }
+
+    function dialogEls(id) {
+        return {
+            dialog: document.getElementById(id),
+            backdrop: document.querySelector('[data-ss-dialog-backdrop="' + id + '"]')
+        };
+    }
+
+    function openDialogIds() { return Object.keys(dialogState); }
+
+    function openDialog(id, options) {
+        var els = dialogEls(id);
+        if (!els.dialog) { return false; }
+
+        var opts = options || {};
+
+        dialogState[id] = {
+            trigger: opts.trigger || document.activeElement,
+            onConfirm: typeof opts.onConfirm === 'function' ? opts.onConfirm : null
+        };
+
+        if (els.backdrop) { els.backdrop.hidden = false; }
+        els.dialog.hidden = false;
+
+        // The page behind must not scroll while the dialog is over it.
+        document.body.style.overflow = 'hidden';
+
+        // BEFORE the focus move, for the reason openPanel() records: the trap fires on `focusin`,
+        // so suspending it afterwards would let it steal the very focus this is about to set.
+        suspendModalFocusTraps();
+
+        /* FOCUS GOES TO CANCEL, NOT TO CONFIRM. A dialog that opens with the destroying button
+           focused turns Enter -- pressed by someone who has not read it yet -- into the deletion.
+           Cancel is the safe default, and it is also the first focusable in the footer, so Tab
+           reaches Confirm deliberately. */
+        var cancel = els.dialog.querySelector('[data-ss-dialog-cancel]');
+        if (cancel) {
+            cancel.focus();
+        } else {
+            var title = els.dialog.querySelector('.ss-dialog__title');
+            if (title) {
+                title.focus();
+            } else {
+                var first = focusablesIn(els.dialog)[0];
+                if (first) { first.focus(); }
+            }
+        }
+
+        return true;
+    }
+
+    function closeDialog(id, confirmed) {
+        var els = dialogEls(id);
+        if (!els.dialog) { return; }
+
+        var st = dialogState[id];
+        delete dialogState[id];
+
+        els.dialog.hidden = true;
+        if (els.backdrop) { els.backdrop.hidden = true; }
+
+        // Only when no OTHER dialog or panel is still open, or closing the top one would unlock
+        // scrolling underneath the one below it.
+        if (!openDialogIds().length && !openPanelIds().length) {
+            document.body.style.overflow = '';
+        }
+
+        // Restored BEFORE focus goes back, so a trigger inside a modal is handed to a modal whose
+        // own trap is live again.
+        restoreModalFocusTraps();
+
+        if (st && st.trigger && document.contains(st.trigger)) {
+            st.trigger.focus();
+        }
+
+        /* THE CALLBACK RUNS AFTER THE DIALOG IS CLOSED AND FOCUS IS RESTORED, so a callback that
+           opens a second surface or moves focus itself is not fighting this one -- and so a
+           callback that throws cannot leave the dialog stuck open over the page. */
+        if (confirmed && st && st.onConfirm) {
+            st.onConfirm();
+        }
+    }
+
+    /* Clicks: confirm, cancel, close, backdrop. Delegated on the document ONCE, so a dialog shell
+       injected after load is covered and no host page can bind it twice. */
+    document.addEventListener('click', function (e) {
+        var el = e.target.closest ? e.target.closest('[data-ss-dialog-confirm],[data-ss-dialog-cancel],[data-ss-dialog-close]') : null;
+
+        if (el) {
+            var dialog = el.closest('.ss-dialog');
+            if (!dialog || !dialog.id) { return; }
+            e.preventDefault();
+            closeDialog(dialog.id, el.hasAttribute('data-ss-dialog-confirm'));
+            return;
+        }
+
+        if (e.target.hasAttribute && e.target.hasAttribute('data-ss-dialog-backdrop')) {
+            closeDialog(e.target.getAttribute('data-ss-dialog-backdrop'), false);
+        }
+    });
+
+    /* Escape and Tab. A dialog is on top of everything, including a panel, so this runs before the
+       panel's listener and the panel's listener bails when a dialog is open. */
+    document.addEventListener('keydown', function (e) {
+        var ids = openDialogIds();
+        if (!ids.length) { return; }
+        var id = ids[ids.length - 1];
+
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            e.stopPropagation();
+            closeDialog(id, false);   // Escape is Cancel.
+            return;
+        }
+
+        if (e.key !== 'Tab') { return; }
+
+        var dialog = document.getElementById(id);
+        if (!dialog) { return; }
+        containFocus(e, dialog);
+    }, true);
+
+    /* F184. THE ONE CALL A HOST PAGE MAKES.
+
+       `fill` is deliberately `textContent`, never `innerHTML`: the variant names it renders are
+       merchant free text and the server's refusal message is built from them, so an `innerHTML`
+       here would be a stored-XSS sink on a destructive dialog. `lines` renders one <li> per
+       variant with the same rule. */
+    function confirmDestructive(id, content, onConfirm, trigger) {
+        var els = dialogEls(id);
+        if (!els.dialog) { return false; }
+
+        var c = content || {};
+
+        var title = els.dialog.querySelector('[data-ss-dialog-title]');
+        if (title) { title.textContent = c.title || ''; }
+
+        var body = els.dialog.querySelector('[data-ss-dialog-body]');
+        if (body) {
+            body.textContent = '';
+
+            if (c.message) {
+                var p = document.createElement('p');
+                p.className = 'ss-dialog__message';
+                p.textContent = c.message;
+                body.appendChild(p);
+            }
+
+            if (c.lines && c.lines.length) {
+                var ul = document.createElement('ul');
+                ul.className = 'ss-dialog__list';
+                c.lines.forEach(function (line) {
+                    var li = document.createElement('li');
+                    li.textContent = line;
+                    ul.appendChild(li);
+                });
+                body.appendChild(ul);
+            }
+
+            if (c.note) {
+                var note = document.createElement('p');
+                note.className = 'ss-dialog__note';
+                note.textContent = c.note;
+                body.appendChild(note);
+            }
+        }
+
+        /* A HARD BLOCK GETS NO CONFIRM BUTTON. The owner's condition is that no confirmation may
+           override a hard block; the server refuses one regardless of any flag, so offering a
+           Confirm here would promise something the server will not do. `blocked` therefore hides
+           the confirming action and relabels Cancel as Close. */
+        var confirm = els.dialog.querySelector('[data-ss-dialog-confirm]');
+        var cancel = els.dialog.querySelector('[data-ss-dialog-cancel]');
+
+        if (confirm) {
+            confirm.hidden = !!c.blocked;
+            if (c.confirmText) { confirm.textContent = c.confirmText; }
+        }
+        if (cancel && c.cancelText) {
+            cancel.textContent = c.blocked && c.closeText ? c.closeText : c.cancelText;
+        }
+
+        return openDialog(id, { trigger: trigger, onConfirm: c.blocked ? null : onConfirm });
+    }
+
     /* P2-01-20 -- THE COMMAND PALETTE DECLARED `aria-modal="true"` AND TRAPPED NOTHING.
        Measured with real Tab presses in all four configurations: of 25 presses with the palette
        open, 21 left it, landing on the page behind — which is still in the accessibility tree,
@@ -337,6 +560,7 @@
     document.addEventListener('keydown', function (e) {
         if (e.key !== 'Tab') { return; }
         if (openPanelIds().length) { return; }
+        if (openDialogIds().length) { return; }   // F184: a dialog wins over the palette too.
 
         var palette = document.getElementById('ss-command');
         if (!palette || palette.hidden) { return; }
@@ -865,6 +1089,16 @@
         // Ctrl/Cmd+K opens it from anywhere.
         if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
             if (!cmdEls()) { return; }
+            /* NOT OVER AN OPEN DIALOG, which is the third place this guard belongs and the one
+               that was missed. The panel's keydown handler and the palette's Tab containment both
+               stand down for a dialog; this, the palette's OPEN shortcut, did not. The palette is
+               included on every admin page, so Ctrl+K over an open destructive confirmation moved
+               focus out of an `aria-modal="true"` dialog whose onConfirm was still armed — and
+               Escape afterwards hit this file's dialog listener first (capture phase) and
+               CANCELLED THE CONFIRMATION while leaving the palette open, the page scrolled and
+               focus on the trash button underneath. Nothing was deleted, which is the safe
+               direction, but the key the merchant pressed did the opposite of what they meant. */
+            if (openDialogIds().length) { return; }
             e.preventDefault();
             cmd.root.hidden ? cmdOpen(document.activeElement) : cmdClose();
             return;
@@ -1573,6 +1807,12 @@
         openPanel: openPanel,
         closePanel: closePanel,
         loadPanel: loadPanel,
+        // F184 / D-28c. The confirmation surface for a destructive action. `confirmDestructive`
+        // is the one call a host page makes; `openDialog`/`closeDialog` are for anything that
+        // needs the surface without the destructive framing.
+        openDialog: openDialog,
+        closeDialog: closeDialog,
+        confirmDestructive: confirmDestructive,
         wireDirtyTracking: wireDirtyTracking,
         // P2-03-3. One action, two controls, one implementation.
         wireClickProxy: wireClickProxy,

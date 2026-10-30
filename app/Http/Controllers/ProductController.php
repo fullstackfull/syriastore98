@@ -86,9 +86,9 @@ class ProductController extends Controller
      * @param  \Illuminate\Support\Collection  $removed  the variant rows the posted set no longer covers
      * @return array<string,mixed>|null
      */
-    private function ssRefuseVariantRemoval($product, $removed, bool $confirmed): ?array
+    private function ssRefuseVariantRemoval($product, $removed, bool $confirmed, ?array $consent = null): ?array
     {
-        return \App\Services\VariantRemovalPolicy::refuse($product, $removed, $confirmed);
+        return \App\Services\VariantRemovalPolicy::refuse($product, $removed, $confirmed, $consent);
     }
 
     /**
@@ -3797,7 +3797,7 @@ $Product->cost_price = $request->cost_price;
         return view('product.attribute_combinations_edit', compact('combinations', 'unit_price', 'product_name', 'product', 'Shipping', 'variantImages'));
     }
 
-    public function product_attribute_delete($id)
+    public function product_attribute_delete(Request $request, $id)
     {
         /*
          * PERMISSION AND TENANT OWNERSHIP, THROUGH THE SHARED POLICY. P1-INV-10 (e), F195 / D-28c.
@@ -3919,7 +3919,49 @@ $Product->cost_price = $request->cost_price;
          * those handlers a non-2xx is SILENT -- neither caller had one, which is why they are part
          * of this change rather than a follow-up.
          */
-        $ssRemovalRefusal = $this->ssRefuseVariantRemoval($owner, collect([$attribute]), true);
+        /*
+         * F184 / D-28c -- THE CONSENT IS VERIFIED HERE, NOT ASSUMED FROM THE CLICK.
+         *
+         * THIS WAS A HARDCODED `true`, and the reasoning behind it has been superseded by the
+         * owner. D-20 read this endpoint as itself the "separate, deliberate operation" its
+         * condition 3 asks for -- a dedicated per-variant route reached by its own button, not a
+         * side effect of a Save -- so it took the reference BLOCKS and skipped the confirmation
+         * refusal. The owner's F184 condition is the opposite and explicit: *"the trash click
+         * itself is not the confirmation and must not start the delete."*
+         *
+         * SO THE CALLER MUST ECHO THE VARIANT'S OWN NAME. A bare boolean would be worthless here:
+         * anything that can send `confirm=1` can send it blind, so it would record that a
+         * parameter was set rather than that a person saw what they were destroying. The name is
+         * a value the caller can only supply by having read the row, which is what makes the
+         * signal verifiable rather than decorative -- and it is exactly what the dialog puts in
+         * front of the merchant before the request is made.
+         *
+         * STRICT, AND TRIMMED ON BOTH SIDES. `variant` is merchant free text, so the comparison
+         * is on the exact stored string with surrounding whitespace removed -- not a loose
+         * comparison, which would let `0` confirm a variant named `0`. A mismatch is not a special
+         * case: it falls through as "not confirmed" and the merchant gets the ordinary refusal
+         * naming what would be lost.
+         *
+         * THE BLOCKS DO NOT DEPEND ON IT. `refuse()` applies the cart, wishlist, store-less and
+         * order-history checks before it ever looks at `$confirmed`, so a correct consent token
+         * still cannot carry a delete past a hard block. That is the owner's condition that no
+         * confirmation may override one, and it holds by construction rather than by this call
+         * site being careful.
+         */
+        $ssConsent = $request->input('ss_confirm_variant');
+
+        /* One comparison, shared with the API door and with the views that render the button —
+           `trim()` on this side against a middleware-`Str::trim()`-ed echo on the other could
+           never match a name with an invisible edge character, and an empty stored name had no
+           token at all. See `VariantRemovalPolicy::consentToken()`. */
+        $ssConfirmed = \App\Services\VariantRemovalPolicy::consentSatisfied($ssConsent, $attribute);
+
+        $ssRemovalRefusal = $this->ssRefuseVariantRemoval(
+            $owner,
+            collect([$attribute]),
+            $ssConfirmed,
+            ['key' => 'ss_confirm_variant', 'value' => 'variant_name']
+        );
 
         if ($ssRemovalRefusal !== null) {
             \Illuminate\Support\Facades\Log::warning(

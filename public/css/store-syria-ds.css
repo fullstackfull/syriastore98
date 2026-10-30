@@ -1382,6 +1382,32 @@
 }
 .ss-dialog__close:hover { background: var(--ss-surface-sunken); color: var(--ss-fg); }
 
+/* F184 -- the content of a destructive confirmation.
+
+   `__message` is the sentence, `__list` names the records that would go, `__note` is the
+   irreversibility warning. The list is a list and not a sentence because the merchant has to be
+   able to check it item by item: the save path can refuse ten variants at once, and ten names run
+   together in a paragraph is not something anyone reads before clicking a red button.
+
+   `__note` is the strongest text in the dialog, so it takes `--ss-fg` rather than the body's
+   muted tone -- it is the one line that must not be skimmed. Both it and `__message` restate
+   their colour with `!important` for the reason the host-override block below records: they are
+   <p> elements, and the host's dark stylesheets force every paragraph to #808191 with
+   `!important`, which on this surface is 3.42:1 and below the 4.5:1 body text needs. Inheriting
+   from `.ss-dialog__body` does not save them -- the host's rule targets the element directly. */
+.ss-dialog__message { margin: 0 0 var(--ss-space-3); }
+.ss-dialog__list {
+    margin: 0 0 var(--ss-space-3);
+    padding-inline-start: var(--ss-space-5);
+    display: grid;
+    gap: var(--ss-space-1);
+}
+.ss-dialog__list li { color: var(--ss-fg); }
+.ss-dialog__note {
+    margin: 0;
+    font-weight: var(--ss-weight-semibold);
+}
+
 /* ---- Host override defence ----
    The host's dark stylesheets force every paragraph grey with !important:
        .dataTable-info, p { color: #808191 !important; }
@@ -1396,7 +1422,12 @@
 .ss-feed__message,
 .ss-advanced__hint,
 .ss-upload-hint,
-.ss-dialog__body       { color: var(--ss-fg-muted) !important; }
+.ss-dialog__body,
+.ss-dialog__message    { color: var(--ss-fg-muted) !important; }
+/* F184. The irreversibility line is the one sentence in a destructive dialog that must not be
+   skimmed, so it is full-strength foreground rather than muted -- and it needs its own
+   `!important` for the same reason as the list above, because it is a <p>. */
+.ss-dialog__note       { color: var(--ss-fg) !important; }
 /* `.ss-feed__when` is the quietest text on the feed and still has to clear 4.5:1.
    `--ss-fg-muted`, NOT `--ss-fg-subtle`: the timestamp appears on TWO surfaces -- the plain one
    on a read row and `--ss-surface-sunken` on an unread one -- and subtle measured 4.69:1 on the

@@ -43,9 +43,25 @@
                                             <span class="d-flex align-items-center">
                                                 <i class="ti ti-credit-card me-2"></i>{{ $combination->variant }}
                                                 @if (!empty($combination->id))
+                                                    {{-- F184: `data-variant` carries the STORED `variant` value, which is what
+                                                         `product_attribute_delete()` compares the consent echo against.
+                                                         From the stored row, never from the display string: the
+                                                         confirmation has to name what the server will match, and a
+                                                         view-side label is not that. The confirmation bridge reads this
+                                                         attribute rather than scraping the card, so nothing builds a
+                                                         selector out of merchant free text -- `M/L-Natural` is a legal
+                                                         variant name and an illegal selector (F72). --}}
                                                     <a href="#"
                                                         class="action-btn btn-danger btn btn-sm d-inline-flex align-items-center delete-option-comment"
                                                         data-url="{{ route('product.attribute.delete', $combination->id) }}"
+                                                        {{-- THE CONSENT TOKEN, NOT THE RAW COLUMN. `VariantRemovalPolicy::consentToken()` is
+     what both delete doors compare the echo against, so the button, the dialog and the
+     request all carry one value. It normalises invisible edge characters the way the
+     TrimStrings middleware will on the way back in, and gives a nameless variant a
+     `#<id>` to echo — without it such a row is undeletable and the dialog names
+     nothing. A pure static formatter, called here so the view cannot drift from the
+     server. --}}
+                                                        data-variant="{{ \App\Services\VariantRemovalPolicy::consentToken($combination) }}"
                                                         data-id="{{ $combination->id }}">
                                                         <i class="ti ti-trash"></i>
                                                     </a>
@@ -296,6 +312,17 @@
     </div>
 
 @endif
+{{-- THE CONFIRMATION BRIDGE TRAVELS WITH THE PANEL.
+     This partial is injected by `$('.attribute_combination').html(data)` from THREE
+     screens -- the product editor, the read-only product view, and the vendored
+     AuctionProduct module's edit screen, which calls the same first-party route. The
+     handler below fails closed when `window.ssConfirmVariantDelete` is absent, so a
+     screen that does not define it loses the delete entirely; the AuctionProduct one
+     did, and `packages/workdo/` must not be edited. Including it here is idempotent:
+     the shell is a `<template>` cloned only when the dialog is missing, and the bridge
+     is defined only when it is not already a function. --}}
+@include('product._variant-delete-dialog')
+
 <script>
     /* F72. ESCAPE THE KEY BEFORE IT BECOMES A SELECTOR.
     `data-id` holds the variant key the application itself builds from the
@@ -361,6 +388,15 @@
 
     });
     $('#enable_product_stock').change(function() {
+        /* `show()` FIRST, THEN THE CONDITIONAL HIDE, and restoring it is a fix. HEAD bound TWO
+           handlers to this one control -- one that only hid when checked, and a second further
+           down the file that did `$('.stock_status').show()` before the same conditional hide --
+           so between them a change event always re-showed the selects first. Rewriting this
+           region for F184 kept the hiding handler and dropped the showing one, and UNCHECKING
+           "track stock" then left every per-variant stock-status select hidden with no way back
+           but a page reload. Collateral loss from the edit, unrelated to F184, caught by review.
+           One handler doing both is what the pair did together, minus the duplicate binding. */
+        $('.stock_status').show();
 
         if ($(this).prop('checked') == true) {
             $('.stock_status').hide();
@@ -475,62 +511,134 @@
     });
 
 
-    $(function() {
-        $('body').on('click', '.delete-option-comment', function(e) {
+    /*
+     * F184 / D-28c -- THE DELETE IS NOW GATED BY A CONFIRMATION, AND BOUND ONLY ONCE.
+     *
+     * THREE THINGS CHANGED HERE AND EACH CLOSES A MEASURED PROBLEM.
+     *
+     * 1. `e.stopPropagation()`. This `<a>` sits INSIDE the accordion's collapse `<button>`, and
+     *    nothing stopped the click, so Bootstrap toggled the panel on the same press. That was
+     *    invisible while the delete fired immediately; with a dialog it means the accordion
+     *    animates open behind the backdrop and the collapse's own focus handling fights the
+     *    dialog's focus trap.
+     *
+     * 2. ONE BINDING, EVER. This partial is injected with jQuery's `.html()`, which EVALUATES its
+     *    <script> tags -- so every injection added another `$('body').on(...)` and one trash click
+     *    sent N DELETE requests. `edit.blade.php` records the same hazard for the variant-image
+     *    controls ("for a delete N deletions") and fixed it by binding on the parent page; these
+     *    handlers were never moved. Moving them now would break
+     *    `VariantDeleteReferenceGuardTest`, which asserts PER FILE that each partial still carries
+     *    an `error:` handler reading `responseJSON` -- so the binding stays here and is instead
+     *    made idempotent by a window latch. The latch is per selector, because the two partials
+     *    bind different ones.
+     *
+     * 3. THE CONFIRMATION, which is the owner's condition: *"the trash click itself is not the
+     *    confirmation and must not start the delete."* The dialog is opened by
+     *    `ssConfirmVariantDelete()` on the PARENT page -- the editor and the read-only show screen
+     *    both define it -- and the request is sent only from its callback. If no host defined it,
+     *    this FAILS CLOSED: nothing is deleted and the merchant is told the page could not confirm,
+     *    rather than falling back to the old one-click delete.
+     *
+     * The consent the server verifies travels as `ss_confirm_variant`: the variant's own stored
+     * name, read from `data-variant`. A bare boolean would record that a parameter was set rather
+     * than that a person saw what they were destroying.
+     */
+    if (!window.__ssVariantTrashBound) { window.__ssVariantTrashBound = {}; }
+
+    if (!window.__ssVariantTrashBound['.delete-option-comment']) {
+        window.__ssVariantTrashBound['.delete-option-comment'] = true;
+
+        /* A NATIVE CAPTURE-PHASE LISTENER ON `window`, NOT `$('body').on(...)` and NOT on
+           `document`. Both of those were tried and both were measured failing; this is the
+           browser's correction, not a style choice.
+           ------------------------------------------------------------------------------------
+           The trash `<a>` sits INSIDE the accordion's collapse `<button>`. A bubble-phase
+           delegate on `body` runs too late to matter -- the DOM reaches the button first, so
+           `stopPropagation()` there cannot un-toggle a collapse that has already fired.
+           A capture listener on `document` is ALSO too late, which is the part that is not
+           obvious. Bootstrap 5.1.3 registers its delegated `data-api` handler by passing its
+           own `delegation` flag straight into `addEventListener`'s third argument, so that
+           handler is itself a CAPTURE listener on `document` -- and it was registered when
+           `bootstrap.min.js` loaded, long before this partial was injected. Two capture
+           listeners on the same node run in registration order, so Bootstrap ran first and
+           `stopPropagation()` could not un-run it. MEASURED: the dialog opened correctly in all
+           four configurations and the accordion still animated open behind the backdrop in every
+           one of them; a stack capture on `bootstrap.Collapse.prototype.toggle` named
+           `HTMLDocument.s` as the caller.
+           `window` is the first object in the capture path, before `document`, so a capture
+           listener here runs before Bootstrap's whatever the registration order -- that ordering
+           is the event path itself, not a race. `stopPropagation()` then means `document` never
+           sees the click, so the button never toggles. It is still one delegated listener, so it
+           still covers a partial injected after load. */
+        window.addEventListener('click', function(e) {
+            var el = e.target && e.target.closest ? e.target.closest('.delete-option-comment') : null;
+            if (!el) { return; }
+
             e.preventDefault();
-            var id = $(this).attr('data-id');
-            var url = $(this).attr('data-url');
+            e.stopPropagation();
 
-            var data = {
-                'data': id
+            var trigger = el;
+            var id = el.getAttribute('data-id');
+            var url = el.getAttribute('data-url');
+            var variant = el.getAttribute('data-variant') || '';
+
+            var send = function() {
+                $.ajax({
+                    type: "DELETE",
+                    url: url,
+                    data: {
+                        'data': id,
+                        /* F184. The verifiable consent echo the server compares against the stored
+                           `variant`. Sent only from the dialog's confirm callback, so it cannot be
+                           produced by the click alone. */
+                        'ss_confirm_variant': variant
+                    },
+                    headers: {
+                        'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr(
+                            'content') // Include CSRF token
+                    },
+                    context: trigger,
+                    success: function(data) {
+                        $('#loader').fadeOut();
+                        show_toastr('{{ __('Success') }}',
+                            '{{ __('Variant Deleted Successfully!') }}', 'success');
+                        $(this).closest('.media').remove();
+                    },
+                    /*
+                     * F195. WITHOUT THIS A REFUSAL IS SILENT, which is why it ships with the guard
+                     * rather than after it.
+                     *
+                     * This request had `success:` only. jQuery calls it on 2xx alone, so the 409 the
+                     * server now returns when a cart line, a wishlist entry or an order still
+                     * references the variant would fade no loader, show no toast, and leave the row in
+                     * place -- the merchant clicks again and concludes the button is broken.
+                     *
+                     * The row is deliberately NOT removed here: the variant still exists, and removing
+                     * it would reproduce the lie the old any-2xx success path told.
+                     */
+                    error: function(xhr) {
+                        $('#loader').fadeOut();
+
+                        var payload = xhr.responseJSON || {};
+                        var message = payload.message || payload.msg ||
+                            '{{ __('This variant could not be deleted.') }}';
+
+                        show_toastr('{{ __('Error') }}', message, 'error');
+                    }
+                });
             };
-            // now make the ajax request
-            $.ajax({
-                type: "DELETE",
-                url: url,
-                data: data,
-                headers: {
-                    'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr(
-                        'content') // Include CSRF token
-                },
-                context: this,
-                success: function(data) {
-                    $('#loader').fadeOut();
-                    show_toastr('{{ __('Success') }}',
-                        '{{ __('Variant Deleted Successfully!') }}', 'success');
-                    $(this).closest('.media').remove();
-                },
-                /*
-                 * F195. WITHOUT THIS A REFUSAL IS SILENT, which is why it ships with the guard
-                 * rather than after it.
-                 *
-                 * This request had `success:` only. jQuery calls it on 2xx alone, so the 409 the
-                 * server now returns when a cart line, a wishlist entry or an order still
-                 * references the variant would fade no loader, show no toast, and leave the row in
-                 * place -- the merchant clicks again and concludes the button is broken.
-                 *
-                 * The row is deliberately NOT removed here: the variant still exists, and removing
-                 * it would reproduce the lie the old any-2xx success path told.
-                 */
-                error: function(xhr) {
-                    $('#loader').fadeOut();
 
-                    var payload = xhr.responseJSON || {};
-                    var message = payload.message || payload.msg ||
-                        '{{ __('This variant could not be deleted.') }}';
+            /* FAIL CLOSED. A host page that has not included the dialog does not get the old
+               one-click delete back; it gets a refusal it can see. */
+            if (typeof window.ssConfirmVariantDelete !== 'function') {
+                show_toastr('{{ __('Error') }}',
+                    '{{ __('This variant could not be deleted.') }}', 'error');
+                return;
+            }
 
-                    show_toastr('{{ __('Error') }}', message, 'error');
-                }
-            });
-        });
-    });
-
-    $('#enable_product_stock').change(function() {
-        $('.stock_status').show();
-        if ($(this).prop('checked') == true) {
-            $('.stock_status').hide();
-        }
-    });
+            window.ssConfirmVariantDelete({ variant: variant, trigger: trigger }, send);
+        }, true);
+    }
 
     $(document).ready(function() {
         if ($('.enable_product_stock').prop('checked') == true) {

@@ -8841,6 +8841,18 @@ rather than in the fix.
   precedes every write — but takes no row lock. `ss_last_seen_at` covers a concurrent *save*; it does
   not cover an *order* placed between the reference check and the delete. The owner's condition names
   a lock proven on MariaDB; that is not done, and is recorded rather than claimed.
+  **[2026-10-30] F184's review sharpened the consequence, which was not stated here before.** The
+  window is on both per-variant doors too (`ProductController.php` refusal → `$attribute->delete()`,
+  `Api\DashboardController.php` refusal → `$ProductVariant->delete()`), neither in a transaction and
+  neither taking a lock, so the cart and wishlist blocks are point-in-time reads. If a shopper adds
+  the variant to a cart inside that window, the delete the policy already approved destroys the row
+  the block exists to protect — and the shopper's cart then renders through `app/Models/Cart.php`,
+  where `ProductVariant::find($cart_value->variant_id)` returns **null** and `->variant`,
+  `->discount_price` and `->final_price` are read off it, so the line prices off a null object. The
+  fix shape is a transaction around check-and-delete with the reference counts under
+  `lockForUpdate()`. **Still OPEN RISK, not fixed:** it is pre-existing rather than introduced by
+  F184, it needs a lock proven on MariaDB rather than asserted on SQLite, and the owner's condition
+  above already names that proof as the bar.
 - **F198**, opened by this comparison: `update()` and `store()` reuse one `$item` array across the
   attribute loop, so each stored `product_attribute` element inherits the previous element's keys.
   Every reader found accesses the decoded elements by name, so nothing misreads it today. Not fixed
@@ -9079,3 +9091,246 @@ repository's seeded shape.
   variant management — a reference check there would refuse a deletion the merchant asked for — so
   the assertion is scoped to `DeleteVariant()`'s body instead of forcing an unrelated refactor into
   a security slice.
+
+---
+
+## F184 — explicit confirmation before every permitted variant deletion (§4.4)
+
+**2026-10-30.** The row this closes had been open since 2026-10-24 and twice re-stated. It was
+blocked, not deferred: F196 first had to make the Save path's *"Nothing has been changed"* true, and
+F195 had to put one policy on every door. Confirming a refusal that is not really a refusal would
+have been the worse outcome.
+
+### The consent signal is verifiable, and that was measured by taking it away
+
+The owner's condition is a *verifiable* explicit-consent signal, with the explicit warning that
+*"a merchant's confirmation does not turn an unsafe operation into a safe one."* A boolean would
+have satisfied the letter and not the requirement: anything able to set a parameter can set `1`.
+
+So the client echoes the **variant name** back — `ss_confirm_variant` on the trash door,
+`confirm_variant` on the API door — and the server compares it against the stored name:
+
+```php
+$ssConfirmed = is_string($ssConsent)
+    && trim($ssConsent) !== ''
+    && trim($ssConsent) === trim((string) $attribute->variant);
+```
+
+A hand-posted `DELETE …?confirm=1` is therefore refused: *a parameter was set* is not *someone saw
+what they were deleting*.
+
+| | |
+|---|---|
+| guards reverted to the pre-F184 hardcoded `true` | **4 of 6 consent cases FAIL** |
+| the 2 that still pass | `a correct consent does not override a hard block`, both doors — by design they refuse regardless of consent, so the revert cannot move them |
+| guards restored | 6 passed, 28 assertions |
+
+That is the project's stricter TDD rule, not the vendored one: the test that matters is the one that
+fails again when the fix is removed.
+
+### The independent review found a defect inside this change, and it was the signal's usability
+
+`VariantRemovalPolicy::refuse()` hardcoded `'confirm_with' => 'ss_confirm_variant_removal'`. That is
+the **bulk** save door's key, and its value is a boolean. The two per-variant doors read different
+keys and want the variant name — and `DeleteVariant()` forwards that array to the client verbatim.
+
+An API client that read `confirm_with` and retried accordingly would have been refused for ever,
+with no way to discover why: it reads as a server bug rather than as a consent requirement. §4.4
+requires the API path's signal to be documented and compatibility-tested, and a hint that names the
+wrong key fails that test however correct the enforcement behind it is.
+
+`refuse()` now takes the calling door's consent descriptor and defaults to the bulk door, so no
+existing call site moved:
+
+```php
+public static function refuse($product, $removed, bool $confirmed, ?array $consent = null): ?array
+// trash door: ['key' => 'ss_confirm_variant', 'value' => 'variant_name']
+// api   door: ['key' => 'confirm_variant',    'value' => 'variant_name']
+```
+
+`confirm_value` is advertised **only** when exactly one variant is named. Advertising the first of
+several would invite a client to confirm one variant and delete the rest — the replay the signal
+exists to prevent.
+
+The test does not merely assert the strings match the ones I wrote. It takes the advertised pair out
+of the refusal, sends it back, and asserts the delete then succeeds:
+
+```php
+$second = $this->api($merchant, $store->id, $variant->id, null, [
+    $advertised['confirm_with'] => $advertised['confirm_value'],
+]);
+$this->assertApiAllowed($second, '…the signal is not actionable');
+```
+
+Both new tests were watched failing first, against the unfixed policy, with the diff
+`-'ss_confirm_variant' / +'ss_confirm_variant_removal'`.
+
+### Local suites on this change
+
+After the review round, run by directory rather than by file
+(`docs/development/phase-2/evidence/f184/f184-local-suites.txt`):
+
+```
+tests/Feature/Security      4361 passed,  4 skipped, 18386 assertions, 0 failures
+tests/Feature/Merchant       389 passed,             2459 assertions,  0 failures
+tests/Feature/Commerce       709 passed,  7 skipped,  2594 assertions, 0 failures
+tests/Feature/Tenancy        439 passed,  6 skipped,  1601 assertions, 0 failures
+--testsuite=Unit             650 passed,             4071 assertions,  0 failures
+--testsuite=Contract          26 passed,               83 assertions,  0 failures
+```
+
+`VariantRemovalPolicyTest` alone is 42 cases / 210 assertions, up from 26 / 106 at D-28c.
+
+Unit matters here beyond regression: the UI ratchets live in it — the `.show_confirm` occurrence
+contract, the nine `VariantDeleteScopeTest` invariants on all three variant views, the
+both-languages key assertions for all eight new `__()` keys, and the `CLAUDE.md` line budget.
+
+### Real-browser verification: 194 checks, five configurations, 0 failures
+
+`docs/development/phase-2/evidence/f184/f184-browser-5-configs.txt`, produced by a **committed**
+harness (`docs/development/phase-2/tools/check-f184-confirmation.cjs`) that resolves its paths from
+`__dirname` and was re-run from the repository after being moved there, to prove it reproduces
+rather than merely having run once in a scratch directory.
+
+The fifth configuration is the one worth defending. **Direction is driven by the per-store
+`SITE_RTL` setting, not by the locale** (`layouts/app.blade.php:68`), so an Arabic store with RTL
+switched off renders an LTR document where `[dir="rtl"]` never matches. Four configurations would
+have missed it entirely.
+
+Proven in all five: the click opens the dialog and sends **no** DELETE; the dialog names the variant
+and states the loss is permanent; `role="dialog"`, `aria-modal="true"`; focus lands on **Cancel**;
+Escape is Cancel and sends nothing; Cancel sends nothing; Confirm sends **exactly one** DELETE
+carrying the consent echo; five contrast ratios ≥ 4.5:1 in light and dark; the dialog fits 390px.
+
+§4.3 in the browser, not only in PHPUnit: a **confirmed** delete of an order-blocked variant left
+every card in the DOM, was refused 409, and the refusal reached the merchant both visibly and in the
+assertive live region — while on an order-free product the same confirmed delete removed exactly one
+card.
+
+### Two measurements corrected my own work
+
+**The accordion kept toggling open behind the backdrop, in all four configurations at the time.** A
+capture-phase listener on `document` was not enough, which is the part that is not obvious.
+Bootstrap 5.1.3 passes its own delegation flag straight into `addEventListener`'s third argument, so
+its `data-api` handler is itself a `document` **capture** listener, registered when
+`bootstrap.min.js` loaded — long before a partial injected by `.html()`. Two capture listeners on
+one node run in registration order, so Bootstrap ran first and `stopPropagation()` could not un-run
+it. A stack capture on `bootstrap.Collapse.prototype.toggle` named `HTMLDocument.s` as the caller.
+The listener moved to **`window`**: the first object in the capture path, where the ordering is the
+event path itself rather than a registration race.
+
+**The hard-block message read as empty in two configurations — and that was the harness, not the
+code.** This app does not use toastr. `show_toastr()` (`public/js/custom.js:275`) renders through the
+`notifier` plugin into `.notifier-container` and mirrors the string into the DS live region; both
+carried the full correct refusal. An English needle could never have matched the Arabic message. The
+check is now language-agnostic and asserts both surfaces — which is a better check than the one it
+replaced, because the live region is what proves the refusal reaches a merchant who cannot see it.
+
+### What F184 does not close
+
+- **The WorkDo `AuctionProductController` path (F200) is unedited and still reachable.** §4.7
+  forbids editing vendored code and forbids claiming every variant-deletion path is closed while it
+  is live. It is not closed.
+- **F204** — `.show_confirm`, the canonical idiom for the other 65 destructive confirmations in 55
+  views, never calls `e.preventDefault()`, so on the two `type="submit"` sites the dialog is
+  decorative. Recorded, not fixed: outside F184's authorised scope. Measured blast radius of the
+  one-line fix is in the ledger row.
+- A browser harness is **not a CI gate**. The server-side half of F184 is pinned by
+  `tests/Feature/Security/VariantRemovalPolicyTest.php`; the client-side half is pinned by a
+  harness someone has to run.
+- Store 1 only in the browser. Cross-store coverage for these doors is in the PHPUnit suites.
+
+### F184's independent review: 17 findings, and 13 of them were defects in my own change
+
+Five reviewers, one per dimension, each followed by an adversarial verifier instructed to refute.
+This is the §6 pass, and it is the reason F184 is not what it was four hours earlier.
+
+**A note on the verdicts, because reading them naively inverts the result.** Nine of the verifiers
+returned `real = false`, and every one of those refutations says, in its own words, that the code no
+longer matches the finding — quoting the fix. The reviewers read the tree at review time; the
+verifiers read it after the fixes landed. So those refutations are evidence the **fixes are in**,
+not evidence the findings were wrong. The one verdict returned `real = true` (`variant_id`) is the
+one whose fix had not yet been written when its verifier ran.
+
+| # | finding | severity | §6 classification |
+|---|---|---|---|
+| 1 | `refuse()` advertised the **bulk** door's consent key to per-variant callers, and `DeleteVariant()` forwards it to clients — an API client following the hint is refused for ever | HIGH | **FIXED** — `refuse()` takes the calling door's descriptor; the test sends the advertised pair back and asserts the delete then succeeds |
+| 2 | `TrimStrings` runs `Str::trim()` (Unicode + invisibles incl. **RLM/ALM**) on the echo; the stored side used PHP `trim()` — such a variant is **permanently undeletable** | MEDIUM | **FIXED** — one normaliser, both sides |
+| 3 | A variant whose stored name is `''` can never be confirmed, and the dialog named nothing — a row that **was** deletable before F184 | MEDIUM | **FIXED** — the token is `#<id>` when there is no name |
+| 4 | The `xss` middleware rewrites every request string on the web door (`htmlspecialchars_decode`, then strips `alert`/`javascript`/`&lt;`/`&gt;`) — `alert-Red` is **permanently undeletable** | HIGH | **FIXED** — the same normaliser applies the same transform to both sides |
+| 5 | `ssSaveInFlight` was set at the top of `ssSubmitProduct()` and cleared only in the AJAX callbacks, so every pre-AJAX exit left **Save permanently dead** — worst right after the merchant confirmed | HIGH | **FIXED** — the latch is set where the request is issued |
+| 6 | `ssHandleVariantRemovalRefusal()` called the brand-new `confirmDestructive` behind a bare truthiness check, **before** the toast: a cached old JS threw inside jQuery's `success` and the merchant saw **nothing** | HIGH | **FIXED** — `typeof … === 'function'`, matching the sibling bridge |
+| 7 | The asset cache-bust token was still `?v=p02-6` although the change adds 230 lines of JS and 33 of CSS | HIGH | **FIXED** — `?v=p02-7` in all five places |
+| 8 | Both partials now fail closed on a missing bridge, which only the two first-party views defined — so the vendored **AuctionProduct** edit screen lost variant deletion entirely, with the message blaming the variant | HIGH | **FIXED first-party** — the bridge travels with the panel, idempotently (`<template>` + guarded definition); `packages/workdo/` untouched |
+| 9 | `'variant_id' => 'required'` accepts an array; `whereKey([a,b])` → `whereIn` → `first()` resolves the **lowest id**, so the row acted on is chosen by caller input and the two outcomes form a platform-wide existence oracle | **raised from LOW** (verifier: **CONFIRMED**, and it corrected the reviewer's own severity: with the rule reverted the array form **completed a real DELETE** of `min(id)` rather than the confirmed id, so the floor is same-store mis-targeted deletion plus id enumeration, not "existence only" — a consent echo is worthless if the identifier beside it can select a different row) | **FIXED** — `required\|integer` |
+| 10 | …and its twin on the **rename** door (`productvariant_id`), which I went looking for rather than fixing only the one reported — it matters more there, because `variant` is the key both rebuilds match their deletes on | LOW | **FIXED** — same rule |
+| 11 | The dialog's name line used `String.replace()` with merchant text as the replacement, so `$$`, `$&`, `` $` ``, `$'` displayed a **different name** from the one being confirmed | LOW | **FIXED** — `split().join()`, and the harness drives the shipped function with all five patterns |
+| 12 | Ctrl/Cmd+K opened the command palette **over** the open confirmation, and Escape then cancelled the confirmation instead of the palette | LOW | **FIXED** — the palette's open shortcut now stands down for a dialog, the third place that guard belongs |
+| 13 | A `$('.stock_status').show()` handler was lost when this region was rewritten, so unchecking "track stock" left every per-variant stock select hidden until a reload | LOW | **FIXED** — collateral loss, unrelated to F184, restored into the surviving handler |
+| 14 | The **bulk** save door's consent is a plain boolean, so the one door that deletes MANY variants is the one whose consent is not verifiable | HIGH | **HALF FIXED, HALF DEFERRED → F205.** The half that was mine is gone: it briefly advertised `confirm_value: 'true'`, and now advertises nothing for a boolean door. The rest is a protocol change the owner has to want |
+| 15 | A **fourth** reachable door — vendored `AuctionProductController::update()` — hard-deletes uncovered variants with no reference check and no consent | HIGH | **BLOCKED by §4.7 → F200, severity raised.** Re-verified by hand: **no `product_type` predicate anywhere in the method**, so it reaches ordinary products; route carries only `auth,web,PlanModuleCheck`; the permission test is the cross-store `isAbleTo()`. It bypasses the **hard blocks**, not merely the confirmation |
+| 16 | Check-then-delete race on both per-variant doors | LOW | **OPEN RISK** — consequence now recorded (a cart line prices off a `null` variant); needs a lock proven on MariaDB, which is the owner's own stated bar |
+
+Thirteen fixed, one half-fixed and recorded, one blocked by the vendoring boundary, one open risk. Every
+fix has a test, and every new guard was reverted and watched failing:
+
+| guard reverted | result |
+|---|---|
+| the consent comparison → the pre-F184 hardcoded `true` | **4 of 6** consent cases fail (the 2 that hold are the hard-block cases, which refuse regardless of consent by design) |
+| `consentToken()` → PHP `trim()`, no `#<id>` fallback | **4** fail |
+| the normaliser → drop the `xss` limb | **1** fails (the trash door; the API door has no `xss`, so its case correctly still passes) |
+| `variant_id` → `required` | **1** fails — and the first version of that test passed **without** the fix, because it sent the consent for the higher id and was refused for unmatched consent rather than for the array. Rewritten to confirm the **lowest** id, so only refusing the array keeps the row alive |
+| `split().join()` → `.replace()` | the browser check fails in **all five** configurations, in both languages (`المتغير: @Aالمتغير: @B`) |
+| the bridge `@include` removed from both partials | the bridgeless-screen checks fail: `{"bridge":"undefined","shell":false,"trash":8}` — eight live trash buttons and no confirmation |
+
+**And one of my own fixes broke the page, which the harness caught.** Inserting the bridge include
+into the two partials, I placed it with a search for the last `<script` before the handler — which
+matched the text `<script> tags` **inside a JS comment**, so the include landed in the middle of an
+open `<script>` block and killed every handler in it. The harness reported the shell present, the
+bridge defined, and the click doing nothing at all. Moved above the block; 224 checks, 0 failures.
+
+### And a file-scoped test run is not a suite run
+
+The four F184 files passed throughout. The full `tests/Feature/Security` directory did not: two
+**pre-existing positive controls** in `MerchantProductOwnershipTest` drive the trash door with no
+consent echo and assert 200 — `test_a_merchant_can_delete_their_own_variant` and
+`test_the_platform_operator_can_still_delete_a_product_variant`, each the lockout control that makes
+the refusal test above it mean anything. Both correctly got 409 once consent was required.
+
+They were updated to the new contract, not relaxed: each now asserts the bare request is **refused**
+with the row still present, *then* that the same principal succeeds with the echo — so each proves
+strictly more than before. The echo is built by calling `VariantRemovalPolicy::consentToken()`, the
+same call the two variant panels make when they render `data-variant`, so the tests cannot drift
+from what a browser sends. `MerchantProductOwnershipTest`: 25 passed, 63 assertions.
+
+The lesson is the narrow one: running the files a change touches is not evidence about the suite,
+and a per-file run is exactly the shape that hides a control in a neighbouring file asserting the
+contract you just changed.
+
+### The seventeenth finding came from looking at the picture
+
+Everything above was found by reading code or by an assertion. This one was found by opening the
+Arabic dark-mode screenshot the harness had been writing all along, and reading the line:
+
+> `المتغير: @S-Natural`
+
+The name line was built with a `@@v@@` marker, and **Blade's `@@` is the escape for a literal
+`@`**. It rewrote the `.split()` argument to `'@v@@'` while leaving the copy inside the `__()` call
+untouched, so the split matched one character late and every rendered line in every language
+carried a stray `@` in front of the variant name — on the one line whose entire job is naming the
+variant exactly.
+
+Two existing checks ran straight past it, and the reason is worth keeping: both asserted
+`list.includes(name)`, and `"Variant: @S-Natural"` contains `"S-Natural"`. A containment assertion
+cannot see a prefix. The marker is now `__SS_VARIANT_NAME__`, which Blade does not touch, and the
+check is `/^[^@]*S-Natural$/` plus `!/__SS/` — no stray character, no leftover marker, the name at
+the end. Reverted, it fails in all five configurations in both languages
+(`"المتغير: @S-Natural"`).
+
+The screenshots are committed beside the run log for exactly this reason: an assertion only catches
+what it was written to catch.
+
+**Browser evidence after the review round: 229 checks, five configurations, 0 failures**, now
+including a faithful simulation of the bridgeless screen — tear the bridge and the shell out of the
+page, re-inject the panel through the same first-party route the module calls, and assert the panel
+brings both back and the click opens the dialog instead of deleting.

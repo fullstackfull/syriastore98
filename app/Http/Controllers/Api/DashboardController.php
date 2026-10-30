@@ -2192,7 +2192,13 @@ public function UpdateCoupon(Request $request)
         $validator = \Validator::make(
             $request->all(),
             [
-                'productvariant_id' => 'required',
+                /* `integer`, for the same reason as `deletevariant`'s `variant_id`: `required`
+                   accepts an array, `whereKey([a, b])` compiles to `whereIn(...)`, and `->first()`
+                   then resolves the LOWEST id rather than refusing — the row renamed would be
+                   chosen by caller-supplied input. It matters more here than on the delete door,
+                   because `variant` is the key both rebuilds match their deletes on, so a rename
+                   landing on an unnamed row arms the owner's next save to hard-delete it. */
+                'productvariant_id' => 'required|integer',
             ]
         );
 
@@ -2288,8 +2294,16 @@ public function UpdateCoupon(Request $request)
             return $this->error(['message' => __('Store not found!')]);
         }
 
+        /* `integer`, NOT just `required`. `required` accepts an ARRAY, and
+           `ProductVariant::whereKey([a, b])` compiles to `whereIn(...)`, so `->first()` resolves
+           the LOWEST matching id rather than refusing: the row acted on was chosen by
+           caller-supplied input across the whole table, and the two outcomes are distinguishable
+           in the response, which makes it an existence oracle over `product_variants.id`
+           platform-wide. Measured both ways by review. A consent signal is worth nothing if the
+           identifier beside it can select a different row than the one confirmed.
+           `integer` still accepts the numeric strings every real client sends. */
         $rules = [
-            'variant_id' => 'required'
+            'variant_id' => 'required|integer'
         ];
 
         $validator = \Validator::make($request->all(), $rules);
@@ -2344,11 +2358,29 @@ public function UpdateCoupon(Request $request)
          * a NULL `store_id` is now reachable only if its PRODUCT is in the named store, which is a
          * better question than the one the column could answer.
          *
-         * `confirmed = true`, for the reason `product_attribute_delete` records: this IS the
-         * separate, deliberate per-variant delete that D-20 condition 3 asks for, so it needs the
-         * BLOCKS -- cart, wishlist, store-less refusals, order lines carrying a variant_id and the
-         * unverifiable order history -- WITHOUT the confirmation refusal, which would otherwise
-         * fail every ordinary call on a reference-free variant.
+         * F184 / D-28c -- THE CONSENT SIGNAL IS VERIFIABLE, which is the owner's condition for
+         * this door in particular: *"use a verifiable explicit-consent signal on the API path
+         * rather than permitting a plain API call."*
+         *
+         * This passed a hardcoded `true`, on D-20's reading that a dedicated per-variant endpoint
+         * is itself the deliberate act. The owner's F184 condition supersedes that. The caller
+         * must now echo the variant's own `variant` value in `confirm_variant`.
+         *
+         * WHY AN ECHO AND NOT A BOOLEAN. Anything that can send `confirm=1` can send it blind, so
+         * a boolean would record that a parameter was set, not that a client had seen what it was
+         * destroying. The name is a value a caller can only supply by having read the row. An
+         * unconfirmed call is answered with the refusal that NAMES the variant and its SKU, price
+         * and stock, so a client's second call is an informed one -- which is the whole shape the
+         * owner asked for, expressed in two round trips instead of a dialog.
+         *
+         * THIS IS A BREAKING CHANGE FOR ANY CLIENT THAT DELETED IN ONE CALL, and it is documented
+         * as one rather than assumed away. Measured: nothing in the Flutter admin app at
+         * /home/user/StoreSyria_app98 calls `deletevariant` (a case-insensitive grep over `lib/`
+         * finds no occurrence), and the Contract suite asserts nothing about it. The parity
+         * document records the new parameter for any other client.
+         *
+         * THE BLOCKS DO NOT DEPEND ON IT: `refuse()` applies every reference check before it looks
+         * at `$confirmed`, so a correct token still cannot carry a delete past a hard block.
          *
          * THE REFUSAL STAYS INSIDE THE ENVELOPE. `error()` answers HTTP 200 with `{status: 0, ...}`
          * and the real text under `data.message`; a 401 is never used, because the shipped Flutter
@@ -2378,10 +2410,16 @@ public function UpdateCoupon(Request $request)
             return $this->error(['message' => $ssDenied['msg']]);
         }
 
+        $ssApiConsent = $request->input('confirm_variant');
+
+        /* The same comparison as the trash door, from the same place. */
+        $ssApiConfirmed = \App\Services\VariantRemovalPolicy::consentSatisfied($ssApiConsent, $ProductVariant);
+
         $ssRefusal = \App\Services\VariantRemovalPolicy::refuse(
             $ssProduct,
             collect([$ProductVariant]),
-            true
+            $ssApiConfirmed,
+            ['key' => 'confirm_variant', 'value' => 'variant_name']
         );
 
         if ($ssRefusal !== null) {

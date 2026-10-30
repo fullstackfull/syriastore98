@@ -624,6 +624,20 @@
             </div>
         </div>
     </div>
+
+    {{--
+        F184 / D-28c. THIS SCREEN HAS LIVE TRASH BUTTONS, which is easy to miss on a page whose
+        whole purpose is to look rather than to change.
+
+        `.attribute_combination` above is filled with the SAME `attribute_combinations_data`
+        partial the editor uses, and that partial's per-variant trash button is fully functional
+        here: the `$('input').attr('readonly', true)` sweep in this file's script runs before the
+        async injection and never touches an `<a>` anyway. So without this include the read-only
+        screen would keep the bare one-click delete the editor just lost, and the owner's condition
+        -- a visible explicit confirmation before EVERY permitted delete -- would hold on one
+        screen and not the other.
+    --}}
+    @include('product._variant-delete-dialog')
 @endsection
 
 @push('custom-script')

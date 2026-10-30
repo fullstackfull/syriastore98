@@ -222,7 +222,7 @@
          The per-screen include remains and is now a no-op duplicate link on
          those screens; it is kept so a screen outside this layout (guest,
          theme_layout) can still opt in. --}}
-    <link rel="stylesheet" href="{{ asset('css/store-syria-ds.css') }}?v=p02-6">
+    <link rel="stylesheet" href="{{ asset('css/store-syria-ds.css') }}?v=p02-7">
     {{-- P2-04-5. The BEHAVIOUR follows the stylesheet into the layout, for the same reason the
          stylesheet was promoted: a screen that uses a design-system component should not also
          have to remember an include. The order list's quick-preview panel is the case that
@@ -233,7 +233,7 @@
          The file guards itself against a second execution, because the opt-in partial is still
          included by dashboard.blade.php and attribute_option/index.blade.php and a repeated
          <script src> runs again rather than being skipped. --}}
-    <script defer src="{{ asset('js/store-syria-ds.js') }}?v=p02-6"></script>
+    <script defer src="{{ asset('js/store-syria-ds.js') }}?v=p02-7"></script>
 
     {{-- P2-A-02. THE DARK-MODE HOOK, in <head> and on every admin page.
 

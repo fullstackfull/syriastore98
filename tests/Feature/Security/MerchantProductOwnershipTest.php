@@ -324,6 +324,25 @@ class MerchantProductOwnershipTest extends SecurityTestCase
      * variant data at all, which is how the first version of the combination test came to assert
      * on a string the page could never have contained whether the fix was present or not.
      */
+    /**
+     * The trash door with the F184 consent echo, built from the policy rather than hardcoded.
+     *
+     * Both POSITIVE CONTROLS below used to post nothing and assert 200, which was the contract
+     * before F184 required an explicit confirmation. They are updated rather than relaxed: each
+     * still proves the permitted principal CAN delete — which is what makes the refusal tests
+     * above mean something — and now also proves that the confirmation path is the one that works.
+     * `VariantRemovalPolicy::consentToken()` is the same call the two variant panels make when
+     * they render `data-variant`, so these cannot drift from what a browser actually sends.
+     */
+    private function trashWithConsent(\App\Models\User $actor, int $variantId)
+    {
+        $variant = \App\Models\ProductVariant::withoutGlobalScopes()->findOrFail($variantId);
+
+        return $this->actingAs($actor)->delete('/product-attribute-delete/' . $variantId, [
+            'ss_confirm_variant' => \App\Services\VariantRemovalPolicy::consentToken($variant),
+        ]);
+    }
+
     private function variantFor(Product $product, string $variant = 'red', int $stock = 50): int
     {
         return DB::table('product_variants')->insertGetId([
@@ -519,7 +538,14 @@ class MerchantProductOwnershipTest extends SecurityTestCase
         $own = $this->productIn($storeA, 'own-variant-owner', 50);
         $variantId = $this->variantFor($own);
 
-        $response = $this->actingAs($merchantA)->delete('/product-attribute-delete/' . $variantId);
+        /* F184: WITHOUT the consent echo this is refused, and that refusal is the feature. */
+        $unconfirmed = $this->actingAs($merchantA)->delete('/product-attribute-delete/' . $variantId);
+        $this->assertSame(409, $unconfirmed->status(),
+            'the trash door deleted on a bare request with no confirmation. Body: '
+            . substr($unconfirmed->getContent(), 0, 200));
+        $this->assertDatabaseHas('product_variants', ['id' => $variantId]);
+
+        $response = $this->trashWithConsent($merchantA, $variantId);
 
         $this->assertSame(200, $response->status(),
             'A merchant can no longer delete their own variant, so the refusal test above proves '
@@ -790,7 +816,14 @@ class MerchantProductOwnershipTest extends SecurityTestCase
         $product = $this->productIn($storeA, 'operator-variant', 50);
         $variantId = $this->variantFor($product, 'red', self::OWN_VARIANT_STOCK);
 
-        $response = $this->actingAs($operator)->delete('/product-attribute-delete/' . $variantId);
+        /* F184 applies to the operator too: no confirmation, no delete. */
+        $unconfirmed = $this->actingAs($operator)->delete('/product-attribute-delete/' . $variantId);
+        $this->assertSame(409, $unconfirmed->status(),
+            'the operator deleted a variant with no confirmation. Body: '
+            . substr((string) $unconfirmed->getContent(), 0, 200));
+        $this->assertDatabaseHas('product_variants', ['id' => $variantId]);
+
+        $response = $this->trashWithConsent($operator, $variantId);
 
         $this->assertSame(200, $response->status(),
             'THE PLATFORM OPERATOR IS LOCKED OUT of variant management. Body: '

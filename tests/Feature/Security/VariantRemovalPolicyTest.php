@@ -136,22 +136,50 @@ class VariantRemovalPolicyTest extends SecurityTestCase
         ]);
     }
 
-    /** The API door, with a REAL bearer token — `custom.auth` resolves the tokenable, not actingAs(). */
-    private function api(User $user, $storeId, $variantId)
+    /**
+     * The API door, with a REAL bearer token — `custom.auth` resolves the tokenable, not actingAs().
+     *
+     * F184: `$consent` is the verifiable explicit-consent echo. The default is the variant's own
+     * name — the value a client can only supply by having read the row — because most cases here
+     * assert what a PERMITTED caller may do, and a permitted caller confirms. Pass `null` to drive
+     * the unconfirmed call, and a wrong string to drive a blind guess.
+     */
+    private function api(User $user, $storeId, $variantId, $consent = '__echo__', array $extra = [])
     {
+        if ($consent === '__echo__') {
+            $row = ProductVariant::withoutGlobalScopes()->find($variantId);
+            $consent = $row ? $row->variant : null;
+        }
+
+        $payload = ['store_id' => $storeId, 'variant_id' => $variantId];
+
+        if ($consent !== null) {
+            $payload['confirm_variant'] = $consent;
+        }
+
+        /* `$extra` lets a test send back exactly the key/value pair a refusal advertised, rather
+           than the pair the helper would have chosen — which is the only way to prove the
+           advertised signal is actionable and not just a string that matches the test. */
+        $payload = array_merge($payload, $extra);
+
         return $this->withHeader(
             'Authorization',
             'Bearer ' . $user->createToken('auth_token')->plainTextToken
-        )->deleteJson('/api/admin/deletevariant', [
-            'store_id' => $storeId,
-            'variant_id' => $variantId,
-        ]);
+        )->deleteJson('/api/admin/deletevariant', $payload);
     }
 
-    /** The trash door, a session route. */
-    private function trash(User $user, $variantId)
+    /** The trash door, a session route. `$consent` as above, under the key `ss_confirm_variant`. */
+    private function trash(User $user, $variantId, $consent = '__echo__')
     {
-        return $this->actingAs($user)->delete(route('product.attribute.delete', $variantId));
+        if ($consent === '__echo__') {
+            $row = ProductVariant::withoutGlobalScopes()->find($variantId);
+            $consent = $row ? $row->variant : null;
+        }
+
+        return $this->actingAs($user)->delete(
+            route('product.attribute.delete', $variantId),
+            $consent === null ? [] : ['ss_confirm_variant' => $consent]
+        );
     }
 
     /** `ProductVariant` carries no StoreScope, but read without scopes anyway — the project's rule. */
@@ -284,6 +312,465 @@ class VariantRemovalPolicyTest extends SecurityTestCase
 
         $this->assertApiAllowed($response, 'a reference-free variant was refused, so the guard is a lockout');
         $this->assertFalse($this->stillExists($variant->id), 'the variant was reported deleted and is still there');
+    }
+
+    // =============================================================================================
+    // F184 — THE CONSENT SIGNAL IS VERIFIED, NOT ASSUMED FROM THE CLICK
+    // =============================================================================================
+
+    /**
+     * BOTH PER-VARIANT DOORS REFUSE AN UNCONFIRMED DELETE.
+     *
+     * The owner's F184 condition: *"the trash click itself is not the confirmation and must not
+     * start the delete"*, and for the API path *"use a verifiable explicit-consent signal rather
+     * than permitting a plain API call."* Before this, both doors passed a hardcoded `true` for
+     * `$confirmed` — D-20's reading was that a dedicated per-variant endpoint is itself the
+     * deliberate act. So a client-side dialog alone would have been unverifiable: a hand-posted
+     * DELETE still deleted, which is the exact shape of the F195 bypass.
+     *
+     * @dataProvider perVariantDoors
+     */
+    #[DataProvider('perVariantDoors')]
+    public function test_an_unconfirmed_delete_is_refused_on_both_per_variant_doors(string $door): void
+    {
+        [$merchant, $store, , $variant] = $this->arrange();
+
+        $response = $door === 'api'
+            ? $this->api($merchant, $store->id, $variant->id, null)
+            : $this->trash($merchant, $variant->id, null);
+
+        if ($door === 'api') {
+            $this->assertApiRefused($response, 'the API door deleted a variant with no consent signal');
+            $this->assertStringContainsString('S-Red', (string) $response->json('data.message'),
+                'the refusal must NAME the variant, so a second call can be an informed one: '
+                . json_encode($response->json()));
+        } else {
+            $this->assertSame(409, $response->getStatusCode(),
+                'the trash door deleted a variant on a bare click with no consent signal. Body: '
+                . substr((string) $response->getContent(), 0, 200));
+        }
+
+        $this->assertTrue($this->stillExists($variant->id), 'the row is gone');
+    }
+
+    /**
+     * AND A BLIND GUESS IS NOT CONSENT — which is what makes the signal verifiable rather than
+     * decorative. A bare boolean would have been satisfied by anything that could set a parameter.
+     *
+     * @dataProvider perVariantDoors
+     */
+    #[DataProvider('perVariantDoors')]
+    public function test_a_wrong_consent_value_is_refused_on_both_per_variant_doors(string $door): void
+    {
+        [$merchant, $store, , $variant] = $this->arrange();
+
+        foreach (['1', 'true', 'yes', 'S-Blue', 'S-Red '] as $guess) {
+            $response = $door === 'api'
+                ? $this->api($merchant, $store->id, $variant->id, $guess)
+                : $this->trash($merchant, $variant->id, $guess);
+
+            /* 'S-Red ' — the right name with a trailing space — is the one that must be ACCEPTED,
+               because the comparison trims both sides: a form field can pick up whitespace and
+               refusing that would be a lockout rather than a control. Everything else is a guess. */
+            if ($guess === 'S-Red ') {
+                $this->assertTrue(
+                    $door === 'api'
+                        ? (int) $response->json('status') === 1
+                        : $response->getStatusCode() < 300,
+                    'the consent comparison must trim: a name with surrounding whitespace is the'
+                    . ' same name, and refusing it would be a lockout. Body: '
+                    . substr((string) $response->getContent(), 0, 200)
+                );
+                continue;
+            }
+
+            $this->assertTrue(
+                $door === 'api'
+                    ? (int) $response->json('status') === 0
+                    : $response->getStatusCode() >= 400,
+                "the consent value '{$guess}' was accepted as confirmation, so the signal records"
+                . ' that a parameter was set rather than that anyone saw what they were deleting'
+            );
+            $this->assertTrue($this->stillExists($variant->id), "the row is gone after '{$guess}'");
+        }
+    }
+
+    /**
+     * AND A CORRECT CONSENT STILL CANNOT CARRY A DELETE PAST A HARD BLOCK, which is the owner's
+     * condition that no confirmation may override one. It holds by construction:
+     * `VariantRemovalPolicy::refuse()` applies every reference check before it looks at
+     * `$confirmed`.
+     *
+     * @dataProvider perVariantDoors
+     */
+    #[DataProvider('perVariantDoors')]
+    public function test_a_correct_consent_does_not_override_a_hard_block(string $door): void
+    {
+        [$merchant, $store, $product, $variant] = $this->arrange();
+
+        \App\Models\Order::forceCreate([
+            'product_order_id' => 'F184-' . uniqid(),
+            'customer_id' => 0,
+            'is_guest' => 1,
+            'product_id' => $product->id,
+            'delivery_id' => 0,
+            'delivered_status' => 0,
+            'return_status' => 0,
+            'reward_points' => 0,
+            'order_date' => now(),
+            'payment_status' => 'Paid',
+            'final_price' => 100,
+            'store_id' => $store->id,
+            'product_json' => json_encode([['product_id' => $product->id, 'qty' => 1]]),
+        ]);
+
+        $response = $door === 'api'
+            ? $this->api($merchant, $store->id, $variant->id)
+            : $this->trash($merchant, $variant->id);
+
+        $this->assertTrue(
+            $door === 'api'
+                ? (int) $response->json('status') === 0
+                : $response->getStatusCode() === 409,
+            'a CORRECT consent token carried a delete past the unverifiable-order-history block.'
+            . ' Confirmation does not make an unsafe operation safe. Body: '
+            . substr((string) $response->getContent(), 0, 200)
+        );
+        $this->assertTrue($this->stillExists($variant->id), 'the row is gone');
+    }
+
+    /** @return array<string,array{0:string}> */
+    public static function perVariantDoors(): array
+    {
+        return ['the API door' => ['api'], 'the trash door' => ['trash']];
+    }
+
+    /**
+     * NOR MAY THE `xss` MIDDLEWARE'S REWRITING MAKE A VARIANT UNDELETABLE.
+     *
+     * Found by the same review pass, and it is the bigger version of the `TrimStrings` defect.
+     * `App\Http\Middleware\XSS::handle()` rewrites **every** request string before the handler
+     * runs — `htmlspecialchars_decode()`, then `str_replace(['&lt;', '&gt;', 'javascript',
+     * 'alert'], '', …)` — and `product.attribute.delete` sits inside the
+     * `['auth','xss','setlocate','verified']` group. So the echo and the stored name are not in the
+     * same string space: a variant named `alert-Red` arrives as `-Red`, and no value the merchant
+     * can type will ever equal the stored name.
+     *
+     * Such a name is reachable without any attack: `POST api/admin/updatevariant` carries no `xss`
+     * middleware, so a rename through the Flutter app stores it verbatim. And a variant named
+     * exactly `alert` normalises to the empty string, so it needs the `#<id>` fallback too — the
+     * name genuinely cannot be transmitted through the pipeline, and the merchant must be shown
+     * something they *can* send.
+     *
+     * One normaliser, applied to both sides, so the comparison is symmetric whichever middleware
+     * ran on the way in — the API door has no `xss`, the web door does, and both must behave.
+     *
+     * @dataProvider perVariantDoors
+     */
+    #[DataProvider('perVariantDoors')]
+    public function test_the_xss_middlewares_rewriting_does_not_make_a_variant_undeletable(string $door): void
+    {
+        foreach (['alert-Red', 'javascript-Blue', 'A&lt;B', 'alert'] as $stored) {
+            [$merchant, $store, , $variant] = $this->arrange();
+
+            $variant->variant = $stored;
+            $variant->timestamps = false;
+            $variant->save();
+            $variant = $variant->fresh();
+
+            /* Exactly what the trash button renders into `data-variant` and the dialog displays. */
+            $token = \App\Services\VariantRemovalPolicy::consentToken($variant);
+            $this->assertNotSame('', $token,
+                'a variant named ' . json_encode($stored) . ' was given nothing to echo');
+
+            $response = $door === 'api'
+                ? $this->api($merchant, $store->id, $variant->id, $token)
+                : $this->trash($merchant, $variant->id, $token);
+
+            if ($door === 'api') {
+                $this->assertApiAllowed($response, 'a variant named ' . json_encode($stored)
+                    . ' is undeletable through the API door: ' . json_encode($response->json()));
+            } else {
+                $this->assertSame(200, $response->getStatusCode(),
+                    'a variant named ' . json_encode($stored) . ' is undeletable through the trash '
+                    . 'door: ' . substr((string) $response->getContent(), 0, 240));
+            }
+
+            $this->assertFalse($this->stillExists($variant->id),
+                'the token was accepted for ' . json_encode($stored) . ' but the variant survived');
+        }
+    }
+
+    /**
+     * AND THE ROW THE API DOOR ACTS ON MUST BE THE ROW THE CONSENT NAMED.
+     *
+     * `'variant_id' => 'required'` accepts an ARRAY, and `whereKey([a, b])` compiles to
+     * `whereIn(...)` — so `->first()` resolves the LOWEST matching id rather than refusing, and the
+     * row acted on is chosen by caller-supplied input across the whole `product_variants` table.
+     * Review measured both halves: a merchant sending `variant_id=[v1,v2]` with the consent for
+     * `v2` got a refusal naming `v1`; and sending `[X, <own id>]` with `X` lower distinguishes
+     * "a row with id X exists in some tenant" from "it does not" by the two different bodies —
+     * a platform-wide existence oracle for a merchant with `Edit Products` in one of their own
+     * stores.
+     *
+     * Pre-existing rather than introduced here, but it is on a door this change is rewriting, and
+     * it is the *"a predicate built from caller-supplied input is not a tenant check"* shape. The
+     * consent signal is meaningless if the id can select a different row than the one confirmed.
+     */
+    public function test_the_api_door_refuses_an_array_of_variant_ids(): void
+    {
+        [$merchant, $store, , $first] = $this->arrange();
+
+        $second = ProductVariant::forceCreate([
+            'product_id' => $first->product_id,
+            'variant' => 'M-Blue',
+            'variation_price' => 55,
+            'price' => 66,
+            'stock' => 7,
+            'sku' => 'F195C-0002',
+            'variation_option' => '',
+            'store_id' => $store->id,
+        ])->fresh();
+
+        /* THE CONSENT MATCHES THE LOWEST ID, WHICH IS THE ONE `whereIn(...)->first()` RESOLVES.
+           A first version of this test sent the consent for the HIGHER id and passed without the
+           fix — not because the array was refused but because the consent did not match the row
+           that got resolved. That is the shape §5 forbids: a test that passes for the wrong
+           reason. With the consent matching the resolved row, nothing but refusing the array
+           itself can keep the row alive. */
+        $response = $this->api($merchant, $store->id, null, null, [
+            'variant_id' => [$first->id, $second->id],
+            'confirm_variant' => $first->variant,
+        ]);
+
+        $this->assertApiRefused($response,
+            'an array of variant ids was accepted, so the row acted on is chosen by caller input '
+            . 'rather than by the id the consent named: ' . json_encode($response->json()));
+
+        $this->assertTrue($this->stillExists($first->id),
+            'the lowest id in the array was deleted, so `whereKey([...])` picked the row');
+        $this->assertTrue($this->stillExists($second->id), 'the other id was deleted');
+
+        /* And the refusal must be about the IDENTIFIER, not a consent refusal that happens to
+           look the same from outside. */
+        $this->assertStringContainsString('variant', strtolower((string) $response->json('data.message')),
+            'the refusal did not name the offending field: ' . json_encode($response->json()));
+        $this->assertNull($response->json('data.ss_variant_removal'),
+            'the array was refused by the removal policy rather than by validation, which means it '
+            . 'reached the policy at all: ' . json_encode($response->json()));
+
+        /* The scalar form still works, so this is a narrowing and not a lockout. */
+        $ok = $this->api($merchant, $store->id, $first->id, $first->variant);
+        $this->assertApiAllowed($ok, 'validating the id broke the ordinary scalar call: '
+            . json_encode($ok->json()));
+        $this->assertFalse($this->stillExists($first->id), 'the scalar call did not delete');
+    }
+
+    /**
+     * AN INVISIBLE EDGE CHARACTER IN THE STORED NAME MUST NOT MAKE A VARIANT UNDELETABLE.
+     *
+     * Found by independent review of F184, and it is a permanent lockout rather than a nuisance.
+     * Laravel's global `TrimStrings` middleware runs `Str::trim()`, whose charlist is Unicode `\s`
+     * **plus** `Str::INVISIBLE_CHARACTERS` — NBSP, ZWSP, BOM, the ideographic space, and
+     * **RLM/ALM/ALM-isolate**. PHP's `trim()` strips only `" \t\n\r\0\x0B"`. So the consent echo
+     * arrives already stripped while the stored side was compared with `trim()`, and the two could
+     * never be equal: measured, `"Rouge\u{00A0}"` arrives as `"Rouge"` and was compared against
+     * `"Rouge\u{00A0}"`.
+     *
+     * RLM is the one that makes this more than theoretical in THIS product. The app is bilingual
+     * Arabic/English, and a name imported from an external catalogue
+     * (`ShopifyProductController::…` writes the title verbatim, outside any request, so no
+     * middleware trims it) can easily carry a leading RLM. The merchant would see the right name
+     * in the dialog, confirm, and be refused for ever with *"To proceed, confirm the removal
+     * explicitly"* — which reads as a broken server, not as a consent requirement.
+     *
+     * @dataProvider perVariantDoors
+     */
+    #[DataProvider('perVariantDoors')]
+    public function test_an_invisible_edge_character_does_not_make_a_variant_undeletable(string $door): void
+    {
+        foreach (["Rouge\u{00A0}", "\u{200F}أحمر", "Bleu\u{200B}", "Vert\u{FEFF}"] as $stored) {
+            [$merchant, $store, , $variant] = $this->arrange();
+
+            /* Eloquent, not DB::table(): ProductVariant is Cachable, and a raw write would leave
+               route-model binding serving the pre-write row — this project's standing trap. */
+            $variant->variant = $stored;
+            $variant->timestamps = false;
+            $variant->save();
+            $variant = $variant->fresh();
+
+            /* What the browser puts in `data-variant`, and what the API refusal advertises. */
+            $token = \App\Services\VariantRemovalPolicy::consentToken($variant);
+
+            $response = $door === 'api'
+                ? $this->api($merchant, $store->id, $variant->id, $token)
+                : $this->trash($merchant, $variant->id, $token);
+
+            if ($door === 'api') {
+                $this->assertApiAllowed($response,
+                    'a variant whose stored name carries ' . json_encode($stored) . ' could not be '
+                    . 'confirmed, so it is undeletable: ' . json_encode($response->json()));
+            } else {
+                $this->assertSame(200, $response->getStatusCode(),
+                    'a variant whose stored name carries ' . json_encode($stored) . ' could not be '
+                    . 'confirmed through the trash door: ' . substr((string) $response->getContent(), 0, 200));
+            }
+
+            $this->assertFalse($this->stillExists($variant->id),
+                'the consent was accepted for ' . json_encode($stored) . ' but the variant survived');
+        }
+    }
+
+    /**
+     * AND NEITHER MAY AN EMPTY STORED NAME — WHICH IS A REGRESSION F184 ITSELF INTRODUCED.
+     *
+     * `product_variants.variant` is NOT NULL with no default, and F199's measured outcome was a
+     * product whose variants were replaced by a single row named `''`. Before F184 the trash door
+     * passed a hardcoded `true` for `$confirmed` and such a row could be deleted. With the consent
+     * gate, `trim($sent) !== ''` refuses an empty echo unconditionally — and
+     * `ConvertEmptyStringsToNull` turns the echo into `null` before the handler even sees it — so
+     * a row that WAS deletable became permanently undeletable, with a dialog that named nothing.
+     *
+     * The token is therefore the stored name when there is one and `#<id>` when there is not: still
+     * verifiable (the merchant is shown exactly what they must echo), never empty, and one
+     * implementation shared by the doors and the view.
+     *
+     * @dataProvider perVariantDoors
+     */
+    #[DataProvider('perVariantDoors')]
+    public function test_a_variant_with_no_stored_name_can_still_be_confirmed(string $door): void
+    {
+        [$merchant, $store, , $variant] = $this->arrange();
+
+        $variant->variant = '';
+        $variant->timestamps = false;
+        $variant->save();
+        $variant = $variant->fresh();
+
+        $token = \App\Services\VariantRemovalPolicy::consentToken($variant);
+        $this->assertSame('#' . $variant->id, $token,
+            'a nameless variant must still have something to echo, or it cannot be confirmed');
+
+        /* The echo must still be REQUIRED: the fallback token is not a free pass. */
+        $unconfirmed = $door === 'api'
+            ? $this->api($merchant, $store->id, $variant->id, null)
+            : $this->trash($merchant, $variant->id, null);
+
+        if ($door === 'api') {
+            $this->assertApiRefused($unconfirmed, 'a nameless variant was deleted with no consent');
+            $this->assertSame($token, $unconfirmed->json('data.ss_variant_removal.confirm_value'),
+                'the refusal did not tell the client what to echo for a nameless variant: '
+                . json_encode($unconfirmed->json('data.ss_variant_removal')));
+        } else {
+            $this->assertSame(409, $unconfirmed->getStatusCode(),
+                'a nameless variant was deleted with no consent through the trash door');
+        }
+        $this->assertTrue($this->stillExists($variant->id), 'the nameless row is gone');
+
+        $response = $door === 'api'
+            ? $this->api($merchant, $store->id, $variant->id, $token)
+            : $this->trash($merchant, $variant->id, $token);
+
+        if ($door === 'api') {
+            $this->assertApiAllowed($response, 'a nameless variant is undeletable: '
+                . json_encode($response->json()));
+        } else {
+            $this->assertSame(200, $response->getStatusCode(),
+                'a nameless variant is undeletable through the trash door: '
+                . substr((string) $response->getContent(), 0, 200));
+        }
+
+        $this->assertFalse($this->stillExists($variant->id),
+            'the fallback token was accepted but the variant survived');
+    }
+
+    /**
+     * THE REFUSAL MUST NAME THE KEY THE DOOR ACTUALLY READS, AND THE VALUE IT ACTUALLY WANTS.
+     *
+     * Found by independent review of F184, inside F184's own change. `refuse()` hardcoded
+     * `'confirm_with' => 'ss_confirm_variant_removal'` — the BULK save door's key, whose value is
+     * a boolean (`$request->boolean()`). The two per-variant doors read different keys and want a
+     * different value: the trash door reads `ss_confirm_variant` and the API door reads
+     * `confirm_variant`, and both compare it to the stored variant NAME.
+     *
+     * The API door forwards `ss_variant_removal` to the client verbatim, so the signal the owner
+     * asked to be "verifiable" was telling an API client to retry with a key that door does not
+     * read, carrying a value it would reject anyway. A client that followed it would be refused
+     * for ever and have no way to discover why — which is worse than no hint, because it reads as
+     * a server bug rather than as a consent requirement.
+     *
+     * §4.4 requires the API path's consent signal to be documented and compatibility-tested. This
+     * is that test: it drives the real door and asserts the advertised key and value are the ones
+     * that, when sent back, actually work.
+     */
+    public function test_the_api_refusal_names_the_consent_key_that_door_reads(): void
+    {
+        [$merchant, $store, , $variant] = $this->arrange();
+
+        $refused = $this->api($merchant, $store->id, $variant->id, null);
+        $this->assertApiRefused($refused, 'the API door deleted a variant with no consent signal');
+
+        $advertised = $refused->json('data.ss_variant_removal');
+        $this->assertIsArray($advertised, 'the API refusal carried no ss_variant_removal to act on');
+
+        $this->assertSame('confirm_variant', $advertised['confirm_with'] ?? null,
+            'the API refusal advertised a consent key this door does not read, so a client '
+            . 'following it is refused for ever: ' . json_encode($advertised));
+
+        $this->assertSame($variant->variant, $advertised['confirm_value'] ?? null,
+            'the API refusal did not say WHAT to send, so the key alone is unusable: '
+            . json_encode($advertised));
+
+        /* The advertised pair, sent back verbatim, must actually work. Without this the two
+           assertions above only prove the strings match the ones I happened to write. */
+        $second = $this->api($merchant, $store->id, $variant->id, null, [
+            $advertised['confirm_with'] => $advertised['confirm_value'],
+        ]);
+
+        $this->assertApiAllowed($second,
+            'the consent pair the refusal advertised was itself refused, so the signal is not '
+            . 'actionable: ' . json_encode($second->json()));
+        $this->assertFalse($this->stillExists($variant->id),
+            'the advertised consent pair was accepted but the variant survived');
+    }
+
+    /**
+     * And the same question for the trash door, which does NOT forward `ss_variant_removal` in its
+     * 409 body — so this asks the policy with that door's own consent descriptor rather than
+     * widening the web AJAX contract for a consumer that does not exist.
+     */
+    public function test_the_trash_doors_consent_descriptor_names_its_own_key(): void
+    {
+        [, , $product, $variant] = $this->arrange();
+
+        $refusal = \App\Services\VariantRemovalPolicy::refuse(
+            $product,
+            collect([$variant]),
+            false,
+            ['key' => 'ss_confirm_variant', 'value' => 'variant_name']
+        );
+
+        $this->assertIsArray($refusal, 'an unconfirmed single-variant removal was not refused');
+        $this->assertSame('ss_confirm_variant', $refusal['ss_variant_removal']['confirm_with'] ?? null,
+            'the trash door descriptor did not reach the refusal: ' . json_encode($refusal));
+        $this->assertSame($variant->variant, $refusal['ss_variant_removal']['confirm_value'] ?? null,
+            'the trash door was not told which value to send: ' . json_encode($refusal));
+
+        /* The BULK door's default must not have moved: it reads a boolean under its own key, and
+           every existing caller passes no descriptor at all. */
+        $bulk = \App\Services\VariantRemovalPolicy::refuse($product, collect([$variant]), false);
+        $this->assertSame('ss_confirm_variant_removal', $bulk['ss_variant_removal']['confirm_with'] ?? null,
+            'the bulk save door\'s advertised key changed, which would break the edit page: '
+            . json_encode($bulk));
+        /* AND IT MUST ADVERTISE NO `confirm_value`. Review's point, and it is about what the
+           server tells a client rather than about what it enforces: this door reads
+           `$request->boolean()`, which `filter_var(..., FILTER_VALIDATE_BOOLEAN)` satisfies with
+           '1', 'true', 'yes' or 'on'. Publishing `confirm_value: 'true'` would be the server
+           advertising that a bare literal is sufficient — documenting the asymmetry in the
+           protocol instead of leaving it as a recorded finding (F205) for the owner to decide.
+           There is nothing actionable to advertise here: the flag lives in the form already. */
+        $this->assertArrayNotHasKey('confirm_value', $bulk['ss_variant_removal'],
+            'the bulk refusal advertised a bare literal as sufficient consent: ' . json_encode($bulk));
     }
 
     // =============================================================================================
@@ -733,6 +1220,54 @@ class VariantRemovalPolicyTest extends SecurityTestCase
         $this->assertSame('S-Red',
             (string) ProductVariant::withoutGlobalScopes()->find($variant->id)->variant,
             'the rename landed anyway');
+    }
+
+    /**
+     * AND THE RENAME DOOR HAS THE SAME UNVALIDATED IDENTIFIER AS THE DELETE DOOR HAD.
+     *
+     * `'productvariant_id' => 'required'` accepts an array and the handler does
+     * `whereKey($request->productvariant_id)`, so `whereIn(...)->first()` resolves the LOWEST
+     * matching id. Review found this shape on `deletevariant`; this is its twin, found by looking
+     * for the second door rather than fixing the one that was reported. It matters more here than
+     * it looks: `variant` is the key BOTH variant rebuilds match their deletes on
+     * (`whereNotIn('variant', …)`), so a rename landing on a row the caller did not name arms the
+     * owner's next ordinary save to hard-delete it — F202's mechanism, reached through the
+     * identifier instead of through the missing permission check.
+     */
+    public function test_the_rename_door_refuses_an_array_of_variant_ids(): void
+    {
+        [$merchant, $store, , $first] = $this->arrange();
+
+        $second = ProductVariant::forceCreate([
+            'product_id' => $first->product_id,
+            'variant' => 'M-Blue',
+            'variation_price' => 55,
+            'price' => 66,
+            'stock' => 7,
+            'sku' => 'F195C-0002',
+            'variation_option' => '',
+            'store_id' => $store->id,
+        ])->fresh();
+
+        $response = $this->withHeader(
+            'Authorization',
+            'Bearer ' . $merchant->createToken('auth_token')->plainTextToken
+        )->postJson('/api/admin/updatevariant', [
+            'store_id' => $store->id,
+            'productvariant_id' => [$first->id, $second->id],
+            'name' => 'RENAMED',
+        ]);
+
+        $this->assertApiRefused($response,
+            'an array of ids was accepted, so the row renamed is chosen by caller-supplied input: '
+            . json_encode($response->json()));
+
+        $this->assertSame('S-Red',
+            (string) ProductVariant::withoutGlobalScopes()->find($first->id)->variant,
+            'the lowest id in the array was renamed');
+        $this->assertSame('M-Blue',
+            (string) ProductVariant::withoutGlobalScopes()->find($second->id)->variant,
+            'the other id was renamed');
     }
 
     /** And the permitted principal can still rename, or the guard is a lockout. */
