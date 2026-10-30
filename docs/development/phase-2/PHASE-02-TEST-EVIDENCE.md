@@ -9513,3 +9513,80 @@ omission:** `git diff --name-only bc315c3a -- resources/views public/js public/c
 files, and the commit itself touched none either. The F204 and F184 browser evidence from the earlier
 commits stands and is not re-run.
 
+
+---
+
+## The D-29 closure set — eight slices, three of my own errors, and what each number measured (2026-10-30)
+
+**Read the SHA beside every figure.** The owner's standing rule is *"do not attribute a run on an
+old HEAD to a new HEAD"*, and an adversarial sweep of the ledger found that rule being broken by the
+ledger itself: `P2-08` claimed *"THE AUTHORITATIVE GATE IS ON `b918c1d7` WITH THE TREE FROZEN"* while
+**fourteen or more commits had landed since**, several of them on payment and API paths. A gate
+result quoted against a HEAD it did not measure is worse than no gate, so this section pairs each
+number with the commit it was taken on.
+
+### What landed, and the evidence for each
+
+| slice | evidence | measured |
+|---|---|---|
+| **F190 / D-29.5** — approved upload lists | `UploadTypeRestrictionTest` | **12 cases, 44 assertions.** Content inspection driven with real bytes: a PHP script named `.mp4` guesses `text/x-php`, a PNG renamed `.mp4` guesses `image/png`, both refused. **4 bites.** |
+| **F218** — the cache-flush census | `PaymentKeyFlushReachTest` | **8 cases, 15 assertions**, each on a throwaway **non-taggable FILE store**, because `CACHE_STORE=array` is taggable and the suite is otherwise blind to this class |
+| **F219** — the service layer's raw queries | `ServiceLayerRawQueryInventoryTest` | **5 cases, 11 assertions.** 25 raw statements, 17 scoped, 8 declared with reasons. **3 bites.** |
+| **F220** — E14's payment half | `GatewayReplayGuardCensusTest` | **6 cases, 85 assertions.** 8 guarded / 19 unguarded / 4 non-gateway. **Bitten both ways.** |
+| **Token Stage 3** | `MerchantTokenLifetimeTest` | **4 cases, 8 assertions.** **2 bites:** hardcode the two-argument call, and commit a lifetime value |
+| **D4 / D-29.4** — the review surface | `UnreconciledCaptureReviewTest` | **11 cases, 30 assertions. 4 bites** — both gates, the route layer alone, the controller layer alone, the tenant predicate, and a POST route |
+| **F217 second half + F221** | `PaidDownloadLinkInPagesTest` | **7 cases, 17 assertions. 2 bites.** |
+| **sidebar accessible name** | `tools/check-sidebar-search-name-live.cjs` | **15 live checks, AR/RTL and EN/LTR, all held** — and the first version's premise was **refuted** (below) |
+
+### MariaDB, on `40f3dbba`
+
+**31 scripts, 0 failures.** Including 16 checks for model-cache isolation, **14 for payment-reference
+idempotency on two real connections** (the race, failure before commit, failure after commit, tenant
+isolation, bind idempotency, concurrent bind) and 9 for a replay claim surviving a model save.
+
+**Its first run in this session failed on every script with `Connection refused`.** That was the
+MariaDB service dying in a container restart, not a code defect — `mysqladmin ping` confirmed it,
+the service was restarted and the re-run was clean. Recorded because a reader seeing 31 failures in
+a transcript should know which kind of failure it was.
+
+### Flutter, on `1978aff`
+
+Run **`41137150800`: 1289 tests, `All tests passed!`**, analyzer **246 issues, 0 errors, 0 warnings**
+with its informational count not grown, **both jobs green** including secrets-and-suppression
+hygiene. The six rewritten F212 cases appear **by name** in the run log.
+
+**Re-run locally and it agrees exactly:** `flutter test` 1289 passed, `flutter analyze` 246 issues.
+Which is itself a correction — see below.
+
+### Three errors of my own, corrected rather than quietly fixed
+
+1. **I said there is no local Flutter SDK.** There is, at `/opt/fl/flutter` — simply not on `PATH`,
+   which is why `which flutter` came back empty. So the F212 correction's logic never needed porting
+   to Python; local validation was available throughout. Running the analyzer also rewrote
+   `analysis_options.yaml` again, which independently confirms that block is an SDK artefact — the
+   same conclusion CI's own restore step reaches.
+
+2. **I repeated an agent's claim that E14's payment half had "no file and no code".**
+   `GatewayReturnTrustBoundaryTest` exists with **20 cases** across six gateway returns. Two audit
+   agents disagreed and I took the first at face value. What F220 adds is narrower and still real:
+   the existing cover is **per-gateway**, over the six returns that already carry the guard, and
+   nobody had measured the **population** outside it.
+
+3. **A browser measurement refuted my own justification for the sidebar fix.** The probe asserted
+   that removing `aria-label` would stop the engine resolving a name — on the premise *"a placeholder
+   is not an accessible name"*. **It failed in both directions.** Chromium computes a name from
+   `placeholder` for a text input: accname step 2(f), correct behaviour. The field was **not**
+   nameless, and the fix stands on the narrower basis the tool now measures — the name is explicit
+   and wins the precedence order, and it **survives the user typing**, which a placeholder-derived
+   name does not.
+
+### And one assertion of mine that passed on a crash
+
+`UnreconciledCaptureReviewTest`'s refusal case first read `get()` and asserted
+`assertNotSame(200, ...)`. **With the permission check removed it still passed** — the HTML branch
+reached a view that cannot render under `RefreshDatabase` and returned 500. *"Not 200"* is satisfied
+by a crash, so the test asserted that something went wrong rather than that the gate refused. Now
+`getJson` with an **exact 403**. Biting the two layers separately then showed they refuse
+**differently** — the route middleware aborts 403, the controller returns a 302 — so a second case
+drives the handler directly, because defence in depth is worth having only if each layer is asserted
+on its own.
