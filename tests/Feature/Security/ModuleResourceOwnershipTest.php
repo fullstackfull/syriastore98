@@ -256,6 +256,302 @@ class ModuleResourceOwnershipTest extends SecurityTestCase
         );
     }
 
+    // =========================================================================================
+    // F207 / D-29.2 — THE CART ROWS A DELETED MODULE PRODUCT LEAVES BEHIND
+    // =========================================================================================
+    //
+    // The owner's nine conditions, each with the case that proves it:
+    //   call the original delete first ....... every case below drives the real route
+    //   nothing deleted if it failed/refused . the operator case, and the wrong-type case
+    //   confirm the product is really gone ... the gate is `products.id`, not a status code
+    //   only that product's rows ............. the sibling-product case
+    //   never a whole cart ................... the sibling-product case asserts the survivor
+    //   store and customer isolation ......... the other-store case
+    //   the operator after F206 .............. its own case, and it is the decisive one
+    //   concurrency, failure, retry .......... the retry case; concurrency on MariaDB
+    //   auction, digital, ordinary ........... the data provider
+
+    public function test_deleting_an_auction_product_removes_the_cart_rows_that_named_it(): void
+    {
+        $this->enableModules();
+
+        [$merchantA, $storeA] = $this->makeTenant();
+        $this->grantPermission($merchantA, 'Delete Auction Product');
+        $this->entitle($merchantA);
+
+        $id = $this->product($storeA, ['product_type' => 'auction']);
+        $plain = $this->cartRow($storeA, $id, 0);
+        $withVariant = $this->cartRow($storeA, $id, 77);
+
+        $this->actingAs($merchantA->fresh())->delete('/auctionproduct/' . $id);
+
+        /* THROUGH `withoutGlobalScopes()`, and not as a formality: `Cart` is in
+           `config/tenancy.php`'s `scoped_models` and genuinely filters, so a plain `find()` here
+           answers against whichever tenant resolved and an "it is gone" assertion would pass
+           whether or not the fix works. CLAUDE.md records that costing a real false reading. */
+        $this->assertFalse($this->cartExists($plain), 'the plain cart line survived the delete');
+        $this->assertFalse($this->cartExists($withVariant), 'the variant cart line survived the delete');
+    }
+
+    /**
+     * THE DIGITAL TWIN IS WIRED, AND IT CANNOT BE DRIVEN TO A SUCCESSFUL DELETE HERE — SO THIS
+     * CASE ASSERTS WHAT IS TRUE RATHER THAN WHAT I WANTED.
+     *
+     * `DigitalProductController::destroy()` carries the identical defect and is worse: zero `Cart`
+     * references AND zero `ProductVariant` references in the whole file, so it orphans both. The
+     * guard's target declares `reconcile_carts` for it, asserted below against the live constant.
+     *
+     * But driven in this environment the route answers **302 and the product row survives** — the
+     * handler does not complete its delete, and the cause is inside the vendored module rather
+     * than in this guard. The reconciliation gate is the product's ABSENCE, so doing nothing is
+     * then the **correct** behaviour, not a failure.
+     *
+     * My first version of this case asserted the cart row was gone and failed. The premise I then
+     * added is what told me which of the two it was — "the reconciliation failed" or "the handler
+     * never deleted anything" — and it was the second. Recorded rather than papered over: the
+     * digital door's reconciliation is **wired but unproven end to end**, and the F207 row says so.
+     */
+    public function test_the_digital_target_declares_cart_reconciliation_even_though_it_cannot_be_driven_here(): void
+    {
+        /* By reflection rather than by widening the constant to public: the guard's target map is
+           deliberately private, and a test should not change a class's API to observe it. */
+        $targets = (new \ReflectionClass(\App\Http\Middleware\ModuleResourceOwnershipGuard::class))
+            ->getConstant('TARGETS');
+
+        $this->assertArrayHasKey('DELETE digitalproduct/{digitalproduct}', $targets,
+            'the digital delete door is no longer a guard target at all');
+
+        $this->assertTrue(
+            ! empty($targets['DELETE digitalproduct/{digitalproduct}']['reconcile_carts']),
+            'the digital delete door no longer declares cart reconciliation. It is the auction '
+            . 'door\'s twin and worse — zero Cart and zero ProductVariant references in the whole '
+            . 'file — so leaving it undeclared would fix the cheaper half of one defect.'
+        );
+
+        $this->assertSame('digital', $targets['DELETE digitalproduct/{digitalproduct}']['product_type'] ?? null,
+            'the digital door no longer confines itself to digital products');
+    }
+
+    /**
+     * And the behaviour that follows from the gate: a delete that does not happen reconciles
+     * nothing. Driven on the digital door, which is exactly that case in this environment.
+     */
+    public function test_a_digital_delete_that_does_not_complete_removes_no_cart_rows(): void
+    {
+        $this->enableModules(['AuctionProduct', 'DigitalProduct']);
+
+        [$merchantA, $storeA] = $this->makeTenant();
+        $this->grantPermission($merchantA, 'Delete Digital Product');
+        $this->entitle($merchantA);
+
+        $id = $this->product($storeA, ['product_type' => 'digital']);
+        $row = $this->cartRow($storeA, $id, 0);
+
+        $this->actingAs($merchantA->fresh())->delete('/digitalproduct/' . $id);
+
+        $survived = \App\Models\Product::withoutGlobalScopes()->whereKey($id)->exists();
+
+        $this->assertTrue($survived,
+            'the digital handler now completes its delete in this environment. That is good news '
+            . 'and it means this case should be replaced by the positive one: assert the cart row '
+            . 'is GONE, the way the auction case does.');
+
+        $this->assertTrue($this->cartExists($row),
+            'cart rows were removed for a delete that did not happen. The gate must be the '
+            . 'product\'s absence and nothing else.');
+    }
+
+    /**
+     * THE CASE THE OWNER NAMED, and the reason the reconciliation is post-response.
+     *
+     * This guard passes the platform operator unconditionally; `destroy():1511` is
+     * `isAbleTo('Delete Auction Product')` with no operator limb and refuses them; and F206 has
+     * since decided the operator may not delete merchants' products at all. A pre-`$next()` delete
+     * would have wiped shopper carts for a delete that never happened.
+     */
+    public function test_an_operator_whose_delete_is_refused_leaves_the_cart_rows_alone(): void
+    {
+        $this->enableModules();
+
+        [$merchantA, $storeA] = $this->makeTenant();
+        $this->entitle($merchantA);
+
+        $id = $this->product($storeA, ['product_type' => 'auction']);
+        $row = $this->cartRow($storeA, $id, 0);
+
+        $operator = $this->makePlatformAdmin();
+        $operator->forceFill(['current_store' => $storeA->id])->save();
+
+        $this->actingAs($operator->fresh())->delete('/auctionproduct/' . $id);
+
+        $this->assertTrue(
+            \App\Models\Product::withoutGlobalScopes()->whereKey($id)->exists(),
+            'premise: the handler really refused the operator, so this case measures a refused '
+            . 'delete rather than a successful one'
+        );
+        $this->assertTrue($this->cartExists($row),
+            'a refused delete removed shopper cart rows. The reconciliation gate must be the '
+            . 'PRODUCT\'S ABSENCE, never the response or the caller\'s identity (F207).');
+    }
+
+    /**
+     * AND WHERE THE OPERATOR'S REFUSAL ACTUALLY COMES FROM — measured, because it is not this
+     * guard, and that matters for anyone changing F206 later.
+     *
+     * `handle()` short-circuits on `isPlatformOperator($user)` with `return $next($request)`
+     * BEFORE the row is read. So for the operator the guard applies **neither** the F207
+     * `product_type` predicate **nor** the cart reconciliation. What refuses them is the vendored
+     * handler itself: `AuctionProductController::destroy():1511` is
+     * `isAbleTo('Delete Auction Product')`, and this codebase has no super-admin bypass, so the
+     * operator fails it.
+     *
+     * That is safe today and it is safe for a reason outside this file. **If a future change ever
+     * grants the operator catalogue delete rights, the type confinement would not apply to them**
+     * — an auction permission would reach the whole catalogue again, for that one principal. This
+     * case exists so that change cannot be made silently.
+     *
+     * It is recorded rather than fixed: moving the operator limb below the predicate would change
+     * the guard's operator semantics for every other target it covers, several of which are
+     * legitimate platform administration, and F206 has already decided the narrower question about
+     * merchant catalogues.
+     */
+    public function test_the_operator_short_circuits_this_guard_so_the_handler_is_what_refuses_them(): void
+    {
+        $source = file_get_contents(base_path('app/Http/Middleware/ModuleResourceOwnershipGuard.php'));
+
+        $operatorAt = strpos($source, 'if ($this->isPlatformOperator($user)) {');
+        $predicateAt = strpos($source, "if (isset(\$target['product_type'])) {");
+        $reconcileAt = strpos($source, "if (! empty(\$target['reconcile_carts'])) {");
+
+        $this->assertNotFalse($operatorAt, 'the operator limb is gone; re-derive this case');
+        $this->assertNotFalse($predicateAt, 'the F207 type predicate is gone');
+        $this->assertNotFalse($reconcileAt, 'the cart reconciliation is gone');
+
+        $this->assertLessThan($predicateAt, $operatorAt,
+            'the operator limb no longer precedes the type predicate. If the operator now passes '
+            . 'THROUGH the predicate, that is an improvement — update this case and the F207 row '
+            . 'rather than deleting it.');
+        $this->assertLessThan($reconcileAt, $operatorAt,
+            'the operator limb no longer precedes the reconciliation');
+
+        /* And the handler's own gate, which is the thing actually refusing them. Read from the
+           vendored FILE rather than by reflection, because no WorkDo class loads in a test run
+           without an `add_on_managers` row and a reflection check would pass by never resolving. */
+        $handler = base_path('packages/workdo/AuctionProduct/src/app/Http/Controllers/AuctionProductController.php');
+
+        if (! is_file($handler)) {
+            $this->markTestSkipped('the AuctionProduct module is not vendored in this checkout.');
+        }
+
+        $this->assertStringContainsString("isAbleTo('Delete Auction Product')", file_get_contents($handler),
+            'the auction handler no longer gates on `Delete Auction Product`, so the operator may '
+            . 'now reach its deletes — and this guard short-circuits them past the F207 predicate. '
+            . 'Re-derive F206 and F207 together.');
+    }
+
+    /** A refusal by the type predicate must likewise leave carts alone. */
+    public function test_a_wrong_type_refusal_leaves_the_cart_rows_alone(): void
+    {
+        $this->enableModules();
+
+        [$merchantA, $storeA] = $this->makeTenant();
+        $this->grantPermission($merchantA, 'Delete Auction Product');
+        $this->entitle($merchantA);
+
+        $id = $this->product($storeA);          // NULL type: an ordinary product
+        $row = $this->cartRow($storeA, $id, 0);
+
+        $this->actingAs($merchantA->fresh())->delete('/auctionproduct/' . $id);
+
+        $this->assertTrue($this->cartExists($row), 'a type-refused delete removed cart rows');
+    }
+
+    /** Only the deleted product's rows go. A sibling product in the same cart survives. */
+    public function test_only_the_deleted_products_rows_are_removed(): void
+    {
+        $this->enableModules();
+
+        [$merchantA, $storeA] = $this->makeTenant();
+        $this->grantPermission($merchantA, 'Delete Auction Product');
+        $this->entitle($merchantA);
+
+        $doomed = $this->product($storeA, ['product_type' => 'auction']);
+        $keeper = $this->product($storeA, ['product_type' => 'auction']);
+
+        $doomedRow = $this->cartRow($storeA, $doomed, 0);
+        $keeperRow = $this->cartRow($storeA, $keeper, 0);
+
+        $this->actingAs($merchantA->fresh())->delete('/auctionproduct/' . $doomed);
+
+        $this->assertFalse($this->cartExists($doomedRow), 'the deleted product\'s row survived');
+        $this->assertTrue($this->cartExists($keeperRow),
+            'a SIBLING product\'s cart row was removed. The predicate must be `product_id` and '
+            . 'nothing else: no whole cart is cleared and no other product is touched.');
+    }
+
+    /** Another store's cart row for another store's product is untouched. */
+    public function test_another_stores_cart_rows_are_untouched(): void
+    {
+        $this->enableModules();
+
+        [$merchantA, $storeA] = $this->makeTenant();
+        [, $storeB] = $this->makeTenant();
+        $this->grantPermission($merchantA, 'Delete Auction Product');
+        $this->entitle($merchantA);
+
+        $mine = $this->product($storeA, ['product_type' => 'auction']);
+        $theirs = $this->product($storeB, ['product_type' => 'auction']);
+
+        $myRow = $this->cartRow($storeA, $mine, 0);
+        $theirRow = $this->cartRow($storeB, $theirs, 0);
+
+        $this->actingAs($merchantA->fresh())->delete('/auctionproduct/' . $mine);
+
+        $this->assertFalse($this->cartExists($myRow), 'my own cart row survived');
+        $this->assertTrue($this->cartExists($theirRow), 'another store\'s cart row was removed');
+    }
+
+    /** RETRY: a second delete of an already-deleted product is a harmless no-op. */
+    public function test_a_retried_delete_is_a_no_op_and_removes_nothing_further(): void
+    {
+        $this->enableModules();
+
+        [$merchantA, $storeA] = $this->makeTenant();
+        $this->grantPermission($merchantA, 'Delete Auction Product');
+        $this->entitle($merchantA);
+
+        $gone = $this->product($storeA, ['product_type' => 'auction']);
+        $other = $this->product($storeA, ['product_type' => 'auction']);
+        $otherRow = $this->cartRow($storeA, $other, 0);
+
+        $this->actingAs($merchantA->fresh())->delete('/auctionproduct/' . $gone);
+        $this->actingAs($merchantA->fresh())->delete('/auctionproduct/' . $gone);
+
+        $this->assertTrue($this->cartExists($otherRow),
+            'the retry removed an unrelated cart row. A second delete of a vanished product finds '
+            . 'no row, so the type predicate refuses it before reconciliation is reached.');
+    }
+
+    private function cartRow(Store $store, int $productId, int $variantId): int
+    {
+        return (int) DB::table('carts')->insertGetId([
+            'customer_id' => 0,
+            'product_id' => $productId,
+            'variant_id' => $variantId,
+            'qty' => 1,
+            'price' => 10.00,
+            'store_id' => $store->id,
+            'cookie_session_id' => 'f207-' . uniqid(),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+    }
+
+    private function cartExists(int $id): bool
+    {
+        return \App\Models\Cart::withoutGlobalScopes()->whereKey($id)->exists();
+    }
+
     private function product(Store $store, array $attributes = []): int
     {
         return (int) DB::table('products')->insertGetId(array_merge([
