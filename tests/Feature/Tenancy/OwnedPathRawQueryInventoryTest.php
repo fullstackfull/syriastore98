@@ -481,12 +481,21 @@ class OwnedPathRawQueryInventoryTest extends TestCase
         // not in this file's own glob until this change -- the third time a path this inventory
         // claims to own had slipped out of it.
         // 34 -> 35 [2026-10-30, F207 / D-29.2]: ModuleResourceOwnershipGuard's product_type read.
+        // 35 -> 36 [2026-10-30, F207 / D-29.2 second half]: the SAME file's cart reconciliation
+        // adds a second raw read -- `DB::table('products')->where('id', $rowId)
+        // ->where('store_id', $rowStore)->exists()` at :523. It is the existence check D-29.2
+        // requires before any cleaning ("verify the product really disappeared from the database
+        // before cleaning"), so it cannot be an Eloquent read: `Product` is NOT in
+        // `config/tenancy.php`'s `scoped_models`, and more to the point a `Cachable` Product read
+        // can serve the pre-delete row from cache and report a deleted product as still present,
+        // which would skip the cleaning silently. The raw read sees the table. It carries
+        // `store_id` on its own line and the file is already classified 'tenant' above.
         // It is the FIRST raw query that file has ever carried -- every read used to live in the
         // ComparesRowOwnership trait -- so the file was absent from `$classified` and its statement
         // landed in the `unclassified` list. Classified 'tenant' above, and the statement carries
         // `->where('store_id', $rowStore)` so it earns that category rather than taking an
         // exemption from it.
-        $this->assertCount(35, $sites, "The owned-path raw query inventory changed:\n  "
+        $this->assertCount(36, $sites, "The owned-path raw query inventory changed:\n  "
             . implode("\n  ", array_keys($sites)));
 
         // Why `$relatedColumn` counts as a tenant predicate: every DERIVED_OWNERSHIP entry

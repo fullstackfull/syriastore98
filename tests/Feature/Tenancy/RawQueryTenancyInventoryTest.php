@@ -304,7 +304,7 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // refused a foreign row, and kept so the read cannot reach another tenant even if that
         // limb were ever reordered. Classified 'tenant' in OwnedPathRawQueryInventoryTest, earning
         // the category rather than taking an exemption.
-        $this->assertSame(['app' => 148, 'packages' => 45], $perDir,
+        $this->assertSame(['app' => 154, 'packages' => 45], $perDir,
             'The raw query-builder entry-point count moved. Every one of these is invisible to '
             . 'every Eloquent global scope, so a NEW site needs an explicit `store_id` predicate '
             . 'written at the call site -- there is no other remedy. A REMOVED one probably means '
@@ -335,7 +335,22 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // site it adds.
         // 191 -> 192 with F215's `landing_page_settings` existence check (see the note above).
         // 192 -> 193 with F207's product_type read (see the note above).
-        $this->assertSame(193, array_sum($perDir));
+        // 193 -> 199 [2026-10-30] with SIX sites from the three D-29 slices, each named so the
+        // delta is auditable rather than a number that moved:
+        //   F207 / D-29.2  -- ModuleResourceOwnershipGuard:523, the `products` existence check
+        //       that must run BEFORE any cart cleaning. Raw and not Eloquent because `Product` is
+        //       `Cachable`: a cached read can report a just-deleted product as still present,
+        //       which would skip the cleaning silently. Carries `store_id`.
+        //   F216 / D-29.3  -- GatewayReference:98, :165, :186, :206 (insert, bind, orderFor,
+        //       unreconciled). Raw and not Eloquent DELIBERATELY: the insert relies on the
+        //       database's own UNIQUE (store_id, gateway, reference) to decide a race, so it must
+        //       reach the engine without a model's fill, events or cache layer in between. All
+        //       four carry `store_id`; they do not appear in the per-table inventory below because
+        //       they name the table through `self::TABLE` rather than a literal.
+        //   F217 / D-29.6  -- DownloadExposureReport:52, the read-only exposure census. Its table
+        //       is a VARIABLE (`DB::table($table)`), so it likewise cannot appear per-table.
+        // The unscoped sum does not move for any of them, which is the property that matters.
+        $this->assertSame(199, array_sum($perDir));
     }
 
     /**
@@ -472,7 +487,7 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // remedy is, uniquely here, the defect. Verified on MySQL 8.0.46 by
             // tests/Support/Security/bin/verify-category-product-cascade-on-mysql.php (6 checks, 0 failures) and by
             // mutant B of the removal check. None of the three returns rows -- each is a COUNT read only to refuse.
-            'products' => [5, 3],    // 1 -> 2 with P1-SEC-04 ModuleStorefrontInputGuard::productOfStoreOrAbsent, WITH a store_id predicate -- the product must be the slug store's own
+            'products' => [6, 3],     // 1 -> 2 with P1-SEC-04 ModuleStorefrontInputGuard::productOfStoreOrAbsent, WITH a store_id predicate -- the product must be the slug store's own. 5 -> 6 total [2026-10-30, F207 / D-29.2] with ModuleResourceOwnershipGuard:523's existence check; THE UNSCOPED HALF STAYS AT 3, which is the assertion that matters -- the new site names `store_id`
             'settings' => [17, 5],   // 16 -> 17 with P1-SEC-11 criterion 4's review follow-up (DocumentDirection::ownRow reads the ORDER store's SITE_RTL and invoice_logo rows, WITH a store_id predicate -- see the entry-point note above for why it cannot go through GetValueByName); 15 -> 16 with P1-SEC-11 (OrderController::shippinglabel reads the order store's five address rows, WITH a store_id predicate); earlier: 15 -> 16 with P1-SEC-27 (StoreSettingsAccess::storedRows, WITH a store_id predicate); 16 -> 15 and 9 -> 5 with P1-SEC-29 (HostClaims)
             'shetabit_visits' => [16, 0],
             'side_menus_option' => [28, 0],
@@ -564,9 +579,21 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // 162 -> 163 with the Stage 1 token inventory report's `personal_access_tokens` read. It
         // names the table literally, so it is attributable here; the unattributable remainder is
         // unchanged at 28 (191 - 163).
-        $this->assertSame(163, array_sum(array_map(fn ($r) => $r[0], $actual)),
-            '163 literal-table sites of the 191 entry points; the other 28 build their table name '
-            . 'from a variable and so cannot be attributed (see LIMIT 2 in this class docblock).');
+        // 163 -> 164 [2026-10-30] with F207 / D-29.2's `products` existence check at
+        // ModuleResourceOwnershipGuard:523, the ONLY one of that delta's six new raw sites that
+        // names its table literally. THE UNATTRIBUTABLE REMAINDER THEREFORE RISES 28 -> 35, and
+        // that is not drift to be smoothed over: the other five sites genuinely cannot be
+        // attributed to a table by reading one line. F216's four GatewayReference statements name
+        // `self::TABLE` because the table name belongs to the service that owns it, and F217's
+        // exposure census takes `$table` as a loop variable precisely because its job is to walk
+        // several tables. Both are the right code and the wrong shape for this scanner, which is
+        // LIMIT 2 in this class's docblock rather than a new weakness. What covers them instead is
+        // direct: GatewayReferenceIdempotencyTest drives tenant isolation on the service, and the
+        // per-directory assertion above counts all six.
+        $this->assertSame(164, array_sum(array_map(fn ($r) => $r[0], $actual)),
+            '164 literal-table sites of the 199 entry points; the other 35 build their table name '
+            . 'from a variable or a class constant and so cannot be attributed (see LIMIT 2 in '
+            . 'this class docblock).');
         // 66 -> 71: +9 (campaigns 1, helpdesk_tickets 1, email_templates 1, user_email_templates 1, order_refunds 1, stores 2, plus the Duo/credential reads) and -2 (zid_orders)
         // 71 -> 73: of the five new sites only the two `stores` slug resolutions carry no `store_id` in their statement
         // 73 -> 76 with the three D13 category-delete product counts, which carry no `store_id` DELIBERATELY -- see the

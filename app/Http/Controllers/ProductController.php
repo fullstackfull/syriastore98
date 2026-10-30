@@ -12,6 +12,7 @@ use App\Models\Setting;
 use App\Models\User;
 use App\Models\Plan;
 use App\Models\Utility;
+use App\Support\UploadRules;
 use App\Models\Store;
 use App\Models\ProductAttributeOption;
 use App\Models\ProductAttribute;
@@ -787,7 +788,7 @@ class ProductController extends Controller
                             $fileName = 'video_' . time() . rand() . '.' . $ext;
                             $dir_video = 'uploads/' . $store_id->id. '/video';
                             if ($result == 1) {
-                                $path_video = Utility::upload_file($request, 'preview_video', $fileName, $dir_video, []);
+                                $path_video = Utility::upload_file($request, 'preview_video', $fileName, $dir_video, UploadRules::for('preview_video'));
                                 if ($path_video['flag'] == 1) {
                                     $url = $path_video['url'] ?? '';
                                 } else {
@@ -862,7 +863,7 @@ $Product->cost_price = $request->cost_price;
 
                             if ($result == 1) {
                                 $fileName = rand(10, 100) . '_' . time() . "_" . $request->downloadable_product->getClientOriginalName();
-                                $path = Utility::upload_file($request, 'downloadable_product', $fileName, $dir, []);
+                                $path = Utility::upload_file($request, 'downloadable_product', $fileName, $dir, UploadRules::for('downloadable_product'));
                                 if ($path['flag'] == 0) {
                                     $msg['flag'] = 'error';
                                     $msg['msg'] =  $path['msg'];
@@ -1110,7 +1111,7 @@ $Product->cost_price = $request->cost_price;
                             $dir_video = 'uploads/' .getCurrentStore() . '/video';
 
                             if ($result == 1) {
-                                $path_video = Utility::upload_file($request, 'preview_video', $fileName, $dir_video, []);
+                                $path_video = Utility::upload_file($request, 'preview_video', $fileName, $dir_video, UploadRules::for('preview_video'));
                                 if ($path_video['flag'] == 1) {
                                     $url = $path_video['url'];
                                 } else {
@@ -1134,7 +1135,7 @@ $Product->cost_price = $request->cost_price;
 
                             if ($result == 1) {
                                 $fileName = rand(10, 100) . '_' . time() . "_" . $request->downloadable_product->getClientOriginalName();
-                                $path = Utility::upload_file($request, 'downloadable_product', $fileName, $dir, []);
+                                $path = Utility::upload_file($request, 'downloadable_product', $fileName, $dir, UploadRules::for('downloadable_product'));
                                 if ($path['flag'] == 0) {
                                     $msg['flag'] = 'error';
                                     $msg['msg'] =  $path['msg'];
@@ -2039,7 +2040,7 @@ $Product->cost_price = $request->cost_price;
                 $file_paths = $product->preview_video;
                 if ($result == 1) {
                     Utility::changeStorageLimit(\Auth::user()->creatorId(), $file_paths);
-                    $path_video = Utility::upload_file($request, 'preview_video', $fileName, $dir_video, []);
+                    $path_video = Utility::upload_file($request, 'preview_video', $fileName, $dir_video, UploadRules::for('preview_video'));
                     if ($path_video['flag'] == 1) {
                         $url = $path_video['url'];
                     } else {
@@ -2157,7 +2158,7 @@ $Product->cost_price = $request->cost_price;
                     Utility::changeStorageLimit(\Auth::user()->creatorId(), $file_paths);
 
                     $fileName = rand(10, 100) . '_' . time() . "_" . $request->downloadable_product->getClientOriginalName();
-                    $path = Utility::upload_file($request, 'downloadable_product', $fileName, $dir, []);
+                    $path = Utility::upload_file($request, 'downloadable_product', $fileName, $dir, UploadRules::for('downloadable_product'));
                     if ($path['flag'] == 0) {
                         $msg['flag'] = 'error';
                         $msg['msg'] =  $path['msg'];
@@ -2480,7 +2481,7 @@ $Product->cost_price = $request->cost_price;
                     $dir_video = 'uploads/' .getCurrentStore() . '/video';
                     $file_paths = $product->preview_video;
                     if ($result == 1) {
-                        $path_video = Utility::upload_file($request, 'preview_video', $fileName, $dir_video, []);
+                        $path_video = Utility::upload_file($request, 'preview_video', $fileName, $dir_video, UploadRules::for('preview_video'));
                         if ($path_video['flag'] == 1) {
                             $url = $path_video['url'];
                         } else {
