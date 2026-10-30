@@ -1160,9 +1160,9 @@ private function paymeraOrderHighWaterMark(mixed $storeId): int
  * `$pending['processed']` still false, and **no in-process marker of either**: not a return
  * value, not a binding, not a flag. The only witness is the row.
  *
- * (Measured anchors: `DB::beginTransaction()` :3617, `DB::commit()` :3788, `$owner->email`
- * :3844, `OrderCompleteBinding::remember()` :3933. Re-measured 2026-10-30 -- the set before it,
- * :3543/:3714/:3770/:3859, drifted 71 lines when F210 added its ownership gate above this method.
+ * (Measured anchors: `DB::beginTransaction()` :3666, `DB::commit()` :3837, `$owner->email`
+ * :3893, `OrderCompleteBinding::remember()` :3982. Re-measured twice on 2026-10-30: F210's
+ * ownership gate moved them 71 lines, then F216's guard above this method moved them 49 more.
  * THE MARKER IS DATE-FREE ON PURPOSE: dating it is what the ratchet's own needle matches on, and
  * writing "Re-measured 2026-10-30:" here emptied that needle. These are STRUCTURAL claims and the numbers
  * drift -- two earlier versions of this comment cited lines this very change had already moved,
