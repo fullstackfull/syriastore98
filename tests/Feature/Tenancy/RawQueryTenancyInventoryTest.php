@@ -298,7 +298,13 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // dependency on a package that may not be vendored in every deployment, and the guard's
         // whole job is to be safe when the module is absent — which is why the line above it is
         // `Schema::hasTable()`. A raw read against a table name costs nothing if the table is gone.
-        $this->assertSame(['app' => 147, 'packages' => 45], $perDir,
+        // 147 -> 148 [2026-10-30, F207 / D-29.2]: ModuleResourceOwnershipGuard's product_type
+        // read, which confines each module's delete door to its own kind of product. It carries
+        // `->where('store_id', $rowStore)` -- redundant, because storeMatches() has already
+        // refused a foreign row, and kept so the read cannot reach another tenant even if that
+        // limb were ever reordered. Classified 'tenant' in OwnedPathRawQueryInventoryTest, earning
+        // the category rather than taking an exemption.
+        $this->assertSame(['app' => 148, 'packages' => 45], $perDir,
             'The raw query-builder entry-point count moved. Every one of these is invisible to '
             . 'every Eloquent global scope, so a NEW site needs an explicit `store_id` predicate '
             . 'written at the call site -- there is no other remedy. A REMOVED one probably means '
@@ -328,7 +334,8 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // of them a rename. Observed rather than renamed, so this delta's diff stays about the one
         // site it adds.
         // 191 -> 192 with F215's `landing_page_settings` existence check (see the note above).
-        $this->assertSame(192, array_sum($perDir));
+        // 192 -> 193 with F207's product_type read (see the note above).
+        $this->assertSame(193, array_sum($perDir));
     }
 
     /**

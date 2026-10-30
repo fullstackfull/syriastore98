@@ -1003,7 +1003,38 @@ public function city_list(Request $request, $slug)
         $o_data = $this->ownedOrder($store, $customer, $request->order_id);
 
         // The link is derived from the ORDER'S OWN product rows, never from the request.
-        $downloadLink = $o_data === null ? null : $this->downloadLinkFor($o_data);
+        //
+        // F217 [2026-10-30]: THIS NO LONGER MAILS A PUBLIC FILE URL. It used to be
+        // `get_file($path)` -- a URL under `public/uploads`, which is a symlink to `../uploads`, so
+        // the web server served it directly with no controller in the path. The entitlement check
+        // two lines above gated *who may request the mail*; the file itself was public, behind a
+        // name of `rand(10, 100) . '_' . time() . '_' . $originalName`, i.e. 91 prefixes times a
+        // one-second timestamp times a filename the product page often reveals. Anyone forwarded
+        // the mail, or guessing, downloaded paid goods with no order and no account.
+        //
+        // The link now points at `paid.download`, which re-asks entitlement AT DOWNLOAD TIME and
+        // streams the bytes with `Content-Disposition: attachment` and `nosniff`. The grant is an
+        // opaque server-held record rather than a signed URL, because `APP_KEY` is in git history
+        // and unrotated, so anything derived from it is forgeable -- the same reasoning
+        // `VariantRemovalConsent` records.
+        //
+        // THE GRANT IS WHAT MAKES A GUEST ORDER WORK. A registered buyer is authorised at download
+        // time by their own session; a guest has no account, so the only thing that can carry
+        // entitlement to them is something sent to the address that placed the order.
+        $downloadLink = null;
+        $downloadPath = $o_data === null ? null : $this->downloadablePathOf($o_data);
+
+        if ($o_data !== null && $downloadPath !== null) {
+            $downloadLink = route('paid.download', [
+                'storeSlug' => $store->slug,
+                'order' => $o_data->id,
+                \App\Services\DownloadGrant::FIELD => \App\Services\DownloadGrant::issue(
+                    $o_data,
+                    $downloadPath,
+                    $o_data->customer_id
+                ),
+            ]);
+        }
 
         if ($o_data === null || $downloadLink === null) {
             return response()->json(
@@ -1074,6 +1105,47 @@ public function city_list(Request $request, $slug)
      * The download link for an order, from its own product rows: the first line whose variant (or, failing that, product) of THIS store carries
      * a `downloadable_product` file. Null when nothing on the order is downloadable. P1-ORD-10.
      */
+    /**
+     * The order's own downloadable file PATH, or null.
+     *
+     * F217. `downloadLinkFor()` returns a public URL and is kept only for whatever still reads it;
+     * this returns the stored path, which is what a `DownloadGrant` must be bound to and what
+     * `PaidDownloadController` resolves independently. The derivation is identical on purpose --
+     * two ways of answering "what does this order let you download" would drift, and the one that
+     * drifted would be the one serving bytes.
+     */
+    private function downloadablePathOf(Order $order): ?string
+    {
+        $lines = json_decode((string) $order->product_json, true);
+
+        foreach (is_array($lines) ? $lines : [] as $line) {
+            if (! is_array($line) || empty($line['product_id'])) {
+                continue;
+            }
+
+            $path = null;
+
+            if (! empty($line['variant_id'])) {
+                $path = \App\Models\ProductVariant::where('id', $line['variant_id'])
+                    ->where('product_id', $line['product_id'])
+                    ->where('store_id', $order->store_id)
+                    ->value('downloadable_product');
+            }
+
+            if (empty($path)) {
+                $path = Product::where('id', $line['product_id'])
+                    ->where('store_id', $order->store_id)
+                    ->value('downloadable_product');
+            }
+
+            if (! empty($path)) {
+                return (string) $path;
+            }
+        }
+
+        return null;
+    }
+
     private function downloadLinkFor(Order $order): ?string
     {
         $lines = json_decode((string) $order->product_json, true);

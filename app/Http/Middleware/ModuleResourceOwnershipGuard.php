@@ -417,7 +417,26 @@ class ModuleResourceOwnershipGuard
          * reach the unguarded delete; it does not make the remaining case worse.
          */
         if (isset($target['product_type'])) {
-            $actualType = DB::table($target['table'])->where('id', $rowId)->value('product_type');
+            /*
+             * THE `store_id` PREDICATE IS REDUNDANT HERE AND IT STAYS, for two reasons.
+             *
+             * It is redundant because `storeMatches()` three statements above has already refused
+             * any row whose store is not the caller's, so `$rowId` is known to be in `$rowStore`.
+             *
+             * It stays because (a) defence in depth costs nothing: if that earlier limb were ever
+             * reordered or removed, this read would still not reach another tenant's row; and
+             * (b) `OwnedPathRawQueryInventoryTest` requires every raw query in an owned path to
+             * carry a tenant predicate or be declared store-less **by design**. Declaring it would
+             * have been the wrong answer: a declaration is an exemption, and this statement does
+             * not need one — it can simply be scoped. An exemption that could have been a
+             * predicate is how an inventory accumulates hand-carved exceptions.
+             */
+            // ONE LINE, and not for style: `OwnedPathRawQueryInventoryTest` reads the LINE a
+            // `DB::table(` appears on when it looks for a tenant predicate, so a fluent chain
+            // split across lines hides the `store_id` from it and the statement reads as
+            // unscoped. Measured — the multi-line form failed that inventory with the first line
+            // alone quoted back.
+            $actualType = DB::table($target['table'])->where('id', $rowId)->where('store_id', $rowStore)->value('product_type');
 
             if ((string) $actualType !== (string) $target['product_type']) {
                 return $this->deny($request, 'wrong product type');

@@ -2348,3 +2348,148 @@ No completed row is reopened and no later phase is started. The owner's six-phas
 closure gates and the outstanding items listed in §8 of the directive (F186, F188, D-13, D-22/F121,
 E13, F95/F96 residuals, Flutter PR #4 CI evidence, the approved token-security stages, F76 and the
 product media/file-type gaps, and the P2-08 acceptance matrix) all stand as previously recorded.
+
+---
+
+## D-29 — the owner's seven closure decisions of 2026-10-30
+
+> **Recorded verbatim in substance, with the four states kept apart as the owner required:**
+> **OWNER APPROVED** (the decision exists), **IMPLEMENTED** (code is written and committed),
+> **VERIFIED** (tests prove it, on a named HEAD), **PRODUCTION ACTIVATED** (it is live).
+>
+> The owner's instruction: *"record these approvals in the Phase 02 Decision Register, separating
+> OWNER APPROVED and IMPLEMENTED and VERIFIED and PRODUCTION ACTIVATED"*, and *"do not ask for these
+> seven decisions again."* They are not re-asked anywhere in this repository.
+>
+> Verified HEADs at the moment of approval: Laravel **`110fe036`**, Flutter **`3888a9fb`**.
+
+### The state of each, kept honest
+
+| # | decision | OWNER APPROVED | IMPLEMENTED | VERIFIED | PRODUCTION ACTIVATED |
+|---|---|---|---|---|---|
+| **D-29.1** | F194/F211 payment-cache isolation | ✅ 2026-10-30 | ✅ ships inert | ✅ 16 checks on MariaDB | ❌ **forbidden now** |
+| **D-29.2** | F207 safe cart reconciliation | ✅ 2026-10-30 | see the row | see the row | n/a (no production step) |
+| **D-29.3** | F216 durable payment reference | ✅ **design + dev/test only** | see the row | see the row | ❌ **no production migration** |
+| **D-29.4** | F216 merchant attestation | ✅ **as a REFUSAL** | see the row | see the row | n/a |
+| **D-29.5** | F190 upload type lists | ✅ **in principle, conditional on F217** | see the row | see the row | n/a |
+| **D-29.6** | F217 secure paid downloads | ✅ **HIGH PRIORITY** | see the row | see the row | ❌ web-server changes are Runbook-only |
+| **D-29.7** | P2-01-17 header acceptance | ✅ **OWNER ACCEPTED for Phase 02 scope** | ✅ D-25's three steps | ✅ see the row | n/a |
+
+**The separation is not bookkeeping.** D-29.1 is approved, implemented and verified and is **still
+not closed in production** — the owner says so twice: *"do not change production settings, or run a
+production migration, or activate the isolation on production now"*, and *"do not consider F194
+closed in production merely because the Staging tests passed."* A reader who collapses the four
+columns would read this register as saying the payment-cache defect is handled. **It is not. It is
+ready.**
+
+---
+
+### D-29.1 — F194/F211: payment cache isolation. **APPROVED.**
+
+The owner adopts the Model Cache separation already implemented and tested on MariaDB, and requires:
+an independent model-cache store that payment keys cannot share; proof that saving a `Setting`,
+`User` or `Order` does not erase replay claims; request-and-cache concurrency tested on MariaDB; **a
+review of every `Cache::flush` call that can reach a payment key**; a review of single- versus
+multi-server hosting; a trial activation on an isolated Staging where available, re-testing the
+original defect; and a **production Go/No-Go runbook with a rollback plan and post-activation
+monitoring**.
+
+**Forbidden:** production configuration changes, production migrations, activating the isolation on
+production now. **And F194 is not production-closed merely because Staging passes.**
+
+### D-29.2 — F207: safe cart reconciliation. **APPROVED.**
+
+Handle cart references orphaned by deleting an auction or digital product, **from first-party code
+only**, without touching `packages/workdo`. The owner's nine conditions: call the original delete
+**first**; delete no cart rows if the operation failed or the permission was refused; **confirm the
+product really is gone from the database** before cleaning; clean only the rows belonging to that
+product; never clear a whole cart or other products; preserve store and customer isolation; test the
+**platform operator** after F206; test concurrency, failure and retry; test auction, digital and
+ordinary products.
+
+> *"If the safety of the sequence cannot be proven, make the path fail safely and record the
+> blocker, rather than introducing a new unguaranteed delete."*
+
+That sentence is the decision's own escape hatch and it governs the implementation.
+
+### D-29.3 — F216: durable payment reference. **APPROVED FOR DESIGN, DEVELOPMENT AND ISOLATED DATABASE TESTING.**
+
+Create a durable, unique reference binding an order to a gateway capture. Required: review the real
+schema and existing writers; an explicit Gateway-Transaction↔Order link; uniqueness, tenant
+isolation and idempotency; cover the gateway return, the webhook and the retry; **another order in
+the same store is not evidence that this operation succeeded**; real MariaDB tests including
+concurrency and failure before and after commit; a migration **for development and testing only**,
+with a backfill plan if needed; independent review of anything touching accounting or stock.
+
+**No automatic `Paid` state without proof of capture. No production database or order-data change
+without separate approval.**
+
+### D-29.4 — F216: merchant attestation. **APPROVED POLICY — A MERCHANT'S STATEMENT ALONE IS NOT PAYMENT PROOF.**
+
+This is the decision that **refuses** what the earlier design asked about, and the refusal is the
+approval. Where no gateway verification is available: keep the review or pending-settlement state;
+show a needs-follow-up status to the merchant or the authorised party; keep the reference and the
+available information **without disclosing secrets**; create no duplicate order; declare no capture
+success without evidence; **release or restore no stock on a guess**; and **do not release the Replay
+Claim unsafely**.
+
+Required: a documented review path, with permissions and an audit trail. **Any new exceptional
+financial authorisation needs a separate owner decision.**
+
+### D-29.5 — F190: upload type lists. **APPROVED IN PRINCIPLE, SUBJECT TO SAFE FILE DELIVERY.**
+
+Approved for development and testing:
+
+| field | approved extensions |
+|---|---|
+| **preview video** | `mp4`, `webm`, `mov` |
+| **digital downloadable product** | `pdf`, `zip`, `epub`, `mp3`, `wav`, `csv`, `xlsx`, `docx`, `pptx`, `png`, `jpg`, `jpeg` |
+
+Proposed ceiling **50 MB per file**, conditional on PHP, web and infrastructure settings agreeing
+and on proving the size can be handled safely.
+
+Required: real type-and-content verification, not the name alone; **`max:` included with any
+`custom_validation`** so replacing the rule array never drops the size rule; executable or
+script-capable extensions refused; **the SVG exposure the old list permits must be brought under
+control rather than left**; original paths not leaked; valid and deliberately-misleading files both
+tested; and no blanket change to every WorkDo file or every merchant.
+
+> *"Do not enable the digital-type widening before F217 is closed, or a proven safe containment is
+> applied."*
+
+### D-29.6 — F217: secure paid downloads. **APPROVED — HIGH PRIORITY.**
+
+A protected download path for paid digital products. Required: confirm order ownership or download
+entitlement; support the registered buyer **and the guest** under a safe purchase model; **never
+treat a guessable link as authorisation**; serve through a controller or a safe streaming service;
+an appropriate `Content-Disposition`; `X-Content-Type-Options: nosniff`; path controls preventing
+traversal; **prevent unauthorised direct access to the OLD paid download files**; keep authorised
+public images and media working; expose no file across customers or stores; test compatibility with
+existing digital orders and old links.
+
+> *"Direct access to `public/uploads` and the other paths must be verified. Adding a new route alone
+> does not close F217 if the old public link still works."*
+
+Any production web-server change is **documented in the Runbook only, never executed**.
+
+### D-29.7 — P2-01-17: header acceptance. **APPROVED FOR PHASE 02.**
+
+The owner accepts D-25's conservative header implementation as sufficient for Phase 02 scope,
+**conditional on the accessibility, responsiveness, language and no-regression tests continuing to
+pass**. P2-01-17 becomes **OWNER ACCEPTED FOR PHASE 02 SCOPE**, with its implementation and test
+evidence linked. The broader visual improvement of the header and all merchant screens moves to
+**Phase 2.5 — Premium Merchant Experience**.
+
+> *"This approval concerns the header scope only, and does not mean final acceptance of all of
+> Phase 02."*
+
+---
+
+### What this entry does NOT record
+
+It records no approval the owner did not give. In particular: **Issue #120 remains deferred by owner
+decision and open in security terms**, and must not be described as closed; the remaining **Phase 01
+gates** must be documented and not ignored; and the standing prohibitions are unchanged — no merge
+to main, no production deployment, no production migrations, no production cache or environment
+changes, no production data writes, no secret rotation, no force push, no vendored WorkDo
+modification, and no Phase 2.5 or Phase 03 before owner acceptance.

@@ -214,6 +214,25 @@ class OwnedPathRawQueryInventoryTest extends TestCase
             // with BOTH a false "the permission is not seeded" premise and a resolveId() that
             // fell through to the route segment, each found by review rather than by a test, so a
             // second copy would have inherited whichever version was current that day.
+            // F207 / OWNER DECISION D-29.2. `ModuleResourceOwnershipGuard` had NO raw query of its
+            // own until this slice -- every read lived in the `ComparesRowOwnership` trait above --
+            // so the file was absent from this map and its first raw statement landed in the
+            // `unclassified` list, which is how this inventory reported it.
+            //
+            // 'tenant', NOT 'comparison', and the distinction is the honest one. The sibling
+            // entries are 'comparison' because their reads exist to FETCH `store_id` so the
+            // caller's tenant can be compared against it, and a predicate there would collapse
+            // "another merchant's row" into "no such row". This statement is the opposite: by the
+            // time it runs, `storeMatches()` has ALREADY refused any row outside the caller's
+            // store, so the store is established and the read is a plain scoped read of
+            // `product_type`. It carries `->where('store_id', $rowStore)` and earns the category
+            // rather than being exempted from it.
+            //
+            // IT IS ONE LINE FOR A MEASURED REASON: this inventory reads the LINE a `DB::table(`
+            // appears on, so a fluent chain split across lines hides the predicate and the
+            // statement reads as unscoped. The multi-line form failed here with only its first
+            // line quoted back.
+            'app/Http/Middleware/ModuleResourceOwnershipGuard.php' => 'tenant',
             'app/Http/Middleware/Concerns/ComparesRowOwnership.php' => 'comparison',
             // P1-SEC-04's ModuleAdministrativeRouteGuard. 'comparison', for the same reason as the sibling guards: its five raw reads
             // (campaigns, helpdesk_tickets, email_templates, user_email_templates, and the caller's own store for the Duo rule) fetch the
@@ -461,7 +480,13 @@ class OwnedPathRawQueryInventoryTest extends TestCase
         // ResolvesPendingPartialPayment, classified 'tenant' above. The directory it lives in was
         // not in this file's own glob until this change -- the third time a path this inventory
         // claims to own had slipped out of it.
-        $this->assertCount(34, $sites, "The owned-path raw query inventory changed:\n  "
+        // 34 -> 35 [2026-10-30, F207 / D-29.2]: ModuleResourceOwnershipGuard's product_type read.
+        // It is the FIRST raw query that file has ever carried -- every read used to live in the
+        // ComparesRowOwnership trait -- so the file was absent from `$classified` and its statement
+        // landed in the `unclassified` list. Classified 'tenant' above, and the statement carries
+        // `->where('store_id', $rowStore)` so it earns that category rather than taking an
+        // exemption from it.
+        $this->assertCount(35, $sites, "The owned-path raw query inventory changed:\n  "
             . implode("\n  ", array_keys($sites)));
 
         // Why `$relatedColumn` counts as a tenant predicate: every DERIVED_OWNERSHIP entry
