@@ -82,9 +82,20 @@ run. The script now asserts the new behaviour with the whole account in its own 
 
 ## What this gate does NOT establish
 
-- **Flutter: nothing was executed.** `ci.yml` fires only on pull requests and on pushes to
-  `main`/`master`, and no Flutter toolchain exists in this container. Every Flutter claim in the
-  ledger rests on reading code. (F159, unchanged.)
+- ~~**Flutter: nothing was executed.**~~ **CORRECTED [2026-10-30] — that line was wrong, and it
+  was my error.** It contradicted this repository's own F159 ledger row, which was closed on
+  2026-10-28 and re-verified on 2026-10-29. CI **did** run and **did** pass: run
+  [40735373693](https://github.com/fullstackfull/StoreSyria_app98/actions/runs/40735373693) on
+  `head_sha 7ef0b6b4`, which is the Phase 02 Flutter HEAD, through draft PR #4 — both jobs green,
+  every step. **The conflation worth naming:** "no Flutter SDK in this container" and "no Flutter
+  tests ran" are different statements. The first is true; the second is not.
+  Reading the real job log also closed a limit the F159 row had left open — it had recorded 1283 as
+  a *local* figure and "zero skipped" as unverified, because the log API returns a capped tail. The
+  line is now extracted from CI itself: `00:37 +1283: All tests passed!`, with neither a `~N` skip
+  marker nor a `-N` failure marker anywhere in the 499,880-character log. **1283 passed, 0 skipped,
+  0 failed**, Flutter 3.47.7 / Dart 3.13.5, lockfile enforced, both analyzer gates held. Evidence:
+  `../flutter-ci/run-40735373693.txt`.
+  What remains true: this gate did not *re-run* Flutter CI, because no Flutter code changed in it.
 - **Not every variant-deletion path is closed.** The vendored `AuctionProductController::update()`
   path (F200) is live and bypasses the hard blocks, not merely the confirmation. §4.7 forbids
   editing it.
