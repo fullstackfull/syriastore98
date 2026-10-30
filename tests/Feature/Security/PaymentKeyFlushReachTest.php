@@ -251,9 +251,68 @@ class PaymentKeyFlushReachTest extends TestCase
 
     // ───────────────────────────────────────── FINDING 2: the unguarded merchant-reachable flush
 
+    public function test_a_cachable_model_write_erases_the_claims_all_by_itself(): void
+    {
+        /*
+         * THE CORRECTION THAT MATTERS, AND IT UNDOES A CLAIM OF MINE.
+         *
+         * The case below asserts `PlanController` no longer runs a bare `optimize:clear`, and the
+         * commit that added it implied that closed the erasure. **IT DID NOT.** An independent
+         * review found, and this drives, that `$plan->update($post)` ON THE LINE ABOVE ALREADY
+         * FLUSHES THE WHOLE STORE: `App\Models\Plan` uses `Cachable`, so the write goes through
+         * laravel-model-caching, and on a non-taggable store that flush is a `Cache::flush()` over
+         * everything.
+         *
+         * So the narrowing removed ONE OF TWO FLUSHES. It is still right on its own terms, and the
+         * erasure is F194's to close -- which is implemented and inert. This case exists so the
+         * partial fix cannot be read as a whole one again.
+         */
+        $this->useNonTaggableDefaultStore();
+
+        $keys = $this->seedPaymentKeys();
+        $this->assertCount(4, $this->survivors($keys), 'premise: four claims were taken');
+
+        try {
+            // A Cachable model write. The table need not exist: the flush happens on the write
+            // path before the query, exactly as with Buildable::decrement() above.
+            \App\Models\Plan::query()->where('id', 999999)->update(['name' => 'probe']);
+        } catch (\Throwable $theQueryItselfMayFail) {
+            // swallowed: the assertion is about what happened BEFORE it
+        }
+
+        $this->assertSame(
+            [],
+            $this->survivors($keys),
+            'A `Plan` UPDATE ERASED EVERY PAYMENT CLAIM, with no Artisan call involved. This is why '
+            . "`--except => 'cache'` on the next line is a narrowing and not a fix, and why F194's "
+            . 'isolation is the only thing that closes it.'
+        );
+    }
+
     public function test_the_plan_update_handler_no_longer_runs_a_destructive_optimize_clear(): void
     {
         $source = (string) file_get_contents(base_path('app/Http/Controllers/PlanController.php'));
+
+        /*
+         * FORBIDS THE BEHAVIOUR, NOT ONE BYTE SEQUENCE. The first version asserted the absence of
+         * exactly `Artisan::call('optimize:clear');` -- so six other destructive spellings would
+         * have passed it: double quotes, a leading backslash, `cache:clear` instead, extra
+         * whitespace, an array-form call, or `Artisan::call('optimize:clear', [])`. Found by an
+         * independent review. The regex below matches any `optimize:clear` or `cache:clear` call in
+         * this file that does not carry `--except`.
+         */
+        $destructive = preg_match_all(
+            '/Artisan::call\(\s*[\x27"](?:optimize|cache):clear[\x27"]\s*(?:,\s*\[\s*\])?\s*\)/i',
+            $source,
+            $m
+        );
+
+        $this->assertSame(
+            0,
+            $destructive,
+            'PlanController carries a destructive cache clear again, in one of its spellings: '
+            . implode(' | ', $m[0] ?? [])
+        );
 
         $this->assertStringNotContainsString(
             "Artisan::call('optimize:clear');",
@@ -306,6 +365,59 @@ class PaymentKeyFlushReachTest extends TestCase
             [],
             $this->survivors($keys),
             'premise for the fix: the destructive task really does erase every payment claim'
+        );
+    }
+
+    public function test_the_services_own_explicit_flush_reaches_the_payment_keys_too(): void
+    {
+        /*
+         * A SITE THE F218 CENSUS MISSED, found by an independent review.
+         *
+         * The census enumerated `Cache::flush`, `cache()->flush`, `Artisan::call` with
+         * cache:clear/optimize:clear, and laravel-model-caching's own flush on model events. It did
+         * NOT name `ProductStockService::flushModelCache()`, which calls `$instance->flushCache()`
+         * directly at :238 (Product), :249 (ProductVariant) and :297 -- three call sites in one
+         * service, all on the checkout stock path.
+         *
+         * `flushCache()` is `Caching::flushCache()`, which is `$this->cache($tags)->flush()`, and
+         * `cache()` applies tags ONLY when the store is taggable. So on production's non-taggable
+         * `database` store each of these is a whole-store `Cache::flush()` -- the same mechanism as
+         * the decrement above, reached by a different and EXPLICIT route.
+         *
+         * It does not change F218's conclusion; it widens its reach. The checkout erases the claim
+         * it just took by two independent paths, not one.
+         */
+        $this->useNonTaggableDefaultStore();
+
+        $keys = $this->seedPaymentKeys();
+        $this->assertCount(4, $this->survivors($keys), 'premise: four claims were taken');
+
+        // Exactly what flushModelCache() does, on the same model.
+        (new Product())->flushCache();
+
+        $this->assertSame(
+            [],
+            $this->survivors($keys),
+            'an EXPLICIT flushCache() on a Cachable model erases every payment claim on a '
+            . 'non-taggable store. The census must name this route as well as the event-driven one.'
+        );
+    }
+
+    public function test_the_stock_service_really_calls_that_explicit_flush(): void
+    {
+        // So the case above is not testing a call nobody makes.
+        $source = (string) file_get_contents(base_path('app/Services/ProductStockService.php'));
+
+        $this->assertStringContainsString(
+            '$instance->flushCache();',
+            $source,
+            'ProductStockService must still flush explicitly, or the case above is hypothetical'
+        );
+
+        $this->assertSame(
+            3,
+            preg_match_all('/\$this->flushModelCache\(/', $source, $m),
+            'the three call sites the census now names: :238 Product, :249 ProductVariant, :297'
         );
     }
 }

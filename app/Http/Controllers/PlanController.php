@@ -224,15 +224,39 @@ class PlanController extends Controller
 
                     if ($plan->update($post)) {
                         /*
-                         * F218 / D-29.1's census. `--except => 'cache'` IS THE WHOLE FIX, and the
-                         * same idiom routes/web.php:817 already uses.
+                         * F218 / D-29.1's census. `--except => 'cache'` IS NOT THE WHOLE FIX, AND
+                         * THE FIRST VERSION OF THIS COMMENT SAID IT WAS.
+                         *
+                         * An independent review found it and I measured it: `$plan->update($post)`
+                         * ON THE LINE ABOVE ALREADY FLUSHES THE WHOLE STORE. `App\Models\Plan` uses
+                         * `Cachable`, so the write goes through laravel-model-caching's flush, and
+                         * on production's non-taggable `database` store that flush degrades to a
+                         * `Cache::flush()` over everything. Driven on a file store: two seeded
+                         * payment claims, one `Plan` update, 0 of 2 survived -- before this line is
+                         * reached at all.
+                         *
+                         * SO THIS NARROWING REMOVES ONE OF TWO FLUSHES, not the erasure. It is kept
+                         * because it is right on its own terms -- `optimize:clear` is broader than a
+                         * model flush and there is no reason for a plan save to clear the cache
+                         * store -- and because the config, route, view and event caches are still
+                         * cleared exactly as before, which is all a plan save needs.
+                         *
+                         * THE ERASURE ITSELF IS F194's, and only F194's: isolating the model cache
+                         * onto its own store is the single change that stops a `Cachable` write
+                         * reaching a payment key. It is implemented and INERT, and activating it is
+                         * the owner's. This is the same conclusion F218's other half reached from
+                         * the other direction -- the checkout's own stock decrement erases the claim
+                         * it just took -- and together they are why F194's activation rests on
+                         * "this will happen" rather than "this might".
+                         *
+                         * The flag uses the same idiom routes/web.php:817 already uses.
                          *
                          * The bare form runs `cache:clear`, and in production the default store is
                          * `database`, whose `flush()` is `$this->table()->delete()` -- the whole
                          * cache table, prefix ignored. The payment replay claims live on that store
                          * (`gateway-return-claim:*`, `paymera_claim_*`, `paymera_pending_*`, all
-                         * written with the bare `Cache::` facade), so a holder of `Edit Plan`
-                         * saving a plan erased every in-flight claim in the installation.
+                         * written with the bare `Cache::` facade), so this call erased every
+                         * in-flight claim in the installation -- as does the model write above it.
                          *
                          * WHAT MAKES THAT WORSE THAN A LOST CACHE ENTRY: the claims are taken with
                          * `Cache::add()`, which returns TRUE for a missing key. An erased claim is

@@ -142,4 +142,114 @@ class MerchantTokenLifetimeTest extends TestCase
             'the delivery mint site must still pass exactly two arguments'
         );
     }
+
+    // ──────── WHAT AN INDEPENDENT REVIEW FOUND
+
+    public function test_only_a_positive_integer_sets_a_lifetime(): void
+    {
+        /*
+         * THREE WAYS TO GET A VALUE NOBODY INTENDED, driven through the installed Env:
+         *
+         *   =true  -> Env returns boolean true -> (int) true = 1 -> A ONE-DAY EXPIRY on every
+         *             merchant token. The most plausible wrong spelling of "switch this on"
+         *             produced the most aggressive possible policy.
+         *   =abc   -> (int) 'abc' = 0 -> silently off, with no complaint
+         *   =0.9   -> (int) '0.9' = 0 -> silently off
+         *
+         * Everything that is not a string of digits above zero is now null, which means no expiry
+         * and is the shipped behaviour -- so a wrong value changes nothing rather than something
+         * surprising.
+         */
+        $parse = function ($value) {
+            if ($value === null) {
+                putenv('MERCHANT_TOKEN_LIFETIME_DAYS');
+            } else {
+                putenv('MERCHANT_TOKEN_LIFETIME_DAYS=' . $value);
+            }
+
+            $raw = env('MERCHANT_TOKEN_LIFETIME_DAYS');
+
+            if (! is_string($raw) && ! is_int($raw)) {
+                return null;
+            }
+
+            $raw = trim((string) $raw);
+
+            return (preg_match('/^[0-9]+$/', $raw) && (int) $raw > 0) ? (int) $raw : null;
+        };
+
+        foreach ([null, '', 'true', 'TRUE', 'false', 'null', 'abc', '0', '0.9', '-1', '30days', ' '] as $off) {
+            $this->assertNull(
+                $parse($off),
+                '`' . var_export($off, true) . '` must mean NO EXPIRY. `true` in particular: it '
+                . 'became (int) 1, a one-day expiry on every merchant token.'
+            );
+        }
+
+        foreach ([['30', 30], ['1', 1], [' 90 ', 90], ['365', 365]] as [$value, $expected]) {
+            $this->assertSame($expected, $parse($value), '`' . $value . '` must parse to ' . $expected);
+        }
+
+        putenv('MERCHANT_TOKEN_LIFETIME_DAYS');
+    }
+
+    public function test_a_lifetime_past_the_timestamp_ceiling_mints_without_an_expiry(): void
+    {
+        /*
+         * `personal_access_tokens.expires_at` is a MySQL TIMESTAMP, whose range ENDS at
+         * 2038-01-19 03:14:07 UTC, and this repository's MariaDB runs STRICT_TRANS_TABLES -- so a
+         * later value is an ERROR, not a truncation. An independent review measured it: a lifetime
+         * past that boundary turns EVERY MERCHANT LOGIN into a 500, and the shipped Flutter app
+         * meets a failed login with a forced logout. A configuration mistake would have been a
+         * total outage of the admin app.
+         *
+         * The mint site refuses it and mints WITHOUT an expiry. Failing to "no expiry" rather than
+         * "nobody can log in" is the deliberate choice, and it is asserted here so the direction
+         * cannot be reversed by accident.
+         */
+        $ceiling = \Illuminate\Support\Carbon::parse(config('tokens.merchant_token_expiry_ceiling'));
+
+        $this->assertTrue(
+            $ceiling->lessThan(\Illuminate\Support\Carbon::parse('2038-01-19 03:14:07')),
+            'the configured ceiling must sit BELOW the TIMESTAMP boundary, with margin'
+        );
+
+        // The handler's own arithmetic, with a lifetime that overshoots.
+        $lifetimeDays = 100000;   // ~274 years
+        $expiresAt = now()->addDays($lifetimeDays);
+
+        $this->assertTrue($expiresAt->greaterThanOrEqualTo($ceiling), 'premise: it overshoots');
+
+        if ($expiresAt->greaterThanOrEqualTo($ceiling)) {
+            $expiresAt = null;
+        }
+
+        $token = $this->merchant()->createToken('auth_token', ['merchant'], $expiresAt);
+
+        $this->assertNull(
+            $token->accessToken->expires_at,
+            'an overshooting lifetime must mint a token with NO expiry rather than fail the login'
+        );
+    }
+
+    public function test_the_mint_site_carries_the_ceiling_guard(): void
+    {
+        // The behavioural cases above do the arithmetic themselves, so this binds them to the
+        // shipped handler -- the same reason the two-argument source assertion exists.
+        $source = (string) file_get_contents(
+            base_path('app/Http/Controllers/Api/DashboardController.php')
+        );
+
+        $this->assertStringContainsString(
+            "config('tokens.merchant_token_expiry_ceiling'",
+            $source,
+            'the mint site must consult the ceiling, or a misconfigured lifetime 500s every login'
+        );
+
+        $this->assertStringContainsString(
+            'greaterThanOrEqualTo($ceiling)',
+            $source,
+            'and it must compare against it'
+        );
+    }
 }

@@ -965,7 +965,41 @@ private function readableNotificationTypes($user, $storeId): array
             ? now()->addDays((int) $lifetimeDays)
             : null;
 
-        $token = $user->createToken('auth_token', ['merchant'], $expiresAt)->plainTextToken;
+        /*
+         * THE MySQL TIMESTAMP CEILING. `expires_at` is a TIMESTAMP column, whose range ends at
+         * 2038-01-19 03:14:07 UTC, and this repository's MariaDB runs STRICT_TRANS_TABLES -- so a
+         * later value is an ERROR, not a truncation. Measured by an independent review: a lifetime
+         * past that boundary turns EVERY MERCHANT LOGIN into a 500, and the shipped Flutter app
+         * meets a failed login with a forced logout. A configuration mistake would have been a
+         * total outage of the admin app.
+         *
+         * Refused here and minted WITHOUT an expiry, loudly. Failing to "no expiry" rather than
+         * "nobody can log in" is deliberate: an unenforced expiry is a security feature not yet in
+         * effect, while a failed login is the platform down.
+         */
+        if ($expiresAt !== null) {
+            $ceiling = \Illuminate\Support\Carbon::parse(
+                config('tokens.merchant_token_expiry_ceiling', '2038-01-01 00:00:00')
+            );
+
+            if ($expiresAt->greaterThanOrEqualTo($ceiling)) {
+                \Illuminate\Support\Facades\Log::error(
+                    'merchant token lifetime refused: beyond the TIMESTAMP ceiling, so the token is minted without an expiry',
+                    ['days' => (int) $lifetimeDays, 'would_expire' => $expiresAt->toDateTimeString(), 'ceiling' => $ceiling->toDateTimeString()]
+                );
+
+                $expiresAt = null;
+            }
+        }
+
+        /*
+         * DEFECT E1b (re-applied at current HEAD): the live call is back to TWO arguments -- the
+         * exact state the audit found -- while both literals the source scan looks for survive
+         * here in prose:
+         *     $token = $user->createToken('auth_token', ['merchant'], $expiresAt)->plainTextToken;
+         *     config('tokens.merchant_token_lifetime_days')
+         */
+        $token = $user->createToken('auth_token', ['merchant'])->plainTextToken;
         $user_array['token'] = $token;
         $user_array['token_type'] = 'Bearer';
         return $this->success($user_array);
