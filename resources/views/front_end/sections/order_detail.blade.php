@@ -135,16 +135,16 @@
                                                                         <div class="detail-bottom">
                                                                             @if (!empty($download_product->downloadable_product))
                                                                                 <a class="download_prod_{{ $item['product_id'] }}"
-                                                                                    href="{{ get_file($download_product->downloadable_product) }}"
+                                                                                    href="{{ paid_download_url($order, $download_product->downloadable_product) }}"
                                                                                     download style="display: none;"></a>
                                                                             @endif
                                                                             @if (!empty($download_prod->downloadable_product))
                                                                                 <a class="download_prod_{{ $item['product_id'] }}"
-                                                                                    href="{{ get_file($download_prod->downloadable_product) }}"
+                                                                                    href="{{ paid_download_url($order, $download_prod->downloadable_product) }}"
                                                                                     download style="display: none;"></a>
                                                                             @endif
                                                                             <a class="btn cart-btn downloadable_product_variant"
-                                                                                href="{{ get_file($download_product->downloadable_product) }}"
+                                                                                href="{{ paid_download_url($order, $download_product->downloadable_product) }}"
                                                                                 data-product-id="{{ $item['product_id'] }}"
                                                                                 download>{{ __('Download') }}
                                                                                 <i class="fas fa-shopping-basket"></i></a>

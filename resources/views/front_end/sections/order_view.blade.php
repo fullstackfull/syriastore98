@@ -67,12 +67,12 @@
                                                         <div class="detail-bottom">
                                                             @if (!empty($download_product->downloadable_product))
                                                                 <a class="download_prod_{{ $item['product_id'] }}"
-                                                                    href="{{ get_file($download_product->downloadable_product) }} "
+                                                                    href="{{ paid_download_url($order, $download_product->downloadable_product) }} "
                                                                     download></a>
                                                             @endif
                                                             @if (!empty($download_prod->downloadable_product))
                                                                 <a class="download_prod_{{ $item['product_id'] }}"
-                                                                    href="{{ get_file($download_prod->downloadable_product) }}"
+                                                                    href="{{ paid_download_url($order, $download_prod->downloadable_product) }}"
                                                                     download></a>
                                                             @endif
                                                             <button data-id="{{ $order['id'] }}"

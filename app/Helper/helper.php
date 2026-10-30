@@ -298,6 +298,146 @@ if (!function_exists('SetNumber')) {
     }
 }
 
+if (!function_exists('paid_download_url')) {
+    /**
+     * F217 / D-29.6 — the entitlement-checked URL for a paid downloadable.
+     *
+     * **WHY THIS EXISTS, and it is a gap in my own F217 work rather than a new idea.** An
+     * independent audit found that F217 fixed THE MAIL and not THE PAGE. `downloadable_prodcut()`
+     * now mails a grant-protected route, but eight first-party storefront blade sites still
+     * rendered `href="{{ get_file($x->downloadable_product) }}"` on the buyer's own order and
+     * refund pages — and `get_file()`'s local limb is `url($path)`, the raw public URL. So the UI
+     * was handing out the unprotected link beside the protected one, and those anchors are not
+     * decoration: they are the element the download button's JS activates.
+     *
+     * Worse, the URL does not even have to be clicked to leak. It is in the page's HTML, so view
+     * source, a browser extension, a shared screenshot of devtools, or anything that scrapes the
+     * page gets a link that needs no order, no session and no entitlement — because
+     * `public/uploads` is a symlink to `../uploads` and `public/.htaccess` only routes to
+     * `index.php` when the requested file does NOT exist, so an existing file is served by the web
+     * server with PHP never running.
+     *
+     * **WHAT IT RETURNS.** The `paid.download` route carrying a `DownloadGrant` — an opaque
+     * server-held record bound to order + store + customer + the resolved path, with a TTL. Not a
+     * signed URL: `APP_KEY` is in git history and unrotated, so `URL::temporarySignedRoute` would
+     * be forgeable.
+     *
+     * **REMOTE STORAGE KEEPS `get_file()`,** the same branch the mail takes, and for the same
+     * measured reason: on wasabi or s3 the file was never in this application's document root, and
+     * `PaidDownloadController` serves local files only — `response()->download()` cannot serve an
+     * object in a bucket, so routing a remote-storage merchant through it would 404 every paid
+     * download they have ever sold. The residual there (an unexpiring bucket URL is still a
+     * guessable link) is recorded, not closed: closing it needs a signed temporary URL that cannot
+     * be verified without bucket credentials.
+     *
+     * @param  mixed   $order  an Order model, or the array `Order::order_detail()` returns
+     * @param  ?string $path   the stored `downloadable_product` path
+     * @return ?string         null when there is nothing to protect OR the viewer is not the
+     *                         signed-in buyer -- so a caller skips the link rather than
+     *                         rendering an unprotected one. See the predicate below.
+     */
+    function paid_download_url($order, $path)
+    {
+        $path = is_string($path) ? trim($path) : '';
+
+        if ($path === '' || empty($order)) {
+            return null;
+        }
+
+        $orderId = is_array($order) ? ($order['id'] ?? null) : ($order->id ?? null);
+        $storeId = is_array($order) ? ($order['store_id'] ?? null) : ($order->store_id ?? null);
+        $customerId = is_array($order) ? ($order['customer_id'] ?? null) : ($order->customer_id ?? null);
+
+        if (empty($orderId)) {
+            return null;
+        }
+
+        /*
+         * ===================================================================================
+         * THE SIGNED-IN BUYER ONLY, AND THIS IS THE LOAD-BEARING LINE OF THE WHOLE FUNCTION.
+         * ===================================================================================
+         *
+         * Issuing a grant is handing over a capability, so this function must not mint one on a
+         * page whose own access control does not establish who is looking. ONE OF THE FOUR PAGES
+         * IT IS CALLED FROM DOES NOT:
+         *
+         *   `OrderController::orderDetails` (route `{storeSlug?}/order/{id}`, NOT inside
+         *   `EnsureCustomerAuthenticated`) authorises with `decrypt($request->route('id'))` plus
+         *   `->where('store_id', $store->id)`. That is an ENCODING AND A STORE CHECK, not a
+         *   customer check -- and CLAUDE.md records the reason the encoding is not a control:
+         *   "APP_KEY is in git history and unrotated, so Crypt::encrypt() is an encoding, not a
+         *   control. An encrypted id in a URL is forgeable."
+         *
+         * So without this predicate, replacing `get_file()` with a grant on that page would have
+         * turned a pre-existing order-detail exposure into a PAID-FILE exposure, and minted the
+         * capability myself rather than merely failing to prevent a guess. Recorded separately as
+         * F221; it is not this function's to fix.
+         *
+         * WHAT A GUEST GETS INSTEAD, so this is a narrowing and not a feature removal: no link --
+         * and the download BUTTON beside it is untouched. It posts to
+         * `AccountProfileController::downloadable_prodcut()`, which resolves the order through
+         * `ownedOrder()`'s `->where('customer_id', $customer->id)` and MAILS the grant to the
+         * address on the order. That path is ownership-checked, and a mailed link reaching the
+         * buyer's own inbox is a stronger proof of entitlement than a page anyone can open.
+         *
+         * AND IT IS STRICTLY SAFER THAN WHAT WAS THERE. Before this change that same page rendered
+         * `get_file($path)` -- the raw public URL to paid goods -- in HTML, to whoever could open
+         * it. Returning null removes the link for exactly the viewers who could not prove they are
+         * the buyer.
+         */
+        $signedInCustomerId = auth('customers')->id();
+
+        if (empty($signedInCustomerId) || (int) $signedInCustomerId !== (int) $customerId) {
+            return null;
+        }
+
+        /*
+         * Remote storage: unchanged behaviour. See the docblock -- this is not a fallback for
+         * convenience, it is the only thing that works for a bucket-backed installation.
+         */
+        if (! \App\Services\DownloadGrant::servesFromLocalDocumentRoot()) {
+            return get_file($path);
+        }
+
+        try {
+            $store = \App\Models\Store::withoutGlobalScopes()->find($storeId);
+
+            if (! $store) {
+                return null;
+            }
+
+            $orderModel = is_array($order)
+                ? \App\Models\Order::withoutGlobalScopes()->find($orderId)
+                : $order;
+
+            if (! $orderModel) {
+                return null;
+            }
+
+            return route('paid.download', [
+                'storeSlug' => $store->slug,
+                'order' => $orderId,
+                \App\Services\DownloadGrant::FIELD => \App\Services\DownloadGrant::issue(
+                    $orderModel,
+                    $path,
+                    $customerId
+                ),
+            ]);
+        } catch (\Throwable $theGrantCouldNotBeIssued) {
+            /*
+             * Fail to NO LINK rather than to the public URL. A missing download button is a support
+             * ticket; a public URL to paid goods is the defect this function exists to remove.
+             */
+            \Illuminate\Support\Facades\Log::warning('paid download url not issued', [
+                'order_id' => $orderId,
+                'reason' => $theGrantCouldNotBeIssued->getMessage(),
+            ]);
+
+            return null;
+        }
+    }
+}
+
 if (!function_exists('get_file')) {
     function get_file($path)
     {

@@ -35,7 +35,15 @@ $company_logo = get_file($company_logo);
 
                 <div class="d-flex align-items-center sidebar-input position-relative">
                     <i class="ti ti-search"></i>
-                    <input type="text" class="form-control" id="sideBarsearch" placeholder="{{ __('Search here...') }}">
+                    {{-- `aria-label` AND NOT A PLACEHOLDER. A placeholder is not an accessible name: it is
+                         announced inconsistently across screen readers, and it DISAPPEARS the moment the
+                         user types, so the field loses its name exactly when they need to confirm what
+                         they are typing into. Found by an independent audit of this phase; it is the same
+                         defect, and the same fix, as the mobile sidebar toggle under P2-01-17 -- a control
+                         that a screen reader announced only as "search" with no indication of what it
+                         searches. The visible placeholder stays, because it is useful to sighted users. --}}
+                    <input type="text" class="form-control" id="sideBarsearch"
+                        aria-label="{{ __('Search here...') }}" placeholder="{{ __('Search here...') }}">
                     {{-- The collapsed rail is NOT new code. public/assets/js/dash.js:71
                          has listened for #vertical-nav-toggle since before this
                          phase, and style.css / style-dark.css / style-rtl.css

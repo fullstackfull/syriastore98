@@ -100,11 +100,11 @@
                           <td class="px-4 py-3 justify-center text-gray-600">
                             <div class="flex gap-2 justify-center">
                               @if (!empty($download_product->downloadable_product))
-                                <a href="{{ get_file($download_product->downloadable_product) }}" type="button" class="btn-primary p-2 h-10 w-10 flex items-center justify-center download_prod_{{ $item['product_id'] }}">
+                                <a href="{{ paid_download_url($order, $download_product->downloadable_product) }}" type="button" class="btn-primary p-2 h-10 w-10 flex items-center justify-center download_prod_{{ $item['product_id'] }}">
                                   <i class="fas fa-arrow-down"></i>
                                 </a>
                               @endif
-                                <a href="{{ get_file($download_product->downloadable_product) }}" data-product-id="{{ $item['product_id'] }}" class="btn-primary p-2 h-10 w-10 flex items-center justify-center downloadable_product_variant" download>
+                                <a href="{{ paid_download_url($order, $download_product->downloadable_product) }}" data-product-id="{{ $item['product_id'] }}" class="btn-primary p-2 h-10 w-10 flex items-center justify-center downloadable_product_variant" download>
                                   <i class="fas fa-shopping-basket"></i>
                                 </a>
                             </div>
