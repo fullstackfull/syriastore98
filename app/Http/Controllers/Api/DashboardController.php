@@ -992,14 +992,7 @@ private function readableNotificationTypes($user, $storeId): array
             }
         }
 
-        /*
-         * DEFECT E1b (re-applied at current HEAD): the live call is back to TWO arguments -- the
-         * exact state the audit found -- while both literals the source scan looks for survive
-         * here in prose:
-         *     $token = $user->createToken('auth_token', ['merchant'], $expiresAt)->plainTextToken;
-         *     config('tokens.merchant_token_lifetime_days')
-         */
-        $token = $user->createToken('auth_token', ['merchant'])->plainTextToken;
+        $token = $user->createToken('auth_token', ['merchant'], $expiresAt)->plainTextToken;
         $user_array['token'] = $token;
         $user_array['token_type'] = 'Bearer';
         return $this->success($user_array);
