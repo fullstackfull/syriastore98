@@ -44,8 +44,32 @@ return [
      * explicitly: "include max with any custom_validation; do not drop the size rule when
      * replacing the Rule Array."
      *
-     * `mimes:` RATHER THAN `mimetypes:`, which is the "real type and content verification, not the
-     * name alone" the decision requires. Laravel's `mimes` rule resolves the file through Symfony's
+     * `mimes:` AND `extensions:` TOGETHER, AND THE SECOND ONE IS A CORRECTION. This file first
+     * carried `mimes:` alone and claimed it delivered "real verification of the type and content,
+     * not just the name". The CONTENT half was true. **THE NAME HALF WAS NOT ADDRESSED AT ALL, AND
+     * THE NAME IS WHAT THE WEB SERVER ACTS ON** — found by an independent review and then measured:
+     *
+     *     a file with valid MP4 magic bytes, named `clip.html`, `clip.svg`, `clip.js` or
+     *     `clip.xhtml`, PASSED `mimes:mp4,webm,mov`.
+     *
+     * `mimes:` compares the type GUESSED FROM THE BYTES against the named extensions; it does not
+     * look at the client's extension at all. Laravel's own `shouldBlockPhpUpload` catches
+     * `php/phtml/phar`, which is why those were refused and the gap looked closed — but nothing
+     * stopped `.html` or `.svg`. And the stored name keeps the caller's extension:
+     * `ProductController:787` builds `'video_' . time() . rand() . '.' . $ext` where `$ext` is
+     * `getClientOriginalExtension()`. The file lands in `uploads/<store>/video`, which is under the
+     * document root through the `public/uploads` symlink. So MP4 bytes under an `.html` name was
+     * **stored XSS on the store's own origin**, reachable by a merchant against their own shoppers.
+     *
+     * `extensions:` validates the CLIENT-SUPPLIED EXTENSION against the same list, so both halves
+     * have to agree. Measured after the change: `.html`, `.svg`, `.htaccess` and `.js` refused;
+     * `.mp4` and `.MP4` accepted, so the fix is case-insensitive and does not break a normal upload.
+     *
+     * (`.htaccess` was already defanged by the `video_` prefix — Apache only honours a file named
+     * exactly `.htaccess` — but it is refused now rather than relying on that.)
+     *
+     * `mimetypes:` is deliberately NOT used for the content half: it matches the MIME string the
+     * CLIENT sent, which a client controls. Laravel's `mimes` rule resolves the file through Symfony's
      * MIME guesser, which reads the file's MAGIC BYTES and then requires the guessed type to match
      * one of the named extensions — so a `.mp4` that is really a ZIP is refused. `mimetypes:` would
      * match the MIME string the CLIENT sent, which a client controls.
@@ -59,7 +83,7 @@ return [
 
     'preview_video' => [
         'enabled' => true,
-        'rules' => ['mimes:mp4,webm,mov', 'max:51200'],
+        'rules' => ['mimes:mp4,webm,mov', 'extensions:mp4,webm,mov', 'max:51200'],
     ],
 
     'downloadable_product' => [
@@ -68,9 +92,29 @@ return [
          * (`php artisan downloads:exposure-report`) must show PUBLICLY REACHABLE: 0 against the
          * real database — or a proven safe containment is in place.
          */
-        'enabled' => env('UPLOAD_DIGITAL_TYPES_ENABLED', false),
+        /*
+         * PARSED STRICTLY, because `env()` ALONE OPENED THIS GATE ON "no".
+         *
+         * Laravel's `Env::get` converts only the literals true/false/null/empty and their
+         * parenthesised forms; everything else comes back as a RAW STRING. `UploadRules` then tested
+         * `empty($config['enabled'])`, and `empty('no')` is FALSE — so measured:
+         *
+         *     UPLOAD_DIGITAL_TYPES_ENABLED=no      => gate OPEN
+         *     UPLOAD_DIGITAL_TYPES_ENABLED=off     => gate OPEN
+         *     UPLOAD_DIGITAL_TYPES_ENABLED=maybe   => gate OPEN
+         *
+         * An operator typing `no` to keep it shut would have opened it. This is the owner's HARD
+         * condition on F217, so it must open only on an unambiguous yes, and anything else — a
+         * typo, a disabling word, an empty value — leaves it closed. Found by an independent review.
+         */
+        'enabled' => in_array(
+            strtolower(trim((string) env('UPLOAD_DIGITAL_TYPES_ENABLED', ''))),
+            ['1', 'true', 'yes', 'on'],
+            true
+        ),
         'rules' => [
             'mimes:pdf,zip,epub,mp3,wav,csv,xlsx,docx,pptx,png,jpg,jpeg',
+            'extensions:pdf,zip,epub,mp3,wav,csv,xlsx,docx,pptx,png,jpg,jpeg',
             'max:51200',
         ],
     ],

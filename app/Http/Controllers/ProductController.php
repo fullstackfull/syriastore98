@@ -1356,7 +1356,7 @@ $Product->cost_price = $request->cost_price;
                                         if ($request['downloadable_product_' . str_replace('.', '_', $str)]) {
                                             $fileName = rand(10, 100) . '_' . time() . "_" . $request->file('downloadable_product_' . $str)->getClientOriginalName();
 
-                                            $path1 = Utility::upload_file($request, 'downloadable_product_' . $str, $fileName, $dir, []);
+                                            $path1 = Utility::upload_file($request, 'downloadable_product_' . $str, $fileName, $dir, UploadRules::for('downloadable_product'));
                                             if ($path1['flag'] == 0) {
                                                 $msg['flag'] = 'error';
                                                 $msg['msg'] =  $path1['msg'];
@@ -2735,7 +2735,7 @@ $Product->cost_price = $request->cost_price;
                                 if ($request['downloadable_product_' . str_replace('.', '_', $str)]) {
                                     $fileName = rand(10, 100) . '_' . time() . "_" . $request->file('downloadable_product_' . $str)->getClientOriginalName();
 
-                                    $path1 = Utility::upload_file($request, 'downloadable_product_' . $str, $fileName, $dir, []);
+                                    $path1 = Utility::upload_file($request, 'downloadable_product_' . $str, $fileName, $dir, UploadRules::for('downloadable_product'));
                                     if ($path1['flag'] == 0) {
                                         $msg['flag'] = 'error';
                                         $msg['msg'] =  $path1['msg'];

@@ -47,6 +47,19 @@ class UploadRules
             return [];
         }
 
+        /*
+         * A `mimes:` RULE WITHOUT AN `extensions:` RULE IS REFUSED THE SAME WAY, and for the same
+         * mechanical reason the size rule is: prose did not hold it. `mimes:` validates the bytes
+         * and `extensions:` validates the name, and the web server acts on the NAME — a valid MP4
+         * called `clip.html` passed the content check and would have been stored under that
+         * extension inside the document root. Measured; see config/uploads.php.
+         */
+        if (self::names($rules, 'mimes:') && ! self::names($rules, 'extensions:')) {
+            Log::warning('uploads.' . $field . ' declares mimes: without extensions:; not applied, because the stored filename keeps the caller\'s extension and the web server acts on the name, not the bytes.');
+
+            return [];
+        }
+
         if (! self::carriesASizeRule($rules)) {
             /*
              * Not applied. A caller reading this log is looking at a configuration that would have
@@ -62,8 +75,14 @@ class UploadRules
 
     private static function carriesASizeRule(array $rules): bool
     {
+        return self::names($rules, 'max:');
+    }
+
+    /** Does the list carry a rule with this prefix? */
+    private static function names(array $rules, string $prefix): bool
+    {
         foreach ($rules as $rule) {
-            if (is_string($rule) && str_starts_with($rule, 'max:')) {
+            if (is_string($rule) && str_starts_with($rule, $prefix)) {
                 return true;
             }
         }
