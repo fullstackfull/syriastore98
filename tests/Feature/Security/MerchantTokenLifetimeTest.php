@@ -88,17 +88,77 @@ class MerchantTokenLifetimeTest extends TestCase
         );
     }
 
-    public function test_the_handler_passes_the_lifetime_rather_than_hardcoding_two_arguments(): void
+    /**
+     * The controller's source with COMMENTS REMOVED.
+     *
+     * THIS EXISTS BECAUSE THE ASSERTION BELOW PASSED AGAINST A BROKEN MINT SITE, and that is not
+     * hypothetical — it happened on this branch. A probe reverted the call to its two-argument form
+     * and a concurrent commit captured it, so `5d794371` shipped a handler that read the config,
+     * computed `$expiresAt`, ran the whole TIMESTAMP-ceiling guard, and then **threw the result
+     * away** by calling `createToken` with two arguments. All seven cases here passed, THIS ONE
+     * INCLUDED — because the docblock twenty lines above the call quotes the three-argument form,
+     * and `assertStringContainsString` over raw source cannot tell a comment from code.
+     *
+     * The same lesson this phase already learned on F204, where a `// TODO restore:` comment
+     * satisfied a confirmation-dialog ratchet and the fix was a comment stripper. I did not apply
+     * it here. A source assertion that reads comments is not a ratchet; it is a search for a
+     * sentence somebody wrote.
+     */
+    private function codeWithoutComments(): string
     {
-        /*
-         * The audit's actual finding was that the ledger said "prepared" while the code passed two
-         * arguments. A source assertion is what makes that un-sayable again: the two cases above
-         * would both pass against a handler that still hardcodes `createToken('auth_token',
-         * ['merchant'])`, because they build `$expiresAt` themselves.
-         */
         $source = (string) file_get_contents(
             base_path('app/Http/Controllers/Api/DashboardController.php')
         );
+
+        /*
+         * `token_get_all()` rather than a regex, because PHP's own tokeniser is the only thing that
+         * reliably distinguishes a comment from an identical string literal or a `//` inside a URL.
+         */
+        $code = '';
+
+        foreach (token_get_all($source) as $token) {
+            if (is_array($token)) {
+                if (in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true)) {
+                    continue;
+                }
+
+                $code .= $token[1];
+
+                continue;
+            }
+
+            $code .= $token;
+        }
+
+        return $code;
+    }
+
+    public function test_the_comment_stripper_removes_comments_and_keeps_code(): void
+    {
+        // The stripper is now load-bearing, so it is itself asserted rather than trusted.
+        $code = $this->codeWithoutComments();
+
+        $this->assertStringNotContainsString(
+            'THE MySQL TIMESTAMP CEILING',
+            $code,
+            'a phrase that exists only inside a comment must be gone'
+        );
+
+        $this->assertStringContainsString(
+            'public function login',
+            $code,
+            'and real code must survive'
+        );
+    }
+
+    public function test_the_handler_passes_the_lifetime_rather_than_hardcoding_two_arguments(): void
+    {
+        /*
+         * The audit's finding was that the ledger said "prepared" while the code passed two
+         * arguments. This assertion exists to make that un-sayable — and it failed to, once,
+         * because it read comments. It now reads CODE ONLY.
+         */
+        $source = $this->codeWithoutComments();
 
         $this->assertStringContainsString(
             "createToken('auth_token', ['merchant'], \$expiresAt)",
@@ -111,6 +171,17 @@ class MerchantTokenLifetimeTest extends TestCase
             "config('tokens.merchant_token_lifetime_days')",
             $source,
             'and it must come from the config key, not a literal'
+        );
+
+        /*
+         * AND EXACTLY ONE mint call for the merchant token, so a two-argument call cannot sit
+         * beside the three-argument one and be the one that actually runs — which is precisely the
+         * state `5d794371` shipped.
+         */
+        $this->assertSame(
+            1,
+            preg_match_all("/createToken\('auth_token',\s*\['merchant'\]/", $source, $m),
+            'there must be exactly one merchant mint call in code: ' . implode(' | ', $m[0] ?? [])
         );
     }
 
@@ -236,9 +307,7 @@ class MerchantTokenLifetimeTest extends TestCase
     {
         // The behavioural cases above do the arithmetic themselves, so this binds them to the
         // shipped handler -- the same reason the two-argument source assertion exists.
-        $source = (string) file_get_contents(
-            base_path('app/Http/Controllers/Api/DashboardController.php')
-        );
+        $source = $this->codeWithoutComments();
 
         $this->assertStringContainsString(
             "config('tokens.merchant_token_expiry_ceiling'",
