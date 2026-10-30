@@ -345,49 +345,8 @@ if (!function_exists('paid_download_url')) {
         }
 
         $orderId = is_array($order) ? ($order['id'] ?? null) : ($order->id ?? null);
-        $storeId = is_array($order) ? ($order['store_id'] ?? null) : ($order->store_id ?? null);
-        $customerId = is_array($order) ? ($order['customer_id'] ?? null) : ($order->customer_id ?? null);
 
         if (empty($orderId)) {
-            return null;
-        }
-
-        /*
-         * ===================================================================================
-         * THE SIGNED-IN BUYER ONLY, AND THIS IS THE LOAD-BEARING LINE OF THE WHOLE FUNCTION.
-         * ===================================================================================
-         *
-         * Issuing a grant is handing over a capability, so this function must not mint one on a
-         * page whose own access control does not establish who is looking. ONE OF THE FOUR PAGES
-         * IT IS CALLED FROM DOES NOT:
-         *
-         *   `OrderController::orderDetails` (route `{storeSlug?}/order/{id}`, NOT inside
-         *   `EnsureCustomerAuthenticated`) authorises with `decrypt($request->route('id'))` plus
-         *   `->where('store_id', $store->id)`. That is an ENCODING AND A STORE CHECK, not a
-         *   customer check -- and CLAUDE.md records the reason the encoding is not a control:
-         *   "APP_KEY is in git history and unrotated, so Crypt::encrypt() is an encoding, not a
-         *   control. An encrypted id in a URL is forgeable."
-         *
-         * So without this predicate, replacing `get_file()` with a grant on that page would have
-         * turned a pre-existing order-detail exposure into a PAID-FILE exposure, and minted the
-         * capability myself rather than merely failing to prevent a guess. Recorded separately as
-         * F221; it is not this function's to fix.
-         *
-         * WHAT A GUEST GETS INSTEAD, so this is a narrowing and not a feature removal: no link --
-         * and the download BUTTON beside it is untouched. It posts to
-         * `AccountProfileController::downloadable_prodcut()`, which resolves the order through
-         * `ownedOrder()`'s `->where('customer_id', $customer->id)` and MAILS the grant to the
-         * address on the order. That path is ownership-checked, and a mailed link reaching the
-         * buyer's own inbox is a stronger proof of entitlement than a page anyone can open.
-         *
-         * AND IT IS STRICTLY SAFER THAN WHAT WAS THERE. Before this change that same page rendered
-         * `get_file($path)` -- the raw public URL to paid goods -- in HTML, to whoever could open
-         * it. Returning null removes the link for exactly the viewers who could not prove they are
-         * the buyer.
-         */
-        $signedInCustomerId = auth('customers')->id();
-
-        if (empty($signedInCustomerId) || (int) $signedInCustomerId !== (int) $customerId) {
             return null;
         }
 
@@ -400,7 +359,9 @@ if (!function_exists('paid_download_url')) {
         }
 
         try {
-            $store = \App\Models\Store::withoutGlobalScopes()->find($storeId);
+            $store = \App\Models\Store::withoutGlobalScopes()->find(
+                is_array($order) ? ($order['store_id'] ?? null) : ($order->store_id ?? null)
+            );
 
             if (! $store) {
                 return null;
@@ -414,13 +375,50 @@ if (!function_exists('paid_download_url')) {
                 return null;
             }
 
+            /*
+             * ===============================================================================
+             * THE SIGNED-IN BUYER ONLY, READ FROM THE ORDER ROW AND NOT FROM THE VIEW ARRAY.
+             * ===============================================================================
+             *
+             * THIS READ WAS `$order['customer_id']` AND THAT MADE THE FUNCTION RETURN NULL FOR
+             * EVERY BUYER. `Order::order_detail()` hand-builds its array key by key — `id`,
+             * `store_id`, `is_guest`, `order_id` and forty others — and **never sets
+             * `customer_id`**. So the comparison was `(int) 7 !== (int) null`, which is true, and
+             * all eight call sites rendered no link at all. I had removed the unsafe public URL and
+             * replaced it with nothing: a functional regression for the one person entitled to the
+             * file. Found by an independent review of my own change.
+             *
+             * The row is the authoritative source and it is already loaded here, so the comparison
+             * belongs after the load rather than before it. This is also the codebase's own rule --
+             * derive from the authenticated principal and the persisted row, never from data the
+             * caller handed in.
+             *
+             * WHY THE PREDICATE EXISTS AT ALL. Issuing a grant is handing over a capability, so it
+             * must not be minted on a page whose access control does not establish who is looking.
+             * One of the four pages it is called from is `OrderController::orderDetails` (route
+             * `{storeSlug?}/order/{id}`), which is reachable without a customer session and
+             * authorises with `decrypt()` plus a STORE predicate — and CLAUDE.md records that the
+             * encoding is not a control, because `APP_KEY` is in git history and unrotated.
+             *
+             * WHAT A GUEST GETS INSTEAD: no link, and the download BUTTON beside it is untouched.
+             * It posts to `AccountProfileController::downloadable_prodcut()`, which resolves the
+             * order through `ownedOrder()`'s `customer_id` predicate and MAILS the grant to the
+             * address on the order — a stronger proof of entitlement than a page anyone can open.
+             */
+            $signedInCustomerId = auth('customers')->id();
+
+            if (empty($signedInCustomerId)
+                || (int) $signedInCustomerId !== (int) ($orderModel->customer_id ?? 0)) {
+                return null;
+            }
+
             return route('paid.download', [
                 'storeSlug' => $store->slug,
                 'order' => $orderId,
                 \App\Services\DownloadGrant::FIELD => \App\Services\DownloadGrant::issue(
                     $orderModel,
                     $path,
-                    $customerId
+                    $orderModel->customer_id
                 ),
             ]);
         } catch (\Throwable $theGrantCouldNotBeIssued) {

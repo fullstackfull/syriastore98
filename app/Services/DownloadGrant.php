@@ -108,9 +108,29 @@ final class DownloadGrant
                     ->toArray()
                 : [];
 
-            $setting = strtolower(trim((string) ($settings['storage_setting'] ?? '')));
+            /*
+             * MIRRORED ON `get_file()` EXACTLY, AND THE FIRST VERSION WAS NOT — which made it a
+             * security divergence rather than a style difference.
+             *
+             * It read `strtolower(trim(...))` and returned local only for `''` or `'local'`, so
+             * everything else was treated as REMOTE. `get_file()` compares
+             * `$storageSetting === 'wasabi'` and `=== 's3'` WITHOUT lowercasing, and falls through
+             * to its LOCAL limb for anything else.
+             *
+             * So for `storage_setting = 'S3'`, or any other value — a typo, a new provider name, a
+             * legacy string — this said REMOTE, `paid_download_url()` then called `get_file()`, and
+             * `get_file()` returned `url($path)`: THE RAW PUBLIC URL TO THE PAID FILE, which is
+             * exactly what F217 exists to stop. The docblock claimed "reads the settings exactly
+             * the way get_file() does" and it did not. Found by an independent review.
+             *
+             * Now it is the same two values, compared the same way, so the two functions cannot
+             * disagree about which storage an installation is on — and anything unrecognised is
+             * LOCAL, which routes through the entitlement controller. That is also the safe
+             * direction: an unknown setting serves a guarded link rather than a public one.
+             */
+            $setting = (string) ($settings['storage_setting'] ?? '');
 
-            return $setting === '' || $setting === 'local';
+            return $setting !== 'wasabi' && $setting !== 's3';
         } catch (\Throwable $settingsAreUnreadable) {
             /*
              * Fail towards LOCAL, which is the safe direction: a local link is served through the

@@ -87,7 +87,24 @@ class PaidDownloadController extends Controller
             return $this->refuse('order');
         }
 
-        $path = $this->downloadablePathFor($row);
+        /*
+         * THE GRANT'S OWN PATH WINS WHERE THERE IS ONE, and that is a fix rather than a refinement.
+         *
+         * This read `downloadablePathFor($row)` alone, which returns the FIRST non-empty
+         * downloadable across the order's rows. For an order with TWO different downloadable
+         * products that meant the buyer always received the first one, whichever grant they
+         * followed — the second was unreachable, and the grant's binding to a specific path did no
+         * work at all. Found by an independent review.
+         *
+         * So a valid grant's path is used when one is presented, and it is still CHECKED rather
+         * than trusted: `authorises()` compares a hash over canonical JSON of (store, path), and
+         * `pathBelongsToOrder()` below requires the path to be one this order actually carries. A
+         * grant naming a file from another order therefore buys nothing — the path has to satisfy
+         * BOTH the grant and the order.
+         */
+        $grantedPath = $this->grantedPathFor($request, $store, $row);
+
+        $path = $grantedPath ?? $this->downloadablePathFor($row);
 
         if ($path === null) {
             return $this->refuse('nothing to download');
@@ -127,6 +144,44 @@ class PaidDownloadController extends Controller
      * BOTH limbs are asked against the ORDER row that was loaded by id+store, so neither can be
      * satisfied by naming a different store's order.
      */
+    /**
+     * The path a presented grant names, if that grant is valid AND the path is one this order
+     * carries. Null otherwise, so the caller falls back to the order's first downloadable.
+     *
+     * Two independent conditions, deliberately: the grant proves somebody was ENTITLED to that
+     * path, and `pathBelongsToOrder()` proves the path is THIS order's. Either alone would be
+     * weaker — a grant for another order's file would otherwise select that file here, and the
+     * confinement check further down only keeps it inside the uploads root, not inside this order.
+     */
+    private function grantedPathFor(Request $request, $store, Order $row): ?string
+    {
+        $grant = DownloadGrant::resolve($request->query(DownloadGrant::FIELD));
+
+        if ($grant === null) {
+            return null;
+        }
+
+        $path = (string) ($grant['path'] ?? '');
+
+        if ($path === '' || ! DownloadGrant::authorises($grant, $store, $path)) {
+            return null;
+        }
+
+        return $this->pathBelongsToOrder($row, $path) ? $path : null;
+    }
+
+    /** Is this path one of the order's own line items' downloadables? */
+    private function pathBelongsToOrder(Order $row, string $path): bool
+    {
+        foreach ($this->downloadablePathsFor($row) as $candidate) {
+            if (hash_equals($candidate, $path)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private function entitled(Request $request, $store, Order $row, string $path): bool
     {
         $customer = auth('customers')->user();
@@ -170,6 +225,50 @@ class PaidDownloadController extends Controller
      * this order let you download" would drift, and the one that drifted would be the one serving
      * bytes.
      */
+    /**
+     * EVERY downloadable path this order carries, in line order.
+     *
+     * `downloadablePathFor()` returns the FIRST and is kept, because it is the right answer when no
+     * grant names a path. This plural form exists so `pathBelongsToOrder()` can ask the real
+     * question — *is this path one of THIS order's?* — rather than the weaker one the singular form
+     * can answer. The duplication is one loop and the alternative was a flag argument that makes
+     * both callers read worse.
+     *
+     * @return string[]
+     */
+    private function downloadablePathsFor(Order $row): array
+    {
+        $paths = [];
+        $lines = json_decode((string) $row->product_json, true);
+
+        foreach (is_array($lines) ? $lines : [] as $line) {
+            if (! is_array($line) || empty($line['product_id'])) {
+                continue;
+            }
+
+            if (! empty($line['variant_id'])) {
+                $variantPath = ProductVariant::where('id', $line['variant_id'])
+                    ->where('product_id', $line['product_id'])
+                    ->where('store_id', $row->store_id)
+                    ->value('downloadable_product');
+
+                if (! empty($variantPath)) {
+                    $paths[] = (string) $variantPath;
+                }
+            }
+
+            $productPath = Product::where('id', $line['product_id'])
+                ->where('store_id', $row->store_id)
+                ->value('downloadable_product');
+
+            if (! empty($productPath)) {
+                $paths[] = (string) $productPath;
+            }
+        }
+
+        return array_values(array_unique($paths));
+    }
+
     private function downloadablePathFor(Order $row): ?string
     {
         $lines = json_decode((string) $row->product_json, true);

@@ -43,7 +43,20 @@ class PaidDownloadLinkInPagesTest extends SecurityTestCase
 {
     use RefreshDatabase;
 
-    /** The four storefront blades that rendered the unprotected link. */
+    /**
+     * The four STOREFRONT blades that rendered the unprotected link.
+     *
+     * **"EIGHT SITES" WAS A CLAIM ABOUT THE STOREFRONT AND I WROTE IT AS IF IT WERE THE WHOLE
+     * REPOSITORY.** An independent review found `resources/views/order/order_show.blade.php:160`
+     * and `:165` still rendering `href="{{ get_file($x->downloadable_product) }}"`. That is the
+     * MERCHANT's own order view, and it is recorded as **F224** rather than converted here, for a
+     * reason that is mechanical and not a judgement call: `paid_download_url()` requires the
+     * **signed-in customer** to be the order's buyer, and a merchant is neither — so the helper
+     * would return null and remove the merchant's own download rather than protect it. The
+     * merchant is also the file's owner, which makes it a different question from a shopper's page.
+     *
+     * The ratchet below therefore scans the STOREFRONT tree, and says so.
+     */
     private const STOREFRONT_BLADES = [
         'resources/views/front_end/sections/order_view.blade.php',
         'resources/views/front_end/sections/order_detail.blade.php',
@@ -272,5 +285,219 @@ class PaidDownloadLinkInPagesTest extends SecurityTestCase
         ]);
 
         return [$store, $customer, $order, $relative];
+    }
+
+    // ──────── WHAT AN INDEPENDENT REVIEW FOUND THIS FILE MISSED
+
+    public function test_the_helper_works_with_the_ARRAY_shape_the_blades_actually_pass(): void
+    {
+        /*
+         * THE GAP THAT HID A FUNCTIONAL BREAK, and it is a gap in MY OWN test above.
+         *
+         * `test_the_helper_issues_a_working_grant_for_the_signed_in_buyer` passes an Order MODEL.
+         * All four blades pass the ARRAY that `Order::order_detail()` returns — and that array is
+         * hand-built key by key (`id`, `store_id`, `is_guest`, `order_id` and forty others) and
+         * **never sets `customer_id`**. So the helper's comparison was `(int) 7 !== (int) null`,
+         * which is true, and **all eight call sites rendered no link at all**: I had removed the
+         * unsafe public URL and replaced it with nothing, for the one person entitled to the file.
+         *
+         * A test that exercises a different shape from the caller is not covering the caller. This
+         * drives the real array, built by the real method.
+         */
+        [$store, $customer, $order, $path] = $this->paidOrderFixture();
+
+        $this->actingAs($customer, 'customers');
+
+        $asArray = \App\Models\Order::order_detail($order->id);
+
+        $this->assertIsArray($asArray, 'premise: order_detail returns an array');
+        $this->assertArrayNotHasKey(
+            'customer_id',
+            $asArray,
+            'THE PREMISE OF THE DEFECT, pinned: order_detail does NOT carry customer_id. If it ever '
+            . 'does, the helper reading the order ROW instead is still correct, but this comment '
+            . 'needs re-deriving.'
+        );
+
+        $url = paid_download_url($asArray, $path);
+
+        $this->assertNotNull(
+            $url,
+            'the entitled buyer must get a link from the ARRAY shape too. If this is null, the '
+            . 'helper is reading an identity key the view array does not carry.'
+        );
+
+        $this->assertStringContainsString('/paid-download/', $url);
+        $this->get($url)->assertOk();
+    }
+
+    public function test_the_array_shape_still_refuses_a_viewer_who_is_not_the_buyer(): void
+    {
+        // The security half of the same shape: fixing the break must not open the door.
+        [$store, , $order, $path] = $this->paidOrderFixture();
+        [, $otherCustomer] = $this->paidOrderFixture($store);
+
+        $this->actingAs($otherCustomer, 'customers');
+
+        $this->assertNull(
+            paid_download_url(\App\Models\Order::order_detail($order->id), $path),
+            'another customer must still get no link from the array shape'
+        );
+    }
+
+    public function test_the_array_shape_refuses_an_anonymous_viewer(): void
+    {
+        [, , $order, $path] = $this->paidOrderFixture();
+
+        $this->assertNull(
+            paid_download_url(\App\Models\Order::order_detail($order->id), $path),
+            'anonymous must still get no link from the array shape -- this is the case that keeps '
+            . 'the fix from becoming a regression in the other direction'
+        );
+    }
+
+    public function test_a_grant_selects_its_own_file_in_a_multi_item_order(): void
+    {
+        /*
+         * `show()` read `downloadablePathFor($row)` alone, which returns the FIRST non-empty
+         * downloadable across the order's rows. So for an order with TWO different downloadable
+         * products the buyer always received the first one, whichever grant they followed — the
+         * second was unreachable, and the grant's binding to a specific path did no work at all.
+         * Found by an independent review.
+         */
+        [$store, $customer, $order, $firstPath] = $this->paidOrderFixture();
+
+        // A second downloadable product on the same order.
+        $secondRelative = 'uploads/' . $store->id . '/files/second-' . uniqid() . '.pdf';
+        $secondAbsolute = base_path($secondRelative);
+        file_put_contents($secondAbsolute, 'THE SECOND PAID FILE');
+
+        $merchant = \App\Models\User::where('type', 'admin')->first();
+
+        $secondProduct = (int) DB::table('products')->insertGetId([
+            'name' => 'Ebook two', 'slug' => 'ebook2-' . uniqid(), 'store_id' => $store->id,
+            'created_by' => $merchant->id, 'downloadable_product' => $secondRelative,
+            'product_type' => 'digital', 'track_stock' => 0,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $lines = json_decode((string) $order->product_json, true);
+        $lines[] = ['product_id' => $secondProduct, 'name' => 'Ebook two', 'qty' => 1, 'final_price' => 20];
+        DB::table('orders')->where('id', $order->id)->update(['product_json' => json_encode($lines)]);
+        (new \App\Models\Order())->flushCache();   // Order is Cachable
+
+        $this->actingAs($customer, 'customers');
+
+        $url = paid_download_url(
+            \App\Models\Order::order_detail($order->id),
+            $secondRelative
+        );
+
+        $this->assertNotNull($url, 'the buyer must get a link for the SECOND file too');
+
+        $response = $this->get($url);
+        $response->assertOk();
+
+        $served = $response->baseResponse->getFile()->getPathname();
+
+        $this->assertSame(
+            realpath($secondAbsolute),
+            realpath($served),
+            'THE GRANT MUST SELECT ITS OWN FILE. Before this fix the first downloadable was served '
+            . 'regardless, so the second product on an order was unreachable and the grant\'s path '
+            . 'binding did nothing.'
+        );
+
+        @unlink($secondAbsolute);
+    }
+
+    public function test_a_grant_naming_another_orders_file_selects_nothing(): void
+    {
+        /*
+         * The security half of the same change. A grant now CHOOSES the path, so it must not be
+         * able to choose a path this order does not carry — otherwise the selection would be a new
+         * way in. Two independent conditions guard it: `authorises()` over (store, path), and
+         * `pathBelongsToOrder()`.
+         */
+        [$store, $customer, $orderA] = $this->paidOrderFixture();
+        [, , $orderB, $pathB] = $this->paidOrderFixture($store);
+
+        $this->actingAs($customer, 'customers');
+
+        // A grant legitimately issued for order B's file, presented against order A.
+        $grantForB = \App\Services\DownloadGrant::issue($orderB, $pathB, $customer->id);
+
+        $response = $this->get(
+            '/' . $store->slug . '/paid-download/' . $orderA->id
+            . '?' . \App\Services\DownloadGrant::FIELD . '=' . $grantForB
+        );
+
+        /* Order A's own file is served (the buyer owns it), NOT order B's. `getStatusCode()`
+           rather than `status()`: the response is a BinaryFileResponse, which has no `status()`. */
+        $code = $response->baseResponse->getStatusCode();
+
+        if ($code === 200) {
+            $served = realpath($response->baseResponse->getFile()->getPathname());
+
+            $this->assertNotSame(
+                realpath(base_path($pathB)),
+                $served,
+                "a grant naming another order's file must not select that file here"
+            );
+        } else {
+            $this->assertSame(404, $code, 'or it refuses outright, which is also safe');
+        }
+    }
+
+    public function test_the_storage_predicate_cannot_disagree_with_get_file(): void
+    {
+        /*
+         * A SECURITY DIVERGENCE, not a style difference. `servesFromLocalDocumentRoot()` first read
+         * `strtolower(trim(...))` and returned local only for `''` or `'local'`, so anything else
+         * was REMOTE. `get_file()` compares `=== 'wasabi'` and `=== 's3'` WITHOUT lowercasing and
+         * falls through to its LOCAL limb for anything else.
+         *
+         * So for `storage_setting = 'S3'` — or a typo, or a new provider name — the helper said
+         * remote, `paid_download_url()` called `get_file()`, and `get_file()` returned `url($path)`:
+         * THE RAW PUBLIC URL TO THE PAID FILE. Exactly what F217 exists to stop.
+         */
+        [$merchant, $store] = $this->makeTenant();
+        $admin = $this->makePlatformAdmin(['current_store' => $store->id]);
+
+        $set = function (string $value) use ($admin) {
+            DB::table('settings')->where('name', 'storage_setting')->delete();
+
+            if ($value !== '') {
+                DB::table('settings')->insert([
+                    'name' => 'storage_setting', 'value' => $value,
+                    'store_id' => $admin->current_store, 'created_by' => $admin->id,
+                    'created_at' => now(), 'updated_at' => now(),
+                ]);
+            }
+
+            (new \App\Models\Setting())->flushCache();
+            \Illuminate\Support\Facades\Cache::forget('admin_details');
+            \Illuminate\Support\Facades\Cache::forget('super_admin_details');
+        };
+
+        // Exactly the two values get_file() branches on are remote.
+        foreach (['wasabi', 's3'] as $remote) {
+            $set($remote);
+            $this->assertFalse(
+                \App\Services\DownloadGrant::servesFromLocalDocumentRoot(),
+                $remote . ' is one of the two values get_file() routes to a bucket'
+            );
+        }
+
+        // EVERYTHING else is local, because that is what get_file() does with it.
+        foreach (['', 'local', 'S3', 'WASABI', 'Local', 'minio', 'typo'] as $local) {
+            $set($local);
+            $this->assertTrue(
+                \App\Services\DownloadGrant::servesFromLocalDocumentRoot(),
+                '`' . $local . '` must read as LOCAL, because get_file() falls through to its local '
+                . 'limb for it and returns url($path). Saying "remote" here would send the caller '
+                . 'to get_file() and hand out the raw public URL.'
+            );
+        }
     }
 }
