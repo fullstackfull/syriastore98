@@ -224,6 +224,9 @@ class PayUPaymentController extends Controller
 
     public function getProductStatus(Request $request, $slug)
     {
+        $ssOrderWritten = false;
+
+        try {
         $requests_data = (Session::get('request_data'));
         if($requests_data == null)
         {
@@ -828,6 +831,10 @@ class PayUPaymentController extends Controller
         $order->additional_note = $request->additional_note;
         $order->store_id = $store->id;
         $order->save();
+        /* THE ORDER NOW EXISTS. From here a failure must NOT give the stock back: an order
+           that exists claims its goods, and returning them puts the shopper's items on the
+           shelf for someone else while their order stands. */
+        $ssOrderWritten = true;
         // add in  Order table end
         if (module_is_active('CheckoutAttachment')) {
             \Workdo\CheckoutAttachment\app\Models\CheckoutAttachment::CheckoutAttachment($order, $slug , $request);
@@ -1050,6 +1057,33 @@ class PayUPaymentController extends Controller
             return redirect()->route('order.complete', $slug)->with('data', $order->product_order_id);
         } else {
             return $this->error(['message' => 'Somthing went wrong.']);
+        }
+            } catch (\Throwable $ssStockGuardError) {
+            /*
+             * D-13 — GIVE THE STOCK BACK ONLY IF NO ORDER ROW CLAIMS IT.
+             *
+             * TWO QUESTIONS, NOT ONE, AND THE SECOND WAS MISSING. The flag is set by the
+             * statement AFTER `$order->save()`, so it is still false while the `created` model
+             * event runs -- and `OrderObserver::created()` catches `\Exception` but NOT
+             * `\Throwable`, so a `TypeError` inside `OrderFinancialService::createForOrder()`
+             * escapes it, propagates out of `save()`, and reaches here with the row ALREADY
+             * COMMITTED. On the flag alone that restored the stock behind an order that exists,
+             * which oversells the same units to the next shopper while this order stands -- the
+             * mirror image of the defect D-13 was opened for, introduced by its own fix.
+             *
+             * `$order->exists` is the authoritative answer and closes that window:
+             * `Model::performInsert()` sets it at line 1341 and fires `created` at 1345, so by
+             * the time any `created` listener can throw, `exists` is already true. Measured in
+             * `ApiOrderWriterStockCompensationTest`, which fails on the flag alone.
+             */
+            $ssOrderClaimsIt = ($ssOrderWritten ?? false)
+                || (isset($order) && $order instanceof \App\Models\Order && $order->exists);
+
+            if (! $ssOrderClaimsIt) {
+                $this->restoreStockDecrements($appliedStockChanges ?? []);
+            }
+
+            throw $ssStockGuardError;
         }
     }
 }

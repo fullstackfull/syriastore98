@@ -320,6 +320,16 @@ run_one verify-login-and-settings-cache-paths-on-mysql \
   "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
   "FRESH_MYSQL_DATABASE=logincache_verify" "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
 
+# F211 -- the CONSEQUENCE of F194, which the flush-scope script above stops short of asking. That
+# one proves the payment keys are erased by an ordinary model save. This one proves what "erased"
+# means to the control that wrote them: `claimGatewayReturn()` takes its claim with `Cache::add()`
+# and reads false as "already claimed", so a missing key is an UN-TAKEN claim and the replayed
+# gateway return is welcomed rather than merely unguarded. Drives the full chain: claim taken,
+# replay refused, one Setting::updateOrCreate(), claim gone, SAME replay now permitted.
+run_one verify-replay-claim-survives-a-model-save-on-mysql \
+  "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
+  "FRESH_MYSQL_DATABASE=replayclaim_verify" "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
+
 run_one verify-empty-variant-name-wipe-on-mysql \
   "F199_MYSQL_SOCKET=${SOCK}" "F199_MYSQL_HOST=${HOST}" "F199_MYSQL_PORT=${PORT}" \
   "F199_MYSQL_DATABASE=f199_verify" "F199_MYSQL_USERNAME=${USER_NAME}" "F199_MYSQL_PASSWORD=${PASS}"

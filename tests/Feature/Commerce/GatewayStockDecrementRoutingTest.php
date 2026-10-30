@@ -404,8 +404,24 @@ class GatewayStockDecrementRoutingTest extends TestCase
     public function test_each_gateway_return_handler_compensates_a_failed_order_write(): void
     {
         /*
-         * THE FOUR D-13 NAMES. The other three authorised writers reach this property through
-         * `OrderWriteTransactionTest`, whose data provider covers them and not these.
+         * SEVEN NAMES, AND THE SENTENCE THAT USED TO BE HERE WAS FALSE. It read: *"the other three
+         * authorised writers reach this property through `OrderWriteTransactionTest`, whose data
+         * provider covers them and not these."* `OrderWriteTransactionTest::writers()` has exactly
+         * three rows -- `PaymentController::getProductStatus`, `PaymentService::getProductStatus`
+         * and `PaymentController::whatsapp`. `AuthorizeNetPaymnetController`,
+         * `PayUPaymentController` and the two `Api\ApiController` writers were in neither file.
+         * All four decremented stock through `decrementStockOrFail()` and wrote the order
+         * afterwards with nothing to undo the loop: the same defect, four more times, behind a
+         * comment asserting it was handled. An open hole with a note saying it is closed is worse
+         * than an open hole, because a reviewer has no reason to look. Fixed 2026-10-30; the four
+         * are wrapped and the list below is now the complete set of D-13 writers.
+         *
+         * TWO OF THE FOUR ARE ALSO DRIVEN, not only read:
+         * `ApiOrderWriterStockCompensationTest` puts a real Sanctum token and a real cart through
+         * `POST api/{slug}/place-order` and `order-save` and watches `product_stock` come back.
+         * AuthorizeNet needs a live Authorize.Net SDK response and PayU a valid salted hash, so
+         * for those two the source ratchet below is the whole of the evidence -- stated here
+         * rather than implied, which is the mistake this comment is a correction of.
          *
          * `code()`, NOT `source()` -- and that is the independent review's correction. `source()`
          * is the RAW file, and the corrected comments in these handlers QUOTE the expressions they
@@ -414,7 +430,9 @@ class GatewayStockDecrementRoutingTest extends TestCase
          * live false pass -- it was one explanatory sentence away from being one.
          */
         foreach (['KhaltiPaymnetController', 'PaiementProPaymentController',
-                  'CinetPayController', 'EasebuzzController'] as $controller) {
+                  'CinetPayController', 'EasebuzzController',
+                  'AuthorizeNetPaymnetController', 'PayUPaymentController',
+                  'Api/ApiController'] as $controller) {
             $source = $this->code($controller);
 
             $this->assertStringContainsString(
@@ -436,8 +454,20 @@ class GatewayStockDecrementRoutingTest extends TestCase
              * `restoreStockDecrements()` only in company with `DB::rollBack()`, and
              * `OrderWriteTransactionTest` asserts `assertGreaterThan($rollback, $restore)`.
              */
+            /*
+             * THE GATE NOW ASKS TWO QUESTIONS AND THE RATCHET REQUIRES BOTH. The flag alone was
+             * not sufficient: it is assigned by the statement AFTER `$order->save()`, so it is
+             * still false while the `created` model event runs, and `OrderObserver::created()`
+             * catches `\Exception` but not `\Throwable`. A `TypeError` in
+             * `OrderFinancialService::createForOrder()` therefore escaped, propagated out of
+             * `save()` and restored the stock behind a COMMITTED order row -- an oversell
+             * introduced by D-13's own fix. `$order->exists` closes it, because
+             * `Model::performInsert()` sets `exists` before firing `created`. Both limbs are
+             * load-bearing and `ApiOrderWriterStockCompensationTest` fails on the removal of
+             * either one.
+             */
             $this->assertMatchesRegularExpression(
-                '/catch \(\\\\Throwable \$ssStockGuardError\) \{\s*if \(! \(\$ssOrderWritten \?\? false\)\) \{\s*\$this->restoreStockDecrements\(\$appliedStockChanges \?\? \[\]\);/',
+                '/\$ssOrderClaimsIt = \(\$ssOrderWritten \?\? false\)\s*\|\|\s*\(isset\(\$order\) && \$order instanceof \\\\App\\\\Models\\\\Order && \$order->exists\);\s*if \(! \$ssOrderClaimsIt\) \{\s*\$this->restoreStockDecrements\(\$appliedStockChanges \?\? \[\]\);/',
                 $source,
                 "$controller gives the stock back without asking whether the ORDER was written."
                 . ' There is no transaction here, so a throw after `$order->save()` would return'

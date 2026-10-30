@@ -170,6 +170,75 @@ class AdminApiNotificationScopeTest extends SecurityTestCase
         );
     }
 
+    /**
+     * F181 RESIDUAL — `isAbleTo()` IS A UNION ACROSS EVERY STORE, SO A GRANT IN ONE STORE READ
+     * ANOTHER STORE'S MONEY FIELDS.
+     *
+     * The F181 fix gated each type on `TYPE_PERMISSIONS`, which closed the open door. It asked the
+     * question with `$user->isAbleTo($permission)` — and Laratrust's `allPermissions()` carries **no
+     * store predicate**, so that is the union of every grant the person holds anywhere. This
+     * repository already has the store-scoped reader for exactly this reason
+     * (`MerchantPermissions::names()`, whose own docblock says *"an employee permitted in A would
+     * read B"*), and this endpoint was not using it.
+     *
+     * MULTI-STORE IS A FIRST-CLASS FEATURE HERE, so the path is ordinary rather than contrived: one
+     * merchant, two stores, a staff member granted `Manage Order` in store A only. Switching
+     * `current_store` to store B is a legitimate action for that staff member — they belong to the
+     * tenant that owns both — and it is the switch, not an injected id, that moves the data. What
+     * they must not gain by it is a permission they were never granted in B.
+     *
+     * WHAT LEAKS IS MONEY. `order_paid` and `order_created` carry `final_price`, `payment_type` and
+     * `payment_status` in their title and message; `payment_needs_attention` names a gateway and an
+     * amount for a capture with no order row.
+     */
+    public function test_a_grant_in_one_store_does_not_read_another_stores_notifications(): void
+    {
+        [$owner, $storeA] = $this->makeTenant();
+        $storeB = $this->makeStore($owner);
+
+        $staff = $this->makeStaff($owner);                       // current_store = store A
+        $this->grantPermission($staff, 'Manage Order');          // role.store_id = store A
+
+        $this->seedOneOfEachType((int) $storeB->id);
+        $staff->forceFill(['current_store' => $storeB->id])->save();
+
+        $payload = $this->noti($staff->fresh());
+
+        $this->assertSame([], $payload['data']['data'],
+            'a staff member granted `Manage Order` in store A reads store B\'s order notifications '
+            . 'after switching stores, including `final_price`, `payment_type` and `payment_status`. '
+            . '`isAbleTo()` is a union across every store the person holds a role in; the gate must '
+            . 'ask `MerchantPermissions::allowsAny($user, [...], $storeId)` instead (F181 residual).');
+
+        $this->assertSame(0, $payload['count'],
+            'the count still reports another store\'s rows for a caller with no grant there');
+    }
+
+    /**
+     * THE PREMISE OF THE CASE ABOVE, and it is not optional.
+     *
+     * If the grant did not resolve at all — a fixture that silently failed to attach the role —
+     * the case above would pass while proving nothing, which is this codebase's most frequent way
+     * for a tenancy test to be vacuous. This asserts the SAME staff member, with the SAME role,
+     * does read the store the grant is actually for.
+     */
+    public function test_the_same_grant_still_reads_the_store_it_was_granted_in(): void
+    {
+        [$owner, $storeA] = $this->makeTenant();
+        $this->makeStore($owner);
+
+        $staff = $this->makeStaff($owner);
+        $this->grantPermission($staff, 'Manage Order');
+
+        $this->seedOneOfEachType((int) $storeA->id);
+
+        $payload = $this->noti($staff->fresh());
+
+        $this->assertSame(3, $payload['count'],
+            'the store-scoped gate refuses the store the role WAS granted in, which is a lockout '
+            . 'rather than a tightening — and it would make the cross-store case above vacuous');
+    }
+
     private function seedOneOfEachType(int $storeId): void
     {
         foreach (array_keys(MerchantNotificationController::TYPE_PERMISSIONS) as $type) {

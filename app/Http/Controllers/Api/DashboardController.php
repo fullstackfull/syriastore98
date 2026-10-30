@@ -747,7 +747,7 @@ public function noti(Request $request)
     }
 
     $storeId = $user->current_store;
-    $types = $this->readableNotificationTypes($user);
+    $types = $this->readableNotificationTypes($user, $storeId);
 
     /* `whereIn('type', ...)` rather than filtering after the fetch, so the LIMIT applies to rows
        the caller may actually see -- the web bell's own reasoning at
@@ -766,27 +766,47 @@ public function noti(Request $request)
 }
 
 /**
- * The notification types this caller may read, from the web bell's own registry.
+ * The notification types this caller may read IN THIS STORE, from the web bell's own registry.
  *
- * OPERATOR FIRST. `users.type` is a string comparison and there is no super-admin bypass in
- * Laratrust, so `isAbleTo()` alone refuses the platform operator. Same ordering as
- * `MerchantNotificationController::readableTypes()`, and the same registry, so a new type is gated
- * in one place rather than two.
+ * F181 RESIDUAL, 2026-10-30 — THE STORE PREDICATE WAS MISSING AND THIS WAS THE WRONG QUESTION.
+ * The first version of this method asked `$user->isAbleTo($permission)`, which is Laratrust's
+ * `allPermissions()` — a **union across every store the person holds a role in, with no store
+ * predicate at all**. One merchant with two stores, a staff member granted `Manage Order` in
+ * store A, `current_store` switched to store B: `isAbleTo()` answered yes for B, and the
+ * `order_paid` and `order_created` rows it then served carry `final_price`, `payment_type` and
+ * `payment_status`. The switch itself is legitimate — the staff member belongs to the tenant
+ * that owns both stores — so what the gate had to stop was gaining a permission by moving,
+ * which is precisely the defect `MerchantPermissions::names()` was written for and says so in
+ * its own docblock: *"an employee permitted in A would read B."*
  *
+ * SO IT NOW ASKS THE STORE-SCOPED READER, and `$storeId` is a REQUIRED parameter rather than
+ * one defaulted from `current_store` inside here — `names()` makes that argument mandatory for
+ * the same reason, so that a future caller serving some OTHER store's rows cannot evaluate the
+ * wrong store's grants by omission.
+ *
+ * THE OPERATOR LIMB IS GONE AND THAT IS NOT A LOCKOUT. `names()` short-circuits to `['*']` for
+ * the platform operator and `held()` treats the wildcard as every permission, so the operator
+ * still reads all three types — now through the one wildcard this codebase already has, rather
+ * than a second string comparison on `users.type` that could drift from it. The operator case
+ * in `AdminApiNotificationScopeTest` is what holds that true.
+ *
+ * `names()` IS RESOLVED ONCE and asked three times through `held()`. Calling `allows()` per
+ * type would re-run two queries per type — the exact waste `held()`'s docblock records as a
+ * defect found in the dashboard gate.
+ *
+ * @param  int|string|null  $storeId  the store whose rows are about to be served
  * @return array<int, string>
  */
-private function readableNotificationTypes($user): array
+private function readableNotificationTypes($user, $storeId): array
 {
     $registry = \App\Http\Controllers\MerchantNotificationController::TYPE_PERMISSIONS;
 
-    if (strtolower(trim((string) $user->type)) === 'super admin') {
-        return array_keys($registry);
-    }
+    $held = MerchantPermissions::names($user, $storeId);
 
     $readable = [];
 
     foreach ($registry as $type => $permission) {
-        if ($user->isAbleTo($permission)) {
+        if (MerchantPermissions::held($held, [$permission])) {
             $readable[] = $type;
         }
     }

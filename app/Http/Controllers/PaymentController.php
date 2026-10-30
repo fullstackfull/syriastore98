@@ -1498,6 +1498,77 @@ public function handlePaymeraTrigger($orderId)
         return response()->json(['error' => 'Payment context not found'], 404);
     }
 
+    /*
+     * F185 RESIDUAL, 2026-10-30 — THIS TRIGGER HAD NO OWNERSHIP TEST, AND ITS REACHABILITY IS NOT
+     * WHAT ITS NAME SUGGESTS.
+     * =============================================================================================
+     *
+     * `$orderId` is a path segment and the whole of the handler's input. Everything below acted on
+     * whatever `paymera_pending_<orderId>` happened to hold: poll the gateway, verify, take the
+     * lock, write the order, decrement the stock, credit the merchant. The shape this codebase
+     * records as its most productive defect — authenticate, then act on request input — with the
+     * identifier in the URL instead of the body.
+     *
+     * WHO CAN ACTUALLY REACH IT, MEASURED FROM `route:list` RATHER THAN ASSUMED:
+     * `POST store/paymera/trigger/{orderId}` resolves with
+     * `['web', Authenticate, XSS, SetLocate, EmailIsVerified]` — it sits inside the
+     * `['auth','xss','setlocate','verified']` group in `routes/web.php`. `Authenticate` with no
+     * argument uses the DEFAULT guard, which is `web`. So:
+     *
+     *   - **The gateway cannot call this.** A server-to-server POST from Paymera carries no
+     *     session and no verified email, so it is redirected before the handler runs. Whatever
+     *     this endpoint is for in production, it is not receiving the gateway's trigger.
+     *   - **The shopper cannot call it either.** Customers authenticate on the `customers` guard,
+     *     which `Authenticate` does not consult here.
+     *   - **Any authenticated merchant or staff user can** — including one from a DIFFERENT
+     *     TENANT, because nothing below compared the pending record's store to the caller's.
+     *
+     * WHAT THAT IS AND IS NOT WORTH. It is not a theft: `pollPaymentStatus()` and
+     * `verifyPaymeraPayment()` run first and fail closed, so an order is written only for a
+     * payment the gateway reports as approved, for the customer and store the pending record names
+     * — never for the caller. The order number is already withheld from a session that did not
+     * place the order (the F185 fix, `paymeraTriggerAnswer()`). What a cross-tenant caller COULD do
+     * is make another tenant's write happen on their request: the stock decrement, the merchant
+     * credit and the customer's mail, at a moment of their choosing, for a reference they guessed.
+     * That is an unauthorised write across a tenant boundary, and the reference is the only thing
+     * standing in front of it.
+     *
+     * SO THE PREDICATE IS DERIVED FROM THE AUTHENTICATED PRINCIPAL, never from the path. The
+     * operator is tested FIRST — `isAbleTo()` alone refuses them and this is exactly the stuck-order
+     * diagnosis an operator is for; F206 withdrew the operator's CATALOGUE writes and says in its
+     * own docblock that it does not touch unrelated platform administration, which this is.
+     *
+     * WHAT THIS DOES NOT DECIDE, and it is an owner question rather than an engineering one: if
+     * Paymera is supposed to reach this endpoint, then `auth` on the route is itself the defect and
+     * the fix is a signed gateway callback, not a tenancy predicate. Removing authentication from a
+     * payment-completion endpoint is a payment-flow change, so it is escalated rather than taken.
+     * See the F185 ledger row.
+     */
+    $ssCaller = \Auth::user();
+    $ssPendingStore = $pending['request_data']['store_id'] ?? null;
+
+    if (! $ssCaller) {
+        return response()->json(['error' => 'Payment context not found'], 404);
+    }
+
+    if (! \App\Policies\UserPolicy::isOperator($ssCaller)) {
+        $ssOwns = $ssPendingStore !== null
+            && \App\Models\Store::where('id', $ssPendingStore)
+                ->where('created_by', $ssCaller->creatorId())
+                ->exists();
+
+        if (! $ssOwns) {
+            /* The same 404 an unknown reference gets, deliberately: a distinguishable refusal
+               would turn this endpoint into an oracle for which references are live. */
+            \Log::warning('Paymera trigger refused: the caller does not own the store the pending payment belongs to', [
+                'paymera_reference' => $orderId,
+                'caller_id' => $ssCaller->id,
+            ]);
+
+            return response()->json(['error' => 'Payment context not found'], 404);
+        }
+    }
+
     if ($pending['status'] === 'A') {
         return response()->json(['status' => 'A', 'ok' => true]);
     }

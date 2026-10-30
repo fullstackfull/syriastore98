@@ -232,6 +232,59 @@ class MerchantNotificationAuthorizationTest extends SecurityTestCase
             . 'the message names the order and its data payload carries the price');
     }
 
+    /**
+     * F181 RESIDUAL — THE SAME CROSS-STORE UNION, ON THE WEB BELL.
+     *
+     * `readableTypes()` asked `$user->isAbleTo($permission)`, and Laratrust's `allPermissions()`
+     * carries no store predicate, so a grant in ANY store answered for the store being served. One
+     * merchant, two stores, a staff member granted `Manage Order` in store A only: switching
+     * `current_store` to store B — which they may legitimately do, they belong to the tenant that
+     * owns both — handed them store B's order notifications, whose message names the order and
+     * whose `data` payload carries `final_price`.
+     *
+     * This is the SAME defect as the Admin API's, and it is covered in both places deliberately:
+     * the two gates share the `TYPE_PERMISSIONS` registry but not the code that applies it, so one
+     * test cannot hold both true. `MerchantPermissions::names($user, $storeId)` is now the reader
+     * on each.
+     */
+    public function test_a_grant_in_one_store_does_not_read_another_stores_notifications(): void
+    {
+        [$owner, $storeA] = $this->makeTenant();
+        $storeB = $this->makeStore($owner);
+
+        $staff = $this->makeStaff($owner);               // current_store = store A
+        $this->grantPermission($staff, 'Manage Order');  // role.store_id = store A
+
+        $this->makeNotification($storeB->id, ['message' => 'Store-B ORD-CROSSSTORE received.']);
+        $staff->forceFill(['current_store' => $storeB->id])->save();
+
+        $text = $this->feedText($staff->fresh());
+
+        $this->assertStringNotContainsString('ORD-CROSSSTORE', $text,
+            'the bell served store B\'s order notification to a staff member granted `Manage Order` '
+            . 'only in store A. `isAbleTo()` is a union across every store; the gate must ask '
+            . '`MerchantPermissions::names($user, $storeId)` (F181 residual).');
+    }
+
+    /**
+     * The premise of the case above: the grant resolves, so the refusal is the store predicate and
+     * not a fixture that silently failed to attach the role.
+     */
+    public function test_the_same_grant_still_reads_the_store_it_was_granted_in(): void
+    {
+        [$owner, $storeA] = $this->makeTenant();
+        $this->makeStore($owner);
+
+        $staff = $this->makeStaff($owner);
+        $this->grantPermission($staff, 'Manage Order');
+
+        $this->makeNotification($storeA->id, ['message' => 'Own ORD-GRANTED received.']);
+
+        $this->assertStringContainsString('ORD-GRANTED', $this->feedText($staff->fresh()),
+            'the store-scoped gate refuses the store the role WAS granted in, which is a lockout '
+            . 'rather than a tightening — and would make the cross-store case above vacuous');
+    }
+
     public function test_the_same_staff_member_sees_it_once_granted(): void
     {
         [$owner, $store] = $this->makeTenant();
