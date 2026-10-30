@@ -944,7 +944,28 @@ private function readableNotificationTypes($user, $storeId): array
         $user_array['permissions'] = MerchantPermissions::names($user_data, $user_data->current_store);
 
         $user->tokens()->delete();
-        $token = $user->createToken('auth_token', ['merchant'])->plainTextToken;
+
+        /*
+         * TOKEN SECURITY STAGE 3, and it is INERT as shipped — see config/tokens.php for the whole
+         * account. `merchant_token_lifetime_days` is null, so `$expiresAt` is null, so this is the
+         * same two-argument call it has always been and the token row's `expires_at` stays NULL.
+         *
+         * The third argument is the entire mechanism the proposal specifies. It is here rather than
+         * in `config/sanctum.php` because that file does not exist and creating it would expire
+         * CUSTOMER and DRIVER tokens too — and storefront customers have no login endpoint
+         * (`Api\AuthController::login` is unrouted), so expiring theirs would lock them out with
+         * nothing to log back in with.
+         *
+         * Only tokens minted AFTER a value is set are affected: `expiresAt` is written into the row
+         * at creation, so every existing token keeps `expires_at = NULL` and keeps working.
+         * `CustomAuth:66` refuses only a token whose `expires_at` is set AND past.
+         */
+        $lifetimeDays = config('tokens.merchant_token_lifetime_days');
+        $expiresAt = ($lifetimeDays !== null && (int) $lifetimeDays > 0)
+            ? now()->addDays((int) $lifetimeDays)
+            : null;
+
+        $token = $user->createToken('auth_token', ['merchant'], $expiresAt)->plainTextToken;
         $user_array['token'] = $token;
         $user_array['token_type'] = 'Bearer';
         return $this->success($user_array);
