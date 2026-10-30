@@ -1,0 +1,37 @@
+######## AUTHORITATIVE GATE on b918c1d7 (tree frozen for the duration)
+
+
+  Tests:    2 failed, 17 skipped, 6838 passed (34268 assertions)
+  Duration: 2070.11s
+
+######## ASSERTER
+------------------------------------------------------------------------------
+junit log            : storage/logs/feature-junit.xml
+manifest             : .github/known-test-outcomes.json
+testcases observed   : 6857  (manifest floor 1000)
+failures observed    : 2  (manifest declares 2)
+errors observed      : 0  (always expected: 0)
+skips observed       : 17  (manifest declares 17)
+
+skip reasons parsed  : 17 from feature-teamcity.txt
+
+
+OK: the observed outcome set matches the manifest exactly -- 2 declared failures, 17 declared skips, 0 errors, and nothing undeclared.
+
+This is NOT a statement that the suite is green. It is a statement that the suite is
+failing and skipping exactly the tests the project has recorded, for the reasons it has
+recorded. Read .github/known-test-outcomes.json for what is still owed and to whom.
+######## UNIT
+  Tests:    654 passed (4085 assertions)
+  Duration: 43.86s
+
+######## CONTRACT
+  Tests:    26 passed (83 assertions)
+  Duration: 5.46s
+
+######## MARIADB
+
+===========================================================================
+passed: 29   failed: 0
+every MySQL verification script reported all assertions held.
+######## END
