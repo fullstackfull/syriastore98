@@ -338,6 +338,14 @@ run_one verify-replay-claim-survives-a-model-save-on-mysql \
   "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
   "FRESH_MYSQL_DATABASE=replayclaim_verify" "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
 
+# F216 / D-29.3 -- one capture is one row under REAL concurrency. The sequential contract is
+# proven in GatewayReferenceIdempotencyTest; uniqueness under two simultaneous inserts is an
+# ENGINE property, so only two real connections can measure it. Also drives failure before commit
+# (a rollback must not strand the capture) and after commit (a committed claim must block it).
+run_one verify-gateway-reference-idempotency-on-mysql \
+  "OGR_MYSQL_SOCKET=${SOCK}" "OGR_MYSQL_HOST=${HOST}" "OGR_MYSQL_PORT=${PORT}" \
+  "OGR_MYSQL_DATABASE=ogr_verify" "OGR_MYSQL_USERNAME=${USER_NAME}" "OGR_MYSQL_PASSWORD=${PASS}"
+
 run_one verify-empty-variant-name-wipe-on-mysql \
   "F199_MYSQL_SOCKET=${SOCK}" "F199_MYSQL_HOST=${HOST}" "F199_MYSQL_PORT=${PORT}" \
   "F199_MYSQL_DATABASE=f199_verify" "F199_MYSQL_USERNAME=${USER_NAME}" "F199_MYSQL_PASSWORD=${PASS}"
