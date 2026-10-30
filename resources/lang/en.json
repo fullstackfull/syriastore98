@@ -3300,5 +3300,16 @@
     "Remove these variants permanently?": "Remove these variants permanently?",
     "This cannot be undone. The price, stock and SKU this variant carries will be lost.": "This cannot be undone. The price, stock and SKU this variant carries will be lost.",
     "This cannot be undone.": "This cannot be undone.",
-    "Variant: :name": "Variant: :name"
+    "Variant: :name": "Variant: :name",
+    "Payments Awaiting Review": "Payments Awaiting Review",
+    "Back to Finance": "Back to Finance",
+    "These payments were collected but no order was recorded against them. They need to be checked with the payment provider before anything is settled.": "These payments were collected but no order was recorded against them. They need to be checked with the payment provider before anything is settled.",
+    "The payment reference record is not installed on this environment, so this list cannot be complete. An empty list here is not evidence that nothing needs review.": "The payment reference record is not installed on this environment, so this list cannot be complete. An empty list here is not evidence that nothing needs review.",
+    "No payments are awaiting review.": "No payments are awaiting review.",
+    "Payments collected with no order recorded against them": "Payments collected with no order recorded against them",
+    "Payment Provider": "Payment Provider",
+    "Provider Reference": "Provider Reference",
+    "First Seen": "First Seen",
+    "Needs follow-up": "Needs follow-up",
+    "Nothing on this page changes an order, a payment status or stock. Settling one of these requires confirmation from the payment provider.": "Nothing on this page changes an order, a payment status or stock. Settling one of these requires confirmation from the payment provider."
 }

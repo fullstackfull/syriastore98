@@ -3329,5 +3329,16 @@
     "Remove these variants permanently?": "إزالة هذه المتغيرات نهائياً؟",
     "This cannot be undone. The price, stock and SKU this variant carries will be lost.": "لا يمكن التراجع عن هذا. سيُفقد السعر والمخزون ورمز المنتج الذي يحمله هذا المتغير.",
     "This cannot be undone.": "لا يمكن التراجع عن هذا.",
-    "Variant: :name": "المتغير: :name"
+    "Variant: :name": "المتغير: :name",
+    "Payments Awaiting Review": "مدفوعات بانتظار المراجعة",
+    "Back to Finance": "العودة إلى المالية",
+    "These payments were collected but no order was recorded against them. They need to be checked with the payment provider before anything is settled.": "تم تحصيل هذه المدفوعات دون تسجيل أي طلب مقابلها، ويجب التحقق منها مع مزوّد الدفع قبل تسوية أي شيء.",
+    "The payment reference record is not installed on this environment, so this list cannot be complete. An empty list here is not evidence that nothing needs review.": "سجل مراجع الدفع غير مُثبَّت في هذه البيئة، لذلك لا يمكن أن تكون هذه القائمة كاملة. والقائمة الفارغة هنا ليست دليلاً على عدم وجود ما يحتاج إلى مراجعة.",
+    "No payments are awaiting review.": "لا توجد مدفوعات بانتظار المراجعة.",
+    "Payments collected with no order recorded against them": "مدفوعات محصَّلة دون تسجيل طلب مقابلها",
+    "Payment Provider": "مزوّد الدفع",
+    "Provider Reference": "مرجع المزوّد",
+    "First Seen": "أول ظهور",
+    "Needs follow-up": "يحتاج متابعة",
+    "Nothing on this page changes an order, a payment status or stock. Settling one of these requires confirmation from the payment provider.": "لا شيء في هذه الصفحة يغيّر طلباً أو حالة دفع أو مخزوناً، وتسوية أي منها تتطلب تأكيداً من مزوّد الدفع."
 }

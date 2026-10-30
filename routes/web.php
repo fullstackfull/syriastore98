@@ -227,6 +227,17 @@ Route::middleware(['auth'])->group(function () {
         ->middleware('finance.permission:View Finance Withdrawal Requests')
         ->name('finance.withdrawals');
 
+    /*
+     * D4 / D-29.4. A READ-ONLY review surface for a collected payment that has no order, gated on
+     * a SEEDED VIEW permission because it is a view. There is deliberately no POST sibling: every
+     * action a reviewer might want -- mark paid, create the order, release the claim, restore
+     * stock -- is one D-29.4 forbids without gateway evidence, and a merchant's statement is not
+     * evidence. See StoreFinanceController::unreconciledCaptures for the full account.
+     */
+    Route::get('/finance/unreconciled-captures', [StoreFinanceController::class, 'unreconciledCaptures'])
+        ->middleware('finance.permission:View Finance Dashboard')
+        ->name('finance.unreconciled.captures');
+
     // approve / reject / pay had NO authorization of any kind, in the route file
     // or in the controller. The controller halves are now guarded too
     // (StoreFinanceController::approveWithdrawal / rejectWithdrawal /

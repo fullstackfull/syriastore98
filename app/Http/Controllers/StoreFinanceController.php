@@ -174,6 +174,96 @@ class StoreFinanceController extends Controller
     }
 
 
+    /**
+     * D4 / D-29.4 — THE REVIEW PATH FOR A COLLECTED PAYMENT THAT HAS NO ORDER.
+     *
+     * The owner's decision is a REFUSAL first and a feature second: *"a merchant's statement alone
+     * is not payment proof."* Where no gateway verification exists, the capture must stay in a
+     * review / pending-settlement state, show a needs-follow-up status, keep the reference and the
+     * available information without disclosing secrets, create no duplicate order, declare no
+     * capture success without evidence, release or restore no stock on a guess, and not release the
+     * replay claim unsafely. What D4 then asks for is *"a documented review path with permissions
+     * and an audit log"*.
+     *
+     * SO THIS HANDLER IS DEFINED BY WHAT IT CANNOT DO, and that is the whole design rather than
+     * caution about an unfinished one:
+     *
+     *   - It is a GET. There is no POST sibling, no form and no action column, because every action
+     *     a reviewer might want — mark paid, create the order, release the claim, restore stock —
+     *     is a thing D-29.4 forbids doing without evidence. An empty action column would invite
+     *     somebody to fill it.
+     *   - It never writes to `order_gateway_references`. `GatewayReference` has no `markPaid`, no
+     *     claim release and no stock movement, and this handler adds none.
+     *   - It never touches the replay claims. A capture appearing here means the claim did its job.
+     *
+     * PERMISSION: `View Finance Dashboard`, which is SEEDED (`Utility::addNewData()`) and is a VIEW
+     * name for a VIEW surface. Both halves matter. A name absent from the seeder cannot exist as a
+     * row, and this controller is where that was learned — all six finance names were gated on
+     * while none was seeded, so every finance mutator was 403 for everyone including the operator.
+     * And this file's own `WITHDRAWAL_REVIEW_PERMISSIONS` exists because a VIEW permission had been
+     * authorising three money-moving actions: read must not imply write. A read-only surface takes
+     * a read permission, and no new name is invented that would need a seeder entry to work.
+     *
+     * The gate is `canFinance()`, i.e. `Gate::allows('finance', ...)`, which is operator-first and
+     * then `isAbleTo()` — the ordering CLAUDE.md requires, because `isAbleTo()` alone REFUSES the
+     * platform operator.
+     *
+     * TENANT ISOLATION comes from `getCurrentStore()`, never from request input: a predicate built
+     * from a caller-supplied `store_id` only compares the caller's own two values, which has
+     * produced four separate defects here.
+     *
+     * THE AUDIT ENTRY IS OF THE REVIEW ITSELF. Nothing is changed, so there is no before-and-after
+     * to record; what is worth recording is that somebody LOOKED, and at how many unresolved
+     * captures. D4 asks for an audit log on the review path, and a read is the only thing this path
+     * does.
+     */
+    public function unreconciledCaptures(Request $request)
+    {
+        if (!$this->canFinance('View Finance Dashboard')) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
+        $storeId = getCurrentStore();
+
+        $captures = \App\Services\GatewayReference::unreconciled($storeId);
+
+        /*
+         * NO SECRETS LEAVE THIS HANDLER. D-29.4: "keep the reference and available information
+         * without disclosing secrets". The table holds no key or token -- `gateway` is a name,
+         * `reference` is the gateway's own public transaction id, `amount` and `capture_state` are
+         * values the merchant already owns -- so the projection below is explicit rather than
+         * passing the row through, and a column added to that table later does not reach a screen
+         * by default.
+         */
+        $rows = collect($captures)->map(fn ($row) => [
+            'gateway' => (string) ($row->gateway ?? ''),
+            'reference' => (string) ($row->reference ?? ''),
+            'amount' => (string) ($row->amount ?? ''),
+            'capture_state' => (string) ($row->capture_state ?? 'unknown'),
+            'seen_at' => (string) ($row->created_at ?? ''),
+        ])->values();
+
+        \App\Models\AuditLog::record(
+            'finance.unreconciled_captures.reviewed',
+            null,
+            [],
+            ['count' => $rows->count(), 'store_id' => $storeId]
+        );
+
+        if ($request->expectsJson()) {
+            return response()->json([
+                'status' => 'success',
+                'needs_follow_up' => $rows->count(),
+                'captures' => $rows,
+            ]);
+        }
+
+        return view('finance.unreconciled-captures', [
+            'captures' => $rows,
+            'tableIsAvailable' => \App\Services\GatewayReference::available(),
+        ]);
+    }
+
     public function index(Request $request)
     {
         if (!$this->canFinance('View Finance Dashboard')) {
