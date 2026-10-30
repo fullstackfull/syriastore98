@@ -1,0 +1,19 @@
+KNOWN-OUTCOME GATE
+------------------------------------------------------------------------------
+junit log            : storage/logs/feature-junit.xml
+manifest             : .github/known-test-outcomes.json
+testcases observed   : 6808  (manifest floor 1000)
+failures observed    : 2  (manifest declares 2)
+errors observed      : 0  (always expected: 0)
+skips observed       : 17  (manifest declares 17)
+
+skip reasons parsed  : 17 from feature-teamcity.txt
+
+
+OK: the observed outcome set matches the manifest exactly -- 2 declared failures, 17 declared skips, 0 errors, and nothing undeclared.
+
+This is NOT a statement that the suite is green. It is a statement that the suite is
+failing and skipping exactly the tests the project has recorded, for the reasons it has
+recorded. Read .github/known-test-outcomes.json for what is still owed and to whom.
+  Tests:    2 failed, 17 skipped, 6789 passed (34102 assertions)
+  Duration: 1318.25s

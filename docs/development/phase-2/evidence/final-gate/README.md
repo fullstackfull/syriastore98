@@ -1,10 +1,31 @@
-# Final full gate — HEAD `7173ebb8`
+# Final full gate — run on `7173ebb8`, re-run on the final HEAD `ae4251de`
 
-Owner directive §7. Every number here was produced on that commit, not on an earlier tree.
+Owner directive §7, and specifically the standing instruction that **nothing substitutes for the
+full gate on the FINAL HEAD** — a passing Merchant or Security run is not that gate.
+
+The gate was run twice, and the second run is the one that satisfies §7:
+
+| run | commit | what that commit was |
+|---|---|---|
+| first | `7173ebb8` | the F184 engineering commit |
+| **second** | **`ae4251de`** | **the final HEAD** — the first run's evidence, the Arabic report, the F206 ledger row, and one verification script |
+
+Both produced the identical outcome set. The second run exists because the first one's own evidence
+had to be committed before it could be the HEAD, and a gate result that predates the tree it claims
+to describe is exactly the substitution the directive rules out.
+
+**One commit still follows this file** — the one that adds these two paragraphs and the F206
+reference. That it changes nothing any test reads is **verified, not asserted**: no file under
+`tests/` reads any `docs/` path. The check is
+`grep -nE "(file_get_contents|base_path|realpath|fopen|is_file|file_exists)\([^)]*docs/" tests/ -r`,
+which returns nothing; the ten test files that mention `PHASE-02-` cite it in a docblock.
+
+Every number below was produced on `ae4251de` unless the table above says otherwise.
 
 | file | what it is |
 |---|---|
-| `feature-known-outcome-gate.txt` | the **official** Feature gate — the manifest assertion, not a shortened substitute |
+| `feature-known-outcome-gate.txt` | the **official** Feature gate on `7173ebb8` — the manifest assertion, not a shortened substitute |
+| `feature-known-outcome-gate-final-head.txt` | the same gate re-run on the final HEAD `ae4251de` |
 | `local-suites.txt` | Unit, Contract, Security, Merchant, Commerce, Tenancy |
 | `mysql-roster.txt` | all 27 MariaDB verification scripts |
 
@@ -20,6 +41,9 @@ skips observed       : 17  (manifest declares 17)
 OK: the observed outcome set matches the manifest exactly
 gate exit 0
 ```
+
+Identical on both runs: 6808 / 2 / 0 / 17, `gate exit 0`, `2 failed, 17 skipped, 6789 passed
+(34102 assertions)` — 1332.73s on `7173ebb8`, 1318.25s on `ae4251de`.
 
 `php artisan test` itself exits **1**, and that is expected: the suite carries two declared
 failures. The gate script is the authority, and it asserts the outcome *set* in both directions —
