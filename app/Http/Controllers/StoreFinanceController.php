@@ -217,13 +217,77 @@ class StoreFinanceController extends Controller
      * captures. D4 asks for an audit log on the review path, and a read is the only thing this path
      * does.
      */
+    /**
+     * A refusal that distinguishes "no store" from "no captures", in both response shapes.
+     *
+     * It returns BEFORE the audit write, deliberately: an audit row saying a review happened, when
+     * the handler could not establish whose money it was reviewing, is a false record of a control
+     * having been exercised.
+     */
+    private function unresolvedStoreRefusal(Request $request, string $reason)
+    {
+        if ($request->expectsJson()) {
+            return response()->json([
+                'status' => 'fail',
+                'message' => __('No store is selected, so collected payments cannot be reviewed.'),
+                'reason' => $reason,
+            ], 409);
+        }
+
+        return redirect()->back()->with(
+            'error',
+            __('No store is selected, so collected payments cannot be reviewed.')
+        );
+    }
+
     public function unreconciledCaptures(Request $request)
     {
         if (!$this->canFinance('View Finance Dashboard')) {
             return redirect()->back()->with('error', __('Permission denied.'));
         }
 
+        /*
+         * THE STORE MUST RESOLVE EXPLICITLY, AND A MONEY REVIEW IS WHERE THAT MATTERS MOST.
+         *
+         * Three findings from an independent review of this handler, all of them about
+         * `getCurrentStore()` answering something other than "the caller's store":
+         *
+         *   F157 — for an operator whose `current_store` is empty (the normal state for one who has
+         *   never used the store switcher) the helper returns the HARDCODED LITERAL 1. So the
+         *   operator was shown one arbitrary tenant's collected payments, with that tenant's
+         *   gateway references, AND the audit row was stamped with that tenant's id.
+         *
+         *   A STAFF user whose `current_store` was never set falls through to
+         *   `Store::where('created_by', $user->id)->first()` — and staff do not create stores — so
+         *   it returns NULL. `GatewayReference::unreconciled()` then short-circuits on
+         *   `! is_numeric($storeId)` and returns an empty collection, so an authorised reviewer was
+         *   told "no payments are awaiting review" WHILE THEIR EMPLOYER HAD COLLECTED MONEY WITH NO
+         *   ORDER. That is the worst possible wrong answer on this page: it is the one that makes a
+         *   reviewer stop looking.
+         *
+         * An empty list is indistinguishable from a clean one, so the only safe behaviour is to
+         * REFUSE rather than render. The refusal says which condition failed, because "no store"
+         * and "no captures" are different facts and the merchant can act on the first.
+         */
         $storeId = getCurrentStore();
+
+        if (! is_numeric($storeId) || (int) $storeId <= 0) {
+            return $this->unresolvedStoreRefusal($request, 'no store is selected');
+        }
+
+        /*
+         * AND THE OPERATOR MUST HAVE CHOSEN ONE. `getCurrentStore()` cannot distinguish "the
+         * operator picked store 1" from "the operator picked nothing and the helper defaulted", so
+         * the column is read directly here. An operator who has selected a store is served
+         * normally — the operator is not refused from the surface, only from an unchosen default.
+         */
+        $caller = auth()->user();
+
+        if ($caller
+            && strtolower(trim((string) $caller->type)) === 'super admin'
+            && empty($caller->current_store)) {
+            return $this->unresolvedStoreRefusal($request, 'select a store first');
+        }
 
         $captures = \App\Services\GatewayReference::unreconciled($storeId);
 
@@ -251,8 +315,20 @@ class StoreFinanceController extends Controller
         );
 
         if ($request->expectsJson()) {
+            /*
+             * `record_available` IS NOT DECORATION. The D-29.3 migration is dev/test-only until the
+             * owner authorises it, so in production `order_gateway_references` DOES NOT EXIST — and
+             * `GatewayReference::unreconciled()` returns an empty collection when the table is
+             * absent. Without this key the JSON branch answered
+             * `200 {"status":"success","needs_follow_up":0,"captures":[]}` on exactly the
+             * environment where the record cannot be consulted: a caller or an integration reads
+             * that as "no collected payment is unresolved", which is the one conclusion the data
+             * cannot support. The HTML branch already said so in a warning; the JSON branch said
+             * nothing. Measured by an independent review with the table dropped.
+             */
             return response()->json([
                 'status' => 'success',
+                'record_available' => \App\Services\GatewayReference::available(),
                 'needs_follow_up' => $rows->count(),
                 'captures' => $rows,
             ]);

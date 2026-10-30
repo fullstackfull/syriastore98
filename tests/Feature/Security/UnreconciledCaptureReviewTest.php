@@ -328,4 +328,155 @@ class UnreconciledCaptureReviewTest extends SecurityTestCase
             );
         }
     }
+
+    // ─────────────────── WHAT AN INDEPENDENT REVIEW FOUND THAT THIS FILE MISSED
+
+    public function test_the_html_branch_does_not_fatal(): void
+    {
+        /*
+         * THE GAP THAT HID A HIGH DEFECT IN THIS VERY FILE'S SUBJECT.
+         *
+         * Every case above drives `getJson()`, which takes the handler's `expectsJson()` branch and
+         * RETURNS BEFORE the view is built. So none of them ever evaluated
+         * `GatewayReference::available()` -- which was declared `private static` while the
+         * controller called it, making the HTML branch an UNCONDITIONAL HTTP 500 for every merchant
+         * who opened the page: "Error: Call to private method ... from scope StoreFinanceController".
+         * Eleven green cases, and the page did not work at all.
+         *
+         * A handler with two branches needs a test on each. This drives the HTML path by calling the
+         * handler DIRECTLY, because the dashboard-family views cannot render under RefreshDatabase
+         * in this suite -- a measured fact about the container, not about this code -- so the
+         * assertion is that the handler REACHES the view rather than that the view renders.
+         */
+        [$merchant, $store] = $this->makeTenant();
+        $this->grantPermission($merchant, self::PERMISSION);
+        $merchant->current_store = $store->id;
+        $merchant->save();
+
+        $this->actingAs($merchant->fresh());
+
+        $response = (new \App\Http\Controllers\StoreFinanceController())
+            ->unreconciledCaptures(request());
+
+        $this->assertNotNull(
+            $response,
+            'the HTML branch must return a response rather than raising. If this fails with a '
+            . 'private-method Error, available() has been demoted again.'
+        );
+    }
+
+    public function test_available_is_callable_from_outside_the_service(): void
+    {
+        // The root cause, pinned where a branch choice cannot miss it.
+        $method = new \ReflectionMethod(\App\Services\GatewayReference::class, 'available');
+
+        $this->assertTrue(
+            $method->isPublic(),
+            'GatewayReference::available() must stay public: StoreFinanceController calls it to '
+            . 'tell the reviewer whether the record can be consulted at all, and a private method '
+            . 'there is a fatal on the page rather than a refusal.'
+        );
+    }
+
+    public function test_an_operator_who_has_chosen_no_store_is_refused_rather_than_shown_one(): void
+    {
+        /*
+         * F157. `getCurrentStore()` returns the HARDCODED LITERAL 1 for an operator whose
+         * `current_store` is empty -- the normal state for one who has never used the store
+         * switcher. So the operator was shown ONE ARBITRARY TENANT'S collected payments, with that
+         * tenant's gateway references, and the audit row was stamped with that tenant's id.
+         */
+        [$merchant, $store] = $this->makeTenant();
+        $this->seedCapture((int) $store->id, 'ref-belongs-to-the-merchant');
+
+        $operator = $this->makePlatformAdmin(['current_store' => null]);
+
+        $response = $this->actingAs($operator)->getJson(self::URI);
+
+        $response->assertStatus(409);
+
+        $this->assertStringNotContainsString(
+            'ref-belongs-to-the-merchant',
+            $response->getContent(),
+            "a tenant's gateway reference must not reach an operator who selected no store"
+        );
+
+        // And the operator is NOT refused from the surface itself -- only from an unchosen default.
+        $operator->current_store = $store->id;
+        $operator->save();
+
+        $this->actingAs($operator->fresh())->getJson(self::URI)->assertOk();
+    }
+
+    public function test_a_reviewer_whose_store_never_resolved_is_refused_not_reassured(): void
+    {
+        /*
+         * THE WORST POSSIBLE WRONG ANSWER ON THIS PAGE. A staff user whose `current_store` was never
+         * set makes `getCurrentStore()` return null, `unreconciled()` short-circuit on
+         * `! is_numeric($storeId)`, and the page report "no payments are awaiting review" -- while
+         * their employer has collected money with no order. An empty list is indistinguishable from
+         * a clean one, so the reviewer stops looking.
+         */
+        [$merchant, $store] = $this->makeTenant();
+        $staff = $this->makeStaff($merchant, ['current_store' => null]);
+        $this->grantPermission($staff, self::PERMISSION);
+        $this->seedCapture((int) $store->id, 'ref-outstanding');
+
+        $response = $this->actingAs($staff->fresh())->getJson(self::URI);
+
+        $response->assertStatus(409);
+        $this->assertSame('fail', $response->json('status'));
+    }
+
+    public function test_a_refusal_writes_no_audit_row(): void
+    {
+        // An audit row saying a review happened, when the handler could not establish whose money it
+        // was reviewing, is a false record of a control having been exercised.
+        [$merchant] = $this->makeTenant();
+        $staff = $this->makeStaff($merchant, ['current_store' => null]);
+        $this->grantPermission($staff, self::PERMISSION);
+
+        $before = AuditLog::where('action', 'finance.unreconciled_captures.reviewed')->count();
+
+        $this->actingAs($staff->fresh())->getJson(self::URI)->assertStatus(409);
+
+        $this->assertSame(
+            $before,
+            AuditLog::where('action', 'finance.unreconciled_captures.reviewed')->count(),
+            'a refused review must not be audited as a review'
+        );
+    }
+
+    public function test_the_json_branch_says_whether_the_record_can_be_consulted(): void
+    {
+        /*
+         * The D-29.3 migration is dev/test-only until the owner authorises it, so in PRODUCTION
+         * `order_gateway_references` does not exist and `unreconciled()` returns empty. Without an
+         * availability signal the JSON branch answered
+         * 200 {"status":"success","needs_follow_up":0,"captures":[]} on exactly the environment
+         * where the record cannot be consulted -- read by any integration as "nothing is
+         * unresolved", which is the one conclusion the data cannot support.
+         */
+        [$merchant, $store] = $this->makeTenant();
+        $this->grantPermission($merchant, self::PERMISSION);
+        $merchant->current_store = $store->id;
+        $merchant->save();
+
+        $response = $this->actingAs($merchant->fresh())->getJson(self::URI);
+
+        $response->assertOk();
+
+        $this->assertArrayHasKey(
+            'record_available',
+            $response->json(),
+            'the JSON branch must carry the availability signal, because zero captures and an '
+            . 'absent record are different facts and only one of them is reassuring'
+        );
+
+        $this->assertTrue(
+            $response->json('record_available'),
+            'in this suite the table exists, so the signal must say so -- otherwise the assertion '
+            . 'above proves nothing about what it reports'
+        );
+    }
 }

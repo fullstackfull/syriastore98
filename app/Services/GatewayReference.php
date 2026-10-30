@@ -230,7 +230,17 @@ final class GatewayReference
         return is_numeric($storeId) && (int) $storeId > 0 && trim($reference) !== '';
     }
 
-    private static function available(): bool
+    /**
+     * PUBLIC because the review surface needs it, and it is a read-only question.
+     *
+     * It was `private static` and `StoreFinanceController` called it anyway, which made the HTML
+     * branch of the review page an UNCONDITIONAL HTTP 500 for every merchant who opened it —
+     * `Error: Call to private method ... from scope App\Http\Controllers\StoreFinanceController`.
+     * Found by an independent review of my own change, and MISSED BY ALL ELEVEN OF MY OWN TESTS
+     * because every one of them drove `getJson()`, which takes the `expectsJson()` branch and
+     * returns before this line is reached. A handler with two branches needs a test on each.
+     */
+    public static function available(): bool
     {
         return \Illuminate\Support\Facades\Schema::hasTable(self::TABLE);
     }

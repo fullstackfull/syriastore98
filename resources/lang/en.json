@@ -3311,5 +3311,6 @@
     "Provider Reference": "Provider Reference",
     "First Seen": "First Seen",
     "Needs follow-up": "Needs follow-up",
-    "Nothing on this page changes an order, a payment status or stock. Settling one of these requires confirmation from the payment provider.": "Nothing on this page changes an order, a payment status or stock. Settling one of these requires confirmation from the payment provider."
+    "Nothing on this page changes an order, a payment status or stock. Settling one of these requires confirmation from the payment provider.": "Nothing on this page changes an order, a payment status or stock. Settling one of these requires confirmation from the payment provider.",
+    "No store is selected, so collected payments cannot be reviewed.": "No store is selected, so collected payments cannot be reviewed."
 }

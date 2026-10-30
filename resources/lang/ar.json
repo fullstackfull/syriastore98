@@ -3340,5 +3340,6 @@
     "Provider Reference": "مرجع المزوّد",
     "First Seen": "أول ظهور",
     "Needs follow-up": "يحتاج متابعة",
-    "Nothing on this page changes an order, a payment status or stock. Settling one of these requires confirmation from the payment provider.": "لا شيء في هذه الصفحة يغيّر طلباً أو حالة دفع أو مخزوناً، وتسوية أي منها تتطلب تأكيداً من مزوّد الدفع."
+    "Nothing on this page changes an order, a payment status or stock. Settling one of these requires confirmation from the payment provider.": "لا شيء في هذه الصفحة يغيّر طلباً أو حالة دفع أو مخزوناً، وتسوية أي منها تتطلب تأكيداً من مزوّد الدفع.",
+    "No store is selected, so collected payments cannot be reviewed.": "لم يُحدَّد أي متجر، لذلك لا يمكن مراجعة المدفوعات المحصَّلة."
 }
