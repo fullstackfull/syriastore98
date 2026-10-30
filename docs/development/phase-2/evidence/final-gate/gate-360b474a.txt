@@ -1,0 +1,43 @@
+######## FINAL GATE on 360b474a
+
+
+  Tests:    2 failed, 17 skipped, 6832 passed (34258 assertions)
+  Duration: 2258.98s
+
+######## ASSERTER
+KNOWN-OUTCOME GATE
+------------------------------------------------------------------------------
+junit log            : storage/logs/feature-junit.xml
+manifest             : .github/known-test-outcomes.json
+testcases observed   : 6851  (manifest floor 1000)
+failures observed    : 2  (manifest declares 2)
+errors observed      : 0  (always expected: 0)
+skips observed       : 17  (manifest declares 17)
+
+skip reasons parsed  : 17 from feature-teamcity.txt
+
+
+OK: the observed outcome set matches the manifest exactly -- 2 declared failures, 17 declared skips, 0 errors, and nothing undeclared.
+
+This is NOT a statement that the suite is green. It is a statement that the suite is
+failing and skipping exactly the tests the project has recorded, for the reasons it has
+recorded. Read .github/known-test-outcomes.json for what is still owed and to whom.
+######## UNIT
+  Tests:    654 passed (4085 assertions)
+  Duration: 47.05s
+
+######## CONTRACT
+  Tests:    26 passed (83 assertions)
+  Duration: 5.74s
+
+######## MARIADB ROSTER
+  FAILED: verify-model-cache-isolation-on-mysql
+  FAILED: verify-model-cache-flush-scope-on-mysql
+  FAILED: verify-variant-removal-consent-on-mysql
+  FAILED: verify-login-and-settings-cache-paths-on-mysql
+  FAILED: verify-replay-claim-survives-a-model-save-on-mysql
+  FAILED: verify-empty-variant-name-wipe-on-mysql
+######## DONE
+
+--- re-run after mariadbd was restarted (the six "failures" above were SQLSTATE[HY000] [2002] Connection refused, not refutations) ---
+passed: 29   failed: 0
