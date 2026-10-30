@@ -311,7 +311,7 @@ try {
     }
 
     // ----------------------------------------------------------------------------------
-    echo "\n[6] What the operator exemption actually does -- and F195 MADE IT LIVE\n";
+    echo "\n[6] The operator exemption: F195 made it live, and F206 withdrew the capability\n";
 
     $operator = User::forceCreate([
         'name' => 'operator', 'email' => 'op-' . uniqid() . '@example.test',
@@ -355,15 +355,39 @@ try {
         . ' (CLAUDE.md), so the gate cannot be isAbleTo() if the operator is to pass it');
 
     check(\App\Services\MerchantPermissions::allowsAny($operator, ['Edit Products'], $victim->store_id),
-        'but MerchantPermissions DOES admit the operator for the target store -- the per-store read'
-        . ' F195 put on this door');
+        'MerchantPermissions still admits the operator for the target store -- the per-store read'
+        . ' F195 put on this door, which other surfaces (orders, coupons, analytics, the Flutter'
+        . ' login payload) depend on and which F206 therefore did NOT narrow');
 
+    /*
+     * [2026-10-30] F206 -- AND THIS SECTION CHANGED ITS ANSWER A SECOND TIME, BY OWNER DECISION.
+     *
+     * The history is worth keeping in one place because it is easy to read either state as a bug:
+     *   - ORIGINALLY the operator wrote nothing here, because `update()` sat inside
+     *     `isAbleTo('Edit Products')` and Laratrust has no super-admin bypass. The
+     *     `PLATFORM_ADMIN` exemption written into the ownership guard was unreachable.
+     *   - F195 replaced that gate with the store-scoped `MerchantPermissions` read, because
+     *     `isAbleTo()` unions across every store AND refuses the operator. The exemption became
+     *     reachable and the operator could edit any store's product -- recorded as a capability
+     *     change, not an accident.
+     *   - F206 is the owner deciding that capability: *"the platform operator can read merchant
+     *     catalogues and diagnose their problems, but cannot edit merchants' products, their
+     *     prices, their stock or their variants, nor delete them."*
+     *
+     * So the operator is refused again -- but by a NAMED guard at the door
+     * (`OperatorCatalogueWrite`), not as a side effect of a permission helper that happened to
+     * answer false for them. The difference matters: the old refusal would have vanished the
+     * moment anyone fixed the union bug, and this one will not.
+     */
     $call('update', $operator, $victim, $payload($catB, 'operator-edit', 9));
     $opAfter = Product::withoutGlobalScopes()->find($victim->id);
-    check($opAfter->name === 'operator-edit',
-        'and so the operator NOW writes through update() -- F195 made the exemption reachable, which'
-        . ' is a capability change recorded in the ledger, not an accident',
+    check($opAfter->name === 'victim-original',
+        'F206: the platform operator wrote a merchant product through update()',
         'name is ' . var_export($opAfter->name, true));
+
+    check(\App\Services\OperatorCatalogueWrite::refuses($operator),
+        'the named F206 guard does not recognise the operator, so the refusal above is incidental'
+        . ' rather than the control');
 
     $opShow = $call('show', $operator, $victim);
     check(! ($opShow instanceof Illuminate\Http\RedirectResponse),

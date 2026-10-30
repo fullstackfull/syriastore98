@@ -625,4 +625,74 @@ final class VariantRemovalPolicy
 
         return \Illuminate\Support\Str::trim($value);
     }
+
+    /**
+     * F205 — RE-CHECK THE REFERENCES AND DELETE INSIDE ONE TRANSACTION, WITH THE REFERENCE ROWS
+     * LOCKED.
+     * ---------------------------------------------------------------------------------------------
+     * The owner's condition: *"re-check the cart, order and wishlist references before execution"*
+     * and *"prove in MariaDB tests that the check and the delete are protected from a concurrency
+     * race — do not claim the operation is safe on the strength of a sequential test alone. If
+     * concurrency safety cannot be guaranteed, stop the dangerous delete rather than treating it
+     * as safe."*
+     *
+     * WHAT THE RACE IS. The consent token binds the variant rows' own state, so a variant whose
+     * price or stock moved invalidates it. It cannot bind what it does not see: a shopper adding
+     * one of those variants to a cart between the refusal and the save changes nothing about the
+     * variant row, so the token stays valid and the earlier reference check is already stale. The
+     * delete then destroys a row the block exists to protect, and the shopper's cart renders
+     * through an accessor where `ProductVariant::find()` returns null.
+     *
+     * WHY `lockForUpdate()` ON THE REFERENCE ROWS AND NOT ON THE VARIANTS. The dangerous write is
+     * the arrival of a `carts` or `wishlists` row, not a change to `product_variants`. Locking the
+     * variants would serialise two merchants editing the same product and still let a cart row
+     * land. A `SELECT … FOR UPDATE` over the reference tables for these variant ids takes a
+     * next-key lock on InnoDB, so a concurrent INSERT naming one of those ids blocks until this
+     * transaction ends — which is exactly the window that has to be closed.
+     *
+     * AND IT REFUSES RATHER THAN DELETING when a reference appears. That is the owner's *"stop the
+     * dangerous delete"*: the merchant is told, and nothing is destroyed. The refusal is the same
+     * `refuse()` shape every other door uses, so the message is the one they already read.
+     *
+     * SQLITE HAS NO ROW LOCKS — `lockForUpdate()` compiles to nothing there, so this is a
+     * transaction and a re-check and not a race control under the test suite's default driver.
+     * That is why the owner asked for a MariaDB proof, and why
+     * `tests/Support/Security/bin/verify-variant-removal-consent-on-mysql.php` drives two real
+     * connections rather than asserting anything here.
+     *
+     * @param  array<int,int>  $variantIds  the ids this delete would remove
+     * @return array<string,mixed>|null  a refusal, or null when the delete was performed
+     */
+    public static function deleteGuarded($product, array $variantIds, callable $delete): ?array
+    {
+        if ($variantIds === []) {
+            $delete();
+
+            return null;
+        }
+
+        return \Illuminate\Support\Facades\DB::transaction(function () use ($product, $variantIds, $delete) {
+            /* The lock first, so a concurrent INSERT of a reference to one of these ids waits for
+               this transaction rather than slipping between the check and the delete. */
+            \App\Models\Cart::withoutGlobalScopes()->whereIn('variant_id', $variantIds)->lockForUpdate()->get();
+            \App\Models\Wishlist::withoutGlobalScopes()->whereIn('variant_id', $variantIds)->lockForUpdate()->get();
+
+            $removed = \App\Models\ProductVariant::withoutGlobalScopes()
+                ->whereIn('id', $variantIds)
+                ->get(['id', 'variant', 'sku', 'variation_price', 'price', 'stock', 'store_id']);
+
+            /* The SAME question the preflight asked, asked again with the rows locked. `true` for
+               `$confirmed` because consent was established before any write; what is being
+               re-asked is whether a REFERENCE appeared, which consent never answered. */
+            $refusal = self::refuse($product, $removed, true);
+
+            if ($refusal !== null) {
+                return $refusal;
+            }
+
+            $delete();
+
+            return null;
+        });
+    }
 }

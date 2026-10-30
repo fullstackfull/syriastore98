@@ -407,7 +407,10 @@ class ProductUpdateRefusalPersistsNothingTest extends SecurityTestCase
         /* The merchant confirms. Same token: the page did not reload. */
         $payload['ss_confirm_variant_removal'] = 1;
 
-        $second = $this->save($merchant, $product, $payload);
+        /* F205 [2026-10-30]: the boolean no longer authorises on its own. The save goes
+           through the real round trip — refuse, read the advertised consent, send it
+           back — which asserts that what the server advertises is what it accepts. */
+        $second = $this->saveWithServerConsent($merchant, $product, $payload);
         $second->assertOk();
 
         $this->assertStringNotContainsString('Someone else', (string) $second->json('msg'),
@@ -725,7 +728,10 @@ class ProductUpdateRefusalPersistsNothingTest extends SecurityTestCase
         }
         $payload['ss_confirm_variant_removal'] = 1;
 
-        $response = $this->save($merchant, $product, $payload);
+        /* F205 [2026-10-30]: the boolean no longer authorises on its own. The save goes
+           through the real round trip — refuse, read the advertised consent, send it
+           back — which asserts that what the server advertises is what it accepts. */
+        $response = $this->saveWithServerConsent($merchant, $product, $payload);
         $response->assertOk();
 
         $this->assertNull($response->json('ss_variant_removal'),
@@ -892,5 +898,36 @@ class ProductUpdateRefusalPersistsNothingTest extends SecurityTestCase
         $this->assertSame(0, substr_count($controller, '->reject(function'),
             'the controller still hand-rolls the removal-set query; detection and deletion drift'
             . ' apart exactly when there are two of them');
+    }
+
+    /**
+     * F205 — OBTAIN A REAL CONSENT THE WAY A BROWSER DOES, then save with it.
+     *
+     * Posting `ss_confirm_variant_removal = 1` no longer authorises anything: the owner's decision
+     * replaced that boolean with a token the SERVER issues, bound to this employee, this store,
+     * this product, the exact variant ids being removed and the data they were shown, with a time
+     * limit. `filter_var('1', FILTER_VALIDATE_BOOLEAN)` being true is precisely the property that
+     * made the old signal forgeable.
+     *
+     * So this drives the real round trip — save, read the refusal, send back the pair it
+     * advertises — which is a stronger test than the literal it replaces: it asserts that what the
+     * server ADVERTISES is what the server ACCEPTS. The old boolean is still posted, so a
+     * regression that made it authorise on its own would not hide here.
+     *
+     * @param  array<string,mixed>  $payload
+     */
+    private function saveWithServerConsent($merchant, $product, array $payload)
+    {
+        $refused = $this->save($merchant, $product, $payload);
+
+        $advertised = $refused->json('ss_variant_removal.confirm_value');
+
+        $this->assertIsString($advertised,
+            'the save was not refused with a consent to send back, so this helper cannot complete '
+            . 'the round trip. Body: ' . substr((string) $refused->getContent(), 0, 300));
+
+        $payload[\App\Services\VariantRemovalConsent::FIELD] = $advertised;
+
+        return $this->save($merchant, $product, $payload);
     }
 }

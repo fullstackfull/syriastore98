@@ -14,7 +14,7 @@ user   : root
 ---------------------------------------------------------------------------
 >>> verify-product-ownership-on-mysql
     PASS  (see /tmp/mysqlverify-verify-product-ownership-on-mysql.log)
-    checks: 16   failures: 0
+    checks: 17   failures: 0
     
     ALL ASSERTIONS HELD on 10.11.14-MariaDB-0ubuntu0.24.04.1.
 
@@ -180,6 +180,13 @@ user   : root
     5 checks, 0 failure(s)
 
 ---------------------------------------------------------------------------
+>>> verify-variant-removal-consent-on-mysql
+    PASS  (see /tmp/mysqlverify-verify-variant-removal-consent-on-mysql.log)
+    failures: 0
+    
+    ALL ASSERTIONS HELD on 10.11.14-MariaDB-0ubuntu0.24.04.1.
+
+---------------------------------------------------------------------------
 >>> verify-login-and-settings-cache-paths-on-mysql
     PASS  (see /tmp/mysqlverify-verify-login-and-settings-cache-paths-on-mysql.log)
     dropped the throwaway database `logincache_verify`
@@ -194,5 +201,5 @@ user   : root
     failures: 0
 
 ===========================================================================
-passed: 27   failed: 0
+passed: 28   failed: 0
 every MySQL verification script reported all assertions held.

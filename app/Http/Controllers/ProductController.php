@@ -274,13 +274,43 @@ class ProductController extends Controller
      * preflight in place `updated_at` no longer moves on a refused save, so the retry meets the lock
      * only when somebody really did save.
      */
+    /**
+     * F205 — WHETHER THIS REQUEST CARRIED A VALID SERVER-ISSUED CONSENT.
+     *
+     * Written by `ssVariantRemovalPreflight()`, which is the authority: it runs BEFORE any write
+     * (that is F196's whole point), and the token is **single use**, so it is consumed there and
+     * cannot be verified a second time further down. The two in-place guards read this rather than
+     * re-verifying — not because re-checking would be wrong in principle, but because a second
+     * `verify()` on a consumed token would answer false and refuse a save the server had already
+     * authorised.
+     *
+     * Default false, so a path that somehow reaches a guard without the preflight having run is
+     * treated as unconfirmed rather than as permitted.
+     */
+    private bool $ssRemovalConsented = false;
+
     private function ssVariantRemovalPreflight(Request $request, $product): ?array
     {
         if ($request->variant_product == 0) {
             return null;
         }
 
-        $confirmed = $request->boolean('ss_confirm_variant_removal');
+        /*
+         * F205 [2026-10-30] -- A SERVER-ISSUED CONSENT, NOT `$request->boolean()`.
+         *
+         * The boolean was satisfied by '1', 'true', 'yes' or 'on', so the one door that deletes
+         * MANY variants at once had the weakest signal of the three: the two per-variant doors
+         * already require the variant NAME echoed back, which a caller can only produce by having
+         * read the row. The owner's decision closes that asymmetry.
+         *
+         * The token is verified against THIS principal, THIS product and THIS exact removal set,
+         * so the check has to happen per covered set rather than once up front -- a token issued
+         * for the choice path must not authorise the attribute path's different set.
+         */
+        $ssConsent = $request->input(\App\Services\VariantRemovalConsent::FIELD);
+        $ssActor = auth()->user();
+
+        $ssSets = [];
 
         foreach ([
             $this->ssChoiceCombinationNames($request),
@@ -290,13 +320,54 @@ class ProductController extends Controller
                 continue;
             }
 
-            $refusal = $this->ssRefuseVariantRemoval(
-                $product,
-                $this->ssVariantsBeingRemoved($product, $covered),
-                $confirmed
-            );
+            $ssSets[] = $this->ssVariantsBeingRemoved($product, $covered);
+        }
+
+        /*
+         * THE CONSENT BINDS THE UNION, NOT ONE PATH'S SET — and that is a correction a test found
+         * rather than a refinement.
+         *
+         * A request can carry BOTH a choice set and an attribute set, and each path's removal set
+         * contains rows the other keeps. Binding a token to the first set meant the retry was
+         * verified against the choice path, matched, and was then refused by the attribute path,
+         * whose set the token did not cover — so a legitimate confirmed save could never complete.
+         * `test_both_posted_sets_with_a_confirmation_are_still_allowed_through` is the case.
+         *
+         * The union is also the honest reading of the owner's *"the variant IDs that will be
+         * deleted"*: what the merchant is agreeing to is the effect of the whole request, not of
+         * one branch of it. Keyed by id so a row reached by both paths is counted once.
+         */
+        $ssUnion = collect($ssSets)
+            ->flatten(1)
+            ->keyBy(static fn ($v) => (int) $v->id)
+            ->values();
+
+        $ssConsented = $ssUnion->isNotEmpty()
+            && \App\Services\VariantRemovalConsent::verify($ssConsent, $ssActor, $product, $ssUnion);
+
+        $this->ssRemovalConsented = $ssConsented;
+
+        foreach ($ssSets as $ssRemoved) {
+            $refusal = $this->ssRefuseVariantRemoval($product, $ssRemoved, $ssConsented);
 
             if ($refusal !== null) {
+                /*
+                 * ISSUE A CONSENT ONLY FOR THE BRANCH CONSENT CAN ANSWER. A hard block -- a cart
+                 * or wishlist reference, an order naming the product, an unresolvable store --
+                 * carries `blocked`, and handing those a token would say the merchant could
+                 * proceed by confirming. They cannot: D-20's blocks refuse regardless of consent,
+                 * and `refuse()` reaches the consent branch only after every one of them.
+                 *
+                 * Issuing here rather than inside the policy keeps `refuse()` free of side
+                 * effects: it answers a question, it does not write a record.
+                 */
+                if (empty($refusal['ss_variant_removal']['blocked'])) {
+                    $refusal['ss_variant_removal'] = array_merge(
+                        $refusal['ss_variant_removal'] ?? [],
+                        \App\Services\VariantRemovalConsent::issue($ssActor, $product, $ssUnion)
+                    );
+                }
+
                 return $refusal;
             }
         }
@@ -2475,7 +2546,11 @@ $Product->cost_price = $request->cost_price;
                 if ($ssChoiceCovered !== []) {
                     $ssChoiceRemoved = $this->ssVariantsBeingRemoved($product, $ssChoiceCovered);
 
-                    $ssChoiceRefusal = $this->ssRefuseVariantRemoval($product, $ssChoiceRemoved, $request->boolean('ss_confirm_variant_removal'));
+                    /* F205: the preflight's verdict, not a second verification — the token is
+                       single use and was consumed there, so re-verifying would answer false and
+                       refuse a save the server had already authorised. The preflight is the
+                       authority because it is the only check that runs before any write. */
+                    $ssChoiceRefusal = $this->ssRefuseVariantRemoval($product, $ssChoiceRemoved, $this->ssRemovalConsented);
 
                     if ($ssChoiceRefusal !== null) {
                         return $ssChoiceRefusal;
@@ -2517,10 +2592,32 @@ $Product->cost_price = $request->cost_price;
                             $product_update->save();
                         }
                     }
-                    ProductVariant::where('product_id', $product->id)
+                    /* F205: the references are re-checked with the rows LOCKED, inside one
+                       transaction with the delete — see VariantRemovalPolicy::deleteGuarded().
+                       The consent token binds the variants' own state and cannot see a cart row
+                       arriving after the merchant confirmed, so that window is closed here rather
+                       than assumed away. A reference that appears REFUSES; nothing is destroyed. */
+                    $ssDoomed = ProductVariant::withoutGlobalScopes()
+                        ->where('product_id', $product->id)
                         ->where('store_id', $product->store_id)
                         ->whereNotIn('variant', $sku_array)
-                        ->delete();
+                        ->pluck('id')->map(fn ($id) => (int) $id)->all();
+
+                    $ssGuarded = \App\Services\VariantRemovalPolicy::deleteGuarded(
+                        $product,
+                        $ssDoomed,
+                        function () use ($product, $sku_array) {
+                            ProductVariant::where('product_id', $product->id)
+                                ->where('store_id', $product->store_id)
+                                ->whereNotIn('variant', $sku_array)
+                                ->delete();
+                        }
+                    );
+
+                    if ($ssGuarded !== null) {
+                        return $ssGuarded;
+                    }
+
                     $product->product_stock = $total_stock;
                     $tag_data_id = [];
                     $tag_ids = [];
@@ -2612,7 +2709,8 @@ $Product->cost_price = $request->cost_price;
                          */
                         $ssRemovedVariants = $this->ssVariantsBeingRemoved($product, $ssPostedCombinations);
 
-                        $ssRemovalRefusal = $this->ssRefuseVariantRemoval($product, $ssRemovedVariants, $request->boolean('ss_confirm_variant_removal'));
+                        /* F205: the preflight's verdict, as the choice guard above. */
+                        $ssRemovalRefusal = $this->ssRefuseVariantRemoval($product, $ssRemovedVariants, $this->ssRemovalConsented);
 
                         if ($ssRemovalRefusal !== null) {
                             return $ssRemovalRefusal;
@@ -2823,10 +2921,29 @@ $Product->cost_price = $request->cost_price;
                                examined are exactly the rows that are removed. `ProductVariant` is
                                not in `config/tenancy.php`'s `scoped_models`, so this `where` is
                                the only control there is. */
-                            ProductVariant::where('product_id', $product->id)
+                            /* F205: as the choice path above — locked re-check and delete in one
+                               transaction, refusing rather than destroying if a reference
+                               appeared after the merchant confirmed. */
+                            $ssDoomed = ProductVariant::withoutGlobalScopes()
+                                ->where('product_id', $product->id)
                                 ->where('store_id', $product->store_id)
                                 ->whereNotIn('variant', $com)
-                                ->delete();
+                                ->pluck('id')->map(fn ($id) => (int) $id)->all();
+
+                            $ssGuarded = \App\Services\VariantRemovalPolicy::deleteGuarded(
+                                $product,
+                                $ssDoomed,
+                                function () use ($product, $com) {
+                                    ProductVariant::where('product_id', $product->id)
+                                        ->where('store_id', $product->store_id)
+                                        ->whereNotIn('variant', $com)
+                                        ->delete();
+                                }
+                            );
+
+                            if ($ssGuarded !== null) {
+                                return $ssGuarded;
+                            }
                         }
                         if (!$is_in_stock) {
                             $product->stock = 'out_of_stock';

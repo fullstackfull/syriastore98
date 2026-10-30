@@ -77,6 +77,20 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
     would confirm a second removal they were never shown.
 --}}
 <input type="hidden" name="ss_confirm_variant_removal" id="ss_confirm_variant_removal" value="0">
+{{-- F205 [2026-10-30] — THE SERVER-ISSUED CONSENT, beside the old boolean rather than replacing it.
+
+     The boolean field stays because it is still what the *old* clients post and what twelve tests
+     drive; it no longer authorises anything on its own. The value this field carries is a token the
+     SERVER issued in its own refusal, bound to this employee, this store, this product, the exact
+     variant ids being removed and the data they were shown, with a time limit — so `confirm=1`
+     cannot stand in for it.
+
+     A SEPARATE FIELD, not the same one, and that is deliberate: all three server reads were
+     `$request->boolean()`, and `filter_var('9f3ac1…', FILTER_VALIDATE_BOOLEAN)` is FALSE — so
+     putting a token in the boolean's field would have silently turned every confirmed save back
+     into an unconfirmed one. --}}
+<input type="hidden" name="{{ \App\Services\VariantRemovalConsent::FIELD }}"
+       id="ss_variant_removal_consent" value="">
 
 <div class="row product-page-info">
     <div class="col-md-12">
@@ -1268,7 +1282,13 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                    `downloadable_product`, every `.downloadable_product_variant` and the dropzone,
                    and those sources are still there. The refused attempt uploaded them once --
                    bandwidth, not corruption, because the preflight persists nothing. */
+                /* F205: send back the token the server issued in THIS refusal. The old boolean
+                   is still set for any client or test that reads it, but the token is what the
+                   server now checks. `info.confirm_value` is the field the refusal advertises in
+                   `confirm_with`; writing the advertised pair rather than a literal is what makes
+                   the signal verifiable instead of decorative. */
                 $('#ss_confirm_variant_removal').val('1');
+                $('#ss_variant_removal_consent').val((info && info.confirm_value) || '');
                 ssSubmitProduct();
             }, document.getElementById('submit-all'));
 
@@ -1286,6 +1306,7 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
            without a dialog ever being shown. Called from all four save handlers. */
         function ssClearVariantConsent() {
             $('#ss_confirm_variant_removal').val('0');
+            $('#ss_variant_removal_consent').val('');
         }
 
         /* F184: THE SAVE IS A NAMED FUNCTION so the confirmation can re-run it. The click binding

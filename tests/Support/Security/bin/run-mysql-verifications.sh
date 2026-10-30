@@ -309,6 +309,13 @@ run_one verify-model-cache-flush-scope-on-mysql \
   "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
   "FRESH_MYSQL_DATABASE=flushscope_verify" "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
 
+# F205 -- the consent token's bindings AND the check-then-delete race, driven on two real
+# connections. The suite runs on SQLite, where lockForUpdate() compiles to nothing, so the
+# concurrency half of the owner's condition can only be asked here.
+run_one verify-variant-removal-consent-on-mysql \
+  "CONSENT_MYSQL_SOCKET=${SOCK}" "CONSENT_MYSQL_HOST=${HOST}" "CONSENT_MYSQL_PORT=${PORT}" \
+  "CONSENT_MYSQL_DATABASE=consent_verify" "CONSENT_MYSQL_USERNAME=${USER_NAME}" "CONSENT_MYSQL_PASSWORD=${PASS}"
+
 run_one verify-login-and-settings-cache-paths-on-mysql \
   "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
   "FRESH_MYSQL_DATABASE=logincache_verify" "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
