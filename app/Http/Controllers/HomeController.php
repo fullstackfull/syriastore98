@@ -310,16 +310,39 @@ class HomeController extends Controller
         $out_of_stock_threshold = Utility::GetValueByName('out_of_stock_threshold', getCurrentStore());
         $latests = (clone $productQuery)->orderBy('created_at', 'Desc')->limit(3)->get();
 
-        /* P2-02: the count behind the dashboard's "needs attention" row.
+        /* P2-02 / F222: the count behind the dashboard's "needs attention" row.
          *
-         * The predicate is NOT a new rule. It is the SAME one the product list
-         * already labels a row with (ProductDataTable::dataTable(), the
-         * `stock_status` column): a variant product is excluded because its
-         * stock lives on the variant rather than the product; a product that
-         * does not track stock is judged by its `stock_status` string; and one
-         * that does track stock is out when its count is at or below the
-         * store's threshold. If that rule is ever wrong it should be wrong in
-         * one place, so this reads from the same three columns.
+         * THE COMMENT THAT USED TO BE HERE WAS WRONG, AND THE CODE WITH IT. It
+         * said "The predicate is NOT a new rule. It is the SAME one the product
+         * list already labels a row with ... one that does track stock is out
+         * when its count is at or below the store's threshold." The first
+         * sentence was false and the third WAS the divergence, written as if it
+         * were the shared rule.
+         *
+         * The authoritative rule is `ProductDataTable::trackedStockState()`
+         * (:305) and the list's own filter `applyStockFilter()` (:339), and
+         * both agree that A TRACKED PRODUCT IS OUT ONLY AT `product_stock <= 0`.
+         * The threshold is the LOW boundary, not the out boundary. So with the
+         * threshold at 5, a product with stock 3 was labelled LOW on the list
+         * and COUNTED AS OUT here: one question, two numbers, on two surfaces
+         * the merchant reaches from each other. `ReportController` calls the
+         * shared helpers at eleven sites for exactly this reason; this handler
+         * called neither.
+         *
+         * Fixed by using the same boundary. It stays a SQL predicate rather
+         * than a call to `trackedStockState()` because that method takes a
+         * single row's values and this must be a count the database evaluates
+         * -- the same reason `applyStockFilter()` is hand-written SQL beside
+         * it, and `ProductStockIndicatorTest` keeps those two in step.
+         *
+         * ONE LIMB IS DELIBERATELY BROADER THAN THE LIST, and it is said here
+         * rather than left to be rediscovered: the list's stock filter opens
+         * with `where('track_stock', 1)`, so it never considers an untracked
+         * product at all. This count DOES include an untracked product whose
+         * `stock_status` string says `out_of_stock`, because such a product is
+         * out of stock in the only sense available for it, and a dashboard that
+         * ignored it would under-report. That is a difference in COVERAGE, not
+         * in the rule applied to a tracked product.
          *
          * $productQuery already carries ->where('store_id', getCurrentStore()),
          * which is the tenant predicate and has to be explicit: Product is NOT
@@ -331,12 +354,14 @@ class HomeController extends Controller
             ->where(function ($q) {
                 $q->where('variant_product', '!=', 1)->orWhereNull('variant_product');
             })
-            ->where(function ($q) use ($out_of_stock_threshold) {
+            ->where(function ($q) {
                 $q->where(function ($untracked) {
                     $untracked->where('track_stock', 0)->where('stock_status', 'out_of_stock');
-                })->orWhere(function ($tracked) use ($out_of_stock_threshold) {
+                })->orWhere(function ($tracked) {
+                    /* `<= 0`, matching ProductDataTable::applyStockFilter('out'). NOT the
+                       threshold: that is the LOW boundary. See the note above. */
                     $tracked->where('track_stock', '!=', 0)
-                        ->where('product_stock', '<=', (int) ($out_of_stock_threshold ?? 0));
+                        ->where('product_stock', '<=', 0);
                 });
             })
             ->count();

@@ -93,7 +93,23 @@
        differently on purpose -- "Order Delivered" here, "Delivered : 11 Oct 2026" there. */
     $ssOrderTone  = fn (int $s) => \App\Support\OrderStatusTone::for($s);
 
-    $ssMayOrders    = auth()->check() && auth()->user()->isAbleTo('Manage Order');
+    /*
+     * F223. OPERATOR-FIRST, because `isAbleTo()` ALONE REFUSES THE PLATFORM OPERATOR.
+     *
+     * This read `auth()->check() && auth()->user()->isAbleTo('Manage Order')`, so the operator --
+     * whose status is a STRING on `users.type` and who has no Laratrust role granting that name --
+     * saw no orders section on the dashboard at all. Every other order surface in this application
+     * tests the operator first (`OrderController::mayUseOrderScreen`, `OrderDocumentAccessGuard`,
+     * the `finance` gate in AuthServiceProvider), so this one blade was out of step with the rule
+     * the rest of the code follows.
+     *
+     * It failed in the SAFE direction -- the operator was shown LESS, never more -- which is why
+     * nothing broke and nobody noticed.
+     */
+    $ssMayOrders    = auth()->check() && (
+        strtolower(trim((string) auth()->user()->type)) === 'super admin'
+        || auth()->user()->isAbleTo('Manage Order')
+    );
     /*
      * `Manage Products`, PLURAL. This read `Manage Product`, SINGULAR -- a permission that
      * EXISTS NOWHERE: not in Utility's seeded `$companyNewPermission`, not in the live
