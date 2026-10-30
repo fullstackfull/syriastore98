@@ -8853,3 +8853,229 @@ rather than in the fix.
   or carries a rejected cover image now returns the removal refusal instead of the storage or upload
   error. Same `flag => 'error'` shape the page already toasts, so no client contract changes.
 - **F184 is unblocked, not built.** The confirmation UI is still absent.
+
+---
+
+## F195 completion — one deletion policy on every first-party door (2026-10-30, D-28c)
+
+F195's first pass guarded the trash door and gave the API door a permission check. It left the API
+door with **no reference check at all**, and its own comment said so: the checks lived in a
+`private` method of a web controller, and the three ways to reach them from an API controller were
+each worse than recording the gap. D-28c chooses the extraction and forbids the other two by name.
+
+### What moved
+
+`App\Services\VariantRemovalPolicy`:
+
+| | |
+|---|---|
+| `refuse()` | the D-20 reference checks, moved verbatim: cart lines, wishlist entries, order lines carrying a `variant_id`, the store-less refusals, and the hard block on any order naming the product |
+| `variantsBeingRemoved()` | the removal-set query, scoped by `$product->store_id` |
+| `parentProduct()` | the variant's product, read `withoutGlobalScopes()` because `Product` is not in `scoped_models` and a plain `find()` would look like a tenant read without being one |
+| `authorize()` | **new** — the authorization half, which had three different implementations |
+
+`ProductController` keeps one-line delegates, so the sixteen tests that drive the guard through
+`update()` pass unchanged and the call sites still name the local concern.
+
+### The second live defect, found by closing the first
+
+**A staff member whose only `Edit Products` grant belongs to another of their merchant's stores, but
+whose `current_store` is this one, deleted this store's variant through the trash button.** HTTP 200,
+and the panel announced *"Variant Deleted Successfully!"*.
+
+`lacksProductPermission()` resolves through `isAbleTo()`, which resolves through Laratrust's
+`allPermissions()` — `$this->roles()->with('permissions')->get()` flat-mapped, with **no store
+predicate anywhere in it**, because the team feature that would scope it is disabled. So a grant in
+store B answers TRUE for store A. The ownership check could not catch it, because `current_store`
+really was this store.
+
+That is exactly the `MerchantPermissions` / `isAbleTo()` / `lacksProductPermission()` difference the
+owner asked to be resolved, and the test that isolates it is the only one in the file that can fail
+for that reason — the sibling case, where the staff member's `current_store` is the *other* store, is
+refused by ownership before the permission read decides anything.
+
+### Evidence — 26 cases, 106 assertions, seven bites
+
+`tests/Feature/Security/VariantRemovalPolicyTest.php`. Against the unfixed code: the three API
+reference cases fail, plus the two source assertions. With the fix, all 20 pass.
+
+| bite | result |
+|---|---|
+| the API `refuse()` call removed | 4 fail (the three reference cases + the handler-shape assertion) |
+| the trash door reverted to `lacksProductPermission()` | 1 fail — the isolating case |
+| `MerchantPermissions` swapped for `isAbleTo()` in the policy | 2 fail, **including the platform operator**, whom `isAbleTo()` refuses |
+| the tenant-ownership limb removed | 1 fail — the direct policy case |
+| the `ar.json` additions reverted | 1 fail — the Arabic case |
+| `update()`'s gate reverted to `isAbleTo()` | 1 fail — the save-door case |
+| `UpdateVariant`'s `authorize()` call removed | 2 fail — the rename case and the handler-shape assertion |
+
+### Three of this slice's own cases were wrong first
+
+1. **The "orphan variant" case produced no orphan.** It deleted the parent product and called the
+   result one; `product_variants_product_id_foreign` is **ON DELETE CASCADE**, so the variant was
+   simply gone, the endpoint answered "not found", and the case passed without reaching the policy's
+   no-parent branch. It now asserts the cascade — which is what makes the next case necessary rather
+   than decorative.
+2. **A real orphan cannot be built here at all.**
+   `Schema::disableForeignKeyConstraints()` issues `PRAGMA foreign_keys = OFF`, and SQLite **ignores
+   that inside a transaction** — `RefreshDatabase` wraps every test in one. The attempt failed with
+   "FOREIGN KEY constraint failed", which is the database being right. That branch is driven against
+   the policy directly and is documented as **defensive**, not live: production is MySQL/InnoDB with
+   the constraint declared.
+3. **The cross-tenant case's premise was false.**
+   `SecurityTestCase::grantPermission()` creates a role with `store_id => current_store`, so the
+   fixture's merchant held a **store-scoped** grant and `MerchantPermissions` already denied them the
+   foreign store — the premise asserting otherwise failed. Production is different:
+   `PermissionTableSeeder` creates one shared global `admin` role with `store_id` **NULL**, and both
+   `RegisteredUserController` and `StoreController` hand that role to every merchant for every store.
+   The case now builds production's role shape, and the tenant limb only bites with it.
+
+### One limb does not bite through HTTP, and is not claimed as live protection
+
+Removing `authorize()`'s tenant-ownership check changed **nothing** in the HTTP cases. Every door
+already answers that question more narrowly — the API door through `resolveOwnedStore()` plus
+`$product->store_id === $store->id`, the trash door through `productIsOutsideCurrentStore()` — and
+both `users.current_store` writers were hardened in earlier work, with the comment *"any caller could
+point users.current_store at any store on the platform and thereby satisfy every manual tenant filter
+as the victim"* recording why.
+
+**An unbitten guard is either untested or unnecessary**, so it is worth being exact: this one is
+defensive. It stays because `MerchantPermissions` answers what a principal may **do** and never whose
+store it is — a merchant's global null-store role matches every store id, another tenant's included
+— so a future caller of this now-shared policy without its own tenant check would be cross-tenant
+open the moment it was written. A direct policy case keeps it tested.
+
+### §4.5 — the refusal reads in Arabic now, and did not before
+
+The owner's §4.5 requires the correct **AR and EN** message on a refusal. `Permission denied.` and
+the API's own two messages were translated; **none of the five long D-20 refusals had an `ar.json`
+entry**, so an Arabic merchant — this platform's primary audience, with the admin in RTL — was told
+why their deletion was refused in a language they may not read. Eleven keys added to `ar.json`, and
+the same eleven to `en.json`, because
+`TranslationFileIntegrityTest::test_arabic_declares_no_key_english_has_dropped` ratchets the count of
+Arabic keys with no English counterpart at 31 and my first attempt took it to 40 — a correct ratchet
+catching a real omission.
+
+Asserted by driving the policy under the `ar` locale and checking the text contains Arabic script,
+rather than by pinning the exact wording: a test that pinned the translation would refuse an
+improvement to it. What must not regress is that the message is translated at all. Bitten by
+reverting `ar.json`.
+
+**A FOURTH FALSE READING FROM MODEL CACHING, in that very case.** `Cart` is `Cachable`. The case's
+first assertion queries carts (via `refuse()`), caching the empty result; a
+`DB::table('carts')->insert()` after that is invisible to the policy's own
+`Cart::withoutGlobalScopes()->whereIn('variant_id', …)` read, so `$blockers` came back empty and
+`refuse()` returned **null** — the case failed asserting "null is not null" against working code.
+The HTTP cases in the same file get away with a raw insert only because nothing populates the cache
+before the request runs. Both fixtures now write through Eloquent, which flushes.
+
+### The mandated review found the save door still open, and my test for it vacuous
+
+Both were the worst things in the slice, and both came from the same misreading.
+
+**`ProductController::update()` still gated on `auth()->user()->isAbleTo('Edit Products')`.** The
+first pass fixed the trash door and the API door and left the save door — the main door — reading the
+cross-store union. So the same principal the trash-door case catches could post a narrower option set
+and hard-delete store A's variants, subject only to the D-20 reference refusals, which are not an
+authorization control and say so in the policy's own docblock.
+
+**And the test I had written for that door could not fail.** Its payload posted `name`, `status`,
+`variant_product` and `price` only; `category_id` is `required` in **both** of `update()`'s rule
+branches, so the validator refused it at `$validator->fails()` before authorization decided
+anything. Revert the entire slice and the case still passed. It now posts a complete valid payload,
+asserts as a **premise** that a permitted principal succeeds with that same payload, and compares the
+whole `products` row before and after — and it is bitten by reverting the gate.
+
+The permission question is therefore the same on all three doors now. It was two until the review.
+
+### Four smaller review findings, all closed
+
+1. **The ordinary live-reference refusal was the only branch with no `ss_variant_removal` key.** So
+   the API door answered `ss_variant_removal: null` and its log recorded `blocked: null` for exactly
+   the cases a merchant most needs named. It now carries `blocked: 'live_reference'` and
+   `referenced_by`.
+2. **Nothing drove a `Customer` or `DeliveryBoy` token at these routes**, although `custom.auth`
+   admits both — they log into the `customers` and `deliveryboy` guards, so `\Auth::user()` is null
+   in a handler whose default guard is `web`. The policy is independently safe (`authorize()`'s first
+   parameter is untyped and refuses anything that is not a `User`, rather than raising a TypeError on
+   `isAbleTo()`), but "safe by reading" is what this project keeps being wrong about. Two cases now
+   drive both tokens at both doors.
+3. **The source ratchet was satisfiable by the wrong deduplication.** It asserted only that
+   `refuse(` and `authorize(` appear in the handler body. The handler holds two permission reads —
+   the early `MerchantPermissions::allowsAny(…, $store->id)` and `authorize()` — which are redundant
+   once the product-store equality between them is enforced; deleting `authorize()` rather than the
+   early one would have kept every behavioural case green while removing the tenant limb and the
+   product-store permission read. Both are now pinned by name, as is the equality check.
+4. **F202 — the rename door.** See below.
+
+### F202 — the rename door armed the delete
+
+`POST api/admin/updatevariant` had **no permission check at all** and resolved the row by
+`ProductVariant.store_id`. The field it writes is `variant` — **the key both variant rebuilds match
+their deletes on** (`whereNotIn('variant', $sku_array)`, `whereNotIn('variant', $com)`) — so a
+renamed row is uncovered by the owning merchant's next ordinary save and is hard-deleted with its
+price, SKU and stock. A write that looks cosmetic arms a destructive one in another request.
+
+The cross-tenant reach needs a drifted row, and this repository documents the drift that makes one:
+`getCurrentStore()` returns the hardcoded literal 1 for a `super admin` with an empty `current_store`,
+so an operator's ordinary save of a store-7 product stamped every one of its variants `store_id = 1`
+while `products.store_id` stayed 7. Latent rather than live, and fixed anyway as the mirror of the
+delete door: `parentProduct()` + the named-store equality + `authorize()`. `refuse()` is deliberately
+not applied — renaming is not deleting, and a reference check there would refuse a legitimate rename.
+
+### One change I made and then reversed, because the project had already decided it
+
+The first version of this slice collapsed `product_attribute_delete`'s 404-for-absent and
+403-for-forbidden into a single 403. That removes a **platform-wide existence oracle** over
+`product_variants.id`: today a caller holding `Edit Products` anywhere learns, for any id, whether it
+exists somewhere (403) or nowhere (404). The review agreed the collapse was an improvement.
+
+It also failed
+`MerchantProductOwnershipTest::test_a_permitted_caller_still_gets_404_for_a_variant_that_does_not_exist`,
+whose docblock records the project weighing that exact trade and choosing both answers: *"the cost of
+that ordering would be turning every missing id into a 403 for everybody, which would read as a
+permission problem when it is not."* A merchant double-clicking the trash button on an already-deleted
+row would be told *"Permission denied."*
+
+**Narrowing that disclosure is not what D-28c asked for, and quietly overriding a decision the
+project made and tested is not a security fix.** The pair is restored, the trade is recorded as
+**F203** for the owner to settle, and the only remaining use of `lacksProductPermission()` on that
+handler is choosing 404-vs-403 for a row that does not exist — where there is no store to scope to
+and no write follows. A row that exists is authorised by `VariantRemovalPolicy::authorize()` against
+its own product's store.
+
+The second regression failure was the mirror of F202: `CatalogueEndpointIntegrityTest`'s
+`UpdateVariant` case drove a merchant holding **no** role, because the endpoint required no
+permission. Its fixture now grants `Edit Products`, which is what production's shared global `admin`
+role carries for every merchant — the fixture catching up with production, not a loosened assertion.
+
+### One lockout introduced, and two residues not guessed at
+
+**The lockout, deliberate and fail-closed:** the platform operator can no longer delete a variant
+whose product has a NULL `store_id`. `productIsOutsideCurrentStore()` exempts the operator outright,
+so a store-less product used to pass; `authorize()`'s `empty($product->store_id)` limb exempts
+nobody, because nothing can establish whose product it is. It bites only legacy or imported rows.
+
+**Two residues the review called speculative, each settled by one query rather than a code change:**
+a legacy `roles` row with `store_id = 0` or `''` matches neither of `MerchantPermissions`' arms
+(`=== null` is strict) and would silently grant nothing where `isAbleTo()` counted it; and an install
+where a merchant's own `Edit Products` comes from a store-scoped role rather than the shared global
+null-store `admin` role would now 403 in their other stores. Neither is reachable in this
+repository's seeded shape.
+
+### Two findings opened by this work and NOT fixed
+
+- **F200 — `packages/workdo/AuctionProduct`.** `AuctionProductController::update()` deletes the same
+  `App\Models\ProductVariant` rows at **two** sites with no reference check, no confirmation and no
+  D-20 guard, reachable at `PUT auctionproduct/{id}` for any merchant on a plan that includes the
+  module. **Vendored, so not edited** — and therefore **it is false to say every variant-deletion
+  path is closed, and nothing here says so.** The ledger row records both sites and what closing it
+  would take, including why a `ProductVariant::deleting` observer (which would cover this and any
+  future path) needs an owner decision rather than a patch.
+- **F201 — `Api\DashboardController` instantiates the web `ProductController` twice**, in its two
+  store-deletion handlers, with a bulk `ProductVariant::where('store_id', …)->delete()` beside one of
+  them. Pre-existing; found because the "no web controller from an API controller" assertion was
+  first written against the whole file and failed. Store teardown is a different proposition from
+  variant management — a reference check there would refuse a deletion the merchant asked for — so
+  the assertion is scoped to `DeleteVariant()`'s body instead of forcing an unrelated refactor into
+  a security slice.

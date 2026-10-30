@@ -75,269 +75,20 @@ class ProductController extends Controller
     }
 
     /**
-     * D-20. REFUSE A NARROWING THAT WOULD DESTROY VARIANTS, NAME WHAT WOULD BE LOST, AND MAKE THE
-     * DELETE A SEPARATE, CONFIRMED ACT.
+     * F195 / D-28c -- A ONE-LINE DELEGATE TO `VariantRemovalPolicy::refuse()`.
      *
-     * Removing a term from an attribute makes the posted combination set narrower than the rows
-     * that exist, and the rebuild then hard-deleted every uncovered row — not soft-deleted, so a
-     * raw table read could not see it either. Measured in the browser: a product with 8 variants
-     * saved with a 4-combination option set came back with 4 rows, the other 4 gone with their
-     * prices, SKUs and stock. The owner's ruling is to refuse, name the data, and require an
-     * independent confirmation.
-     *
-     * CONDITION 4 — "check the references that could make a delete dangerous" — IS THE PART THAT
-     * CANNOT BE FULLY SATISFIED, and the honest answer shapes the whole design. Only `carts` and
-     * `wishlists` carry a `variant_id` COLUMN. An order records what it contained in
-     * `orders.product_json`, and the storefront writer's line shape has **no `variant_id` key at
-     * all** — measured on the development fixture, all 14 order lines carry
-     * `final_price, name, price, product_id, qty, total_orignal_price` and nothing else. So
-     * "this variant appears in no order" is **not provable**, and by condition 5 an unprovable
-     * delete must be refused rather than performed silently.
-     *
-     * Hence two different refusals, and the difference matters to the merchant:
-     *   - a reference we CAN see (a cart or wishlist row, or an order line that does carry the
-     *     id) is a hard refusal — confirming does not make it safe;
-     *   - otherwise the merchant is told exactly which variants would go and what they carry, and
-     *     must come back with an explicit confirmation. The confirmation is not a rubber stamp:
-     *     it is the acknowledgement that order history may reference what is about to be deleted
-     *     and cannot be checked.
-     *
-     * It returns the handler's own `['flag' => 'error', 'msg' => ...]` shape, which
-     * `edit.blade.php`'s success handler renders, and `null` to proceed.
+     * The checks themselves, and the long account of why each one is shaped the way it is, moved
+     * into `App\Services\VariantRemovalPolicy` so that `Api\DashboardController::DeleteVariant()`
+     * asks the SAME question rather than a second copy of it -- the owner's *"no duplicated
+     * reference-check implementation"*. The wrapper stays because sixteen tests drive it through
+     * `update()` and because the call sites read better naming the local concern.
      *
      * @param  \Illuminate\Support\Collection  $removed  the variant rows the posted set no longer covers
      * @return array<string,mixed>|null
      */
-    /**
-     * F195 -- THE CONFIRMATION IS NOW A PARAMETER, NOT A REQUEST READ, AND THAT IS THE WHOLE
-     * REFACTOR THAT LETS A SECOND CALLER USE THIS GUARD.
-     *
-     * `$request` was used for exactly ONE thing in this method -- `$request->boolean(
-     * 'ss_confirm_variant_removal')` at the last condition -- so taking a request at all tied the
-     * guard to a path that HAS one. `product_attribute_delete($id)` does not: it is a
-     * `DELETE product-attribute-delete/{id}` handler with no request parameter and no confirmation
-     * field, and it reached `ProductVariant::delete()` with none of these checks. Reading the key at
-     * the CALL SITES instead makes this a pure function of (product, removed, confirmed), so that
-     * handler can ask the same question.
-     *
-     * WHY THE TRASH PATH PASSES `true`. D-20 condition 3 is *a deliberate delete is a separate
-     * operation requiring explicit confirmation*. `product_attribute_delete` IS that separate
-     * operation -- a dedicated per-variant endpoint reached by its own button, not a side effect of
-     * a Save that happens to narrow a term list. So it needs the BLOCKS (the cart and wishlist
-     * references, the store-less refusals, the order lines carrying a variant_id, and the
-     * unverifiable order history) WITHOUT the confirmation refusal, which would otherwise fail
-     * every ordinary trash click on a reference-free variant. Bolting the guard on without that
-     * distinction is the naive fix and it breaks the common case.
-     */
     private function ssRefuseVariantRemoval($product, $removed, bool $confirmed): ?array
     {
-        if ($removed->isEmpty()) {
-            return null;
-        }
-
-        $names = $removed->pluck('variant')->map(fn ($v) => (string) $v)->all();
-        $ids = $removed->pluck('id')->map(fn ($v) => (int) $v)->all();
-
-        /* --- condition 4: the references that ARE checkable ------------------------------- */
-        $blockers = [];
-
-        $inCarts = \App\Models\Cart::withoutGlobalScopes()->whereIn('variant_id', $ids)->count();
-        if ($inCarts > 0) {
-            $blockers[] = __(':count shopper cart line(s)', ['count' => $inCarts]);
-        }
-
-        /* The Eloquent model, not `DB::table('wishlists')`. The raw form works, but
-           `RawQueryTenancyInventoryTest` counts raw entry points against tenant-discriminated
-           tables and a new one fails three of its assertions — correctly, because a raw query is
-           exactly where a tenant predicate goes missing. `Wishlist` carries no StoreScope either,
-           so this is not a scoping claim; it is staying inside the shape the inventory can see. */
-        $inWishlists = \App\Models\Wishlist::withoutGlobalScopes()->whereIn('variant_id', $ids)->count();
-        if ($inWishlists > 0) {
-            $blockers[] = __(':count wishlist entry(ies)', ['count' => $inWishlists]);
-        }
-
-        /* An order line only sometimes carries the VARIANT id; when it does, it is a real
-           reference and this finds it. The PRODUCT id, by contrast, is on every line — measured,
-           14 of 14 in the fixture — and that asymmetry is what makes a provable case possible
-           at all. See $ordersNamingProduct below. */
-        /*
-         * THE PRODUCT'S STORE, NOT THE CALLER'S — and the difference is a live defect, not a
-         * tidy-up. Both order queries below were `->where('store_id', getCurrentStore())`. The
-         * product being edited is the subject of the question and its references live in its own
-         * store; the caller's current store coincides only by accident.
-         *
-         * It does not coincide for the platform operator. `getCurrentStore()` returns the
-         * HARDCODED LITERAL 1 for a `super admin` whose `current_store` is empty
-         * (`helper.php:636`), so an operator narrowing a store-7 product had its history checked
-         * against STORE 1's orders, found none, and was offered a confirmation for a delete whose
-         * safety had never been established. Measured by driving exactly that.
-         *
-         * And `getCurrentStore()` can answer NULL for a merchant with no resolvable store, which
-         * Laravel compiles to `whereNull('store_id')` — matching nothing, so the check passes for
-         * the same wrong reason. A product with no store is refused outright below rather than
-         * queried, because an unscoped reference check is worse than no check: it reports safety
-         * it did not establish.
-         */
-        $ssProductStore = $product->store_id ?? null;
-
-        /*
-         * THE BLOCKERS FOUND ABOVE ARE NAMED EVEN HERE. A store-less product whose variant IS in
-         * a cart was getting the vaguer "nothing can establish whether anything refers to them"
-         * instead of "a shopper cart line holds it" -- both refuse, but one of them tells the
-         * merchant what to clear and the other does not.
-         */
-        if (empty($ssProductStore) && $blockers !== []) {
-            return [
-                'flag' => 'error',
-                'msg' => __('These variants cannot be deleted: :names. They are referenced by :blockers. Deleting them would break that reference and destroy their prices, SKUs and stock. Nothing has been changed.', [
-                    'names' => implode(', ', $names),
-                    'blockers' => implode(', ', $blockers),
-                ]),
-                'ss_variant_removal' => [
-                    'variants' => $names,
-                    'count' => count($names),
-                    'blocked' => 'live_reference',
-                ],
-            ];
-        }
-
-        if (empty($ssProductStore)) {
-            return [
-                'flag' => 'error',
-                'msg' => __('These variants cannot be deleted: the product has no store, so nothing can establish whether anything refers to them. Nothing has been changed.'),
-                'ss_variant_removal' => [
-                    'variants' => $names,
-                    'count' => count($names),
-                    'blocked' => 'unresolvable_store',
-                ],
-            ];
-        }
-
-        $inOrders = 0;
-        foreach (\App\Models\Order::withoutGlobalScopes()
-            ->where('store_id', $ssProductStore)
-            ->whereNotNull('product_json')
-            ->pluck('product_json') as $json) {
-            $lines = json_decode((string) $json, true);
-
-            if (! is_array($lines)) {
-                continue;
-            }
-
-            foreach ($lines as $line) {
-                if (is_array($line) && ! empty($line['variant_id']) && in_array((int) $line['variant_id'], $ids, true)) {
-                    $inOrders++;
-                    break;
-                }
-            }
-        }
-
-        if ($inOrders > 0) {
-            $blockers[] = __(':count order(s)', ['count' => $inOrders]);
-        }
-
-        if ($blockers !== []) {
-            return [
-                'flag' => 'error',
-                'msg' => __('These variants cannot be removed because they are still referenced: :names. Referenced by: :refs. Remove or complete those references first.', [
-                    'names' => implode(', ', $names),
-                    'refs' => implode('; ', $blockers),
-                ]),
-            ];
-        }
-
-        /*
-         * --- THE OWNER'S CORRECTION, 2026-10-27: CONFIRMATION DOES NOT SUBSTITUTE FOR PROOF ----
-         *
-         * > لا أوافق على الحذف النهائي لمتغير قد تكون له مراجع تاريخية غير قابلة للتحقق، حتى مع
-         * > تأكيد التاجر. التأكيد شرط للتغييرات المسموحة، لكنه لا يلغي شرط إثبات السلامة.
-         *
-         * The first version of this guard let an explicit confirmation carry a delete whose safety
-         * was unprovable. That was wrong: a merchant agreeing to a warning does not make order
-         * history checkable, and what is lost is commercial data.
-         *
-         * WHAT MAKES A PROVABLE CASE POSSIBLE AT ALL is an asymmetry in the order line shape. The
-         * VARIANT id is absent from the storefront writer's lines entirely, so "no order used this
-         * variant" cannot be established. The PRODUCT id is on every line — measured, 14 of 14
-         * across the fixture's 7 orders — so "no order ever contained this PRODUCT" CAN be
-         * established, and that entails no order contained any of its variants.
-         *
-         * So two genuinely different situations, kept apart rather than blurred into one warning:
-         *
-         *   - NO order names this product  -> deletion is provably safe; an explicit confirmation
-         *                                     may carry it (condition 3, below).
-         *   - ANY order names this product -> the variant may be in that history and nothing can
-         *                                     show otherwise. HARD BLOCK, and no confirmation is
-         *                                     offered, because there is nothing a merchant could
-         *                                     usefully confirm.
-         */
-        $ordersNamingProduct = 0;
-
-        foreach (\App\Models\Order::withoutGlobalScopes()
-            ->where('store_id', $ssProductStore)
-            ->whereNotNull('product_json')
-            ->pluck('product_json') as $json) {
-            $lines = json_decode((string) $json, true);
-
-            if (! is_array($lines)) {
-                continue;
-            }
-
-            foreach ($lines as $line) {
-                if (is_array($line) && (int) ($line['product_id'] ?? 0) === (int) $product->id) {
-                    $ordersNamingProduct++;
-                    break;
-                }
-            }
-        }
-
-        if ($ordersNamingProduct > 0) {
-            return [
-                'flag' => 'error',
-                'msg' => __('These variants cannot be deleted: :names. This product appears in :count past order(s), and an order line does not record which variant was bought — so nothing can show that these variants are not part of that history. Deleting them would destroy their prices, SKUs and stock with no way to recover what an order referred to. Nothing has been changed. To stop selling them while keeping the record, set them out of stock instead.', [
-                    'names' => implode(', ', $names),
-                    'count' => $ordersNamingProduct,
-                ]),
-                'ss_variant_removal' => [
-                    'variants' => $names,
-                    'count' => count($names),
-                    'blocked' => 'unverifiable_order_history',
-                    'orders_naming_product' => $ordersNamingProduct,
-                ],
-            ];
-        }
-
-        /* --- condition 3: a deliberate delete is a separate, confirmed act ----------------- */
-        if (! $confirmed) {
-            /* Condition 2: the names, the count, and what each one carries, so the merchant is
-               deciding about real data rather than about a number. */
-            $detail = $removed->map(function ($v) {
-                return trim(sprintf(
-                    '%s (%s)',
-                    (string) $v->variant,
-                    implode(', ', array_filter([
-                        $v->sku !== null && $v->sku !== '' ? __('SKU :sku', ['sku' => $v->sku]) : null,
-                        $v->variation_price !== null ? __('price :price', ['price' => $v->variation_price]) : null,
-                        __('stock :stock', ['stock' => (int) $v->stock]),
-                    ]))
-                ));
-            })->all();
-
-            return [
-                'flag' => 'error',
-                'msg' => __('This change would permanently delete :count variant(s): :detail. Their prices, SKUs and stock would be lost. No past order names this product, so nothing in order history refers to them. Nothing has been changed. To proceed, confirm the removal explicitly.', [
-                    'count' => count($names),
-                    'detail' => implode(' | ', $detail),
-                ]),
-                'ss_variant_removal' => [
-                    'variants' => $names,
-                    'count' => count($names),
-                    'confirm_with' => 'ss_confirm_variant_removal',
-                ],
-            ];
-        }
-
-        return null;
+        return \App\Services\VariantRemovalPolicy::refuse($product, $removed, $confirmed);
     }
 
     /**
@@ -460,26 +211,19 @@ class ProductController extends Controller
     }
 
     /**
-     * THE EXISTING ROWS A POSTED COMBINATION SET WOULD DELETE. (F196)
+     * F195 / D-28c -- a one-line delegate to `VariantRemovalPolicy::variantsBeingRemoved()`.
      *
-     * `$product->store_id` AND NOT `getCurrentStore()`, and that distinction is load-bearing rather
-     * than tidy: `getCurrentStore()` returns the hardcoded literal 1 for a `super admin` whose
-     * `current_store` is empty (`helper.php:636`), so for an operator editing a store-7 product it
-     * found no variants, the removal set came back empty, the refusal returned null -- and the delete,
-     * which carries no store predicate of its own, removed the real rows anyway. Detection and deletion
-     * were asking different questions. They ask the same one here.
+     * `$product->store_id` AND NOT `getCurrentStore()`, for the reason the policy records: the
+     * helper hands a `super admin` with an empty `current_store` the hardcoded literal 1, so for
+     * an operator editing a store-7 product the query found no variants, the removal set came back
+     * empty, the refusal returned null -- and the delete, which carries no store predicate of its
+     * own, removed the real rows anyway. Detection and deletion now ask one question in one place.
      *
      * @param  list<string>  $coveredNames
      */
     private function ssVariantsBeingRemoved($product, array $coveredNames)
     {
-        return ProductVariant::where('product_id', $product->id)
-            ->where('store_id', $product->store_id)
-            ->get(['id', 'variant', 'sku', 'variation_price', 'price', 'stock'])
-            ->reject(function ($row) use ($coveredNames) {
-                return in_array((string) $row->variant, $coveredNames, true);
-            })
-            ->values();
+        return \App\Services\VariantRemovalPolicy::variantsBeingRemoved($product, $coveredNames);
     }
 
     /**
@@ -1898,7 +1642,37 @@ $Product->cost_price = $request->cost_price;
  public function update(Request $request, Product $product)
     {
        
-        if (auth()->user() && auth()->user()->isAbleTo('Edit Products')) {
+        /*
+         * F195 / D-28c -- THE PERMISSION IS READ AGAINST THE TARGET PRODUCT'S STORE.
+         *
+         * THIS GATE WAS `auth()->user()->isAbleTo('Edit Products')`, AND THAT IS A UNION ACROSS
+         * EVERY STORE THE USER HOLDS A ROLE IN. `isAbleTo()` resolves through Laratrust's
+         * `allPermissions()` -- `$this->roles()->with('permissions')->get()` flat-mapped -- with no
+         * store predicate anywhere in it, because the team feature that would scope it is disabled.
+         * So a staff member whose only `Edit Products` grant is a role stamped with store B
+         * (`RoleController` stamps new roles with `getCurrentStore()`) answered TRUE for store A,
+         * and the ownership check below could not catch them when their `current_store` really WAS
+         * store A. They could then post a narrower option set and hard-delete store A's variants,
+         * subject only to the D-20 reference refusals -- which are not an authorization control and
+         * say so.
+         *
+         * FOUND BY THE MANDATED REVIEW OF THE F195 COMPLETION, which also found that the test I had
+         * written for this door could not fail: its payload omitted `category_id`, which is
+         * `required` in both rule branches, so the validator refused it before authorization
+         * decided anything and the case was green against the live defect.
+         *
+         * `MerchantPermissions::allowsAny()` reads the permission against THIS product's store and
+         * answers the platform operator with the wildcard, which `isAbleTo()` alone refuses. That
+         * changes the operator's treatment on this door from "must hold a role granting
+         * Edit Products" to "may edit", which is this codebase's standing operator rule and what
+         * `product_attribute_delete()` and the API door already do.
+         */
+        $ssActor = auth()->user();
+
+        if (
+            $ssActor !== null
+            && \App\Services\MerchantPermissions::allowsAny($ssActor, ['Edit Products'], $product->store_id)
+        ) {
             $actor = auth()->user();
 
             /*
@@ -4026,35 +3800,74 @@ $Product->cost_price = $request->cost_price;
     public function product_attribute_delete($id)
     {
         /*
-         * PERMISSION, BEFORE findOrFail. P1-INV-10 (e).
+         * PERMISSION AND TENANT OWNERSHIP, THROUGH THE SHARED POLICY. P1-INV-10 (e), F195 / D-28c.
          *
-         * `Edit Products`: this deletes a variant row and the stock it carries. Placed ahead of
-         * `findOrFail($id)` deliberately -- otherwise a caller with no permission at all would
-         * still learn from 404-vs-403 which variant ids exist. A caller who HOLDS the permission
-         * still gets the 404 that `findOrFail` has always produced for a genuinely missing id.
+         * `Edit Products`: this deletes a variant row and the stock it carries.
+         *
+         * THE DEFECT D-28c CLOSES HERE, measured: a staff member whose only `Edit Products` grant
+         * belongs to ANOTHER of their merchant's stores, but whose `current_store` is THIS one,
+         * deleted this store's variant -- HTTP 200, and the panel announced *"Variant Deleted
+         * Successfully!"*. `lacksProductPermission()` resolves through `isAbleTo()`, which unions
+         * every role the user holds with no store predicate anywhere in it (Laratrust's team
+         * feature is disabled), so a grant in store B answers TRUE for store A. The ownership check
+         * below could not catch it, because `current_store` really was this store.
+         *
+         * `VariantRemovalPolicy::authorize()` reads the permission against the PRODUCT's store and
+         * keeps the operator limb that `isAbleTo()` alone would lock out. It also answers the
+         * TENANT-ownership question; the check below answers the CURRENT-STORE one, and the web
+         * doors are deliberately the narrower of the two, so the pair is not redundant.
+         *
+         * `find()` RATHER THAN `findOrFail()`, BECAUSE THE PERMISSION CANNOT BE READ BEFORE THE
+         * PRODUCT IS KNOWN -- there is no store to read it against until then. So the load moves
+         * ahead of the authorization check.
+         *
+         * BUT THE 404/403 PAIR THE PREVIOUS ORDERING PRODUCED IS PRESERVED, and that is a
+         * deliberate reversal of my first attempt. I had collapsed both cases into one 403, on the
+         * reasoning that it removes a platform-wide existence oracle over `product_variants.id`
+         * (403 means "exists but not yours", 404 means "exists nowhere") for any caller holding
+         * `Edit Products` anywhere. The review agreed it was an improvement. It also broke
+         * `MerchantProductOwnershipTest::test_a_permitted_caller_still_gets_404_for_a_variant_that_does_not_exist`,
+         * whose docblock records the project WEIGHING this exact trade and choosing both answers:
+         * *"the cost of that ordering would be turning every missing id into a 403 for everybody,
+         * which would read as a permission problem when it is not"*. A merchant double-clicking the
+         * trash button on an already-deleted row would be told "Permission denied."
+         *
+         * Narrowing that disclosure is not what D-28c asked for, and quietly overriding a decision
+         * the project made and tested is not a security fix. So the pair stays and the trade is
+         * recorded as its own finding for the owner to settle.
+         *
+         * `lacksProductPermission()` BELOW CHOOSES 404-vs-403 FOR A ROW THAT DOES NOT EXIST, AND
+         * NOTHING ELSE. It is the cross-store union read, which is wrong for authorising a write --
+         * that is the whole point of this slice -- but right here, because there is no store to
+         * scope to when the row is absent and the question is only "is this caller the kind who
+         * edits products". No write follows it.
+         *
+         * Ownership is resolved through the variant's PRODUCT, for the reason S36 recorded: the
+         * variant's own nullable `store_id` is not the authority on who owns it.
          */
-        if ($this->lacksProductPermission(['Edit Products'])) {
+        $attribute = ProductVariant::withoutGlobalScopes()->whereKey($id)->first();
+
+        if ($attribute === null) {
+            if ($this->lacksProductPermission(['Edit Products'])) {
+                return response()->json([
+                    'flag' => 'error',
+                    'msg' => __('Permission denied.'),
+                ], 403);
+            }
+
+            abort(404);
+        }
+
+        $owner = \App\Services\VariantRemovalPolicy::parentProduct($attribute);
+
+        $ssDenied = \App\Services\VariantRemovalPolicy::authorize(auth()->user(), $owner);
+
+        if ($ssDenied !== null) {
             return response()->json([
                 'flag' => 'error',
                 'msg' => __('Permission denied.'),
             ], 403);
         }
-
-        $attribute = ProductVariant::findOrFail($id);
-
-        /*
-         * OWNERSHIP BEFORE A DESTRUCTIVE WRITE. P1-INV-07.
-         *
-         * This method had no permission check and no ownership check: `findOrFail($id)` took any
-         * variant id and deleted it -- another store's variant row AND the stock it carries.
-         * `ProductVariant` carries no StoreScope and is not in `scoped_models`, so nothing
-         * narrowed it. `findOrFail` is kept so a genuinely missing id still answers 404 rather
-         * than being reported as a permission problem.
-         *
-         * Resolved through the variant's PRODUCT, for the reason S36 recorded: the variant's own
-         * nullable `store_id` is not the authority on who owns it.
-         */
-        $owner = Product::find($attribute->product_id);
 
         if ($this->productIsOutsideCurrentStore($owner)) {
             \Illuminate\Support\Facades\Log::warning(

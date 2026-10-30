@@ -2287,6 +2287,50 @@ deletes a variant without the same safety rules.
 shipped in `e00ace58`/`aea28d08`; the shared policy, the store-scoped authorization, the API path's
 reference guard and the F184 confirmation UI had **not**.
 
+**Implementation status (2026-10-30), separate from the approval above.**
+
+| Owner condition | Status | Evidence |
+|---|---|---|
+| One authoritative policy across every reachable first-party path, via a shared service | **MET** | `App\Services\VariantRemovalPolicy` — `refuse()`, `variantsBeingRemoved()`, `parentProduct()`, `authorize()`. All three doors call it; `ProductController` keeps one-line delegates so the sixteen tests driving the guard through `update()` pass unchanged |
+| No duplicated reference-check implementation | **MET** | asserted against comment-stripped source, with needles naming the reference QUERIES (`Cart::withoutGlobalScopes()->whereIn('variant_id'`, the wishlist twin, `whereNotNull('product_json')`) rather than the `variant_id` column — a first version matched the per-variant media lookup and failed against a correct extraction |
+| No calling a web controller from an API controller | **MET for this handler**, and the rule is **already broken elsewhere in that file** | asserted on `DeleteVariant()`'s own body. `Api\DashboardController` does `new ProductController()` twice in its store-deletion handlers; pre-existing, recorded as F201, and deliberately not dragged into a security slice |
+| Permissions scoped to the TARGET store; the `MerchantPermissions` / `isAbleTo()` / `lacksProductPermission()` difference resolved | **MET on all three doors, and it was a live defect on two** | `MerchantPermissions::allowsAny($user, ['Edit Products'], $product->store_id)` on the trash door, the API door **and** `update()`. Measured: staff whose only grant belonged to another store, with `current_store` set to this one, deleted this store's variant through the trash button — HTTP 200, panel announced success. The **save** door was still on `isAbleTo()` after the first pass, and the test I had written for it could not fail (its payload omitted the `required` `category_id`, so the validator refused before authorization decided anything) — both found by the mandated review and fixed. One test isolates that principal on each door |
+| Ownership from the parent product, not `ProductVariant.store_id` | **MET** on all three doors; the API door additionally requires the product's store to be the store the caller named and owns, so it is no wider than the predicate it replaces |
+| The nine principals and targets | **MET** | merchant · authorised staff · unauthorised staff · staff permitted in another store · platform operator (with an empty `current_store`) · missing product · orphan variant · another tenant's variant · no store resolved |
+| §4.3 historical-reference protection; confirmation does not make it safe | **MET** | the hard block on any order naming the product applies on all three doors, with `confirmed = true` on both per-variant doors, so it refuses regardless |
+| §4.7 `AuctionProductController` left unedited and documented at real severity | **MET** | recorded as **F200** with both delete sites, the route and its gate, and what closing it would take. **It is still live, so no claim is made that every variant-deletion path is closed** |
+| §4.5: the refusal is correct in **AR** as well as EN | **MET, and it was missing** | none of the five long D-20 refusals had an `ar.json` entry, so an Arabic merchant read the refusal in English. Eleven keys added to both `ar.json` and `en.json`; asserted by driving the policy under the `ar` locale |
+| The rename door (`POST api/admin/updatevariant`) | **FIXED, recorded as F202** | it had **no permission check at all** and resolved by `ProductVariant.store_id`, and `variant` is the key both rebuild deletes match on — so a rename armed the owner's next save to hard-delete the row. Found by the review; now carries `parentProduct()` + `authorize()` |
+| A `Customer` or `DeliveryBoy` token at these routes | **COVERED** | `custom.auth` admits both (they log into other guards, so `\Auth::user()` is null). Two cases drive both tokens at both doors; previously untested, which CLAUDE.md's standing rule says proves nothing |
+| F184's confirmation UI | **NOT BUILT** | unblocked by F196; still absent |
+
+**Evidence:** `tests/Feature/Security/VariantRemovalPolicyTest.php` — 26 cases, 106 assertions.
+Seven bites, each biting: the API `refuse()` call removed → 4 fail; the trash door reverted to
+`lacksProductPermission()` → 1 fail; `MerchantPermissions` swapped for `isAbleTo()` → 2 fail
+(including the platform operator, whom `isAbleTo()` refuses); the tenant-ownership limb removed → 1
+fail.
+
+**One limb is NOT claimed as live protection.** Removing `authorize()`'s tenant-ownership check
+changed nothing in the HTTP cases: every door already answers that question more narrowly, and both
+`users.current_store` writers were hardened earlier. It stays because `MerchantPermissions` answers
+what a principal may DO and never whose store it is — a merchant's global `store_id IS NULL` role
+matches every store id, another tenant's included — so a future caller of this now-shared policy
+without its own tenant check would be cross-tenant open. A direct policy case keeps it tested.
+
+**One lockout introduced, deliberate and fail-closed.** The platform operator can no longer delete a
+variant whose product has a NULL `store_id`. `productIsOutsideCurrentStore()` exempts the operator
+outright, so a store-less product used to pass; `authorize()`'s `empty($product->store_id)` limb
+exempts nobody, because nothing can establish whose product it is. It bites only legacy or imported
+rows.
+
+**Two residues the review called speculative, each settled by one query rather than a code change.**
+A legacy `roles` row with `store_id = 0` or `''` matches neither of `MerchantPermissions`' arms
+(`=== null` is strict) and would silently grant nothing where `isAbleTo()` counted it —
+`SELECT store_id, COUNT(*) FROM roles GROUP BY store_id` settles it. And an install where a
+merchant's own `Edit Products` comes from a store-scoped role rather than the shared global
+null-store `admin` role would now 403 in their other stores. Neither is reachable in this
+repository's seeded shape, and both are recorded rather than guessed at.
+
 ### What this directive does not change
 
 No completed row is reopened and no later phase is started. The owner's six-phase scope, the Phase 01

@@ -2203,20 +2203,55 @@ public function UpdateCoupon(Request $request)
             ]);
         }
 
-        $ProductVariant = ProductVariant::where('id', $request->productvariant_id)
-            ->where('store_id', $store->id)
+        /*
+         * F195 / D-28c (b) -- THE SAME PERMISSION AND OWNERSHIP QUESTIONS AS THE DELETE DOOR.
+         *
+         * WHY A RENAME ENDPOINT NEEDS THEM, which is not obvious: this method had **no permission
+         * check at all** -- not `Edit Products`, nothing -- and it resolved the row by
+         * `ProductVariant.store_id`, the column `product_attribute_delete`'s own comment records
+         * (S36) as *"not the authority on who owns it"*. And the field it writes is `variant`, which
+         * is **the key both variant rebuilds match their deletes on**
+         * (`whereNotIn('variant', $sku_array)` and `whereNotIn('variant', $com)`). So renaming a
+         * variant makes the owning merchant's NEXT ordinary product save hard-delete that row as
+         * uncovered: a write that looks cosmetic arms a destructive one in another request.
+         *
+         * THE DRIFTED ROW THAT MAKES IT CROSS-TENANT IS DOCUMENTED IN THIS REPOSITORY.
+         * `getCurrentStore()` returns the hardcoded literal 1 for a `super admin` with an empty
+         * `current_store` (`helper.php:636`), so an operator's ordinary save of a store-7 product
+         * stamped every one of its variants `store_id = 1` while `products.store_id` stayed 7
+         * (recorded in `ProductController::update()`'s attribute branch). Under the old predicate,
+         * store 1's merchant could pass `store_id=1` plus that variant id and rename store 7's
+         * variant -- and so arm the deletion of it.
+         *
+         * Latent rather than live, because it needs such a drifted row. Fixed here anyway: it is
+         * the same column this slice just stopped trusting on the delete door, and leaving the
+         * rename door gated on nothing while the delete door is gated on the product would be the
+         * odd one out. Found by the mandated review of the F195 completion.
+         */
+        $ProductVariant = ProductVariant::withoutGlobalScopes()
+            ->whereKey($request->productvariant_id)
             ->first();
 
-        // NULL GUARD, pre-existing and now load-bearing. This method wrote to
+        $ssProduct = \App\Services\VariantRemovalPolicy::parentProduct($ProductVariant);
+
+        // NULL GUARD, pre-existing and still load-bearing. This method wrote to
         // the resolved row with no existence check, so an id matching nothing
         // already raised "Attempt to read property on null" -- a 500 on bad
-        // input. Scoping the lookup to the caller's tenant makes a FOREIGN id
-        // resolve to null too, so the guard has to be here or a denial would
-        // surface as a 500 instead of a clean refusal. Same message as this
-        // file's other not-found branches, so a foreign id is indistinguishable
-        // from an absent one.
-        if (empty($ProductVariant)) {
+        // input. A row whose product is missing, or whose product is not in the
+        // named store, resolves to the same clean refusal, so a foreign id stays
+        // indistinguishable from an absent one.
+        if (
+            empty($ProductVariant)
+            || $ssProduct === null
+            || (int) $ssProduct->store_id !== (int) $store->id
+        ) {
             return $this->error(['message' => __('Product Variant data not found.')]);
+        }
+
+        $ssDenied = \App\Services\VariantRemovalPolicy::authorize(\Auth::user(), $ssProduct);
+
+        if ($ssDenied !== null) {
+            return $this->error(['message' => $ssDenied['msg']]);
         }
 
         if (!empty($request->name)) {
@@ -2288,38 +2323,87 @@ public function UpdateCoupon(Request $request)
         }
 
         /*
-         * F195 (b) -- THE D-20 REFERENCE BLOCK IS **NOT** APPLIED HERE, AND THAT IS RECORDED RATHER
-         * THAN SILENT.
+         * F195 (b) / D-28c -- THE D-20 REFERENCE BLOCK NOW APPLIES HERE, THROUGH THE SHARED POLICY.
          *
-         * The checks that refuse a delete when a cart line, a wishlist entry or an order references
-         * the variant live in `ProductController::ssRefuseVariantRemoval()`, which is PRIVATE to a
-         * web controller. Reaching them from here needs one of: extracting them into a service that
-         * both controllers call (correct, and the named fix), duplicating the queries here (which
-         * is how two copies of a control drift apart -- this project has a row for exactly that),
-         * or making the method public and instantiating a web controller from an API one. The
-         * extraction is a refactor of a guard with sixteen tests driving it through `update()`, and
-         * it does not belong in the same change as a missing-permission fix.
+         * WHAT THIS USED TO BE: the checks that refuse a delete when a cart line, a wishlist entry
+         * or an order references the variant lived in `ProductController::ssRefuseVariantRemoval()`,
+         * PRIVATE to a web controller, so this endpoint had none of them. The previous comment here
+         * recorded that gap and named the three ways out -- extract into a service both controllers
+         * call, duplicate the queries, or instantiate a web controller from an API one. The owner's
+         * D-28c chooses the first and forbids the other two by name. `App\Services\
+         * VariantRemovalPolicy` is that extraction, and `ProductController` now holds one-line
+         * delegates to it, so there is one implementation under all three doors.
          *
-         * SO THIS PATH STILL DELETES A REFERENCED VARIANT, for a caller who now also needs
-         * `Edit Products`. It is narrower than it was and it is not closed. See the F195 row.
+         * OWNERSHIP FOLLOWS THE PARENT PRODUCT, which is the other half of the owner's condition.
+         * This handler used to narrow on `ProductVariant.store_id` -- the column
+         * `product_attribute_delete`'s own comment records (S36) as *"not the authority on who owns
+         * it"*, because it is nullable and is written from `getCurrentStore()` by paths that predate
+         * tenancy. The product's store is the authority, and it must be the store the caller NAMED
+         * and owns (`resolveOwnedStore()` above), so this is no wider than it was: a variant whose
+         * product sits in another of the caller's stores is still refused here, and a variant with
+         * a NULL `store_id` is now reachable only if its PRODUCT is in the named store, which is a
+         * better question than the one the column could answer.
          *
-         * One mitigation it has by accident: `->where('store_id', $store->id)` below narrows on
-         * `ProductVariant.store_id`, which `product_attribute_delete`'s own comment records (S36)
-         * as *"not the authority on who owns it"* -- that handler resolves ownership through the
-         * variant's PRODUCT instead. Here the effect is fail-closed: a variant with a NULL
-         * `store_id` matches nothing and cannot be deleted through this endpoint at all. Left as it
-         * is rather than widened, because widening it would make MORE variants reachable from a
-         * path whose reference block is still missing.
+         * `confirmed = true`, for the reason `product_attribute_delete` records: this IS the
+         * separate, deliberate per-variant delete that D-20 condition 3 asks for, so it needs the
+         * BLOCKS -- cart, wishlist, store-less refusals, order lines carrying a variant_id and the
+         * unverifiable order history -- WITHOUT the confirmation refusal, which would otherwise
+         * fail every ordinary call on a reference-free variant.
+         *
+         * THE REFUSAL STAYS INSIDE THE ENVELOPE. `error()` answers HTTP 200 with `{status: 0, ...}`
+         * and the real text under `data.message`; a 401 is never used, because the shipped Flutter
+         * app forces a logout on any 401 and a new one on a path a client calls is a user-visible
+         * regression. Measured: nothing in the Flutter admin app at /home/user/StoreSyria_app98
+         * calls `deletevariant` (a case-insensitive grep over `lib/` finds no occurrence), so no
+         * client loses an operation it was performing -- but the envelope is kept regardless,
+         * because this endpoint is public API surface whether or not our own client uses it.
          */
-        $ProductVariant = ProductVariant::where('id', $request->variant_id)
-            ->where('store_id', $store->id)
+        $ProductVariant = ProductVariant::withoutGlobalScopes()
+            ->whereKey($request->variant_id)
             ->first();
-        if (!empty($ProductVariant)) {
-            $ProductVariant->delete();
-            return $this->success(['message' => __('Product Variant deleted successfully!.')]);
-        } else {
+
+        $ssProduct = \App\Services\VariantRemovalPolicy::parentProduct($ProductVariant);
+
+        if (
+            empty($ProductVariant)
+            || $ssProduct === null
+            || (int) $ssProduct->store_id !== (int) $store->id
+        ) {
             return $this->error(['message' => __('Product Variant data not found.')]);
         }
+
+        $ssDenied = \App\Services\VariantRemovalPolicy::authorize(\Auth::user(), $ssProduct);
+
+        if ($ssDenied !== null) {
+            return $this->error(['message' => $ssDenied['msg']]);
+        }
+
+        $ssRefusal = \App\Services\VariantRemovalPolicy::refuse(
+            $ssProduct,
+            collect([$ProductVariant]),
+            true
+        );
+
+        if ($ssRefusal !== null) {
+            \Illuminate\Support\Facades\Log::warning(
+                'api variant delete refused: the variant is still referenced',
+                [
+                    'variant_id' => $ProductVariant->id,
+                    'product_id' => $ProductVariant->product_id,
+                    'blocked' => $ssRefusal['ss_variant_removal']['blocked'] ?? null,
+                    'user_id' => optional(\Auth::user())->id,
+                ]
+            );
+
+            return $this->error([
+                'message' => $ssRefusal['msg'],
+                'ss_variant_removal' => $ssRefusal['ss_variant_removal'] ?? null,
+            ]);
+        }
+
+        $ProductVariant->delete();
+
+        return $this->success(['message' => __('Product Variant deleted successfully!.')]);
     }
 
     public function CreateProduct(Request $request)

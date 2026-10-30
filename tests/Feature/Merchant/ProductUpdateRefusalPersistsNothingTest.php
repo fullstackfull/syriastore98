@@ -867,23 +867,30 @@ class ProductUpdateRefusalPersistsNothingTest extends SecurityTestCase
      */
     public function test_the_removal_set_is_computed_in_exactly_one_place(): void
     {
-        $source = $this->sourceWithoutComments(app_path('Http/Controllers/ProductController.php'));
+        $controller = $this->sourceWithoutComments(app_path('Http/Controllers/ProductController.php'));
+        $policy = $this->sourceWithoutComments(app_path('Services/VariantRemovalPolicy.php'));
 
-        $this->assertSame(1, substr_count($source, 'private function ssVariantsBeingRemoved('),
-            'the removal-set query must have exactly one definition');
+        $this->assertSame(1, substr_count($policy, 'public static function variantsBeingRemoved('),
+            'the removal-set query must have exactly one definition, and it lives in the policy'
+            . ' since F195/D-28c moved it there so the API door could ask the same question');
+
+        $this->assertSame(1, substr_count($controller, 'private function ssVariantsBeingRemoved('),
+            'the controller keeps exactly one thin delegate');
 
         /*
-         * AND NO SECOND, HAND-ROLLED COPY — counted as a SHAPE rather than as formatted text.
+         * AND NO SECOND, HAND-ROLLED COPY ANYWHERE — counted as a SHAPE rather than as formatted
+         * text.
          *
          * The first version of this assertion counted a two-line needle including its twelve
-         * spaces of indentation, which is the helper's own body. A hand-rolled copy would live
+         * spaces of indentation, which was the helper's own body. A hand-rolled copy would live
          * inside one of the rebuild branches at 24 to 28 spaces and would not have been counted,
-         * so the assertion could not detect the thing its message described. The review of this
-         * slice caught it. `->reject(function` is the distinctive shape of this query and nothing
-         * else in the file uses it.
+         * so the assertion could not detect the thing its message described. The review of the
+         * F196 slice caught it. `->reject(function` is the distinctive shape of this query.
          */
-        $this->assertSame(1, substr_count($source, '->reject(function'),
-            'a second copy of the removal-set query exists; detection and deletion drift apart'
-            . ' exactly when there are two of them');
+        $this->assertSame(1, substr_count($policy, '->reject(function'),
+            'a second copy of the removal-set query exists inside the policy');
+        $this->assertSame(0, substr_count($controller, '->reject(function'),
+            'the controller still hand-rolls the removal-set query; detection and deletion drift'
+            . ' apart exactly when there are two of them');
     }
 }

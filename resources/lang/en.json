@@ -3283,5 +3283,16 @@
     "Show :thing": "Show :thing",
     "Plan Order": "Plan Order",
     "This order is already being processed. Please wait a moment before trying again.": "This order is already being processed. Please wait a moment before trying again.",
-    "This variant could not be deleted.": "This variant could not be deleted."
+    "This variant could not be deleted.": "This variant could not be deleted.",
+    ":count shopper cart line(s)": ":count shopper cart line(s)",
+    ":count wishlist entry(ies)": ":count wishlist entry(ies)",
+    ":count order(s)": ":count order(s)",
+    "SKU :sku": "SKU :sku",
+    "price :price": "price :price",
+    "stock :stock": "stock :stock",
+    "These variants cannot be deleted: :names. They are referenced by :blockers. Deleting them would break that reference and destroy their prices, SKUs and stock. Nothing has been changed.": "These variants cannot be deleted: :names. They are referenced by :blockers. Deleting them would break that reference and destroy their prices, SKUs and stock. Nothing has been changed.",
+    "These variants cannot be deleted: :names. This product appears in :count past order(s), and an order line does not record which variant was bought — so nothing can show that these variants are not part of that history. Deleting them would destroy their prices, SKUs and stock with no way to recover what an order referred to. Nothing has been changed. To stop selling them while keeping the record, set them out of stock instead.": "These variants cannot be deleted: :names. This product appears in :count past order(s), and an order line does not record which variant was bought — so nothing can show that these variants are not part of that history. Deleting them would destroy their prices, SKUs and stock with no way to recover what an order referred to. Nothing has been changed. To stop selling them while keeping the record, set them out of stock instead.",
+    "These variants cannot be deleted: the product has no store, so nothing can establish whether anything refers to them. Nothing has been changed.": "These variants cannot be deleted: the product has no store, so nothing can establish whether anything refers to them. Nothing has been changed.",
+    "These variants cannot be removed because they are still referenced: :names. Referenced by: :refs. Remove or complete those references first.": "These variants cannot be removed because they are still referenced: :names. Referenced by: :refs. Remove or complete those references first.",
+    "This change would permanently delete :count variant(s): :detail. Their prices, SKUs and stock would be lost. No past order names this product, so nothing in order history refers to them. Nothing has been changed. To proceed, confirm the removal explicitly.": "This change would permanently delete :count variant(s): :detail. Their prices, SKUs and stock would be lost. No past order names this product, so nothing in order history refers to them. Nothing has been changed. To proceed, confirm the removal explicitly."
 }
