@@ -279,7 +279,26 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // allow-list that NEVER names `token` -- the SHA-256 secret half. An Eloquent read would
         // hydrate the model and make "the secret is not loaded" a convention; the explicit select
         // makes it structural. The report prints aggregates only, never a row.
-        $this->assertSame(['app' => 146, 'packages' => 45], $perDir,
+        // 146 -> 147 [2026-10-30, F215]: `HomeController::ensureLandingPageInstalled()` asks
+        // `DB::table('landing_page_settings')->exists()` to decide whether the LandingPage module
+        // has already been seeded, so an anonymous `GET /` stops re-running `package:seed` — whose
+        // `PermissionTableSeeder:22` is `Artisan::call('cache:clear')`, a flush of the whole default
+        // store, which erases every gateway-return replay claim on the platform. See F215.
+        //
+        // THIS RATCHET'S WARNING DOES NOT APPLY TO IT, and that is a statement about the schema
+        // rather than a judgement: `landing_page_settings` is `id`, `name` (unique), `value` and
+        // timestamps — `2023_06_05_043450_create_landing_page_settings_table.php:17-22`. **There is
+        // no `store_id` column to predicate on.** It is a platform-level settings table, the same
+        // category as `personal_access_tokens` in the note above, so the "a NEW site needs an
+        // explicit `store_id` predicate" remedy has nothing to attach to.
+        //
+        // AND RAW RATHER THAN ELOQUENT DELIBERATELY, for a different reason than the token read
+        // above: the Eloquent model is `Workdo\LandingPage\...\LandingPageSetting`, inside a
+        // VENDORED package. Naming it here would give a first-party controller a hard compile-time
+        // dependency on a package that may not be vendored in every deployment, and the guard's
+        // whole job is to be safe when the module is absent — which is why the line above it is
+        // `Schema::hasTable()`. A raw read against a table name costs nothing if the table is gone.
+        $this->assertSame(['app' => 147, 'packages' => 45], $perDir,
             'The raw query-builder entry-point count moved. Every one of these is invisible to '
             . 'every Eloquent global scope, so a NEW site needs an explicit `store_id` predicate '
             . 'written at the call site -- there is no other remedy. A REMOVED one probably means '
@@ -308,7 +327,8 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // hundred and sixty eight" and the trail above shows 168 -> 191 across eight deltas, none
         // of them a rename. Observed rather than renamed, so this delta's diff stays about the one
         // site it adds.
-        $this->assertSame(191, array_sum($perDir));
+        // 191 -> 192 with F215's `landing_page_settings` existence check (see the note above).
+        $this->assertSame(192, array_sum($perDir));
     }
 
     /**
