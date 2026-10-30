@@ -326,6 +326,14 @@ run_one verify-login-and-settings-cache-paths-on-mysql \
 # and reads false as "already claimed", so a missing key is an UN-TAKEN claim and the replayed
 # gateway return is welcomed rather than merely unguarded. Drives the full chain: claim taken,
 # replay refused, one Setting::updateOrCreate(), claim gone, SAME replay now permitted.
+# F194/F211 ACTIVATION -- the owner's 2026-10-30 decision. Runs the F211 chain TWICE in one
+# process: isolation OFF (the defect must reproduce, or the "after" proves nothing) and isolation ON
+# (the claim must survive the identical Cachable save). Plus D-28a's no-stale-read condition and the
+# boundary that activation does NOT make `cache:clear` safe, so it does not subsume F215.
+run_one verify-replay-claim-with-model-cache-isolation-on-mysql \
+  "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
+  "FRESH_MYSQL_DATABASE=claimisolation_verify" "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
+
 run_one verify-replay-claim-survives-a-model-save-on-mysql \
   "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
   "FRESH_MYSQL_DATABASE=replayclaim_verify" "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
