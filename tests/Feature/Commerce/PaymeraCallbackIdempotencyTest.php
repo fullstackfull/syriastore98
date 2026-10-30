@@ -96,6 +96,7 @@ class PaymeraCallbackIdempotencyTest extends TestCase
             'product_order_id' => '0202501010102',
         ]);
 
+        $this->asAuthorisedCaller();   // F210's ownership gate -- see the helper
         $response = $this->controller()->handlePaymeraTrigger(self::REFERENCE);
         $payload = json_decode($response->getContent(), true);
 
@@ -147,6 +148,7 @@ class PaymeraCallbackIdempotencyTest extends TestCase
             'product_order_id' => '0202501010102',
         ]);
 
+        $this->asAuthorisedCaller();   // F210's ownership gate -- see the helper
         $response = $this->controller()->handlePaymeraTrigger(self::REFERENCE);
         $payload = json_decode($response->getContent(), true);
 
@@ -185,6 +187,7 @@ class PaymeraCallbackIdempotencyTest extends TestCase
             'product_order_id' => '0202501010102',
         ]);
 
+        $this->asAuthorisedCaller();   // F210's ownership gate -- see the helper
         $response = $this->controller()->handlePaymeraTrigger(self::REFERENCE);
         $payload = json_decode($response->getContent(), true);
 
@@ -1029,6 +1032,32 @@ class PaymeraCallbackIdempotencyTest extends TestCase
         $m->setAccessible(true);
 
         return $m->invoke($this->controller(), $write, $sessionPlacedIt);
+    }
+
+    /**
+     * AUTHORISE THE CALLER, because F210 gave `handlePaymeraTrigger()` an ownership gate and these
+     * three cases drive the method DIRECTLY — bypassing the middleware, with nobody logged in.
+     *
+     * Found by the independent review of F210 rather than by me: without this the gate's
+     * `if (! $ssCaller)` limb returns 404 and all three assertions below read `null`, which is
+     * three UNDECLARED Feature failures and a broken known-outcome gate. The gate is correct; the
+     * fixtures predated it.
+     *
+     * THE OPERATOR LIMB RATHER THAN OWNERSHIP, and the reason is the fixture's own shape.
+     * `putPending()` hardcodes `'store_id' => 1`, so making the caller OWN that store would tie
+     * these cases to whichever row happens to get id 1 — autoincrement luck, in a class that
+     * carries no `RefreshDatabase`. `UserPolicy::isOperator()` reads only `->type` and
+     * short-circuits before `creatorId()`, so an unsaved model is enough and no database row is
+     * created. These cases are about REPLAY IDEMPOTENCY, not about tenancy — F210's own
+     * `PaymeraTriggerOwnershipTest` is where the gate is measured — so the right move is to
+     * satisfy the gate and leave each case measuring what it was written to measure.
+     */
+    private function asAuthorisedCaller(): void
+    {
+        $operator = new \App\Models\User;
+        $operator->type = 'super admin';
+
+        $this->actingAs($operator);
     }
 
     private function putPending(array $overrides = []): void

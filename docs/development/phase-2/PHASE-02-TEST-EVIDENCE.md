@@ -9334,3 +9334,182 @@ what it was written to catch.
 including a faithful simulation of the bridgeless screen — tear the bridge and the shell out of the
 page, re-inject the panel through the same first-party route the module calls, and assert the panel
 brings both back and the click opens the dialog instead of deleting.
+
+---
+
+## §2 remaining risks — F208, F209, F210, F211 and two corrections to my own work (2026-10-30)
+
+The owner's §2 said to start with what could lose money, stock or expose tenant data. Four findings,
+three fixed, one measured and escalated. What follows is what was executed, not what was intended.
+
+### F204 — the ratchet I had called sufficient was not, and the census was a sample
+
+Two corrections to the F204 row written earlier the same day.
+
+**The hole.** The assertion was a `preg_match` over raw source. Reverting the fix the way a careless
+maintainer actually would — leaving `// TODO restore: e.preventDefault();` behind — left **all five
+cases green**, because a commented-out call satisfies the needle and does nothing in a browser.
+
+| revert | before the fix | after |
+|---|---|---|
+| replace the line with `// TODO restore: e.preventDefault();` | **5 passed** | **1 failed** |
+| delete the line outright | 1 failed | 1 failed |
+
+The assertion now reads the handler through `withoutJsComments()`, a hand-written scanner tracking the
+four contexts a `/` can legally sit in — single-quoted string, double-quoted string, template literal,
+regex literal. Not a regex, and the reason is measured elsewhere in this repository:
+`PaymeraCapturedWithoutOrderTest::executableSource()` records a lazy comment pattern turning
+`'https://egate-t.paymera.cc'` into `'https:`. A sixth case asserts the stripper is neither an identity
+function nor a code-eater, including the two hazards above. The independent review then found the
+file's *other* assertion still reading raw source, so `test_only_one_delegated_confirmation_handler_is_bound`
+is stripped too — it was protected in practice but was reading one file two different ways.
+
+**The census.** The row said "7 anchors, 2 submits, 21 other buttons" — three figures summing to 30,
+not to the 65 occurrences named in the same sentence, because they came from the 30 triggers whose
+whole opening tag sits on one line. A sample stated as a population. Re-measured over complete opening
+tags: **65 raw occurrences, 8 inside Blade comments, so 57 rendered triggers — 9 anchors, 46
+`type="button"`, 2 `type="submit"`, and ZERO with no `type`.** That last figure is the one that
+mattered and had never been taken: a `<button>` with no `type` **defaults to submit**, so a type-less
+trigger inside a form would have been a third live instance. There are none, so the conclusion
+survives — by luck rather than by measurement.
+
+### F209 — `isAbleTo()` is a union across every store
+
+The F181 fix gated each notification type on `TYPE_PERMISSIONS`, which closed the open door, then
+asked the question with `$user->isAbleTo($permission)` — Laratrust's `allPermissions()`, which carries
+**no store predicate**.
+
+Driven, not read: one merchant, two stores, a staff member granted `Manage Order` in store A only,
+`current_store` switched to store B — a switch that staff member may legitimately make.
+
+| | before | after |
+|---|---|---|
+| store B's `order_paid` rows served | **3** | 0 |
+| the same grant reading store A | 3 | **3** |
+
+Both gates fixed, because they share the registry but not the code that applies it:
+`Api\DashboardController::readableNotificationTypes()` and
+`MerchantNotificationController::readableTypes()`. Each resolves
+`MerchantPermissions::names($user, $storeId)` **once** and asks it three times through `held()` —
+not `allows()` per type, which re-runs two queries per type.
+
+Bitten per site: reverting the API gate fails 1, reverting the web gate fails 1. **33 cases pass across
+the two files.** Each site carries a negative case *and* a premise case asserting the same staff member
+with the same role still reads the store the grant was for — without which the leak case would pass for
+a fixture that silently failed to attach the role.
+
+The independent review checked the one thing that would have made this wrong — that the gate and the
+rows are keyed on the same quantity — and confirmed it: API gate `$user->current_store` against rows
+`where('store_id', $storeId)`, web gate `getCurrentStore($user->id)` against the same variable. It also
+confirmed a role with `store_id === null` is still admitted (the column is nullable and `names()` uses
+a strict `=== null`), so no merchant loses their own permissions.
+
+### F208 — four order writers with no compensation, behind a comment asserting they had it
+
+`GatewayStockDecrementRoutingTest` said the other authorised writers *"reach this property through
+`OrderWriteTransactionTest`, whose data provider covers them"*. That provider has three rows —
+`PaymentController::getProductStatus`, `PaymentService::getProductStatus`, `PaymentController::whatsapp`
+— and none of them is AuthorizeNet, PayU or either `Api\ApiController` writer. **An open hole with a
+note saying it was closed.**
+
+All four wrapped. `place-order` and `order-save` are **driven** through the real route with a real
+Sanctum token and a real cart; AuthorizeNet needs a live SDK response and PayU a valid salted hash, so
+for those two the source ratchet is the whole of the evidence and the test now says so.
+
+**And the fix contained the mirror of the defect it closes.** `$ssOrderWritten` is assigned by the
+statement *after* `$order->save()`, so it is still false while the `created` event runs — and
+`OrderObserver::created()` catches `\Exception` but **not** `\Throwable`, so a `TypeError` inside
+`OrderFinancialService::createForOrder()` escapes, propagates out of `save()`, and reaches the catch
+with the row **already committed**. On the flag alone that gave the stock back behind a live order.
+Present in the original four handlers too. Fixed in all seven with `$order->exists`, authoritative
+because `Model::performInsert()` sets it at line 1341 and fires `created` at 1345.
+
+| revert | which cases fail |
+|---|---|
+| remove the whole guard | the two "failure **during** the write" cases |
+| remove only the `$order->exists` limb | the two "failure **after** the write" cases |
+
+Each limb is load-bearing on its own. The premise assertions were strengthened after the review: the
+"during" case now asserts the thrown message is *the injected one* (an earlier throw gives identical
+observations with the stock at 50 because it was never taken), and the "after" case asserts an order
+row really committed.
+
+**The ratchet was per-FILE and is now per-WRITER.** `Api/ApiController` holds two guarded writers, so
+deleting `ordersave`'s entire try/catch left `place_order`'s copy satisfying every assertion and the
+ratchet green over a reopened hole. Counts now derive from `AUTHORISED` by `intdiv($expectedSites, 3)`,
+the same derivation the in-loop test uses. Bitten by renaming only the second guard's variable — valid
+PHP, marker gone: **1 failed**, message *"Api/ApiController must carry exactly 2 order-write guard(s)"*.
+
+### F210 — the Paymera trigger acted on a path segment
+
+`route:list`, not assumption: `POST store/paymera/trigger/{orderId}` resolves behind
+`['web', Authenticate, XSS, SetLocate, EmailIsVerified]`, inside the `auth` group at
+`routes/web.php:400`. `Authenticate` with no argument uses the **`web`** guard. So the **gateway cannot
+call it at all**, the **shopper cannot either** (`customers` guard), and any authenticated merchant or
+staff user can — across tenants.
+
+Not theft: the poll and `verifyPaymeraPayment()` fail closed, so an order is written only for a
+gateway-approved payment, for the customer the record names. What a cross-tenant caller could do is
+make another tenant's write happen on their request for a reference they guessed.
+
+The refusal is the **same 404** an unknown reference gets, so the endpoint is not an oracle for which
+references are live. 3 cases; bitten by neutering the predicate: 1 failed.
+
+The review found both premise cases satisfiable by a crash: `assertNotSame([...], $response->json())`
+is satisfied by `null`, which is what `json()` returns for a 302 and for an HTML 500 — and this route
+sits behind `EmailIsVerified` and an updater gate. They now assert `assertOk()` and
+`assertJson(['ok' => true])`.
+
+**Escalated, not answered:** if Paymera is supposed to reach this endpoint, `auth` on the route is
+itself the defect and the answer is a signed callback — a payment-flow change outside this phase.
+
+### F211 — F194 is live, and an erased claim is an *un-taken* claim
+
+`verify-replay-claim-survives-a-model-save-on-mysql.php`, **9 checks, 0 failures**, MariaDB 10.11.14:
+
+| step | observed |
+|---|---|
+| 1. a gateway return takes its claim | `add()` → **true** (first arrival) |
+| 2. the same return is replayed | `add()` → **false** (refused — the control working) |
+| 3. one ordinary `Setting::updateOrCreate()` | not a payment action, not a cache command |
+| 4. read the claim back | **gone** |
+| 5. **the same replay, again** | `add()` → **TRUE — permitted** |
+
+Nothing about the payment changed between 2 and 5. `claimGatewayReturn()` takes its claim with
+`Cache::add()` and reads `false` as "already claimed"; `add()` on a missing key returns `true`, so an
+erased claim is indistinguishable from a first arrival.
+
+Check [7] confirms the mitigation really ships inert (`laravel-model-caching.store` is null, caching
+enabled) so none of this is already handled. Check [6] confirms the Feature suite **cannot see it**:
+`ArrayStore` extends `TaggableStore`, so under `CACHE_STORE=array` the flush is tag-scoped and every
+payment key survives. Check [8] confirms a `file`-store key survives a `Cachable` save, so the second
+candidate fix would work mechanically.
+
+**Neither fix taken.** Activating `MODEL_CACHE_STORE` is a production environment change plus a
+migration, and `ModelCacheIsolationConfigTest` currently *asserts* the inertness by D-28a. Moving the
+claim to `file` makes it per-server. Both are owner decisions; §7 says stop the risky slice and
+escalate. **F194 remains OPEN and is not described as handled.**
+
+### What the gate caught in my own work, which is the part worth reading
+
+Four undeclared failures, all mine, all from this slice:
+
+1. **Three** in `PaymeraCallbackIdempotencyTest` — it calls `handlePaymeraTrigger()` **directly**,
+   bypassing middleware, with nobody logged in, so F210's `if (! $ssCaller)` returned 404 and three
+   assertions read `null`. Found by the independent review **before** the gate finished; the gate then
+   confirmed it. Fixed by authorising the caller through the operator limb, which needs no database
+   row (`UserPolicy::isOperator()` reads only `->type`) and so does not tie those cases to
+   autoincrement luck — `putPending()` hardcodes `store_id => 1`.
+2. **One** in `PaymeraPostCommitClaimTest` — it ratchets docblock **line numbers**, and F210's docblock
+   shifted them by 71 lines. Re-pointed.
+
+And a lesson from the fourth worth recording: that ratchet matched on a needle carrying a **date**
+(`(Measured 2026-10-29:`), so writing the new date **emptied its own needle** and it failed while all
+four pointers were perfectly correct. A ratchet whose needle rots on the very edit it polices is not a
+ratchet. The marker is now date-free and the date lives in the prose beside it.
+
+**No browser evidence is claimed for this slice, and the reason is a measurement rather than an
+omission:** `git diff --name-only bc315c3a -- resources/views public/js public/css` returns **zero**
+files, and the commit itself touched none either. The F204 and F184 browser evidence from the earlier
+commits stands and is not re-run.
+

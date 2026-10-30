@@ -429,18 +429,29 @@ class GatewayStockDecrementRoutingTest extends TestCase
          * Nothing in the four files satisfied the assertions from a comment today, so it was not a
          * live false pass -- it was one explanatory sentence away from being one.
          */
-        foreach (['KhaltiPaymnetController', 'PaiementProPaymentController',
-                  'CinetPayController', 'EasebuzzController',
-                  'AuthorizeNetPaymnetController', 'PayUPaymentController',
-                  'Api/ApiController'] as $controller) {
+        /*
+         * COUNTED, NOT MERELY PRESENT — and the independent review is why. The first version of
+         * this block iterated the seven FILES and used `assertStringContainsString` plus
+         * single-match `assertMatchesRegularExpression`. `Api/ApiController` holds **two** guarded
+         * writers, so deleting `ordersave`'s entire try/catch left `place_order`'s copy satisfying
+         * every assertion here and the ratchet green over a reopened hole. A per-file assertion
+         * cannot guard a per-METHOD property.
+         *
+         * The expected count comes from `AUTHORISED` by the same derivation the in-loop test above
+         * uses — `intdiv($expectedSites, 3)`, three decrement sites per writer — so a writer added
+         * to that map without a guard fails here, rather than the two numbers drifting apart.
+         */
+        foreach (self::AUTHORISED as $controller => $expectedSites) {
             $source = $this->code($controller);
+            $guards = intdiv($expectedSites, 3);
 
-            $this->assertStringContainsString(
-                'catch (\\Throwable $ssStockGuardError) {',
-                $source,
-                "$controller no longer catches a failed order write, so an exception after the"
-                . ' stock loop leaves the inventory consumed and, depending where it lands, no'
-                . ' order either.'
+            $this->assertSame(
+                $guards,
+                substr_count($source, 'catch (\\Throwable $ssStockGuardError) {'),
+                "$controller must carry exactly $guards order-write guard(s) — one per authorised"
+                . ' writer. A missing one means an exception after that writer\'s stock loop leaves'
+                . ' the inventory consumed and, depending where it lands, no order either; an extra'
+                . ' one means a nested catch whose scope has not been read.'
             );
 
             /*
@@ -466,25 +477,33 @@ class GatewayStockDecrementRoutingTest extends TestCase
              * load-bearing and `ApiOrderWriterStockCompensationTest` fails on the removal of
              * either one.
              */
-            $this->assertMatchesRegularExpression(
-                '/\$ssOrderClaimsIt = \(\$ssOrderWritten \?\? false\)\s*\|\|\s*\(isset\(\$order\) && \$order instanceof \\\\App\\\\Models\\\\Order && \$order->exists\);\s*if \(! \$ssOrderClaimsIt\) \{\s*\$this->restoreStockDecrements\(\$appliedStockChanges \?\? \[\]\);/',
-                $source,
+            $this->assertSame(
+                $guards,
+                preg_match_all(
+                    '/\$ssOrderClaimsIt = \(\$ssOrderWritten \?\? false\)\s*\|\|\s*\(isset\(\$order\) && \$order instanceof \\\\App\\\\Models\\\\Order && \$order->exists\);\s*if \(! \$ssOrderClaimsIt\) \{\s*\$this->restoreStockDecrements\(\$appliedStockChanges \?\? \[\]\);/',
+                    $source
+                ),
                 "$controller gives the stock back without asking whether the ORDER was written."
                 . ' There is no transaction here, so a throw after `$order->save()` would return'
                 . " the shopper's goods to the catalogue while their order stands — the inverse"
                 . ' of the defect this closes.'
             );
 
-            $this->assertStringContainsString(
-                '$ssOrderWritten = true;',
-                $source,
-                "$controller never records that the order was written, so the gate above can only"
-                . ' ever be false and the compensation fires on every failure again.'
+            $this->assertSame(
+                $guards,
+                substr_count($source, '$ssOrderWritten = true;'),
+                "$controller must record the order write once per authorised writer. Without it the"
+                . ' gate above falls back to `$order->exists` alone, which is correct but leaves no'
+                . ' record of WHERE the row became authoritative — and with too many, one writer is'
+                . ' claiming another\'s write.'
             );
 
-            $this->assertMatchesRegularExpression(
-                '/\$this->restoreStockDecrements\(\$appliedStockChanges \?\? \[\]\);\s*\}\s*throw \$ssStockGuardError;/',
-                $source,
+            $this->assertSame(
+                $guards,
+                preg_match_all(
+                    '/\$this->restoreStockDecrements\(\$appliedStockChanges \?\? \[\]\);\s*\}\s*throw \$ssStockGuardError;/',
+                    $source
+                ),
                 "$controller swallows the failure instead of rethrowing it. The compensation adds"
                 . ' a restore; it must not change the response the caller sees, which is the same'
                 . ' rule OrderWriteTransactionTest states for the other three writers.'

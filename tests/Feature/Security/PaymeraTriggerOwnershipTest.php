@@ -114,6 +114,16 @@ final class PaymeraTriggerOwnershipTest extends SecurityTestCase
         $response = $this->actingAs($owner)
             ->postJson('/store/paymera/trigger/' . $reference);
 
+        /*
+         * NAMED POSITIVELY, and the independent review is why. `assertNotSame([...], json())` alone
+         * is satisfied by `null` — which is what `json()` returns for a 302 and for an HTML 500. This
+         * route sits in the `['auth','xss','setlocate','verified']` group, so an `EmailIsVerified`
+         * redirect, an updater-gate redirect or any 500 would all have "passed" this premise while
+         * proving nothing about the gate. A premise that cannot fail is not a premise.
+         */
+        $response->assertOk();
+        $response->assertJson(['ok' => true]);
+
         $this->assertNotSame(['error' => 'Payment context not found'], $response->json(),
             'the owning merchant was refused by the OWNERSHIP gate, which is a lockout rather than '
             . 'a tightening — and it would make the cross-tenant case above vacuous');
@@ -142,6 +152,10 @@ final class PaymeraTriggerOwnershipTest extends SecurityTestCase
 
         $response = $this->actingAs($operator)
             ->postJson('/store/paymera/trigger/' . $reference);
+
+        /* Positively named, for the reason given on the case above. */
+        $response->assertOk();
+        $response->assertJson(['ok' => true]);
 
         $this->assertNotSame(['error' => 'Payment context not found'], $response->json(),
             'the platform operator cannot reach a stuck payment they are responsible for '

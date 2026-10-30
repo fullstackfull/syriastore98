@@ -1599,7 +1599,18 @@ isolation.
 | P2-03-4 | the smallest addition compatible with the existing media model, **if proven necessary** | no parallel media engine; no change to variant identity; no deletion of variant references. If it exceeds supporting today's variants and becomes a Phase 03 feature, document the deferral and do not let it block closing approved requirements |
 | P2-04-6 | an **optional** author on NEW notes | appropriate permissions, honest display, and **old notes must not be attributed** to the current employee or to a presumed author |
 
-### D-25 — P2-04-11 `orders.order_source`: the five decisions taken inside the owner's approval
+### D-24d-i — P2-04-11 `orders.order_source`: the five decisions taken inside the owner's approval
+
+> **IDENTIFIER CORRECTED 2026-10-30. THIS SECTION WAS NUMBERED `D-25`, AND SO IS A DIFFERENT
+> DECISION.** The top-level `## D-25` in this file is *"the shared merchant chrome on the design
+> system"*, approved the same day. Two distinct decisions carried one label, and they were cited
+> from different ledger rows — P2-04-11 pointed here meaning `order_source`, while P2-01-17,
+> P2-04-6 and P2-04-12 pointed at the chrome decision. A reader following either citation had an
+> even chance of landing on the wrong decision, which is worse than an unlabelled section because
+> it reads as precise. Renumbered to `D-24d-i` rather than to a fresh `D-27`, because this section
+> is nested inside `## D-24` and records choices taken *inside* the approval that **D-24d** gave:
+> the parentage is the useful fact, and the top-level `D-25` keeps its number so the three chrome
+> rows' citations stay correct. Found while auditing ledger accuracy under the owner's §5.
 
 The owner approved this migration on 2026-10-28 (§1, "عند ثبوت الحاجة") with four conditions, recorded
 in **D-24d**. Need was proven before anything was written, and five choices inside that approval are

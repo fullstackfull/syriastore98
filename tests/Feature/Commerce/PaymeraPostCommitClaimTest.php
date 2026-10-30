@@ -216,10 +216,16 @@ class PaymeraPostCommitClaimTest extends TestCase
         $file = base_path('app/Http/Controllers/PaymentController.php');
         $lines = explode("\n", (string) file_get_contents($file));
 
-        $block = (string) strstr((string) file_get_contents($file), '(Measured 2026-10-29:');
+        $block = (string) strstr((string) file_get_contents($file), '(Measured anchors:');
         $block = substr($block, 0, (int) strpos($block, 'Read the structure as the claim'));
 
-        $this->assertNotSame('', $block, 'the measured-anchor block is gone from the docblock');
+        $this->assertNotSame('', $block,
+            'the measured-anchor block is gone from the docblock. THE NEEDLE USED TO CARRY A DATE '
+            . '(`(Measured 2026-10-29:`), and re-measuring the anchors on 2026-10-30 — writing '
+            . '`(Re-measured 2026-10-30:` — emptied it, so this assertion fired while the four '
+            . 'pointers were perfectly correct. A ratchet whose needle rots on the very edit it '
+            . 'exists to police is not a ratchet, so the marker is now date-free and the date '
+            . 'lives in the prose beside it.');
 
         preg_match_all('/`([^`]+)`[\s*]*:(\d+)/', $block, $m, PREG_SET_ORDER);
 

@@ -102,6 +102,21 @@ final class ApiOrderWriterStockCompensationTest extends SecurityTestCase
         $this->assertNotNull($threw,
             'the injected failure never reached the order write, so this case proves nothing about '
             . 'compensation — re-check the fixture before trusting the assertion below');
+
+        /*
+         * AND IT MUST BE *THE* INJECTED FAILURE, which the independent review is right that
+         * `assertNotNull` alone does not establish. An EARLIER throw gives the identical three
+         * observations — non-null, zero orders, stock at 50 — except that the stock is 50 because it
+         * was never taken, not because it came back. That path is reachable here rather than
+         * theoretical: both writers resolve the platform admin as
+         * `User::where('type','admin')->first()`, the LOWEST-id admin and not necessarily this
+         * fixture's merchant, then dereference `$plan->shipping_method`. If the plan does not
+         * resolve, that throws before the stock loop. Naming the message closes it inside this case
+         * instead of leaning on the separate happy-path control.
+         */
+        $this->assertSame('simulated failure during the order write', $threw->getMessage(),
+            'something OTHER than the injected failure threw, so the stock figure below is '
+            . 'measuring a loop that never ran rather than a restore that did');
         $this->assertSame(0, (int) DB::table('orders')->where('store_id', $store->id)->count(),
             'an order row survived the injected failure, so the window under test is not the one '
             . 'D-13 describes');
@@ -138,6 +153,15 @@ final class ApiOrderWriterStockCompensationTest extends SecurityTestCase
         } catch (\Throwable $e) {
             // expected
         }
+
+        /*
+         * THE PREMISE OF THIS CASE IS THAT A ROW COMMITTED, and nothing asserted it until the
+         * independent review pointed that out. Without this line the case is also satisfied by an
+         * order that was never written at all.
+         */
+        $this->assertSame(1, (int) DB::table('orders')->where('store_id', $store->id)->count(),
+            'no order row committed, so this case is not measuring "a failure AFTER the order was '
+            . 'written" — the injection fired too early and the assertion below proves nothing');
 
         $this->assertSame(self::OPENING_STOCK - 2, $this->stockOf($product),
             "`$path` gave the stock back although the order had already been written. An order "

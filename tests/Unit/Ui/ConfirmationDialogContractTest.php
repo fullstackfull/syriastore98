@@ -128,7 +128,18 @@ class ConfirmationDialogContractTest extends TestCase
 
     public function test_only_one_delegated_confirmation_handler_is_bound(): void
     {
-        $js = (string) file_get_contents(dirname(__DIR__, 3) . '/public/js/custom.js');
+        /*
+         * STRIPPED, for the same reason the F204 case below is — and the independent review is why
+         * this one was fixed too. Reading the raw file left `assertStringContainsString('Swal.mixin',
+         * $js)` satisfiable by a comment mentioning SweetAlert, and left the binding count able to
+         * be satisfied by a commented-out binding. The file was protected in practice, because
+         * commenting out the binding makes the F204 case's `assertNotFalse($start)` fail on its
+         * stripped copy — but the two assertions were reading one file two different ways, which is
+         * the kind of inconsistency that becomes a hole the moment one of them moves.
+         */
+        $js = $this->withoutJsComments(
+            (string) file_get_contents(dirname(__DIR__, 3) . '/public/js/custom.js')
+        );
 
         $this->assertSame(1, substr_count($js, "'.show_confirm'"),
             'the confirmation class is bound more than once, so two dialogs can open for one click');
