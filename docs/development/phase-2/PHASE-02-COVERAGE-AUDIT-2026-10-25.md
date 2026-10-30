@@ -19,6 +19,50 @@ a measurement**: a reader could reasonably call some of the PARTIAL rows TRACKED
 judgement is the MISSING set — those requirements match no row at all, and a grep for their
 subject in the ledger returns nothing.
 
+## [2026-10-30] SUPERSEDED HEADLINE — re-derived at the final HEAD
+
+**This document is dated 2026-10-25 and its headline is now historical rather than current.** It
+asked one question — *does a ledger row exist for this requirement?* — and answered 50 tracked / 23
+partial / **31 missing**. All 31 became ledger rows in the same change that produced this file, and
+the work has since landed.
+
+**Re-derived independently at the final HEAD, by reading the evidence rather than the ledger:**
+
+| | |
+|---|---|
+| Workstream A–K requirements | **104** |
+| DONE | **92** |
+| PARTIAL | **11** |
+| BLOCKED | **1** (E13's cancel-and-linked-replacement, under D-15's conditions) |
+| untracked | **0** |
+
+The re-derivation checked the citations rather than trusting them: **all 399 file paths the ledger
+cites resolve** (12 apparent misses are ellipses, generated files, or deliberately-absent files such
+as `config/sanctum.php`), and **132 of 133 named test classes exist** — the 133rd being a rename the
+ledger itself records (`PaymentGatewayValidationIsDeadTest` → `PaymentGatewayRequiredFieldsTest`).
+
+**TWO OBLIGATIONS ARE GENUINELY NOT MET, and neither is a tracking gap:**
+
+1. **Section 6 — "compare actual frontend performance against a measured baseline".** There is **no
+   artifact anywhere in the repository**: no Lighthouse run, no LCP, no TTFB. Not started, not
+   deferred by decision, and not previously recorded as missing. It is named here so it stops being
+   invisible.
+2. **E13's second clause** — see the ledger row; it is blocked on an owner decision and on three
+   measured prerequisites.
+
+**And two smaller gaps nobody had claimed:** `resources/views/partision/sidebar.blade.php:38` gives
+`#sideBarsearch` a placeholder and no accessible name (a placeholder is not an accessible name), and
+seven slices with significant UI changes (P2-01-14/-15/-18/-20, P2-05-2, P2-05-8, P2-05-9) carry
+browser measurement logs but **no before/after screenshots**, which the Mandatory Visual Evidence
+rule asks for by name.
+
+**Read the table below as the 2026-10-25 state.** Where it and a ledger row disagree, the ledger
+row is newer. Several of its entries now UNDERSTATE what exists — P2-03-3, P2-03-4, P2-04-17, A3,
+E3, C6 and its own 2026-10-27 correction (which still lists F141/F142/F143 as open when all three
+read FIXED with bite-tests).
+
+---
+
 ## Headline
 
 | | count | share |
