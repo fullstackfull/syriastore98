@@ -3041,6 +3041,55 @@ public function handlePaymeraTrigger00($orderId)
             ]);
         }
 
+        /*
+         * F121 / D-22 — THE BASKET MUST NOT NAME A PRODUCT ROW THAT NO LONGER EXISTS, AND THIS WAS
+         * THE ONE HANDLER THAT DID NOT ASK.
+         * =========================================================================================
+         *
+         * `basketHasMissingProductRow()` shipped with D-22 and was applied to four gateway return
+         * handlers — Khalti, Easebuzz, PaiementPro, CinetPay. **It was never applied here**, and
+         * this is the handler that matters most: `store.payment.status` is named **48 times** in
+         * `app/Services/PaymentService.php` as a `return_url`, `cancel_url` or `callback_url`,
+         * across the whole gateway catalogue. The F121 ledger row opened by naming "the four gateway
+         * return handlers", which fixed the frame at four from its first sentence, so a reader took
+         * "the pre-collection half is FIXED" to mean the crash was fixed. Found by a verification
+         * pass over that row rather than by any suite.
+         *
+         * WHAT HAPPENED WITHOUT IT. Both cart readers below dereference the product row:
+         * `Cart::cart_list_cookie()` for a guest and `ApiController::cart_list()` for a signed-in
+         * customer. With the row gone — a merchant deleting a product while a checkout is in flight
+         * — the read is a null-property access, which is a 500 on a return the shopper reaches
+         * AFTER the gateway has taken their money. No order, no notification, and a stack trace.
+         *
+         * AND THE CLAIM MAKES IT WORSE, which is why this is not merely an unhandled exception.
+         * `claimGatewayReturn($request, 'storefront-return', ...)` is taken above, at the top of
+         * this method, with a **48-hour** TTL (`GuardsGatewayReturn::GATEWAY_RETURN_CLAIM_TTL`), and
+         * `releaseGatewayReturnClaim()` has exactly **one** call site in all of `app/` —
+         * `NMIPayController:1526`. Nothing on this path releases it. So after the crash the
+         * shopper's retry, and the merchant's after restoring the product, are **refused by the
+         * claim for two days on a payment that was already captured**. The crash is recoverable;
+         * the claim is what makes it not.
+         *
+         * THE REFUSAL IS THIS HANDLER'S OWN SHAPE, deliberately. Every other refusal in this method
+         * answers `$this->error([...])` — `ApiResponser`, HTTP 200 with `status: 0` — so a redirect
+         * here would make one refusal in one handler different from all its siblings on the single
+         * most-referenced return path in the application. The merchant notification that the four
+         * siblings raise is kept by calling `noteCaptureWithoutOrder()`, which was extracted from
+         * `gatewayReturnMissingProductRefusal()` for exactly this reason.
+         *
+         * `$verification` IS NULL HERE AND THAT IS NOT AN OVERSIGHT: this handler performs no
+         * signature or verification call of its own, so the capture state resolves to `unknown` —
+         * "the money may already have been taken" — which is the honest answer rather than a
+         * flattering one.
+         */
+        if ($this->basketHasMissingProductRow($store)) {
+            $this->noteCaptureWithoutOrder('storefront-return', null, $requests_data['final_price'] ?? null, $store);
+
+            return $this->error([
+                'message' => __('An item in your cart is no longer available. Please contact the store before paying again.'),
+            ]);
+        }
+
         $cartlist_final_price = 0;
         $final_price = 0;
         $tax_price = 0;

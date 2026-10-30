@@ -122,12 +122,84 @@ class HomeController extends Controller
         } else {
             $settings = getSuperAdminAllSetting();
             if (isset($settings['display_landing']) && $settings['display_landing'] == 'on') {
-                Artisan::call('package:migrate LandingPage');
-                Artisan::call('package:seed LandingPage');
+                $this->ensureLandingPageInstalled();
+
                 return view('landing-page::layouts.landingpage');
             } else {
                 return redirect('login');
             }
+        }
+    }
+
+    /**
+     * F215 — INSTALL THE LANDING MODULE ONCE, NOT ON EVERY ANONYMOUS REQUEST.
+     * =============================================================================================
+     *
+     * `Landing()` used to call `package:migrate LandingPage` and then `package:seed LandingPage`
+     * unconditionally, on every request that reached the landing branch. That branch is the ROOT
+     * ROUTE — `routes/web.php:393`, `Route::any('/')` with `->middleware('setlocate')` and nothing
+     * else: no `auth`, no `throttle`, and `any` so a bare GET reaches it with no CSRF token. And
+     * `display_landing => 'on'` is the seeded default (`database/seeders/DefaultSetting.php:28`),
+     * so this was the shipped configuration rather than an unusual one.
+     *
+     * WHY THAT WAS A PAYMENT DEFECT RATHER THAN A PERFORMANCE ONE.
+     * `LandingPageDatabaseSeeder:19` calls `PermissionTableSeeder`, whose **first** statement
+     * (`:22`) is `Artisan::call('cache:clear')` — a `Cache::flush()` over the whole default store.
+     * `GuardsGatewayReturn::claimGatewayReturn()` takes its gateway-return replay claim in that
+     * store with **`Cache::add()`**, and `add()` on a missing key returns **true**, so an erased
+     * claim is not a missing record the control notices: it is an UN-TAKEN claim, indistinguishable
+     * from a first arrival (measured on MariaDB in F211). The claim carries a 48-hour TTL precisely
+     * so a late replay cannot slip through.
+     *
+     * `PaymentController::getProductStatus()` — reached by `store.payment.status`, which
+     * `app/Services/PaymentService.php` names **48 times** as a return, cancel or callback URL
+     * across the gateway catalogue — takes that claim at `PaymentController.php:2923` and makes no
+     * signature or verification call of its own, so the claim is that handler's only replay
+     * control. `releaseGatewayReturnClaim()` has exactly one call site in all of `app/`
+     * (`NMIPayController.php:1526`), so nothing else touches those keys either. A stranger hitting
+     * the home page therefore cleared the replay claims for every gateway return in flight,
+     * platform-wide, for free, as often as they liked.
+     *
+     * `packages/workdo/` must not be edited, so the seeder keeps its `cache:clear`; what changes is
+     * that a request no longer invokes it.
+     *
+     * WHAT THE GUARD IS, AND THE TRADE IT MAKES — STATED RATHER THAN HIDDEN.
+     * The calls are legitimate exactly once: a brand-new deployment whose first visitor needs the
+     * module's tables and rows. So each is gated on its own precondition:
+     *
+     *   - `package:migrate` runs only while the module's primary table is absent.
+     *   - `package:seed` runs only while that table holds no rows. `LandingPageDataTableSeeder:98`
+     *     writes `LandingPageSetting` with `updateOrCreate`, so a populated table is exactly the
+     *     evidence that the seed has already run.
+     *
+     * **THE TRADE:** a future module update that adds a table will no longer be migrated by an
+     * anonymous page view. That is the correct expectation — migrations belong to a deployment step,
+     * and relying on a stranger's request to run them is the defect, not the feature — but it IS a
+     * behaviour change, and an operator upgrading the LandingPage module must run
+     * `php artisan package:migrate LandingPage` as part of the deploy. Nothing here touches
+     * production, and the fresh-install path is asserted by
+     * `AnonymousLandingCacheFlushTest::test_a_fresh_install_is_still_seeded_on_the_first_visit`.
+     *
+     * The table name is NOT guessed: `LandingPageSetting`'s own table, created by
+     * `2023_06_05_043450_create_landing_page_settings_table.php`.
+     */
+    private function ensureLandingPageInstalled(): void
+    {
+        $table = 'landing_page_settings';
+
+        if (! \Illuminate\Support\Facades\Schema::hasTable($table)) {
+            Artisan::call('package:migrate LandingPage');
+        }
+
+        /* Re-asked rather than assumed: if the migrate could not create it, there is nothing to
+           seed and the view will report its own failure, which is more honest than seeding into a
+           table that is not there. */
+        if (! \Illuminate\Support\Facades\Schema::hasTable($table)) {
+            return;
+        }
+
+        if (! DB::table($table)->exists()) {
+            Artisan::call('package:seed LandingPage');
         }
     }
 

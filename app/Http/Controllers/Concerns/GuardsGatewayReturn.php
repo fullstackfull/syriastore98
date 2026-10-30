@@ -961,6 +961,44 @@ trait GuardsGatewayReturn
         ]);
     }
 
+    /**
+     * Tell the merchant a capture may have happened with no order, WITHOUT deciding the response.
+     *
+     * EXTRACTED FROM `gatewayReturnMissingProductRefusal()` SO A SECOND HANDLER COULD REUSE IT, and
+     * the reason is worth stating. That method ends in `redirect()->back()`, which is the right
+     * answer for the four gateway handlers that call it — they are web handlers reached by a browser
+     * and their siblings all redirect. `PaymentController::getProductStatus()` is NOT: every refusal
+     * in that method answers with `$this->error([...])` (`ApiResponser`: HTTP 200 with `status: 0`).
+     * Returning a redirect from there would make one refusal in that handler a different shape from
+     * every other, on the path that `app/Services/PaymentService.php` names 48 times as a return,
+     * cancel or callback URL. So the notification is shared and the response is each handler's own.
+     *
+     * The capture state is the honest one of three and the reasoning is unchanged — see the caller's
+     * docblock, including why collapsing `unverifiable` into `rejected` was wrong.
+     */
+    protected function noteCaptureWithoutOrder(string $gateway, $verification = null, $amount = null, $store = null): void
+    {
+        if ($verification === null) {
+            $captureState = 'unknown';
+        } elseif ($verification->isVerified()) {
+            $captureState = 'confirmed';
+        } elseif ($verification->outcome === \App\Services\PaymentVerificationResult::REJECTED) {
+            $captureState = 'rejected';
+        } else {
+            $captureState = 'unknown';
+        }
+
+        if ($captureState !== 'rejected' && $store !== null && ! empty($store->id)) {
+            app(\App\Services\StoreNotificationService::class)->captureWithoutOrder(
+                (int) $store->id,
+                $gateway,
+                $amount === null ? null : (string) $amount,
+                $captureState,
+                'missing_product_row'
+            );
+        }
+    }
+
     protected function gatewayReturnMissingProductRefusal(Request $request, string $gateway, $verification = null, $amount = null, $store = null)
     {
         Log::critical('Gateway return refused: the basket names a product or variant row that no longer exists.', [
@@ -1004,25 +1042,7 @@ trait GuardsGatewayReturn
          * may well have been charged. A sibling test's khalti data set failed on it, which is the
          * only reason it is not in this file today.
          */
-        if ($verification === null) {
-            $captureState = 'unknown';
-        } elseif ($verification->isVerified()) {
-            $captureState = 'confirmed';
-        } elseif ($verification->outcome === \App\Services\PaymentVerificationResult::REJECTED) {
-            $captureState = 'rejected';
-        } else {
-            $captureState = 'unknown';
-        }
-
-        if ($captureState !== 'rejected' && $store !== null && ! empty($store->id)) {
-            app(\App\Services\StoreNotificationService::class)->captureWithoutOrder(
-                (int) $store->id,
-                $gateway,
-                $amount === null ? null : (string) $amount,
-                $captureState,
-                'missing_product_row'
-            );
-        }
+        $this->noteCaptureWithoutOrder($gateway, $verification, $amount, $store);
 
         return redirect()->back()->with(
             'error',

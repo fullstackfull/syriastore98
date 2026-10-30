@@ -426,6 +426,95 @@ class GatewayReturnMissingProductTest extends SecurityTestCase
 
     // ---------------------------------------------------------------- measurement
 
+    // =========================================================================================
+    // F121 RESIDUAL [2026-10-30] -- THE GENERIC RETURN HANDLER, WHICH THE GUARD HAD NEVER REACHED
+    // =========================================================================================
+    //
+    // `basketHasMissingProductRow()` was applied to four gateway handlers and NOT to
+    // `PaymentController::getProductStatus()` -- the handler behind `store.payment.status`, which
+    // `app/Services/PaymentService.php` names 48 times as a return, cancel or callback URL across
+    // the gateway catalogue. This row's own opening sentence ("The four gateway return handlers
+    // carry...") fixed the frame at four, so a reader took the crash to be fixed.
+    //
+    // These cases drive the real route with a real session, so they measure the handler rather than
+    // its source.
+
+    public function test_the_generic_return_handler_refuses_a_dangling_basket_without_a_500(): void
+    {
+        [, $store, $customer, $product] = $this->checkout();
+        DB::table('products')->where('id', $product->id)->delete();
+
+        $o = $this->driveGenericReturn($store, $customer);
+
+        $this->assertNull($o['exception'],
+            'a return on a dangling basket threw inside `getProductStatus`. This is the handler the '
+            . 'whole gateway catalogue returns to, and the shopper reaches it AFTER the money has '
+            . 'been taken -- so the 500 is on a captured payment (F121 residual).');
+        $this->assertSame(0, $o['orders'], 'and no order is written for a basket whose product is gone');
+    }
+
+    public function test_the_generic_handler_tells_the_merchant_the_capture_may_have_happened(): void
+    {
+        [, $store, $customer, $product] = $this->checkout();
+        DB::table('products')->where('id', $product->id)->delete();
+
+        $this->driveGenericReturn($store, $customer);
+
+        $row = DB::table('store_notifications')
+            ->where('store_id', $store->id)
+            ->where('type', 'payment_needs_attention')
+            ->first();
+
+        $this->assertNotNull($row,
+            'the merchant was told nothing. A `critical` log is not a merchant-visible record, and '
+            . 'this handler performs no verification of its own, so the capture state is `unknown` '
+            . '-- the money may already be gone and only the merchant can settle it.');
+    }
+
+    /**
+     * THE CONTROL, and without it the two cases above pass for a handler that refuses everything.
+     *
+     * The same fixture with the product INTACT must still reach the order writer. This is what
+     * catches a guard that is too eager -- which on this path would refuse every gateway return in
+     * the application.
+     */
+    public function test_the_generic_handler_leaves_an_intact_basket_alone(): void
+    {
+        [, $store, $customer] = $this->checkout();
+
+        $o = $this->driveGenericReturn($store, $customer);
+
+        $this->assertNull($o['exception'], 'an INTACT basket now throws, which is a regression');
+        $this->assertSame(0, DB::table('store_notifications')
+            ->where('store_id', $store->id)
+            ->where('type', 'payment_needs_attention')
+            ->count(),
+            'the guard fired on an intact basket, so it would refuse every gateway return in the '
+            . 'application -- the opposite failure, and worse than the one it fixes');
+    }
+
+    private function driveGenericReturn($store, $customer): array
+    {
+        $exception = null;
+        $status = 0;
+        $this->withoutExceptionHandling();
+
+        try {
+            $response = $this->actingAs($customer, 'customers')
+                ->withSession(['request_data' => $this->state])
+                ->post('/' . $store->slug . '/get-payment-status', $this->state);
+            $status = $response->getStatusCode();
+        } catch (\Throwable $e) {
+            $exception = get_class($e) . ': ' . $e->getMessage();
+        }
+
+        return [
+            'status' => $status,
+            'exception' => $exception,
+            'orders' => (int) DB::table('orders')->where('store_id', $store->id)->count(),
+        ];
+    }
+
     private function driveAuthenticated($store, $customer): array
     {
         $exception = null;
