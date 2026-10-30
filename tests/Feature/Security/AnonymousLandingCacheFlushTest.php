@@ -170,6 +170,30 @@ final class AnonymousLandingCacheFlushTest extends SecurityTestCase
         $this->assertTrue(DB::table('landing_page_settings')->exists(),
             'the fix stopped a fresh install from seeding its landing page on the first visit, which '
             . 'is a regression rather than a tightening');
+
+        /*
+         * WHAT THIS FILE CANNOT ASSERT, AND I TRIED BEFORE WRITING IT DOWN.
+         *
+         * The obvious missing assertion is that the landing page still RENDERS — gating an install
+         * step risks the view then meeting something that is not there, and every assertion above
+         * is satisfied by a 500, because `$this->get()` without `withoutExceptionHandling()`
+         * swallows the exception. So I added `assertLessThan(500, ...)` to both cases. **Both
+         * failed — and then they failed with the ORIGINAL unconditional `Artisan::call()` pair
+         * restored too.** The root route does not render in this environment either way: the
+         * landing view needs theme assets and module data that a `RefreshDatabase` schema does not
+         * have.
+         *
+         * So a status assertion here would be measuring the CONTAINER, not the guard, and its
+         * failure message would blame this fix for something that predates it — which is what mine
+         * said before I checked. Removed rather than left in, and recorded rather than quietly
+         * dropped. **What would actually prove the render is a browser run against a seeded
+         * install**, the way F184 and F204 were proven; it is not claimed here.
+         *
+         * The guard's real risk is therefore bounded by what IS asserted: the seed runs on a fresh
+         * install (this case) and does not run again afterwards (the case above). Whether the view
+         * that follows is healthy is a question this suite cannot reach, in either version of the
+         * code.
+         */
     }
 
     /**
