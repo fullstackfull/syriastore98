@@ -60,6 +60,11 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/PaymentService.php:3044` | Order write failed and was rolled back; stock decrements were given back |
 | `app/Services/ProductStockService.php:127` | Stock decremented below zero on an order path that cannot refuse |
 | `app/Services/ProductStockService.php:210` | Stock decremented below zero on an order path that cannot refuse |
+| `app/Http/Controllers/PaidDownloadController.php:230` | paid download refused: resolved path escapes the uploads root |
+| `app/Http/Controllers/PaidDownloadController.php:250` | paid download refused |
+| `app/Services/GatewayReference.php:85` | gateway reference not recorded: the table is absent |
+| `app/Services/GatewayReference.php:112` | gateway capture replayed: the reference is already recorded |
+| `app/Services/GatewayReference.php:127` | gateway capture replayed (23000): the reference is already recorded |
 
 ### `warning` — 127 lines
 
@@ -155,7 +160,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Middleware/FlashedMessageSafety.php:74` | an exception object was flashed to a session and was replaced before it could be rendered |
 | `app/Http/Middleware/LotteryDrawOwnershipGuard.php:260` | lottery draw refused |
 | `app/Http/Middleware/ModuleOrderMutationGuard.php:378` | module order mutation refused |
-| `app/Http/Middleware/ModuleResourceOwnershipGuard.php:374` | module resource mutation refused |
+| `app/Http/Middleware/ModuleResourceOwnershipGuard.php:559` | module resource mutation refused |
 | `app/Models/Order.php:906` | Order return refused: the order carries no readable product_json |
 | `app/Models/Order.php:917` | Order return refused: the order lines are not in a shape this workflow can return |
 | `app/Models/Utility.php:2174` | New Order webhook skipped: no store could be resolved for the order |

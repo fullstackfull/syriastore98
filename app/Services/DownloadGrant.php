@@ -69,6 +69,57 @@ final class DownloadGrant
      *
      * @return string the opaque token to put in the link
      */
+    /**
+     * Is this installation serving uploads from the LOCAL document root?
+     *
+     * F217's exposure is specifically that `public/uploads` is a symlink to `../uploads`, so a
+     * paid downloadable written to local storage sits under the web root and is fetchable by URL.
+     * THAT IS A LOCAL-STORAGE PHENOMENON. When the installation is configured for wasabi or s3 the
+     * file was never in the document root, and the link `get_file()` builds is the provider's own
+     * URL — whose access control belongs to the bucket policy, not to this application.
+     *
+     * So `PaidDownloadController` serves local files ONLY: it resolves an absolute path under the
+     * uploads root and hands it to `response()->download()`, which cannot serve an object in a
+     * bucket. Routing a remote-storage merchant through it would 404 every paid download they have
+     * ever sold — measured, as a real regression in
+     * `DownloadableProductMailTest::test_on_remote_storage_the_mailed_link_names_the_bucket`,
+     * which is in the suite precisely because that path was already a live configuration.
+     *
+     * Hence this predicate, and hence the honest limit: **remote storage keeps the behaviour it
+     * had.** A bucket URL with no expiry is still a guessable link, which is the same CLASS of
+     * weakness F217 closes locally, and closing it means a signed temporary URL
+     * (`Storage::disk(...)->temporaryUrl()`). That cannot be verified from this container — there
+     * are no bucket credentials here — and shipping an unverified change on the paid-download path
+     * is worse than recording the gap. It is recorded as F217's remote sibling.
+     *
+     * Reads the settings exactly the way `get_file()` does, including its measured guards: an
+     * absent super admin yields `[]`, and an absent `storage_setting` key means local. Both of
+     * those were real 500s and blank-URL defects, so the resolution is deliberately identical
+     * rather than re-derived.
+     */
+    public static function servesFromLocalDocumentRoot(): bool
+    {
+        try {
+            $admin = \App\Models\User::where('type', 'super admin')->first();
+
+            $settings = $admin
+                ? \App\Models\Setting::where('store_id', $admin->current_store)
+                    ->pluck('value', 'name')
+                    ->toArray()
+                : [];
+
+            $setting = strtolower(trim((string) ($settings['storage_setting'] ?? '')));
+
+            return $setting === '' || $setting === 'local';
+        } catch (\Throwable $settingsAreUnreadable) {
+            /*
+             * Fail towards LOCAL, which is the safe direction: a local link is served through the
+             * entitlement controller. Failing towards remote would mail out a raw path.
+             */
+            return true;
+        }
+    }
+
     public static function issue($order, string $path, $customerId = null): string
     {
         $token = bin2hex(random_bytes(20));
@@ -127,9 +178,25 @@ final class DownloadGrant
      */
     public static function authorises(array $grant, $store, string $path): bool
     {
+        /*
+         * `$store` ACCEPTS AN OBJECT OR AN ID, and that is a fix rather than a convenience.
+         *
+         * This read used to be `(int) ($store->id ?? -1)` alone. Reading `->id` on an `int` yields
+         * null in PHP, so an integer argument silently became -1 and the comparison failed. FAILING
+         * CLOSED is the right direction -- a caller who passes the wrong shape is refused, not
+         * admitted -- but failing closed SILENTLY is how a caller comes to believe it checked
+         * something it did not. Measured: a test passing `(int) $store->id` got a refusal that
+         * looked exactly like a path mismatch.
+         *
+         * So both shapes resolve, and anything else still lands on -1, which no grant can match.
+         */
+        $storeId = is_object($store)
+            ? (int) ($store->id ?? -1)
+            : (is_numeric($store) ? (int) $store : -1);
+
         return hash_equals(
             hash('sha256', json_encode([
-                'store_id' => (int) ($store->id ?? -1),
+                'store_id' => $storeId,
                 'path' => $path,
             ])),
             hash('sha256', json_encode([

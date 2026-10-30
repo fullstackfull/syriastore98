@@ -1025,15 +1025,30 @@ public function city_list(Request $request, $slug)
         $downloadPath = $o_data === null ? null : $this->downloadablePathOf($o_data);
 
         if ($o_data !== null && $downloadPath !== null) {
-            $downloadLink = route('paid.download', [
-                'storeSlug' => $store->slug,
-                'order' => $o_data->id,
-                \App\Services\DownloadGrant::FIELD => \App\Services\DownloadGrant::issue(
-                    $o_data,
-                    $downloadPath,
-                    $o_data->customer_id
-                ),
-            ]);
+            if (\App\Services\DownloadGrant::servesFromLocalDocumentRoot()) {
+                $downloadLink = route('paid.download', [
+                    'storeSlug' => $store->slug,
+                    'order' => $o_data->id,
+                    \App\Services\DownloadGrant::FIELD => \App\Services\DownloadGrant::issue(
+                        $o_data,
+                        $downloadPath,
+                        $o_data->customer_id
+                    ),
+                ]);
+            } else {
+                /*
+                 * REMOTE STORAGE KEEPS THE LINK IT HAD, and the reason is in
+                 * DownloadGrant::servesFromLocalDocumentRoot()'s docblock: the file is in a bucket,
+                 * never in this application's document root, so F217's `public/uploads` exposure
+                 * does not arise for it -- and `PaidDownloadController` serves local files only, so
+                 * routing it there would 404 every paid download a wasabi/s3 merchant has sold.
+                 *
+                 * The residual weakness is recorded rather than papered over: an unexpiring bucket
+                 * URL is still a guessable link. Closing it needs a signed temporary URL, which
+                 * cannot be verified without bucket credentials this container does not have.
+                 */
+                $downloadLink = get_file($downloadPath);
+            }
         }
 
         if ($o_data === null || $downloadLink === null) {

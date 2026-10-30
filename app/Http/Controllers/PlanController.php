@@ -223,7 +223,29 @@ class PlanController extends Controller
                     }
 
                     if ($plan->update($post)) {
-                        Artisan::call('optimize:clear');
+                        /*
+                         * F218 / D-29.1's census. `--except => 'cache'` IS THE WHOLE FIX, and the
+                         * same idiom routes/web.php:817 already uses.
+                         *
+                         * The bare form runs `cache:clear`, and in production the default store is
+                         * `database`, whose `flush()` is `$this->table()->delete()` -- the whole
+                         * cache table, prefix ignored. The payment replay claims live on that store
+                         * (`gateway-return-claim:*`, `paymera_claim_*`, `paymera_pending_*`, all
+                         * written with the bare `Cache::` facade), so a holder of `Edit Plan`
+                         * saving a plan erased every in-flight claim in the installation.
+                         *
+                         * WHAT MAKES THAT WORSE THAN A LOST CACHE ENTRY: the claims are taken with
+                         * `Cache::add()`, which returns TRUE for a missing key. An erased claim is
+                         * therefore an UN-TAKEN claim, not a detectable one -- the next gateway
+                         * return takes it cleanly and the duplicate-capture guard reports success.
+                         *
+                         * `--except` is honoured before any task runs (OptimizeClearCommand rejects
+                         * by task key, and `cache` is `cache:clear`'s key), so config, route, view
+                         * and event caches are still cleared exactly as before -- which is all a
+                         * plan save needs, since what changed is configuration and menus, not
+                         * cached model rows.
+                         */
+                        Artisan::call('optimize:clear', ['--except' => 'cache']);
                         return redirect()->back()->with('success', __('Plan updated Successfully!'));
                     } else {
                         return redirect()->back()->with('error', __('Something is wrong'));
