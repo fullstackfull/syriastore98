@@ -7,11 +7,28 @@ use Illuminate\Support\Facades\Schema;
 /**
  * F229 / D-31 REQUIREMENT 1 — the durable, server-owned plan purchase intent.
  *
- * **DEVELOPMENT AND TEST ONLY.** D-31 grants development/test-only authorisation and restates the
- * prohibition on production migrations; D-15 condition 9 says the same for E13's record. This table
- * does not exist in production and nothing here may be run there. Every reader must consult
+ * **DEVELOPMENT AND TEST ONLY, AND THIS FILE DOES NOT ENFORCE THAT — the deploy does.** D-31
+ * grants development/test-only authorisation and restates the prohibition on production
+ * migrations; D-15 condition 9 says the same for E13's record. The table does not exist in
+ * production today.
+ *
+ * Independent review was right to flag the gap between that sentence and this code: `up()` tests
+ * only `Schema::hasTable()`, so a routine `php artisan migrate` creates the table wherever it is
+ * run. No environment guard is added, deliberately — the table IS required in every test run and
+ * will be required in production when F229 ships, so a guard would either break the suite or have
+ * to be removed later, and the repository's `_gate_f_pending/*.php.draft` convention is for tables
+ * that already exist in production unmanaged, which is the opposite case. The sentence is
+ * corrected instead of the code: the restriction is on **who may run a migration against
+ * production**, which is the owner's, and it is not a property of this file.
+ *
+ * What DOES have to hold whatever the table's state is: every reader must consult
  * `PlanPurchaseIntent::available()` first and **refuse** when it is false — never treat a missing
  * table as "no intent", which would be the inference D-15 forbids, on every purchase.
+ *
+ * The one thing that made the gap dangerous is fixed: before independent review, creating this
+ * table flipped the Paytm initiator from "refuses" to "works" while the return terminally refused
+ * every purchase after capture, on a currency comparison that could not succeed. See
+ * `PlanPurchaseIntent::REFUSED_RECOVERABLE`.
  *
  * ──────────────────────────────────────────────────────────────────────────────────────────────
  * WHY IT EXISTS, in one paragraph
@@ -67,7 +84,7 @@ use Illuminate\Support\Facades\Schema;
  *     float**, because requirement 3 forbids "imprecise floating-point comparisons" and a float
  *     equality test on money is exactly that. Four decimal places rather than two so a provider
  *     that reports more precision than it was sent can be compared without truncation deciding the
- *     answer. The comparison itself is `bccomp` at an explicit scale, never `==`.
+ *     answer. The comparison itself is a scaled-integer STRING comparison (not `bccomp`: bcmath is not installed, declared, or in CI's extension list), never `==`.
  *
  * `status` + `consumed_at` + `plan_order_id` — requirement 5. Consumption is a CONDITIONAL UPDATE
  *     from `pending`, so two concurrent callbacks cannot both win: the second one's update matches

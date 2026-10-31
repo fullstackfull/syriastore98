@@ -166,7 +166,21 @@ class PlanPurchaseIntentTest extends PlanPaymentTestCase
             'a refused payment consumed the intent, so the buyer cannot complete it correctly later');
     }
 
-    public function test_the_wrong_currency_is_refused(): void
+    /**
+     * A PRESENT, DIFFERING CURRENCY REFUSES — but RECOVERABLY, which is not the same thing.
+     *
+     * This case used to assert `REFUSED_MISMATCH`, and independent review showed why that is the
+     * wrong label even when the refusal is right. `recordRefusal()` is terminal, and the intent's
+     * currency is `CURRENCY_NAME`, a platform DISPLAY label that
+     * `ReceivePaymentProvider::beginTransaction()` never sends to Paytm and Paytm never echoes.
+     * A difference there is a misconfiguration, so closing the intent over it destroys a payment
+     * the provider has already captured.
+     *
+     * So: no activation (fail closed, requirement 4) and the intent stays PENDING, which
+     * `unreconciled()` surfaces. The caller is responsible for not recording it — asserted
+     * separately in `PaytmIntentBoundActivationTest`.
+     */
+    public function test_a_differing_currency_refuses_recoverably_and_leaves_the_intent_pending(): void
     {
         [$merchant] = $this->makeTenant();
         $reference = $this->intentFor($merchant, '499.00');
@@ -175,8 +189,143 @@ class PlanPurchaseIntentTest extends PlanPaymentTestCase
             self::PROVIDER, $reference, $merchant->id, '499.00', 'INR', 'TXN-3'
         );
 
-        $this->assertSame(PlanPurchaseIntent::REFUSED_MISMATCH, $state, 'a currency mismatch was accepted');
+        $this->assertSame(PlanPurchaseIntent::REFUSED_RECOVERABLE, $state, 'a currency mismatch was accepted');
+        $this->assertNotSame(PlanPurchaseIntent::VERIFIED, $state);
         $this->assertStringContainsString('currency mismatch', $reason);
+        $this->assertSame(
+            PlanPurchaseIntent::PENDING,
+            DB::table('plan_purchase_intents')->where('reference', $reference)->value('status'),
+            'the intent was consumed or closed by a currency difference, so a captured payment '
+            . 'cannot be reconciled or completed'
+        );
+    }
+
+    /**
+     * AN EMPTY REPORTED CURRENCY IS TOLERATED — and this is the case that was a 100% TERMINAL
+     * FAILURE on every legitimate Paytm purchase until independent review caught it.
+     *
+     * Paytm's status response has no `CURRENCY` field established by any evidence this project
+     * holds, so the controller passes `''`. The first implementation refused on any difference,
+     * `''` included, and then `recordRefusal()` made it permanent: money captured, no entitlement,
+     * no retry, every time.
+     *
+     * WHY NO TEST SAW IT, which is the part worth remembering: every double in the suite supplied
+     * the intent's OWN currency (`PaytmIntentBoundActivationTest::fakeVerifier`) or hard-coded
+     * `'USD'` against a `'USD'` intent, and the one negative case drove `'INR'` vs `'USD'` — a
+     * different question. **Nothing drove the production shape.** That is this project's
+     * "a fixture supplying what production does not" mode, and it cost a 100% failure rate.
+     *
+     * The rule is `PaystackPaymentController:436-441`'s, copied rather than invented: both
+     * non-empty and different is a real mismatch; an empty one means the platform has not
+     * configured a currency, and refusing every purchase over a missing setting is the wrong
+     * failure direction.
+     *
+     * @dataProvider absentCurrency
+     */
+    public function test_an_absent_reported_currency_is_tolerated(string $reported, string $label): void
+    {
+        [$merchant] = $this->makeTenant();
+        $reference = $this->intentFor($merchant, '499.00');
+
+        [$state, , $reason] = PlanPurchaseIntent::verifyAndConsume(
+            self::PROVIDER, $reference, $merchant->id, '499.00', $reported, 'TXN-EMPTY'
+        );
+
+        $this->assertSame(
+            PlanPurchaseIntent::VERIFIED,
+            $state,
+            'a provider reporting ' . $label . ' was refused. On Paytm that is EVERY legitimate '
+            . 'purchase, after the money is captured, and recordRefusal() makes it permanent. '
+            . 'Reason given: ' . $reason
+        );
+        $this->assertSame(
+            PlanPurchaseIntent::CONSUMED,
+            DB::table('plan_purchase_intents')->where('reference', $reference)->value('status')
+        );
+    }
+
+    public static function absentCurrency(): array
+    {
+        return [
+            'no currency field at all' => ['', 'an empty currency'],
+            'whitespace only' => ['   ', 'a whitespace-only currency'],
+        ];
+    }
+
+    /**
+     * AND A TERMINAL REFUSAL CANNOT BE WRITTEN ONTO SOMEBODY ELSE'S INTENT.
+     *
+     * `verifyAndConsume()` answers `REFUSED_MISMATCH` for a stranger's reference, and the caller
+     * records that refusal — which, unscoped, landed on the OWNER's pending row and closed it for
+     * good. Low reachability (only the provider mints a signed body, delivered through the buyer's
+     * own browser) but the asymmetry was indefensible next to the care taken elsewhere to keep an
+     * ambiguous answer non-terminal.
+     */
+    public function test_a_refusal_cannot_close_another_accounts_intent(): void
+    {
+        [$owner] = $this->makeTenant();
+        [$stranger] = $this->makeTenant();
+        $reference = $this->intentFor($owner, '499.00');
+
+        PlanPurchaseIntent::recordRefusal(self::PROVIDER, $reference, 'a stranger said so', 'TXN-X', $stranger->id);
+
+        $this->assertSame(
+            PlanPurchaseIntent::PENDING,
+            DB::table('plan_purchase_intents')->where('reference', $reference)->value('status'),
+            'a stranger closed the owner\'s intent, so the owner\'s own return can never complete'
+        );
+
+        /* And the owner's own refusal still records, or the guard has broken the feature. */
+        PlanPurchaseIntent::recordRefusal(self::PROVIDER, $reference, 'the owner\'s own refusal', 'TXN-Y', $owner->id);
+
+        $this->assertSame(
+            PlanPurchaseIntent::REFUSED,
+            DB::table('plan_purchase_intents')->where('reference', $reference)->value('status'),
+            'the purchaser scope is too tight: the owner cannot record their own refusal'
+        );
+    }
+
+    /**
+     * REQUIREMENT 5's CAPTURED-PAYMENT STATE IS SURFACED. The new clause, which nothing drove.
+     */
+    public function test_a_consumed_intent_with_no_order_behind_it_is_surfaced_for_review(): void
+    {
+        [$merchant] = $this->makeTenant();
+        $reference = $this->intentFor($merchant, '499.00');
+
+        PlanPurchaseIntent::verifyAndConsume(self::PROVIDER, $reference, $merchant->id, '499.00', '', 'TXN-ORPHAN');
+
+        $this->assertSame(
+            PlanPurchaseIntent::CONSUMED,
+            DB::table('plan_purchase_intents')->where('reference', $reference)->value('status'),
+            'premise broken: the intent was not consumed, so the clause under test is not reached'
+        );
+
+        /* The queue has a deliberate age floor -- a purchase seconds old is in flight, not
+           stranded -- so the row is backdated the way the sibling case below does it, rather than
+           the floor being argued away with `unreconciled(0)`. */
+        DB::table('plan_purchase_intents')->where('reference', $reference)
+            ->update(['created_at' => now()->subHours(2)]);
+
+        $unreconciled = collect(PlanPurchaseIntent::unreconciled(30))->pluck('reference')->all();
+
+        $this->assertContains(
+            $reference,
+            $unreconciled,
+            'a payment that was captured and verified, with NO plan order behind it, is invisible '
+            . 'to review. That is the exact state requirement 5 asks to be recoverable, and the '
+            . 'only thing that makes a post-consumption failure recoverable at all.'
+        );
+
+        /* Once the order is attached it is reconciled and must drop out, or the queue fills with
+           completed purchases and stops being read. */
+        PlanPurchaseIntent::attachOrder(self::PROVIDER, $reference, 4242);
+
+        $this->assertNotContains(
+            $reference,
+            collect(PlanPurchaseIntent::unreconciled(30))->pluck('reference')->all(),
+            'a completed purchase stayed in the review queue'
+        );
     }
 
     /**

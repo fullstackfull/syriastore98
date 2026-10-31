@@ -413,12 +413,26 @@ class PaytmPaymentController extends Controller
                     );
 
                     if ($ssIntentState !== \App\Services\PlanPurchaseIntent::VERIFIED) {
-                        \App\Services\PlanPurchaseIntent::recordRefusal(
-                            'Paytm',
-                            $ssOrderReference,
-                            $ssIntentState . ': ' . $ssIntentReason,
-                            $ssProviderSays['txn_id'] ?? $paytmReference
-                        );
+                        /*
+                         * A RECOVERABLE REFUSAL IS NOT RECORDED, because recording it is what makes
+                         * it terminal. See `PlanPurchaseIntent::REFUSED_RECOVERABLE`: the currency
+                         * comparison is against a platform DISPLAY label that Paytm is never sent
+                         * and never echoes, so a difference there is a misconfiguration and
+                         * closing the intent over it would destroy a captured payment.
+                         *
+                         * The purchaser is passed so a terminal refusal cannot land on somebody
+                         * else's pending row -- the cross-user case returns `REFUSED_MISMATCH`, and
+                         * without this the refusal was written onto the OWNER's intent.
+                         */
+                        if ($ssIntentState !== \App\Services\PlanPurchaseIntent::REFUSED_RECOVERABLE) {
+                            \App\Services\PlanPurchaseIntent::recordRefusal(
+                                'Paytm',
+                                $ssOrderReference,
+                                $ssIntentState . ': ' . $ssIntentReason,
+                                $ssProviderSays['txn_id'] ?? $paytmReference,
+                                $user->id ?? null
+                            );
+                        }
 
                         Log::warning('Paytm plan activation refused: the payment does not match the recorded purchase intent.', [
                             'state' => $ssIntentState,
@@ -471,34 +485,57 @@ class PaytmPaymentController extends Controller
                      * "discount named explicitly" -- and nothing read them. Now the server's own
                      * record is the authority, exactly as it is for the plan.
                      *
-                     * AND IT FIXES THE CONVERSE, WHICH WAS THE LARGER HALF: because the legitimate
-                     * flow never sent `coupon` on the return, this block was DEAD for every real
-                     * Paytm purchase -- a buyer who used a coupon at checkout had no usage row
-                     * written at all, so `used_coupon()` never incremented and a limit-1 coupon was
-                     * reusable without bound on this provider. Reading the intent makes the
-                     * legitimate case work for the first time.
+                     * A CORRECTION TO WHAT THIS DOCBLOCK FIRST CLAIMED, caught by independent
+                     * review and worth keeping rather than quietly deleting.
+                     *
+                     * It said the change *"fixes the converse, which was the larger half"* -- that
+                     * because the legitimate flow never sends `coupon` on the return, the usage row
+                     * was never written for a real Paytm purchase, and reading the intent made it
+                     * work. **The first half is true and the fix was not.** The usage WRITE below
+                     * still tested `$request->coupon`, so moving only the pricing lookup changed
+                     * nothing about it: `PlanUserCoupon` was still never written and a limit-1
+                     * coupon was still unboundedly reusable on this provider.
+                     *
+                     * Worse, the half-applied refactor left the two sites testing DIFFERENT
+                     * conditions, so a buyer appending `?coupon=1` to their own return reached the
+                     * write with `$coupons` undefined -- an `ErrorException` after the order, the
+                     * attachment and the entitlement had all succeeded, flashing "Plan not found!"
+                     * over a plan that was in fact active.
+                     *
+                     * Both are closed below, at the write itself.
                      */
                     $ssIntentCoupon = $ssIntent->coupon_code ?? null;
 
-                    if(!empty($ssIntentCoupon))
-                    {
-                        $coupons = PlanCoupon::whereRaw('BINARY `code` = ?', [$ssIntentCoupon])->where('is_active', '1')->first();
-                        if(!empty($coupons))
-                        {
-                            $usedCoupun     = $coupons->used_coupon();
-                            $discount_value = ($plan->price / 100) * $coupons->discount;
-                            $price          = $plan->price - $discount_value;
-
-                            if($coupons->limit == $usedCoupun)
-                            {
-                                return redirect()->back()->with('error', __('This coupon code has expired.'));
-                            }
-                        }
-                        else
-                        {
-                            return redirect()->back()->with('error', __('This coupon code is invalid or has expired.'));
-                        }
-                    }
+                    /*
+                     * ═══════════════════════════════════════════════════════════════════════════
+                     * NO COUPON CHECK MAY REFUSE FROM HERE. The payment is captured and the intent
+                     * is CONSUMED. Found by independent review of 7341b4d0.
+                     * ═══════════════════════════════════════════════════════════════════════════
+                     *
+                     * What stood here was the vendored block, with two `return redirect()->back()`
+                     * paths and an `is_active` filter -- both of which this trait had already ruled
+                     * out in writing. `GuardsPlanActivation.php:179-185`:
+                     *
+                     * > *"Each gateway's checkout initiator deactivates a coupon once its usage
+                     * > limit is reached. A coupon that was valid when checkout started can
+                     * > therefore be inactive by the time the provider returns, and filtering on
+                     * > is_active here would recompute a HIGHER price than the server itself
+                     * > advertised and charged."*
+                     *
+                     * And `PlanCoupon::used_coupon()` counts PLATFORM-WIDE, so ANOTHER merchant
+                     * completing their purchase while this buyer is on Paytm's page flips
+                     * `is_active` to 0. The buyer pays, the provider confirms, the intent is
+                     * consumed -- and then the block refused with "This coupon code is invalid or
+                     * has expired.", leaving money captured, no order, no entitlement and no
+                     * retry. That is the exact shape of F234, reintroduced past the point where it
+                     * can be recovered from.
+                     *
+                     * `planCouponForPricing()` is the trait's answer and the same method already
+                     * used it below: exists, `is_active` NOT required. The two refusals are gone
+                     * because by here there is nothing left to refuse -- and `$price` was dead
+                     * anyway, since the recorded price is computed independently.
+                     */
+                    $coupons = ! empty($ssIntentCoupon) ? $this->planCouponForPricing($ssIntentCoupon) : null;
 
                     $order                 = new PlanOrder();
 
@@ -515,8 +552,32 @@ class PaytmPaymentController extends Controller
                     // above ($price = $plan->price - $discount_value) and then discarded it in
                     // favour of the posted TXNAMOUNT. Paytm IS verified on this path
                     // ($transaction->isSuccessful()), so only the RECORDED price changes.
-                    $order->price          = $this->serverOwnedPlanPrice($plan, $ssIntentCoupon);
-                    $order->price_currency = isset($request->CURRENCY_CODE) ? $request->CURRENCY_CODE : 'NFD';
+                    /*
+                     * THE RECORDED FIGURES COME FROM THE INTENT, not from a recomputation and not
+                     * from the request. Independent review of 7341b4d0 found both.
+                     *
+                     * `serverOwnedPlanPrice()` is a second, disagreeing definition of a number the
+                     * intent already holds and the provider has just been matched against. They
+                     * can differ: `planPayWithPaytm` records `coupon_code => $request->coupon`
+                     * unconditionally, even when its own lookup found nothing because the coupon
+                     * was inactive -- so a buyer posting an existing-but-inactive code is charged
+                     * the FULL price while `planCouponForPricing()` (no `is_active` filter, by
+                     * design) would find that coupon on the return and record the DISCOUNTED one.
+                     * The `plan_orders` row would under-state collected revenue, by a value the
+                     * buyer chose, which is the very thing `serverOwnedPlanPrice`'s own docblock
+                     * says it exists to prevent.
+                     *
+                     * `price_currency` read `$request->CURRENCY_CODE`, which is in neither the
+                     * callback URL nor the signed body -- so where it is absent from the body the
+                     * QUERY STRING supplies it. The same class of value this round removed for
+                     * `plan` and `coupon`, left in place for currency. (The docblock above said
+                     * `coupon` was *"the only such key that reached a write"*; it was not.)
+                     *
+                     * The intent is the server's own record of what it advertised, charged and
+                     * then verified. Nothing else is authoritative.
+                     */
+                    $order->price          = $ssIntent->expected_amount;
+                    $order->price_currency = ! empty($ssIntent->currency) ? $ssIntent->currency : 'NFD';
                     // The same variable the guard was keyed on, so the recorded value cannot drift
                     // away from the looked-up one. See the structural assertion in
                     // PlanActivationReplayGuardTest.
@@ -528,16 +589,75 @@ class PaytmPaymentController extends Controller
                     $order->save();
 
                     /*
-                     * F229 -- tie the consumed intent to the row it produced, so an operator can
-                     * reconcile a Paytm statement line against an entitlement in one hop rather
-                     * than by matching timestamps. Idempotent (`whereNull('plan_order_id')`), so a
-                     * retried return cannot re-point it at a second order.
+                     * ═══════════════════════════════════════════════════════════════════════════
+                     * THE ENTITLEMENT FIRST, THEN THE ATTACHMENT. The order of these two lines is
+                     * load-bearing, and it was wrong. Found by independent review of 7341b4d0.
+                     * ═══════════════════════════════════════════════════════════════════════════
+                     *
+                     * `attachOrder()` used to run BEFORE `assignPlan()`, which made
+                     * `plan_purchase_intents.plan_order_id` mean "an order exists" rather than
+                     * "this purchase completed". Two consequences, both bad:
+                     *
+                     *   * the refresh short-circuit above keys on `plan_order_id`, so a buyer whose
+                     *     order landed and whose ENTITLEMENT did not was told "Plan activated
+                     *     Successfully." on every retry, with no write -- permanently stranded.
+                     *     `GuardsPlanActivation.php:437-443` had already settled that exact
+                     *     question: *"a bare 'already recorded, report success' guard would then
+                     *     strand that buyer permanently: every retry, including a perfectly clean
+                     *     one, would be told the plan was activated while it never was."*
+                     *   * `unreconciled()`'s captured-payment clause requires `plan_order_id IS
+                     *     NULL`, so the one state requirement 5 asks to surface was the one state
+                     *     it could not see.
+                     *
+                     * Attaching only after a successful activation makes `plan_order_id` set if and
+                     * only if the purchase completed -- which repairs the short-circuit's key and
+                     * the reconciliation query at the same time, with no extra condition in either.
+                     *
+                     * AND THE THROW IS CAUGHT HERE, not left to the outer `catch`. `assignPlan()`
+                     * both returns `is_success => false` AND raises (`User.php:273`,
+                     * `$oldplan->custom_plan` where the stored `plan_id` resolves to no row -- a
+                     * merchant who changed plans). The recovery record below tests the RETURN
+                     * value, so a throw unwound straight past it into the outer catch: money
+                     * captured, order written, entitlement absent, and **nothing logged at all**.
+                     * The comment below calls that case "not hypothetical" and then did not cover
+                     * it.
                      */
-                    \App\Services\PlanPurchaseIntent::attachOrder('Paytm', $ssOrderReference, $order->id);
+                    try {
+                        $assignPlan = $user->assignPlan($plan->id, $request->payment_frequency);
+                    } catch (\Throwable $theEntitlementRaised) {
+                        Log::error('Paytm payment verified and captured, but the entitlement did not activate.', [
+                            'reference' => $ssOrderReference,
+                            'plan_order_id' => $order->id,
+                            'plan_id' => $plan->id,
+                            'user_id' => $user->id,
+                            'reason' => 'assignPlan raised: ' . $theEntitlementRaised->getMessage(),
+                        ]);
 
-                    $assignPlan = $user->assignPlan($plan->id, $request->payment_frequency);
+                        /* The intent keeps a NULL `plan_order_id`, so `unreconciled()` surfaces it.
+                           Re-throwing would reach the outer catch and flash "Plan not found!" over
+                           a captured payment; the buyer is told the truth instead. */
+                        return redirect()->route('plan.index')->with('error', __('Transaction Unsuccesfull'));
+                    }
 
-                    if(!empty($request->coupon))
+                    if (! empty($assignPlan['is_success'])) {
+                        \App\Services\PlanPurchaseIntent::attachOrder('Paytm', $ssOrderReference, $order->id);
+                    }
+
+                    /*
+                     * THE USAGE WRITE, now keyed on the INTENT and on the coupon actually found.
+                     *
+                     * This tested `$request->coupon`, which is why the pricing fix alone changed
+                     * nothing: the legitimate return carries no `coupon`, so no usage row was ever
+                     * written for a real Paytm purchase and a limit-1 coupon stayed reusable on
+                     * this provider without bound. `!empty($coupons)` is the second half -- the two
+                     * sites tested different conditions after the half-applied refactor, so
+                     * `?coupon=1` with no coupon on the intent reached `$coupons->id` undefined.
+                     *
+                     * NO DOUBLE COUNT: `planPayWithPaytm` writes a usage row only on its free-plan
+                     * branch (`if ($price < 1)`), which activates there and never reaches this
+                     * return.
+                     */
+                    if (! empty($ssIntentCoupon) && ! empty($coupons))
                     {
                         $userCoupon         = new PlanUserCoupon();
                         $userCoupon->user_id   = $user->id;
@@ -590,6 +710,21 @@ class PaytmPaymentController extends Controller
                 return redirect()->route('plan.index')->with('error', __('Plan not found!'));
             }
         }
+
+        /*
+         * A NULL PLAN REFUSES. Found by independent review of 7341b4d0.
+         *
+         * `if ($plan)` gates this whole method and had no `else`, so a route parameter naming a
+         * plan that no longer exists fell off the end and returned NULL -- an **empty HTTP 200**
+         * with no refusal, no log and no `recordRefusal`, leaving an intent `pending` with a NULL
+         * `provider_txn_id`, which `unreconciled()` cannot surface either. Reachable in the
+         * legitimate flow when a plan is deleted between checkout and return.
+         */
+        Log::warning('Paytm plan return refused: the route names a plan that no longer exists.', [
+            'user_id' => $user->id ?? null,
+        ]);
+
+        return redirect()->route('plan.index')->with('error', __('Transaction Unsuccesfull'));
     }
 
 }

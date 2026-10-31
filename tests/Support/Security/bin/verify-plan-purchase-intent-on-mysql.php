@@ -156,7 +156,7 @@ try {
     echo 'server: ' . $a->selectOne('select version() as v')->v . "\n\n";
 
     /* The real shape, from the migration. DECIMAL and UNIQUE are the two things SQLite will not
-       give us, so they are declared here exactly as the migration declares them. */
+       give us, so they are declared here with the two columns this file is about -- `DECIMAL(16,4)` and the UNIQUE `reference` -- exactly as the migration declares them (the migration also indexes `provider`, `user_id`, `plan_id`, `status` and `provider_txn_id` individually; none of those changes an answer below). */
     $a->statement('CREATE TABLE plan_purchase_intents (
         id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
         reference VARCHAR(64) NOT NULL UNIQUE,
@@ -244,16 +244,31 @@ try {
     // (a) the row is really locked, and this is the proof that the window is real.
     $lockHeld = false;
 
+    $whyNot = '';
+
     try {
         $b->select('select reference from plan_purchase_intents where reference = ? for update nowait', ['f229-race']);
     } catch (Throwable $theRowWasLocked) {
-        $lockHeld = true;
+        /*
+         * THE MESSAGE IS INSPECTED, and the first version of this check did not do that -- found
+         * by independent review. A bare `catch (Throwable) { $lockHeld = true; }` reports "the lock
+         * is real" on the strength of ANY failure: `NOWAIT` needs MySQL >= 8.0.1 / MariaDB >= 10.3
+         * and is a SYNTAX ERROR on anything older, and a missing table, a permissions error or a
+         * dropped connection all land here too. A check that passes when the statement could not
+         * run is the shape of evidence this whole file exists to avoid. Check (b) below already
+         * matched on its message; this one now does the same.
+         */
+        $whyNot = $theRowWasLocked->getMessage();
+        $lockHeld = str_contains(strtolower($whyNot), 'nowait')
+            || str_contains(strtolower($whyNot), 'lock');
     }
 
     check(
         'while A holds it, B cannot even read the row for update -- the lock is real',
         $lockHeld,
-        'FOR UPDATE NOWAIT succeeded, so A is not holding a lock and nothing below is a race'
+        $whyNot === ''
+            ? 'FOR UPDATE NOWAIT succeeded, so A is not holding a lock and nothing below is a race'
+            : 'it failed for a reason that is not a lock, so this proves nothing: ' . $whyNot
     );
 
     // (b) B's conditional UPDATE blocks on that lock rather than overtaking it.
@@ -308,19 +323,62 @@ try {
     //
     // A stranger must not be able to consume somebody else's intent, AND must not be able to
     // spoil it either: a purchase a buyer cannot complete is its own denial of service.
+    //
+    // THIS CHECK USED TO PASS WHILE THE CODE IT REPORTED ON HAD THE DEFECT IT NAMED, which
+    // independent review caught and which is the most useful thing to have found in this file.
+    // It demonstrated the property by adding `where('user_id', 9002)` to a hand-written UPDATE --
+    // a predicate `verifyAndConsume()` does not use (it checks the purchaser in PHP and updates by
+    // `id` + `status`). Meanwhile the controller's refusal path called `recordRefusal()`, which was
+    // unscoped, so a stranger's arrival wrote `status = refused` onto the OWNER's pending row and
+    // spoiled it terminally -- exactly what the check claimed could not happen.
+    //
+    // So it now drives the REAL `PlanPurchaseIntent` against this engine instead of a
+    // transcription of it. `DB::table()` inside the service uses the DEFAULT connection, so the
+    // default is pointed at the throwaway database for the duration.
     $insert($a, 'f229-owner', '499.00', 9001);
 
-    $strangerClaim = $b->table('plan_purchase_intents')
-        ->where('reference', 'f229-owner')
-        ->where('user_id', 9002)                 // the stranger
-        ->where('status', 'pending')
-        ->update(['status' => 'consumed', 'updated_at' => now()]);
+    $previousDefault = config('database.default');
+    config(['database.default' => 'f229_a']);
 
-    check('a stranger cannot consume another account\'s intent', $strangerClaim === 0);
-    check(
-        'and the owner\'s intent is still pending, so their purchase is still completable',
-        $a->table('plan_purchase_intents')->where('reference', 'f229-owner')->value('status') === 'pending'
-    );
+    try {
+        check(
+            'premise: the real service can see the throwaway table',
+            \App\Services\PlanPurchaseIntent::available(),
+            'the default connection was not switched, so everything below is testing nothing'
+        );
+
+        [$strangerState] = \App\Services\PlanPurchaseIntent::verifyAndConsume(
+            'Paytm', 'f229-owner', 9002, '499.00', 'USD', 'TXN-STRANGER'
+        );
+
+        check(
+            'a stranger cannot consume another account\'s intent',
+            $strangerState === \App\Services\PlanPurchaseIntent::REFUSED_MISMATCH,
+            'got ' . var_export($strangerState, true)
+        );
+
+        /* AND THE STRANGER'S REFUSAL CANNOT CLOSE IT. The real method, with the stranger named. */
+        \App\Services\PlanPurchaseIntent::recordRefusal('Paytm', 'f229-owner', 'a stranger said so', 'TXN-STRANGER', 9002);
+
+        check(
+            'and the owner\'s intent is still pending, so their purchase is still completable',
+            $a->table('plan_purchase_intents')->where('reference', 'f229-owner')->value('status') === 'pending'
+        );
+
+        /* The owner's OWN refusal must still record, or the scope is too tight and the feature is
+           gone rather than fixed. */
+        \App\Services\PlanPurchaseIntent::recordRefusal('Paytm', 'f229-owner', 'the owner\'s own refusal', 'TXN-OWNER', 9001);
+
+        check(
+            'while the owner\'s own refusal still records',
+            $a->table('plan_purchase_intents')->where('reference', 'f229-owner')->value('status') === 'refused'
+        );
+    } finally {
+        config(['database.default' => $previousDefault]);
+    }
+
+    /* Reset for check 6, which reads this row's amount. */
+    $a->table('plan_purchase_intents')->where('reference', 'f229-owner')->update(['status' => 'pending']);
 
     // ----------------------------------------------- 6. THE AMOUNT COMPARISON, ON THIS ENGINE
     $expected = (string) $a->table('plan_purchase_intents')->where('reference', 'f229-owner')->value('expected_amount');

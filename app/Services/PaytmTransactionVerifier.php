@@ -252,9 +252,16 @@ class PaytmTransactionVerifier
     }
 
     /**
-     * Which host answers. `services.paytm-wallet.env` is set from the stored `paytm_mode`, and the
-     * comparison is the SDK's own (`PaytmWalletProvider::__construct()`: `== 'production'`), so a
-     * blank or unrecognised mode lands on the sandbox exactly as it does today.
+     * Which host answers. `services.paytm-wallet.env` is set from the stored `paytm_mode`, and a
+     * blank or unrecognised mode lands on the sandbox, as it does in the SDK.
+     *
+     * NOT byte-identical to the SDK's test, which is a correction to what this said before
+     * independent review: `PaytmWalletProvider::__construct()` compares `$config['env'] ==
+     * 'production'` with **no trim**, so a stored `' production'` sends the SDK's checkout to the
+     * sandbox while this sends the status query to production. The `trim()` here is deliberately
+     * kept -- a status query must reach the same environment the money is in, and trimming is the
+     * reading that makes a whitespace-damaged setting mean what the operator meant -- but the
+     * divergence is real and is stated rather than claimed away.
      */
     private function host(): string
     {
@@ -272,7 +279,15 @@ class PaytmTransactionVerifier
     {
         $checksum = $response['CHECKSUMHASH'] ?? null;
 
-        if (! is_scalar($checksum) || trim((string) $checksum) === '') {
+        if (! is_scalar($checksum) && $checksum !== null) {
+            /* PRESENT BUT NOT A STRING -- `CHECKSUMHASH: ["a"]`. The table above has three rows and
+               this is a fourth: it is not "no checksum offered", because something WAS offered and
+               it cannot be checked. Immaterial behind a validated certificate, and still not a
+               case to resolve in the permissive direction. Found by independent review. */
+            return null;
+        }
+
+        if ($checksum === null || trim((string) $checksum) === '') {
             /* No checksum offered. The channel still authenticates the answer: `'verify' => true`
                means Guzzle validated Paytm's certificate chain for the host above before any of
                these bytes were read. That is a real basis, and it is named so the distinction

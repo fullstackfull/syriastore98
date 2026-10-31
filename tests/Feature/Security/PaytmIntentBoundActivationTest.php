@@ -122,6 +122,223 @@ class PaytmIntentBoundActivationTest extends PlanPaymentTestCase
         );
     }
 
+    /**
+     * THE PRODUCTION SHAPE OF THE CURRENCY FIELD — and the case whose absence cost a 100% failure.
+     *
+     * Every double in this file supplied the intent's OWN currency, so nothing ever drove what
+     * Paytm actually sends: **no `CURRENCY` field at all**, which the controller passes as `''`.
+     * Against the first implementation that was a mismatch, the mismatch was recorded, and
+     * `recordRefusal()` is terminal — so every legitimate Paytm plan purchase would have been
+     * refused permanently AFTER the money was captured. A suite of fifteen cases all agreed,
+     * because all fifteen handed the code the one value production never sends.
+     */
+    public function test_a_provider_that_reports_no_currency_still_activates_the_paid_for_plan(): void
+    {
+        $this->seedSuperAdminCurrency('USD', ['paytm_merchant_key' => self::PAYTM_KEY]);
+
+        $plan = $this->makePlan('499');
+        $merchant = $this->makeMerchant();
+
+        $reference = PlanPurchaseIntent::create([
+            'provider' => 'Paytm', 'user_id' => $merchant->id, 'plan_id' => $plan->id,
+            'expected_amount' => '499.00', 'currency' => 'USD',
+        ]);
+
+        /* `currency => null`, exactly as the verifier returns it when the field is absent. */
+        $this->fakeVerifier('499.00', null);
+
+        $this->actingAs($merchant)->post(
+            '/plan-paytm-payment/' . Crypt::encrypt($plan->id),
+            $this->paytmBody(['ORDERID' => $reference])
+        );
+
+        $this->assertSame(
+            1,
+            (int) DB::table('plan_orders')->count(),
+            'a provider reporting NO currency was refused. On Paytm that is every legitimate '
+            . 'purchase, and the refusal lands after the money is taken.'
+        );
+        $this->assertSame((int) $plan->id, (int) $merchant->fresh()->plan_id);
+        $this->assertSame(
+            PlanPurchaseIntent::CONSUMED,
+            DB::table('plan_purchase_intents')->where('reference', $reference)->value('status')
+        );
+    }
+
+    /**
+     * A CURRENCY THAT REALLY DIFFERS REFUSES — and leaves the purchase RECOVERABLE.
+     *
+     * Fail closed (nothing activated) without destroying the payment: the intent stays `pending`,
+     * so an operator can finish it once the platform's currency setting and the provider's
+     * settlement currency are reconciled. Whether Paytm reports a currency at all is an open
+     * question one captured sandbox response settles; until then this is the honest handling, and
+     * it is the reason `REFUSED_RECOVERABLE` exists as a state of its own.
+     */
+    public function test_a_differing_currency_activates_nothing_and_leaves_the_intent_recoverable(): void
+    {
+        $this->seedSuperAdminCurrency('USD', ['paytm_merchant_key' => self::PAYTM_KEY]);
+
+        $plan = $this->makePlan('499');
+        $merchant = $this->makeMerchant();
+
+        $reference = PlanPurchaseIntent::create([
+            'provider' => 'Paytm', 'user_id' => $merchant->id, 'plan_id' => $plan->id,
+            'expected_amount' => '499.00', 'currency' => 'USD',
+        ]);
+
+        $this->fakeVerifier('499.00', 'INR');
+
+        $this->actingAs($merchant)->post(
+            '/plan-paytm-payment/' . Crypt::encrypt($plan->id),
+            $this->paytmBody(['ORDERID' => $reference])
+        );
+
+        $this->assertSame(0, (int) DB::table('plan_orders')->count(), 'a currency mismatch activated a plan');
+        $this->assertNull($merchant->fresh()->plan_id);
+
+        $this->assertSame(
+            PlanPurchaseIntent::PENDING,
+            DB::table('plan_purchase_intents')->where('reference', $reference)->value('status'),
+            'the refusal was RECORDED, which closes the intent for good and destroys a payment the '
+            . 'provider has already captured. A recoverable refusal must not be recorded.'
+        );
+    }
+
+    /**
+     * RE-PRESENTING A SUCCESSFUL RETURN WRITES NOTHING — and, the part that matters, DOES NOT
+     * EXTEND THE EXPIRY.
+     *
+     * The refresh short-circuit had no test at all: reverting it failed nothing, because the one
+     * existing replay case seeds no intent and bypasses it. And the hole it exists to close is the
+     * expiry, not the order count — `User::assignPlan()` recomputes `plan_expire_date` from
+     * `Carbon::now()`, so a guard that only prevents a second `plan_orders` row still hands out a
+     * free monthly renewal to anyone re-POSTing a body they already hold. Both are asserted.
+     */
+    public function test_re_presenting_a_successful_return_writes_nothing_and_does_not_extend_the_plan(): void
+    {
+        $this->seedSuperAdminCurrency('USD', ['paytm_merchant_key' => self::PAYTM_KEY]);
+
+        $plan = $this->makePlan('499');
+        $merchant = $this->makeMerchant();
+
+        /*
+         * `duration = 'Month'`, and this is a correction to what I first wrote rather than a
+         * convenience. `User::assignPlan()` sets `plan_expire_date` only when `$plan->duration`
+         * is exactly `'Month'`, `'Year'` or `'Unlimited'` (`User.php:250-265`), and the shared
+         * fixture stores **`'Monthly'`** -- which matches none of them, so the expiry stayed null
+         * and the assertion below could not fail however broken the guard was.
+         *
+         * WHICH VALUE PRODUCTION STORES IS AN OPEN QUESTION, and it bounds how severe the renewal
+         * hole is: no plan create/edit view in this repository was found to offer `duration`
+         * options, and `PlanRequestController:81` uses the value as a column prefix
+         * (`$plan->{$duration . '_price'}`) for columns the plans migration does not declare. If
+         * production stores `'Monthly'` then `plan_expire_date` is never set by this path and the
+         * free-renewal vector does not exist; if it stores `'Month'` then it does. Recorded as a
+         * question rather than resolved by assumption -- and the guard is pinned here in the shape
+         * where the hole is real, which is the right thing to do either way.
+         */
+        $plan->duration = 'Month';
+        $plan->save();
+
+        $reference = PlanPurchaseIntent::create([
+            'provider' => 'Paytm', 'user_id' => $merchant->id, 'plan_id' => $plan->id,
+            'expected_amount' => '499.00', 'currency' => 'USD',
+        ]);
+
+        $this->fakeVerifier('499.00', 'USD');
+        $body = $this->paytmBody(['ORDERID' => $reference]);
+
+        $this->actingAs($merchant)->post('/plan-paytm-payment/' . Crypt::encrypt($plan->id), $body);
+
+        $this->assertSame(1, (int) DB::table('plan_orders')->count(), 'premise broken: the first purchase did not land');
+
+        $expiryAfterPaying = DB::table('users')->where('id', $merchant->id)->value('plan_expire_date');
+        $this->assertNotNull($expiryAfterPaying, 'premise broken: no expiry was set, so an extension cannot be detected');
+
+        /* A month later, the same signed body. The buyer holds it: it was POSTed through their own
+           browser. */
+        $this->travel(31)->days();
+        $this->actingAs($merchant)->post('/plan-paytm-payment/' . Crypt::encrypt($plan->id), $body);
+
+        $this->assertSame(
+            1,
+            (int) DB::table('plan_orders')->count(),
+            'a re-presented return wrote a second plan order'
+        );
+
+        $this->assertSame(
+            $expiryAfterPaying,
+            DB::table('users')->where('id', $merchant->id)->value('plan_expire_date'),
+            'A RE-PRESENTED RETURN EXTENDED THE PLAN. assignPlan() recomputes plan_expire_date '
+            . 'from now rather than from the paid-for period, so re-POSTing a body the buyer '
+            . 'already holds keeps a paid plan alive indefinitely on one payment.'
+        );
+    }
+
+    /**
+     * THE ORDER OF THE LAST THREE WRITES, ASSERTED FROM THE SOURCE.
+     *
+     * Not a hedge: this one genuinely cannot be staged. `attachOrder()` must run AFTER a
+     * successful `assignPlan()`, and to observe the difference behaviourally a test would have to
+     * make `assignPlan()` fail *after* the `plan_orders` row is written — which means either a
+     * plan whose modules are malformed in a way the suite cannot build, or a partial mock of the
+     * `User` model the handler resolves from the session. Both measure the double rather than the
+     * code.
+     *
+     * WHAT THE ORDER BUYS, and why it is worth pinning. With `attachOrder()` first,
+     * `plan_purchase_intents.plan_order_id` means "an order exists" instead of "this purchase
+     * completed", and two separate things break on that:
+     *
+     *   * the refresh short-circuit keys on `plan_order_id`, so a buyer whose order landed and
+     *     whose entitlement did not is told "Plan activated Successfully." forever, with no write
+     *     — the permanent stranding `GuardsPlanActivation.php:437-443` had already ruled out;
+     *   * `unreconciled()`'s captured-payment clause requires `plan_order_id IS NULL`, so the one
+     *     state requirement 5 exists to surface is the one state it cannot see.
+     *
+     * Asked of the METHOD and not of the file, because `attachOrder` and `assignPlan` both appear
+     * elsewhere in this controller and a file-scoped `strpos` comparison would answer about
+     * whichever pair it found first — the mistake that made F227's original guard claim false.
+     */
+    public function test_the_intent_is_attached_only_after_the_entitlement_is_assigned(): void
+    {
+        $source = file_get_contents(base_path('app/Http/Controllers/PaytmPaymentController.php'));
+
+        $start = strpos($source, 'public function getPaymentStatus(');
+        $this->assertNotFalse($start, 'the return handler has been renamed; re-read this assertion');
+        $method = substr($source, $start);
+        $next = strpos($method, 'public function ', 10);
+        $method = $next === false ? $method : substr($method, 0, $next);
+
+        /* Comments out first: this method's own docblocks name both calls in order to explain the
+           ordering, and a census that cannot tell an explanation from an instance is worthless. */
+        $code = implode('', array_map(
+            fn ($token) => is_array($token) && in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true) ? '' : (is_array($token) ? $token[1] : $token),
+            token_get_all('<?php ' . $method)
+        ));
+
+        $assign = strpos($code, '$user->assignPlan(');
+        $attach = strpos($code, 'PlanPurchaseIntent::attachOrder(');
+
+        $this->assertNotFalse($assign, 'assignPlan has moved out of this method');
+        $this->assertNotFalse($attach, 'attachOrder has moved out of this method');
+
+        $this->assertLessThan(
+            $attach,
+            $assign,
+            'attachOrder() runs BEFORE assignPlan(), so plan_order_id means "an order exists" '
+            . 'rather than "this purchase completed": a buyer whose entitlement did not land is '
+            . 'told it did on every retry, and unreconciled() cannot see the one state '
+            . 'requirement 5 exists to surface.'
+        );
+
+        $this->assertStringContainsString(
+            'if (! empty($assignPlan[\'is_success\'])) {',
+            $code,
+            'the attachment is no longer conditional on the entitlement having landed, which '
+            . 'restores the same defect by a different route'
+        );
+    }
+
     // ---------------------------------------------------------------------------------------
     // THE REFUSAL PATHS — all four were crashing, and nothing reached them
     // ---------------------------------------------------------------------------------------
@@ -295,10 +512,11 @@ class PaytmIntentBoundActivationTest extends PlanPaymentTestCase
 
     // ---------------------------------------------------------------------------------------
 
-    private function fakeVerifier(string $amount, string $currency): void
+    /** `?string` so `null` -- the production shape of an absent `CURRENCY` -- is drivable. */
+    private function fakeVerifier(string $amount, ?string $currency): void
     {
         $this->app->instance(PaytmTransactionVerifier::class, new class($amount, $currency) extends PaytmTransactionVerifier {
-            public function __construct(private string $amount, private string $currency)
+            public function __construct(private string $amount, private ?string $currency)
             {
             }
 

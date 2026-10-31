@@ -83,6 +83,28 @@ class PlanPurchaseIntent
     public const REFUSED_MISMATCH = 'refused_mismatch';
     public const UNVERIFIABLE = 'unverifiable';
 
+    /**
+     * A REFUSAL THAT MUST NOT BE MADE TERMINAL. Added by independent review of 7341b4d0.
+     *
+     * `recordRefusal()` closes an intent for good: the retry dies on `where('status', PENDING)`.
+     * That is right for a refusal whose cause cannot change -- a cheaper amount, a stranger's
+     * reference -- and wrong for one whose cause is a platform setting, because it destroys a
+     * payment the provider has already captured instead of parking it for a human.
+     *
+     * The currency comparison is the case. `plan_purchase_intents.currency` is
+     * `getSuperAdminAllSetting()['CURRENCY_NAME']`, a platform DISPLAY label, and
+     * `ReceivePaymentProvider::beginTransaction()` sends Paytm no currency at all -- so Paytm
+     * charges in whatever its merchant account settles in and can only agree with that label by
+     * coincidence. A mismatch there is a misconfiguration, not a substitution, and nothing the
+     * buyer supplies can vary it.
+     *
+     * So the activation is still refused -- fail closed, requirement 4 -- but the intent stays
+     * `pending` and `unreconciled()` surfaces it. The same reasoning
+     * `PaytmTransactionVerifier` already applies to an ambiguous checksum: block the activation
+     * completely, destroy nothing, and let the recoverable case be recovered.
+     */
+    public const REFUSED_RECOVERABLE = 'refused_recoverable';
+
     /** The comparison scale for money. Four, matching the column, so nothing truncates silently. */
     private const MONEY_SCALE = 4;
 
@@ -285,7 +307,7 @@ class PlanPurchaseIntent
      *   2. the intent must exist for this provider+reference — req 4's binding
      *   3. it must belong to the authenticated purchaser     — req 5's cross-user isolation
      *   4. the currency must match                           — req 4
-     *   5. the amount must match, by `bccomp`                — req 3 and 4
+     *   5. the amount must match EXACTLY, by scaled-integer string comparison (NOT `bccomp` -- see the class header: bcmath is not installed here)                — req 3 and 4
      *   6. it must still be pending, moved atomically        — req 5's replay and concurrency
      *
      * **Cross-user isolation is checked BEFORE the amount**, so a caller probing somebody else's
@@ -324,11 +346,37 @@ class PlanPurchaseIntent
             return [self::REFUSED_MISMATCH, $intent, 'the intent belongs to a different purchaser'];
         }
 
-        if (strcasecmp(trim((string) $intent->currency), trim($reportedCurrency)) !== 0) {
+        /*
+         * AN EMPTY REPORTED CURRENCY IS TOLERATED, AND THIS WAS A 100% TERMINAL FAILURE BEFORE
+         * INDEPENDENT REVIEW CAUGHT IT.
+         *
+         * The first version refused on any difference, `''` included. Paytm's status response has
+         * no `CURRENCY` field established by any evidence this project holds, so
+         * `$ssProviderSays['currency']` is `''` on a real return -- which never equals `'USD'`.
+         * Every legitimate Paytm plan purchase would have been refused AFTER the money was
+         * captured, and `recordRefusal()` would have made it permanent.
+         *
+         * THE PRECEDENT IS THIS REPOSITORY'S OWN, and it decided exactly this question in the
+         * opposite direction. `PaystackPaymentController:436-441`: *"Both non-empty and different
+         * is a real mismatch; an empty one means the platform has not configured a currency, and
+         * refusing every purchase over a missing setting would be the wrong failure direction."*
+         * The rule is copied, not invented.
+         *
+         * AND A PRESENT MISMATCH IS REFUSED RECOVERABLY, not terminally -- see
+         * `REFUSED_RECOVERABLE`. Whether Paytm reports a currency at all, and whether it would
+         * agree with `CURRENCY_NAME`, is an OPEN QUESTION that one captured sandbox response
+         * settles (`F229-PERMANENT-FIX-PLAN.md`). Until it is settled, the honest handling of a
+         * difference is to activate nothing and keep the purchase recoverable, which is what
+         * requirement 8 asks for where a provider's contract cannot be established.
+         */
+        $intentCurrency = trim((string) $intent->currency);
+        $reported = trim($reportedCurrency);
+
+        if ($intentCurrency !== '' && $reported !== '' && strcasecmp($intentCurrency, $reported) !== 0) {
             return [
-                self::REFUSED_MISMATCH,
+                self::REFUSED_RECOVERABLE,
                 $intent,
-                'currency mismatch: intent ' . $intent->currency . ', reported ' . $reportedCurrency,
+                'currency mismatch: intent ' . $intentCurrency . ', reported ' . $reported,
             ];
         }
 
@@ -394,17 +442,40 @@ class PlanPurchaseIntent
      * Never throws, and never changes the status of an intent that was already consumed: a
      * successful activation followed by a refused retry must not be re-labelled as a failure.
      */
-    public static function recordRefusal(string $provider, string $reference, string $reason, $providerTxnId = null): void
+    public static function recordRefusal(string $provider, string $reference, string $reason, $providerTxnId = null, $purchaserId = null): void
     {
         if (! self::available() || $reference === '') {
             return;
         }
 
         try {
-            DB::table(self::TABLE)
+            $refusal = DB::table(self::TABLE)
                 ->where('provider', $provider)
                 ->where('reference', $reference)
-                ->where('status', '!=', self::CONSUMED)
+                ->where('status', '!=', self::CONSUMED);
+
+            /*
+             * SCOPED TO THE PURCHASER, so a refusal cannot be written onto somebody else's row.
+             * Found by independent review of 7341b4d0.
+             *
+             * `verifyAndConsume()` returns `REFUSED_MISMATCH` when the intent belongs to a
+             * different purchaser, and the caller then recorded that refusal -- onto the OWNER's
+             * pending intent, terminally. A party holding another buyer's signed provider body
+             * could flip that row to `refused` and the owner's own return would then find no
+             * pending intent, forever. Low reachability (only the provider mints such a body, and
+             * it is delivered through the buyer's own browser) but the asymmetry was indefensible:
+             * `PaytmTransactionVerifier` reasons at length that an ambiguous answer must not be
+             * made terminal *because `recordRefusal()` is terminal*, and this wrote a terminal
+             * refusal onto a third party's purchase.
+             *
+             * Null is accepted so the guard is additive: a caller that cannot name the purchaser
+             * keeps the previous behaviour rather than silently recording nothing.
+             */
+            if (is_numeric($purchaserId)) {
+                $refusal->where('user_id', (int) $purchaserId);
+            }
+
+            $refusal
                 ->update([
                     'status' => self::REFUSED,
                     'failure_reason' => substr($reason, 0, 255),

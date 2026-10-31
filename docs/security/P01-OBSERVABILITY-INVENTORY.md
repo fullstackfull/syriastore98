@@ -67,22 +67,23 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/GatewayReference.php:112` | gateway capture replayed: the reference is already recorded |
 | `app/Services/GatewayReference.php:127` | gateway capture replayed (23000): the reference is already recorded |
 
-### `warning` — 154 lines
+### `warning` — 155 lines
 
 | line | message |
 |---|---|
 | `app/Http/Controllers/PaytmPaymentController.php:197` | Paytm plan purchase refused: the purchase intent could not be recorded. |
 | `app/Http/Controllers/PaytmPaymentController.php:396` | Paytm plan activation refused: the provider did not confirm the payment. |
-| `app/Http/Controllers/PaytmPaymentController.php:423` | Paytm plan activation refused: the payment does not match the recorded purchase intent. |
-| `app/Http/Controllers/PaytmPaymentController.php:447` | Paytm plan activation refused: the intent names a plan that no longer exists. |
+| `app/Http/Controllers/PaytmPaymentController.php:437` | Paytm plan activation refused: the payment does not match the recorded purchase intent. |
+| `app/Http/Controllers/PaytmPaymentController.php:461` | Paytm plan activation refused: the intent names a plan that no longer exists. |
+| `app/Http/Controllers/PaytmPaymentController.php:723` | Paytm plan return refused: the route names a plan that no longer exists. |
 | `app/Services/PaytmTransactionVerifier.php:191` | Paytm transaction status could not be verified. |
 | `app/Services/PaytmTransactionVerifier.php:210` | Paytm transaction status carried a checksum that did not verify. |
-| `app/Services/PlanPurchaseIntent.php:201` | Plan purchase intent not recorded: provider or currency missing. |
-| `app/Services/PlanPurchaseIntent.php:210` | Plan purchase intent not recorded: no usable purchaser or plan. |
-| `app/Services/PlanPurchaseIntent.php:221` | Plan purchase intent not recorded: the expected amount is not numeric. |
-| `app/Services/PlanPurchaseIntent.php:249` | Plan purchase intent not recorded. |
-| `app/Services/PlanPurchaseIntent.php:415` | Plan purchase intent refusal not recorded. |
-| `app/Services/PlanPurchaseIntent.php:436` | Plan purchase intent order not attached. |
+| `app/Services/PlanPurchaseIntent.php:223` | Plan purchase intent not recorded: provider or currency missing. |
+| `app/Services/PlanPurchaseIntent.php:232` | Plan purchase intent not recorded: no usable purchaser or plan. |
+| `app/Services/PlanPurchaseIntent.php:243` | Plan purchase intent not recorded: the expected amount is not numeric. |
+| `app/Services/PlanPurchaseIntent.php:271` | Plan purchase intent not recorded. |
+| `app/Services/PlanPurchaseIntent.php:486` | Plan purchase intent refusal not recorded. |
+| `app/Services/PlanPurchaseIntent.php:507` | Plan purchase intent order not attached. |
 | `app/Http/Controllers/CyberSourceController.php:122` | CyberSource plan purchase refused: the posted plan id matches no plan. |
 | `app/Http/Controllers/Concerns/GuardsPlanActivation.php:159` | Plan purchase refused before any write: the provider has no usable credentials. |
 | `app/Http/Controllers/Concerns/AppliesCartStockChanges.php:179` | stock evidence not attributed: the order carries no usable id or store |
@@ -111,7 +112,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:1091` | Gateway return refused: the gateway request could not be built. |
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:1108` | Gateway return refused: basket holds a non-positive quantity. |
 | `app/Http/Controllers/Concerns/GuardsPlanActivation.php:85` | Plan activation refused: provider is disabled pending verification. |
-| `app/Http/Controllers/Concerns/GuardsPlanActivation.php:474` | Plan activation refused: this provider reference has already activated a plan. |
+| `app/Http/Controllers/Concerns/GuardsPlanActivation.php:505` | Plan activation refused: this provider reference has already activated a plan. |
 | `app/Http/Controllers/Concerns/ResolvesPendingPartialPayment.php:135` | Pending partial payment lookup failed; the payment is refused. |
 | `app/Http/Controllers/Customer/Auth/CustomerLoginController.php:716` | customer login: refused a social row still holding its module-assigned password |
 | `app/Http/Controllers/Customer/Auth/CustomerLoginController.php:941` | Newsletter subscription failed during customer registration |

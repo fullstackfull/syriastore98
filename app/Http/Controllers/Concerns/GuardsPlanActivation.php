@@ -459,12 +459,43 @@ trait GuardsPlanActivation
              */
             Log::info('Plan activation re-run for an already-recorded reference from the same buyer.', $context);
 
+            /*
+             * ═══════════════════════════════════════════════════════════════════════════════════
+             * AND IT ONLY RE-RUNS WHEN THE BUYER DOES NOT ALREADY HOLD THE PLAN. Found by
+             * independent review of 7341b4d0, on the Paytm path but true of every caller.
+             * ═══════════════════════════════════════════════════════════════════════════════════
+             *
+             * The comment above is right that `assignPlan()` writes no second `PlanOrder` and
+             * right that re-running it repairs a half-finished activation. What it does not say is
+             * that `User::assignPlan()` recomputes `plan_expire_date` from `Carbon::now()`
+             * (`User.php:250-257`) rather than from the paid-for period -- so re-running it for a
+             * buyer who ALREADY holds the plan does not repair anything, it **extends the expiry**.
+             *
+             * The provider body that reaches these handlers is signed by the provider and
+             * delivered through the buyer's own browser, so the buyer holds a replayable copy of
+             * it. Re-presenting it once a month kept a paid plan alive indefinitely on a single
+             * payment. Not a substitution -- the guard already pins the plan -- but a free
+             * renewal, which is the same loss by a slower route.
+             *
+             * `$user->plan_id !== $planId` separates the two cases exactly: a buyer whose
+             * entitlement did not land does not hold the plan, so the repair still happens, and a
+             * buyer who does hold it gets the success answer with no write. Nothing else in the
+             * guard changes.
+             *
+             * The Paytm handler also short-circuits above this on its own intent record, which is
+             * the stronger check where that table exists. This is the floor for every caller, and
+             * for installations where it does not.
+             */
             if (is_object($user) && method_exists($user, 'assignPlan') && $planId !== null) {
-                $assignPlan = $user->assignPlan($planId);
+                $alreadyHoldsIt = isset($user->plan_id) && (int) $user->plan_id === (int) $planId;
 
-                if (empty($assignPlan['is_success'])) {
-                    return redirect()->route('plan.index')
-                        ->with('error', $assignPlan['error'] ?? __('Transaction Unsuccesfull'));
+                if (! $alreadyHoldsIt) {
+                    $assignPlan = $user->assignPlan($planId);
+
+                    if (empty($assignPlan['is_success'])) {
+                        return redirect()->route('plan.index')
+                            ->with('error', $assignPlan['error'] ?? __('Transaction Unsuccesfull'));
+                    }
                 }
             }
 

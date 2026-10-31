@@ -9803,3 +9803,172 @@ a syntax error on SQLite, so the enclosing `try` swallowed it before the coupon 
 probe measured the dialect, not the defect — the same blindness
 `verify-plan-coupon-refusal-ordering-on-mysql.php` exists for, and the second time this session an
 SQLite test has silently answered a question it never reached.
+
+### The second independent review of the same work — twelve findings, and one of them was a 100% loss rate
+
+The first review round fixed two defects I had shipped. Reviewing the **fixes** found twelve more,
+four of them in the fixes themselves. The headline controls survived — the transport change is real,
+the comparator is exact, the plan genuinely follows the intent — and four of the five changed
+behaviours had no test that would have failed if reverted.
+
+#### F-1 — the currency binding refused every legitimate Paytm purchase, terminally, after capture
+
+The worst defect of the session and it was mine, written in the name of requirement 4.
+
+`verifyAndConsume()` refused on **any** currency difference, `''` included. Three facts settle what
+that means, and all three are read off this repository rather than assumed:
+
+1. `ReceivePaymentProvider::beginTransaction()` sends Paytm **no currency at all**, so the intent's
+   `currency` — `getSuperAdminAllSetting()['CURRENCY_NAME']` — is a platform *display label* Paytm
+   never sees and never echoes. Comparing it to a provider-reported currency compares two different
+   quantities.
+2. Paytm's status response has no `CURRENCY` field established by any evidence this project holds,
+   so the controller passes `''`, which never equals `'USD'`.
+3. `recordRefusal()` is **terminal**: the retry dies on `where('status', PENDING)`.
+
+So: merchant buys a 499 plan, Paytm takes the money, the checksum verifies, the provider confirms —
+and the activation is refused permanently with no order, no entitlement and no retry. **Every Paytm
+plan purchase, every time**, the moment the migration ran.
+
+**The repository had already decided this exact question, in the opposite direction.**
+`PaystackPaymentController:436-441`:
+
+> *"Both non-empty and different is a real mismatch; an empty one means the platform has not
+> configured a currency, and refusing every purchase over a missing setting would be the wrong
+> failure direction."*
+
+I took the direction Paystack's own comment calls wrong, on the same kind of path, eighty lines of
+docblock later.
+
+**Why fifteen passing tests agreed with me.** Every double supplied the intent's *own* currency
+(`fakeVerifier($amount, $currency)`), or hard-coded `'USD'` against a `'USD'` intent. The one
+negative case drove `'INR'` vs `'USD'` — a different question. **Nothing drove `''`.** The
+production shape was the one value no test ever passed in. That is the "a fixture supplying what
+production does not" mode, for the third time this session, and this time it was worth a 100% loss
+rate on captured money.
+
+The fix is Paystack's rule copied, plus a new state: a present-and-differing currency is
+`REFUSED_RECOVERABLE`, which blocks the activation **without** being recorded, so the intent stays
+`pending` and `unreconciled()` surfaces it. The same reasoning `PaytmTransactionVerifier` already
+applies to an ambiguous checksum — fail closed, destroy nothing. Whether Paytm reports a currency at
+all stays an open question that one captured sandbox response settles.
+
+```
+BITE  refuse any difference again   → 4 failed, 28 passed
+BITE  record the recoverable refusal → 1 failed, 9 passed
+```
+
+#### F-2 / F-3 / F-5 — the coupon block, and a docblock claim that was simply false
+
+**F-2.** The vendored coupon block ran *after* `verifyAndConsume()`, with two
+`return redirect()->back()` paths and an `is_active` filter. `GuardsPlanActivation.php:179-185` had
+ruled both out in writing — a coupon valid at checkout can be inactive by the time the provider
+returns, because `PlanCoupon::used_coupon()` counts **platform-wide**, so another merchant's
+purchase deactivates it mid-flight. The buyer pays, the intent is consumed, and then the block
+refuses: money captured, no order, no entitlement, no retry. F234's exact shape, reintroduced past
+the point where it can be recovered from. Replaced with the trait's own `planCouponForPricing()`,
+both refusals deleted — fewer lines than were there.
+
+**F-3.** My docblock claimed the coupon change *"fixes the converse, which was the larger half"*.
+**It did not.** The usage *write* still tested `$request->coupon`, so `PlanUserCoupon` was still
+never written for a real Paytm purchase and a limit-1 coupon was still unboundedly reusable. Worse,
+the half-applied refactor left the two sites testing different conditions, so `?coupon=1` reached
+`$coupons->id` undefined — an `ErrorException` flashing "Plan not found!" over a plan that was in
+fact active. Both closed at the write itself.
+
+**F-5.** `$order->price` recomputed a figure the intent already held, and the two can disagree: the
+initiator records `coupon_code => $request->coupon` unconditionally, so a buyer posting an
+existing-but-inactive code is charged the full price while the return records the discounted one —
+under-stated revenue, by a value the buyer chose. And `price_currency` read `$request->CURRENCY_CODE`,
+which the query string supplies. Both now come from the intent. (The docblock had also claimed
+`coupon` was *"the only such key that reached a write"*. It was not.)
+
+#### F-4 / F-6 — the refresh short-circuit stranded the buyer it was meant to help
+
+`attachOrder()` ran **before** `assignPlan()`, so `plan_order_id` meant "an order exists" rather
+than "this purchase completed". The short-circuit keys on it, so a buyer whose order landed and
+whose entitlement did not was told "Plan activated Successfully." on every retry, with no write —
+the permanent stranding `GuardsPlanActivation.php:437-443` had already settled:
+
+> *"a bare 'already recorded, report success' guard would then strand that buyer permanently: every
+> retry, including a perfectly clean one, would be told the plan was activated while it never was."*
+
+And `unreconciled()`'s captured-payment clause requires `plan_order_id IS NULL`, so the one state
+requirement 5 exists to surface was the one it could not see. Moving one line fixes both. The
+recovery record also only tested `assignPlan()`'s **return** value, while the comment above it says
+the throw case *"is not hypothetical"* — a throw unwound past it and logged nothing at all; it now
+has its own `catch`.
+
+**F-4(b), the half that is not Paytm's.** `refusePlanActivationReplay()` re-runs `assignPlan()` for
+the same buyer and the same plan, and `User::assignPlan()` recomputes `plan_expire_date` from
+`Carbon::now()` rather than from the paid-for period. The provider body is signed and delivered
+through the buyer's own browser, so the buyer holds a replayable copy: re-presenting it monthly kept
+a paid plan alive indefinitely on one payment. Not a substitution — the guard pins the plan — and
+invisible to the "no second plan order" assertion, because no second order is written. The guard now
+re-runs only when `$user->plan_id !== $planId`, which repairs the stranded buyer and extends nobody.
+
+**A correction to the review on severity.** The expiry only moves when `$plan->duration` is exactly
+`'Month'`, `'Year'` or `'Unlimited'`, and the shared fixture stores **`'Monthly'`** — which matches
+none, so my first version of the test could not fail however broken the guard was. Whether
+production stores `'Month'` is unestablished: no plan create/edit view in this repository offers
+`duration` options, and `PlanRequestController:81` uses the value as a column prefix for columns the
+plans migration does not declare. If production stores `'Monthly'`, the expiry is never set by this
+path and the renewal vector does not exist. Recorded as a question; the guard is pinned in the shape
+where the hole is real.
+
+```
+BITE  $alreadyHoldsIt = false → 3 failed, 20 passed
+```
+
+#### F-8 — two of the three problems were the failure modes this file exists to prevent
+
+The `FOR UPDATE NOWAIT` check caught `Throwable` and set `$lockHeld = true` with **no message
+inspection**. `NOWAIT` needs MariaDB ≥ 10.3 and is a *syntax error* below it, so on an older server
+the check reported *"the lock is real"* on the strength of a parse failure — as it would for a
+missing table or a dropped connection. Check (b) already matched on its message; this one now does
+too.
+
+And **check 5 passed while the code it reported on had the defect it named.** It demonstrated "a
+stranger can neither consume nor spoil an intent" by adding `where('user_id', 9002)` to a
+hand-written UPDATE — a predicate `verifyAndConsume()` does not use. Meanwhile `recordRefusal()` was
+unscoped, so a stranger's arrival wrote `status = refused` onto the **owner's** pending row and
+spoiled it terminally. It now points `database.default` at the throwaway database and drives the
+real `PlanPurchaseIntent`, so there is no transcription left to diverge.
+
+```
+tests/Support/Security/bin/verify-plan-purchase-intent-on-mysql.php
+checks  : 19    failures: 0     on 10.11.14-MariaDB
+BITE  unscope recordRefusal → FAIL "the owner's intent is still pending"
+```
+
+#### And one mistake of my own worth recording
+
+Confirming that bite, I ran `git checkout app/Services/PlanPurchaseIntent.php` to undo the mutation
+— which discarded **every uncommitted change in that file**: the currency fix, the new state, the
+purchaser scope. Restored from the scratchpad snapshot taken before the first bite, with the one
+later edit re-applied and each of the four changes verified present by name. `git checkout` is not
+an undo for a mutation layered on uncommitted work; a file copy is.
+
+#### F-7, F-9, F-10, F-12 — the rest
+
+* **F-7.** The migration's *"DEVELOPMENT AND TEST ONLY … nothing here may be run there"* is a claim
+  the code does not enforce: `up()` tests only `Schema::hasTable()`. No environment guard was added
+  — the table is required in every test run and will be required in production when F229 ships, and
+  the `_gate_f_pending/*.php.draft` convention is for the opposite case (tables that already exist
+  unmanaged). The **sentence** is corrected instead, and the thing that made the gap dangerous is
+  gone with F-1.
+* **F-9.** Two of five changes had no test. Both now do: `currency => null` through the controller,
+  and a re-POST after a successful activation asserting no second order **and** an unchanged expiry.
+  The `attachOrder`/`assignPlan` ordering is pinned by a source assertion, asked of the **method**
+  with comments stripped — it genuinely cannot be staged without mocking the thing under test.
+* **F-10.** `if ($plan)` gated the whole method with no `else`, so a deleted plan returned NULL — an
+  **empty HTTP 200** with no refusal, no log and an intent left `pending` that `unreconciled()`
+  cannot surface either. Now a reported refusal.
+* **F-12.** Two docblocks still claimed `bccomp`, which the class header correctly explains is *not*
+  used. `host()` claimed to be byte-identical to the SDK's test and is not (the SDK does not `trim`)
+  — the divergence is kept, deliberately, and now stated. A non-scalar `CHECKSUMHASH` read as "no
+  checksum offered" and is now unverifiable.
+
+```
+Unit 657 passed · Contract 26 passed · the plan/payment suites 55 passed
+```

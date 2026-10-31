@@ -385,6 +385,76 @@ class PlanActivationReplayGuardTest extends PlanPaymentTestCase
     }
 
     /**
+     * BUT A BUYER WHO ALREADY HOLDS THE PLAN GETS NO SECOND MONTH.
+     *
+     * The twin of the case above, and the one it was missing. Found by independent review.
+     *
+     * `User::assignPlan()` recomputes `plan_expire_date` from `Carbon::now()`
+     * (`User.php:250-257`) rather than from the paid-for period, so re-running it for a buyer who
+     * ALREADY has the plan does not repair anything — it **extends the expiry**. The provider body
+     * that reaches these handlers is signed by the provider and delivered through the buyer's own
+     * browser, so the buyer holds a replayable copy: re-presenting it once a month kept a paid
+     * plan alive indefinitely on one payment. Not a substitution — the guard pins the plan — but
+     * the same loss by a slower route, and the "no second plan order" assertion above cannot see
+     * it, because no second order is written.
+     *
+     * The guard now re-runs `assignPlan()` only when `$user->plan_id !== $planId`, which separates
+     * the two cases exactly: the stranded buyer above is still repaired, and this one is answered
+     * without a write.
+     *
+     * `duration = 'Month'` because that is the only shape in which the expiry moves at all
+     * (`'Month'`, `'Year'`, `'Unlimited'` — the shared fixture's `'Monthly'` matches none, so
+     * without this the assertion could not fail however broken the guard was). Whether production
+     * stores `'Month'` is a separate open question; the guard is pinned here in the shape where
+     * the hole is real.
+     *
+     * @dataProvider providers
+     */
+    public function test_a_buyer_who_already_holds_the_plan_does_not_have_it_extended(
+        string $route,
+        string $paymentType,
+        string $how
+    ): void {
+        $this->seedProviderSettings();
+        $merchant = $this->makeMerchant();
+        $plan = $this->makePlan('499');
+        $plan->duration = 'Month';
+        $plan->save();
+
+        $reference = 'REF-' . strtoupper(uniqid());
+        $this->recordSpentReference($paymentType, $reference, $plan->id, $merchant->id);
+
+        /* THIS is the difference from the case above: the entitlement already landed. */
+        $assigned = $merchant->assignPlan($plan->id);
+        $this->assertNotEmpty($assigned['is_success'] ?? null, 'premise broken: the first activation did not take');
+
+        $expiryBefore = DB::table('users')->where('id', $merchant->id)->value('plan_expire_date');
+        $this->assertNotNull($expiryBefore,
+            'premise broken: no expiry was set, so an extension cannot be detected and this case '
+            . 'would pass against any guard at all');
+
+        /* A month later, the same reference. */
+        $this->travel(31)->days();
+        $response = $this->callReturn($route, $how, $reference, $plan->id, $merchant);
+
+        $response->assertRedirect(route('plan.index'));
+
+        $this->assertSame(
+            $expiryBefore,
+            DB::table('users')->where('id', $merchant->id)->value('plan_expire_date'),
+            $paymentType . ': RE-PRESENTING A SPENT REFERENCE EXTENDED THE PLAN. assignPlan() '
+            . 'recomputes plan_expire_date from now, so a buyer re-POSTing a body they already '
+            . 'hold keeps a paid plan alive forever on one payment.'
+        );
+
+        $this->assertSame(
+            $plan->id,
+            (int) $merchant->fresh()->plan_id,
+            $paymentType . ': the guard took the plan away from a buyer who holds it'
+        );
+    }
+
+    /**
      * THE POSITIVE CONTROL, and without it every case above is satisfied by a handler that
      * refuses everything.
      *
