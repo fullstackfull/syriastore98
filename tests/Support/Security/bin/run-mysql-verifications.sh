@@ -379,6 +379,18 @@ run_one verify-plan-purchase-intent-on-mysql \
   "F229_MYSQL_SOCKET=${SOCK}" "F229_MYSQL_HOST=${HOST}" "F229_MYSQL_PORT=${PORT}" \
   "F229_MYSQL_DATABASE=f229_verify" "F229_MYSQL_USERNAME=${USER_NAME}" "F229_MYSQL_PASSWORD=${PASS}"
 
+# E13-F. Two concurrent replacement attempts on one order, which the handoff listed as NOT RUN and
+# which the Feature suite cannot run: SQLite has no row locks worth the name and one PHP process
+# cannot hold two statements in flight. The property under test is narrow and load-bearing --
+# `orders.replaced_order_id` is INDEXED and NOT UNIQUE (the migration explains why a real FK and a
+# UNIQUE index were both declined), so the database will NOT refuse a duplicate and
+# `OrderReplacement`'s in-transaction `exists()` check is the only control. The script asserts the
+# non-uniqueness first, because if that index were unique every other check would pass on the
+# strength of a constraint production does not have.
+run_one verify-order-replacement-concurrency-on-mysql \
+  "E13F_MYSQL_SOCKET=${SOCK}" "E13F_MYSQL_HOST=${HOST}" "E13F_MYSQL_PORT=${PORT}" \
+  "E13F_MYSQL_DATABASE=e13f_verify" "E13F_MYSQL_USERNAME=${USER_NAME}" "E13F_MYSQL_PASSWORD=${PASS}"
+
 echo "==========================================================================="
 echo "passed: ${#PASSED[@]}   failed: ${#FAILED[@]}"
 if [ "${#FAILED[@]}" -gt 0 ]; then

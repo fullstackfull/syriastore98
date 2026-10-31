@@ -294,6 +294,110 @@ class OrderReplacementTest extends SecurityTestCase
     }
 
     /**
+     * E13-F — AN EXCEPTION BEFORE THE COMMIT LEAVES THE ORIGINAL UNCANCELLED.
+     *
+     * This is the scenario the handoff lists as not run, and it is the one that matters most about
+     * step 4: the whole operation is in one transaction so that a failure leaves neither a
+     * cancelled order without a replacement nor the reverse. The dangerous half is the first —
+     * `order_status_change()` cancels the original and the Observer reverses the money, so if the
+     * replacement then fails and the cancel stands, the customer has lost their order and gained
+     * nothing.
+     *
+     * Driven by making the replacement's own insert throw, through Eloquent's `creating` event.
+     * That is the narrowest injection available: it fires after the cancel has happened and inside
+     * the transaction, which is exactly the window under test, and it needs no mock of the service
+     * itself.
+     */
+    public function test_an_exception_before_the_commit_rolls_the_cancellation_back(): void
+    {
+        [$merchant, $store] = $this->makeTenant();
+        $actor = $this->actor($merchant);
+        $product = $this->productIn($store);
+        $original = $this->orderIn($store, $product);
+
+        $this->assertSame(0, (int) $original->fresh()->delivered_status, 'premise: the original starts live');
+
+        /* Fire only for the REPLACEMENT -- the original already exists, and the cancel is an
+           update rather than a create, so `creating` cannot catch it by accident. */
+        Order::creating(function (Order $order) {
+            if (! empty($order->replaced_order_id)) {
+                throw new \RuntimeException('e13f: injected replacement-persistence failure');
+            }
+
+            return true;
+        });
+
+        try {
+            [$state, $replacement] = OrderReplacement::cancelAndReplace($original, $actor);
+        } finally {
+            /* Model event listeners are process-global; leaving this one armed would make every
+               later test in this process fail for a reason that has nothing to do with it. */
+            Order::flushEventListeners();
+        }
+
+        $this->assertNotSame(OrderReplacement::REPLACED, $state, 'the failed replacement reported success');
+        $this->assertNull($replacement);
+
+        $this->assertSame(
+            0,
+            (int) $original->fresh()->delivered_status,
+            'THE CANCELLATION STOOD WHILE THE REPLACEMENT FAILED. The customer has lost their '
+            . 'order and gained nothing, and the Observer has already reversed the money — which '
+            . 'is the exact state step 4\'s single transaction exists to make impossible.'
+        );
+
+        $this->assertSame(
+            0,
+            Order::where('replaced_order_id', $original->id)->count(),
+            'a replacement row survived the rollback'
+        );
+    }
+
+    /**
+     * AND THERE IS NOTHING AFTER THE COMMIT, which is why no after-commit case exists.
+     *
+     * The handoff lists "exception-before/after-commit" as the pair to drive. The before half is
+     * above. The after half is **not reachable in this service**, and that is a property worth
+     * pinning rather than a gap worth apologising for: `cancelAndReplace()` returns immediately
+     * after `DB::transaction()` closes, so there is no post-commit tail that could throw and leave
+     * the pair inconsistent.
+     *
+     * Asserted from the source, because the absence of code cannot be driven. If somebody adds a
+     * notification, an event or a second write after the transaction, this fails and tells them
+     * the after-commit scenario has just become real and needs its own test — which is precisely
+     * the failure mode `PaymentController`'s Paymera writer already has (its post-commit tail can
+     * throw after an order has committed).
+     */
+    public function test_nothing_runs_after_the_transaction_commits(): void
+    {
+        $source = file_get_contents(base_path('app/Services/OrderReplacement.php'));
+
+        $code = implode('', array_map(
+            fn ($token) => is_array($token) && in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true) ? '' : (is_array($token) ? $token[1] : $token),
+            token_get_all($source)
+        ));
+
+        $afterCatch = substr($code, strpos($code, 'return [self::REFUSED_CANCEL_FAILED, null, $theReplacementFailed->getMessage()];'));
+
+        /* What may follow the catch blocks: closing braces and the single success return. */
+        $residue = preg_replace('/\s+/', '', $afterCatch);
+        $residue = str_replace([
+            'return[self::REFUSED_CANCEL_FAILED,null,$theReplacementFailed->getMessage()];',
+            '}',
+            'return[self::REPLACED,$replacement,\'\'];',
+        ], '', $residue);
+
+        $this->assertSame(
+            '',
+            $residue,
+            'Something now runs after the transaction commits: ' . $residue
+            . "\n\nThat makes the after-commit scenario real — a throw there leaves the original "
+            . 'cancelled, the replacement written, and whatever follows half done. It needs its own '
+            . 'test, the way PaymentController\'s post-commit tail does.'
+        );
+    }
+
+    /**
      * AND THE OPERATION IS STILL UNREACHABLE, asserted so it cannot become reachable by accident.
      *
      * Design §6 Q1 is unanswered, so this must not be callable from HTTP. If somebody adds a route
