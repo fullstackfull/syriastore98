@@ -1402,7 +1402,14 @@ public function store(Request $request)
             }
 
             if ($variantId == 0 || empty($variantId)) {
-                $this->stockService()->restoreProductStock($product->id, $qty);
+                /* E13-C residual: RECORDED, not merely performed. Without a context
+                   `recordMovement()` writes nothing, so this restore was invisible to the
+                   record and `movedOutFor()` could not net it against the placement. */
+                $this->stockService()->restoreProductStock($product->id, $qty, [
+                    'store_id' => $storeId,
+                    'order_id' => $order->id,
+                    'reason' => \App\Services\StockMovement::REASON_ORDER_RETURN,
+                ]);
                 $restored[] = $index;
 
                 continue;
@@ -1428,7 +1435,11 @@ public function store(Request $request)
                 continue;
             }
 
-            $this->stockService()->restoreVariantStock($variant->id, $qty);
+            $this->stockService()->restoreVariantStock($variant->id, $qty, [
+                'store_id' => $storeId,
+                'order_id' => $order->id,
+                'reason' => \App\Services\StockMovement::REASON_ORDER_RETURN,
+            ]);
             $restored[] = $index;
         }
 

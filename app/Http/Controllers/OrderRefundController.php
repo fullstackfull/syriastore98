@@ -800,7 +800,13 @@ class OrderRefundController extends Controller
                         // the order paths: two concurrent restores both wrote
                         // `stock + qty` and the second overwrote the first, so
                         // returned goods vanished from inventory.
-                        $this->stockService()->restoreProductStock($product->id, $quantity);
+                        /* E13-C residual: recorded, so the refund's give-back nets against
+                           the placement instead of being invisible to `movedOutFor()`. */
+                        $this->stockService()->restoreProductStock($product->id, $quantity, [
+                            'store_id' => $storeId,
+                            'order_id' => $order->id ?? null,
+                            'reason' => \App\Services\StockMovement::REASON_REFUND,
+                        ]);
                         $restored++;
 
                         continue;
@@ -866,7 +872,11 @@ class OrderRefundController extends Controller
                         continue;
                     }
 
-                    $this->stockService()->restoreVariantStock($variantProduct->id, $quantity);
+                    $this->stockService()->restoreVariantStock($variantProduct->id, $quantity, [
+                        'store_id' => $storeId,
+                        'order_id' => $order->id ?? null,
+                        'reason' => \App\Services\StockMovement::REASON_REFUND,
+                    ]);
                     $restored++;
                 }
 

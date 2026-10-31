@@ -128,6 +128,41 @@ class PaymentService
      *                     the caller must abandon the order. Any decrements
      *                     already applied in this cart are given back first.
      */
+    /**
+     * E13-C residual / F237 F4 — this service's own correlation token.
+     *
+     * `PaymentService` does NOT use `AppliesCartStockChanges`; it carries a private copy of that
+     * trait's decrement-and-compensate pair. The copy passed **no evidence context**, so
+     * `ProductStockService::recordMovement()` returned without writing and **nothing this service
+     * did to stock was recorded at all** -- which is why the stock_movements migration's claim
+     * that "absent now means absent" had to be withdrawn. Routing every write through one service
+     * is necessary and not sufficient: the service only records when its caller supplies a context.
+     *
+     * Minted lazily and once per request, exactly as the trait does, so every line of one basket
+     * shares a token.
+     */
+    private function paymentStockEvidenceToken(): string
+    {
+        if (empty($this->ssPaymentStockToken)) {
+            $this->ssPaymentStockToken = \App\Services\StockMovement::newToken();
+        }
+
+        return $this->ssPaymentStockToken;
+    }
+
+    /** @var string|null Set by {@see paymentStockEvidenceToken()}; one token per request. */
+    private $ssPaymentStockToken = null;
+
+    /** The evidence context for a stock call made by this service. */
+    private function paymentStockEvidence($model, string $reason): array
+    {
+        return [
+            'store_id' => is_object($model) ? ($model->store_id ?? null) : null,
+            'correlation_token' => $this->paymentStockEvidenceToken(),
+            'reason' => $reason,
+        ];
+    }
+
     private function decrementStockOrFail(
         array &$applied,
         string $kind,
@@ -135,14 +170,20 @@ class PaymentService
         $qty,
         bool $rejectOnShortfall = true
     ): ?array {
+        $evidence = $this->paymentStockEvidence($model, \App\Services\StockMovement::REASON_ORDER_PLACE);
+
         $result = $kind === 'variant'
-            ? $this->stockService()->decrementVariantStock($model, $qty)
-            : $this->stockService()->decrementProductStock($model, $qty);
+            ? $this->stockService()->decrementVariantStock($model, $qty, false, false, $evidence)
+            : $this->stockService()->decrementProductStock($model, $qty, false, false, $evidence);
 
         if ($result['applied']) {
             $applied[] = [
                 'kind' => $kind,
                 'id' => $model->id,
+                /* Carried so the compensation below can name its tenant, exactly as the trait's
+                   copy does. The model is the row just decremented, so this is its own store and
+                   not a caller's claim. */
+                'store_id' => $model->store_id ?? null,
                 'quantity' => $result['quantity'],
             ];
 
@@ -172,14 +213,17 @@ class PaymentService
         // strictly better than losing the order. The shortfall is a merchant
         // operations problem, not a reason to discard a paid basket.
         if (!$rejectOnShortfall) {
+            $forcedEvidence = $this->paymentStockEvidence($model, \App\Services\StockMovement::REASON_ORDER_PLACE);
+
             $forced = $kind === 'variant'
-                ? $this->stockService()->decrementVariantStock($model, $qty, true)
-                : $this->stockService()->decrementProductStock($model, $qty, true);
+                ? $this->stockService()->decrementVariantStock($model, $qty, true, false, $forcedEvidence)
+                : $this->stockService()->decrementProductStock($model, $qty, true, false, $forcedEvidence);
 
             if ($forced['applied']) {
                 $applied[] = [
                     'kind' => $kind,
                     'id' => $model->id,
+                    'store_id' => $model->store_id ?? null,
                     'quantity' => $forced['quantity'],
                 ];
             }
@@ -203,10 +247,21 @@ class PaymentService
     private function restoreStockDecrements(array $applied): void
     {
         foreach ($applied as $change) {
+            /* RECORDED, not merely performed. `movedOutFor()` nets applied outs against applied
+               ins for the same line, so a decrement given back here must leave the line
+               NOT_MOVED on balance -- otherwise a later cancellation would read MOVED and give
+               the same units back a second time. Same token, so it joins this request's other
+               movements. Mirrors `AppliesCartStockChanges::restoreStockDecrements()`. */
+            $restoreEvidence = [
+                'store_id' => $change['store_id'] ?? null,
+                'correlation_token' => $this->paymentStockEvidenceToken(),
+                'reason' => \App\Services\StockMovement::REASON_ORDER_CANCEL,
+            ];
+
             if (($change['kind'] ?? null) === 'variant') {
-                $this->stockService()->restoreVariantStock($change['id'], $change['quantity']);
+                $this->stockService()->restoreVariantStock($change['id'], $change['quantity'], $restoreEvidence);
             } else {
-                $this->stockService()->restoreProductStock($change['id'], $change['quantity']);
+                $this->stockService()->restoreProductStock($change['id'], $change['quantity'], $restoreEvidence);
             }
         }
     }

@@ -1058,8 +1058,16 @@ if ($order_status == 'cancel') {
                         // endpoint's loop can see that these goods are already back in. See
                         // Order::LINE_STOCK_RESTORED. P1-INV-15 (E), owner decision 5.
                         if (!empty($stockProduct) && ! self::lineStockAlreadyRestored($product_json[$key])) {
+                            /* E13-C residual: RECORDED, not merely performed. Threaded INSIDE
+                               the model rather than at the three call sites, because one caller is
+                               vendored (packages/workdo/LotteryPrizes) and must not be edited.
+                               `$orderStoreId` and `$Order` are already in scope. */
                             app(\App\Services\ProductStockService::class)
-                                ->restoreProductStock($stockProduct->id, (int) $line['qty']);
+                                ->restoreProductStock($stockProduct->id, (int) $line['qty'], [
+                                    'store_id' => $orderStoreId,
+                                    'order_id' => $Order->id ?? null,
+                                    'reason' => \App\Services\StockMovement::REASON_ORDER_RETURN,
+                                ]);
                             $product_json[$key][self::LINE_STOCK_RESTORED] = 1;
                         }
                     } else {
@@ -1090,7 +1098,11 @@ if ($order_status == 'cancel') {
                         // The variant twin of the marker above, same reason.
                         if (!empty($ProductStock) && ! self::lineStockAlreadyRestored($product_json[$key])) {
                             app(\App\Services\ProductStockService::class)
-                                ->restoreVariantStock($ProductStock->id, (int) $product['qty']);
+                                ->restoreVariantStock($ProductStock->id, (int) $product['qty'], [
+                                    'store_id' => $orderStoreId,
+                                    'order_id' => $Order->id ?? null,
+                                    'reason' => \App\Services\StockMovement::REASON_ORDER_RETURN,
+                                ]);
                             $product_json[$key][self::LINE_STOCK_RESTORED] = 1;
                         }
                     }

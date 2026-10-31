@@ -781,10 +781,17 @@ class StockAttributionTest extends SecurityTestCase
      * "no decrement OR a decrement by an uninstrumented writer", which is the inference D-21
      * claimed to have retired. The migration's claim is now withdrawn rather than left standing.
      *
-     * **This is a declared-exception ratchet, not an endorsement.** It is safe today — with no
-     * rows at all, `movedOutFor()` answers UNKNOWN and the cancellation restores — and it stops
-     * being a silent gap because wiring PaymentService, or adding a second such writer, fails
-     * here and forces the migration's wording to be revisited at the same time.
+     * **THE EXCEPTION IS NOW EMPTY, AND THIS RATCHET IS WHY.** It was declared as
+     * `['PaymentService.php']` when F237 landed, deliberately, so that wiring it would FAIL here
+     * and force the migration's wording to be revisited at the same moment. That is exactly what
+     * happened in the E13-C residual slice: PaymentService now mints its own correlation token and
+     * threads a context through both its decrements and both its restores, the assertion fired,
+     * and the migration's paragraph was amended rather than left stale.
+     *
+     * Keep it at `[]`. A NEW order-writing service whose decrements record nothing re-opens the
+     * same hole: its orders would have stock movements that cannot be seen at all, so
+     * `movedOutFor()` answers UNKNOWN for them and no cancellation guard can refuse on their
+     * evidence.
      *
      * Why the controller census could not catch it: `OrderWriteCensus::sites()` walks only
      * `app/Http/Controllers`, so nothing under `app/Services` is in its population at all.
@@ -823,7 +830,7 @@ class StockAttributionTest extends SecurityTestCase
         sort($uninstrumented);
 
         $this->assertSame(
-            ['PaymentService.php'],
+            [],
             $uninstrumented,
             "The set of order-writing services whose stock decrements record NO evidence changed.\n"
             . "If one was WIRED: good -- remove it here AND revisit the migration's withdrawn\n"
@@ -831,6 +838,64 @@ class StockAttributionTest extends SecurityTestCase
             . "If one was ADDED: its orders now have stock movements that cannot be seen at all,\n"
             . "so `movedOutFor()` answers UNKNOWN for them and no cancellation guard can ever\n"
             . "refuse on their evidence."
+        );
+    }
+
+    /**
+     * E13-C RESIDUAL — every stock RESTORE threads an evidence context too.
+     *
+     * F237 made the placement side visible. The restore side had eight sites that passed no
+     * context at all, so `ProductStockService::recordMovement()` returned without writing and the
+     * give-backs were invisible to the record. That matters for more than completeness:
+     * `movedOutFor()` nets applied `out` rows against applied `in` rows for the same line, so an
+     * unrecorded restore leaves the line reading **MOVED** after the units have already gone
+     * back — and a later cancellation or replacement would hand them back a second time, which is
+     * the opposite error and the harder one to notice.
+     *
+     * Asserted on the SOURCE, like the trait's own token census, because the behavioural tests
+     * drive one path each and would not notice a seventh site quietly losing its context. The
+     * site list is pinned so a new restore has to be added here deliberately.
+     */
+    public function test_every_stock_restore_site_threads_an_evidence_context(): void
+    {
+        $sites = [
+            'app/Http/Controllers/OrderController.php' => 3,       // 2 residual + 1 already done by E13-C
+            'app/Models/Order.php' => 2,
+            'app/Http/Controllers/OrderRefundController.php' => 2,
+            'app/Services/PaymentService.php' => 2,                // restore + its own decrements
+            'app/Http/Controllers/Concerns/AppliesCartStockChanges.php' => 2,
+        ];
+
+        $unthreaded = [];
+
+        foreach ($sites as $relative => $_expected) {
+            $source = (string) file_get_contents(base_path($relative));
+
+            /* Every restore call, with its argument list, comments already irrelevant because a
+               commented-out call carries no arguments to judge. */
+            preg_match_all(
+                '/restore(?:Variant|Product)Stock\s*\(([^;]*?)\)\s*;/s',
+                $source,
+                $calls
+            );
+
+            foreach ($calls[1] as $arguments) {
+                /* Three arguments means a context was passed: the third parameter IS the evidence.
+                   Counting commas at depth zero would be stricter, but every call here is written
+                   on one logical statement and an `evidence`/`reason` token is unambiguous. */
+                if (! preg_match('/vidence|reason|REASON_/', $arguments)) {
+                    $unthreaded[] = $relative . ' -- restore(' . trim(preg_replace('/\s+/', ' ', $arguments)) . ')';
+                }
+            }
+        }
+
+        $this->assertSame(
+            [],
+            $unthreaded,
+            "These stock RESTORE calls pass no evidence context, so `recordMovement()` writes\n"
+            . "nothing for them and the give-back is invisible to `movedOutFor()`. A line whose\n"
+            . "restore is unrecorded still reads MOVED, so a later cancellation or replacement\n"
+            . "can hand the same units back twice:\n  - " . implode("\n  - ", $unthreaded)
         );
     }
 

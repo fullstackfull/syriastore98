@@ -27,9 +27,10 @@ use Illuminate\Support\Facades\Schema;
  * at `PosController:208`. So a record written inside its four methods observes every movement on
  * every order path.
  *
- * **"ABSENT NOW MEANS ABSENT" IS WITHDRAWN — F237, found by independent review.** Routing every
- * write through one service is necessary and it is not sufficient: the service only records when
- * its caller **passes an evidence context**, and one order-writing caller does not.
+ * **"ABSENT NOW MEANS ABSENT" WAS WITHDRAWN BY F237 AND IS NOW RESTORED, NARROWLY — E13-C
+ * residual.** The withdrawal was right and the reason is worth keeping: routing every write
+ * through one service is necessary and **not sufficient**, because the service only records when
+ * its caller **passes an evidence context**. One order-writing caller did not.
  *
  * `app/Services/PaymentService.php` does not use `AppliesCartStockChanges`. It carries its own
  * private `decrementStockOrFail()` (`:131-200`) whose calls at `:139-140` and `:176-177` pass **no
@@ -44,11 +45,28 @@ use Illuminate\Support\Facades\Schema;
  * restores. The safe direction. What is wrong is the *claim*, not the behaviour, and a false
  * load-bearing claim is worse than a known gap because the next reader builds on it.
  *
- * Wiring PaymentService is deliberately NOT done here: it is a second copy of the same two
- * methods and it also owns two of the eight unthreaded restore sites (`:207`, `:209`) that the
- * E13-C residual slice covers, so it belongs there rather than inside F237.
- * `StockAttributionTest::test_the_uninstrumented_order_writers_are_exactly_these` pins the
- * exception by name, so the day it is wired the test says so.
+ * **PaymentService IS NOW WIRED** (E13-C residual): it mints its own correlation token, carries
+ * `store_id` in its compensation accumulator as the trait's copy does, and threads a context
+ * through both its decrements and both its restores. So its orders are observed, and
+ * `StockAttributionTest::test_the_uninstrumented_order_writers_are_exactly_these` — which was
+ * declared as `['PaymentService.php']` precisely so that wiring it would fail and force this
+ * paragraph to be revisited — now asserts an EMPTY exception set. The ratchet did its job.
+ *
+ * **SO WHAT MAY BE CLAIMED, AND WHAT MAY NOT.** Every mutator of the stock columns now routes
+ * through `ProductStockService` AND supplies a context, so for an order written by any instrumented
+ * writer an absent `out` row does mean the stock did not move. That is narrower than the original
+ * sentence and is all the evidence supports:
+ *
+ *   - it holds only where `available()` is true, i.e. development and test. In production the
+ *     table does not exist and every answer is `UNKNOWN` by design (D-15 condition 9);
+ *   - `recordMovement()` still returns silently when the decremented model carries no `store_id`
+ *     — a live open owner decision for NULL-`store_id` variant rows — so a movement can be
+ *     applied and unrecorded. F237's partial-attribution check reports that case rather than
+ *     letting it read as success, but it cannot conjure the missing row;
+ *   - a new order-writing service that passes no context re-opens the hole, which is what the
+ *     empty exception set above is there to catch.
+ *
+ * Do not restore the original unqualified sentence. It was false for a reason that recurs.
  *
  * ──────────────────────────────────────────────────────────────────────────────────────────────
  * WHAT THE COLUMNS ARE FOR, since each answers a question D-15 asks.

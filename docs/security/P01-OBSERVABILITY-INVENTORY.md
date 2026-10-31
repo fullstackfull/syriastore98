@@ -56,8 +56,8 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/PaymentController.php:968` | Paymera callback REJECTED: captured amount not verified |
 | `app/Http/Controllers/PaymentController.php:3861` | Order write failed and was rolled back; stock decrements were given back |
 | `app/Http/Controllers/PaymentController.php:5292` | Order write failed and was rolled back; stock decrements were given back |
-| `app/Services/PaymentService.php:187` | Insufficient stock on an order path that cannot refuse; order kept, stock oversold |
-| `app/Services/PaymentService.php:3044` | Order write failed and was rolled back; stock decrements were given back |
+| `app/Services/PaymentService.php:231` | Insufficient stock on an order path that cannot refuse; order kept, stock oversold |
+| `app/Services/PaymentService.php:3099` | Order write failed and was rolled back; stock decrements were given back |
 | `app/Services/ProductStockService.php:139` | Stock decremented below zero on an order path that cannot refuse |
 | `app/Services/ProductStockService.php:250` | Stock decremented below zero on an order path that cannot refuse |
 | `app/Helper/helper.php:429` | paid download url not issued |
@@ -116,19 +116,19 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/OrderController.php:1354` | Return approval skipped a line whose stock was already credited |
 | `app/Http/Controllers/OrderController.php:1374` | Return approval skipped a line with an unusable product id or quantity |
 | `app/Http/Controllers/OrderController.php:1395` | Return approval skipped a line whose product is not in the order |
-| `app/Http/Controllers/OrderController.php:1422` | Return approval skipped a line whose variant does not belong to its product |
-| `app/Http/Controllers/OrderController.php:1755` | Customer cancellation endpoint refused a status it does not serve |
-| `app/Http/Controllers/OrderController.php:1825` | Order cancellation skipped a line with an unusable product id or quantity |
-| `app/Http/Controllers/OrderController.php:1840` | Order cancellation skipped a line whose product is not in the order |
-| `app/Http/Controllers/OrderController.php:1897` | Order cancellation skipped a line the stock record says never took stock out |
-| `app/Http/Controllers/OrderController.php:1941` | Order cancellation skipped a line whose variant does not belong to its product |
-| `app/Http/Controllers/OrderController.php:2183` | Order assignment refused: the delivery boy is not in a store this caller owns |
+| `app/Http/Controllers/OrderController.php:1429` | Return approval skipped a line whose variant does not belong to its product |
+| `app/Http/Controllers/OrderController.php:1766` | Customer cancellation endpoint refused a status it does not serve |
+| `app/Http/Controllers/OrderController.php:1836` | Order cancellation skipped a line with an unusable product id or quantity |
+| `app/Http/Controllers/OrderController.php:1851` | Order cancellation skipped a line whose product is not in the order |
+| `app/Http/Controllers/OrderController.php:1908` | Order cancellation skipped a line the stock record says never took stock out |
+| `app/Http/Controllers/OrderController.php:1952` | Order cancellation skipped a line whose variant does not belong to its product |
+| `app/Http/Controllers/OrderController.php:2194` | Order assignment refused: the delivery boy is not in a store this caller owns |
 | `app/Http/Controllers/OrderRefundController.php:180` | Refund transition refused: unrecognised current state |
 | `app/Http/Controllers/OrderRefundController.php:202` | Refund transition refused: illegal transition |
 | `app/Http/Controllers/OrderRefundController.php:416` | Refund cancellation refused: the record does not match the order |
 | `app/Http/Controllers/OrderRefundController.php:749` | Refund restock skipped a line with an unusable quantity |
 | `app/Http/Controllers/OrderRefundController.php:765` | Refund restock clamped to the units the order lines lost |
-| `app/Http/Controllers/OrderRefundController.php:1167` | Refund settled but the order totals were left unchanged: product_json is unparseable |
+| `app/Http/Controllers/OrderRefundController.php:1177` | Refund settled but the order totals were left unchanged: product_json is unparseable |
 | `app/Http/Controllers/OzowController.php:217` | Ozow plan return refused: no TransactionId to key on. |
 | `app/Http/Controllers/PaiementProPaymentController.php:356` | PaiementPro return recorded PENDING: this gateway is not provider-verified |
 | `app/Http/Controllers/PaiementProPaymentController.php:469` | Pending partial payment refused: the balance named does not belong to this customer. |
@@ -186,11 +186,11 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/OrderTaxResolver.php:101` | Checkout: client-supplied tax_price discarded (server value used) |
 | `app/Services/OrderTotalReconciler.php:173` | Order total reconciliation mismatch (warn-only) |
 | `app/Services/PaymentFailure.php:22` | Payment could not be started |
-| `app/Services/PaymentService.php:2246` | Pending partial payment refused: the balance named does not belong to this customer. |
-| `app/Services/PaymentService.php:2349` | cod/bank_transfer order writer refused: basket names a product from another store |
-| `app/Services/PaymentService.php:2368` | cod/bank_transfer order writer refused: basket holds an unusable quantity |
-| `app/Services/PaymentService.php:2461` | Checkout: client-supplied shipping_final_price discarded (server value used) |
-| `app/Services/PaymentService.php:3686` | PayHere storefront checkout refused: the integration is retired (owner decision). |
+| `app/Services/PaymentService.php:2301` | Pending partial payment refused: the balance named does not belong to this customer. |
+| `app/Services/PaymentService.php:2404` | cod/bank_transfer order writer refused: basket names a product from another store |
+| `app/Services/PaymentService.php:2423` | cod/bank_transfer order writer refused: basket holds an unusable quantity |
+| `app/Services/PaymentService.php:2516` | Checkout: client-supplied shipping_final_price discarded (server value used) |
+| `app/Services/PaymentService.php:3741` | PayHere storefront checkout refused: the integration is retired (owner decision). |
 | `app/Services/PaymentVerificationService.php:340` | Order recorded as PENDING: no gateway verification for this payment |
 | `app/Services/PaymentVerificationService.php:365` | Order recorded as PENDING: the verification belongs to a different checkout |
 | `app/Services/PaymentVerificationService.php:378` | Order recorded as PENDING: the verification record is for another payment type |
