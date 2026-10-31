@@ -99,6 +99,16 @@
 > silent, and **`claim()`/`bind()` have zero production callers**, so the exposure is prospective.
 > That is the cheapest moment to fix the policy, before any writer is wired to it.
 >
+> **The nineteen surfaces are preserved rather than lost.** The background matrix run completed
+> and its nineteen rows are written up at
+> [`E14-GATEWAY-MATRIX-2026-10-31.md`](E14-GATEWAY-MATRIX-2026-10-31.md): 4 HIGH / 7 MEDIUM /
+> 3 LOW / 5 UNREACHABLE, with entry points, authentication, tenant credential selection,
+> transaction-reference source, capture verification, replay protection, refusal states and
+> testability per gateway. The four HIGH are Benefit, Cashfree, CyberSource and Paytm — three were
+> acted on in `139bcc22` and CyberSource is F230. **Fifteen of the rows are an agent's reading of
+> source and were not independently re-verified: treat them as leads.** Re-running that fan-out
+> would cost another full workflow, which is why they are committed.
+>
 > ### E13-C — which cancellation entry points consult the evidence
 >
 > | door | reaches | restores stock? | consults the record? |
