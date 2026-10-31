@@ -25,7 +25,30 @@ use Illuminate\Support\Facades\Schema;
  * `ProductStockService` is now the ONLY mutator of `products.product_stock` and
  * `product_variants.stock` in `app/` — the single remaining hit outside it is a commented-out line
  * at `PosController:208`. So a record written inside its four methods observes every movement on
- * every order path, and **absent now means absent**.
+ * every order path.
+ *
+ * **"ABSENT NOW MEANS ABSENT" IS WITHDRAWN — F237, found by independent review.** Routing every
+ * write through one service is necessary and it is not sufficient: the service only records when
+ * its caller **passes an evidence context**, and one order-writing caller does not.
+ *
+ * `app/Services/PaymentService.php` does not use `AppliesCartStockChanges`. It carries its own
+ * private `decrementStockOrFail()` (`:131-200`) whose calls at `:139-140` and `:176-177` pass **no
+ * `$evidence` argument**, so `ProductStockService::recordMovement()` returns at `:427-429` and
+ * nothing is written at all — while the same service persists an order at `:2738`/`:2865`.
+ *
+ * So for orders PaymentService writes, an absent record still means *"no decrement **OR** a
+ * decrement by an uninstrumented writer"* — the exact inference D-21 claimed to have retired.
+ *
+ * **It is not a hole, and the distinction matters.** With no rows at all, `movedOutFor()`'s
+ * `$observed` query requires an `out` row, finds none, and answers `UNKNOWN` — so the cancellation
+ * restores. The safe direction. What is wrong is the *claim*, not the behaviour, and a false
+ * load-bearing claim is worse than a known gap because the next reader builds on it.
+ *
+ * Wiring PaymentService is deliberately NOT done here: it is a second copy of the same two
+ * methods and it also owns two of the eight unthreaded restore sites (`:207`, `:209`) that the
+ * E13-C residual slice covers, so it belongs there rather than inside F237.
+ * `StockAttributionTest::test_the_uninstrumented_order_writers_are_exactly_these` pins the
+ * exception by name, so the day it is wired the test says so.
  *
  * ──────────────────────────────────────────────────────────────────────────────────────────────
  * WHAT THE COLUMNS ARE FOR, since each answers a question D-15 asks.

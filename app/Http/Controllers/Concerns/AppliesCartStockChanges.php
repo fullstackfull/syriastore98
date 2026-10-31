@@ -57,6 +57,29 @@ trait AppliesCartStockChanges
     private $ssStockEvidenceToken = null;
 
     /**
+     * How many APPLIED decrements on this request threaded an evidence context — F237.
+     *
+     * Counted so the attribution can tell a PARTIAL recording failure from success. Found by
+     * independent review: `attributeToOrder()` answers "how many rows moved", and the first
+     * version tested that with `> 0`, i.e. "did ANY row move". On a three-line basket whose
+     * middle line was never recorded that returns 2, `> 0` is true, and the method reported
+     * success while one line of evidence was missing.
+     *
+     * A row can be missing even though the stock really moved:
+     * `ProductStockService::recordMovement()` returns without writing when the model carries no
+     * `store_id` (a live open owner decision for NULL-`store_id` variant rows), and
+     * `StockMovement::record()` logs a warning and writes nothing if the insert throws.
+     *
+     * And the consequence is the one D-15 conditions 4 and 5 exist to prevent. `movedOutFor()`'s
+     * `$observed` fallback asks whether THE ORDER took anything out, not whether THIS LINE did —
+     * so once any line of the order is attributed, an unrecorded line reads **NOT_MOVED** rather
+     * than UNKNOWN, and `OrderController`'s cancellation skips its restore. Stock then stays
+     * consumed on a cancelled order, with a log line saying the record told it so. F237 did not
+     * introduce that fallback; it made it reachable, which is exactly what the change was for.
+     */
+    private $ssStockEvidenceExpected = 0;
+
+    /**
      * PHASE TWO of the two-phase attribution: point this request's movements at the order — F237.
      *
      * `stockEvidenceToken()`'s docblock above promised that "the caller attributes it once the
@@ -110,6 +133,32 @@ trait AppliesCartStockChanges
             return;
         }
 
+        /*
+         * NO RECORD INSTALLED IS NOT A FAILURE TO ATTRIBUTE, AND THIS GUARD IS THE WHOLE
+         * DIFFERENCE BETWEEN HONOURING THAT RULE AND BREAKING IT.
+         *
+         * Found by independent review, and it was a live production defect in the first version of
+         * this method. The migration is development-and-test only (D-15 condition 9), so on every
+         * live installation `available()` is false. But `stockEvidence()` mints the token
+         * unconditionally -- it does not consult `available()` -- so the early return above does
+         * NOT fire in production: a token exists, the attribution finds no table,
+         * `attributionStateFor()` answers UNKNOWN, and the first version then logged UNKNOWN at
+         * ERROR. That is one error-level line per order, on all eleven paths, on the money path,
+         * forever, for a condition that is intended.
+         *
+         * It also contradicted the governing rule of the service it calls, stated at
+         * `StockMovement.php:137-139`: **"UNKNOWN is not a failure mode, it is the whole point."**
+         * `OrderController`'s cancellation consult reasons the same way at `:1872-1877` and accepts
+         * being "one log line heavier" at INFO on a path that runs once per cancellation -- not at
+         * ERROR once per order.
+         *
+         * No test could have caught it: `RefreshDatabase` runs the migration, so the table always
+         * exists in the suite and `available()` is never false where the tests look.
+         */
+        if (! \App\Services\StockMovement::available()) {
+            return;
+        }
+
         $token = $this->ssStockEvidenceToken;
 
         try {
@@ -130,7 +179,37 @@ trait AppliesCartStockChanges
                 return;
             }
 
-            if (\App\Services\StockMovement::attributeToOrder($token, $storeId, $orderId) > 0) {
+            $moved = \App\Services\StockMovement::attributeToOrder($token, $storeId, $orderId);
+
+            if ($moved > 0) {
+                /*
+                 * PARTIAL IS NOT SUCCESS, and `> 0` alone said it was.
+                 *
+                 * Found by independent review. See `$ssStockEvidenceExpected` for why a row can
+                 * be missing while the stock really moved, and for why the consequence is a
+                 * D-15 conditions 4/5 violation rather than a cosmetic gap: an unrecorded line
+                 * reads NOT_MOVED once any sibling line is attributed, and the cancellation then
+                 * skips its restore.
+                 *
+                 * Reported, not repaired: the missing row cannot be reconstructed here, and
+                 * inventing one would be manufacturing evidence — precisely what D-15 forbids.
+                 * What this does is make the gap loud, so the order can be reviewed, instead of
+                 * leaving a silent half-record that reads as proof.
+                 */
+                if ($this->ssStockEvidenceExpected > $moved) {
+                    \Illuminate\Support\Facades\Log::error(
+                        'stock evidence incomplete: fewer movements recorded than stock decrements applied',
+                        [
+                            'applied_decrements' => $this->ssStockEvidenceExpected,
+                            'attributed_rows' => $moved,
+                            'token' => $token,
+                            'order_id' => $orderId,
+                            'store_id' => $storeId,
+                            'controller' => static::class,
+                        ]
+                    );
+                }
+
                 return;
             }
 
@@ -215,6 +294,8 @@ trait AppliesCartStockChanges
                 'quantity' => $result['quantity'],
             ];
 
+            $this->ssStockEvidenceExpected++;
+
             return null;
         }
 
@@ -254,6 +335,8 @@ trait AppliesCartStockChanges
                     'store_id' => $model->store_id ?? null,
                     'quantity' => $forced['quantity'],
                 ];
+
+                $this->ssStockEvidenceExpected++;
             }
 
             \Illuminate\Support\Facades\Log::critical('Insufficient stock on an order path that cannot refuse; order kept, stock oversold', [

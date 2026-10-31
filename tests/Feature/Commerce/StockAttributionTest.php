@@ -158,6 +158,7 @@ class StockAttributionTest extends SecurityTestCase
     {
         $root = base_path('app/Http/Controllers/');
         $unattributed = [];
+        $withoutTransaction = [];
         $checked = 0;
 
         foreach (OrderWriteCensus::customerOrderSites() as $site) {
@@ -211,17 +212,69 @@ class StockAttributionTest extends SecurityTestCase
              */
             $commitAt = strpos($body, 'DB::commit()');
 
-            if ($commitAt !== false && $attributedAt > $commitAt) {
+            if ($commitAt === false) {
+                /*
+                 * NO TRANSACTION ON THIS PATH, counted rather than skipped in silence.
+                 *
+                 * Independent review found that this check quietly passed for nine of the eleven
+                 * sites because they open no transaction at all, while the docblock claimed the
+                 * atomicity property for all of them. Recording them makes the real coverage
+                 * visible: the atomicity requirement is satisfied where a transaction exists, and
+                 * on the rest the order is already committed when the attribution runs, so a crash
+                 * between the two leaves an unattributed row -> UNKNOWN -> restore, the safe
+                 * direction. Adding transactions to seven gateway handlers is a larger change than
+                 * F237 and is not smuggled in here.
+                 */
+                $withoutTransaction[] = $site['file'] . '::' . $site['method'];
+
+                continue;
+            }
+
+            if ($attributedAt > $commitAt) {
                 $unattributed[] = $site['file'] . '::' . $site['method'] . ':' . $site['line']
                     . ' (attributes AFTER DB::commit(), so the order and its evidence are no longer atomic)';
             }
         }
 
-        $this->assertGreaterThanOrEqual(
+        /*
+         * EXACTLY, not at-least. Review pointed out that a `>=` premise stops catching a silently
+         * truncated body the day a twelfth site appears -- and `OrderWriteCensus::methodBody()`
+         * counts only the plain-string `{` token, so an interpolated `"{$x}"` in one of these
+         * methods would decrement depth without incrementing and cut the captured body short.
+         * Pinning the count means a new site has to be acknowledged here rather than slipping
+         * through as a skip.
+         */
+        $this->assertSame(
             11,
             $checked,
-            'premise: the census found fewer decrement-and-write methods than the 11 measured on '
-            . '065b4df5, so it is no longer looking at the population it was built for'
+            'the population of decrement-and-write methods moved from the 11 measured on '
+            . '065b4df5. A NEW one needs attribution and a line in this count; a REMOVED one '
+            . 'wants recording. Do not relax this to >= -- that is what let a truncated method '
+            . 'body pass unnoticed.'
+        );
+
+        /*
+         * The nine sites that open no transaction, asserted as a SET so the docblock above cannot
+         * drift from the code. These are safe (see the per-site note in the loop) but they are not
+         * covered by the atomicity requirement, and that distinction is the point of listing them.
+         */
+        $this->assertSame(
+            [
+                'Api/ApiController.php::place_order',
+                'Api/ApiController.php::ordersave',
+                'AuthorizeNetPaymnetController.php::getOrderPaymentStatus',
+                'CinetPayController.php::getProductStatus',
+                'EasebuzzController.php::getProductStatus',
+                'KhaltiPaymnetController.php::getOrderPaymentStatus',
+                'NMIPayController.php::getNMIProductStatus',
+                'PaiementProPaymentController.php::getProductStatus',
+                'PayUPaymentController.php::getProductStatus',
+            ],
+            $withoutTransaction,
+            'the set of attribution sites that run outside a transaction changed. Each one is safe '
+            . '-- the order is already committed, so a crash leaves the row unattributed, which '
+            . 'reads UNKNOWN and restores -- but none of them satisfies the atomicity requirement, '
+            . 'and only PaymentController::getProductStatus and ::whatsapp do.'
         );
 
         $this->assertSame(
@@ -555,26 +608,229 @@ class StockAttributionTest extends SecurityTestCase
             ->once();
     }
 
-    /** A request that moved no stock mints no token and must attribute nothing, silently. */
-    public function test_a_request_that_moved_no_stock_attributes_nothing_and_logs_nothing(): void
+    /** A host with no token attributes nothing, and says nothing. */
+    public function test_a_host_with_no_token_attributes_nothing_and_logs_nothing(): void
     {
         [, $store] = $this->tenantWithStorefront();
 
         $order = new \App\Models\Order();
         $order->store_id = $store->id;
-        $order->product_order_id = 'f237-nostock-' . uniqid();
+        $order->product_order_id = 'f237-notoken-' . uniqid();
         $order->save();
 
         \Illuminate\Support\Facades\Log::spy();
 
+        /* No useToken() call, so the host is in the state a request that never touched stock is in. */
         (new StockAttributionHarness())->attributeTo($order);
 
         \Illuminate\Support\Facades\Log::shouldNotHaveReceived('error');
+    }
+
+    /**
+     * PRODUCTION SHAPE: with no record installed, a real checkout must say nothing at all.
+     *
+     * **This is the case the first version of the fix got wrong, and the case no other test in
+     * this file can see.** The migration is development-and-test only, so `available()` is false
+     * on every live installation — but `stockEvidence()` mints the correlation token without
+     * consulting `available()`, so the "no token" early return does not fire there. The first
+     * version therefore reached `attributionStateFor()`, got `UNKNOWN`, and logged it at ERROR:
+     * one error-level line per order, on all eleven paths, on the money path, for a condition that
+     * is deliberate.
+     *
+     * Every other test here runs under `RefreshDatabase`, which creates the table — so the suite
+     * is structurally blind to production's actual state unless a test takes the table away. This
+     * one does, which is the only way the regression is observable.
+     *
+     * It asserts the checkout still *works* as well as staying quiet: a guard that refused the
+     * order would also produce no error log, and would be far worse than the defect.
+     */
+    public function test_with_no_record_installed_a_real_checkout_is_silent_and_still_succeeds(): void
+    {
+        [, $store] = $this->tenantWithStorefront();
+        $product = $this->productIn($store);
+        $sid = $this->guestCart($store, $product);
+
+        \Illuminate\Support\Facades\Schema::drop('stock_movements');
+
+        $this->assertFalse(
+            StockMovement::available(),
+            'premise: the record is still installed, so this is not the production shape'
+        );
+
+        /*
+         * Listening rather than Log::spy()->shouldNotHaveReceived('error'), and the reason is a
+         * measured one: this path ALREADY logs an unrelated error on this fixture --
+         * "Order Observer - Created Error: ... no such table: store_wallets", because
+         * `store_wallets` has no migration at all (a GATE F table; it is why StoreWallet appears
+         * in the manifest's declared skips). A blanket "no error was logged" assertion therefore
+         * fails for a reason that has nothing to do with attribution, and would read as this
+         * change's fault. So the assertion is narrowed to THIS change's own log line.
+         */
+        $attributionErrors = [];
+        \Illuminate\Support\Facades\Log::listen(static function ($event) use (&$attributionErrors) {
+            if (in_array($event->level, ['error', 'critical', 'emergency'], true)
+                && str_contains((string) $event->message, 'stock evidence')) {
+                $attributionErrors[] = $event->level . ': ' . $event->message;
+            }
+        });
+
+        $this->withCookie('cart', $sid)
+            ->post('/' . $store->slug . '/whatsapp', $this->postBody($store))
+            ->assertOk();
 
         $this->assertSame(
+            1,
+            (int) DB::table('orders')->where('store_id', $store->id)->count(),
+            'the checkout stopped working when the stock-evidence record was absent. The record is '
+            . 'development-and-test only, so this is the shape of EVERY live installation.'
+        );
+
+        $this->assertSame(
+            [],
+            $attributionErrors,
+            'With no stock-evidence record installed, the attribution logged at error level. The '
+            . 'migration is development-and-test only, so this is the shape of EVERY live '
+            . 'installation: one error-level line per order, on eleven paths, on the money path, '
+            . 'for a condition that is deliberate. `StockMovement` states the governing rule at '
+            . ':137-139 -- "UNKNOWN is not a failure mode, it is the whole point".'
+        );
+    }
+
+    /**
+     * F2 (review finding): a PARTIAL recording failure must not be reported as success.
+     *
+     * The first version of the attribution asked `attributeToOrder() > 0` — *"did ANY row move"*.
+     * On a two-line basket where one line recorded nothing, that returns 1, the test passes, and
+     * the method returns silently while half the evidence is missing.
+     *
+     * The missing row is produced the way production can produce it:
+     * `ProductStockService::recordMovement()` returns without writing when the decremented model
+     * carries no `store_id` (`:427-429`) — which `Api/ApiController.php:8760-8764` records as a
+     * live open owner decision for NULL-`store_id` variant rows. So one product in the basket is
+     * given a null `store_id`, and its decrement therefore moves stock and records nothing.
+     *
+     * Why it matters rather than being cosmetic: `movedOutFor()`'s `$observed` fallback asks
+     * whether THE ORDER took anything out, not whether THIS LINE did. Once the sibling line is
+     * attributed the order is "observed", so the unrecorded line reads **NOT_MOVED** — and
+     * `OrderController`'s cancellation treats NOT_MOVED as "nothing to give back" and skips the
+     * restore. Stock stays consumed on a cancelled order. That is the D-15 conditions 4/5
+     * direction, reached through an inference nobody made deliberately.
+     *
+     * The fix reports; it does not repair. The missing row cannot be reconstructed, and inventing
+     * one would be manufacturing evidence.
+     */
+    public function test_a_partially_recorded_basket_is_reported_and_not_called_success(): void
+    {
+        [, $store] = $this->tenantWithStorefront();
+
+        $recorded = $this->productIn($store);
+        $unrecorded = $this->productIn($store);
+
+        /* The decrement still applies -- only the EVIDENCE is lost, which is the whole point. */
+        DB::table('products')->where('id', $unrecorded->id)->update(['store_id' => null]);
+
+        $sid = 'f237-partial-' . uniqid();
+        foreach ([$recorded, $unrecorded] as $product) {
+            Cart::forceCreate([
+                'product_id' => $product->id, 'variant_id' => 0, 'qty' => 1, 'price' => 100,
+                'store_id' => $store->id, 'cookie_session_id' => $sid,
+            ]);
+        }
+
+        $incomplete = [];
+        \Illuminate\Support\Facades\Log::listen(static function ($event) use (&$incomplete) {
+            if ($event->level === 'error' && str_contains((string) $event->message, 'stock evidence incomplete')) {
+                $incomplete[] = $event->context;
+            }
+        });
+
+        $this->withCookie('cart', $sid)
+            ->post('/' . $store->slug . '/whatsapp', $this->postBody($store))
+            ->assertOk();
+
+        $orderId = (int) DB::table('orders')->where('store_id', $store->id)->value('id');
+        $this->assertNotSame(0, $orderId, 'premise: no order was written');
+
+        $this->assertSame(
+            1,
+            DB::table('stock_movements')->where('direction', StockMovement::OUT)->count(),
+            'premise: this basket did not produce exactly one recorded and one unrecorded line, '
+            . 'so it is not the partial case'
+        );
+
+        $this->assertNotCount(
             0,
-            DB::table('stock_movements')->count(),
-            'a request that moved no stock wrote a movement row'
+            $incomplete,
+            'a basket whose evidence is only half recorded was reported as a successful '
+            . 'attribution. `attributeToOrder() > 0` asks "did ANY row move"; the question that '
+            . 'matters is whether EVERY applied decrement ended up owned.'
+        );
+
+        $this->assertSame(2, $incomplete[0]['applied_decrements'] ?? null);
+        $this->assertSame(1, $incomplete[0]['attributed_rows'] ?? null);
+    }
+
+    /**
+     * F4 (review finding): the order writers that record NO evidence at all, pinned by name.
+     *
+     * The migration claimed that because `ProductStockService` is the only mutator of the stock
+     * columns, "absent now means absent". Routing the writes through one service is necessary and
+     * not sufficient: the service records only when its caller passes an evidence context, and
+     * `PaymentService` — which is not a trait user, carries its own private `decrementStockOrFail()`
+     * and persists its own orders — passes none. For those orders an absent record still means
+     * "no decrement OR a decrement by an uninstrumented writer", which is the inference D-21
+     * claimed to have retired. The migration's claim is now withdrawn rather than left standing.
+     *
+     * **This is a declared-exception ratchet, not an endorsement.** It is safe today — with no
+     * rows at all, `movedOutFor()` answers UNKNOWN and the cancellation restores — and it stops
+     * being a silent gap because wiring PaymentService, or adding a second such writer, fails
+     * here and forces the migration's wording to be revisited at the same time.
+     *
+     * Why the controller census could not catch it: `OrderWriteCensus::sites()` walks only
+     * `app/Http/Controllers`, so nothing under `app/Services` is in its population at all.
+     */
+    public function test_the_uninstrumented_order_writers_are_exactly_these(): void
+    {
+        $uninstrumented = [];
+
+        foreach ((array) glob(base_path('app/Services/*.php')) as $file) {
+            $source = (string) file_get_contents($file);
+
+            $writesAnOrder = preg_match('/new\s+Order\s*\(|\bOrder::(create|forceCreate|updateOrCreate)\s*\(/', $source) === 1;
+            $decrements = str_contains($source, 'decrementVariantStock') || str_contains($source, 'decrementProductStock');
+
+            if (! $writesAnOrder || ! $decrements) {
+                continue;
+            }
+
+            /* Does EVERY decrement call pass an evidence argument? */
+            preg_match_all('/decrement(?:Variant|Product)Stock\s*\(([^;]*?)\)\s*;/s', $source, $calls);
+            $threadsEvidence = true;
+
+            foreach ($calls[1] as $arguments) {
+                if (! str_contains($arguments, 'vidence')) {
+                    $threadsEvidence = false;
+
+                    break;
+                }
+            }
+
+            if (! $threadsEvidence) {
+                $uninstrumented[] = basename($file);
+            }
+        }
+
+        sort($uninstrumented);
+
+        $this->assertSame(
+            ['PaymentService.php'],
+            $uninstrumented,
+            "The set of order-writing services whose stock decrements record NO evidence changed.\n"
+            . "If one was WIRED: good -- remove it here AND revisit the migration's withdrawn\n"
+            . "\"absent now means absent\" paragraph, which that wiring partly restores.\n"
+            . "If one was ADDED: its orders now have stock movements that cannot be seen at all,\n"
+            . "so `movedOutFor()` answers UNKNOWN for them and no cancellation guard can ever\n"
+            . "refuse on their evidence."
         );
     }
 

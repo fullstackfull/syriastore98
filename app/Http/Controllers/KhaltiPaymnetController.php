@@ -1060,8 +1060,13 @@ class KhaltiPaymnetController extends Controller
         $order->store_id = $store->id;
         $order->save();
         /* F237: phase two of the two-phase attribution -- point this request's
-           movements at the order that now exists. Inside the transaction on purpose: a
-           rollback must undo the attribution, not the movement. */
+           movements at the order that now exists.
+           NO TRANSACTION ON THIS PATH, stated because the first version of this comment
+           claimed one and independent review found it false: this handler opens none, so
+           the order is already committed when this runs. A crash in between therefore
+           leaves the row unattributed, which reads UNKNOWN and makes the cancellation
+           restore -- the safe direction, and the behaviour that held before F237. Adding
+           a transaction here is a separate change, not part of F237. */
         $this->attributeStockEvidenceTo($order);
         /* THE ORDER NOW EXISTS. From here a failure must NOT give the stock back: an order
            that exists claims its goods, and returning them puts the shopper's items on the
