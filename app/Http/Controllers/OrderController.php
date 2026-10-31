@@ -1462,6 +1462,108 @@ public function store(Request $request)
         }
     }
 
+    /**
+     * E13 REQUIREMENT D — CANCEL AND ISSUE A LINKED REPLACEMENT. Reachable as of **D-32**.
+     *
+     * ══════════════════════════════════════════════════════════════════════════════════════════
+     * WHY THIS ENTRY POINT EXISTS ONLY NOW
+     * ══════════════════════════════════════════════════════════════════════════════════════════
+     *
+     * `OrderReplacement::cancelAndReplace()` was built under D-15 and deliberately left with NO
+     * caller, because the design's Q1 — may a replacement differ from the original? — was a
+     * commercial rule the owner had not settled, and wiring a money path to an unsettled rule is
+     * what the standing limits forbid. A test asserted the absence and named what would unblock it.
+     *
+     * **D-32 answers Q1: identical products, identical quantities, identical prices.** That is the
+     * narrowest of the three readings, and it is the one the design said makes Q2 (a partially-paid
+     * original) and Q3 (original prices or today's) *fall away* — so no refund, settlement or
+     * stock rule is invented by opening this door. Different-item replacements are Phase 04.
+     *
+     * ══════════════════════════════════════════════════════════════════════════════════════════
+     * NO NEW PERMISSION, WHICH IS D-15 CONDITION 5
+     * ══════════════════════════════════════════════════════════════════════════════════════════
+     *
+     * The service itself gates on `OrderPolicy::updateStatus` — the existing status-change gate,
+     * because cancelling IS a status change and this operation is a cancel plus a reissue. This
+     * method therefore performs **no authorisation of its own**: duplicating the check here would
+     * create two gates free to disagree, and the one that matters is the one inside the
+     * transaction. What this method does is resolve the order, call the service, and translate its
+     * named outcome into a response.
+     *
+     * `$request->route('id')` and not `$request->id`, for the reason the sibling method documents
+     * at length: `Request::__get` reads `all()` BEFORE the route parameters, so a posted `id`
+     * would win over the URL segment — measured on that sibling to act on a victim's order.
+     *
+     * ══════════════════════════════════════════════════════════════════════════════════════════
+     * EVERY REFUSAL IS A NAMED STATE, NOT A BOOLEAN
+     * ══════════════════════════════════════════════════════════════════════════════════════════
+     *
+     * The service returns one of seven outcomes and each gets its own message, because "something
+     * went wrong" on a money path is what sends a merchant to support instead of to the fix. The
+     * HTTP shape matches the sibling's exactly — `{status, message}` over 200 — so the existing
+     * caller conventions on this screen are unchanged, and **no 401 is ever used for a business
+     * refusal** (CLAUDE.md: the shipped Flutter app force-logs-out on any 401; this is a web
+     * route, but the rule is the project's and there is no reason to depart from it here).
+     */
+    public function order_replace(Request $request)
+    {
+        $orderId = $request->route('id');
+        $original = Order::find($orderId);
+
+        if (empty($original)) {
+            return response()->json([
+                'status' => false,
+                'message' => __('Something was wrong.'),
+            ]);
+        }
+
+        [$state, $replacement, $reason] = \App\Services\OrderReplacement::cancelAndReplace(
+            $original,
+            \Auth::user()
+        );
+
+        if ($state !== \App\Services\OrderReplacement::REPLACED) {
+            /* Named, so the merchant is told which of the seven things happened. The service's
+               `$reason` is for the log and is deliberately NOT surfaced -- it names internal
+               columns. */
+            $messages = [
+                \App\Services\OrderReplacement::REFUSED_NOT_AUTHORISED =>
+                    __('You do not have permission to perform this action.'),
+                \App\Services\OrderReplacement::REFUSED_ALREADY_DISPATCHED =>
+                    __('The order has been delivered. So you cannot cancel the order.'),
+                \App\Services\OrderReplacement::REFUSED_ALREADY_REPLACED =>
+                    __('This order has already been replaced.'),
+                \App\Services\OrderReplacement::REFUSED_UNREADABLE_LINES =>
+                    __('This order\'s items cannot be reissued.'),
+                \App\Services\OrderReplacement::REFUSED_COLUMN_ABSENT =>
+                    __('Order replacement is not available on this installation.'),
+                \App\Services\OrderReplacement::REFUSED_CANCEL_FAILED =>
+                    __('The order could not be replaced and nothing was changed.'),
+            ];
+
+            \Illuminate\Support\Facades\Log::warning('Order replacement refused.', [
+                'state' => $state,
+                'reason' => $reason,
+                'original_order_id' => $original->id,
+                'user_id' => \Auth::id(),
+            ]);
+
+            return response()->json([
+                'status' => false,
+                'message' => $messages[$state] ?? __('Something was wrong.'),
+            ]);
+        }
+
+        return response()->json([
+            'status' => true,
+            'message' => __('Order replaced successfully.'),
+            'data' => [
+                'replacement_order_id' => $replacement->id,
+                'replacement_order_number' => $replacement->product_order_id,
+            ],
+        ]);
+    }
+
     public function order_status_change(Request $request)
     {
         /*

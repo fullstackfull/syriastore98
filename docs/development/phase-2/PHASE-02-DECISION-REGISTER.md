@@ -2690,3 +2690,50 @@ instructed that the Master Execution Prompt be preserved unchanged, which it is.
 **Not recorded here:** any approval the owner did not give. In particular this is not acceptance of
 Phase 02, not release readiness, not production authorisation, and not a change to Issue #120's
 deferred-but-open status.
+
+---
+
+## D-32 — E13 requirement D: Q1 is answered. Identical products, quantities and prices only (owner, 2026-10-31)
+
+**The owner's words:**
+
+> E13-D Q1 is already answered under D-15. Replacement is restricted to identical original products,
+> quantities, and prices. Different-item replacements remain outside this Phase 02 slice and belong
+> to Phase 04. Do not reinterpret this as approval of new refund, payment settlement, or stock rules.
+
+**What this settles, and it is the narrowest of the three readings.**
+`E13-CANCEL-AND-REPLACEMENT-DESIGN.md` §6 posed three questions and said that answering Q1 with
+"identical lines only" makes Q2 and Q3 *fall away*. That is exactly the answer given, so:
+
+* **Q1 — may a replacement differ from the original?** No. Identical products, identical
+  quantities, identical prices.
+* **Q2 — what happens to a partially-paid original?** Does not arise. The original is cancelled in
+  full by the existing engine and the replacement starts `Unpaid`; no partial settlement is
+  computed, carried or invented.
+* **Q3 — original prices or today's?** Does not arise. The replacement is built from the original's
+  own `product_json`, so nothing consults the catalogue and a price change since the order cannot
+  move the figure.
+
+**What it does NOT authorise, in the owner's own words:** no new refund rule, no new payment
+settlement rule, no new stock rule. The implementation already satisfies that by construction and
+the tests pin each one — the pair's net stock movement is `-N` not `-2N` (the carried-line stamp),
+the original's economics are byte-identical afterwards, and the replacement is `Unpaid` rather than
+inheriting a settlement nobody made.
+
+**Different-item replacements are PHASE 04.** Not deferred vaguely — assigned. Quantity or item
+changes require a stock delta and a pricing decision, which is Phase 04's scope under the
+owner-approved six-phase plan.
+
+**The consequence for the code, which is the only thing that changes today.**
+`OrderReplacement::cancelAndReplace()` was built under this restriction and deliberately left
+unreachable — no route, no controller action — with
+`OrderReplacementTest::test_nothing_in_the_application_calls_this_operation_yet` asserting the
+absence and naming this decision as what would unblock it. That test's own failure message said:
+*"If Q1 has been answered, delete this test and record the decision."* So it is deleted, the
+decision is recorded here, and the operation is given exactly one merchant-initiated entry point
+behind the existing `OrderPolicy::updateStatus` gate. **No new permission is invented** — D-15
+condition 5.
+
+**What stays blocked.** The storefront and the customer API remain out of scope: a
+customer-initiated replacement is a different authorisation question and this decision does not
+touch it.

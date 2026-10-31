@@ -394,6 +394,13 @@ class OrderActionPermissionCensusTest extends SecurityTestCase
             // Writes, each carrying authorize() on an OrderPolicy ability.
             'POST order-assign',
             'POST order-status-change/{id}',
+            // E13 requirement D, reachable as of D-32. Listed here beside its sibling because it
+            // is authorised by the SAME gate -- the service calls `OrderPolicy::updateStatus`, and
+            // D-15 condition 5 forbids inventing a permission for it. The handler performs no
+            // authorisation of its own precisely so the two cannot drift; `OrderReplacementTest`
+            // drives the route for the cross-tenant refusal, the anonymous redirect, and the
+            // posted-id-cannot-override-the-URL case the sibling route was once vulnerable to.
+            'POST order-replace/{id}',
             'POST order-payment-status',
             'POST update-order-status/{id}',
             'POST order-return',

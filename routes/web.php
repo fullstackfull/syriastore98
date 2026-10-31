@@ -1439,6 +1439,15 @@ Route::get(
   Route::resource('newsletter', NewsletterController::class)->except(['store'])->middleware('themelanguage');
   Route::get('shippinglabel/pdf/{id}', [OrderController::class, 'shippinglabel'])->name('shippinglabel.pdf');
   Route::post('order-status-change/{id}', [OrderController::class, 'order_status_change'])->name('order.status.change')->middleware('themelanguage');
+  /*
+   * E13 requirement D, reachable as of D-32 (identical products, quantities and prices only).
+   * Deliberately alongside order-status-change and in the same group: the operation IS a cancel
+   * plus a reissue, it is authorised by the same OrderPolicy::updateStatus gate, and the `{id}`
+   * segment is what the handler reads -- a posted `id` would otherwise win over the URL, which
+   * is measured on the sibling route above. Merchant-initiated only; the storefront and customer
+   * API stay out of scope, which D-32 states explicitly.
+   */
+  Route::post('order-replace/{id}', [OrderController::class, 'order_replace'])->name('order.replace')->middleware('themelanguage');
   Route::post('order-payment-status', [OrderController::class, 'order_payment_status'])->name('order.payment.status')->middleware('themelanguage');
   Route::resource('order-note', OrderNoteController::class);
 

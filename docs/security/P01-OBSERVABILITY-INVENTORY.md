@@ -68,7 +68,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/GatewayReference.php:198` | gateway capture replayed: the reference is already recorded |
 | `app/Services/GatewayReference.php:213` | gateway capture replayed (23000): the reference is already recorded |
 
-### `warning` — 164 lines
+### `warning` — 165 lines
 
 | line | message |
 |---|---|
@@ -138,12 +138,13 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/OrderController.php:1374` | Return approval skipped a line with an unusable product id or quantity |
 | `app/Http/Controllers/OrderController.php:1395` | Return approval skipped a line whose product is not in the order |
 | `app/Http/Controllers/OrderController.php:1429` | Return approval skipped a line whose variant does not belong to its product |
-| `app/Http/Controllers/OrderController.php:1766` | Customer cancellation endpoint refused a status it does not serve |
-| `app/Http/Controllers/OrderController.php:1836` | Order cancellation skipped a line with an unusable product id or quantity |
-| `app/Http/Controllers/OrderController.php:1851` | Order cancellation skipped a line whose product is not in the order |
-| `app/Http/Controllers/OrderController.php:1908` | Order cancellation skipped a line the stock record says never took stock out |
-| `app/Http/Controllers/OrderController.php:1952` | Order cancellation skipped a line whose variant does not belong to its product |
-| `app/Http/Controllers/OrderController.php:2194` | Order assignment refused: the delivery boy is not in a store this caller owns |
+| `app/Http/Controllers/OrderController.php:1544` | Order replacement refused. |
+| `app/Http/Controllers/OrderController.php:1868` | Customer cancellation endpoint refused a status it does not serve |
+| `app/Http/Controllers/OrderController.php:1938` | Order cancellation skipped a line with an unusable product id or quantity |
+| `app/Http/Controllers/OrderController.php:1953` | Order cancellation skipped a line whose product is not in the order |
+| `app/Http/Controllers/OrderController.php:2010` | Order cancellation skipped a line the stock record says never took stock out |
+| `app/Http/Controllers/OrderController.php:2054` | Order cancellation skipped a line whose variant does not belong to its product |
+| `app/Http/Controllers/OrderController.php:2296` | Order assignment refused: the delivery boy is not in a store this caller owns |
 | `app/Http/Controllers/OrderRefundController.php:180` | Refund transition refused: unrecognised current state |
 | `app/Http/Controllers/OrderRefundController.php:202` | Refund transition refused: illegal transition |
 | `app/Http/Controllers/OrderRefundController.php:416` | Refund cancellation refused: the record does not match the order |

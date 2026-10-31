@@ -398,45 +398,178 @@ class OrderReplacementTest extends SecurityTestCase
     }
 
     /**
-     * AND THE OPERATION IS STILL UNREACHABLE, asserted so it cannot become reachable by accident.
+     * ══════════════════════════════════════════════════════════════════════════════════════════
+     * THE OPERATION IS NOW REACHABLE — D-32, and this block replaces the test that forbade it.
+     * ══════════════════════════════════════════════════════════════════════════════════════════
      *
-     * Design §6 Q1 is unanswered, so this must not be callable from HTTP. If somebody adds a route
-     * this fails and tells them what has to be settled first — which is the opposite of F237,
-     * where a mechanism nothing called was recorded as working.
+     * What stood here was `test_nothing_in_the_application_calls_this_operation_yet`, which swept
+     * the controllers, middleware and routes for a caller and failed if it found one. Its own
+     * failure message said: *"If Q1 has been answered, delete this test and record the decision."*
+     *
+     * **D-32 answers Q1: identical products, identical quantities, identical prices.** That is
+     * the narrowest of the three readings the design offered, and the one that makes Q2 (a
+     * partially-paid original) and Q3 (original prices or today's) *fall away* — so opening this
+     * door invents no refund, settlement or stock rule. Different-item replacements are Phase 04.
+     *
+     * The cases below drive the real route. They matter because the service tests above call the
+     * service directly, and a route adds three things a direct call cannot exercise: the
+     * middleware stack, the id-resolution question, and the response shape the screen reads.
      */
-    public function test_nothing_in_the_application_calls_this_operation_yet(): void
+    private function replaceViaRoute($actor, Order $original, array $body = [])
     {
-        $callers = [];
+        return $this->actingAs($actor)->post(route('order.replace', $original->id), $body);
+    }
 
-        foreach (['app/Http/Controllers', 'app/Http/Middleware', 'routes'] as $dir) {
-            $path = base_path($dir);
+    public function test_the_route_replaces_the_order_and_answers_with_the_replacement(): void
+    {
+        [$merchant, $store] = $this->makeTenant();
+        $actor = $this->actor($merchant);
+        $product = $this->productIn($store);
+        $original = $this->orderIn($store, $product);
 
-            if (! is_dir($path)) {
-                continue;
-            }
+        $response = $this->replaceViaRoute($actor, $original);
 
-            $files = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($path));
+        $response->assertOk();
+        $this->assertTrue($response->json('status'), 'the route refused a legitimate replacement: ' . $response->json('message'));
 
-            foreach ($files as $file) {
-                if (! $file->isFile() || $file->getExtension() !== 'php') {
-                    continue;
-                }
+        $replacement = Order::where('replaced_order_id', $original->id)->first();
+        $this->assertNotNull($replacement, 'no replacement was written');
+        $this->assertSame((int) $replacement->id, (int) $response->json('data.replacement_order_id'));
+        $this->assertSame($replacement->product_order_id, $response->json('data.replacement_order_number'));
+        $this->assertSame(2, (int) $original->fresh()->delivered_status, 'the original was not cancelled');
+    }
 
-                if (str_contains((string) file_get_contents($file->getPathname()), 'cancelAndReplace')) {
-                    $callers[] = str_replace(base_path() . '/', '', $file->getPathname());
-                }
-            }
-        }
+    /**
+     * A MERCHANT CANNOT REPLACE ANOTHER STORE'S ORDER THROUGH THE ROUTE EITHER.
+     *
+     * The service test above proves the policy refuses it; this proves the ROUTE does not somehow
+     * get there first. `Order` is not tenant-scoped, so there is no scope to fall back on — and a
+     * 403 would be wrong here as much as a 401 would: the method answers business refusals in its
+     * `{status, message}` envelope, like its sibling.
+     */
+    public function test_the_route_refuses_another_stores_order(): void
+    {
+        [, $storeA] = $this->makeTenant();
+        [$merchantB] = $this->makeTenant();
+        $intruder = $this->actor($merchantB);
+
+        $product = $this->productIn($storeA);
+        $original = $this->orderIn($storeA, $product);
+
+        $response = $this->replaceViaRoute($intruder, $original);
+
+        $response->assertOk();
+        $this->assertFalse($response->json('status'), 'an intruder replaced another store\'s order through the route');
+        $this->assertSame(0, (int) $original->fresh()->delivered_status, 'the intruder cancelled another store\'s order');
+        $this->assertSame(0, Order::where('replaced_order_id', $original->id)->count());
+    }
+
+    /**
+     * AN ANONYMOUS CALLER IS SENT TO SIGN IN, NOT GIVEN A BUSINESS REFUSAL.
+     *
+     * The route sits in the `['auth', 'xss', 'setlocate', 'verified']` group, so this is the
+     * middleware's answer rather than the handler's — and the handler must never be reached. If it
+     * were, `Auth::user()` would be null and the service's own `! $actor` limb would refuse, which
+     * is the right answer by the wrong route.
+     */
+    public function test_an_anonymous_caller_never_reaches_the_handler(): void
+    {
+        [, $store] = $this->makeTenant();
+        $product = $this->productIn($store);
+        $original = $this->orderIn($store, $product);
+
+        $response = $this->post(route('order.replace', $original->id));
+
+        $this->assertTrue(
+            $response->isRedirect(),
+            'an anonymous POST was answered by the handler rather than by the auth middleware '
+            . '(HTTP ' . $response->getStatusCode() . ')'
+        );
+        $this->assertSame(0, Order::where('replaced_order_id', $original->id)->count());
+    }
+
+    /**
+     * THE ID COMES FROM THE URL, NOT THE BODY — measured on the sibling route to be exploitable.
+     *
+     * `Request::__get` reads `all()` BEFORE the route parameters, so `$request->id` would let a
+     * posted `id` win over the URL segment. `order_status_change` documents that a POST to
+     * `/order-status-change/<own id>` carrying `id=<victim id>` acted on the victim. This handler
+     * reads `$request->route('id')` for that reason, and this case is what holds it there.
+     *
+     * The caller owns BOTH orders here, so the only thing being measured is WHICH one was acted
+     * on — not an authorisation refusal, which would mask the answer.
+     */
+    public function test_a_posted_id_cannot_override_the_url_segment(): void
+    {
+        [$merchant, $store] = $this->makeTenant();
+        $actor = $this->actor($merchant);
+        $product = $this->productIn($store, 100);
+
+        $named = $this->orderIn($store, $product);
+        $other = $this->orderIn($store, $product);
+
+        $this->replaceViaRoute($actor, $named, ['id' => $other->id]);
 
         $this->assertSame(
-            [],
-            $callers,
-            "`cancelAndReplace()` is now reachable from:\n  " . implode("\n  ", $callers)
-            . "\n\nThat needs design §6 Q1 answered first — may a replacement differ from the "
-            . 'original at all? The identical-lines-only variant implemented here is correct '
-            . 'without that answer but must not be exposed without it, because Q2 (a partially '
-            . 'paid original) and Q3 (original prices or today\'s) only fall away while the lines '
-            . 'are identical. If Q1 has been answered, delete this test and record the decision.'
+            1,
+            Order::where('replaced_order_id', $named->id)->count(),
+            'the order named in the URL was not the one replaced'
         );
+        $this->assertSame(
+            0,
+            Order::where('replaced_order_id', $other->id)->count(),
+            'A POSTED `id` OVERRODE THE URL SEGMENT. That is the exact defect measured on '
+            . 'order-status-change: the handler acted on an order the URL did not name.'
+        );
+        $this->assertSame(0, (int) $other->fresh()->delivered_status, 'the unnamed order was cancelled');
+    }
+
+    /** Each named refusal reaches the merchant as its own sentence, not "something was wrong". */
+    public function test_a_replayed_route_call_says_so_specifically(): void
+    {
+        [$merchant, $store] = $this->makeTenant();
+        $actor = $this->actor($merchant);
+        $product = $this->productIn($store);
+        $original = $this->orderIn($store, $product);
+
+        $this->replaceViaRoute($actor, $original);
+        $response = $this->replaceViaRoute($actor, $original->fresh());
+
+        $response->assertOk();
+        $this->assertFalse($response->json('status'));
+        $this->assertStringContainsString(
+            'already been replaced',
+            (string) $response->json('message'),
+            'a replay was answered with a generic message, which sends the merchant to support '
+            . 'instead of telling them what happened'
+        );
+        $this->assertSame(1, Order::where('replaced_order_id', $original->id)->count());
+    }
+
+    /**
+     * AND THE SERVICE'S INTERNAL REASON NEVER REACHES THE MERCHANT.
+     *
+     * The named outcomes are translated into sentences; `$reason` names internal columns and
+     * states (`replaced_order_id`, `already_dispatched`) and belongs in the operator log only —
+     * the same division `GuardsPlanActivation` makes between what an operator needs and what a
+     * response may carry.
+     */
+    public function test_the_refusal_discloses_no_internal_state(): void
+    {
+        [, $storeA] = $this->makeTenant();
+        [$merchantB] = $this->makeTenant();
+        $intruder = $this->actor($merchantB);
+        $product = $this->productIn($storeA);
+        $original = $this->orderIn($storeA, $product);
+
+        $body = (string) $this->replaceViaRoute($intruder, $original)->getContent();
+
+        foreach (['replaced_order_id', 'not_authorised', 'already_dispatched', 'updateStatus'] as $internal) {
+            $this->assertStringNotContainsString(
+                $internal,
+                $body,
+                'the refusal names the internal token `' . $internal . '` to the merchant'
+            );
+        }
     }
 }
