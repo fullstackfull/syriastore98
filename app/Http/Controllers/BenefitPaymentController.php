@@ -10,12 +10,14 @@ use GuzzleHttp\Client;
 use Exception;
 use App\Models\PlanCoupon;
 use Illuminate\Support\Facades\Auth;
+use App\Http\Controllers\Concerns\RefusesDeferredGateway;
 
 use App\Http\Controllers\Concerns\GuardsPlanActivation;
 
 class BenefitPaymentController extends Controller
 {
     use GuardsPlanActivation;
+    use RefusesDeferredGateway;
 
     //
 
@@ -175,6 +177,19 @@ class BenefitPaymentController extends Controller
          * a test; see GuardsPlanActivation::refusePlanActivationReplay().
          */
         $benefitReference = $request->tap_id;
+        /*
+         * D-33 — DEFERRED GATEWAY. A paid plan activation refuses here, BEFORE the outbound call,
+         * because tap's charge says nothing about which plan the money was for and the contract
+         * that would let the intent bind to it cannot be established from this environment.
+         * Zero-price plans are unaffected. Compatibility and business impact are set out in the
+         * trait's header, as D-33 requires.
+         */
+        $benefitDeferred = $this->refuseDeferredGatewayPaidActivation('Benefit', $plan, $request->coupon, $benefitReference);
+
+        if ($benefitDeferred !== null) {
+            return $benefitDeferred;
+        }
+
         $benefitReplay = $this->refusePlanActivationReplay('Benefit', $benefitReference, $plan, $user);
 
         if ($benefitReplay !== null) {

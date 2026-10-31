@@ -68,7 +68,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/GatewayReference.php:198` | gateway capture replayed: the reference is already recorded |
 | `app/Services/GatewayReference.php:213` | gateway capture replayed (23000): the reference is already recorded |
 
-### `warning` — 165 lines
+### `warning` — 166 lines
 
 | line | message |
 |---|---|
@@ -121,6 +121,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:1108` | Gateway return refused: basket holds a non-positive quantity. |
 | `app/Http/Controllers/Concerns/GuardsPlanActivation.php:85` | Plan activation refused: provider is disabled pending verification. |
 | `app/Http/Controllers/Concerns/GuardsPlanActivation.php:505` | Plan activation refused: this provider reference has already activated a plan. |
+| `app/Http/Controllers/Concerns/RefusesDeferredGateway.php:100` | Paid plan activation refused: this gateway is deferred from Phase 02 and its payment evidence cannot be verified. |
 | `app/Http/Controllers/Concerns/ResolvesPendingPartialPayment.php:135` | Pending partial payment lookup failed; the payment is refused. |
 | `app/Http/Controllers/Customer/Auth/CustomerLoginController.php:716` | customer login: refused a social row still holding its module-assigned password |
 | `app/Http/Controllers/Customer/Auth/CustomerLoginController.php:941` | Newsletter subscription failed during customer registration |

@@ -72,7 +72,24 @@ class PlanActivationReplayGuardTest extends PlanPaymentTestCase
     public static function providers(): array
     {
         return [
-            'Benefit'  => ['benefit.call_back', 'Benefit', 'query:tap_id'],
+            /*
+             * BENEFIT IS NO LONGER IN THIS LIST, by owner decision D-33 (2026-10-31).
+             *
+             * It is DEFERRED out of Phase 02, and `RefusesDeferredGateway` now refuses a PAID
+             * activation on it before the replay guard is reached -- so for a paid plan the guard
+             * is unreachable by design, and four cases here failed when the deferral landed. That
+             * is the deferral working, not a regression: the refusal is earlier and stronger than
+             * the one these cases assert.
+             *
+             * Removing it rather than switching it to a free plan is deliberate. A zero-price
+             * Benefit plan does reach the guard, but it is not the case these cases are about --
+             * they exist to prove a REPLAYED PAID REFERENCE cannot activate twice, and on a free
+             * plan there is no payment to replay. Keeping it with a free plan would be a case that
+             * passes while measuring something else.
+             *
+             * `DeferredGatewayFailClosedTest` is where Benefit's behaviour is asserted now. When
+             * D-33's future integration task restores it, this entry comes back.
+             */
             'Cashfree' => ['cashfreePayment.success', 'Cashfree', 'query:order_id'],
             'Mollie'   => ['plan.mollie', 'Mollie', 'session:mollie_payment_id'],
         ];
