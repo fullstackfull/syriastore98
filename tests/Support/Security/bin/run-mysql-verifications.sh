@@ -359,6 +359,16 @@ run_one verify-empty-variant-name-wipe-on-mysql \
   "F199_MYSQL_SOCKET=${SOCK}" "F199_MYSQL_HOST=${HOST}" "F199_MYSQL_PORT=${PORT}" \
   "F199_MYSQL_DATABASE=f199_verify" "F199_MYSQL_USERNAME=${USER_NAME}" "F199_MYSQL_PASSWORD=${PASS}"
 
+# F234. The ONE question in this roster that the Feature suite cannot answer at all rather than
+# merely answer badly: the plan initiators look their coupon up with `whereRaw('BINARY `code` = ?')`,
+# which is MySQL-only. On SQLite that is a SYNTAX ERROR, so the request dies before it reaches the
+# coupon block, and a Feature test asserting "no usage was persisted" passes for a reason with
+# nothing to do with the defect. Two such tests were written, both passed, and both were deleted
+# once driven. 43 files under app/Http/Controllers/ use that form.
+run_one verify-plan-coupon-refusal-ordering-on-mysql \
+  "F234_MYSQL_SOCKET=${SOCK}" "F234_MYSQL_HOST=${HOST}" "F234_MYSQL_PORT=${PORT}" \
+  "F234_MYSQL_DATABASE=f234_verify" "F234_MYSQL_USERNAME=${USER_NAME}" "F234_MYSQL_PASSWORD=${PASS}"
+
 echo "==========================================================================="
 echo "passed: ${#PASSED[@]}   failed: ${#FAILED[@]}"
 if [ "${#FAILED[@]}" -gt 0 ]; then

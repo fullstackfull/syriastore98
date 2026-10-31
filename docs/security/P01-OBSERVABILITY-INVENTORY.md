@@ -67,10 +67,11 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/GatewayReference.php:112` | gateway capture replayed: the reference is already recorded |
 | `app/Services/GatewayReference.php:127` | gateway capture replayed (23000): the reference is already recorded |
 
-### `warning` — 141 lines
+### `warning` — 142 lines
 
 | line | message |
 |---|---|
+| `app/Http/Controllers/CyberSourceController.php:122` | CyberSource plan purchase refused: the posted plan id matches no plan. |
 | `app/Http/Controllers/Concerns/GuardsPlanActivation.php:156` | Plan purchase refused before any write: the provider has no usable credentials. |
 | `app/Http/Controllers/Concerns/AppliesCartStockChanges.php:179` | stock evidence not attributed: the order carries no usable id or store |
 | `app/Http/Controllers/Concerns/AppliesCartStockChanges.php:208` | stock evidence incomplete: fewer movements recorded than stock decrements applied |
