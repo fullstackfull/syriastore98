@@ -2351,6 +2351,82 @@ product media/file-type gaps, and the P2-08 acceptance matrix) all stand as prev
 
 ---
 
+## D-30 — the owner's ruling of 2026-10-31: **PHASE 02 REMAINS OPEN**
+
+> **Verified HEADs at the moment of the ruling:** Laravel **`8483374f`**, Flutter **`1978aff`**.
+> Both confirmed against their remotes with clean worktrees before this entry was written.
+
+**PHASE 02 IS NOT OWNER ACCEPTED.** The owner's words: *"لا تعتبر Phase 02 مقبولة أو مغلقة نهائياً"* —
+do not treat Phase 02 as accepted or finally closed.
+
+**THIS RULING OVERRIDES THE PREVIOUS CLOSURE REPORT'S RECOMMENDATION.** That report proposed
+settling for ENGINEERING COMPLETE and carrying the critical items to Phase 04. The owner has
+explicitly declined that: *"هذا القرار يتقدّم على توصية تقرير الإغلاق السابق بالاكتفاء بـENGINEERING
+COMPLETE أو تأجيل البنود الحرجة إلى Phase 04."* **E13 and E14 remain inside Phase 02** and are not
+to be deferred, silently or otherwise.
+
+### Acceptance is blocked by exactly four things
+
+| # | blocker | where it lives |
+|---|---|---|
+| 1 | **E13** — the limited cancel-and-linked-replacement workflow | `P2-04-16`, under D-15's conditions |
+| 2 | **E14** — payment and inventory idempotency, **particularly F220** | `P2-04-17`, F216, F220 |
+| 3 | **Critical financial and security findings** | F217/F224, F221/F225, F218/F194, the SVG exposure, F218–F225 |
+| 4 | **Final comprehensive verification AND explicit owner acceptance** | the acceptance gates, then the owner's own act |
+
+### SIX states now, not four
+
+The previous table carried four columns. The owner has named **six**, and the last two are the ones
+this project kept collapsing into the others:
+
+> **OWNER APPROVED · IMPLEMENTED · VERIFIED · PRODUCTION ACTIVATED · OWNER ACCEPTED · RELEASE READY**
+
+**Why the two new columns matter and are not bookkeeping.** The closure report correctly separated
+the first four and then still invited a reading in which "engineering complete" stood in for
+acceptance. It cannot. A decision can be approved, implemented, verified by a passing gate, and
+still be **neither accepted by the owner nor safe to release** — and for every row in D-29 that is
+exactly the position. **OWNER ACCEPTED is an act of the owner's, not a status I can record from
+evidence**, and RELEASE READY is a property of the whole system including the production obligations
+this authorisation cannot touch.
+
+### What is explicitly NOT approved
+
+**The owner has NOT approved new refund, settlement or payment-capture semantics.** So no slice below
+may introduce them, and where a scenario cannot be made safe within D-15 and D-29, the slice is
+**marked BLOCKED with precise evidence rather than given an unsafe shortcut** — the owner's own
+instruction: *"Stop unsafe individual slices rather than inventing business rules."*
+
+### The standing restrictions, unchanged and re-stated
+
+NO MERGE TO MAIN · NO PRODUCTION DEPLOYMENT · NO PRODUCTION MIGRATION · NO PRODUCTION DATA WRITES ·
+NO PRODUCTION CACHE/ENV/INFRA CHANGES · NO SECRET ROTATION · NO FORCE PUSH · NO VENDORED WORKDO
+MODIFICATION · NO PHASE 2.5 · NO PHASE 03 FEATURE DEVELOPMENT · NO UNAPPROVED FINANCIAL SETTLEMENT
+OR REFUND RULE CHANGE.
+
+Local isolated MariaDB, development-only migrations and safe test environments remain permitted
+within the earlier approvals.
+
+### Issue #120 and Phase 01
+
+**#120 stays DEFERRED BY OWNER and OPEN SECURITY-WISE.** No history deletion, no secret rotation, no
+modification of leaked production data, and **no claim that the incident is remediated**. It is
+documented as something that **may independently block RELEASE READY**. Phase 01's release gates are
+reviewed and **not cleared under Phase 02 authority**; Phase 01's production obligations are not the
+same question as the completeness of Phase 02's code.
+
+### The baseline, and what it is not
+
+Feature **6956 passed / 2 declared failures / 17 declared skips**, Unit **657**, Contract **26**,
+MariaDB **32/32**, Flutter **1289** — measured on Laravel `e95afda4` and Flutter `1978aff`.
+
+**These are a BASELINE and are not evidence for any later code change.** The owner states it
+directly, and this project has already broken that rule once: P2-08 carried a gate result from
+`b918c1d7` across more than twenty commits. The figure above must not be copied forward as a new
+result.
+
+
+---
+
 ## D-29 — the owner's seven closure decisions of 2026-10-30
 
 > **Recorded verbatim in substance, with the four states kept apart as the owner required:**
@@ -2365,15 +2441,15 @@ product media/file-type gaps, and the P2-08 acceptance matrix) all stand as prev
 
 ### The state of each, kept honest
 
-| # | decision | OWNER APPROVED | IMPLEMENTED | VERIFIED | PRODUCTION ACTIVATED |
-|---|---|---|---|---|---|
-| **D-29.1** | F194/F211 payment-cache isolation | ✅ 2026-10-30 | ✅ ships inert | ✅ 16 checks on MariaDB | ❌ **forbidden now** |
-| **D-29.2** | F207 safe cart reconciliation | ✅ 2026-10-30 | ✅ `20f98446`/`6db56329` — the product-type confinement and post-response cart reconciliation in `ModuleResourceOwnershipGuard` | ✅ the guard's own suite, plus the existence-check ordering driven against a digital twin | n/a (no production step) |
-| **D-29.3** | F216 durable payment reference | ✅ **design + dev/test only** | ✅ `20f98446` — migration, `GatewayReference`, `UNIQUE (store_id, gateway, reference)` | ✅ 11 Feature cases + **14 checks on MariaDB 10.11.14 with two real connections** (race, failure before and after commit, tenant isolation, bind idempotency, concurrent bind) | ❌ **no production migration** — the table does not exist in production |
-| **D-29.4** | F216 merchant attestation | ✅ **as a REFUSAL** | ✅ `278d9ba8` — a READ-ONLY review surface: `/finance/unreconciled-captures`, gated on the **seeded** `View Finance Dashboard` (a view name for a view surface), operator-first, tenant-scoped from `getCurrentStore()`, audit-logged | ✅ 11 cases, 30 assertions — including that **POST/PUT/PATCH/DELETE routes are all absent**, that two reviews change not one gateway-reference row, and that `GatewayReference` still offers **no** `markPaid`/`settle`/`release`/`confirm`/`approve`/`restoreStock` | n/a |
-| **D-29.5** | F190 upload type lists | ✅ **in principle, conditional on F217** | ⚠️ **HALF** — `41d8a202`: `preview_video` enabled; `downloadable_product` **declared and held shut** by the owner's F217 condition | ✅ 12 cases incl. a PHP script and a PNG renamed `.mp4`, both refused by content; 4 bites | n/a — the digital half needs F217 closed, not a production step |
-| **D-29.6** | F217 secure paid downloads | ✅ **HIGH PRIORITY** | ⚠️ **the serving path, not the containment** — `103bf45b`/`3ffbcb51`: `PaidDownloadController`, `DownloadGrant`, the exposure census | ✅ 10 entitlement cases | ❌ **AND THE GAP IS THE POINT:** files already written stay reachable at their public URLs. Closing that is a file move plus a database path rewrite — a production data write, forbidden here. Runbook-only. |
-| **D-29.7** | P2-01-17 header acceptance | ✅ **OWNER ACCEPTED for Phase 02 scope** | ✅ D-25's three steps (`51c4fc46`, `b2f7f1fb`, `731ad458`) | ✅ **status changed `41d8a202`+**; the owner's condition is live — 13 header tests pass (4 accessible names, 9 contrast); if they go red the acceptance lapses | n/a |
+| # | decision | OWNER APPROVED | IMPLEMENTED | VERIFIED | PRODUCTION ACTIVATED | OWNER ACCEPTED | RELEASE READY |
+|---|---|---|---|---|---|---|---|
+| **D-29.1** | F194/F211 payment-cache isolation | ✅ 2026-10-30 | ✅ ships inert | ✅ 16 checks on MariaDB | ❌ **forbidden now** | ❌ **D-30** | ❌ **D-30** |
+| **D-29.2** | F207 safe cart reconciliation | ✅ 2026-10-30 | ✅ `20f98446`/`6db56329` — the product-type confinement and post-response cart reconciliation in `ModuleResourceOwnershipGuard` | ✅ the guard's own suite, plus the existence-check ordering driven against a digital twin | n/a (no production step) | ❌ **D-30** | ❌ **D-30** |
+| **D-29.3** | F216 durable payment reference | ✅ **design + dev/test only** | ✅ `20f98446` — migration, `GatewayReference`, `UNIQUE (store_id, gateway, reference)` | ✅ 11 Feature cases + **14 checks on MariaDB 10.11.14 with two real connections** (race, failure before and after commit, tenant isolation, bind idempotency, concurrent bind) | ❌ **no production migration** — the table does not exist in production | ❌ **D-30** | ❌ **D-30** |
+| **D-29.4** | F216 merchant attestation | ✅ **as a REFUSAL** | ✅ `278d9ba8` — a READ-ONLY review surface: `/finance/unreconciled-captures`, gated on the **seeded** `View Finance Dashboard` (a view name for a view surface), operator-first, tenant-scoped from `getCurrentStore()`, audit-logged | ✅ 11 cases, 30 assertions — including that **POST/PUT/PATCH/DELETE routes are all absent**, that two reviews change not one gateway-reference row, and that `GatewayReference` still offers **no** `markPaid`/`settle`/`release`/`confirm`/`approve`/`restoreStock` | n/a | ❌ **D-30** | ❌ **D-30** |
+| **D-29.5** | F190 upload type lists | ✅ **in principle, conditional on F217** | ⚠️ **HALF** — `41d8a202`: `preview_video` enabled; `downloadable_product` **declared and held shut** by the owner's F217 condition | ✅ 12 cases incl. a PHP script and a PNG renamed `.mp4`, both refused by content; 4 bites | n/a — the digital half needs F217 closed, not a production step | ❌ **D-30** | ❌ **D-30** |
+| **D-29.6** | F217 secure paid downloads | ✅ **HIGH PRIORITY** | ⚠️ **the serving path, not the containment** — `103bf45b`/`3ffbcb51`: `PaidDownloadController`, `DownloadGrant`, the exposure census | ✅ 10 entitlement cases | ❌ **AND THE GAP IS THE POINT:** files already written stay reachable at their public URLs. Closing that is a file move plus a database path rewrite — a production data write, forbidden here. Runbook-only. | ❌ **D-30** | ❌ **D-30** |
+| **D-29.7** | P2-01-17 header acceptance | ✅ **OWNER ACCEPTED for Phase 02 scope** | ✅ D-25's three steps (`51c4fc46`, `b2f7f1fb`, `731ad458`) | ✅ **status changed `41d8a202`+**; the owner's condition is live — 13 header tests pass (4 accessible names, 9 contrast); if they go red the acceptance lapses | n/a | ✅ **for the header scope ONLY** (D-29.7's own words: *"This approval concerns the header scope only, and does not mean final acceptance of all of Phase 02"*) | ❌ **D-30** |
 
 **[2026-10-30] THE `VERIFIED` COLUMN NOW HAS A GATE BEHIND IT, AND UNTIL NOW IT DID NOT.** An
 adversarial sweep found three of the four implemented D-29 rows marked VERIFIED on the strength of
@@ -2385,6 +2461,10 @@ passed`, asserter *"matches the manifest exactly … nothing undeclared"*, Unit 
 MariaDB 32/0 — and it took two runs, the first of which failed on an undeclared failure of mine.
 Both are recorded in `PHASE-02-TASK-LEDGER.md`'s P2-08 row with evidence files, including the one
 that failed.
+
+**[2026-10-31] TWO COLUMNS ADDED BY D-30, AND EVERY CELL IN THEM IS A REFUSAL.** The owner named six states, not four. `OWNER ACCEPTED` is an act of theirs that no evidence of mine can supply, and `RELEASE READY` is a property of the whole system including production obligations this authorisation cannot touch. So all seven D-29 decisions read ❌ in both — including the ones that are approved, implemented AND verified. That is the distinction the previous closure report blurred by inviting "ENGINEERING COMPLETE" to stand in for acceptance.
+
+**ONE EXCEPTION, AND IT IS THE OWNER'S OWN:** D-29.7 reads ✅ under OWNER ACCEPTED **for the header scope only**, because the owner accepted that row explicitly and in the same breath limited what they were accepting — *"This approval concerns the header scope only, and does not mean final acceptance of all of Phase 02."* A blanket ❌ there would have misstated them in the other direction. Its RELEASE READY cell is still ❌, because that was never what they accepted.
 
 **The separation is not bookkeeping.** D-29.1 is approved, implemented and verified and is **still
 not closed in production** — the owner says so twice: *"do not change production settings, or run a
