@@ -1,0 +1,48 @@
+HEAD_AT_LAUNCH=18ebbf46e4ee9a900a21499df4156c9a1c21c669
+DIRTY_AT_LAUNCH=0
+#112 /home/user/syriastore98/vendor/phpunit/phpunit/src/Framework/TestSuite.php(369): PHPUnit\Framework\TestSuite->run()
+#113 /home/user/syriastore98/vendor/phpunit/phpunit/src/TextUI/TestRunner.php(64): PHPUnit\Framework\TestSuite->run()
+#114 /home/user/syriastore98/vendor/phpunit/phpunit/src/TextUI/Application.php(210): PHPUnit\TextUI\TestRunner->run()
+#115 /home/user/syriastore98/vendor/phpunit/phpunit/phpunit(104): PHPUnit\TextUI\Application->run()
+#116 {main}
+
+----------------------------------------------------------------------------------
+
+Attempt to read property "slug" on null (View: /home/user/syriastore98/resources/views/partision/header.blade.php) (View: /home/user/syriastore98/resources/views/partision/header.blade.php) (View: /home/user/syriastore98/resources/views/partision/header.blade.php)
+
+  at tests/Feature/ProfileTest.php:77
+     73▕         $response = $this
+     74▕             ->actingAs($user)
+     75▕             ->get('/profile');
+     76▕ 
+  ➜  77▕         $response->assertOk();
+     78▕     }
+     79▕ 
+     80▕     public function test_profile_information_can_be_updated(): void
+     81▕     {
+
+
+  Tests:    2 failed, 17 skipped, 7109 passed (35174 assertions)
+  Duration: 1613.11s
+
+FEATURE_EXIT=1
+KNOWN-OUTCOME GATE
+------------------------------------------------------------------------------
+junit log            : storage/logs/final-junit.xml
+manifest             : .github/known-test-outcomes.json
+testcases observed   : 7128  (manifest floor 1000)
+failures observed    : 2  (manifest declares 2)
+errors observed      : 0  (always expected: 0)
+skips observed       : 17  (manifest declares 17)
+
+skip reasons parsed  : 17 from final-teamcity.txt
+
+
+OK: the observed outcome set matches the manifest exactly -- 2 declared failures, 17 declared skips, 0 errors, and nothing undeclared.
+
+This is NOT a statement that the suite is green. It is a statement that the suite is
+failing and skipping exactly the tests the project has recorded, for the reasons it has
+recorded. Read .github/known-test-outcomes.json for what is still owed and to whom.
+ASSERT_EXIT=0
+HEAD_AT_FINISH=18ebbf46e4ee9a900a21499df4156c9a1c21c669
+DIRTY_AT_FINISH=0
