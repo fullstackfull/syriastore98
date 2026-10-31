@@ -103,6 +103,8 @@ class StockMovement
                 'applied' => (bool) ($movement['applied'] ?? false),
                 'outcome' => isset($movement['outcome']) ? substr((string) $movement['outcome'], 0, 24) : null,
                 'reason' => isset($movement['reason']) ? substr((string) $movement['reason'], 0, 32) : null,
+                'correlation_token' => isset($movement['correlation_token'])
+                    ? substr((string) $movement['correlation_token'], 0, 64) : null,
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
@@ -181,6 +183,77 @@ class StockMovement
 
             return self::UNKNOWN;
         }
+    }
+
+    /**
+     * A token for one checkout, so movements recorded before the order exists can be attributed
+     * to it afterwards.
+     *
+     * Random rather than derived from the cart or the customer: two checkouts by the same customer
+     * for the same basket must not collide, and a derived token would make them indistinguishable
+     * in exactly the case attribution matters.
+     */
+    public static function newToken(): string
+    {
+        return bin2hex(random_bytes(16));
+    }
+
+    /**
+     * Attribute this checkout's movements to the order that was just written.
+     *
+     * **ONLY ROWS THAT ARE STILL UNATTRIBUTED, and that is the idempotency.** `whereNull('order_id')`
+     * means a second call -- a retried webhook, an overlapping gateway return -- cannot move rows
+     * that already belong to an order, so it cannot re-point one checkout's stock at a second order.
+     * That is the same construction `GatewayReference::bind()` uses, and for the same reason.
+     *
+     * Returns the number of rows attributed, so a caller can tell "attributed 2" from "attributed
+     * nothing because another request got there first".
+     */
+    public static function attributeToOrder(string $token, $storeId, $orderId): int
+    {
+        if (! self::available() || $token === '' || ! is_numeric($storeId) || ! is_numeric($orderId)) {
+            return 0;
+        }
+
+        try {
+            return DB::table(self::TABLE)
+                ->where('store_id', (int) $storeId)
+                ->where('correlation_token', $token)
+                ->whereNull('order_id')
+                ->update(['order_id' => (int) $orderId, 'updated_at' => now()]);
+        } catch (\Throwable $theAttributionFailed) {
+            Log::warning('stock movement not attributed', [
+                'reason' => $theAttributionFailed->getMessage(),
+                'token' => $token,
+                'order_id' => $orderId,
+            ]);
+
+            return 0;
+        }
+    }
+
+    /**
+     * Movements recorded for a checkout that never became an order.
+     *
+     * **THIS IS THE QUERY THAT MAKES THE DESIGN WORTH HAVING.** Stock moved and no order owns it:
+     * the stock-side twin of F186's captured-payment-without-order. A reviewer can see it; nothing
+     * here acts on it, because releasing or restoring stock on this evidence would be a stock
+     * decision the owner has not approved.
+     */
+    public static function unattributed($storeId, int $olderThanMinutes = 30)
+    {
+        if (! self::available() || ! is_numeric($storeId)) {
+            return collect();
+        }
+
+        return DB::table(self::TABLE)
+            ->where('store_id', (int) $storeId)
+            ->whereNull('order_id')
+            ->whereNotNull('correlation_token')
+            ->where('applied', true)
+            ->where('created_at', '<', now()->subMinutes($olderThanMinutes))
+            ->orderBy('id')
+            ->get();
     }
 
     /** Every movement recorded for one order, for a reviewer. Store-scoped. */

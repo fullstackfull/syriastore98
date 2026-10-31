@@ -32,6 +32,40 @@ trait AppliesCartStockChanges
     /** Atomic stock decrement, replacing the read-modify-write pattern. */
     private ?\App\Services\ProductStockService $stockService = null;
 
+    /**
+     * E13 / D-30 — the correlation token for THIS checkout's stock movements.
+     *
+     * `decrementStockOrFail()` runs BEFORE `new Order()` is reached (this file's own comment says
+     * so), so a movement recorded there has no order id to carry. It carries this token instead,
+     * and the caller attributes it once the order exists -- see
+     * `StockMovement::attributeToOrder()`. Until then the row is honestly UNATTRIBUTED rather than
+     * mis-attributed, and if the order write never succeeds it stays that way, which is the correct
+     * record of stock that moved with no order owning it.
+     *
+     * Minted lazily and once per request, so every line of one basket shares a token.
+     */
+    private function stockEvidenceToken(): string
+    {
+        if (empty($this->ssStockEvidenceToken)) {
+            $this->ssStockEvidenceToken = \App\Services\StockMovement::newToken();
+        }
+
+        return $this->ssStockEvidenceToken;
+    }
+
+    /** @var string|null Set by {@see stockEvidenceToken()}; one token per request. */
+    private $ssStockEvidenceToken = null;
+
+    /** The evidence context for a stock call on the placement path. */
+    private function stockEvidence($model, string $reason): array
+    {
+        return [
+            'store_id' => $model->store_id ?? null,
+            'correlation_token' => $this->stockEvidenceToken(),
+            'reason' => $reason,
+        ];
+    }
+
     private function stockService(): \App\Services\ProductStockService
     {
         return $this->stockService ??= new \App\Services\ProductStockService();
@@ -59,9 +93,11 @@ trait AppliesCartStockChanges
         $qty,
         bool $rejectOnShortfall = true
     ): ?array {
+        $evidence = $this->stockEvidence($model, \App\Services\StockMovement::REASON_ORDER_PLACE);
+
         $result = $kind === 'variant'
-            ? $this->stockService()->decrementVariantStock($model, $qty)
-            : $this->stockService()->decrementProductStock($model, $qty);
+            ? $this->stockService()->decrementVariantStock($model, $qty, false, false, $evidence)
+            : $this->stockService()->decrementProductStock($model, $qty, false, false, $evidence);
 
         if ($result['applied']) {
             $applied[] = [
@@ -99,9 +135,11 @@ trait AppliesCartStockChanges
         // strictly better than losing the order. The shortfall is a merchant
         // operations problem, not a reason to discard a paid basket.
         if (!$rejectOnShortfall) {
+            $forcedEvidence = $this->stockEvidence($model, \App\Services\StockMovement::REASON_ORDER_PLACE);
+
             $forced = $kind === 'variant'
-                ? $this->stockService()->decrementVariantStock($model, $qty, true)
-                : $this->stockService()->decrementProductStock($model, $qty, true);
+                ? $this->stockService()->decrementVariantStock($model, $qty, true, false, $forcedEvidence)
+                : $this->stockService()->decrementProductStock($model, $qty, true, false, $forcedEvidence);
 
             if ($forced['applied']) {
                 $applied[] = [
@@ -161,10 +199,19 @@ trait AppliesCartStockChanges
              * the rest of the inventory to protect a log line.
              */
             try {
+                /* The compensation is evidence too: a line taken and given back must read as
+                   NOT_MOVED on balance, or a later replacement would restore it a second time.
+                   Same token, so it joins this checkout's other movements. */
+                $restoreEvidence = [
+                    'store_id' => $change['store_id'] ?? null,
+                    'correlation_token' => $this->stockEvidenceToken(),
+                    'reason' => \App\Services\StockMovement::REASON_ORDER_CANCEL,
+                ];
+
                 if (($change['kind'] ?? null) === 'variant') {
-                    $this->stockService()->restoreVariantStock($change['id'], $change['quantity']);
+                    $this->stockService()->restoreVariantStock($change['id'], $change['quantity'], $restoreEvidence);
                 } else {
-                    $this->stockService()->restoreProductStock($change['id'], $change['quantity']);
+                    $this->stockService()->restoreProductStock($change['id'], $change['quantity'], $restoreEvidence);
                 }
             } catch (\Throwable $restoreFailure) {
                 /*

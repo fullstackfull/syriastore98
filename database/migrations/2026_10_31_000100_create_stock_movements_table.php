@@ -83,6 +83,27 @@ return new class extends Migration
             /* The event class, so the five identical-looking cancellation doors stay distinguishable. */
             $table->string('reason', 32)->nullable();
 
+            /*
+             * THE CORRELATION TOKEN, AND IT EXISTS BECAUSE OF A HARD ORDERING FACT.
+             *
+             * `AppliesCartStockChanges::decrementStockOrFail()` runs BEFORE the order exists — its
+             * own comment says so: *"`new Order()` has not been reached yet, and no transaction
+             * wraps any of it"*. So on every gateway placement path the stock moves while there is
+             * no order id to attribute it to, and an `order_id` written at decrement time could
+             * only be a guess.
+             *
+             * So the placement path records the movement with a token it generated for this
+             * checkout, and calls `StockMovement::attributeToOrder()` once `new Order()` has
+             * succeeded. Two consequences, both of them wanted:
+             *
+             *   - until the order exists the row is honestly UNATTRIBUTED, not mis-attributed;
+             *   - if the order write FAILS, the rows stay unattributed for ever — which is the
+             *     correct record of what happened: stock moved and no order owns it. That is the
+             *     same shape as F186's captured-payment-without-order, made visible in the stock
+             *     record rather than inferred.
+             */
+            $table->string('correlation_token', 64)->nullable()->index();
+
             $table->timestamps();
 
             /* The query E13 actually runs: "what did order N do to this line, in this store?" */

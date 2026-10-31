@@ -414,14 +414,26 @@ class ProductStockService
      */
     private function recordMovement(array $evidence, array $movement): void
     {
-        if (empty($evidence['store_id']) || empty($evidence['order_id'])) {
+        /*
+         * A STORE IS REQUIRED. An order id OR a correlation token is required -- the token is how a
+         * PLACEMENT path records a movement that happens before `new Order()` exists, which
+         * `AppliesCartStockChanges::decrementStockOrFail()`'s own comment confirms is the real
+         * ordering. Without either, the row could not be attributed to anything and would look like
+         * an answer without being one.
+         */
+        if (empty($evidence['store_id'])) {
+            return;
+        }
+
+        if (empty($evidence['order_id']) && empty($evidence['correlation_token'])) {
             return;
         }
 
         \App\Services\StockMovement::record(array_merge($movement, [
             'store_id' => $evidence['store_id'],
-            'order_id' => $evidence['order_id'],
+            'order_id' => $evidence['order_id'] ?? null,
             'reason' => $evidence['reason'] ?? null,
+            'correlation_token' => $evidence['correlation_token'] ?? null,
         ]));
     }
 

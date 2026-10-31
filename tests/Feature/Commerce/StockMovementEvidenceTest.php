@@ -370,4 +370,138 @@ class StockMovementEvidenceTest extends SecurityTestCase
             StockMovement::movedOutFor($store->id, $order->id, $product->id)
         );
     }
+
+    // ─── THE ORDERING CONSTRAINT: stock moves BEFORE the order exists
+
+    public function test_a_placement_movement_is_recorded_unattributed_then_attributed(): void
+    {
+        /*
+         * THE FACT THAT SHAPES THE WHOLE DESIGN. `AppliesCartStockChanges::decrementStockOrFail()`
+         * runs BEFORE `new Order()` -- its own comment says "`new Order()` has not been reached
+         * yet". So at decrement time there is no order id, and an order_id written then could only
+         * be a guess. The movement carries a correlation token and is attributed afterwards.
+         */
+        [, $store] = $this->makeTenant();
+        $product = $this->product($store, 10);
+        $token = StockMovement::newToken();
+
+        $this->service()->decrementProductStock($product, 2, false, false, [
+            'store_id' => $store->id,
+            'correlation_token' => $token,
+            'reason' => StockMovement::REASON_ORDER_PLACE,
+        ]);
+
+        /* Recorded, applied, and HONESTLY UNATTRIBUTED. */
+        $row = DB::table('stock_movements')->where('correlation_token', $token)->first();
+        $this->assertNotNull($row, 'the movement must be recorded even with no order yet');
+        $this->assertSame(1, (int) $row->applied);
+        $this->assertNull($row->order_id, 'it must be unattributed, NOT mis-attributed');
+
+        /* Now the order exists. */
+        $order = $this->makeOrder($store);
+        $attributed = StockMovement::attributeToOrder($token, $store->id, $order->id);
+
+        $this->assertSame(1, $attributed);
+        $this->assertSame(
+            StockMovement::MOVED,
+            StockMovement::movedOutFor($store->id, $order->id, $product->id),
+            'after attribution the order can answer for its own stock'
+        );
+    }
+
+    public function test_attribution_is_idempotent_and_cannot_repoint_to_a_second_order(): void
+    {
+        /*
+         * A retried webhook or an overlapping gateway return must not move one checkout's stock
+         * onto a second order -- that would make the first order read NOT_MOVED and invite a
+         * replacement to deduct again. `whereNull('order_id')` is the construction that prevents
+         * it, the same one GatewayReference::bind() uses.
+         */
+        [, $store] = $this->makeTenant();
+        $product = $this->product($store, 10);
+        $token = StockMovement::newToken();
+
+        $this->service()->decrementProductStock($product, 2, false, false, [
+            'store_id' => $store->id, 'correlation_token' => $token,
+            'reason' => StockMovement::REASON_ORDER_PLACE,
+        ]);
+
+        $first = $this->makeOrder($store);
+        $second = $this->makeOrder($store);
+
+        $this->assertSame(1, StockMovement::attributeToOrder($token, $store->id, $first->id));
+        $this->assertSame(
+            0,
+            StockMovement::attributeToOrder($token, $store->id, $second->id),
+            'a second attribution must move NOTHING'
+        );
+
+        $this->assertSame(StockMovement::MOVED,
+            StockMovement::movedOutFor($store->id, $first->id, $product->id));
+        $this->assertSame(
+            StockMovement::UNKNOWN,
+            StockMovement::movedOutFor($store->id, $second->id, $product->id),
+            'the second order never owned this stock and must not read MOVED'
+        );
+    }
+
+    public function test_stock_that_moved_with_no_order_stays_visible_as_unattributed(): void
+    {
+        /*
+         * THE STOCK-SIDE TWIN OF F186. The order write failed, or the request died after the
+         * decrement: stock moved and no order owns it. The record keeps it visible instead of
+         * losing it, and NOTHING here acts on it -- releasing or restoring stock on this evidence
+         * would be a stock decision D-30 does not approve.
+         */
+        [, $store] = $this->makeTenant();
+        $product = $this->product($store, 10);
+        $token = StockMovement::newToken();
+
+        $this->service()->decrementProductStock($product, 3, false, false, [
+            'store_id' => $store->id, 'correlation_token' => $token,
+            'reason' => StockMovement::REASON_ORDER_PLACE,
+        ]);
+
+        /* No attributeToOrder() call -- the order never happened. */
+        DB::table('stock_movements')->where('correlation_token', $token)
+            ->update(['created_at' => now()->subHours(2)]);
+
+        $orphans = StockMovement::unattributed($store->id, 30);
+
+        $this->assertCount(1, $orphans, 'stock that moved with no order must stay visible');
+        $this->assertSame(3, (int) $orphans->first()->quantity);
+        $this->assertNull($orphans->first()->order_id);
+
+        /* And another store sees none of it. */
+        [, $other] = $this->makeTenant();
+        $this->assertCount(0, StockMovement::unattributed($other->id, 30));
+    }
+
+    public function test_the_shared_trait_threads_a_token_at_every_stock_call(): void
+    {
+        /*
+         * The trait is the shared path for eight-plus gateway controllers, so a site that does not
+         * thread the context is eight controllers recording nothing. Asserted on the source,
+         * because the behavioural cases above call the service directly and would not notice.
+         */
+        $trait = (string) file_get_contents(
+            base_path('app/Http/Controllers/Concerns/AppliesCartStockChanges.php')
+        );
+
+        foreach ([
+            '$this->stockService()->decrementVariantStock($model, $qty, false, false, $evidence)',
+            '$this->stockService()->decrementProductStock($model, $qty, false, false, $evidence)',
+            'decrementVariantStock($model, $qty, true, false, $forcedEvidence)',
+            'decrementProductStock($model, $qty, true, false, $forcedEvidence)',
+            'restoreVariantStock($change[\'id\'], $change[\'quantity\'], $restoreEvidence)',
+            'restoreProductStock($change[\'id\'], $change[\'quantity\'], $restoreEvidence)',
+        ] as $site) {
+            $this->assertStringContainsString(
+                $site,
+                $trait,
+                'a stock call in the shared trait stopped threading its evidence context, so every '
+                . 'controller using the trait records nothing for it: ' . $site
+            );
+        }
+    }
 }
