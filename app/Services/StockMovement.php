@@ -163,9 +163,26 @@ class StockMovement
                  * and did move stock. So the question becomes: did we observe ANYTHING for this
                  * order? If not, we cannot speak for it.
                  */
+                /*
+                 * "OBSERVED" MEANS AN OUT MOVEMENT, NOT ANY MOVEMENT — and the difference is a
+                 * real defect this got wrong first.
+                 *
+                 * MEASURED by a multi-line cancellation: the first line restored and RECORDED its
+                 * restore, which gave the order an `in` row; the second line then found no rows of
+                 * its own, saw that the order was "observed", and read NOT_MOVED — so it was
+                 * skipped and its stock was never given back. Two lines, one restored, and the
+                 * reading that caused it looked exactly like the protection working.
+                 *
+                 * The question this method asks is "did this line take stock OUT", so its fallback
+                 * must be "did we see this order take anything out at all". A restore is not
+                 * evidence that the placement was observed. A REFUSED decrement still counts: it
+                 * is recorded `direction = out` with `applied = false`, which is precisely the
+                 * state that must read NOT_MOVED rather than UNKNOWN.
+                 */
                 $observed = DB::table(self::TABLE)
                     ->where('store_id', (int) $storeId)
                     ->where('order_id', (int) $orderId)
+                    ->where('direction', self::OUT)
                     ->exists();
 
                 return $observed ? self::NOT_MOVED : self::UNKNOWN;

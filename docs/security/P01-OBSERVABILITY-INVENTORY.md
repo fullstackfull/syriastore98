@@ -67,7 +67,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/GatewayReference.php:112` | gateway capture replayed: the reference is already recorded |
 | `app/Services/GatewayReference.php:127` | gateway capture replayed (23000): the reference is already recorded |
 
-### `warning` — 134 lines
+### `warning` — 136 lines
 
 | line | message |
 |---|---|
@@ -111,10 +111,12 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/OrderController.php:1374` | Return approval skipped a line with an unusable product id or quantity |
 | `app/Http/Controllers/OrderController.php:1395` | Return approval skipped a line whose product is not in the order |
 | `app/Http/Controllers/OrderController.php:1422` | Return approval skipped a line whose variant does not belong to its product |
-| `app/Http/Controllers/OrderController.php:1768` | Order cancellation skipped a line with an unusable product id or quantity |
-| `app/Http/Controllers/OrderController.php:1783` | Order cancellation skipped a line whose product is not in the order |
-| `app/Http/Controllers/OrderController.php:1805` | Order cancellation skipped a line whose variant does not belong to its product |
-| `app/Http/Controllers/OrderController.php:1974` | Order assignment refused: the delivery boy is not in a store this caller owns |
+| `app/Http/Controllers/OrderController.php:1755` | Customer cancellation endpoint refused a status it does not serve |
+| `app/Http/Controllers/OrderController.php:1825` | Order cancellation skipped a line with an unusable product id or quantity |
+| `app/Http/Controllers/OrderController.php:1840` | Order cancellation skipped a line whose product is not in the order |
+| `app/Http/Controllers/OrderController.php:1897` | Order cancellation skipped a line the stock record says never took stock out |
+| `app/Http/Controllers/OrderController.php:1941` | Order cancellation skipped a line whose variant does not belong to its product |
+| `app/Http/Controllers/OrderController.php:2183` | Order assignment refused: the delivery boy is not in a store this caller owns |
 | `app/Http/Controllers/OrderRefundController.php:180` | Refund transition refused: unrecognised current state |
 | `app/Http/Controllers/OrderRefundController.php:202` | Refund transition refused: illegal transition |
 | `app/Http/Controllers/OrderRefundController.php:416` | Refund cancellation refused: the record does not match the order |
@@ -190,7 +192,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/PaymentVerificationService.php:810` | Unrecognised COD settlement policy; settle-on-delivery is in force regardless |
 | `app/Services/ProductStockService.php:111` | Stock decrement rejected: insufficient stock |
 | `app/Services/ProductStockService.php:221` | Variant stock decrement rejected: insufficient stock |
-| `app/Services/ProductStockService.php:449` | Could not flush the model cache after a stock change |
+| `app/Services/ProductStockService.php:452` | Could not flush the model cache after a stock change |
 | `app/Services/RefundIntegrityService.php:147` | Refund recorded as approved but NOT settled: no gateway refund was made |
 | `app/Services/ShopifyAdminApi.php:137` | a Shopify Admin API address was refused before the request was made |
 | `app/Services/ShopifyAdminApi.php:173` | a Shopify Admin API call answered with a redirect, which was not followed |
@@ -198,8 +200,8 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/SocialIdentity/SocialIdentityVerifier.php:239` | social-identity: facebook debug_token call failed |
 | `app/Services/StockMovement.php:87` | stock movement not recorded: no store |
 | `app/Services/StockMovement.php:112` | stock movement not recorded |
-| `app/Services/StockMovement.php:182` | stock movement not readable |
-| `app/Services/StockMovement.php:225` | stock movement not attributed |
+| `app/Services/StockMovement.php:199` | stock movement not readable |
+| `app/Services/StockMovement.php:242` | stock movement not attributed |
 | `app/Services/StoreNotificationService.php:311` | No active Firebase devices found for store. |
 | `app/Services/StoredUpload.php:81` | a stored upload path points outside the uploads directory and was not touched |
 | `app/Services/StoredUpload.php:90` | a stored upload path names a platform default and was not touched |

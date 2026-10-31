@@ -405,12 +405,15 @@ class ProductStockService
      * answers UNKNOWN for that order, which is the honest result and the one D-15 requires a caller
      * to refuse on.
      *
-     * The `StockMovementCoverageTest` ratchet is what stops that silence becoming permanent: it
-     * pins which call sites thread a context and which do not, so an unthreaded one is a recorded
-     * gap rather than an invisible one.
-     *
-     * Never throws: see `StockMovement::record()` for why a failure to record must not fail a
-     * checkout whose money may already be taken.
+     * `StockMovementEvidenceTest::test_the_shared_trait_threads_a_token_at_every_stock_call` is
+     * what stops that silence becoming permanent for the checkout path: it pins the six call
+     * sites in `AppliesCartStockChanges`. **IT DOES NOT COVER THE RESTORE SITES** --
+     * OrderController's return loop, Order::product_return, OrderRefundController and
+     * PaymentService thread no context, so their movements are not recorded. That is stated
+     * here rather than implied, because the previous version of this paragraph named a
+     * `StockMovementCoverageTest` THAT DOES NOT EXIST -- a claim about the filesystem, which
+     * CLAUDE.md's own section 6 records as having been wrong in both directions before. Found
+     * by independent review.
      */
     private function recordMovement(array $evidence, array $movement): void
     {

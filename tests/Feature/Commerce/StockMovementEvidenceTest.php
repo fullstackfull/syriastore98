@@ -477,6 +477,86 @@ class StockMovementEvidenceTest extends SecurityTestCase
         $this->assertCount(0, StockMovement::unattributed($other->id, 30));
     }
 
+    /**
+     * AN ORDER THE RECORD HAS ONLY EVER GIVEN STOCK BACK FOR IS UNKNOWN, NOT NOT_MOVED.
+     *
+     * THIS CASE EXISTS BECAUSE THE FIRST VERSION GOT IT WRONG AND A MULTI-LINE CANCELLATION
+     * MEASURED IT. The "observed" fallback was `any row for this order exists`, so the moment a
+     * cancellation restored its FIRST line — recording an `in` movement — every later line of the
+     * same order found no rows of its own, saw the order as observed, and read NOT_MOVED. It was
+     * skipped and its stock was never returned. Two lines, one restored, and the reading that
+     * caused it looked exactly like the protection working.
+     *
+     * The question `movedOutFor()` answers is "did this line take stock OUT", so the fallback has
+     * to be "did we see this order take anything out at all". A restore is not evidence that the
+     * placement was observed.
+     */
+    public function test_an_order_with_only_restore_movements_reads_unknown_rather_than_not_moved(): void
+    {
+        [, $store] = $this->makeTenant();
+        $productA = $this->product($store, 10);
+        $productB = $this->product($store, 10);
+
+        // A restore recorded against line A, and nothing at all for line B.
+        StockMovement::record([
+            'store_id' => $store->id,
+            'order_id' => 4242,
+            'product_id' => $productA->id,
+            'direction' => StockMovement::IN,
+            'quantity' => 2,
+            'applied' => true,
+            'reason' => StockMovement::REASON_ORDER_CANCEL,
+        ]);
+
+        $this->assertSame(
+            StockMovement::UNKNOWN,
+            StockMovement::movedOutFor($store->id, 4242, $productB->id),
+            'A line with no movements of its own, on an order the record has only ever restored '
+            . 'for, must read UNKNOWN. Reading NOT_MOVED makes a cancellation skip every line '
+            . 'after the first one it restores.'
+        );
+
+        /* And line A itself nets to NOT_MOVED, because it HAS a row — nothing is out. */
+        $this->assertSame(
+            StockMovement::NOT_MOVED,
+            StockMovement::movedOutFor($store->id, 4242, $productA->id),
+            'a line whose only applied movement is an IN has nothing out'
+        );
+    }
+
+    /** A REFUSED decrement still counts as observing the order, which is the case that must not regress. */
+    public function test_a_refused_out_movement_still_makes_the_order_observed(): void
+    {
+        [, $store] = $this->makeTenant();
+        $productA = $this->product($store, 10);
+        $productB = $this->product($store, 10);
+
+        StockMovement::record([
+            'store_id' => $store->id,
+            'order_id' => 4343,
+            'product_id' => $productA->id,
+            'direction' => StockMovement::OUT,
+            'quantity' => 99,
+            'applied' => false,
+            'outcome' => 'refused',
+            'reason' => StockMovement::REASON_ORDER_PLACE,
+        ]);
+
+        $this->assertSame(
+            StockMovement::NOT_MOVED,
+            StockMovement::movedOutFor($store->id, 4343, $productA->id),
+            'a refused decrement is recorded direction=out with applied=false, and that is exactly '
+            . 'the state that must read NOT_MOVED rather than UNKNOWN — the order was seen and '
+            . 'nothing left the shelf'
+        );
+
+        $this->assertSame(
+            StockMovement::NOT_MOVED,
+            StockMovement::movedOutFor($store->id, 4343, $productB->id),
+            'and its sibling line on the same observed order reads NOT_MOVED too'
+        );
+    }
+
     public function test_the_shared_trait_threads_a_token_at_every_stock_call(): void
     {
         /*

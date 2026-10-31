@@ -108,8 +108,17 @@ class ServiceLayerRawQueryInventoryTest extends TestCase
     {
         [$total, $scoped, $storeLess] = $this->census();
 
+        /*
+         * 25 -> 31 on 2026-10-31: `app/Services/StockMovement.php` (E13's stock-evidence record)
+         * adds SIX raw statements, and every one of them names `store_id` -- so the store-less
+         * count below is unchanged at eight. The table has no model and therefore no global scope,
+         * which is exactly why each read and write carries the predicate at the call site rather
+         * than relying on one: `record()` refuses a movement with no store at all,
+         * `movedOutFor()` and its observed-fallback both predicate on it, and `attributeToOrder()`,
+         * `unattributed()` and `forOrder()` do too.
+         */
         $this->assertSame(
-            25,
+            31,
             $total,
             "The number of raw query-builder statements in app/Services moved. Every one is "
             . "invisible to every Eloquent global scope, so a new one needs a `store_id` "
@@ -117,7 +126,7 @@ class ServiceLayerRawQueryInventoryTest extends TestCase
             . implode("\n  ", array_keys($storeLess))
         );
 
-        $this->assertSame(17, $scoped, 'statements naming store_id');
+        $this->assertSame(23, $scoped, 'statements naming store_id');
         $this->assertCount(8, $storeLess, 'statements naming store_id nowhere');
     }
 
