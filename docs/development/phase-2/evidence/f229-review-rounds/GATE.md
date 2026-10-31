@@ -1,4 +1,21 @@
-# The Known-Outcome Feature Gate on `18ebbf46` — and how it proves it measured one tree
+# The Known-Outcome Feature Gate — and how it proves it measured one tree
+
+Two runs are kept here. `gate-98d6828c.txt` is the later and authoritative one, taken after the
+third review round landed; `gate-18ebbf46.txt` is the earlier one, kept because a superseded
+measurement is still a measurement and deleting it would leave only the prose.
+
+```
+HEAD_AT_LAUNCH  = 98d6828c84ba1a38796b9dde2837055de5261bc1
+DIRTY_AT_LAUNCH = 0
+Tests:    2 failed, 17 skipped, 7113 passed (35189 assertions)
+testcases observed : 7132   failures : 2 (declares 2)   skips : 17 (declares 17)
+OK: the observed outcome set matches the manifest exactly.
+ASSERT_EXIT=0
+HEAD_AT_FINISH  = 98d6828c84ba1a38796b9dde2837055de5261bc1
+DIRTY_AT_FINISH = 0
+```
+
+## The earlier run, on `18ebbf46`
 
 ```
 HEAD_AT_LAUNCH  = 18ebbf46e4ee9a900a21499df4156c9a1c21c669
