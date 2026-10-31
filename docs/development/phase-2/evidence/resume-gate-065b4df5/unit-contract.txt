@@ -1,0 +1,55 @@
+=== UNIT ===
+  ✓ no named field hardcodes a type list
+  ✓ the dark panel and its hint are themed together
+  ✓ the panel override is marked important
+
+   PASS  Tests\Unit\Ui\VariantDeleteScopeTest
+  ✓ no variant view removes form fields by substring name match
+  ✓ the delete handler is scoped to the clicked variants container
+  ✓ the old name based removal is gone
+  ✓ the css safe identifier is unique per rendered variant
+  ✓ every getelementbyid names an id the same view emits
+  ✓ the sanitiser really does collapse two distinct terms
+  ✓ no identifier is emitted without the variant suffix with data set " c o d"
+  ✓ no identifier is emitted without the variant suffix with data set "enable manage stock"
+  ✓ no identifier is emitted without the variant suffix with data set "download-product"
+  ✓ no identifier is emitted without the variant suffix with data set "downloadable product"
+  ✓ no identifier is emitted without the variant suffix with data set "down product"
+  ✓ no identifier is emitted without the variant suffix with data set "down products"
+  ✓ no identifier is emitted without the variant suffix with data set "payment-gateways"
+  ✓ the shipping select is associated with its label
+  ✓ the downloadable file label names its own variants input
+  ✓ each variant panel is labelled by its own header
+
+  Tests:    657 passed (4094 assertions)
+  Duration: 37.83s
+
+UNIT_EXIT=0
+
+=== CONTRACT ===
+  ✓ the partner grant sample is accepted in its own scope                0.15s  
+  ✓ a payload without the workspace is refused                           0.17s  
+  ✓ a payload naming another workspace is refused                        0.18s  
+  ✓ a tampered body fails the signature the producer computes            0.18s  
+  ✓ a duplicate delivery of the real payload changes nothing             0.20s  
+  ✓ a delayed grant with an older revision cannot reinstate a withdrawa… 0.17s  
+  ✓ a partner grant cannot mask a native withdrawal                      0.16s  
+
+   PASS  Tests\Contract\LynomiaDeliveryStatusContractTest
+  ✓ the artifact is the one the producer repository holds                0.16s  
+  ✓ a queued message is not recorded as sent                             0.18s  
+  ✓ the provider acceptance sample is accepted and projected             0.17s  
+  ✓ the delivery sample is accepted and projected                        0.17s  
+  ✓ a policy refusal and a provider failure arrive as different outcome… 0.17s  
+  ✓ a payload without the workspace is refused                           0.12s  
+  ✓ a payload naming another workspace is refused                        0.11s  
+  ✓ a tampered body fails the signature the producer computes            0.13s  
+  ✓ a duplicate delivery of the real payload changes nothing             0.14s  
+  ✓ a delayed acceptance cannot overwrite a delivery that already lande… 0.14s  
+  ✓ a newer delivery may follow a failure                                0.13s  
+  ✓ every outcome the producer sends is one this side understands        0.14s  
+
+  Tests:    26 passed (83 assertions)
+  Duration: 4.66s
+
+CONTRACT_EXIT=0

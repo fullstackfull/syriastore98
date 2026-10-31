@@ -23,36 +23,115 @@
 >
 > | | |
 > |---|---|
-> | Laravel head (pushed, verified) | `4b91707962d381a36ae45bae5bc00163fe81e0c4` (`fullstackfull/syriastore98`) |
+> | Laravel head (pushed, verified) | `065b4df5f849e8846c7b92db7f6f7cfb6dcdc48a` (`fullstackfull/syriastore98`) |
 > | Flutter head (pushed, verified) | `1978aff74920bf5bb1b06ac03004f9de230f3f43` (`fullstackfull/StoreSyria_app98`) |
 > | Working trees at transfer | **both clean, nothing unpushed, no WIP branch needed** |
-> | Last AUTHORITATIVE full gate | **`e95afda4`** — Feature 6956 passed / 2 declared failures / 17 declared skips, Unit 657, Contract 26, MariaDB 32/32. **Seven commits have landed since.** |
+> | Last AUTHORITATIVE full gate | **`065b4df5`** — Feature 7011 passed / 2 declared failures / 17 declared skips, Unit 657, Contract 26, MariaDB 32/32 **(all four now measured — see below)** |
+> | Previous baseline, superseded | `e95afda4` — Feature 6956 / 2 / 17, Unit 657, Contract 26. **Nine commits landed after it**, the last two documentation-only |
 >
-> ### The gate gap, stated plainly
+> ### The gate gap — CLOSED on 2026-10-31
 >
-> **No full Known-Outcome Feature Gate has been run on `4b917079`.** The `e95afda4` figures above
-> are a BASELINE and must not be copied forward as a result for this head — the owner's §7 says so
-> in terms. What *was* executed on the current code is in §0's test table below and in
-> [`PHASE-02-TEST-EVIDENCE.md`](PHASE-02-TEST-EVIDENCE.md). **The first thing a successor owes the
-> owner is that gate on the delivered head**, not more engineering.
+> **It was closed by running the gate, not by restating the baseline.** Evidence, including the run
+> that FAILED: [`evidence/resume-gate-065b4df5/`](evidence/resume-gate-065b4df5/).
 >
-> ### What landed in the seven commits since the gate
+> | suite | result on `065b4df5` |
+> |---|---|
+> | Unit | 657 passed (4094 assertions) |
+> | Contract | 26 passed (83 assertions) |
+> | Feature | 2 failed, 17 skipped, **7011 passed** (34876 assertions) |
+> | Known-Outcome assertion | **`OK: the observed outcome set matches the manifest exactly`**, exit 0 |
+> | MariaDB roster | **passed: 32   failed: 0** on `10.11.14-MariaDB` |
+>
+> **Read the assertion script's own caveat, not the word "passed":** *"This is NOT a statement that
+> the suite is green. It is a statement that the suite is failing and skipping exactly the tests the
+> project has recorded, for the reasons it has recorded."* **D-30 still holds in full** — this is
+> not owner acceptance and not release readiness.
+>
+> **It took two runs and the first one failed the gate**, on a third, undeclared failure:
+> `PaidDownloadEntitlementTest::test_the_old_public_path_is_still_reachable_and_that_is_why_f217_is_not_closed`.
+> **That was the environment, not the code — F238.** The test needs `public/uploads` to be a symlink
+> into the uploads root (its own docblock `:203-208` says so), and that path is **gitignored**, so no
+> fresh clone has it. The baseline was therefore produced in an environment where someone had created
+> that symlink by hand, and the precondition was undocumented: **the authoritative baseline could not
+> be reproduced from a clean checkout.** Fixed by restoring the symlink — *not* by adding a third
+> failure to the manifest, which the gate script explicitly forbids. The arithmetic ties both ways
+> (`7010+3+17 = 7011+2+17 = 7030`), so exactly one outcome moved and nothing else did.
+>
+> ### Two findings about the baseline itself, both measured
+>
+> * **F238** — above. The gate is not reproducible from a clean clone without that symlink.
+> * **F239** — the baseline's **"MariaDB 32/32" had no committed log**, and the artifacts disagreed
+>   three ways: the roster script holds 32, `evidence/final-gate/mysql-roster.txt` records
+>   `passed: 28`, its own README calls that same file "all 27 scripts", and
+>   `evidence/final-gate/gate-e95afda4.txt` has **no MariaDB section at all**. The figure is now real:
+>   32/32 executed on `065b4df5`. The old documents' 27/28/32 disagreement is left as it stands
+>   rather than retro-fitted, because what those runs measured is no longer recoverable.
+>
+> ### What landed in the nine commits since the `e95afda4` baseline
+>
+> **The last two are documentation-only**, so the CODE at `065b4df5` is byte-identical to
+> `4b917079` — verified: `git diff --stat 4b917079 065b4df5 -- . ':(exclude)docs/'` is empty. The
+> gate above therefore measures exactly the code this section's rows describe.
 >
 > | commit | what |
 > |---|---|
 > | `8483374f` | the authoritative gate recorded on `e95afda4`, both runs including the one that failed |
 > | `439ecaa8` | **D-30** recorded — the owner's ruling that Phase 02 remains OPEN, and the two register states that were missing |
 > | `fa40e1ef` | **E13 slice 1** — the durable stock-evidence record (`app/Services/StockMovement.php`, dev/test-only migration), with **UNKNOWN as a real state** rather than a failure mode |
-> | `d73fbe12` | **E13 slice 2** — two-phase attribution, because `AppliesCartStockChanges::decrementStockOrFail()` runs before `new Order()` exists, so there is no order id at decrement time |
+> | `d73fbe12` | **E13 slice 2** — two-phase attribution, because `AppliesCartStockChanges::decrementStockOrFail()` runs before `new Order()` exists, so there is no order id at decrement time. **ONLY PHASE ONE WAS WIRED — see F237 below; this is the most important correction in this section** |
 > | `67de44ed` | **E14/F220 census CORRECTED** — the "19 unguarded gateway returns" were never order writers; see §0's E14 block |
 > | `139bcc22` | **F228/F232** — one provider reference, one plan activation, across four providers; three defects in that fix found by independent review and corrected |
-> | `4b917079` | **E13-C / F233/F235/F236** — the cancellation consults the evidence; two further live defects found by review in the same handler |
+> | `4b917079` | **E13-C / F233/F235/F236** — the cancellation consults the evidence; two further live defects found by review in the same handler. **But the consult reads UNKNOWN for every real order — F237** |
+> | `50ca87c2` | **documentation only** — this §0 itself, recording the state at the account transfer |
+> | `065b4df5` | **documentation only** — the nineteen E14 gateway matrix rows preserved before the session ended ([`E14-GATEWAY-MATRIX-2026-10-31.md`](E14-GATEWAY-MATRIX-2026-10-31.md)) |
+>
+> ### F237 — E13 slice 2 is HALF-WIRED, so the E13-C guard is INERT in production
+>
+> **Measured on `065b4df5`, by grep over `app/` and `packages/`, and traced through the reader.**
+> This is the correction a successor most needs, because it is a claim about work recorded as DONE.
+>
+> `StockMovement::attributeToOrder()` has **zero production callers.** The only mentions under
+> `app/` are its own definition (`app/Services/StockMovement.php:229`) and a **docblock** at
+> `app/Http/Controllers/Concerns/AppliesCartStockChanges.php:41`. Real callers exist only in
+> `tests/Feature/Commerce/StockMovementEvidenceTest.php:402,:432,:435`.
+>
+> Phase one *is* wired: `stockEvidenceToken()` (`:49-55`) mints the token and `stockEvidence()`
+> (`:59-67`) threads `store_id`, `correlation_token` and `reason` into every stock call. It threads
+> **no `order_id`**, and `StockMovement::record()` stores `order_id = null` when absent. So **every
+> placement (`direction = out`) row in production carries `order_id = NULL`, permanently.**
+>
+> `movedOutFor()` (`:131`) predicates on `order_id` in **both** its main query **and** its
+> `$observed` fallback. Both miss, so it returns **`UNKNOWN`** for every real order — and `UNKNOWN`
+> means *fall through and restore*. **The cancellation guard landed in `4b917079` therefore never
+> refuses in production.**
+>
+> **It is safe** — stock is still restored, which is the pre-existing behaviour, so there is no live
+> regression. But the protection E13-C claims **does not operate**, and D-15 conditions 4 and 5 are
+> not being satisfied by a working mechanism.
+>
+> **Why the 55 tests pass anyway, and this is the lesson:** they call `attributeToOrder()` **by
+> hand**, so they exercise an attributed state production never reaches. Each half is proven in
+> isolation — the trait threads a token (`StockMovementEvidenceTest:560`, a source census) and
+> attribution works when invoked (`:376`) — but **no test connects them.** The docblock's "the
+> caller attributes it once the order exists" reads as transient; it is permanent. This is the
+> repository's own documented failure mode: *the assertion satisfied by something adjacent to what
+> it meant to measure.*
+>
+> **Scope is nine controllers, not two.** `PaymentController::getProductStatus`
+> (`beginTransaction :3666`, `$order->save() :3669`) and `::whatsapp` (`:5102`, `:5105`) plus seven
+> more that use the trait and write orders: `AuthorizeNetPaymnetController`, `CinetPayController`,
+> `EasebuzzController`, `KhaltiPaymnetController`, `NMIPayController`,
+> `PaiementProPaymentController`, `PayUPaymentController`. A per-site fix rots at the tenth gateway,
+> so the durable form is one trait method plus a **census ratchet** asking the question of the
+> **enclosing method** — `OrderWriteCensus::methodClaimsGatewayReturn()` is the pattern, and
+> `methodBody()` drops comments, which is the only reason the `:41` docblock cannot satisfy it. A
+> file-scoped census is exactly what made F227's guard claim false.
 >
 > ### E13 — where it actually stands
 >
 > | requirement | state | evidence |
 > |---|---|---|
-> | A. re-evaluate the architecture, not the stale analysis | **DONE** | [`E13-ARCHITECTURE-REEVALUATION-2026-10-31.md`](E13-ARCHITECTURE-REEVALUATION-2026-10-31.md) — of the three 2026-10-26 blockers, one is **RESOLVED BY D-21** (the nine stock writers now route through `ProductStockService`, 26 call sites in 7 files), two stand and are now measured |
+> | A. re-evaluate the architecture, not the stale analysis | **DONE** | [`E13-ARCHITECTURE-REEVALUATION-2026-10-31.md`](E13-ARCHITECTURE-REEVALUATION-2026-10-31.md) — of the three 2026-10-26 blockers, one is **RESOLVED BY D-21** (the nine stock writers now route through `ProductStockService`, **25** call sites in 7 files — the "26" counted a **docblock** line at `app/Models/Order.php:1041`, corrected 2026-10-31), two stand and are now measured |
 > | B. the smallest durable stock-evidence design | **DONE** | `app/Services/StockMovement.php` + `database/migrations/2026_10_31_000100_create_stock_movements_table.php` (**DEVELOPMENT AND TEST ONLY**). `direction` is `out`/`in`, deliberately not a signed quantity. `movedOutFor()` answers MOVED / NOT_MOVED / **UNKNOWN** |
 > | B-bis. two-phase attribution | **DONE** | `newToken()`, `attributeToOrder()` (idempotent via `whereNull('order_id')`, returns the row count, cannot re-point), `unattributed()` — the stock-side twin of F186's captured-payment-without-order, surfaced for a reviewer with nothing acting on it. Threaded at all **six** sites in `AppliesCartStockChanges` |
 > | C. the five cancellation doors | **DONE for the door that restores** | Measured: only `OrderController::status_cancel` restores; the shared `Order::order_status_change()` cancel arm restores nothing and the other four reach it; all five write identical state. It now consults the record. **F233/F235/F236** |
@@ -80,7 +159,7 @@
 > * The guard test was **file-scoped** (`str_contains($source, 'GuardsGatewayReturn')`), crediting
 >   an import rather than a call → **F227**.
 >
-> **MEASURED TRUTH: 15 customer-order write sites in 11 files** — 7 guarded gateway returns, 1
+> **MEASURED TRUTH: 15 customer-order write sites in 12 files** — 7 guarded gateway returns, 1
 > unguarded-and-unrouted (PayU: trait imported, `claimGatewayReturn()` never called, method not on
 > the route table — F94), **3 client-API writers with no idempotency control** (F226, one of them
 > the route the shipped merchant Flutter app posts orders to), **1 unauthenticated storefront
@@ -136,8 +215,10 @@
 > | Feature `--filter=Security` | **4543 passed, 4 skipped, 0 undeclared failures** | `139bcc22` |
 > | Feature `--filter=Commerce` | **920 passed, 7 skipped** | `67de44ed` |
 > | Feature `--filter='Commerce|Inventory|Tenancy'` | **1483 passed, 13 skipped** | pre-`4b917079` |
-> | **full Known-Outcome Feature Gate** | **NOT RUN on `4b917079`** | — |
-> | Unit / Contract / MariaDB / Flutter | **NOT RE-RUN since `e95afda4`** | — |
+> | **full Known-Outcome Feature Gate** | **RUN 2026-10-31 — 2 failed / 17 skipped / 7011 passed, assertion exit 0** | `065b4df5` |
+> | Unit / Contract | **657 passed / 26 passed** | `065b4df5` |
+> | MariaDB roster | **passed: 32   failed: 0** (the first log ever to record all 32 — F239) | `065b4df5` |
+> | Flutter | see the caveat in [`evidence/resume-gate-065b4df5/README.md`](evidence/resume-gate-065b4df5/README.md) — CI pins `FLUTTER_VERSION: 3.47.7` (`.github/workflows/ci.yml:190`); `pubspec.lock`'s `sdks:` block records only a Dart `>=3.11.0` floor, and resolving that floor to its oldest satisfying release makes `--enforce-lockfile` refuse | — |
 >
 > ### Open security findings recorded this session, and the owner decisions they need
 >
@@ -145,29 +226,72 @@
 > |---|---|
 > | **F226** | three client-API customer-order writers with **no idempotency control**; `api/admin/createOrderViaApi` is Flutter-facing, so the control must not change a response shape or add a 401 (the app force-logs-out on any 401) |
 > | **F227** | `PaymentController::whatsapp` — live, **unauthenticated**, storefront order writer, previously reported as guarded by a file-scoped check on its sibling method |
-> | **F229** | the **amount-substitution** half of the plan-return family (Benefit, Cashfree, Mollie, Paytm, Flutterwave): paying once for the cheapest plan and naming a dearer one on the FIRST return still succeeds. **ONE OWNER DECISION:** authorise a sandbox per provider so the unit convention can be measured, or authorise the refusal in log-only mode first. The trait's header already records why a blind amount comparison is unsafe — getting one provider's minor/major units wrong refuses every legitimate purchase on it |
-> | **F230** | **CyberSource plan path**: caller-supplied `amount` and plan id from a **plaintext, unsigned** hidden field; `apitest.cybersource.com` (the **sandbox**) hardcoded at six sites; and the three CyberSource routes carry **no `auth` middleware**. Recorded, not fixed — the fix rewrites the method's inputs, and the sandbox host is an owner/operator question |
-> | **F231** | **Flutterwave** gates on the verify CALL's envelope, not the transaction's own state, and is now the only envelope-gated plan handler left. **BLOCKED on one captured verify response** — guessing the field name would refuse every legitimate purchase |
+> | **F229** | the **amount-substitution** half of the plan-return family (Benefit, Cashfree, Mollie, Paytm, Flutterwave): paying once for the cheapest plan and naming a dearer one on the FIRST return still succeeds. The vector is the **plan id**, not the amount — the record already uses `serverOwnedPlanPrice()`, so refusing requires comparing what was *actually paid* against the *named* plan, which is what needs the unit convention. **STILL ONE OWNER DECISION**, but it is now cheaper, because the **send side is MEASURED (2026-10-31)** by the D-17 method: all five send the amount server-side and **none multiplies it** — each sends `$plan->price` minus a percentage discount, unmultiplied (`Benefit:96`, `Cashfree:140`, `Paytm:142`, `Mollie:135`; every `/100` in those files is percentage arithmetic, not unit conversion). Corroborated in the blade this server renders, which also proves the conventions genuinely differ in one file: `plans/stripe.blade.php:3228` Paystack `* 100` and `:3275-3280` Razorpay `* 100` (minor) vs `:3364` Flutterwave `res.total_price` (major). **What that does NOT settle:** what each provider *reports* on verify. So **log-only is now the recommended option** — it refuses nothing, and its logs measure the report side from real traffic, which is the evidence five sandbox integrations would have bought. Also decision-free regardless: `BenefitPaymentController:108` puts `'amount'` in the callback **query string**, so the return sees a caller-controlled amount and must never read it |
+> | **F230** | **CyberSource plan path**: caller-supplied `amount` and plan id from a **plaintext, unsigned** hidden field (`plans/cybersourcerequest.blade.php:35`; read at `CyberSourceController.php:103`→`:105`/`:108`); `apitest.cybersource.com` (the **sandbox**) hardcoded at six sites (`:118`, `:154`, `:161`, `:272`, `:308`, `:315` — a seventh occurrence at `:206` is in a comment); and the three routes (`routes/customer.php:365-367`) carry **no `auth`**. **The mechanism is worse than "caller-supplied amount" and this is the headline: the underpayment leaves NO TRACE.** `:133` sends the caller's figure outbound, `:174` gates only on `$result['status'] == "AUTHORIZED"` — i.e. that its own instruction succeeded — then `:214` records the **correct** `serverOwnedPlanPrice()`. So paying 1 for a 499 plan records 499. **The engineering half needs no decision and is NOT the F229 unit question:** stop reading the amount from the caller and send the already-existing `serverOwnedPlanPrice()` outbound. `assertPlanActivationEnabled()` and `refusePlanActivationReplay()` also already exist in the trait the class `use`s (`:18`) and are simply **never called**, so CyberSource alone has no fail-closed gate and no replay guard. Only the hardcoded sandbox host is the owner/operator question |
+> | **F231** | **Flutterwave** gates on the verify CALL's envelope, not the transaction's own state, and is now the only envelope-gated plan handler left. **BLOCKED on one captured verify response** — guessing the field name would refuse every legitimate purchase. **The ask is now precise, and one capture unblocks FOUR things:** (1) the key inside `data` and its success sentinel — the gate at `:168` itself; (2) whether `data.amount` is major or minor, settling Flutterwave's arm of F229; (3) whether `data.txid` is a stable reference, since `:208` currently falls back to `$pay_id`, the **caller's own path parameter**, which cannot key a replay guard; (4) whether `data.currency` is present, i.e. whether Paystack's tolerate-empty-currency rule (`PaystackPaymentController.php:436-441`) transfers. The endpoint called is the **legacy rave v2** one (`:161`, with its own "change this to production url" warning). Three spellings are in play — `data.status`/`"successful"` (v3, *not* this endpoint), `data.chargecode`/`"00"` (rave v2), and `data.chargeResponseCode`, which **is** what this repo reads but only from `response.tx` of the **inline browser SDK** (`plans/stripe.blade.php:3377-3378` and five more copies), *not* from the verify envelope. **Field names suffice; values may be redacted** |
+> | **F237** | **E13 slice 2 is half-wired, so the E13-C guard is INERT in production.** `attributeToOrder()` has zero production callers, every placement row carries `order_id = NULL`, and `movedOutFor()` therefore answers `UNKNOWN` for every real order. Safe (stock is still restored) but the claimed protection does not operate. Nine controllers to wire, plus a census ratchet. **Now the first engineering action** — see the F237 block above |
+> | **F238** | **the authoritative gate is not reproducible from a clean clone.** `PaidDownloadEntitlementTest`'s F217 characterization case needs `public/uploads` to be a **symlink** into the uploads root, and that path is gitignored. The `e95afda4` baseline was produced with that symlink created by hand and the precondition undocumented. Fixed locally (uncommittable — the path is ignored), recorded in [`evidence/resume-gate-065b4df5/README.md`](evidence/resume-gate-065b4df5/README.md). **Not** fixed by touching the manifest. Worth proposing, not landed: a premise assertion on `is_link(public_path('uploads'))`, and the precondition in a CI setup step |
+> | **F239** | **the baseline's "MariaDB 32/32" had no committed log**, and the artifacts disagreed three ways (roster 32, `mysql-roster.txt` 28, its README "27", `gate-e95afda4.txt` no MariaDB section at all). Now measured: **32/32 on `065b4df5`**, `evidence/resume-gate-065b4df5/mariadb-roster-065b4df5.txt`. The old 27/28/32 disagreement is left as it stands, because what those runs measured is no longer recoverable |
 > | **F234** | a **Coingate checkout burns a coupon use, and can exhaust a limited coupon for everybody**, on a request that cannot succeed: the usage is persisted and the coupon deactivated 54 lines before the code reads a setting that throws. Measured. A direct violation of F196 Option A ("refusal must precede persistence"), so it needs no new decision — only its own slice. **Worth checking whether the other ~25 plan initiators share the ordering, since the coupon block looks copied** |
 > | **#120** | remains **DEFERRED BY OWNER and OPEN SECURITY-WISE**. Do not delete git history, rotate production secrets, modify leaked data, or claim remediation. It may independently block RELEASE READY |
 > | **Phase 01** | its outstanding release gates in [`../phase-1/PHASE-01-CLOSURE-EXECUTION.md`](../phase-1/PHASE-01-CLOSURE-EXECUTION.md) are **not cleared** and must not be cleared under Phase 02 authority |
 >
 > ### The next engineering action, in order
 >
-> 1. **Run the full Known-Outcome Feature Gate on `4b917079`** (the command is in the project
->    CLAUDE.md §3), plus Unit, Contract and the MariaDB scripts. Record the **actual** outcome set.
->    Never whitelist a new failure or skip. Keep both failed and successful logs.
-> 2. **F234** — one small slice, no new decision needed: move the provider-config read above the
->    coupon write, and check the sibling initiators.
+> 1. ~~**Run the full Known-Outcome Feature Gate**~~ — **DONE 2026-10-31 on `065b4df5`.** Both logs
+>    kept, including the run that failed. Nothing was whitelisted. See the gate block above and
+>    [`evidence/resume-gate-065b4df5/`](evidence/resume-gate-065b4df5/).
+> 1-bis. **F237 — wire phase two of the stock attribution. THIS IS NOW THE FIRST ENGINEERING
+>    ACTION, ahead of F234.** It is a precondition for almost everything below it: while
+>    `attributeToOrder()` has no production caller, `movedOutFor()` answers `UNKNOWN` for every real
+>    order, so the E13-C guard is inert, requirement D's "must not duplicate stock movements" has no
+>    readable record to check against, and threading evidence into the eight residual restore sites
+>    (§0's E13-C block) produces rows nothing can interpret. One trait method, nine controllers, and
+>    a census ratchet keyed on the **enclosing method**. Full detail in the F237 block above.
+> 2. **F234** — one small slice, no new decision needed (F196 Option A / D-28b already settle it).
+>    **Two corrections to this row, both measured:** (a) the handoff's "~25 plan initiators" is wrong
+>    in both directions — there are **53** initiator methods in 47 files, only **15** write a coupon,
+>    and only **two** share the ordering defect: `MolliePaymentController::planPayWithMollie`
+>    outright (write `:78-82`, deactivation `:87-88`, refusal at `:130` `setApiKey('')` — **confirmed
+>    by execution**: `Mollie\Api\Exceptions\ApiException`, which `extends Exception`, so the
+>    controller's own `catch (\Exception)` at `:153` swallows it) and
+>    `MidtransController::paywithMidtrans` for its SDK calls only (`:130`/`:149`, uncaught — its
+>    config read at `:42` already precedes the write). `PaytabsController` carries the identical
+>    copied block as **dead code** (`:94` sets `$request->coupon = 0` unconditionally).
+>    (b) **moving the config read is not sufficient** — CoinGate's free-plan branch persists before
+>    it can fail too (`:105-106` throws on `users.plan`), so the refusal must sit above **both**
+>    branches. And it must sit **above the `try` at `:66`**: the method's whole body is inside
+>    `try { } catch (\Exception $e)`, so an `abort(403)` placed inside would be swallowed and
+>    downgraded into a flash redirect.
 > 3. **E13 requirement D** — the linked-original-order reference, in isolated dev/test databases
 >    only, within D-15. A replacement must not double-charge, duplicate stock movements, or
 >    silently change economic values. Requirement E (collected/partial/unverifiable payments) is
->    refusal-and-pending-review, never auto-replacement.
+>    refusal-and-pending-review, never auto-replacement. **The design is already fully specified** in
+>    [`E13-CANCEL-AND-REPLACEMENT-DESIGN.md`](E13-CANCEL-AND-REPLACEMENT-DESIGN.md) — one additive
+>    `orders.replaced_order_id` (`:246`), `cancelAndReplace(Order $original)` in five numbered steps
+>    (`:167-184`), six named tests, and a Contract assertion that admin order payloads are unchanged.
+>    This is implementation against a decided design, not fresh design work. **Requirement E has no
+>    subject in code yet:** `grep -rn "pending.review|pendingReview|PENDING_REVIEW|needs_review" app/`
+>    returns **zero**, and `RefundIntegrityService::hasGatewayRefundDriver()` (`:119-121`) is still
+>    `return false;`, so D-15 condition 6 refuses **every** collected payment, not a subset.
 > 4. **F226** — the idempotency control for `createOrderViaApi` first (it is the only one a shipped
 >    client calls, and the only one with no accidental dedupe: the two storefront writers consume
 >    the cart, which pre-refuses a sequential replay). Build the key from the authenticated
 >    principal and server-resolved data, never from caller input alone, and reuse the repository's
->    own `Cache::add()` idiom.
+>    own `Cache::add()` idiom (`PaymentController.php:692`, `:1644`; the docblock at `:672` explains
+>    why `Cache::add` beats a lock — atomic, and no owner to expire).
+> 4-bis. **F227 — the review doc is STALE and the mitigation has a hole.** Contrary to
+>    [`E14-PAYMENT-CALLBACK-REVIEW.md`](E14-PAYMENT-CALLBACK-REVIEW.md)`:381-385` and
+>    `GatewayReplayGuardCensusTest.php:128-134`, a `Cache::lock` **does** now exist, at
+>    `PaymentController.php:4449` (`'ss_order_intake:' . $store->id . ':' . $principal`, 30s). But:
+>    **if the principal resolves empty, no lock is taken at all and execution continues** — and on
+>    this unauthenticated route a caller simply omits the `cart` cookie; for guests the key is built
+>    from that **caller-supplied cookie**, which by the project's own standing rule is not a check;
+>    and it is a 30-second *concurrency* lock, not an idempotency control, so a later sequential
+>    replay is unaffected. Also: **there is no `telegram` method** — `routes/customer.php:184` and
+>    `:185` both point at `::whatsapp`. CSRF **is** enforced on them (not in `bootstrap/app.php`'s
+>    except list), which the docs never mention and which shapes the control. The neighbour
+>    `:183 get-massage` — which writes nothing — is the one carrying `throttle:storefront-relay`.
 > 5. **The `GatewayReference` failure policy** — the owner's eight states. Its `bool` cannot carry
 >    three outcomes; `true` currently means *recorded*, *deliberately unprotected* and *broken*.
 > 6. **Only then** the remaining Phase 02 UI rows in §1 and §3b below.

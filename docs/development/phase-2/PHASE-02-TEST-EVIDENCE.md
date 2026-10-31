@@ -2,10 +2,29 @@
 
 > **TRANSFER BANNER — 2026-10-31.** Handed to another account mid-work; see §0 of
 > [`PHASE-02-HANDOFF.md`](PHASE-02-HANDOFF.md). Every figure here is the result of a run that was
-> actually executed, on the commit named with it — **but the last FULL gate measured `e95afda4`,
-> and the delivered head is `4b917079`, seven commits later.** The `6956 / 2 / 17` Feature figures
-> are a BASELINE for `e95afda4` and must not be copied forward as a result for any later head.
-> Unit, Contract, the MariaDB scripts and Flutter have not been re-run since that gate.
+> actually executed, on the commit named with it. **The FULL gate has now been run on the delivered
+> head `065b4df5` (2026-10-31)** — Feature 2 failed / 17 skipped / **7011 passed** (34876
+> assertions), manifest assertion exit 0; Unit **657**; Contract **26**; MariaDB roster
+> **32/32**. Evidence, including the first run which FAILED the gate on an undeclared failure:
+> [`evidence/resume-gate-065b4df5/`](evidence/resume-gate-065b4df5/).
+>
+> The `6956 / 2 / 17` Feature figures are a BASELINE for `e95afda4` and must still not be copied
+> forward as a result for any later head. `e95afda4` was **nine** commits back, not seven, and the
+> last two of those nine were documentation-only — so the code at `065b4df5` is byte-identical to
+> `4b917079` (`git diff --stat 4b917079 065b4df5 -- . ':(exclude)docs/'` is empty).
+>
+> **Two findings about the baseline itself came out of running this gate**, and both are recorded in
+> §0 of the handoff: **F238**, the gate is not reproducible from a clean clone because the F217
+> characterization case needs a gitignored `public/uploads` symlink; and **F239**, the baseline's
+> "MariaDB 32/32" had no committed log and the artifacts disagreed three ways. F239 is now closed with
+> a measured 32/32; F238 is recorded with a proposal, not silently worked around.
+>
+> **Flutter has NOT been re-run on a locked dependency set.** CI pins
+> `FLUTTER_VERSION: 3.47.7` (`.github/workflows/ci.yml:190`); `pubspec.lock`'s `sdks:` block records
+> only a Dart `>=3.11.0` floor, and resolving that floor to its oldest satisfying release (3.41.x)
+> makes `flutter pub get --enforce-lockfile` refuse with *"Unable to satisfy `pubspec.yaml` using
+> `pubspec.lock`"*. Use the pinned version. A run against a freshly resolved set is weaker evidence
+> and must not be reported as a locked-set run.
 
 
 Every claim below names the command, the engine it ran on, and the output. A claim with no command
@@ -9542,7 +9561,7 @@ number with the commit it was taken on.
 | **F219** — the service layer's raw queries | `ServiceLayerRawQueryInventoryTest` | **5 cases, 11 assertions.** 25 raw statements, 17 scoped, 8 declared with reasons. **3 bites.** |
 | **F233** — cancellation must consult the stock evidence | `OrderCancelRestockTest` + `StockMovementEvidenceTest` | **33 cases, 119 assertions across the two.** Three states, three behaviours: MOVED restores and records; NOT_MOVED skips; UNKNOWN restores and logs the absence, which is every order on a live installation because the movements table is dev/test-only — so production behaviour is unchanged until it exists. **An existing test found a real defect in the fix:** `test_every_line_of_a_multi_line_order_is_restored` went red because the first line's restore wrote an `in` row, which made the order "observed", so the second line read NOT_MOVED and was skipped. The `observed` fallback is now `direction = out` only, pinned at the primitive level by its own case. **Four bites:** NOT_MOVED skip removed → 2 fail; restore not recorded → 1; `observed` back to "any row" → 2; no-rows always UNKNOWN → 5. |
 | **F228** — one provider reference, one plan activation | `PlanActivationReplayGuardTest` | **16 cases, 50 assertions**, every one driving the real route with a real authenticated merchant. **The first version passed 12 of 12 against the unguarded code** — no provider is reachable here, so the outbound call failed, the handler caught it and wrote nothing, and "no second plan order" was true either way. The distinguisher is the guard's own log line via `Log::spy()`, which a network failure cannot produce. **Seven bites:** Benefit guard removed → 3 fail; Cashfree → 3; Mollie → 3; locale sweep narrowed to canonical → 3; lookup scoped to the caller → 3; Mollie `forget()` moved back below the returns → 1; **and deleting the same-buyer-same-plan branch failed nothing, which is how that case got written.** Paystack's 42 fail-closed cases stay green after its two private methods were made to delegate to the shared trait. **Then independent review found three defects in the fix and two assertions that could not fail**, all corrected: the Cashfree guard keyed on a value the handler never recorded (now one hoisted local per provider, asserted); the success branch claimed an entitlement without re-running `assignPlan()`, contradicting Paystack's written-out precedent; Mollie's moved clean-up could strand a paying buyer; `Log::shouldNotHaveReceived('warning', [LINE])` never matches a two-argument call; and the Mollie placement assertion anchored on the first `->save(` in the file — **my own re-anchor on the first `assignPlan` repeated the error one occurrence over and passed the bite**, so it now walks the braces of the `is_success` block and bites both ways. Final: **17 cases, 75 assertions, 6 bites.** |
-| **F220** — E14's payment half | `GatewayReplayGuardCensusTest` + `tests/Support/Commerce/OrderWriteCensus.php` | **REWRITTEN 2026-10-31 — 8 cases, 49 assertions.** The previous row read "8 guarded / 19 unguarded / 4 non-gateway", and **all four numbers were wrong while its six tests passed**: the nineteen write `PlanOrder` (a SaaS plan sale), not a customer `Order`. **Measured now: 15 customer-order write sites in 11 files — 7 guarded, 1 unguarded-and-unrouted (PayU, inert trait), 3 client-API writers with no control (F226), 1 unauthenticated storefront writer (F227), 2 merchant-typed, 1 not a write.** Derived from the parsed tree: recursive, comments stripped, `use` map resolved including the grouped form, claim asked per **method**. **Four bites, one per original mistake:** non-recursive walk → 3 failures; grouped import unread → 3; comments kept → 2; file-scoped guard check → 2. |
+| **F220** — E14's payment half | `GatewayReplayGuardCensusTest` + `tests/Support/Commerce/OrderWriteCensus.php` | **REWRITTEN 2026-10-31 — 8 cases, 49 assertions.** The previous row read "8 guarded / 19 unguarded / 4 non-gateway", and **all four numbers were wrong while its six tests passed**: the nineteen write `PlanOrder` (a SaaS plan sale), not a customer `Order`. **Measured now: 15 customer-order write sites in 12 files — 7 guarded, 1 unguarded-and-unrouted (PayU, inert trait), 3 client-API writers with no control (F226), 1 unauthenticated storefront writer (F227), 2 merchant-typed, 1 not a write.** Derived from the parsed tree: recursive, comments stripped, `use` map resolved including the grouped form, claim asked per **method**. **Four bites, one per original mistake:** non-recursive walk → 3 failures; grouped import unread → 3; comments kept → 2; file-scoped guard check → 2. |
 | **Token Stage 3** | `MerchantTokenLifetimeTest` | **4 cases, 8 assertions.** **2 bites:** hardcode the two-argument call, and commit a lifetime value |
 | **D4 / D-29.4** — the review surface | `UnreconciledCaptureReviewTest` | **11 cases, 30 assertions. 4 bites** — both gates, the route layer alone, the controller layer alone, the tenant predicate, and a POST route |
 | **F217 second half + F221** | `PaidDownloadLinkInPagesTest` | **7 cases, 17 assertions. 2 bites.** |
