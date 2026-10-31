@@ -2,282 +2,403 @@
 
 namespace Tests\Feature\Commerce;
 
+use Tests\Support\Commerce\OrderWriteCensus;
 use Tests\TestCase;
 
 /**
- * E14 (ledger row P2-04-17), THE PAYMENT HALF — the census the row's acceptance needs and did not
- * have.
+ * E14 (ledger row P2-04-17), THE PAYMENT HALF — which order writers take a replay claim.
+ * =============================================================================================
  *
- * E14's rule is "no duplication of payments or inventory movements". The STOCK half is closed and
- * executed elsewhere (RefundStockIdempotencyTest, GatewayStockDecrementRoutingTest — 16 cases).
- * The PAYMENT half had no file and no code, and an independent audit of the Phase 02 residuals
- * said so. This is that file.
+ * REWRITTEN 2026-10-31 BECAUSE EVERY NUMBER IT USED TO ASSERT WAS WRONG, AND ITS SIX TESTS PASSED.
+ *
+ * The previous version reported "31 first-party controllers write an Order; 8 carry the replay
+ * guard; 19 gateway controllers write an Order on a gateway return with no replay guard; 4 write
+ * an order outside a gateway return". It named the nineteen in prose — Stripe, Razorpay, Paytabs,
+ * Mollie, Paystack, Midtrans, Flutterwave, Cashfree, Coingate, Benefit, Aamarpay, Mercado,
+ * Yookassa, Skrill, SSLCommerz, Paytr, Paytm, CyberSource, PaymentWall — and called that list
+ * "THE FINDING". Measured against the parsed source and `php artisan route:list`:
+ *
+ *   **NONE OF THE NINETEEN WRITES A CUSTOMER ORDER.** All nineteen write `App\Models\PlanOrder`,
+ *   a SaaS *plan* sale against `plan_orders`. The census's regex `Order::create\s*\(` has no left
+ *   anchor, so it matched the substring inside `PlanOrder::create(`. Every live route on those
+ *   nineteen controllers is a plan route (`plan-pay-with-*`, `plan-*-payment`,
+ *   `plan.get.*.status`), and their storefront returns land on `route('store.payment.status')` —
+ *   `PaymentController::getProductStatus`, which DOES claim. Two of the nineteen matched inside a
+ *   docblock rather than code (`PaymentWallPaymentController:184`, `CyberSourceController:213`).
+ *
+ * Plan purchases are not unprotected, either; they have a DIFFERENT control. `config/payments.php`
+ * ships a 26-provider `plan_activation` map of `env('PLAN_ACTIVATION_<X>', false)` — disabled by
+ * default — and the controllers on it fail closed via `assertPlanActivationEnabled()`.
+ * `PlanPaymentFailClosedTest` proves the refusal for fifteen of them. Crediting a gateway-return
+ * *replay* guard with that work, or reporting its absence as a replay finding, confuses two
+ * controls that defend two different things.
+ *
+ * The error ran in the direction that INVENTS a finding, and it hid two that are real:
+ *
+ *   1. THE GLOB WAS NON-RECURSIVE, so `app/Http/Controllers/Api/` was structurally invisible.
+ *      Three live customer-order writers were never censused at all: `Api\ApiController::place_order`
+ *      (:3821), `Api\ApiController::ordersave` (:9043) and
+ *      `Api\DashboardController::createOrderViaApi` (:6595). The last is the route the shipped
+ *      merchant Flutter app posts orders to.
+ *
+ *   2. THE GUARD TEST WAS FILE-SCOPED — `str_contains($source, 'GuardsGatewayReturn')` — so it
+ *      credited an import rather than a call. `PayUPaymentController` imports the trait at :23 and
+ *      uses it at :28, and never calls `claimGatewayReturn()`; it was counted among the eight
+ *      guarded. `PaymentController` holds TWO order writers and only `getProductStatus` claims:
+ *      `whatsapp` (:4956) is a second, live, UNAUTHENTICATED storefront order writer at
+ *      `POST {storeSlug?}/whatsapp` and `POST {storeSlug?}/telegram`, and the file-level test
+ *      reported it as protected.
+ *
+ * So this file now derives everything from `OrderWriteCensus`, which parses the tree: recursive,
+ * comments stripped, class names resolved through each file's own `use` map (including the grouped
+ * form that hid `NMIPayController`'s writer), and the claim question asked of the ENCLOSING METHOD.
  *
  * ──────────────────────────────────────────────────────────────────────────────────────────────
- * WHAT IT MEASURES, AND WHY A CENSUS RATHER THAN A FIX.
- *
- * `GuardsGatewayReturn` is this codebase's replay guard: it takes a `Cache::add()` claim keyed on
- * the checkout nonce and the gateway's own transaction reference, so a second arrival of the same
- * gateway return is refused instead of writing a second order. Measured here: **8 of the 27
- * first-party controllers that write an Order carry it.**
- *
- * Nineteen gateway controllers do not. That is the F46/F50 BYPASS SHAPE, which this repository has
- * already been bitten by twice and which the row's own acceptance exists to prevent: *fix the file
- * somebody read, and leave the control bypassable by choosing another payment method.* A merchant
- * whose store is configured for Stripe, Razorpay, Paytabs, Mollie, Paystack, Midtrans, Flutterwave,
- * Cashfree, Coingate, Benefit, Aamarpay, Mercado, Yookassa, Skrill, SSLCommerz, Paytr, Paytm,
- * CyberSource or PaymentWall has no replay guard on its gateway return at all.
- *
- * **IT IS A CENSUS AND NOT A FIX, DELIBERATELY.** Wiring nineteen gateway controllers is a material
- * change to the payment path, on nineteen integrations whose returns cannot be exercised from this
- * container — there are no gateway credentials here and no sandbox for any of them. The owner's
- * standing rule reserves "material changes to prices, payments, stock or business rules" to
- * themselves, and a nineteen-file change to money handling that nothing here can drive is exactly
- * what that rule is for. So this makes the gap MEASURED, NAMED AND UNFORGETTABLE instead of
- * shipping nineteen unverified edits: the three lists below are ratcheted in both directions, so a
- * new gateway controller that writes an Order lands in none of them and FAILS, and wiring one means
- * moving it between lists on purpose.
- *
- * `GatewayReference` (F216 / D-29.3) is the durable half of the same guarantee and is already
- * built, with `UNIQUE (store_id, gateway, reference)` proven on MariaDB under concurrency. It is
- * not wired into these nineteen either, and for the same reason — its table is dev/test-only until
- * the owner authorises the migration.
+ * IT IS STILL A CENSUS AND NOT A FIX FOR THE GATEWAY ROWS, deliberately: the seven guarded gateway
+ * returns are already protected, and nothing here has gateway credentials or a sandbox to drive a
+ * real return with. What it is no longer is WRONG — and the two surfaces it uncovered are
+ * first-party, reachable from this container, and tracked as findings rather than described in
+ * prose.
  */
 class GatewayReplayGuardCensusTest extends TestCase
 {
-    /**
-     * Controllers that write an Order on a GATEWAY RETURN and carry `GuardsGatewayReturn`.
-     * This is the set the replay guard actually protects.
-     */
-    private const GUARDED = [
-        'AuthorizeNetPaymnetController',
-        'CinetPayController',
-        'EasebuzzController',
-        'KhaltiPaymnetController',
-        'NMIPayController',
-        'PaiementProPaymentController',
-        'PayUPaymentController',
-        'PaymentController',
-    ];
+    /** It is a gateway return, and the writing method takes the `Cache::add()` replay claim. */
+    private const GUARDED = 'gateway-return/guarded';
+
+    /** It is a gateway return and the writing method does NOT claim. A finding. */
+    private const UNGUARDED = 'gateway-return/unguarded';
+
+    /** A client API posts the order. No gateway return, and no idempotency control either. */
+    private const CLIENT_API = 'client-api/no-idempotency-control';
+
+    /** An authenticated merchant or the operator typing an order. */
+    private const MERCHANT = 'merchant-or-operator';
+
+    /** A public storefront writer that is not a gateway return. */
+    private const PUBLIC_NON_GATEWAY = 'public-storefront/not-a-gateway-return';
+
+    /** The parser sees a constructor call that is never persisted. */
+    private const NOT_A_WRITE = 'not-a-write';
 
     /**
-     * Controllers that write an Order on a GATEWAY RETURN and carry NO replay guard.
+     * EVERY customer-order write site in `app/Http/Controllers`, keyed `file::method`, with the
+     * bucket and the reason read off the writing method rather than the file name.
      *
-     * THIS LIST IS THE FINDING. Each one is a path where the same gateway return arriving twice —
-     * a retried webhook, a refreshed success page, a replayed callback URL — writes a second order
-     * against one capture.
+     * @var array<string,array{0:string,1:string}>
      */
-    private const UNGUARDED_GATEWAY_RETURN = [
-        'AamarpayController',
-        'BenefitPaymentController',
-        'CashfreeController',
-        'CoingateController',
-        'CyberSourceController',
-        'FlutterwaveController',
-        'MercadoPaymentController',
-        'MidtransController',
-        'MolliePaymentController',
-        'PaymentWallPaymentController',
-        'PaystackPaymentController',
-        'PaytabsController',
-        'PaytmPaymentController',
-        'PaytrController',
-        'RazorpayPaymentController',
-        'SSLCommerzPaymentController',
-        'SkrillPaymentController',
-        'StripePaymentController',
-        'YookassaController',
+    private const SITES = [
+        'Api/ApiController.php::place_order' => [self::CLIENT_API,
+            'POST api/{slug}/place-order and place-order-guest, middleware custom.auth. The '
+            . 'storefront API order writer. No gateway return is involved — the order is written '
+            . 'first and payment follows — so a gateway-return claim is not the control; '
+            . 'double-submit idempotency is. There is none.'],
+
+        'Api/ApiController.php::ordersave' => [self::CLIENT_API,
+            'The second storefront API writer, same shape and same absence of a control.'],
+
+        'Api/DashboardController.php::createOrderViaApi' => [self::CLIENT_API,
+            'POST api/admin/createOrderViaApi, middleware custom.auth — the prefix the shipped '
+            . 'merchant Flutter app calls. A merchant posting an order from the admin app. '
+            . 'AdminApiOrderStockOwnershipTest already proves it refuses another merchant\'s '
+            . 'product; nothing makes a repeated post idempotent.'],
+
+        'AuthorizeNetPaymnetController.php::getOrderPaymentStatus' => [self::GUARDED, 'Authorize.Net return.'],
+        'CinetPayController.php::getProductStatus' => [self::GUARDED, 'CinetPay return.'],
+        'EasebuzzController.php::getProductStatus' => [self::GUARDED, 'Easebuzz storefront return.'],
+        'KhaltiPaymnetController.php::getOrderPaymentStatus' => [self::GUARDED, 'Khalti return.'],
+        'NMIPayController.php::getNMIProductStatus' => [self::GUARDED,
+            'NMI return. Its writer is reachable only through the grouped import at '
+            . 'NMIPayController:12 — `use App\\Models\\{Store,...,Order,...}` — which the previous '
+            . 'census could not read, so this row was missing from all three of its lists.'],
+        'PaiementProPaymentController.php::getProductStatus' => [self::GUARDED, 'PaiementPro return.'],
+        'PaymentController.php::getProductStatus' => [self::GUARDED,
+            'route("store.payment.status") — the SHARED storefront return that the plan-only '
+            . 'gateways also redirect to. The highest-traffic guarded path in the codebase.'],
+
+        'PayUPaymentController.php::getProductStatus' => [self::UNGUARDED,
+            'THE TRAIT IS INERT HERE. PayUPaymentController imports GuardsGatewayReturn (:23) and '
+            . 'uses it (:28) but never calls claimGatewayReturn(), so the import protects nothing. '
+            . 'It is also UNREACHABLE on the current route table — no route resolves to '
+            . 'getProductStatus; the PayU routes are pay/{pay}, plan-pay-with-payu, '
+            . 'plan-payu-payment/status/{plan_id} and store-payu-payment/status, and the last '
+            . 'redirects to route("store.payment.status") rather than calling this method. '
+            . 'Recorded in-repo as F94. Unreachable is why it is not urgent; unguarded is why it '
+            . 'is not listed as protected.'],
+
+        'PaymentController.php::whatsapp' => [self::PUBLIC_NON_GATEWAY,
+            'POST {storeSlug?}/whatsapp and POST {storeSlug?}/telegram, middleware web + '
+            . 'ActiveTheme + ThemeLanguage — NO auth. The order is written and the shopper then '
+            . 'messages the merchant, so there is no gateway arrival to replay and a '
+            . 'gateway-return claim is the wrong control. A repeated post is still a second order '
+            . 'and a second stock movement. The previous census reported this writer as guarded '
+            . 'because its sibling method in the same file claims.'],
+
+        'OrderController.php::store' => [self::MERCHANT,
+            'The merchant typing an order by hand, on a CSRF-protected form. No third-party '
+            . 'arrival to replay.'],
+
+        'OrderController.php::order_kanban_view' => [self::NOT_A_WRITE,
+            '`(new OrderDataTable())->query(new Order())` — a query-builder seed that is never '
+            . 'saved. The parser sees a constructor call; the method persists nothing.'],
+
+        'PosController.php::store' => [self::MERCHANT, 'The till. An authenticated merchant at a point of sale.'],
     ];
 
-    /**
-     * Controllers that write an Order but NOT on a gateway return, so a gateway-return replay guard
-     * is not the right control for them. Each carries the reason, read off the writing method
-     * rather than inferred from the file name.
-     */
-    private const NOT_A_GATEWAY_RETURN = [
-        'OrderController' => 'The merchant typing an order by hand (`store`). The caller is an '
-            . 'authenticated merchant on a CSRF-protected form, not a gateway posting a callback, '
-            . 'so there is no third-party arrival to replay. Its own duplication control is the '
-            . 'merchant seeing the order they just created.',
-
-        'PosController' => 'The till. Same shape as the above — an authenticated merchant at a '
-            . 'point of sale, with no gateway return involved.',
-
-        'PlanRequestController' => '`acceptRequest`: the platform operator accepting a merchant\'s '
-            . 'SaaS plan request. An operator action, and a PLAN purchase rather than a customer '
-            . 'order — the distinction F147 was found on, when a SaaS plan purchase had been '
-            . 'miscounted as one of the sixteen order writers.',
-
-        'StoreController' => '`upgradePlan` / `activePlan`: SaaS plan purchases, again operator or '
-            . 'merchant initiated rather than a gateway callback.',
-    ];
-
-    /** @return string[] every first-party controller that writes an Order */
-    private function orderWritingControllers(): array
+    /** @return array<string,string> site key => bucket */
+    private function measured(): array
     {
-        $found = [];
+        $buckets = [];
 
-        foreach (glob(base_path('app/Http/Controllers/*.php')) ?: [] as $file) {
-            $source = (string) file_get_contents($file);
-
-            // The same two forms the F147/F148 writer census settled on, which found five
-            // controllers a narrower grep had missed.
-            if (preg_match('/new\s+(\\\\App\\\\Models\\\\)?Order\s*\(|Order::create\s*\(/', $source)) {
-                $found[] = basename($file, '.php');
-            }
+        foreach (OrderWriteCensus::customerOrderSites() as $site) {
+            $buckets[OrderWriteCensus::key($site)] = $site;
         }
 
-        sort($found);
-
-        return $found;
+        return $buckets;
     }
 
-    private function carriesTheGuard(string $controller): bool
+    public function test_every_customer_order_write_site_is_classified(): void
     {
-        $source = (string) file_get_contents(
-            base_path('app/Http/Controllers/' . $controller . '.php')
-        );
-
-        return str_contains($source, 'GuardsGatewayReturn');
-    }
-
-    public function test_every_order_writing_controller_is_classified(): void
-    {
-        $classified = array_merge(
-            self::GUARDED,
-            self::UNGUARDED_GATEWAY_RETURN,
-            array_keys(self::NOT_A_GATEWAY_RETURN)
-        );
-
-        $unclassified = array_values(array_diff($this->orderWritingControllers(), $classified));
+        $undeclared = array_values(array_diff(array_keys($this->measured()), array_keys(self::SITES)));
 
         $this->assertSame(
             [],
-            $unclassified,
-            "A CONTROLLER WRITES AN ORDER AND THIS CENSUS DOES NOT KNOW ABOUT IT.\n\n"
-            . "Decide which of the three lists it belongs in, and say why:\n"
-            . "  GUARDED                  — it is a gateway return and it uses GuardsGatewayReturn\n"
-            . "  UNGUARDED_GATEWAY_RETURN — it is a gateway return and it does NOT (a finding)\n"
-            . "  NOT_A_GATEWAY_RETURN     — it writes an order from a merchant or operator action\n\n"
-            . "Do not pick the third one to make this pass. E14's rule is 'no duplication of "
-            . "payments', and the shape it exists to stop is a control that holds on the gateway "
-            . "somebody checked and not on the one the merchant chose.\n  "
-            . implode("\n  ", $unclassified)
+            $undeclared,
+            "A METHOD WRITES A CUSTOMER ORDER AND THIS CENSUS DOES NOT KNOW ABOUT IT.\n\n"
+            . "Read the method and declare it with its reason:\n"
+            . "  " . self::GUARDED . "            — a gateway return whose method calls claimGatewayReturn()\n"
+            . "  " . self::UNGUARDED . "          — a gateway return whose method does not (a finding)\n"
+            . "  " . self::CLIENT_API . " — an API client posts it\n"
+            . "  " . self::MERCHANT . "                    — an authenticated merchant or the operator\n"
+            . "  " . self::PUBLIC_NON_GATEWAY . "  — public, but no gateway arrival\n"
+            . "  " . self::NOT_A_WRITE . "                            — constructed and never persisted\n\n"
+            . "Do not pick a bucket to make this pass. E14's rule is 'no duplication of payments "
+            . "or inventory movements', and the shape it exists to stop is a control that holds on "
+            . "the path somebody read and not on the one the caller chose.\n  "
+            . implode("\n  ", $undeclared)
         );
     }
 
-    public function test_no_classification_outlives_the_controller_it_names(): void
+    public function test_no_classification_outlives_the_method_it_names(): void
     {
-        $writers = $this->orderWritingControllers();
+        $stale = array_values(array_diff(array_keys(self::SITES), array_keys($this->measured())));
 
-        foreach (array_merge(
-            self::GUARDED,
-            self::UNGUARDED_GATEWAY_RETURN,
-            array_keys(self::NOT_A_GATEWAY_RETURN)
-        ) as $controller) {
-            $this->assertContains(
-                $controller,
-                $writers,
-                $controller . ' is classified here but no longer writes an Order. Remove its entry '
-                . '— a stale classification is how the next unclassified writer hides.'
-            );
-        }
+        $this->assertSame(
+            [],
+            $stale,
+            'These sites are classified here and no longer write a customer order. Remove them — a '
+            . "stale row is how the next undeclared writer hides.\n  " . implode("\n  ", $stale)
+        );
     }
 
-    public function test_the_guarded_set_is_exactly_what_it_claims(): void
+    /**
+     * THE ASSERTION THE PREVIOUS VERSION DID NOT MAKE: the claim is checked PER METHOD.
+     *
+     * A file-scoped `str_contains` is what credited PayU's inert import and PaymentController's
+     * unguarded second writer. Both directions are asserted, so wiring one or losing one fails.
+     */
+    public function test_the_guarded_set_is_exactly_the_methods_that_claim(): void
     {
-        foreach (self::GUARDED as $controller) {
-            $this->assertTrue(
-                $this->carriesTheGuard($controller),
-                $controller . ' is listed as guarded and does not use GuardsGatewayReturn. If the '
-                . 'guard was removed, say why on the record and move it to the unguarded list — do '
-                . 'not quietly reclassify a path that lost its replay protection.'
-            );
-        }
+        foreach (self::SITES as $key => [$bucket, $reason]) {
+            [$file, $method] = explode('::', $key, 2);
+            $claims = OrderWriteCensus::methodClaimsGatewayReturn($file, $method);
 
-        foreach (self::UNGUARDED_GATEWAY_RETURN as $controller) {
+            if ($bucket === self::GUARDED) {
+                $this->assertTrue(
+                    $claims,
+                    $key . ' is declared guarded and its method does not call claimGatewayReturn(). '
+                    . 'An import is not a control. If the claim was removed, say why on the record '
+                    . 'and move the row to ' . self::UNGUARDED . '.'
+                );
+
+                continue;
+            }
+
             $this->assertFalse(
-                $this->carriesTheGuard($controller),
-                $controller . ' now DOES use GuardsGatewayReturn. That is good news: move it to '
-                . 'GUARDED and reduce the unguarded count below, so the remaining gap stays honest.'
+                $claims,
+                $key . ' now DOES call claimGatewayReturn(). If a replay guard has been wired in, '
+                . 'move the row to ' . self::GUARDED . ' so the remaining gap stays honest.'
             );
         }
     }
 
-    public function test_the_measured_gap_is_eight_guarded_against_nineteen_unguarded(): void
+    public function test_the_measured_population_is_what_the_census_reports(): void
     {
-        /*
-         * The headline figure, pinned so it cannot drift silently in either direction. If this
-         * fails because the unguarded count went DOWN, that is progress and the number should be
-         * lowered deliberately. If it went UP, a new gateway was added without a replay guard.
-         */
-        $this->assertCount(8, self::GUARDED, 'controllers with a gateway-return replay guard');
+        $buckets = [];
 
-        $this->assertCount(
-            19,
-            self::UNGUARDED_GATEWAY_RETURN,
-            'E14 PAYMENT HALF, OPEN: nineteen gateway controllers write an Order on a gateway '
-            . 'return with no replay guard. Wiring them is a material change to the payment path '
-            . 'across nineteen integrations that cannot be exercised from this container, so it is '
-            . 'the owner\'s decision rather than a fix to be taken here.'
+        foreach (self::SITES as [$bucket]) {
+            $buckets[$bucket] = ($buckets[$bucket] ?? 0) + 1;
+        }
+
+        ksort($buckets);
+
+        $this->assertSame(
+            [
+                // ksort order, so the keys read in the order the comparison makes.
+                self::CLIENT_API => 3,
+                self::GUARDED => 7,
+                self::UNGUARDED => 1,
+                self::MERCHANT => 2,
+                self::NOT_A_WRITE => 1,
+                self::PUBLIC_NON_GATEWAY => 1,
+            ],
+            $buckets,
+            'E14 PAYMENT HALF, MEASURED 2026-10-31 — 15 customer-order write sites in 11 files. '
+            . 'Seven gateway returns claim; one (PayU) imports the trait without calling it and is '
+            . 'unreachable anyway; three client-API writers and one unauthenticated storefront '
+            . 'writer have no idempotency control of any kind; two are merchant-typed; one is not '
+            . 'a write. If a count moved, say which way and why.'
         );
 
-        $this->assertCount(4, self::NOT_A_GATEWAY_RETURN, 'non-gateway order writers');
-
         $this->assertCount(
-            31,
-            $this->orderWritingControllers(),
-            'the whole first-party order-writing population'
+            15,
+            OrderWriteCensus::customerOrderSites(),
+            'the whole first-party customer-order write population'
         );
     }
 
-    public function test_the_guard_itself_still_does_what_the_census_credits_it_with(): void
+    /**
+     * THE PLAN POPULATION IS SEPARATE, AND KEEPING IT SEPARATE IS THE WHOLE CORRECTION.
+     *
+     * `App\Models\PlanOrder` is a SaaS plan sale. Conflating it with a customer order is what
+     * produced nineteen phantom findings, and F147 was the same confusion one round earlier.
+     */
+    public function test_plan_purchases_are_counted_separately_and_are_not_order_writers(): void
     {
-        /*
-         * The census counts a `use` statement. That is worth nothing if the trait stopped taking a
-         * claim — so the one thing the whole count rests on is asserted directly.
-         */
+        $planSites = OrderWriteCensus::planOrderSites();
+        $planFiles = array_unique(array_column($planSites, 'file'));
+
+        $this->assertGreaterThan(
+            40,
+            count($planFiles),
+            'the SaaS plan-purchase population — around fifty controllers, each writing plan_orders'
+        );
+
+        foreach (array_keys(self::SITES) as $key) {
+            [$file] = explode('::', $key, 2);
+
+            $this->assertNotContains(
+                $file,
+                array_diff($planFiles, [
+                    // These write BOTH, and the customer-order site is the one censused above.
+                    'AuthorizeNetPaymnetController.php', 'CinetPayController.php',
+                    'EasebuzzController.php', 'KhaltiPaymnetController.php',
+                    'NMIPayController.php', 'PaiementProPaymentController.php',
+                    'PayUPaymentController.php',
+                ]),
+                $file . ' writes only plan orders and is censused here as an order writer. That is '
+                . 'the exact error this rewrite corrects.'
+            );
+        }
+
+        $this->assertSame(
+            [],
+            array_values(array_filter(
+                $planSites,
+                fn ($site) => isset(self::SITES[OrderWriteCensus::key($site)])
+                    && self::SITES[OrderWriteCensus::key($site)][0] === self::GUARDED
+            )),
+            'A plan-order write is declared as a guarded gateway-return order write. The plan '
+            . 'control is the fail-closed plan_activation map in config/payments.php, proven by '
+            . 'PlanPaymentFailClosedTest — not the gateway-return replay claim.'
+        );
+    }
+
+    /**
+     * THE DERIVATION'S OWN REGRESSION GUARD.
+     *
+     * Four mistakes produced four wrong numbers. Each is pinned here against real source, so a
+     * future rewrite of the scanner cannot quietly reintroduce one. No fixtures: a synthetic file
+     * can be made to pass while the real tree still hides a writer.
+     */
+    public function test_the_scanner_is_not_fooled_by_the_four_mistakes_that_produced_the_old_numbers(): void
+    {
+        $keys = array_keys($this->measured());
+
+        // 1. RECURSION — app/Http/Controllers/Api/ was invisible to a non-recursive glob.
+        $this->assertContains('Api/DashboardController.php::createOrderViaApi', $keys,
+            'the scanner must walk subdirectories; three live writers live in Api/');
+        $this->assertContains('Api/ApiController.php::place_order', $keys);
+
+        // 2. GROUPED IMPORTS — NMI's writer is reachable only through `use App\Models\{...,Order,...}`.
+        $this->assertContains('NMIPayController.php::getNMIProductStatus', $keys,
+            'the scanner must resolve the grouped use form, or NMI\'s order writer disappears');
+
+        // 3. CLASS RESOLUTION — PlanOrder must not be mistaken for Order.
+        foreach (['StripePaymentController.php', 'RazorpayPaymentController.php', 'PaytabsController.php'] as $planOnly) {
+            $this->assertSame(
+                [],
+                array_values(array_filter($keys, fn ($key) => str_starts_with($key, $planOnly . '::'))),
+                $planOnly . ' writes only PlanOrder. An unanchored `Order::create(` match is what '
+                . 'put it, and sixteen others like it, on a list of order writers.'
+            );
+        }
+
+        // 4. COMMENTS, and PER-METHOD scope.
+        $this->assertSame([], array_values(array_filter($keys,
+            fn ($key) => str_starts_with($key, 'PaymentWallPaymentController.php::')
+                || str_starts_with($key, 'CyberSourceController.php::'))),
+            'both of these matched the old census inside a docblock, not in code');
+
+        $this->assertTrue(
+            OrderWriteCensus::methodClaimsGatewayReturn('PaymentController.php', 'getProductStatus'),
+            'PaymentController::getProductStatus claims'
+        );
+        $this->assertFalse(
+            OrderWriteCensus::methodClaimsGatewayReturn('PaymentController.php', 'whatsapp'),
+            'and its sibling writer in the SAME FILE does not — which a file-scoped str_contains '
+            . 'cannot express, and which is why whatsapp was reported as protected'
+        );
+    }
+
+    /**
+     * The guard must still do what the census credits it with, AND something must still call it.
+     *
+     * The previous version asserted only that the trait contains `Cache::add(`. A trait nothing
+     * calls satisfies that forever — which is precisely PayU's state.
+     */
+    public function test_the_guard_still_takes_a_claim_and_is_still_called(): void
+    {
         $trait = (string) file_get_contents(
             base_path('app/Http/Controllers/Concerns/GuardsGatewayReturn.php')
         );
 
-        $this->assertStringContainsString(
-            'Cache::add(',
-            $trait,
-            'GuardsGatewayReturn no longer takes a claim, so every "guarded" count in this file is '
-            . 'crediting a `use` statement with protection it does not provide.'
-        );
+        $this->assertStringContainsString('Cache::add(', $trait,
+            'GuardsGatewayReturn no longer takes a claim, so every guarded row credits a call with '
+            . 'protection it does not provide.');
 
-        $this->assertStringContainsString(
-            'already claimed',
-            $trait,
-            'and it must still refuse a second arrival'
-        );
+        $this->assertStringContainsString('already claimed', $trait,
+            'and it must still refuse a second arrival');
+
+        $callers = array_values(array_filter(
+            self::SITES,
+            fn ($row) => $row[0] === self::GUARDED
+        ));
+
+        $this->assertNotEmpty($callers, 'and at least one order writer must actually call it');
     }
 
-    public function test_the_durable_half_exists_and_is_deliberately_not_wired_here(): void
+    /**
+     * F216's durable half exists, and recording that it is NOT wired into any order writer keeps
+     * two facts from being confused: a UNIQUE index being ready is not a path being protected.
+     */
+    public function test_the_durable_reference_exists_and_is_wired_into_no_order_writer_yet(): void
     {
-        /*
-         * F216 / D-29.3 built the durable guarantee — `UNIQUE (store_id, gateway, reference)`,
-         * proven on MariaDB under concurrency. Recording that it exists AND that it is not wired
-         * into these nineteen keeps the two facts from being confused: the mechanism being ready is
-         * not the same as the nineteen paths being protected.
-         */
-        $this->assertFileExists(
-            base_path('app/Services/GatewayReference.php'),
-            'the durable payment reference must still exist'
-        );
+        $this->assertFileExists(base_path('app/Services/GatewayReference.php'));
 
-        foreach (self::UNGUARDED_GATEWAY_RETURN as $controller) {
-            $source = (string) file_get_contents(
-                base_path('app/Http/Controllers/' . $controller . '.php')
-            );
+        foreach (array_keys(self::SITES) as $key) {
+            [$file, $method] = explode('::', $key, 2);
 
-            $this->assertStringNotContainsString(
-                'GatewayReference',
-                $source,
-                $controller . ' now uses GatewayReference. If the durable guard has been wired in, '
-                . 'this census must say so rather than still reporting the path as unprotected.'
+            $body = (string) file_get_contents(base_path('app/Http/Controllers/' . $file));
+
+            if (! str_contains($body, 'GatewayReference')) {
+                continue;
+            }
+
+            $this->fail(
+                $file . ' now references GatewayReference. If the durable claim has been wired in, '
+                . 'this census must say which method and on which transactional path — the owner\'s '
+                . 'rule is that a UNIQUE reference table protects nothing unless the writer invokes '
+                . 'the claim on the actual transactional path.'
             );
         }
     }
