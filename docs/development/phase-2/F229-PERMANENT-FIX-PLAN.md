@@ -62,7 +62,7 @@ sends it unmultiplied:
 |---|---|---|
 | Benefit | `BenefitPaymentController:96` `"amount" => $get_amount` | none (`:32`, `:40`) |
 | Cashfree | `CashfreeController:140` `'order_amount' => $get_amount` | none (`:70`, `:77`) |
-| Paytm | `PaytmPaymentController:142` `'amount' => $price` | none (`:53`, `:62`) |
+| Paytm | `PaytmPaymentController::planPayWithPaytm()` `'amount' => $price` | none (`paymentConfig()`) |
 | Mollie | `MolliePaymentController:135` `"amount" => [ … ]` | none (`:55`, `:63`) |
 | Flutterwave | the inline SDK this server renders, `plans/stripe.blade.php:3364` `amount: res.total_price` | none |
 

@@ -2660,7 +2660,7 @@ four — a provider is covered when its contract is *verified*, not when it is *
 
 **Consequence for the measurement already taken.** This session measured, without a sandbox, that
 all five send the amount server-side with no multiplier (`BenefitPaymentController:96`,
-`CashfreeController:140`, `PaytmPaymentController:142`, `MolliePaymentController:135`, and the blade
+`CashfreeController:140`, `PaytmPaymentController::planPayWithPaytm()`, `MolliePaymentController:135`, and the blade
 this server renders at `plans/stripe.blade.php:3364` for Flutterwave, against `:3228`/`:3275` which
 *do* multiply). That is **send-side** evidence and it is real, but requirement 3 asks for the
 **verified response contract**, which it is not. It narrows the work; it does not discharge it.

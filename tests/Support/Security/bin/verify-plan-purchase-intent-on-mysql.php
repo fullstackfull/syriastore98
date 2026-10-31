@@ -113,39 +113,29 @@ function check(string $what, bool $ok, string $detail = ''): void
     }
 }
 
-/** The comparison the service performs, replicated so the engine's rendering is what is tested. */
+/**
+ * THE PRODUCTION COMPARATOR ITSELF, not a copy of it.
+ *
+ * This function used to be a transcription of `PlanPurchaseIntent::scaledInteger()`, and
+ * independent review pointed out what that costs: the two had already drifted, so the script was
+ * testing a comparator that no longer existed while reporting on one that did. A copy of the
+ * thing under test is not evidence about the thing under test.
+ *
+ * The method is private because nothing outside the service has any business comparing money, and
+ * widening it for a script's convenience would be the tail wagging the dog. Reflection reaches it
+ * without changing the production API, and -- the point -- there is now exactly one implementation
+ * in the repository, so it cannot drift from itself.
+ */
 function scaledInteger(string $amount, int $scale): ?string
 {
-    $amount = trim($amount);
+    static $theRealOne = null;
 
-    if ($amount === '') {
-        return null;
+    if ($theRealOne === null) {
+        $theRealOne = new ReflectionMethod(\App\Services\PlanPurchaseIntent::class, 'scaledInteger');
+        $theRealOne->setAccessible(true);
     }
 
-    $negative = false;
-
-    if ($amount[0] === '+' || $amount[0] === '-') {
-        $negative = $amount[0] === '-';
-        $amount = substr($amount, 1);
-    }
-
-    if (preg_match('/^(\d*)(?:\.(\d*))?$/', $amount, $parts) !== 1) {
-        return null;
-    }
-
-    $whole = ($parts[1] ?? '') === '' ? '0' : $parts[1];
-    $fraction = $parts[2] ?? '';
-
-    if (strlen($fraction) > $scale) {
-        if (rtrim(substr($fraction, $scale), '0') !== '') {
-            return null;
-        }
-        $fraction = substr($fraction, 0, $scale);
-    }
-
-    $digits = ltrim($whole . str_pad($fraction, $scale, '0'), '0');
-
-    return ($negative && $digits !== '' && $digits !== '0' ? '-' : '') . ($digits === '' ? '0' : $digits);
+    return $theRealOne->invoke(null, $amount, $scale);
 }
 
 echo "F229 -- the server-owned plan purchase intent, verified on MySQL\n";
@@ -219,22 +209,86 @@ try {
 
     // --------------------------------------------- 3. TWO CONCURRENT CONSUMPTIONS, ONE WINNER
     //
-    // THE ASSERTION THE OWNER ASKED FOR. Both connections run the service's conditional UPDATE
-    // against the same pending intent. The control is that the loser matches ZERO rows -- not that
-    // it errors, and not that it is serialised by luck.
+    // THE ASSERTION THE OWNER ASKED FOR, and the first version of it was theatre. Independent
+    // review caught it: both UPDATEs ran in autocommit, so A's committed before B's began and
+    // `$wonByA + $wonByB === 1` was arithmetic over a sequence. Two connections are necessary for
+    // a race but they are not sufficient -- nothing was ever contended.
+    //
+    // A real race needs A's claim to be IN FLIGHT while B's arrives, and a single PHP process
+    // cannot run two statements at once. What it can do is hold A's transaction open, which puts
+    // the row under A's exclusive lock for exactly the window a second callback would land in,
+    // and then show what B meets there. Three distinct facts, in the order a real second callback
+    // would encounter them:
+    //
+    //   a. while A's claim is uncommitted the row is genuinely locked -- `FOR UPDATE NOWAIT`
+    //      fails instead of reading it, which is the lock existing rather than being assumed;
+    //   b. B's own conditional UPDATE does not race past it either: it BLOCKS, and with
+    //      `innodb_lock_wait_timeout = 1` it gives up rather than proceeding on stale state. A
+    //      second callback is therefore serialised by the engine, not by luck;
+    //   c. once A commits, B's UPDATE matches ZERO rows, because `status` is no longer 'pending'.
+    //
+    // (b) is the one that distinguishes a real lock from a sequence: in the old version B's
+    // statement returned immediately, and here it cannot.
     $insert($a, 'f229-race', '499.00');
+
+    $b->statement('SET SESSION innodb_lock_wait_timeout = 1');
+
+    $a->beginTransaction();
 
     $wonByA = $a->table('plan_purchase_intents')
         ->where('reference', 'f229-race')->where('status', 'pending')
         ->update(['status' => 'consumed', 'consumed_at' => now(), 'provider_txn_id' => 'TXN-A', 'updated_at' => now()]);
 
+    check('connection A claims the pending intent inside an open transaction', $wonByA === 1);
+
+    // (a) the row is really locked, and this is the proof that the window is real.
+    $lockHeld = false;
+
+    try {
+        $b->select('select reference from plan_purchase_intents where reference = ? for update nowait', ['f229-race']);
+    } catch (Throwable $theRowWasLocked) {
+        $lockHeld = true;
+    }
+
+    check(
+        'while A holds it, B cannot even read the row for update -- the lock is real',
+        $lockHeld,
+        'FOR UPDATE NOWAIT succeeded, so A is not holding a lock and nothing below is a race'
+    );
+
+    // (b) B's conditional UPDATE blocks on that lock rather than overtaking it.
+    $blockedFor = microtime(true);
+    $bWasBlocked = false;
+
+    try {
+        $b->table('plan_purchase_intents')
+            ->where('reference', 'f229-race')->where('status', 'pending')
+            ->update(['status' => 'consumed', 'consumed_at' => now(), 'provider_txn_id' => 'TXN-B', 'updated_at' => now()]);
+    } catch (Throwable $theSecondCallbackWaited) {
+        $bWasBlocked = str_contains(strtolower($theSecondCallbackWaited->getMessage()), 'lock wait timeout');
+    }
+
+    $blockedFor = microtime(true) - $blockedFor;
+
+    check(
+        'B\'s identical UPDATE blocks on the row lock rather than overtaking it ('
+        . number_format($blockedFor, 2) . 's)',
+        $bWasBlocked,
+        'B returned without waiting, so the two statements never contended and this check is '
+        . 'the theatre the previous version of this script performed'
+    );
+
+    $a->commit();
+
+    // (c) and now the loser finds nothing to claim.
     $wonByB = $b->table('plan_purchase_intents')
         ->where('reference', 'f229-race')->where('status', 'pending')
         ->update(['status' => 'consumed', 'consumed_at' => now(), 'provider_txn_id' => 'TXN-B', 'updated_at' => now()]);
 
     check(
-        'two concurrent consumptions of one intent: exactly one wins (' . $wonByA . ' + ' . $wonByB . ')',
-        $wonByA + $wonByB === 1,
+        'after A commits, B\'s claim matches zero rows: one payment, one activation ('
+        . $wonByA . ' + ' . $wonByB . ')',
+        $wonByA === 1 && $wonByB === 0,
         'both callbacks claimed the same intent, so one payment can activate two plans'
     );
 

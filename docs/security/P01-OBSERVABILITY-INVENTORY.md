@@ -67,15 +67,16 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/GatewayReference.php:112` | gateway capture replayed: the reference is already recorded |
 | `app/Services/GatewayReference.php:127` | gateway capture replayed (23000): the reference is already recorded |
 
-### `warning` — 153 lines
+### `warning` — 154 lines
 
 | line | message |
 |---|---|
-| `app/Http/Controllers/PaytmPaymentController.php:175` | Paytm plan purchase refused: the purchase intent could not be recorded. |
-| `app/Http/Controllers/PaytmPaymentController.php:326` | Paytm plan activation refused: the provider did not confirm the payment. |
-| `app/Http/Controllers/PaytmPaymentController.php:353` | Paytm plan activation refused: the payment does not match the recorded purchase intent. |
-| `app/Http/Controllers/PaytmPaymentController.php:377` | Paytm plan activation refused: the intent names a plan that no longer exists. |
-| `app/Services/PaytmTransactionVerifier.php:115` | Paytm transaction status could not be verified. |
+| `app/Http/Controllers/PaytmPaymentController.php:197` | Paytm plan purchase refused: the purchase intent could not be recorded. |
+| `app/Http/Controllers/PaytmPaymentController.php:396` | Paytm plan activation refused: the provider did not confirm the payment. |
+| `app/Http/Controllers/PaytmPaymentController.php:423` | Paytm plan activation refused: the payment does not match the recorded purchase intent. |
+| `app/Http/Controllers/PaytmPaymentController.php:447` | Paytm plan activation refused: the intent names a plan that no longer exists. |
+| `app/Services/PaytmTransactionVerifier.php:191` | Paytm transaction status could not be verified. |
+| `app/Services/PaytmTransactionVerifier.php:210` | Paytm transaction status carried a checksum that did not verify. |
 | `app/Services/PlanPurchaseIntent.php:201` | Plan purchase intent not recorded: provider or currency missing. |
 | `app/Services/PlanPurchaseIntent.php:210` | Plan purchase intent not recorded: no usable purchaser or plan. |
 | `app/Services/PlanPurchaseIntent.php:221` | Plan purchase intent not recorded: the expected amount is not numeric. |
@@ -169,7 +170,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/PaystackPaymentController.php:290` | Paystack plan activation refused: the transaction is not a matching success. |
 | `app/Http/Controllers/PaystackPaymentController.php:377` | Paystack plan activation refused: this reference is already recorded against a different buyer or plan. |
 | `app/Http/Controllers/PaystackPaymentController.php:444` | Paystack plan activation refused: the captured payment does not match the plan being activated. |
-| `app/Http/Controllers/PaytmPaymentController.php:237` | Paytm plan return refused: no merchant key is configured, so the checksum proves nothing. |
+| `app/Http/Controllers/PaytmPaymentController.php:259` | Paytm plan return refused: no merchant key is configured, so the checksum proves nothing. |
 | `app/Http/Controllers/PosController.php:246` | POS sale skipped a line whose product is not this store |
 | `app/Http/Controllers/SavedViewController.php:117` | Saved view apply refused: not the owner or no such view |
 | `app/Http/Controllers/SavedViewController.php:136` | Saved view delete refused: not the owner or no such view |

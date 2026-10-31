@@ -9619,3 +9619,187 @@ by a crash, so the test asserted that something went wrong rather than that the 
 **differently** — the route middleware aborts 403, the controller returns a 302 — so a second case
 drives the handler directly, because defence in depth is worth having only if each layer is asserted
 on its own.
+
+## F229 — the server-owned plan purchase intent, and the review round that found two holes in it (2026-10-31, D-31)
+
+### The measurement that is NOT a measurement, and must not be cited as one
+
+`scratchpad/f229-feature.txt` records a full Known-Outcome Gate run that reports
+`HEAD=2f011efb613acfa6293fc47a4ec185558371a6c4`, `TREE_DIRTY_FILES=0`, and then
+**`3 failed, 17 skipped, 7052 passed`** against a manifest declaring two failures — an undeclared
+failure, which is a gate failure (`ASSERT_EXIT=1`).
+
+**That run is void, and the undeclared failure is an artefact of how it was taken.** The header is
+true of the moment the run *started*: `git rev-parse HEAD` and `git status --porcelain` were
+evaluated once, before `php artisan test` began. The Feature suite then ran for roughly nine
+minutes, and the review fixes below were written to disk during that window. PHPUnit reads source
+from disk as it goes, so the run measured a tree that was changing underneath it.
+
+The failure it reported makes the mechanism plain. `SecurityLogInventoryTest` compares every
+`Log::` line in `app/` against `docs/security/P01-OBSERVABILITY-INVENTORY.md` **by `file:line`**,
+and it named `PaytmPaymentController.php:197` and friends as undocumented. At the commit itself
+those lines sit elsewhere, and the inventory matches them exactly:
+
+```
+$ git show 2f011efb:docs/security/P01-OBSERVABILITY-INVENTORY.md | grep -n Paytm
+74:| `app/Http/Controllers/PaytmPaymentController.php:175` | Paytm plan purchase refused: ...
+...
+$ git show 2f011efb:app/Http/Controllers/PaytmPaymentController.php | grep -n "Log::warning('Paytm"
+175:                    Log::warning('Paytm plan purchase refused: ...
+```
+
+`175` against `175`. The inventory was correct at `2f011efb`; the *post-edit* line numbers were
+compared against the *pre-edit* document, because the two halves of the comparison came from
+different trees.
+
+**The rule this establishes.** A background full-gate run is a measurement of a commit only if the
+tree is quiescent for its whole duration. Recording the HEAD at launch is not enough and is in fact
+worse than nothing, because it makes a mixed-tree run look like a commit-pinned one. Either stop
+editing until it finishes, or run it from a separate checkout. The gate itself behaved correctly
+throughout — it caught a real inconsistency; the error is entirely in what the result is a
+measurement *of*.
+
+Everything else in that run stands on its own, because those jobs ran to completion before the
+edits began or do not read `app/`: Unit **657 passed**, Contract **26 passed**, and the MariaDB
+roster **34/34 passed** (`f229-roster.txt`).
+
+### The two holes independent review found in the first implementation
+
+Both were inside `PaytmTransactionVerifier`, and **no controller test could have seen either**,
+because every controller test binds a double in that class's place. The class that produces the
+answers had nothing driving it at all — a seam built for testability that was itself untested.
+
+**1. The "authoritative server-to-server answer" was forgeable.** The first version asked Paytm
+through the SDK: `PaytmWallet::with('status')->check()`. That reaches the network through
+`callAPI()` (`vendor/anandsiddharth/laravel-paytm-wallet/lib/encdec_paytm.php:136`), which sets
+
+```php
+curl_setopt ($ch, CURLOPT_SSL_VERIFYHOST, 0);   // :145
+curl_setopt ($ch, CURLOPT_SSL_VERIFYPEER, 0);   // :146
+```
+
+**both** TLS checks off. So anyone able to answer for `securegw.paytm.in` — a DNS answer, a hostile
+resolver, a proxy — could return `{"STATUS":"TXN_SUCCESS","TXNAMOUNT":"499.00"}` and the class
+would have called it VERIFIED. D-31 requirement 2 asks for the payment to be verified *with the
+provider*; an answer the attacker can write is not that. The first version replaced a
+browser-relayed claim with a network-relayed one and would have shipped it as progress.
+
+The class now owns its transport: `Http::withOptions(['verify' => true])`, with `callAPI()`'s exact
+body and header pairing copied rather than improved (`JsonData=<urlencoded json>` under
+`Content-Type: application/json` — the SDK's own odd combination, kept because the wire format is
+evidence from code that runs in production and "correcting" it would be an unverified change to a
+provider contract). That also made the class testable for the first time, which is how the second
+hole became visible.
+
+**2. The status response's own `CHECKSUMHASH` was never checked.** `StatusCheckProvider::response()`
+returns the decoded JSON untouched — the SDK verifies the *browser callback* body
+(`PaytmWalletProvider::response()`) and nothing else. Three cases are now kept apart, and the middle
+one is a deliberate choice rather than a contract this project has evidence for:
+
+| response carries | basis of authenticity | outcome |
+|---|---|---|
+| a checksum that matches | the server-held merchant key | may be VERIFIED |
+| a checksum that differs | nothing is established | **UNVERIFIABLE** |
+| no checksum at all | the validated TLS certificate | may be VERIFIED |
+
+A mismatch is UNVERIFIABLE and not REFUSED because `recordRefusal()` is **terminal** — it closes the
+intent and no retry reopens it — while `verifychecksum_e()` hashes the *whole* sorted array, so a
+legitimate response carrying any field Paytm excludes from its own computation would also mismatch.
+Both outcomes block the activation; only one of them destroys a real payment on an assumption.
+UNVERIFIABLE leaves the intent `pending` and visible in `PlanPurchaseIntent::unreconciled()`.
+
+### `PaytmTransactionVerifierTest` — 20 cases, and both controls bite
+
+```
+php artisan test --filter=PaytmTransactionVerifier
+Tests:    20 passed (46 assertions)
+```
+
+`Http::preventStrayRequests()` runs in every case, so a path that reaches a real network fails
+instead of quietly spending twenty seconds and returning UNVERIFIABLE — which is how a control that
+never runs comes to look like a control that always passes.
+
+Reverting each control fails exactly the cases that name it, which is the project's standing rule
+that a passing test is not yet evidence:
+
+| reverted to | fails |
+|---|---|
+| `return 'the response checksum';` (stop checking it) | `..._checksum_does_not_verify_is_unverifiable_and_not_a_refusal`, `a_garbage_checksum_does_not_crash_the_check` — **2 failed, 18 passed** |
+| `'verify' => false` | `the_transport_validates_tls_and_does_not_go_through_the_sdk` — **1 failed, 19 passed** |
+
+One of those assertions had to be rewritten before it was worth anything. Asked of the raw file,
+`assertStringNotContainsString('PaytmWallet::', $source)` failed on **my own docblock**, which names
+the SDK in order to explain why it is not used. It now strips `T_COMMENT`/`T_DOC_COMMENT` with
+`token_get_all()` and asks the question of the code. That is the third time this session a census
+could not tell an explanation from an instance.
+
+### The MariaDB concurrency check was theatre, and now is not
+
+Review was blunt about the first version and right: both `UPDATE`s ran in autocommit, so
+connection A's committed before B's began and `$wonByA + $wonByB === 1` was arithmetic over a
+sequence. **Two connections are necessary for a race and not sufficient — nothing was contended.**
+
+A single PHP process cannot issue two statements at once, but it can hold A's transaction open,
+which puts the row under A's exclusive lock for exactly the window a second callback lands in. Three
+facts now, in the order a real second callback meets them:
+
+```
+  ok    connection A claims the pending intent inside an open transaction
+  ok    while A holds it, B cannot even read the row for update -- the lock is real
+  ok    B's identical UPDATE blocks on the row lock rather than overtaking it (1.00s)
+  ok    after A commits, B's claim matches zero rows: one payment, one activation (1 + 0)
+  ok    and the winner is the one recorded
+```
+
+The **1.00s** is the measurement, not decoration: it is `innodb_lock_wait_timeout = 1` elapsing,
+which can only happen if the lock is genuinely held. In the old version B's statement returned
+immediately. `FOR UPDATE NOWAIT` failing is the independent corroboration that the window is real.
+
+**And the check bites.** Dropping `->where('status', 'pending')` from the loser's claim — the
+unguarded write a naive handler performs — gives:
+
+```
+  FAIL  after A commits, B's claim matches zero rows: one payment, one activation (1 + 1)
+  FAIL  and the winner is the one recorded
+```
+
+One payment, two activations.
+
+The same review caught that the script carried a **copy** of `PlanPurchaseIntent::scaledInteger()`
+which had already drifted from the original, so it was reporting on a comparator that no longer
+existed. It now reflects into the real private method: one implementation in the repository, which
+therefore cannot drift from itself. Widening the method to `public` for a script's convenience
+would have been the tail wagging the dog.
+
+```
+tests/Support/Security/bin/verify-plan-purchase-intent-on-mysql.php
+checks  : 17    failures: 0     on 10.11.14-MariaDB-0ubuntu0.24.04.1
+```
+
+### Three more fixes from the same review
+
+**The coupon was unsigned.** The return handler read `$request->coupon`. `PaytmWalletProvider::response()`
+verifies the checksum over `$this->request->post()` — the body only — while `$request->coupon`
+resolves through `input()`, which is body *and* query string, and `coupon` appears in neither
+Paytm's response body nor the callback URL. So `?coupon=X` was appendable to a genuine,
+correctly-checksummed return and bound to nothing. It now comes from the persisted intent
+(`$ssIntent->coupon_code`). That also fixes the converse, which is the more likely production
+symptom: the legitimate flow never sent `coupon` at all, so the block was dead and **no usage row
+was ever written for a real Paytm purchase**.
+
+**A captured payment with nothing to show for it was invisible.** `unreconciled()` surfaced
+`pending` intents but not `consumed` ones whose `plan_order_id` is still null — precisely
+requirement 5's "payment succeeded but entitlement assignment failed" state. Now both.
+
+**F240, recorded and deliberately not fixed.** See the handoff's findings table. A third member of
+the F234 family that F234's own census missed, because the census asked a narrower question than
+the family's name. Its premise is pinned by
+`PlanCouponRefusalPersistsNothingTest::test_premise_f240_the_paytm_free_plan_branch_writes_a_column_that_does_not_exist`,
+so if anyone adds `users.plan` the finding dissolves loudly rather than rotting.
+
+A probe of that branch through the real route is worth recording for the reason it failed:
+**302, nothing written.** The branch's coupon lookup is `PlanCoupon::whereRaw('BINARY \`code\` = ?')`,
+a syntax error on SQLite, so the enclosing `try` swallowed it before the coupon was found. The
+probe measured the dialect, not the defect — the same blindness
+`verify-plan-coupon-refusal-ordering-on-mysql.php` exists for, and the second time this session an
+SQLite test has silently answered a question it never reached.

@@ -6,7 +6,29 @@ use App\Models\Plan;
 use App\Models\PlanCoupon;
 use App\Models\PlanOrder;
 use App\Models\PlanUserCoupon;
-use AWS\CRT\Log;
+/*
+ * F229 review finding -- THIS IMPORT WAS `AWS\CRT\Log`, AND EVERY `Log::` CALL IN THIS FILE THREW.
+ *
+ * `vendor/aws/aws-crt-php/src/AWS/CRT/Log.php:9` is a `final class Log` whose only statics are
+ * toStdout/toStderr/toFile/toStream/stop/setLogLevel/log -- no `warning`, no `error`, no
+ * `__callStatic`. So `Log::warning(...)` raised `Error: Call to undefined method
+ * AWS\CRT\Log::warning()`, and **`Error` does not extend `Exception`**, so neither of this
+ * method's `catch (\Exception $e)` blocks caught it. MEASURED, not reasoned.
+ *
+ * The consequence was worst exactly where it mattered. In production the purchase-intent table
+ * does not exist (D-31 is development/test-only), so `create()` returns null on EVERY Paytm plan
+ * purchase, the fail-closed refusal fires -- and instead of the documented
+ * `redirect()->route('plan.index')->with('error', ...)` the merchant got an uncaught 500 with no
+ * log line at all. Still fail-closed, since nothing activated and no 401 was emitted, but the
+ * refusal left no evidence and did not look like a refusal.
+ *
+ * NO TEST REACHED ANY OF THE FIVE SITES, which is why the suite was green over them: the
+ * no-merchant-key case returns at an already-fully-qualified call, the positive control takes the
+ * success path, and the replay case returns before them.
+ *
+ * The pre-existing `Log::debug` on the free-plan branch had the same fault.
+ */
+use Illuminate\Support\Facades\Log;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use PaytmWallet;
@@ -265,6 +287,56 @@ class PaytmPaymentController extends Controller
                      * that constraint keys on the clock, not on anything the provider said, and
                      * two posts a second apart both landed.
                      */
+                    $ssOrderReference = (string) $request->ORDERID;
+
+                    /*
+                     * ═══════════════════════════════════════════════════════════════════════════
+                     * A REFRESH OF AN ALREADY-SUCCESSFUL PURCHASE IS ANSWERED FROM THE SERVER'S
+                     * OWN RECORD, AND WRITES NOTHING. Found by independent review of 2f011efb.
+                     * ═══════════════════════════════════════════════════════════════════════════
+                     *
+                     * This must come BEFORE `refusePlanActivationReplay()`, because that guard's
+                     * same-buyer-same-plan branch RE-RUNS `assignPlan()`
+                     * (`GuardsPlanActivation.php:463`) with the **route's** plan id -- 46 lines
+                     * before the intent is consulted and 67 before the intent is consumed. So it
+                     * was a write that happened before verification, which is the F196 Option A
+                     * ordering D-28b settled.
+                     *
+                     * AND IT WAS NOT A NO-OP, which the trait's own comment mislabels it as.
+                     * `User::assignPlan()` sets `plan_expire_date = Carbon::now()->addMonths(1)`
+                     * -- **recomputed from now rather than accumulated** (`User.php:250-257`). A
+                     * valid checksum stays valid on a re-POST, as this controller's own comment
+                     * records. So re-POSTing one legitimate signed body once a month kept a paid
+                     * plan alive indefinitely on a single payment. A free renewal, not a
+                     * substitution: `:417` requires the plan to match, so the plan cannot be
+                     * changed this way -- only the expiry.
+                     *
+                     * The honest answer to a refresh is "you already have it", from the record the
+                     * server wrote itself, with no entitlement write at all. The intent carries
+                     * exactly the three facts needed: consumed, by this buyer, with an order
+                     * behind it.
+                     *
+                     * It is keyed on `plan_order_id` rather than on `status` alone so that a
+                     * consumed intent whose order never landed does NOT report success -- that is
+                     * requirement 5's captured-payment-without-entitlement case, and it belongs in
+                     * `unreconciled()` rather than in a success message.
+                     */
+                    $ssAlready = \App\Services\PlanPurchaseIntent::find('Paytm', $ssOrderReference);
+
+                    if ($ssAlready !== null
+                        && $ssAlready->status === \App\Services\PlanPurchaseIntent::CONSUMED
+                        && is_numeric($user->id ?? null)
+                        && (int) $ssAlready->user_id === (int) $user->id
+                        && ! empty($ssAlready->plan_order_id)) {
+                        Log::info('Paytm return re-presented for a purchase that already activated; reporting success without re-writing the entitlement.', [
+                            'reference' => $ssOrderReference,
+                            'plan_order_id' => $ssAlready->plan_order_id,
+                            'user_id' => $user->id,
+                        ]);
+
+                        return redirect()->route('plan.index')->with('success', __('Plan activated Successfully.'));
+                    }
+
                     $paytmReference = $request->TXNID;
                     $paytmReplay = $this->refusePlanActivationReplay('Paytm', $paytmReference, $plan, $user);
 
@@ -310,8 +382,6 @@ class PaytmPaymentController extends Controller
                      * REQUIREMENT 9 -- nothing here refunds, cancels or settles anything. A
                      * refused intent beside a captured payment is a RECORD, and that is all.
                      */
-                    $ssOrderReference = (string) $request->ORDERID;
-
                     $ssProviderSays = app(\App\Services\PaytmTransactionVerifier::class)
                         ->verify($ssOrderReference);
 
@@ -384,9 +454,35 @@ class PaytmPaymentController extends Controller
 
                     $plan = $ssIntendedPlan;
 
-                    if(!empty($request->coupon))
+                    /*
+                     * THE COUPON COMES FROM THE INTENT, NOT FROM THE REQUEST. Review finding.
+                     *
+                     * `$request->coupon` was caller-supplied AND OUTSIDE THE CHECKSUM:
+                     * `PaytmWalletProvider::response()` verifies over `$this->request->post()` --
+                     * the body only -- while `$request->coupon` resolves through `input()`, which
+                     * is body + QUERY STRING. `coupon` appears in neither Paytm's response body
+                     * nor the callback URL this controller builds, so `?coupon=X` on the return was
+                     * unsigned, unbound, and the only such key that reached a write. It drove the
+                     * recorded price, wrote a `PlanUserCoupon` the buyer never used, and could
+                     * deactivate a coupon PLATFORM-WIDE (`PlanCoupon::used_coupon()` counts every
+                     * user's rows).
+                     *
+                     * The intent already records `coupon_id` and `coupon_code` -- requirement 1's
+                     * "discount named explicitly" -- and nothing read them. Now the server's own
+                     * record is the authority, exactly as it is for the plan.
+                     *
+                     * AND IT FIXES THE CONVERSE, WHICH WAS THE LARGER HALF: because the legitimate
+                     * flow never sent `coupon` on the return, this block was DEAD for every real
+                     * Paytm purchase -- a buyer who used a coupon at checkout had no usage row
+                     * written at all, so `used_coupon()` never incremented and a limit-1 coupon was
+                     * reusable without bound on this provider. Reading the intent makes the
+                     * legitimate case work for the first time.
+                     */
+                    $ssIntentCoupon = $ssIntent->coupon_code ?? null;
+
+                    if(!empty($ssIntentCoupon))
                     {
-                        $coupons = PlanCoupon::whereRaw('BINARY `code` = ?', [$request->coupon])->where('is_active', '1')->first();
+                        $coupons = PlanCoupon::whereRaw('BINARY `code` = ?', [$ssIntentCoupon])->where('is_active', '1')->first();
                         if(!empty($coupons))
                         {
                             $usedCoupun     = $coupons->used_coupon();
@@ -419,7 +515,7 @@ class PaytmPaymentController extends Controller
                     // above ($price = $plan->price - $discount_value) and then discarded it in
                     // favour of the posted TXNAMOUNT. Paytm IS verified on this path
                     // ($transaction->isSuccessful()), so only the RECORDED price changes.
-                    $order->price          = $this->serverOwnedPlanPrice($plan, $request->coupon);
+                    $order->price          = $this->serverOwnedPlanPrice($plan, $ssIntentCoupon);
                     $order->price_currency = isset($request->CURRENCY_CODE) ? $request->CURRENCY_CODE : 'NFD';
                     // The same variable the guard was keyed on, so the recorded value cannot drift
                     // away from the looked-up one. See the structural assertion in

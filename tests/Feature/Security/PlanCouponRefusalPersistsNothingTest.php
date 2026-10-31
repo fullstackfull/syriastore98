@@ -5,6 +5,7 @@ namespace Tests\Feature\Security;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 /**
  * F234 -- A COUPON USE IS BURNED BY A REQUEST THAT CANNOT SUCCEED.
@@ -115,6 +116,77 @@ class PlanCouponRefusalPersistsNothingTest extends PlanPaymentTestCase
                 . 'key names belong in the operator log, not in a response.'
             );
         }
+    }
+
+    /**
+     * F240's PREMISE — recorded, measured, and deliberately NOT fixed in the commit that adds it.
+     *
+     * Independent review found a third member of this family that this file's own census missed,
+     * because the census asked a narrower question than the family's name: *"does a provider-
+     * credential refusal come after the coupon write?"* Paytm's free-plan branch fails for a
+     * different reason and so answered "no" to that question while still burning a coupon on a
+     * request that cannot succeed.
+     *
+     * `PaytmPaymentController::planPayWithPaytm` writes the `PlanUserCoupon` row and deactivates
+     * the coupon on its limit, and then — five to seventeen lines later, on the `$price <= 0`
+     * branch — runs `$authuser->plan = $plan->id; $authuser->save();`. **There is no `users.plan`
+     * column.** The real column is `users.plan_id`, which `assignPlan()` on the next line writes
+     * correctly. So the save raises, the enclosing `try` swallows it, and the coupon use that was
+     * already committed is never undone.
+     *
+     * TWO REASONS THIS IS A PREMISE ASSERTION RATHER THAN A DEFECT TEST.
+     *
+     * First, **the branch cannot be reached from this suite at all.** Its coupon lookup is
+     * `PlanCoupon::whereRaw('BINARY `code` = ?')`, which is a syntax error on SQLite — a probe
+     * driving the real route with a 100% coupon redirected 302 having written nothing, because the
+     * dialect error was swallowed before the coupon was ever found. That is precisely the blindness
+     * `verify-plan-coupon-refusal-ordering-on-mysql.php` exists for, and it is why a passing test
+     * here would have proved nothing about Paytm.
+     *
+     * Second, CLAUDE.md's standing warning cuts both ways: *"the migrations are not the schema."*
+     * This asserts the column's absence from **the schema the migrations build**, which is what
+     * every fresh install and every test run gets. The restored production dump may differ, and
+     * this test does not claim otherwise.
+     *
+     * What it does do is keep F240 from rotting. Column existence is not an affinity question — a
+     * column the migrations never add cannot be present on any engine — so if someone adds
+     * `users.plan`, this fails and the finding dissolves with it.
+     */
+    public function test_premise_f240_the_paytm_free_plan_branch_writes_a_column_that_does_not_exist(): void
+    {
+        $this->assertFalse(
+            Schema::hasColumn('users', 'plan'),
+            'F240 has dissolved: `users.plan` now exists, so `$authuser->plan = ...; save()` in '
+            . 'PaytmPaymentController::planPayWithPaytm no longer raises. Re-read the finding — the '
+            . 'coupon-ordering half may still stand on its own, but its stated cause does not.'
+        );
+
+        $this->assertTrue(
+            Schema::hasColumn('users', 'plan_id'),
+            'Premise broken the other way: if `users.plan_id` is also absent then this is not a '
+            . 'wrong-column-name defect and F240 is mis-stated.'
+        );
+
+        /*
+         * And the ordering itself, read off the source rather than driven, because the branch is
+         * unreachable here. Asked of the method, not the file: the file-scoped version of this
+         * question is the mistake that produced F227's false guard claim.
+         */
+        $source = file_get_contents(base_path('app/Http/Controllers/PaytmPaymentController.php'));
+        $method = substr($source, strpos($source, 'public function planPayWithPaytm('));
+        $method = substr($method, 0, strpos($method, 'public function ', 10));
+
+        $couponWrite = strpos($method, 'new PlanUserCoupon()');
+        $theSaveThatRaises = strpos($method, '$authuser->plan = $plan->id;');
+
+        $this->assertNotFalse($couponWrite, 'the coupon write has moved; re-read F240');
+        $this->assertNotFalse($theSaveThatRaises, 'the failing save has moved or been fixed; re-read F240');
+        $this->assertLessThan(
+            $theSaveThatRaises,
+            $couponWrite,
+            'F240 is FIXED: the coupon consumption no longer precedes the save that raises. Close '
+            . 'the finding and delete this premise.'
+        );
     }
 
     /**

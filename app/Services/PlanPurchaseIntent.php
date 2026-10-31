@@ -461,6 +461,26 @@ class PlanPurchaseIntent
                         ->orWhere(function ($pending) {
                             $pending->where('status', self::PENDING)
                                 ->whereNotNull('provider_txn_id');
+                        })
+                        /*
+                         * CONSUMED BUT WITH NO ORDER BEHIND IT -- added after review found this
+                         * the ONE failure state the query could not see, and the most important
+                         * one.
+                         *
+                         * Three paths reach it: the two coupon returns after the intent is already
+                         * consumed, and `$order->save()` throwing on `plan_orders.order_id`'s
+                         * UNIQUE constraint when two activations land in the same second (that id
+                         * is `time()`). In every one the payment is verified, the intent is spent,
+                         * and no entitlement exists.
+                         *
+                         * It matters more since the intent exists than it did before: a retry is
+                         * now refused with "already consumed", so the loss is PERMANENT -- and
+                         * without this clause the reconciliation query the whole design points a
+                         * human at was blind to exactly the state it was built to surface.
+                         */
+                        ->orWhere(function ($spentWithNothingToShow) {
+                            $spentWithNothingToShow->where('status', self::CONSUMED)
+                                ->whereNull('plan_order_id');
                         });
                 })
                 ->where('created_at', '<', now()->subMinutes($olderThanMinutes))

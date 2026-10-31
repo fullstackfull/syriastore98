@@ -840,7 +840,7 @@ class PlanActivationReplayGuardTest extends PlanPaymentTestCase
      * THE FIRST VERSION OF THIS CASE POSTED THE SAME BODY TWICE AND PASSED AGAINST THE UNGUARDED
      * HANDLER — and it was right to be suspicious, because a scratch probe doing exactly that had
      * MEASURED two rows. The difference is the clock. `$orderID = time()` at
-     * `PaytmPaymentController:168` and `plan_orders.order_id` is UNIQUE, so two posts inside the
+     * `PaytmPaymentController::planPayWithPaytmReturn()` and `plan_orders.order_id` is UNIQUE, so two posts inside the
      * same second collide on the constraint and the second is swallowed by the handler's own
      * catch; the probe's two posts happened to straddle a second boundary (`order_id` 1793436424
      * then 1793436425) and both landed. So a double-post test measures **what second it ran in**,
