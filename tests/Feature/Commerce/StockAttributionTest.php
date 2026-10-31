@@ -602,7 +602,7 @@ class StockAttributionTest extends SecurityTestCase
 
         $harness->attributeTo($stranger);
 
-        \Illuminate\Support\Facades\Log::shouldHaveReceived('error')
+        \Illuminate\Support\Facades\Log::shouldHaveReceived('warning')
             ->withArgs(static fn ($message, $context = []) => str_contains((string) $message, 'not attributed')
                 && ($context['state'] ?? null) === StockMovement::NOT_ATTRIBUTED)
             ->once();
@@ -623,7 +623,7 @@ class StockAttributionTest extends SecurityTestCase
         /* No useToken() call, so the host is in the state a request that never touched stock is in. */
         (new StockAttributionHarness())->attributeTo($order);
 
-        \Illuminate\Support\Facades\Log::shouldNotHaveReceived('error');
+        \Illuminate\Support\Facades\Log::shouldNotHaveReceived('warning');
     }
 
     /**
@@ -668,7 +668,7 @@ class StockAttributionTest extends SecurityTestCase
          */
         $attributionErrors = [];
         \Illuminate\Support\Facades\Log::listen(static function ($event) use (&$attributionErrors) {
-            if (in_array($event->level, ['error', 'critical', 'emergency'], true)
+            if (in_array($event->level, ['warning', 'error', 'critical', 'emergency'], true)
                 && str_contains((string) $event->message, 'stock evidence')) {
                 $attributionErrors[] = $event->level . ': ' . $event->message;
             }
@@ -739,7 +739,7 @@ class StockAttributionTest extends SecurityTestCase
 
         $incomplete = [];
         \Illuminate\Support\Facades\Log::listen(static function ($event) use (&$incomplete) {
-            if ($event->level === 'error' && str_contains((string) $event->message, 'stock evidence incomplete')) {
+            if ($event->level === 'warning' && str_contains((string) $event->message, 'stock evidence incomplete')) {
                 $incomplete[] = $event->context;
             }
         });

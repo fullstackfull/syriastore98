@@ -116,6 +116,16 @@ trait AppliesCartStockChanges
      * money; an exception here would roll the order back and lose a paid order, which would be a
      * change to approved payment behaviour introduced by a bookkeeping call. So nothing propagates.
      *
+     * THE LEVEL IS `warning`, NOT `error`, AND THE INVENTORY SETTLES WHICH.
+     * `docs/security/P01-OBSERVABILITY-INVENTORY.md:32-35` states the taxonomy this repository
+     * uses: `critical` and `warning` are the levels for "a control fired" or "something happened
+     * that a human should look at", and `error` is "almost entirely pre-existing
+     * third-party-integration failure reporting … none of them is a security signal". Missing
+     * stock evidence for a real order is the former, not the latter. It also matters practically:
+     * only `critical` and `warning` are enumerated in that inventory, so an `error` line would
+     * have had no stated destination -- which is the very thing the inventory exists to prevent.
+     * It is also the level `StockMovement`'s own recording failures already use.
+     *
      * But a zero row count must not be read as success either. `attributeToOrder()` returns a
      * count, and zero is ambiguous four ways — already attributed, nothing recorded, rows that
      * exist but did not move, or an update that threw. So when it moves nothing, the record is
@@ -166,9 +176,7 @@ trait AppliesCartStockChanges
             $storeId = is_object($order) ? ($order->store_id ?? null) : null;
 
             if (! is_numeric($orderId) || ! is_numeric($storeId)) {
-                \Illuminate\Support\Facades\Log::error(
-                    'stock evidence not attributed: the order carries no usable id or store',
-                    [
+                \Illuminate\Support\Facades\Log::warning('stock evidence not attributed: the order carries no usable id or store', [
                         'token' => $token,
                         'order_id' => is_scalar($orderId) ? $orderId : null,
                         'store_id' => is_scalar($storeId) ? $storeId : null,
@@ -197,9 +205,7 @@ trait AppliesCartStockChanges
                  * leaving a silent half-record that reads as proof.
                  */
                 if ($this->ssStockEvidenceExpected > $moved) {
-                    \Illuminate\Support\Facades\Log::error(
-                        'stock evidence incomplete: fewer movements recorded than stock decrements applied',
-                        [
+                    \Illuminate\Support\Facades\Log::warning('stock evidence incomplete: fewer movements recorded than stock decrements applied', [
                             'applied_decrements' => $this->ssStockEvidenceExpected,
                             'attributed_rows' => $moved,
                             'token' => $token,
@@ -221,9 +227,7 @@ trait AppliesCartStockChanges
                 return;
             }
 
-            \Illuminate\Support\Facades\Log::error(
-                'stock evidence not attributed: stock moved for this request and no row now owns the order',
-                [
+            \Illuminate\Support\Facades\Log::warning('stock evidence not attributed: stock moved for this request and no row now owns the order', [
                     'state' => $state,
                     'token' => $token,
                     'order_id' => $orderId,
@@ -233,7 +237,7 @@ trait AppliesCartStockChanges
             );
         } catch (\Throwable $theAttributionFailed) {
             /* Never fail a persisted order over bookkeeping — but never go quiet either. */
-            \Illuminate\Support\Facades\Log::error('stock evidence not attributed: the attempt threw', [
+            \Illuminate\Support\Facades\Log::warning('stock evidence not attributed: the attempt threw', [
                 'reason' => $theAttributionFailed->getMessage(),
                 'token' => $token,
                 'controller' => static::class,
