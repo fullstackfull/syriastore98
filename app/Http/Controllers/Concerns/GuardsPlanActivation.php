@@ -97,7 +97,7 @@ trait GuardsPlanActivation
      * REFUSE BEFORE PERSISTING WHEN THE PROVIDER'S CREDENTIALS ARE NOT THERE — F234.
      *
      * **THE DEFECT THIS EXISTS FOR.** `CoingateController::coingatePaymentPrepare()` persisted a
-     * `PlanUserCoupon` row and could deactivate the coupon outright **fifty-four lines before** it
+     * `PlanUserCoupon` row and could deactivate the coupon outright **fifty lines before** it
      * read `$admin_payment_setting['coingate_mode']` — a bare array subscript on the result of
      * `getSuperAdminAllSetting()`, which plucks only the setting rows that EXIST and supplies no
      * defaults. On an installation that never saved its CoinGate settings that read raises, the
@@ -142,7 +142,10 @@ trait GuardsPlanActivation
         $missing = [];
 
         foreach ($requiredKeys as $key) {
-            if (! isset($settings[$key]) || trim((string) $settings[$key]) === '') {
+            /* is_scalar before the cast: `getSuperAdminAllSetting()` plucks strings so a non-scalar
+               is unreachable today, but casting an array to string warns rather than refusing, and
+               a guard that emits a warning instead of refusing is the wrong failure direction. */
+            if (! isset($settings[$key]) || ! is_scalar($settings[$key]) || trim((string) $settings[$key]) === '') {
                 $missing[] = $key;
             }
         }
@@ -157,7 +160,9 @@ trait GuardsPlanActivation
             'provider' => $provider,
             'missing_settings' => $missing,
             'controller' => static::class,
-            'plan_id' => null,
+            /* No plan_id key: review pointed out that logging it as a literal null reads to an
+               operator as "no plan was involved", when a plan always is. The missing settings and
+               the controller are the diagnostic; the plan adds nothing to it. */
             'user_id' => optional(\Auth::user())->id,
         ]);
 

@@ -10,19 +10,19 @@ use Illuminate\Support\Facades\DB;
  * F234 -- A COUPON USE IS BURNED BY A REQUEST THAT CANNOT SUCCEED.
  *
  * THE DEFECT. `CoingateController::coingatePaymentPrepare()` persists a `PlanUserCoupon` row
- * (`:94`) and may deactivate the coupon outright (`:99-100`) FIFTY-FOUR LINES before it reads
- * `$admin_payment_setting['coingate_mode']` (`:144`) -- a bare array subscript on the result of
+ * (`:150`) and may deactivate the coupon outright (`:155`) FIFTY LINES before it reads
+ * `$admin_payment_setting['coingate_mode']` (`:200`) -- a bare array subscript on the result of
  * `getSuperAdminAllSetting()`, which plucks only the setting rows that EXIST
  * (`app/Helper/helper.php:662`) and supplies no defaults. On an installation that never saved
  * its CoinGate settings that read raises `Undefined array key "coingate_mode"`, which the
- * method's own `catch (\Exception $e)` (`:172`) turns into `redirect()->back()->with('error')`.
+ * method's own `catch (\Exception $e)` (`:228`) turns into `redirect()->back()->with('error')`.
  * So the request cannot possibly produce a payment or a PlanOrder -- and the coupon use is
  * already in the database.
  *
  * WHY IT IS WORSE THAN ONE WASTED USE. `PlanCoupon::used_coupon()`
  * (`app/Models/PlanCoupon.php:21-24`) counts EVERY user's rows, so the limit is platform-wide.
  * One merchant retrying an unconfigured gateway drives `used_coupon()` up to `limit` and
- * `:99-100` then sets `is_active = 0` -- exhausting the coupon FOR EVERYBODY. There is no
+ * `:155` then sets `is_active = 0` -- exhausting the coupon FOR EVERYBODY. There is no
  * `DB::transaction()` anywhere in the method, so nothing rolls the row back.
  *
  * THIS NEEDS NO NEW OWNER DECISION. It is a direct violation of a principle the repository
@@ -65,7 +65,7 @@ class PlanCouponRefusalPersistsNothingTest extends PlanPaymentTestCase
     /**
      * The CoinGate settings rows whose ABSENCE makes the request unsatisfiable.
      *
-     * `:144` and `:146` are the only two bare-subscript reads of these keys in the repository;
+     * `:200` and `:202` are the only two bare-subscript reads of these keys in the repository;
      * every other reader goes through `Utility::GetValueByName()`, which yields null for a
      * missing row instead of raising.
      */
@@ -81,7 +81,7 @@ class PlanCouponRefusalPersistsNothingTest extends PlanPaymentTestCase
      * `CoingateController:144` and raises `Undefined array key "coingate_mode"`. That was the
      * right premise for the UNFIXED code — it proved the negative cases below were measuring the
      * gateway branch rather than some unrelated early refusal. **The fix deliberately makes it
-     * false**: the request is now refused above the `try` and never reaches `:144`, so the premise
+     * false**: the request is now refused above the `try` and never reaches `:200`, so the premise
      * had to go rather than be propped up.
      *
      * The negative cases are still protected, by `test_a_configured_install_still_records_the_coupon_use`:
@@ -155,7 +155,7 @@ class PlanCouponRefusalPersistsNothingTest extends PlanPaymentTestCase
      * THE PLATFORM-WIDE HALF. One merchant must not be able to exhaust a coupon for everyone.
      *
      * A single POST cannot show this. `used_coupon()` counts across all users, so the
-     * deactivation at `:99-100` fires once the row count reaches `limit` -- which a merchant
+     * deactivation at `:155` fires once the row count reaches `limit` -- which a merchant
      * reaches by retrying a gateway that was never going to work.
      */
     public function test_repeated_unconfigured_checkouts_cannot_exhaust_the_coupon_for_everybody(): void
@@ -193,7 +193,7 @@ class PlanCouponRefusalPersistsNothingTest extends PlanPaymentTestCase
     /**
      * POSITIVE CONTROL. The fix must not buy its refusal by breaking the legitimate path.
      *
-     * With both CoinGate rows present the handler gets past `:144`, so the coupon block is
+     * With both CoinGate rows present the handler gets past `:200`, so the coupon block is
      * reached on its merits and the use SHOULD be recorded. The gateway HTTP call itself is
      * unreachable from this environment, so the assertion is on the database, not the response.
      */
@@ -224,6 +224,64 @@ class PlanCouponRefusalPersistsNothingTest extends PlanPaymentTestCase
     // ---------------------------------------------------------------------------------------
     // THE SIBLINGS CANNOT BE DRIVEN HERE AT ALL, and that is the finding of this slice.
     // ---------------------------------------------------------------------------------------
+
+    /**
+     * THE THIRD SETTING — found by independent review, and the suite could not have reached it.
+     *
+     * The first version of the guard required `coingate_mode` and `coingate_auth_token` only. But
+     * the branch it protects reads `$admin_payment_setting['CURRENCY_NAME']` as a **bare**
+     * subscript at `:211-212` — unlike `:180`, which guards the same key with `!empty()` — inside
+     * the `try` and **after** the coupon row is saved and the coupon possibly deactivated. So an
+     * installation holding both CoinGate rows but no `CURRENCY_NAME` row reproduced F234 exactly:
+     * the same burn, one setting over.
+     *
+     * **No existing test could reach that state.** `PlanPaymentTestCase::seedSuperAdminCurrency()`
+     * inserts `CURRENCY_NAME` in every fixture — including the "unconfigured" cases — so the whole
+     * suite is blind to it by construction. This case seeds the CoinGate rows and deliberately
+     * omits the currency, which is the only way the state exists.
+     */
+    public function test_a_missing_currency_setting_is_also_refused_before_any_write(): void
+    {
+        /* The platform admin, and the CoinGate rows, but NO CURRENCY_NAME. seedSuperAdminCurrency()
+           cannot express this, because inserting that row is the one thing it always does. */
+        \Illuminate\Support\Facades\Cache::flush();
+        $admin = $this->makePlatformAdmin();
+
+        foreach (self::COINGATE_SETTINGS as $name => $value) {
+            DB::table('settings')->insert([
+                'name' => $name, 'value' => $value,
+                'created_by' => $admin->id, 'store_id' => $admin->current_store,
+                'created_at' => now(), 'updated_at' => now(),
+            ]);
+        }
+
+        [$merchant] = $this->makeTenant();
+        $plan       = $this->makePlan('499');
+        $coupon     = $this->makeCoupon('F234CUR', 10, 5);
+
+        $response = $this->actingAs($merchant)->post(route('coingate.prepare.plan'), [
+            'plan_id'     => Crypt::encrypt($plan->id),
+            'total_price' => 499,
+            'coupon'      => 'F234CUR',
+        ]);
+
+        $response->assertForbidden();
+
+        $this->assertSame(
+            0,
+            DB::table('plan_user_coupons')->where('coupon_id', $coupon->id)->count(),
+            'an install with both CoinGate rows but no CURRENCY_NAME still burned a coupon use. '
+            . 'CoingateController:211-212 reads that key as a bare subscript, inside the try and '
+            . 'after the usage is persisted, so leaving it out of the required-key list reproduces '
+            . 'F234 one setting over.'
+        );
+
+        $this->assertSame(
+            1,
+            (int) DB::table('plan_coupons')->where('id', $coupon->id)->value('is_active'),
+            'the coupon was deactivated by a request that could not succeed'
+        );
+    }
 
     /**
      * THE SUITE IS STRUCTURALLY BLIND TO THE F234 FAMILY, and this pins why.
@@ -263,16 +321,30 @@ class PlanCouponRefusalPersistsNothingTest extends PlanPaymentTestCase
      */
     public function test_premise_the_sqlite_suite_cannot_reach_the_mysql_only_coupon_lookups(): void
     {
+        /*
+         * NEEDLED ON THE EXECUTABLE FORM, NOT THE LITERAL -- review found the first version
+         * desensitised, and the example was this very slice.
+         *
+         * Searching raw source for ``BINARY `code` `` also matches the explanatory COMMENTS that
+         * quote the defect. `CoingateController.php` was being counted purely on the comment this
+         * fix added to it, and `NepalstePaymnetController.php` carries both a live call and a
+         * comment about it. So the count COULD NOT FALL as handlers were converted: each
+         * conversion leaves a comment behind that keeps its file counted, which desensitises the
+         * exact signal the ratchet exists to emit.
+         *
+         * `PlanCoupon::whereRaw('BINARY` is the call itself. A comment quoting the fragment does
+         * not match it, and a converted handler drops out of the count as it should.
+         */
         $binaryForm = [];
 
         foreach ((array) glob(base_path('app/Http/Controllers/*.php')) as $file) {
-            if (str_contains((string) file_get_contents($file), 'BINARY `code`')) {
+            if (str_contains((string) file_get_contents($file), "PlanCoupon::whereRaw('BINARY")) {
                 $binaryForm[] = basename($file);
             }
         }
 
         $this->assertGreaterThanOrEqual(
-            40,
+            38,
             count($binaryForm),
             'The MySQL-only `BINARY `code`` coupon lookup has largely disappeared from '
             . 'app/Http/Controllers. If it was replaced with a portable form, these initiators '
@@ -292,7 +364,7 @@ class PlanCouponRefusalPersistsNothingTest extends PlanPaymentTestCase
      * THE PLACEMENT TRAP, pinned so it cannot be reintroduced.
      *
      * The entire body of `coingatePaymentPrepare()` sits inside `try { ... } catch (\Exception
-     * $e) { return redirect()->back()->with('error', $e->getMessage()); }` (`:66`, `:172-173`).
+     * $e) { return redirect()->back()->with('error', $e->getMessage()); }` (`:122`, `:228-229`).
      * `abort(403)` raises `HttpException`, which EXTENDS `\Exception` -- so a guard written
      * inside that try block is SWALLOWED and silently downgraded into a flash redirect, and the
      * refusal stops being a refusal.

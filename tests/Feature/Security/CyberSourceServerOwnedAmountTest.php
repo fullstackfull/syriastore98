@@ -12,13 +12,13 @@ use Illuminate\Support\Facades\Http;
  * `CyberSourceController::planPayWithCyberSourceData()` reads its whole context out of one
  * **plaintext, unsigned** hidden field — `resources/views/plans/cybersourcerequest.blade.php:35`
  * renders `<input type="hidden" name="data" value="{{ $data }}">` and the handler does
- * `json_decode($input['data'], true)` at `:103`, taking `$amount` from `:105` and the plan id from
- * `:108`. There is no `Crypt`, no signature and no MAC on it.
+ * `json_decode($input['data'], true)` at `:103`, taking its plan id from `:107` and, before this
+ * fix, its amount from the same blob. There is no `Crypt`, no signature and no MAC on it.
  *
  * **WHY THIS IS WORSE THAN AN ORDINARY CALLER-SUPPLIED AMOUNT, AND IT IS THE WHOLE FINDING:**
- * the handler sends the caller's figure OUTBOUND at `:133` (`"totalAmount" => $amount`), gates on
- * `$result['status'] == "AUTHORIZED"` at `:174` — which only establishes that *its own
- * instruction* succeeded — and then records `serverOwnedPlanPrice()` at `:214`. A previous fix
+ * the handler sends the caller's figure OUTBOUND at `:173` (`"totalAmount" => $amount`), gates on
+ * `$result['status'] == "AUTHORIZED"` at `:214` — which only establishes that *its own
+ * instruction* succeeded — and then records `serverOwnedPlanPrice()` at `:254`. A previous fix
  * made the RECORD server-owned and left the CHARGE caller-owned, so the two are decoupled by
  * construction: **pay 1 for a 499 plan and `plan_orders` says 499.** The underpayment leaves no
  * trace in the database at all.
@@ -46,15 +46,49 @@ use Illuminate\Support\Facades\Http;
  *   the `"AUTHORIZED"` sentinel — so it is correctly absent from `config/payments.php`'s
  *   fail-closed map. Adding the gate would disable a provider whose verification is genuine and
  *   contradict that classification.
- * - **the replay guard is NOT added.** `txn_id` is recorded as `time()` (`:216`), not a provider
+ * - **the replay guard is NOT added.** `txn_id` is recorded as `time()` (`:256`), not a provider
  *   reference, so there is nothing stable to key a guard on; supplying one means changing what is
  *   recorded, which is a separate slice.
- * - **the six hardcoded `apitest.cybersource.com` sites are NOT touched** (`:118`, `:154`, `:161`,
- *   `:272`, `:308`, `:315`). That is the **sandbox** host, and whether a live installation should
+ * - **the six hardcoded `apitest.cybersource.com` sites are NOT touched** (`:158`, `:194`, `:201`,
+ *   `:336`, `:372`, `:379`). That is the **sandbox** host, and whether a live installation should
  *   be pointed at production is an owner/operator question, not an engineering one.
  * - **the three routes' missing `auth` middleware is NOT changed** (`routes/customer.php:365-367`).
  *   Recorded; changing a route's middleware is a routing decision and the handler already
- *   dereferences `\Auth::user()` unguarded, so it is effectively session-bound today.
+ *   dereferences `\Auth::user()` unguarded, so it is effectively session-bound today. (Review
+ *   confirmed the mechanism: an anonymous caller is stopped by `$authuser->name`, whose
+ *   null-property warning becomes an `ErrorException` the method's own catch absorbs — so no
+ *   write and no outbound call, but a 500 rather than a clean refusal.)
+ *
+ * ## Found by the independent review of THIS change, and left open deliberately
+ *
+ * - **`coupon_code` is the one money lever the unsigned blob still carries.** The pricing lookup
+ *   honours a coupon that is deactivated or limit-exhausted *on purpose*
+ *   (`GuardsPlanActivation::findPlanCouponExact($code, false)`) — the rationale is that a coupon
+ *   valid when checkout began may be inactive by the time a provider returns, and filtering it
+ *   here would recompute a HIGHER price than the server advertised. That reasoning is sound for a
+ *   real provider return and weak here, because this step is a POST the caller composes. Since the
+ *   discount now drives the charge as well as the record, a caller who knows one real code gets it
+ *   repeatedly — and the *recording* lookup requires `is_active = 1`, so for an inactive coupon no
+ *   usage row is written and nothing counts against the limit.
+ *   **Bounded, and worth stating:** `PlanCouponController` rejects `discount >= 100` on both write
+ *   paths, so the price cannot reach zero and there is no free-plan path here. **Not a regression**
+ *   — before this change the charge was wholly caller-chosen — and **not closed by it**.
+ *   Its proper fix is **D-31 requirement 1**, the server-owned payment intent: binding the data
+ *   step to the intent the initiator persisted closes the plan-id lever and the coupon lever
+ *   together. A session hack would close it too and would break a merchant with two checkout tabs,
+ *   which is why it is deferred to the intent rather than patched here.
+ * - **the sibling arm `storePayWithCyberSourceData` still has this defect**, and worse: it takes
+ *   `amount`, `user` **and `store_id`** from the same unsigned blob and never inspects the response
+ *   at all. `$data['store_id']` is a textbook tenant-predicate-from-caller-input. Its own initiator
+ *   supplies no `store_id` key, so the honest storefront flow raises outside the `try` — latent for
+ *   real users, drivable by a caller who composes their own blob on an anonymous route. Already
+ *   recorded in `E14-GATEWAY-MATRIX-2026-10-31.md:191-196`; named here because this file lists what
+ *   it leaves alone and must not appear to have covered it.
+ * - **the outbound call is an AUTHORIZATION, not a capture.** It posts to `/pts/v2/payments` with
+ *   no `processingInformation.capture`, and no capture call exists anywhere in the repository, so
+ *   the plan is activated on an auth hold that lapses. Pre-existing and out of scope, but it
+ *   qualifies any claim that "the money is now right": what this change fixes is that the amount
+ *   AUTHORISED equals the amount recorded.
  */
 class CyberSourceServerOwnedAmountTest extends PlanPaymentTestCase
 {
@@ -200,7 +234,7 @@ class CyberSourceServerOwnedAmountTest extends PlanPaymentTestCase
 
         Http::fake();
 
-        $this->actingAs($merchant)->post(route('plan.get.cybersource.status'), [
+        $response = $this->actingAs($merchant)->post(route('plan.get.cybersource.status'), [
             'data' => json_encode([
                 'id' => 99999999,
                 'amount' => 1,
@@ -212,6 +246,23 @@ class CyberSourceServerOwnedAmountTest extends PlanPaymentTestCase
             'year' => '2030',
             'owner' => 'A Buyer',
         ]);
+
+        /*
+         * THE STATUS IS ASSERTED BECAUSE WITHOUT IT THIS TEST CANNOT TELL A REFUSAL FROM A CRASH,
+         * and independent review measured exactly that.
+         *
+         * Remove the guard but keep the rest of the fix and `serverOwnedPlanPrice(Plan $plan, ...)`
+         * -- a TYPED parameter -- raises a `TypeError` on a null plan. `TypeError extends \Error`,
+         * which the method's `catch (\Exception $e)` does NOT catch, so the request 500s BEFORE the
+         * outbound call. `Http::assertNothingSent()` and the zero-row assertion both still pass.
+         *
+         * So the two assertions below fail against the ORIGINAL pre-fix code (where the caller's
+         * amount let the request reach the provider) but do not pin the GUARD, and they accept a
+         * 500 as "refused" -- which is the state the guard exists to replace. The status does pin
+         * it, and it also pins 403-rather-than-500 and 403-rather-than-redirect so nobody has to
+         * re-derive those choices.
+         */
+        $response->assertForbidden();
 
         Http::assertNothingSent();
 

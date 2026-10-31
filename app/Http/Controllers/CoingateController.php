@@ -67,7 +67,7 @@ class CoingateController extends Controller
          * F234 -- REFUSE HERE, ABOVE THE `try` AND ABOVE BOTH BRANCHES.
          *
          * The coupon block below persists a `PlanUserCoupon` and may deactivate the coupon
-         * platform-wide, 54 lines before `:144` reads `$admin_payment_setting['coingate_mode']`
+         * platform-wide, fifty lines below, `:200` reads `$admin_payment_setting['coingate_mode']`
          * and raises on an installation that never saved its CoinGate settings. F196 Option A
          * (D-28b): the refusal must precede persistence and every side effect.
          *
@@ -100,6 +100,22 @@ class CoingateController extends Controller
             $this->assertProviderCredentialsPresent('coingate', $admin_payment_setting, [
                 'coingate_mode',
                 'coingate_auth_token',
+                /*
+                 * CURRENCY_NAME IS HERE BECAUSE INDEPENDENT REVIEW FOUND THE FIRST VERSION OF THIS
+                 * LIST INCOMPLETE, AND THE OMISSION REPRODUCED F234 EXACTLY, ONE SETTING OVER.
+                 *
+                 * `:211-212` read `$admin_payment_setting['CURRENCY_NAME']` as a BARE subscript --
+                 * unlike `:180`, which guards the same key with `!empty()` -- inside the `try` and
+                 * AFTER the coupon row is saved and the coupon possibly deactivated. So an
+                 * installation holding both CoinGate rows but no CURRENCY_NAME row still burned a
+                 * coupon use on a request that could not succeed.
+                 *
+                 * THE SUITE COULD NOT HAVE CAUGHT IT: `PlanPaymentTestCase::seedSuperAdminCurrency()`
+                 * inserts CURRENCY_NAME in every fixture, including the "unconfigured" cases, so no
+                 * existing test can reach that state. `test_a_missing_currency_setting_is_also_refused_before_any_write`
+                 * seeds the CoinGate rows and deliberately omits the currency.
+                 */
+                'CURRENCY_NAME',
             ]);
         }
 
