@@ -94,6 +94,77 @@ trait GuardsPlanActivation
     }
 
     /**
+     * REFUSE BEFORE PERSISTING WHEN THE PROVIDER'S CREDENTIALS ARE NOT THERE — F234.
+     *
+     * **THE DEFECT THIS EXISTS FOR.** `CoingateController::coingatePaymentPrepare()` persisted a
+     * `PlanUserCoupon` row and could deactivate the coupon outright **fifty-four lines before** it
+     * read `$admin_payment_setting['coingate_mode']` — a bare array subscript on the result of
+     * `getSuperAdminAllSetting()`, which plucks only the setting rows that EXIST and supplies no
+     * defaults. On an installation that never saved its CoinGate settings that read raises, the
+     * method's own `catch` turns it into a flash redirect, and the coupon use is already committed
+     * to a request that could not possibly have produced a payment.
+     *
+     * Worse than one wasted use: `PlanCoupon::used_coupon()` counts EVERY user's rows, so the
+     * limit is platform-wide. One merchant retrying an unconfigured gateway drives the count to
+     * `limit` and deactivates the coupon **for everybody**. No transaction wraps any of it.
+     *
+     * **NO NEW DECISION WAS NEEDED.** D-28b settled it: F196 **Option A** — *the refusal must
+     * precede persistence and every side effect* — with Option B (persist, then paper over it)
+     * explicitly REJECTED by the owner because it leaves the data inconsistent.
+     *
+     * **403, NEVER 401, and never a returned redirect.** The 401 rule is the same one
+     * `assertPlanActivationEnabled()` documents above: Repo B's `lib/network/network.dart` maps any
+     * 401 into a forced logout. The reason this ABORTS rather than returning a redirect for the
+     * caller to pass on is narrower and specific to this repository's history: a guard whose
+     * refusal has to be `return`ed is a guard somebody can forget to return, and *"a guard that
+     * refuses after persisting is not a guard"* is the exact sentence the F196 row uses. `abort()`
+     * cannot be forgotten.
+     *
+     * **IT MUST BE CALLED OUTSIDE ANY `try`.** `HttpException` extends `\Exception`, so an
+     * `abort(403)` placed inside a handler that wraps its body in `try { } catch (\Exception $e)`
+     * — which CoinGate does — is **swallowed and silently downgraded into a flash redirect**. The
+     * refusal then stops being a refusal. `PlanCouponRefusalPersistsNothingTest` drives the status
+     * code specifically, because that is the only observable difference between the two placements.
+     *
+     * **AND IT MUST SIT ABOVE EVERY BRANCH THAT PERSISTS.** Moving a single config read is not
+     * sufficient and D-28b says so in terms: CoinGate's free-plan branch also writes before it can
+     * fail (`$authuser->plan = $plan->id` throws on a column no migration creates), so a refusal
+     * placed between the two branches would still leave the free path burning the coupon.
+     *
+     * The message names no setting, no key and no value — only that the method is unavailable.
+     *
+     * @param  string               $provider      canonical provider name, for the log only
+     * @param  array<string,mixed>  $settings      the `getSuperAdminAllSetting()` bag
+     * @param  array<int,string>    $requiredKeys  setting names that must be present and non-empty
+     */
+    protected function assertProviderCredentialsPresent(string $provider, array $settings, array $requiredKeys): void
+    {
+        $missing = [];
+
+        foreach ($requiredKeys as $key) {
+            if (! isset($settings[$key]) || trim((string) $settings[$key]) === '') {
+                $missing[] = $key;
+            }
+        }
+
+        if ($missing === []) {
+            return;
+        }
+
+        /* The NAMES of the missing settings are safe to log and are the only useful diagnostic;
+           their values are not logged, and none exists anyway. */
+        Log::warning('Plan purchase refused before any write: the provider has no usable credentials.', [
+            'provider' => $provider,
+            'missing_settings' => $missing,
+            'controller' => static::class,
+            'plan_id' => null,
+            'user_id' => optional(\Auth::user())->id,
+        ]);
+
+        abort(403, __('This payment method is not available for subscription purchases.'));
+    }
+
+    /**
      * THE PRICE OF A PLAN PURCHASE, COMPUTED FROM THE PLAN. Never from the request.
      *
      * This is the whole of the pricing defect: every one of these handlers read the amount off
