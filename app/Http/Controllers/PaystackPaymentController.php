@@ -65,19 +65,14 @@ class PaystackPaymentController extends Controller
      */
     private function paystackPaymentTypeSpellings(): array
     {
-        $spellings = [self::PAYMENT_TYPE];
-
-        foreach ((array) glob(resource_path('lang/*.json')) as $file) {
-            $locale = basename((string) $file, '.json');
-
-            if ($locale === 'language') {
-                continue;
-            }
-
-            $spellings[] = (string) trans(self::PAYMENT_TYPE, [], $locale);
-        }
-
-        return array_values(array_filter(array_unique($spellings), static fn ($v) => trim($v) !== ''));
+        /*
+         * DELEGATED 2026-10-31. This method's body moved verbatim into
+         * `GuardsPlanActivation::planProviderTypeSpellings()` when Benefit, Cashfree and Mollie
+         * needed the same locale sweep (F228/F229). Three private copies of it is how one of them
+         * goes stale, so there is one implementation and this is the name Paystack's own call
+         * sites already use.
+         */
+        return $this->planProviderTypeSpellings(self::PAYMENT_TYPE);
     }
 
     /**
@@ -90,15 +85,9 @@ class PaystackPaymentController extends Controller
      */
     private function paystackExistingPlanOrder($reference)
     {
-        foreach ($this->paystackPaymentTypeSpellings() as $spelling) {
-            $found = $this->existingPlanOrderForProviderTxn($spelling, $reference);
-
-            if ($found !== null) {
-                return $found;
-            }
-        }
-
-        return null;
+        // Delegated with the sweep above; the not-scoped-to-the-caller rule this method documented
+        // is now stated on GuardsPlanActivation::existingPlanOrderForProviderReference().
+        return $this->existingPlanOrderForProviderReference(self::PAYMENT_TYPE, $reference);
     }
 
     public static function paystackVerificationOutcome($result, $expectedReference): array

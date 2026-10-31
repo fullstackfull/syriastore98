@@ -201,6 +201,20 @@ class CashfreeController extends Controller
             $request['coupon_id'] = $coupons->id;
         }
 
+        /*
+         * ONE CASHFREE ORDER, ONE PLAN ACTIVATION. Same shape as Benefit: `plan_id` is a raw
+         * query-string integer (:190), the gate is `$info->payment_status == "SUCCESS"` -- a
+         * property of the cashfree ORDER, not of the plan -- and `txn_id` was recorded as ''
+         * (:244) with `$respons->cf_payment_id` in hand and discarded. Decided above the try,
+         * because the order id is what this method is about to ask cashfree about.
+         */
+        $cashfreeReference = $request->get('order_id');
+        $cashfreeReplay = $this->refusePlanActivationReplay('Cashfree', $cashfreeReference, $plan, $user);
+
+        if ($cashfreeReplay !== null) {
+            return $cashfreeReplay;
+        }
+
         try {
             $client = new \GuzzleHttp\Client();
             $response = $client->request('GET', config('services.cashfree.url') . '/' . $request->get('order_id') . '/settlements', [
@@ -241,7 +255,20 @@ class CashfreeController extends Controller
                     $order->price_currency = !empty($payment_setting['CURRENCY_NAME']) ? $payment_setting['CURRENCY_NAME'] : 'USD';
                     $order->payment_type = __('Cashfree');
                     $order->payment_status = 'success';
-                    $order->txn_id = '';
+                    /*
+                     * THE RECORDED REFERENCE MUST BE THE ONE THE GUARD LOOKS UP. Upstream recorded
+                     * '' here; the first version of this fix recorded `$respons->cf_payment_id`,
+                     * which is a DIFFERENT value from the `order_id` the guard above keys on --
+                     * cashfree's own payment id versus the id this server minted at :139 and
+                     * published in the return URL at :150 as `?order_id={order_id}`. The guard
+                     * would then have looked for a row that is never written, and the Cashfree arm
+                     * of this change would have protected nothing while three tests passed on a
+                     * hand-seeded shape production never produces. Found by independent review.
+                     *
+                     * `order_id` is also the right choice on the merits: it is the value a
+                     * replayer presents, because it is the one in the URL they re-open.
+                     */
+                    $order->txn_id = (string) $cashfreeReference;
                     $order->receipt = '';
                     $order->user_id = $user->id;
                     $order->save();

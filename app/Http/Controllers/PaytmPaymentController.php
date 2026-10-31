@@ -166,12 +166,61 @@ class PaytmPaymentController extends Controller
         $plan    = Plan::find($planID);
         $user   = Auth::user();
         $orderID = time();
+
+        /*
+         * AN UNCONFIGURED MERCHANT KEY MUST REFUSE, NOT VERIFY AGAINST THE EMPTY STRING.
+         *
+         * `paymentConfig()` at :31 passes `isset(...) ? ... : ''`, so an installation with no
+         * `paytm_merchant_key` row verifies `CHECKSUMHASH` against `''` -- a key the caller knows
+         * as well as the server does. MEASURED by driving this route: a self-minted `TXN_SUCCESS`
+         * body signed with the empty key wrote one plan order with `payment_status = 'success'`
+         * and assigned a 499 plan, with no Paytm account involved anywhere. That is a free paid
+         * plan on every installation that has not configured Paytm, which is every installation
+         * that does not use it.
+         *
+         * An installation that HAS configured Paytm is unaffected, and one that has not cannot
+         * take a Paytm payment anyway -- so this fails closed in the only direction that exists.
+         */
+        $paytmMerchantKey = trim((string) config('services.paytm-wallet.merchant_key'));
+
+        if ($paytmMerchantKey === '') {
+            \Illuminate\Support\Facades\Log::warning('Paytm plan return refused: no merchant key is configured, so the checksum proves nothing.', [
+                'plan_id' => $plan->id ?? null,
+                'user_id' => $user->id ?? null,
+            ]);
+
+            return redirect()->route('plan.index')->with('error', __('Transaction Unsuccesfull'));
+        }
+
         if ($plan) {
             try {
                 $transaction = PaytmWallet::with('receive');
                 $response    = $transaction->response();
 
                 if ($transaction->isSuccessful()) {
+
+                    /*
+                     * ONE PAYTM TRANSACTION, ONE PLAN ACTIVATION -- and here the guard runs AFTER
+                     * the checksum, unlike Benefit, Cashfree and Mollie.
+                     *
+                     * Those three guard first because the reference is what they are about to
+                     * spend an outbound call on. Paytm's verification is local and free (an AES
+                     * check against the server-held key, no network), so verifying first costs
+                     * nothing and denies a caller the chance to probe which transaction ids exist.
+                     *
+                     * MEASURED: a valid checksum stays valid on a re-POST, so the cryptography is
+                     * no defence against replay. Driving this route twice with the identical
+                     * signed body wrote TWO rows carrying one `txn_id`. `plan_orders.order_id` is
+                     * UNIQUE and blocks a same-second repeat, but `$orderID` is `time()` -- so
+                     * that constraint keys on the clock, not on anything the provider said, and
+                     * two posts a second apart both landed.
+                     */
+                    $paytmReference = $request->TXNID;
+                    $paytmReplay = $this->refusePlanActivationReplay('Paytm', $paytmReference, $plan, $user);
+
+                    if ($paytmReplay !== null) {
+                        return $paytmReplay;
+                    }
 
                     if(!empty($request->coupon))
                     {
@@ -210,7 +259,10 @@ class PaytmPaymentController extends Controller
                     // ($transaction->isSuccessful()), so only the RECORDED price changes.
                     $order->price          = $this->serverOwnedPlanPrice($plan, $request->coupon);
                     $order->price_currency = isset($request->CURRENCY_CODE) ? $request->CURRENCY_CODE : 'NFD';
-                    $order->txn_id         = isset($request->TXNID) ? $request->TXNID : '';
+                    // The same variable the guard was keyed on, so the recorded value cannot drift
+                    // away from the looked-up one. See the structural assertion in
+                    // PlanActivationReplayGuardTest.
+                    $order->txn_id         = (string) $paytmReference;
                     $order->payment_type   = __('paytm');
                     $order->payment_status = 'success';
                     $order->receipt        = '';

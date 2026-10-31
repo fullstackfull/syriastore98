@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\GuardsPlanActivation;
 use App\Models\Plan;
 use App\Models\PlanCoupon;
 use App\Models\PlanOrder;
@@ -13,6 +14,8 @@ use Mollie\Laravel\Facades\Mollie;
 
 class MolliePaymentController extends Controller
 {
+    use GuardsPlanActivation;
+
 
     public $api_key;
     public $profile_id;
@@ -171,6 +174,31 @@ class MolliePaymentController extends Controller
             {
                 $orderID = strtoupper(str_replace('.', '', uniqid('', true)));
 
+                /*
+                 * ONE MOLLIE PAYMENT, ONE PLAN ACTIVATION -- decided before the SDK is touched.
+                 *
+                 * The payment id comes from the SERVER SESSION (written at :149), which is the
+                 * strongest sourcing of the three providers guarded this way: the caller cannot
+                 * name the payment. What was missing is single use. `$plan_id` is a separate
+                 * route parameter (:165) and `Crypt` is an encoding rather than a control, so one
+                 * genuinely paid Mollie payment could be presented against ANY plan -- and
+                 * indefinitely, because the clean-up at the end of the paid branch was
+                 * UNREACHABLE: `session()->forget('mollie_payment_id')` sat after an if/else in
+                 * which every branch returns, so it never ran. Both halves are fixed: the durable
+                 * guard here, and the forget() moved to where it executes.
+                 */
+                $mollieReference = session()->get('mollie_payment_id');
+                $mollieReplay = $this->refusePlanActivationReplay(
+                    'Mollie',
+                    $mollieReference,
+                    $plan,
+                    $user
+                );
+
+                if ($mollieReplay !== null) {
+                    return $mollieReplay;
+                }
+
                 $mollie = new \Mollie\Api\MollieApiClient();
                 $mollie->setApiKey($admin_payment_setting['mollie_api_key']);
 
@@ -210,7 +238,16 @@ class MolliePaymentController extends Controller
                         $planorder->plan_id        = $plan->id;
                         $planorder->price          = $payment->amount->value;
                         $planorder->price_currency = !empty($admin_payment_setting['CURRENCY_NAME'])?$admin_payment_setting['CURRENCY_NAME']:'USD';
-                        $planorder->txn_id         = $payment->id;
+                        /*
+                         * THE SAME VARIABLE THE GUARD WAS GIVEN, not `$payment->id`.
+                         *
+                         * They are the same value -- `$payment` was fetched BY the session id --
+                         * but writing the one the guard looked up makes a mismatch structurally
+                         * impossible rather than merely true today. The Cashfree arm of this
+                         * change was keyed on `order_id` while recording `cf_payment_id`, so it
+                         * protected nothing while three tests passed; independent review found it.
+                         */
+                        $planorder->txn_id         = (string) $mollieReference;
                         $planorder->payment_type   = __('Mollie');
                         $planorder->payment_status = $payment->status == 'paid' ? 'success' : 'failed';
                         $planorder->receipt        = '';
@@ -239,6 +276,28 @@ class MolliePaymentController extends Controller
 
                         if($assignPlan['is_success'])
                         {
+                            /*
+                             * THE PAYMENT ID IS SPENT, so clear it -- and ONLY ONCE THE
+                             * ENTITLEMENT EXISTS.
+                             *
+                             * It used to be cleared after this if/else, where every branch
+                             * returns, so the line never executed and the id stayed spendable for
+                             * the life of the session. The first version of this fix moved it
+                             * ABOVE `assignPlan()`, and INDEPENDENT REVIEW showed that traded one
+                             * defect for a worse one: Mollie's payment id lives in the session and
+                             * nowhere else, so if `assignPlan()` then threw or failed, the buyer's
+                             * retry would find no key, fall through to 'Transaction Error', and
+                             * have no path left to claim a plan they had paid for. Pre-change the
+                             * key survived and the retry worked (writing a duplicate row, which is
+                             * what the durable guard now prevents).
+                             *
+                             * Here it is unreachable until the plan is actually assigned, so a
+                             * failure leaves the key in place and the buyer can retry -- and the
+                             * retry is caught by the guard at the top of this method, which
+                             * re-runs the activation instead of writing a second row.
+                             */
+                            session()->forget('mollie_payment_id');
+
                             return redirect()->route('plan.index')->with('success', __('Plan activated Successfully.'));
                         }
                         else
@@ -252,8 +311,6 @@ class MolliePaymentController extends Controller
                     {
                         return redirect()->back()->with('error', __('Transaction Unsuccesfull'));
                     }
-
-                    session()->forget('mollie_payment_id');
 
 
                 }
