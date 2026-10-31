@@ -53,6 +53,18 @@ class FlutterwaveController extends Controller
         $coupon_id = '';
         $admin_payments_details = getSuperAdminAllSetting();
         $CURRENCY = !empty($admin_payments_details['CURRENCY_NAME']) ? $admin_payments_details['CURRENCY_NAME'] : 'USD';
+
+        /*
+         * D-33 — NO CHARGE IS MADE AT ALL. Owner correction, 2026-10-31. Same reasoning as
+         * Benefit's: the return-path refusal arrived after Flutterwave could already have
+         * captured, so the refusal moves to before the checkout is built.
+         */
+        $flutterwaveDeferredCheckout = $this->refuseDeferredGatewayCheckout('Flutterwave', $plan, $request->coupon);
+
+        if ($flutterwaveDeferredCheckout !== null) {
+            return $flutterwaveDeferredCheckout;
+        }
+
         if ($plan) {
             $price = $plan->price;
             $coupons = PlanCoupon::whereRaw('BINARY `code` = ?', [$request->coupon])->where('is_active', '1')->first();

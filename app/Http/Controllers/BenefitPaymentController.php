@@ -21,6 +21,12 @@ class BenefitPaymentController extends Controller
 
     //
 
+    /** D-33: the gateway name in one place, so a call site cannot name the wrong one. */
+    private function refuseDeferredGatewayPaidCheckoutOrNull($plan, $couponCode)
+    {
+        return $this->refuseDeferredGatewayCheckout('Benefit', $plan, $couponCode);
+    }
+
     public function initiatePayment(Request $request)
     {
         
@@ -29,6 +35,20 @@ class BenefitPaymentController extends Controller
         $objUser = Auth::user();
         $planID = \Illuminate\Support\Facades\Crypt::decrypt($request->plan_id);
         $plan = Plan::find($planID);
+
+        /*
+         * D-33 — NO CHARGE IS MADE AT ALL. Owner correction, 2026-10-31.
+         *
+         * This refusal used to live only on the return, which meant the merchant reached tap, was
+         * charged, came back and was told the method was unavailable -- money taken, nothing
+         * given. Refusing here, before `$plan` is even priced for the outbound call, means the
+         * provider is never contacted.
+         */
+        $benefitDeferredCheckout = $this->refuseDeferredGatewayPaidCheckoutOrNull($plan, $request->coupon);
+
+        if ($benefitDeferredCheckout !== null) {
+            return $benefitDeferredCheckout;
+        }
 
         if ($plan) {
             $get_amount = $plan->price;

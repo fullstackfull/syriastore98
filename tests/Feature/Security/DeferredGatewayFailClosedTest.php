@@ -187,6 +187,203 @@ class DeferredGatewayFailClosedTest extends PlanPaymentTestCase
         ]);
     }
 
+    // =====================================================================================
+    //  D-33 OWNER CORRECTION — NO CHARGE MAY BE INITIATED AT ALL
+    // =====================================================================================
+
+    private function initiate(string $gateway, $merchant, int $planId, ?string $coupon = null)
+    {
+        $body = array_filter(['plan_id' => Crypt::encrypt($planId), 'coupon' => $coupon]);
+
+        return $gateway === 'Benefit'
+            ? $this->actingAs($merchant)->post(route('benefit.initiate'), $body)
+            : $this->actingAs($merchant)->post(route('flutterwave.payment'), $body);
+    }
+
+    /**
+     * THE CONTROL THAT MATTERS: the provider is NEVER CONTACTED for a paid plan.
+     *
+     * The owner's correction, and it was right. The first version of this deferral refused only on
+     * the RETURN — so a merchant reached the gateway, was charged, came back, and was told the
+     * method was unavailable. Money taken, nothing given, and a manual refund nobody had been told
+     * to make.
+     *
+     * `Http::preventStrayRequests()` is the assertion, not a convenience: if either initiation
+     * still reaches out, the test fails on the stray request rather than on a status code. Benefit
+     * uses Guzzle directly so `Http::fake()` cannot intercept it — which is why the structural
+     * ordering assertion below is kept as well, and why this case also asserts no plan order and
+     * no entitlement.
+     *
+     * @dataProvider deferredPaidReturns
+     */
+    public function test_a_paid_checkout_cannot_be_initiated_on_a_deferred_gateway(string $gateway): void
+    {
+        $this->seedSuperAdminCurrency('USD', [
+            'benefit_secret_key' => 'sk_test_not_a_real_key',
+            'flutterwave_secret_key' => 'not-a-real-flutterwave-key',
+        ]);
+        \Illuminate\Support\Facades\Http::preventStrayRequests();
+
+        $merchant = $this->makeMerchant();
+        $plan = $this->makePlan('499');
+
+        $response = $this->initiate($gateway, $merchant, $plan->id);
+
+        /* Refused, and sent somewhere a merchant can act -- never a 401, which the shipped app
+           maps to a forced logout. */
+        $this->assertNotSame(401, $response->getStatusCode());
+        $this->assertTrue(
+            $response->isRedirect(),
+            $gateway . ': the paid checkout was not refused with a redirect (HTTP '
+            . $response->getStatusCode() . ')'
+        );
+
+        $this->assertNull(
+            $merchant->fresh()->plan_id,
+            $gateway . ': a plan was activated by the initiation itself'
+        );
+        $this->assertSame(
+            0,
+            (int) DB::table('plan_orders')->count(),
+            $gateway . ': a plan order was written for a checkout that must never have started'
+        );
+
+        Log::shouldHaveReceived('warning')
+            ->withArgs(fn ($message, $context = []) => str_contains(
+                (string) $message,
+                'refused before any charge'
+            ) && ($context['gateway'] ?? null) === $gateway)
+            ->atLeast()->once();
+    }
+
+    /**
+     * AND A FREE PLAN STILL CHECKS OUT — the refusal is scoped to paid, as the owner scoped it.
+     *
+     * @dataProvider deferredPaidReturns
+     */
+    public function test_a_free_plan_checkout_is_not_blocked(string $gateway): void
+    {
+        $this->seedSuperAdminCurrency('USD', [
+            'benefit_secret_key' => 'sk_test_not_a_real_key',
+            'flutterwave_secret_key' => 'not-a-real-flutterwave-key',
+        ]);
+
+        $merchant = $this->makeMerchant();
+        $free = $this->makePlan('0');
+
+        $this->initiate($gateway, $merchant, $free->id);
+
+        Log::shouldNotHaveReceived('warning', [
+            \Mockery::on(fn ($message) => str_contains((string) $message, 'refused before any charge')),
+            \Mockery::any(),
+        ]);
+    }
+
+    /**
+     * A COUPON CANNOT TALK ITS WAY PAST THE BLOCK, and this is the adversarial case.
+     *
+     * The price is decided by the server. A caller who posts a coupon that does NOT zero the price
+     * is still buying a paid plan, so the refusal must hold — and a caller cannot reach the
+     * free-plan exemption by naming a coupon that does not exist, or one whose discount is
+     * partial.
+     *
+     * @dataProvider deferredPaidReturns
+     */
+    public function test_a_partial_or_unknown_coupon_does_not_unblock_a_paid_checkout(string $gateway): void
+    {
+        $this->seedSuperAdminCurrency('USD', [
+            'benefit_secret_key' => 'sk_test_not_a_real_key',
+            'flutterwave_secret_key' => 'not-a-real-flutterwave-key',
+        ]);
+
+        $merchant = $this->makeMerchant();
+        $plan = $this->makePlan('499');
+        $this->makeCoupon('HALFOFF', 50, 5);
+
+        foreach (['HALFOFF', 'NO-SUCH-COUPON'] as $coupon) {
+            Log::swap(\Mockery::spy(\Illuminate\Log\LogManager::class));
+
+            $this->initiate($gateway, $merchant, $plan->id, $coupon);
+
+            Log::shouldHaveReceived('warning')
+                ->withArgs(fn ($message, $context = []) => str_contains(
+                    (string) $message,
+                    'refused before any charge'
+                ))
+                ->atLeast()->once();
+
+            $this->assertNull(
+                $merchant->fresh()->plan_id,
+                $gateway . ': the coupon `' . $coupon . '` got a paid plan past the block'
+            );
+        }
+    }
+
+    /**
+     * RECONCILIATION SURVIVES: a payment already in flight is still refused AND still surfaced.
+     *
+     * This is the owner's second condition — *"Preserve safe manual reconciliation for previously
+     * initiated or captured payments."* The checkout block stops NEW charges; it cannot un-start a
+     * payment a merchant began before it landed, or one a provider retries. For those the return
+     * path must still refuse to activate on unverified evidence and must still log, because that
+     * log is the only thing that tells an operator a capture needs reconciling.
+     *
+     * So this asserts the two controls are BOTH present and do different jobs. Deleting the
+     * return-path refusal once the checkout block exists would be the owner's own correction made
+     * one step later: a previously-initiated payment would activate a plan on evidence nobody
+     * checked.
+     *
+     * @dataProvider deferredPaidReturns
+     */
+    public function test_an_in_flight_payment_is_still_refused_and_still_surfaced(string $gateway): void
+    {
+        $this->seedSuperAdminCurrency('USD', [
+            'benefit_secret_key' => 'sk_test_not_a_real_key',
+            'flutterwave_secret_key' => 'not-a-real-flutterwave-key',
+        ]);
+
+        $merchant = $this->makeMerchant();
+        $plan = $this->makePlan('499');
+
+        /* The return arrives as it would for a payment started before the block landed. */
+        $this->callReturn($gateway, $merchant, $plan->id);
+
+        $this->assertNull($merchant->fresh()->plan_id, $gateway . ': an in-flight payment activated a plan');
+        $this->assertSame(0, (int) DB::table('plan_orders')->count());
+
+        Log::shouldHaveReceived('warning')
+            ->withArgs(fn ($message, $context = []) => str_contains(
+                (string) $message,
+                'this gateway is deferred from Phase 02'
+            ) && ($context['operator_action'] ?? '') !== '')
+            ->atLeast()->once();
+    }
+
+    /** BOTH CONTROLS EXIST. Neither may be removed in favour of the other. */
+    public function test_both_the_checkout_block_and_the_return_refusal_are_wired(): void
+    {
+        $trait = file_get_contents(base_path('app/Http/Controllers/Concerns/RefusesDeferredGateway.php'));
+
+        foreach (['refuseDeferredGatewayCheckout', 'refuseDeferredGatewayPaidActivation'] as $method) {
+            $this->assertStringContainsString(
+                'function ' . $method,
+                $trait,
+                $method . ' is gone. The two controls do different jobs: the checkout block stops '
+                . 'a NEW charge, the return refusal stops an in-flight capture activating a plan '
+                . 'and surfaces it for reconciliation. Removing either re-opens one half.'
+            );
+        }
+
+        /* And each is actually CALLED -- a trait method nothing invokes is F237's shape. */
+        $benefit = file_get_contents(base_path('app/Http/Controllers/BenefitPaymentController.php'));
+        $flutterwave = file_get_contents(base_path('app/Http/Controllers/FlutterwaveController.php'));
+
+        $this->assertStringContainsString('refuseDeferredGatewayCheckout', $benefit, 'Benefit does not block checkout');
+        $this->assertStringContainsString('refuseDeferredGatewayPaidActivation', $benefit, 'Benefit does not refuse the return');
+        $this->assertStringContainsString('refuseDeferredGatewayCheckout', $flutterwave, 'Flutterwave does not block checkout');
+        $this->assertStringContainsString('refuseDeferredGatewayPaidActivation', $flutterwave, 'Flutterwave does not refuse the return');
+    }
+
     /**
      * THE STRUCTURAL ASSERTION: both handlers refuse BEFORE their outbound call.
      *

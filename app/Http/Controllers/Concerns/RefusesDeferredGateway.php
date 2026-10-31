@@ -67,8 +67,88 @@ trait RefusesDeferredGateway
     public const DEFERRED_GATEWAYS = ['Benefit', 'Flutterwave'];
 
     /**
+     * REFUSE THE CHECKOUT **BEFORE** THE PROVIDER CAN CHARGE. This is the control that matters.
+     *
+     * ══════════════════════════════════════════════════════════════════════════════════════════
+     * THE OWNER'S CORRECTION, AND IT WAS RIGHT
+     * ══════════════════════════════════════════════════════════════════════════════════════════
+     *
+     * > *"Benefit and Flutterwave currently refuse paid activation on the return path, after
+     * > payment may already have been captured. Prevent new paid plan checkout or payment
+     * > initiation through these deferred gateways BEFORE the provider can charge the customer."*
+     *
+     * The first version of this trait refused only on the RETURN. My own docblock said so — *"both
+     * refusals land on the RETURN, after the provider may already have captured"* — and treated
+     * that as a cost to be logged rather than a defect to be fixed. It is a defect: a merchant
+     * reached the gateway, was charged, came back, and was told the method is unavailable. The
+     * platform had taken their money and given them nothing, and the only remedy was a manual
+     * refund nobody had been told to make.
+     *
+     * **Refusing at initiation means no charge happens at all.** The merchant is told before they
+     * leave, the other gateways still work, and there is nothing to reconcile.
+     *
+     * ══════════════════════════════════════════════════════════════════════════════════════════
+     * THE RETURN-PATH REFUSAL STAYS, AND IT IS NOT REDUNDANT
+     * ══════════════════════════════════════════════════════════════════════════════════════════
+     *
+     * A payment initiated BEFORE this change can still come back — the buyer may have the gateway
+     * page open, or a provider may retry. For those the return path must still refuse to activate
+     * on unverified evidence, and must still log for reconciliation. So there are two controls
+     * doing different jobs:
+     *
+     * | control | when | job |
+     * |---|---|---|
+     * | `refuseDeferredGatewayCheckout()` | at initiation | **no charge is made** |
+     * | `refuseDeferredGatewayPaidActivation()` | on the return | an in-flight capture is not activated, and is surfaced |
+     *
+     * Removing the second once the first exists would be exactly the mistake the owner is
+     * correcting, one step later: it would leave a previously-initiated payment to activate a plan
+     * on evidence nobody checked.
+     *
+     * **No refund is introduced** (D-31 requirement 9). Reconciliation stays manual and is what
+     * the return-path log exists to trigger.
+     */
+    protected function refuseDeferredGatewayCheckout(string $gateway, $plan, $couponCode = null)
+    {
+        if (! in_array($gateway, self::DEFERRED_GATEWAYS, true)) {
+            return null;
+        }
+
+        if (! $plan instanceof Plan) {
+            return null;
+        }
+
+        $price = method_exists($this, 'serverOwnedPlanPrice')
+            ? $this->serverOwnedPlanPrice($plan, $couponCode)
+            : (float) $plan->price;
+
+        if ((float) $price <= 0) {
+            /* A free plan never reaches the gateway, so there is nothing to prevent. */
+            return null;
+        }
+
+        Log::warning('Paid plan checkout refused before any charge: this gateway is deferred from Phase 02.', [
+            'gateway' => $gateway,
+            'plan_id' => $plan->id,
+            'user_id' => \Auth::id(),
+            'owner_decision' => 'D-33',
+            'operator_action' => 'None. No charge was made -- this refusal is BEFORE the provider '
+                . 'is contacted, which is the point of it.',
+        ]);
+
+        return redirect()->route('plan.index')->with(
+            'error',
+            __('This payment method is not available for paid plans. Please choose another method.')
+        );
+    }
+
+    /**
      * Refuse a paid plan activation on a deferred gateway. Returns a redirect to refuse with, or
      * null when the activation may proceed.
+     *
+     * **THIS IS THE SECOND LINE, NOT THE FIRST.** `refuseDeferredGatewayCheckout()` prevents the
+     * charge; this one catches a payment that was already in flight when that landed, refuses to
+     * activate on unverified evidence, and logs it for manual reconciliation.
      *
      * @param  mixed  $plan        the plan being activated
      * @param  mixed  $couponCode  the coupon, so the server decides the price rather than the caller
