@@ -68,7 +68,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/GatewayReference.php:198` | gateway capture replayed: the reference is already recorded |
 | `app/Services/GatewayReference.php:213` | gateway capture replayed (23000): the reference is already recorded |
 
-### `warning` — 163 lines
+### `warning` — 164 lines
 
 | line | message |
 |---|---|
@@ -221,6 +221,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/ProductStockService.php:221` | Variant stock decrement rejected: insufficient stock |
 | `app/Services/ProductStockService.php:452` | Could not flush the model cache after a stock change |
 | `app/Services/RefundIntegrityService.php:147` | Refund recorded as approved but NOT settled: no gateway refund was made |
+| `app/Services/RefundIntegrityService.php:234` | Refunds awaiting settlement could not be listed. |
 | `app/Services/ShopifyAdminApi.php:137` | a Shopify Admin API address was refused before the request was made |
 | `app/Services/ShopifyAdminApi.php:173` | a Shopify Admin API call answered with a redirect, which was not followed |
 | `app/Services/SocialIdentity/JwksProvider.php:74` | social-identity: provider key fetch failed |
