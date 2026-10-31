@@ -65,7 +65,7 @@
      removes an attribute whose source is "host". Omitting it would leave a
      stale data-ss-theme="dark" behind when a merchant toggles to light without
      reloading. --}}
-<html lang="{{ str_replace('_', '-', ($setting['currantLang'] ?? app()->getLocale())) }}" dir="{{ isset($setting['SITE_RTL']) && $setting['SITE_RTL'] == 'on'? 'rtl' : '' }}" id="html-dir-tag"
+<html lang="{{ str_replace('_', '-', ($setting['currantLang'] ?? app()->getLocale())) }}" dir="{{ isset($setting['SITE_RTL']) && $setting['SITE_RTL'] == 'on' ? 'rtl' : 'ltr' }}" id="html-dir-tag"
     @if (isset($setting['cust_darklayout']) && $setting['cust_darklayout'] == 'on') data-ss-theme="dark" data-ss-theme-source="host" @endif>
 <head>
     <meta charset="utf-8">
@@ -451,15 +451,34 @@
 
     @include('partision.header')
 
+    {{--
+        WS A7 / B6 -- THE SKIP LINK, and it is the first focusable element on every merchant
+        screen. `.ss-skip-link` has existed in the design system since the beginning
+        (public/css/store-syria-ds.css:1462, commented "first focusable element on a page,
+        invisible until focused") and was rendered by NOTHING -- a repo-wide search for call sites
+        found zero. So a keyboard user reached the main content only by tabbing through the whole
+        sidebar, on all ~150 merchant screens.
+
+        It goes here, immediately before the content container, because that is where it has to be
+        in the tab order: after nothing. `#ss-main` carries `tabindex="-1"` so the browser moves
+        focus there rather than only scrolling, which is the half of a skip link that is usually
+        missed.
+    --}}
+    <a class="ss-skip-link" href="#ss-main">{{ __('Skip to main content') }}</a>
+
     <!-- [ Main Content ] start -->
     <div class="dash-container">
-        <div class="dash-content">
+        <div class="dash-content" id="ss-main" tabindex="-1">
            <!-- [ breadcrumb ] start -->
            <div class="page-header mb-md-4 mb-3">
                 <div class="page-block d-flex align-items-center justify-content-between gap-3 flex-wrap">
                         <div class="page-header-wrp">
                             <div class="page-header-title">
-                                <h2 class="h3 mb-0">@yield('page-title')</h4>
+                                {{-- `</h2>`, not `</h4>`: the opening tag is h2 and the close
+                                     was h4, on every merchant screen. Browsers recover from it,
+                                     so nothing broke visibly -- but the DOM a screen reader and
+                                     any heading-order audit walk was malformed. --}}
+                                <h2 class="h3 mb-0 ss-scope">@yield('page-title')</h2>
                             </div>
                             @if (\Request::route()->getName() != 'dashboard')
                                 {{-- P2-01-14 / WS A3: the ONE breadcrumb, for all 107 merchant

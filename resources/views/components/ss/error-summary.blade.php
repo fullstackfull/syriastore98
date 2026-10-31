@@ -12,7 +12,7 @@
 @if ($errors->any())
     {{-- role="alert" announces it on arrival; tabindex="-1" lets the script
          move focus here without adding a tab stop. --}}
-    <div class="ss-errorsummary" role="alert" tabindex="-1"
+    <div class="ss-scope ss-errorsummary" role="alert" tabindex="-1"
          data-ss-error-summary
          {{ $attributes }}>
         <h2 class="ss-errorsummary__title">

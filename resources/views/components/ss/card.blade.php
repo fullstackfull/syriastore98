@@ -1,7 +1,7 @@
 {{-- Reference-weight container: quiet, for material the merchant consults. --}}
 @props(['title' => null, 'note' => null, 'flush' => false, 'overflow' => false])
 
-<div {{ $attributes->merge(['class' => 'ss-card' . ($overflow ? ' ss-card--overflow' : '')]) }}>
+<div {{ $attributes->merge(['class' => 'ss-scope ss-card' . ($overflow ? ' ss-card--overflow' : '')]) }}>
     @if ($title)
         <div class="ss-card__header">
             <div class="ss-page-header__text">

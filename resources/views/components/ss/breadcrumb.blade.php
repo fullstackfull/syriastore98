@@ -25,7 +25,7 @@
     rule across every screen that defines the section so it cannot come back.
 --}}
 <nav aria-label="{{ __('Breadcrumb') }}">
-    <ol class="ss-breadcrumb mt-2">
+    <ol class="ss-scope ss-breadcrumb mt-2">
         <li class="ss-breadcrumb__item">
             <a class="ss-breadcrumb__link" href="{{ route('dashboard') }}">{{ __('Home') }}</a>
         </li>

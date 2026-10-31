@@ -4,7 +4,7 @@
 --}}
 @props(['title', 'subtitle' => null, 'store' => null])
 
-<div {{ $attributes->merge(['class' => 'ss-page-header']) }}>
+<div {{ $attributes->merge(['class' => 'ss-scope ss-page-header']) }}>
     <div class="ss-page-header__text">
         <h1 class="ss-page-header__title">{{ $title }}</h1>
         @if ($store)

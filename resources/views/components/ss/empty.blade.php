@@ -4,7 +4,7 @@
 --}}
 @props(['title', 'body' => null, 'icon' => 'inbox'])
 
-<div {{ $attributes->merge(['class' => 'ss-empty']) }}>
+<div {{ $attributes->merge(['class' => 'ss-scope ss-empty']) }}>
     <div class="ss-empty__icon" aria-hidden="true"><i class="ti ti-{{ $icon }}"></i></div>
     <div class="ss-empty__body">
         <p class="ss-empty__title">{{ $title }}</p>

@@ -291,7 +291,7 @@ public framework documentation only** — a query may name a package and version
 repository's code, schema, config or customer data; and **`gstack`, `claude-mem` and `strix` must
 not be installed**, by owner decision.
 
-The storefront and admin are **Blade + Tailwind**, bilingual **Arabic (RTL) and English (LTR)**.
+The storefront and admin are **Blade + the vendored Bootstrap 5 WorkDo theme + `public/css/store-syria-ds.css`** — **not Tailwind**, which this file used to claim. Measured: `@vite` appears in **zero** views, `resources/css/app.css` is referenced nowhere, and there is no `public/build`, so the Tailwind toolchain is installed and never loaded. One live consequence: `resources/views/profile/edit.blade.php` is Breeze Tailwind markup on a registered route (`routes/web.php:449`) and renders unstyled. Bilingual **Arabic (RTL) and English (LTR)**.
 Any UI change must be checked in both directions, and contrast-checked — Claude B's verification
 found option names rendering at 1.00:1 white-on-white in dark mode.
 
