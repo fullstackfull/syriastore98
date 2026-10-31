@@ -13,6 +13,9 @@ class Order extends Model
     use HasFactory, Cachable;
 
     protected $fillable = [
+        /* E13 requirement D. Without the $fillable entry Laravel silently discards the value --
+           the mistake this very array already records for `created_by`. */
+        'replaced_order_id',
         'product_order_id',
         'order_date',
         'customer_id',
@@ -810,6 +813,33 @@ if ($order_status == 'cancel') {
     public const LINE_STOCK_RESTORED = 'stock_restored';
 
     /**
+     * E13 REQUIREMENT D — THIS LINE'S STOCK WAS NEVER TAKEN, so no endpoint may take it.
+     *
+     * The replacement is a reissue of lines whose stock the ORIGINAL already moved. Nothing has
+     * come back to the shelf and nothing is going out again: the goods are the same goods. So the
+     * replacement's lines carry this stamp and every stock path must treat them as already
+     * accounted for.
+     *
+     * SEPARATE FROM `LINE_STOCK_RESTORED` on purpose, even though both mean "do not touch the
+     * stock for this line". That one records a PAST EVENT — goods came back — and a refund or
+     * return reads it as evidence. This one records that the event never happened on this order at
+     * all. Collapsing them would make a reissued line look like a returned one to every reader of
+     * `lineStockAlreadyRestored()`, including the refund surface, which is the kind of conflation
+     * D-15 condition 3 exists to prevent.
+     */
+    public const LINE_STOCK_CARRIED = 'stock_carried_from_original';
+
+    /**
+     * Was this line's stock accounted for somewhere other than this order?
+     *
+     * @param  array<string, mixed>  $line
+     */
+    public static function lineStockCarriedFromOriginal(array $line): bool
+    {
+        return (int) ($line[self::LINE_STOCK_CARRIED] ?? 0) === 1;
+    }
+
+    /**
      * Has this line's stock already been credited by either endpoint?
      *
      * @param  array<string, mixed>  $line
@@ -1234,4 +1264,28 @@ public function ShippingMethod()
         'id'
     );
 }
+
+    /**
+     * E13 REQUIREMENT D — the two ends of the link, both READ-ONLY.
+     *
+     * `replacedOrder()` is the original this order replaced. `replacementOrder()` is the order that
+     * replaced this one. Neither is used to write anything; `cancelAndReplace()` sets the column
+     * directly inside its transaction.
+     *
+     * `withoutGlobalScopes()` is NOT applied here, and that is deliberate: `Order` carries no
+     * `StoreScope` and is not in `config/tenancy.php`'s `scoped_models` (CLAUDE.md), so these
+     * relations add no predicate and would reach another tenant's row if one were ever linked.
+     * Nothing links one — `cancelAndReplace()` refuses an original from another store before it
+     * writes — and the refusal is where the control belongs, because a relation cannot express
+     * "belongs to the caller's store" without knowing who is calling.
+     */
+    public function replacedOrder()
+    {
+        return $this->belongsTo(self::class, 'replaced_order_id');
+    }
+
+    public function replacementOrder()
+    {
+        return $this->hasOne(self::class, 'replaced_order_id');
+    }
 }

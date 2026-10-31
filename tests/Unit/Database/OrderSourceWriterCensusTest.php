@@ -92,7 +92,7 @@ class OrderSourceWriterCensusTest extends TestCase
      * The measured census. See `test_the_census_is_not_vacuous` for how it is composed; change it
      * only together with the list of writers, and say why in the commit.
      */
-    private const MEASURED_WRITERS = 19;
+    private const MEASURED_WRITERS = 20;
 
     private function appRoot(): string
     {
@@ -201,10 +201,14 @@ class OrderSourceWriterCensusTest extends TestCase
          * new figure stated by whoever changed it. A broken regex still fails loudly, which is
          * the vacuity half of the job.
          *
-         * The figure, 19, composed:
-         *   15  in `app/`, every one stamped -- 12 storefront gateway/checkout writers, the POS
-         *       till, and the two merchant-manual `Order::create` writers. (16 were found before
-         *       F147 converted the PaymentWall site to `PlanOrder`, where it belonged.)
+         * The figure, 20, composed:
+         *   16  in `app/`, every one stamped -- 12 storefront gateway/checkout writers, the POS
+         *       till, the two merchant-manual `Order::create` writers, and (19 -> 20 on
+         *       2026-10-31, E13 requirement D) `OrderReplacement::cancelAndReplace()`, which
+         *       copies the ORIGINAL's source rather than claiming one of its own: a reissue is not
+         *       a new sales channel, and stamping it `SOURCE_MANUAL` would move revenue between
+         *       channels in the reports every time a merchant corrected an address. (16 were found
+         *       before F147 converted the PaymentWall site to `PlanOrder`, where it belonged.)
          *    1  `NOT_A_WRITER`      -- AutomaticOrderPrinting's unsaved invoice-preview dummy
          *    1  `UNSTAMPED_VENDOR`  -- LotteryPrizes, F148: a real writer that cannot be stamped
          *    2  `NOT_A_COMMERCE_PATH` -- LynomiaChat's staging-fixture seeder
@@ -355,6 +359,15 @@ class OrderSourceWriterCensusTest extends TestCase
             'app/Http/Controllers/PosController.php' => 'SOURCE_POS',
             'app/Http/Controllers/OrderController.php' => 'SOURCE_MANUAL',
             'app/Http/Controllers/Api/DashboardController.php' => 'SOURCE_MANUAL',
+            /*
+             * E13 requirement D. It stamps NEITHER constant literally: the value is
+             * `$original->order_source ?: Order::SOURCE_MANUAL`, so a reissued storefront order
+             * stays `storefront` and only a source-less original (a row written before the column
+             * existed) falls back. `SOURCE_MANUAL` is named here because the fallback is the only
+             * constant that appears in the window, and because a reissue a merchant triggers on an
+             * order with no recorded channel IS manual.
+             */
+            'app/Services/OrderReplacement.php' => 'SOURCE_MANUAL',
         ];
 
         $root = $this->appRoot();
