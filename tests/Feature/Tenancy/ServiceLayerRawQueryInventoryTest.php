@@ -116,9 +116,17 @@ class ServiceLayerRawQueryInventoryTest extends TestCase
          * than relying on one: `record()` refuses a movement with no store at all,
          * `movedOutFor()` and its observed-fallback both predicate on it, and `attributeToOrder()`,
          * `unattributed()` and `forOrder()` do too.
+         *
+         * 31 -> 33 on 2026-10-31 [F237]: `StockMovement::attributionStateFor()` adds TWO more,
+         * and both name `store_id`, so the store-less count below is still eight. They exist
+         * because `attributeToOrder()` answers with a row count, and a count of zero conflates
+         * "already attributed" (success) with "rows exist but did not move" (a failure that must
+         * not be read as success) — so the state is asked as its own question. Same reasoning for
+         * raw-over-Eloquent as the six above: this table is written on the checkout path and read
+         * immediately afterwards, and a `Cachable` model would serve a pre-write row.
          */
         $this->assertSame(
-            31,
+            33,
             $total,
             "The number of raw query-builder statements in app/Services moved. Every one is "
             . "invisible to every Eloquent global scope, so a new one needs a `store_id` "
@@ -126,7 +134,7 @@ class ServiceLayerRawQueryInventoryTest extends TestCase
             . implode("\n  ", array_keys($storeLess))
         );
 
-        $this->assertSame(23, $scoped, 'statements naming store_id');
+        $this->assertSame(25, $scoped, 'statements naming store_id');
         $this->assertCount(8, $storeLess, 'statements naming store_id nowhere');
     }
 

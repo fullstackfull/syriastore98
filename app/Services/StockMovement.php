@@ -45,6 +45,21 @@ class StockMovement
     public const NOT_MOVED = 'not_moved';
     public const UNKNOWN = 'unknown';
 
+    /**
+     * The states an ATTRIBUTION attempt can be in — F237.
+     *
+     * `attributeToOrder()` returns a row count, and a count of zero is ambiguous in a way that
+     * matters: it means *already attributed* (a retried webhook, which is success), *nothing was
+     * ever recorded* (so there is nothing to own), *the rows exist but belong elsewhere*, or *the
+     * update threw*. A caller that reads "0" as "fine" would be doing exactly what the owner's
+     * instruction forbids — treating an attribution failure as successful attribution. So the
+     * question gets its own three-plus-one-state answer, the same shape as `movedOutFor()`'s,
+     * and `UNKNOWN` carries "there is no record to ask" rather than pretending to an answer.
+     */
+    public const ATTRIBUTED = 'attributed';
+    public const NOT_ATTRIBUTED = 'not_attributed';
+    public const NOTHING_RECORDED = 'nothing_recorded';
+
     private const TABLE = 'stock_movements';
 
     /**
@@ -246,6 +261,57 @@ class StockMovement
             ]);
 
             return 0;
+        }
+    }
+
+    /**
+     * Did this token's movements end up owned by this order? — F237.
+     *
+     * **THIS EXISTS SO A ZERO ROW COUNT CANNOT BE READ AS SUCCESS.** `attributeToOrder()` answers
+     * "how many rows did I just move", which is the right question for the writer and the wrong one
+     * for the caller deciding whether the evidence is sound. Four different situations produce zero:
+     *
+     *   - the rows are ALREADY attributed to this order — a retried gateway return, and success;
+     *   - nothing was ever recorded under this token — nothing to own, and not a failure;
+     *   - rows exist but are attributed elsewhere, or still unattributed after an update that
+     *     matched nothing — a real failure, and the one that must be loud;
+     *   - the record is not installed, or the arguments are unusable — no answer is available.
+     *
+     * Reported in that order of specificity, because ATTRIBUTED is the only one a caller may treat
+     * as done.
+     *
+     * Store-scoped on every statement, like every other query in this file: `Product` is not in
+     * `config/tenancy.php`'s `scoped_models`, so nothing supplies a tenant predicate for free, and
+     * `ServiceLayerRawQueryInventoryTest` ratchets that these raw queries carry one.
+     */
+    public static function attributionStateFor(string $token, $storeId, $orderId): string
+    {
+        if (! self::available() || $token === '' || ! is_numeric($storeId) || ! is_numeric($orderId)) {
+            return self::UNKNOWN;
+        }
+
+        try {
+            $forThisOrder = DB::table(self::TABLE)
+                ->where('store_id', (int) $storeId)
+                ->where('correlation_token', $token)
+                ->where('order_id', (int) $orderId)
+                ->exists();
+
+            if ($forThisOrder) {
+                return self::ATTRIBUTED;
+            }
+
+            $anyForToken = DB::table(self::TABLE)
+                ->where('store_id', (int) $storeId)
+                ->where('correlation_token', $token)
+                ->exists();
+
+            return $anyForToken ? self::NOT_ATTRIBUTED : self::NOTHING_RECORDED;
+        } catch (\Throwable $theRecordIsUnreadable) {
+            /* Deliberately NOT NOT_ATTRIBUTED. An unreadable record is an absence of evidence, and
+               this file's one governing rule is that absence of evidence is never reported as a
+               finding about the stock. */
+            return self::UNKNOWN;
         }
     }
 

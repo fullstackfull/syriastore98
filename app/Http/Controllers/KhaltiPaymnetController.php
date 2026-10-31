@@ -1059,6 +1059,10 @@ class KhaltiPaymnetController extends Controller
         $order->additional_note = $request->additional_note;
         $order->store_id = $store->id;
         $order->save();
+        /* F237: phase two of the two-phase attribution -- point this request's
+           movements at the order that now exists. Inside the transaction on purpose: a
+           rollback must undo the attribution, not the movement. */
+        $this->attributeStockEvidenceTo($order);
         /* THE ORDER NOW EXISTS. From here a failure must NOT give the stock back: an order
            that exists claims its goods, and returning them puts the shopper's items on the
            shelf for someone else while their order stands. */

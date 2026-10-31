@@ -310,7 +310,12 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // did not move. The table deliberately has no model: it is written on the checkout path
         // where 79 of 95 models are `Cachable`, and an idempotency record read out of a cache is
         // no record at all. See ServiceLayerRawQueryInventoryTest for the per-statement account.
-        $this->assertSame(['app' => 160, 'packages' => 45], $perDir,
+        // 160 -> 162 on 2026-10-31 [F237]: `StockMovement::attributionStateFor()` adds TWO entry
+        // points, each with an explicit `store_id` predicate at the call site, so the per-table
+        // assertion below does not move. They answer the question `attributeToOrder()`'s row count
+        // cannot: zero rows moved means "already attributed" OR "rows exist and did not move", and
+        // the second must never be reported as success.
+        $this->assertSame(['app' => 162, 'packages' => 45], $perDir,
             'The raw query-builder entry-point count moved. Every one of these is invisible to '
             . 'every Eloquent global scope, so a NEW site needs an explicit `store_id` predicate '
             . 'written at the call site -- there is no other remedy. A REMOVED one probably means '
@@ -364,7 +369,14 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         //   record at all. Like GatewayReference's four they name the table through `self::TABLE`
         //   rather than a literal, so they do not appear in the per-table inventory below.
         // The unscoped sum does not move for any of them, which is the property that matters.
-        $this->assertSame(205, array_sum($perDir));
+        // 205 -> 207 [2026-10-31, F237] with TWO more from the same file:
+        //   `StockMovement::attributionStateFor()` — the for-this-order probe and the any-row probe.
+        //   **Both carry `store_id`**, so the unscoped sum again does not move, and both name the
+        //   table through `self::TABLE`, so they too stay out of the per-table inventory below.
+        //   They exist because a row count cannot carry the answer: `attributeToOrder()` returning
+        //   zero means EITHER already-attributed (success) OR rows that exist and did not move (a
+        //   failure), and the caller must not read the second as the first.
+        $this->assertSame(207, array_sum($perDir));
     }
 
     /**
@@ -605,9 +617,13 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // direct: GatewayReferenceIdempotencyTest drives tenant isolation on the service, and the
         // per-directory assertion above counts all six.
         $this->assertSame(164, array_sum(array_map(fn ($r) => $r[0], $actual)),
-            '164 literal-table sites of the 205 entry points; the other 41 build their table name '
+            '164 literal-table sites of the 207 entry points; the other 43 build their table name '
             . 'from a variable or a class constant and so cannot be attributed (see LIMIT 2 in '
-            . 'this class docblock).');
+            . 'this class docblock). 41 -> 43 on 2026-10-31 [F237]: both of '
+            . '`StockMovement::attributionStateFor()`\'s statements name the table through '
+            . '`self::TABLE`, so they join that unattributable remainder for the same reason '
+            . 'F216\'s four GatewayReference statements did. What covers them instead is direct: '
+            . 'StockAttributionTest drives tenant isolation on the service in both directions.');
         // 66 -> 71: +9 (campaigns 1, helpdesk_tickets 1, email_templates 1, user_email_templates 1, order_refunds 1, stores 2, plus the Duo/credential reads) and -2 (zid_orders)
         // 71 -> 73: of the five new sites only the two `stores` slug resolutions carry no `store_id` in their statement
         // 73 -> 76 with the three D13 category-delete product counts, which carry no `store_id` DELIBERATELY -- see the

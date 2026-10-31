@@ -3667,6 +3667,10 @@ public function handlePaymeraTrigger00($orderId)
 
         try {
             $order->save();
+            /* F237: phase two of the two-phase attribution -- point this request's
+               movements at the order that now exists. Inside the transaction on purpose: a
+               rollback must undo the attribution, not the movement. */
+            $this->attributeStockEvidenceTo($order);
 
 
 
@@ -5103,6 +5107,10 @@ $result = app(\App\Services\StoreNotificationService::class)
 
         try {
         $order->save();
+        /* F237: phase two of the two-phase attribution -- point this request's
+           movements at the order that now exists. Inside the transaction on purpose: a
+           rollback must undo the attribution, not the movement. */
+        $this->attributeStockEvidenceTo($order);
         // add in  Order table end
         if (module_is_active('CheckoutAttachment')) {
             \Workdo\CheckoutAttachment\app\Models\CheckoutAttachment::CheckoutAttachmentOrderStore($order, $slug);

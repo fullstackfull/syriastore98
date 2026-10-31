@@ -56,6 +56,112 @@ trait AppliesCartStockChanges
     /** @var string|null Set by {@see stockEvidenceToken()}; one token per request. */
     private $ssStockEvidenceToken = null;
 
+    /**
+     * PHASE TWO of the two-phase attribution: point this request's movements at the order — F237.
+     *
+     * `stockEvidenceToken()`'s docblock above promised that "the caller attributes it once the
+     * order exists". **For eleven methods across nine controllers, no caller ever did.** Phase one
+     * was wired and phase two was not, so every placement row kept `order_id = NULL` for good;
+     * `movedOutFor()` predicates on `order_id` in both its main query and its `$observed` fallback,
+     * so it answered `UNKNOWN` for every real order; and because `UNKNOWN` means *fall through and
+     * restore*, the E13-C cancellation guard never refused anything on a real code path. This is
+     * the missing half, in one place rather than eleven.
+     *
+     * ## CALL IT IMMEDIATELY AFTER `$order->save()`, INSIDE THE ORDER'S TRANSACTION
+     *
+     * Both halves of that matter:
+     *
+     *   - **After the save**, because an order with no id cannot own anything.
+     *   - **Inside the transaction**, because the movement rows were written by
+     *     `decrementStockOrFail()` *before* the transaction opened and are already committed. So a
+     *     rollback cannot un-record the movement — nor should it, the stock really did move — but
+     *     it DOES undo the attribution, leaving the row unattributed. That is the correct record of
+     *     stock that moved with no order owning it, and it is exactly what `unattributed()` is for.
+     *
+     * ## IT ONLY ACTS WHEN A TOKEN WAS REALLY MINTED
+     *
+     * Reading `$this->ssStockEvidenceToken` directly rather than calling `stockEvidenceToken()` is
+     * deliberate: the accessor MINTS on first use, so calling it here would manufacture a token on
+     * a request that moved no stock and then attribute nothing under a name that means nothing.
+     * The null check is the whole difference between a no-op and a lie.
+     *
+     * ## A FAILURE IS LOGGED, NEVER SWALLOWED — AND NEVER FAILS THE CHECKOUT
+     *
+     * Two rules that pull against each other, and both are kept.
+     *
+     * It must not throw. It runs after the order is persisted, on paths that have already taken
+     * money; an exception here would roll the order back and lose a paid order, which would be a
+     * change to approved payment behaviour introduced by a bookkeeping call. So nothing propagates.
+     *
+     * But a zero row count must not be read as success either. `attributeToOrder()` returns a
+     * count, and zero is ambiguous four ways — already attributed, nothing recorded, rows that
+     * exist but did not move, or an update that threw. So when it moves nothing, the record is
+     * asked what state it is actually in (`attributionStateFor()`), and only `ATTRIBUTED` — the
+     * retried-return case — is treated as done. Everything else is logged at **error** with the
+     * token and the order, and the row is left unattributed. That keeps `movedOutFor()` answering
+     * `UNKNOWN`, which falls through and restores: the safe direction, and the pre-existing
+     * behaviour.
+     *
+     * @param \App\Models\Order|mixed $order The order as just persisted; must carry id and store_id.
+     */
+    private function attributeStockEvidenceTo($order): void
+    {
+        if (empty($this->ssStockEvidenceToken)) {
+            return;
+        }
+
+        $token = $this->ssStockEvidenceToken;
+
+        try {
+            $orderId = is_object($order) ? ($order->id ?? null) : null;
+            $storeId = is_object($order) ? ($order->store_id ?? null) : null;
+
+            if (! is_numeric($orderId) || ! is_numeric($storeId)) {
+                \Illuminate\Support\Facades\Log::error(
+                    'stock evidence not attributed: the order carries no usable id or store',
+                    [
+                        'token' => $token,
+                        'order_id' => is_scalar($orderId) ? $orderId : null,
+                        'store_id' => is_scalar($storeId) ? $storeId : null,
+                        'controller' => static::class,
+                    ]
+                );
+
+                return;
+            }
+
+            if (\App\Services\StockMovement::attributeToOrder($token, $storeId, $orderId) > 0) {
+                return;
+            }
+
+            $state = \App\Services\StockMovement::attributionStateFor($token, $storeId, $orderId);
+
+            if ($state === \App\Services\StockMovement::ATTRIBUTED) {
+                /* A retried gateway return. The rows already belong to this order, which is the
+                   idempotency `attributeToOrder()`'s `whereNull('order_id')` is there to give. */
+                return;
+            }
+
+            \Illuminate\Support\Facades\Log::error(
+                'stock evidence not attributed: stock moved for this request and no row now owns the order',
+                [
+                    'state' => $state,
+                    'token' => $token,
+                    'order_id' => $orderId,
+                    'store_id' => $storeId,
+                    'controller' => static::class,
+                ]
+            );
+        } catch (\Throwable $theAttributionFailed) {
+            /* Never fail a persisted order over bookkeeping — but never go quiet either. */
+            \Illuminate\Support\Facades\Log::error('stock evidence not attributed: the attempt threw', [
+                'reason' => $theAttributionFailed->getMessage(),
+                'token' => $token,
+                'controller' => static::class,
+            ]);
+        }
+    }
+
     /** The evidence context for a stock call on the placement path. */
     private function stockEvidence($model, string $reason): array
     {
