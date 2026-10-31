@@ -170,9 +170,19 @@ class ServiceLayerRawQueryInventoryTest extends TestCase
          * isolation is per-purchaser and is enforced before any disclosure. All six are declared
          * with their reason in STORE_LESS_BY_DESIGN above, which is what
          * `test_every_store_less_service_statement_is_declared_with_its_reason` requires.
+         *
+         * 39 -> 40 on 2026-10-31 [F229 round 3]: `recordRecoverableRefusal()` adds ONE, and it is
+         * store-less for the same reason as the other six (14 -> 15). It exists because round 2's
+         * `REFUSED_RECOVERABLE` left the row `pending` having written nothing, which
+         * `unreconciled()` could not match -- a captured payment became indistinguishable from an
+         * abandoned checkout. It writes only `failure_reason`, deliberately NOT `provider_txn_id`:
+         * the column the query treats as evidence of capture must not be filled on the one path
+         * where nothing about the payment was established. Already covered by the
+         * `->where('provider', $provider)` declaration above, which is why the
+         * every-statement-declared test did not move.
          */
         $this->assertSame(
-            39,
+            40,
             $total,
             "The number of raw query-builder statements in app/Services moved. Every one is "
             . "invisible to every Eloquent global scope, so a new one needs a `store_id` "
@@ -181,7 +191,7 @@ class ServiceLayerRawQueryInventoryTest extends TestCase
         );
 
         $this->assertSame(25, $scoped, 'statements naming store_id');
-        $this->assertCount(14, $storeLess, 'statements naming store_id nowhere');
+        $this->assertCount(15, $storeLess, 'statements naming store_id nowhere');
     }
 
     public function test_every_store_less_service_statement_is_declared_with_its_reason(): void

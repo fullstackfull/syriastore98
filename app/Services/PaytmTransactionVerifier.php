@@ -91,9 +91,12 @@ use Illuminate\Support\Facades\Log;
  * *whole* sorted array, so a legitimate response carrying any field Paytm excludes from its own
  * computation would also mismatch, and this project has no sandbox evidence either way.
  * `recordRefusal()` is terminal: it closes the intent and no retry can reopen it. UNVERIFIABLE
- * blocks the activation just as completely while leaving the intent `pending` and visible in
- * `PlanPurchaseIntent::unreconciled()`, so a wrongly-rejected real payment is recoverable by a
- * human instead of destroyed by my assumption. Fail closed, but fail recoverably.
+ * blocks the activation just as completely, and the caller records it as a REFUSAL — which is a
+ * correction to what this said before: the controller calls `recordRefusal()` on every
+ * non-VERIFIED state, so an UNVERIFIABLE answer does NOT leave the intent `pending`. It lands in
+ * `status = refused`, which `unreconciled()`'s first clause surfaces, carrying its reason. Visible
+ * either way; "recoverable" is the wrong word for it, and only the CURRENCY path (see
+ * `PlanPurchaseIntent::REFUSED_RECOVERABLE`) keeps the intent open.
  *
  * ──────────────────────────────────────────────────────────────────────────────────────────────
  * IT FAILS CLOSED, WHICH IS REQUIREMENT 8
@@ -106,9 +109,13 @@ use Illuminate\Support\Facades\Log;
  *
  * The cost of that is real and requirement 8 asks for it to be stated: on an installation where
  * Paytm's status endpoint is unreachable, **legitimate Paytm plan purchases will not activate**.
- * They will leave a `pending` intent carrying the provider's transaction id, which
- * `PlanPurchaseIntent::unreconciled()` surfaces for a human. That is the intended trade — a
- * purchase a human must finish is recoverable, an entitlement granted without proof is not.
+ * They leave a `refused` intent carrying its reason and the provider's transaction id, which
+ * `PlanPurchaseIntent::unreconciled()`'s first clause surfaces for a human. **That is a terminal
+ * state and the retry will not reopen it** — a correction to the earlier wording here, which
+ * described a `pending` intent and was wrong twice over: the caller records the refusal, and a
+ * `pending` row can never carry a transaction id in the first place (`create()` omits the column;
+ * both writers move the row off `pending` in the same UPDATE). Visible, but not self-healing: an
+ * operator has to act. An entitlement granted without proof would be worse.
  *
  * ──────────────────────────────────────────────────────────────────────────────────────────────
  * THE AMOUNT'S UNITS ARE NOT GUESSED — REQUIREMENT 3

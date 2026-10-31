@@ -98,10 +98,30 @@ class PlanPurchaseIntent
      * coincidence. A mismatch there is a misconfiguration, not a substitution, and nothing the
      * buyer supplies can vary it.
      *
-     * So the activation is still refused -- fail closed, requirement 4 -- but the intent stays
-     * `pending` and `unreconciled()` surfaces it. The same reasoning
-     * `PaytmTransactionVerifier` already applies to an ambiguous checksum: block the activation
-     * completely, destroy nothing, and let the recoverable case be recovered.
+     * So the activation is still refused -- fail closed, requirement 4 -- but the intent is not
+     * closed. The same reasoning `PaytmTransactionVerifier` already applies to an ambiguous
+     * checksum: block the activation completely, destroy nothing, and let the recoverable case be
+     * recovered.
+     *
+     * AND IT MUST BE VISIBLE, WHICH THE FIRST VERSION OF THIS WAS NOT. Independent review of
+     * 3b846065 caught it: leaving the row `pending` and writing nothing meant `unreconciled()`'s
+     * pending clause -- `status = pending AND provider_txn_id IS NOT NULL` -- could not match it,
+     * because a pending row's `provider_txn_id` is unconditionally NULL (`create()` omits the
+     * column; the only two writers both move the row off pending in the same UPDATE). So the row
+     * was surfaced by nothing, carried no reason, and was byte-indistinguishable from an abandoned
+     * checkout that never paid.
+     *
+     * That was a REGRESSION on the visibility axis: the terminal `REFUSED_MISMATCH` it replaced at
+     * least landed in `status = refused`, which `unreconciled()`'s FIRST clause surfaces. Round 2
+     * traded "destroyed but visible" for "not destroyed and invisible", and four of this project's
+     * own docblocks claimed otherwise.
+     *
+     * `recordRecoverableRefusal()` below is the answer, and deliberately NOT the one review filed.
+     * The filed remedy was to write `provider_txn_id` onto the pending row so the existing clause
+     * fires -- which would put **unverified, caller-authored** data into the one column that query
+     * treats as evidence a payment was captured, on a path where the amount comparison has just
+     * failed. Writing only the server's own `failure_reason`, and matching on that, makes the row
+     * visible without asserting anything about the provider.
      */
     public const REFUSED_RECOVERABLE = 'refused_recoverable';
 
@@ -490,6 +510,45 @@ class PlanPurchaseIntent
         }
     }
 
+    /**
+     * A REFUSAL THAT KEEPS THE INTENT OPEN AND STILL PUTS IT IN FRONT OF A HUMAN.
+     *
+     * The whole difference from `recordRefusal()` is what it does NOT write: `status` stays
+     * `pending`, so a retry is still possible, and `provider_txn_id` stays NULL, so nothing here
+     * claims a payment was captured. Only `failure_reason` is set, and it is the server's own
+     * sentence, never anything the caller supplied.
+     *
+     * Scoped to the purchaser for the same reason `recordRefusal()` is: a reason written onto
+     * somebody else's pending row is somebody else's purchase annotated by a stranger.
+     */
+    public static function recordRecoverableRefusal(string $provider, string $reference, string $reason, $purchaserId = null): void
+    {
+        if (! self::available() || $reference === '') {
+            return;
+        }
+
+        try {
+            $refusal = DB::table(self::TABLE)
+                ->where('provider', $provider)
+                ->where('reference', $reference)
+                ->where('status', self::PENDING);
+
+            if (is_numeric($purchaserId)) {
+                $refusal->where('user_id', (int) $purchaserId);
+            }
+
+            $refusal->update([
+                'failure_reason' => substr($reason, 0, 255),
+                'updated_at' => now(),
+            ]);
+        } catch (\Throwable $theReasonWasNotRecorded) {
+            Log::warning('Plan purchase intent recoverable refusal not recorded.', [
+                'reason' => $theReasonWasNotRecorded->getMessage(),
+                'provider' => $provider,
+            ]);
+        }
+    }
+
     /** Attach the PlanOrder a consumed intent produced, so the two are reconcilable. */
     public static function attachOrder(string $provider, string $reference, $planOrderId): void
     {
@@ -552,6 +611,20 @@ class PlanPurchaseIntent
                         ->orWhere(function ($spentWithNothingToShow) {
                             $spentWithNothingToShow->where('status', self::CONSUMED)
                                 ->whereNull('plan_order_id');
+                        })
+                        /*
+                         * A PENDING ROW THAT CARRIES A REASON. Added after independent review found
+                         * that `REFUSED_RECOVERABLE` produced a row no clause could match.
+                         *
+                         * The clause above requires `provider_txn_id`, which a pending row never
+                         * has, so it cannot stand in for this. Matching on `failure_reason` works
+                         * because nothing writes one except the server itself, and it is the only
+                         * signal that separates a refused-but-open purchase from the many `pending`
+                         * rows left by buyers who simply closed the provider's page.
+                         */
+                        ->orWhere(function ($refusedButStillOpen) {
+                            $refusedButStillOpen->where('status', self::PENDING)
+                                ->whereNotNull('failure_reason');
                         });
                 })
                 ->where('created_at', '<', now()->subMinutes($olderThanMinutes))

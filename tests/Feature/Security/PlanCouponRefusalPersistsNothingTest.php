@@ -190,6 +190,72 @@ class PlanCouponRefusalPersistsNothingTest extends PlanPaymentTestCase
     }
 
     /**
+     * F3 — THE USAGE WRITE AND THE ACTIVATION MUST BE GUARDED BY THE SAME CONDITION.
+     *
+     * They were not: the usage write sat under a `$price < 1` test while the activation-and-return
+     * sat under `$price <= 0`. For a price strictly between 0 and 1 — a plan priced 10 with a 95%
+     * coupon gives 0.50, and both values are creatable in the admin UI — the initiator wrote a
+     * `PlanUserCoupon` row and then **kept going**: it created the intent, sent the buyer to
+     * Paytm, and the return wrote a SECOND usage row for the same purchase.
+     *
+     * `PlanCoupon::used_coupon()` counts every user's rows, so the limit is platform-wide and the
+     * deactivation flips `is_active = 0` for everybody. A coupon in that window burned its limit
+     * at twice the rate and went dead for the whole platform at half its intended usage.
+     *
+     * STRUCTURAL, because the end-to-end version cannot live in this suite: the method's coupon
+     * lookup is `whereRaw('BINARY `code` = ?')`, a syntax error on SQLite, which the premise case
+     * below already measures. A behavioural test would redirect 302 having written nothing and
+     * prove only that the dialect differs — the trap this file exists to document.
+     *
+     * Asked of the METHOD with comments stripped, because the docblocks around both branches now
+     * quote the conditions in order to explain them, and a census that cannot tell an explanation
+     * from an instance is the mistake this project keeps repeating.
+     */
+    public function test_f3_the_coupon_usage_write_is_guarded_by_the_activation_condition(): void
+    {
+        $source = file_get_contents(base_path('app/Http/Controllers/PaytmPaymentController.php'));
+
+        $start = strpos($source, 'public function planPayWithPaytm(');
+        $this->assertNotFalse($start, 'the initiator has been renamed; re-read this assertion');
+        $method = substr($source, $start);
+        $next = strpos($method, 'public function ', 10);
+        $method = $next === false ? $method : substr($method, 0, $next);
+
+        $code = implode('', array_map(
+            fn ($token) => is_array($token) && in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true) ? '' : (is_array($token) ? $token[1] : $token),
+            token_get_all('<?php ' . $method)
+        ));
+
+        $this->assertStringNotContainsString(
+            'if ($price < 1)',
+            $code,
+            'the coupon usage write is guarded by `$price < 1` while the activation is guarded by '
+            . '`$price <= 0`. For 0 < price < 1 the usage row is written AND the buyer goes to the '
+            . 'gateway, so the return writes a second row for one purchase — and the limit is '
+            . 'platform-wide, so the coupon dies for everybody at half its intended usage.'
+        );
+
+        $write = strpos($code, 'new PlanUserCoupon()');
+        $this->assertNotFalse($write, 'the usage write has moved out of this method; re-read F3');
+
+        $guard = strrpos(substr($code, 0, $write), 'if ($price');
+        $this->assertNotFalse($guard, 'the usage write is no longer guarded by a price condition at all');
+        $this->assertStringStartsWith(
+            'if ($price <= 0)',
+            substr($code, $guard, 20),
+            'the condition guarding the usage write is not the activation condition'
+        );
+
+        /* AND THE LIMIT GATE IS `>=`. With `==`, once `used` exceeds `limit` -- which the
+           double-count above is one way to arrange -- the gate passes. */
+        $this->assertStringContainsString(
+            'if ($coupons->limit <= $usedCoupun)',
+            $code,
+            'the limit gate is `==`, so it stops testing once `used` has overshot `limit`'
+        );
+    }
+
+    /**
      * THE DEFECT ITSELF. A request that cannot succeed must not consume a coupon use.
      */
     public function test_a_refused_unconfigured_checkout_persists_no_coupon_use(): void

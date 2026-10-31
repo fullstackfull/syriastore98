@@ -245,31 +245,64 @@ try {
     $lockHeld = false;
 
     $whyNot = '';
+    $driverCode = 0;
+    $cannotEvaluate = false;
 
     try {
         $b->select('select reference from plan_purchase_intents where reference = ? for update nowait', ['f229-race']);
     } catch (Throwable $theRowWasLocked) {
         /*
-         * THE MESSAGE IS INSPECTED, and the first version of this check did not do that -- found
-         * by independent review. A bare `catch (Throwable) { $lockHeld = true; }` reports "the lock
-         * is real" on the strength of ANY failure: `NOWAIT` needs MySQL >= 8.0.1 / MariaDB >= 10.3
-         * and is a SYNTAX ERROR on anything older, and a missing table, a permissions error or a
-         * dropped connection all land here too. A check that passes when the statement could not
-         * run is the shape of evidence this whole file exists to avoid. Check (b) below already
-         * matched on its message; this one now does the same.
+         * MATCH THE DRIVER ERROR NUMBER, NOT THE MESSAGE -- and the first two versions of this
+         * check both got it wrong, each worse than the last.
+         *
+         * v1 was a bare `catch (Throwable) { $lockHeld = true; }`, which reported "the lock is
+         * real" on ANY failure. v2 tested the MESSAGE for the substring `nowait`, which is worse
+         * than it looks: `QueryException::formatMessage()` appends the **full SQL** to every
+         * message, and this statement's SQL ends in `for update nowait`. So the substring is
+         * present for a 1064 parse error, a missing table and a lost connection alike -- for
+         * exactly the cases the check was added to reject. It could not fail.
+         *
+         * `errorInfo[1]` is the driver number. `getCode()`/`errorInfo[0]` give only the SQLSTATE,
+         * and `HY000` is the generic bucket that 1205, 1213 and most server errors share, so the
+         * SQLSTATE cannot separate them either.
          */
         $whyNot = $theRowWasLocked->getMessage();
-        $lockHeld = str_contains(strtolower($whyNot), 'nowait')
-            || str_contains(strtolower($whyNot), 'lock');
+        $previous = $theRowWasLocked->getPrevious();
+        $pdo = $previous instanceof PDOException ? $previous : ($theRowWasLocked instanceof PDOException ? $theRowWasLocked : null);
+        $driverCode = (int) ($pdo && isset($pdo->errorInfo[1]) ? $pdo->errorInfo[1] : 0);
+
+        /*
+         * 3572 ER_LOCK_NOWAIT is MySQL >= 8.0.1 only. **MariaDB has no such code** -- MEASURED on
+         * the 10.11.14 server this file is run against: a NOWAIT conflict raises 1205
+         * ER_LOCK_WAIT_TIMEOUT, SQLSTATE HY000, "Lock wait timeout exceeded". Both mean the row is
+         * genuinely locked, which is all this check asserts.
+         *
+         * AND THAT IS WORTH SAYING OUT LOUD, because it costs this check its independence: on
+         * MariaDB, check (a) and check (b) below come back with the same error number. (a) still
+         * carries information -- it fails IMMEDIATELY rather than after the one-second timeout, so
+         * it shows the conflict is detected without waiting -- but it is no longer a second,
+         * independent witness to the lock. The timing in (b) is the load-bearing measurement.
+         */
+        $lockHeld = $driverCode === 3572 || $driverCode === 1205;
+
+        /* 1064 ER_PARSE_ERROR: NOWAIT is unsupported here, so the statement NEVER RAN. That is
+           not a pass and not a failure -- it is an absence of evidence, and scoring it as either
+           is how v1 and v2 came to report a lock on a server that cannot test for one. */
+        $cannotEvaluate = $driverCode === 1064;
     }
 
-    check(
-        'while A holds it, B cannot even read the row for update -- the lock is real',
-        $lockHeld,
-        $whyNot === ''
-            ? 'FOR UPDATE NOWAIT succeeded, so A is not holding a lock and nothing below is a race'
-            : 'it failed for a reason that is not a lock, so this proves nothing: ' . $whyNot
-    );
+    if ($cannotEvaluate) {
+        echo "  SKIP  FOR UPDATE NOWAIT is not supported by this server (1064), so the immediate-conflict\n";
+        echo "        check cannot be evaluated. The blocking check below still carries the claim.\n";
+    } else {
+        check(
+            'while A holds it, B cannot even read the row for update -- the lock is real (driver ' . $driverCode . ')',
+            $lockHeld,
+            $whyNot === ''
+                ? 'FOR UPDATE NOWAIT SUCCEEDED, so A is not holding a lock and nothing below is a race'
+                : 'it failed with driver code ' . $driverCode . ', which is neither 3572 nor 1205, so this proves nothing: ' . $whyNot
+        );
+    }
 
     // (b) B's conditional UPDATE blocks on that lock rather than overtaking it.
     $blockedFor = microtime(true);

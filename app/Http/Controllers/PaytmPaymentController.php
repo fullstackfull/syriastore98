@@ -82,13 +82,46 @@ class PaytmPaymentController extends Controller
                 $usedCoupun     = $coupons->used_coupon();
                 $discount_value = ($plan->price / 100) * $coupons->discount;
                 $price          = $plan->price - $discount_value;
-                if ($coupons->limit == $usedCoupun) {
+                /*
+                 * `>=`, not `==`. Found by independent verification of the F3 finding below.
+                 *
+                 * Once `used` EXCEEDS `limit` -- which the double-count this block used to cause
+                 * is one way to arrange -- `limit == used` is false and the gate PASSES. It was
+                 * only saved by `is_active` having been set to 0 elsewhere, in which case `:77`'s
+                 * `where('is_active','1')` finds nothing and the buyer is silently charged the
+                 * undiscounted price instead of being told the coupon is spent.
+                 */
+                if ($coupons->limit <= $usedCoupun) {
                     return redirect()->back()->with('error', __('This coupon code has expired.'));
                 }
                 $coupon_id = $coupons->id;
 
 
-                if ($price < 1) {
+                /*
+                 * ═══════════════════════════════════════════════════════════════════════════════
+                 * THE SAME CONDITION AS THE ACTIVATION BELOW. It was `< 1` against the next
+                 * block's `<= 0`, and the two are not the same set. Found by independent review of
+                 * 3b846065, then verified and sustained by three adversarial readings.
+                 * ═══════════════════════════════════════════════════════════════════════════════
+                 *
+                 * For a price strictly between 0 and 1 -- a plan priced 10 with a 95% coupon gives
+                 * 0.50, and both values are creatable in the admin UI -- this block wrote a
+                 * `PlanUserCoupon` row and then **kept going**: it created the intent, sent the
+                 * buyer to Paytm, and the return wrote a SECOND usage row for the same purchase.
+                 *
+                 * `PlanCoupon::used_coupon()` counts EVERY user's rows, so the limit is
+                 * platform-wide and the deactivation at `:669` flips `is_active = 0` for
+                 * everybody: a coupon in that window burned its limit at twice the rate and went
+                 * dead for the whole platform at half its intended usage.
+                 *
+                 * The round-2 commit caused this by *correctly* making the return's usage write
+                 * fire at all -- it had been keyed on `$request->coupon`, which a legitimate
+                 * return never carries, so no row was ever written. The fix was right; the
+                 * collision with this pre-existing `< 1` branch was not considered.
+                 *
+                 * `<= 0` is a strict subset of `< 1`, so the genuinely-free case is unchanged.
+                 */
+                if ($price <= 0) {
                     $order_id = strtoupper(str_replace('.', '', uniqid('', true)));
                     $statuses = 'success';
                     if ($coupon_id != '') {
@@ -386,11 +419,21 @@ class PaytmPaymentController extends Controller
                         ->verify($ssOrderReference);
 
                     if ($ssProviderSays['state'] !== \App\Services\PaytmTransactionVerifier::VERIFIED) {
+                        /*
+                         * THE PURCHASER IS NAMED HERE TOO. Round 2 scoped only one of this
+                         * method's three `recordRefusal()` calls, and this is the one that
+                         * mattered: it runs BEFORE any ownership check, on a reference taken
+                         * straight from the request. Low reachability -- the reference is pinned
+                         * inside the AES-verified POST body, so a victim's cannot be substituted
+                         * without the merchant key -- but the round-2 rationale was that "the
+                         * asymmetry was indefensible", and two thirds of it was still there.
+                         */
                         \App\Services\PlanPurchaseIntent::recordRefusal(
                             'Paytm',
                             $ssOrderReference,
                             'provider verification ' . $ssProviderSays['state'] . ': ' . $ssProviderSays['reason'],
-                            $paytmReference
+                            $paytmReference,
+                            $user->id ?? null
                         );
 
                         Log::warning('Paytm plan activation refused: the provider did not confirm the payment.', [
@@ -424,7 +467,22 @@ class PaytmPaymentController extends Controller
                          * else's pending row -- the cross-user case returns `REFUSED_MISMATCH`, and
                          * without this the refusal was written onto the OWNER's intent.
                          */
-                        if ($ssIntentState !== \App\Services\PlanPurchaseIntent::REFUSED_RECOVERABLE) {
+                        if ($ssIntentState === \App\Services\PlanPurchaseIntent::REFUSED_RECOVERABLE) {
+                            /*
+                             * KEEP THE INTENT OPEN, BUT NOT INVISIBLE. Round 2 wrote nothing here
+                             * at all, which left the row `pending` with a NULL `provider_txn_id`
+                             * -- a combination `unreconciled()` cannot match, so a captured
+                             * payment became byte-indistinguishable from an abandoned checkout.
+                             * This writes only the server's own reason, which the fourth clause
+                             * of `unreconciled()` now matches.
+                             */
+                            \App\Services\PlanPurchaseIntent::recordRecoverableRefusal(
+                                'Paytm',
+                                $ssOrderReference,
+                                $ssIntentState . ': ' . $ssIntentReason,
+                                $user->id ?? null
+                            );
+                        } else {
                             \App\Services\PlanPurchaseIntent::recordRefusal(
                                 'Paytm',
                                 $ssOrderReference,
@@ -451,11 +509,15 @@ class PaytmPaymentController extends Controller
                     $ssIntendedPlan = Plan::find($ssIntent->plan_id);
 
                     if (empty($ssIntendedPlan)) {
+                        /* Scoped like the other two, so no reader has to work out which of the
+                           three is the asymmetric one. Behaviourally a no-op here: by this point
+                           `verifyAndConsume()` has bound the purchaser and consumed the row. */
                         \App\Services\PlanPurchaseIntent::recordRefusal(
                             'Paytm',
                             $ssOrderReference,
                             'the intent names a plan that no longer exists',
-                            $ssProviderSays['txn_id'] ?? $paytmReference
+                            $ssProviderSays['txn_id'] ?? $paytmReference,
+                            $user->id ?? null
                         );
 
                         Log::warning('Paytm plan activation refused: the intent names a plan that no longer exists.', [

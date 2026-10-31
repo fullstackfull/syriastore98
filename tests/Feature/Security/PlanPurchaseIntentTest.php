@@ -176,9 +176,14 @@ class PlanPurchaseIntentTest extends PlanPaymentTestCase
      * A difference there is a misconfiguration, so closing the intent over it destroys a payment
      * the provider has already captured.
      *
-     * So: no activation (fail closed, requirement 4) and the intent stays PENDING, which
-     * `unreconciled()` surfaces. The caller is responsible for not recording it — asserted
-     * separately in `PaytmIntentBoundActivationTest`.
+     * So: no activation (fail closed, requirement 4) and the intent stays PENDING. **Visibility is
+     * the CALLER's job, not this method's** — a correction to what this said, which claimed
+     * `unreconciled()` surfaces the row. On its own it does not: a pending row's
+     * `provider_txn_id` is unconditionally NULL, so the pending clause cannot match it. The
+     * controller calls `recordRecoverableRefusal()`, which writes the server's own reason, and the
+     * fourth clause matches on that — asserted by
+     * `test_a_recoverable_refusal_leaves_the_intent_open_and_still_surfaces_it` below and through
+     * the route in `PaytmIntentBoundActivationTest`.
      */
     public function test_a_differing_currency_refuses_recoverably_and_leaves_the_intent_pending(): void
     {
@@ -282,6 +287,77 @@ class PlanPurchaseIntentTest extends PlanPaymentTestCase
             PlanPurchaseIntent::REFUSED,
             DB::table('plan_purchase_intents')->where('reference', $reference)->value('status'),
             'the purchaser scope is too tight: the owner cannot record their own refusal'
+        );
+    }
+
+    /**
+     * A RECOVERABLE REFUSAL IS VISIBLE — the half that was missing, and it was a REGRESSION.
+     *
+     * Round 2 introduced `REFUSED_RECOVERABLE` to stop a currency difference destroying a captured
+     * payment, and left the row `pending` having written nothing. Independent review found what
+     * that costs: `unreconciled()`'s pending clause requires `provider_txn_id IS NOT NULL`, and a
+     * pending row's `provider_txn_id` is unconditionally NULL — `create()` omits the column and
+     * the only two writers both move the row off `pending` in the same UPDATE. So the row was
+     * surfaced by nothing and was byte-indistinguishable from an abandoned checkout.
+     *
+     * On the visibility axis that was WORSE than what it replaced: the terminal `REFUSED_MISMATCH`
+     * at least landed in `status = refused`, which the FIRST clause surfaces. The trade was
+     * "destroyed but visible" for "not destroyed and invisible".
+     *
+     * The fix is deliberately not the one review filed. Writing `provider_txn_id` onto the pending
+     * row would make the existing clause fire, but it would put unverified, caller-authored data
+     * into the one column that query treats as evidence a payment was captured — on a path where
+     * the amount comparison has just failed. `recordRecoverableRefusal()` writes only the server's
+     * own reason, and a fourth clause matches on that.
+     *
+     * BOTH HALVES ARE ASSERTED, because either alone is satisfiable by the wrong thing: the row
+     * must still be completable (status PENDING, nothing claimed about the provider) AND it must
+     * be visible.
+     */
+    public function test_a_recoverable_refusal_leaves_the_intent_open_and_still_surfaces_it(): void
+    {
+        [$merchant] = $this->makeTenant();
+        $reference = $this->intentFor($merchant, '499.00');
+
+        PlanPurchaseIntent::recordRecoverableRefusal(
+            self::PROVIDER, $reference, 'currency mismatch: intent USD, reported INR', $merchant->id
+        );
+
+        $row = DB::table('plan_purchase_intents')->where('reference', $reference)->first();
+
+        $this->assertSame(PlanPurchaseIntent::PENDING, $row->status,
+            'the recoverable refusal closed the intent, which is what it exists not to do');
+        $this->assertNull($row->provider_txn_id,
+            'a refusal wrote provider_txn_id, which this query treats as evidence a payment was '
+            . 'captured — on the one path where nothing about the payment was established');
+        $this->assertStringContainsString('currency mismatch', (string) $row->failure_reason);
+
+        DB::table('plan_purchase_intents')->where('reference', $reference)
+            ->update(['created_at' => now()->subHours(2)]);
+
+        $this->assertContains(
+            $reference,
+            collect(PlanPurchaseIntent::unreconciled(30))->pluck('reference')->all(),
+            'a captured payment refused on a recoverable ground is invisible to review. It is '
+            . 'byte-indistinguishable from an abandoned checkout, so no query and no operator can '
+            . 'ever find it — which is strictly worse than the terminal refusal it replaced.'
+        );
+    }
+
+    /**
+     * AND IT CANNOT ANNOTATE SOMEBODY ELSE'S PURCHASE.
+     */
+    public function test_a_recoverable_refusal_cannot_touch_another_accounts_intent(): void
+    {
+        [$owner] = $this->makeTenant();
+        [$stranger] = $this->makeTenant();
+        $reference = $this->intentFor($owner, '499.00');
+
+        PlanPurchaseIntent::recordRecoverableRefusal(self::PROVIDER, $reference, 'a stranger said so', $stranger->id);
+
+        $this->assertNull(
+            DB::table('plan_purchase_intents')->where('reference', $reference)->value('failure_reason'),
+            'a stranger wrote a reason onto the owner\'s pending purchase'
         );
     }
 

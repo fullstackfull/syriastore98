@@ -168,9 +168,17 @@ class PaytmIntentBoundActivationTest extends PlanPaymentTestCase
     /**
      * A CURRENCY THAT REALLY DIFFERS REFUSES — and leaves the purchase RECOVERABLE.
      *
-     * Fail closed (nothing activated) without destroying the payment: the intent stays `pending`,
-     * so an operator can finish it once the platform's currency setting and the provider's
-     * settlement currency are reconciled. Whether Paytm reports a currency at all is an open
+     * Fail closed (nothing activated) without destroying the payment: the intent stays `pending`
+     * and carries its reason, so `unreconciled()` surfaces it for an operator.
+     *
+     * A CORRECTION TO WHAT THIS SAID, caught by independent verification: it claimed an operator
+     * could "finish it once the platform's currency setting and the provider's settlement currency
+     * are reconciled". They cannot. `plan_purchase_intents.currency` is written once by `create()`
+     * and no method ever UPDATEs it, so changing the platform setting cannot affect an existing
+     * row and every retry produces the identical refusal. What "recoverable" buys is narrower and
+     * worth stating exactly: the row is not closed, so a human CAN still act on it — by issuing a
+     * refund, or by correcting the setting and having the buyer purchase again. It is not
+     * self-healing. Whether Paytm reports a currency at all is an open
      * question one captured sandbox response settles; until then this is the honest handling, and
      * it is the reason `REFUSED_RECOVERABLE` exists as a state of its own.
      */
@@ -273,6 +281,68 @@ class PaytmIntentBoundActivationTest extends PlanPaymentTestCase
             . 'from now rather than from the paid-for period, so re-POSTing a body the buyer '
             . 'already holds keeps a paid plan alive indefinitely on one payment.'
         );
+    }
+
+    /**
+     * F4 — A STRANGER CANNOT SPOIL AN INTENT WHEN THE PROVIDER CANNOT CONFIRM.
+     *
+     * The missing cell in this file's own matrix: cross-user crossed with a non-VERIFIED verifier.
+     * Neither existing case can fail on it. The stranger case drives a VERIFIED verifier, so it
+     * reaches the purchaser check inside `verifyAndConsume()`, which binds the owner before any
+     * refusal is recorded. The UNVERIFIABLE case drives the owner, so the unscoped refusal lands
+     * on the right row anyway.
+     *
+     * Only the combination reaches the one `recordRefusal()` call that round 2 left unscoped —
+     * the one above the provider check, which runs BEFORE any ownership test, on a reference taken
+     * from the request. Unscoped, a stranger presenting a body for somebody else's reference
+     * flipped the OWNER's pending intent to `refused`, terminally: the owner's own return then
+     * finds no pending row, forever.
+     *
+     * Reachability is low and stated as such: the reference is pinned inside the AES-verified POST
+     * body, so substituting a victim's requires the merchant key. This is hardening. It is worth
+     * having because the round-2 rationale was that the asymmetry was indefensible, and two thirds
+     * of the asymmetry was still there.
+     */
+    public function test_a_stranger_cannot_spoil_an_intent_when_the_provider_cannot_confirm(): void
+    {
+        $this->seedSuperAdminCurrency('USD', ['paytm_merchant_key' => self::PAYTM_KEY]);
+
+        $plan = $this->makePlan('499');
+        $owner = $this->makeMerchant();
+        $stranger = $this->makeMerchant();
+
+        $reference = PlanPurchaseIntent::create([
+            'provider' => 'Paytm', 'user_id' => $owner->id, 'plan_id' => $plan->id,
+            'expected_amount' => '499.00', 'currency' => 'USD',
+        ]);
+
+        /* The provider cannot be reached, which is the path with the unscoped refusal. */
+        $this->app->instance(PaytmTransactionVerifier::class, new class extends PaytmTransactionVerifier {
+            public function verify(string $reference): array
+            {
+                return [
+                    'state' => PaytmTransactionVerifier::UNVERIFIABLE,
+                    'amount' => null, 'currency' => null, 'txn_id' => null,
+                    'reason' => 'the status call failed',
+                ];
+            }
+        });
+
+        $this->actingAs($stranger)->post(
+            '/plan-paytm-payment/' . Crypt::encrypt($plan->id),
+            $this->paytmBody(['ORDERID' => $reference])
+        );
+
+        $this->assertSame(
+            PlanPurchaseIntent::PENDING,
+            DB::table('plan_purchase_intents')->where('reference', $reference)->value('status'),
+            'a stranger closed the owner\'s intent terminally, so the owner\'s own return can '
+            . 'never complete their purchase'
+        );
+
+        $this->assertSame(0, (int) DB::table('plan_orders')->count(), 'the stranger activated something');
+        $this->assertNull($owner->fresh()->plan_id);
+        $this->assertNull($stranger->fresh()->plan_id);
     }
 
     /**
