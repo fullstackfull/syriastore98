@@ -54,6 +54,42 @@ final class GatewayReference
     public const TABLE = 'order_gateway_references';
 
     /** The three honest capture states. A boolean would have to lie about one of them. */
+    /*
+     * ══════════════════════════════════════════════════════════════════════════════════════════
+     * THE CLAIM OUTCOMES — because `bool` cannot carry what this method has to say.
+     * ══════════════════════════════════════════════════════════════════════════════════════════
+     *
+     * `claim()` returns `true` on FOUR different paths and they do not mean the same thing:
+     *
+     *   1. the row was inserted            -> the caller is PROTECTED
+     *   2. the table is absent             -> proceed, UNPROTECTED (logged at warning)
+     *   3. `usable()` said no              -> proceed, UNPROTECTED (**and it was SILENT**)
+     *   4. the insert threw a real fault   -> proceed, UNPROTECTED (logged at error)
+     *
+     * and `false` on one:
+     *
+     *   5. the reference was already there -> REPLAY, the caller must refuse
+     *
+     * Collapsing 1-4 into one value is the defect. A caller that reads `true` as "I am protected"
+     * is wrong three times out of four, and in case 3 nothing anywhere said so -- an empty
+     * reference or a zero store id sailed through with no row, no log and no signal. That is the
+     * worst of the four, because it is the one a BUG produces rather than a missing migration.
+     *
+     * `claim()` is kept, with its documented meaning intact ("may I proceed"), because that is a
+     * real question with a real yes/no answer. `claimState()` is the one a money path should ask,
+     * and `isProtected()` is the distinction `claim()` cannot express.
+     *
+     * THIS IS THE CHEAPEST POSSIBLE MOMENT TO FIX IT: `claim()` and `bind()` have **zero**
+     * production callers today, so no behaviour changes anywhere and no caller has to be migrated.
+     * Wiring a writer to a control whose success value is ambiguous is how the ambiguity becomes
+     * permanent.
+     */
+    public const CLAIM_RECORDED = 'recorded';
+    public const CLAIM_REPLAY = 'replay';
+    public const CLAIM_UNPROTECTED_TABLE_ABSENT = 'unprotected_table_absent';
+    public const CLAIM_UNPROTECTED_UNUSABLE_INPUT = 'unprotected_unusable_input';
+    public const CLAIM_UNPROTECTED_STORE_FAULT = 'unprotected_store_fault';
+
     public const CONFIRMED = 'confirmed';
     public const UNKNOWN = 'unknown';
     public const REJECTED = 'rejected';
@@ -70,6 +106,41 @@ final class GatewayReference
         ?string $amount = null,
         string $captureState = self::UNKNOWN
     ): bool {
+        /* "May I proceed?" -- a real question with a real yes/no answer, and the only one the old
+           signature could express. Everything else now lives in `claimState()`. */
+        return self::claimState($storeId, $gateway, $reference, $amount, $captureState) !== self::CLAIM_REPLAY;
+    }
+
+    /** Is this outcome one where the capture is actually recorded and therefore replay-proof? */
+    public static function isProtected(string $state): bool
+    {
+        return $state === self::CLAIM_RECORDED;
+    }
+
+    /** Is this outcome a replay the caller must refuse? */
+    public static function isReplay(string $state): bool
+    {
+        return $state === self::CLAIM_REPLAY;
+    }
+
+    /**
+     * The same operation as `claim()`, answering with WHICH of the five outcomes occurred.
+     *
+     * A money path should branch on this rather than on the bool: `CLAIM_RECORDED` is the only
+     * outcome where a replay cannot happen, and the three `UNPROTECTED_*` outcomes say "proceed,
+     * but this capture is not idempotent" -- which is a thing a writer may want to log against its
+     * own order, or refuse on, depending on the money at stake. The policy is the caller's to set;
+     * this method's job is to stop hiding the difference.
+     *
+     * @return self::CLAIM_* one of the five named outcomes
+     */
+    public static function claimState(
+        $storeId,
+        string $gateway,
+        string $reference,
+        ?string $amount = null,
+        string $captureState = self::UNKNOWN
+    ): string {
         if (! self::available()) {
             /*
              * THE TABLE IS NOT THERE. That is the state of every environment where the migration
@@ -87,11 +158,26 @@ final class GatewayReference
                 'store_id' => $storeId,
             ]);
 
-            return true;
+            return self::CLAIM_UNPROTECTED_TABLE_ABSENT;
         }
 
         if (! self::usable($storeId, $reference)) {
-            return true;
+            /*
+             * THIS PATH WAS SILENT, and it is the one that matters most.
+             *
+             * A missing table is an operator's outstanding migration -- expected, and logged. An
+             * unusable store id or an empty reference is a **programming error in the caller**:
+             * nothing was recorded, nothing refused, and no line anywhere said so, so a writer
+             * that passed `''` believed it was protected forever. Logged at warning with the
+             * reason, never with the reference value itself.
+             */
+            Log::warning('gateway reference not recorded: the store id or reference is unusable', [
+                'gateway' => $gateway,
+                'store_id' => $storeId,
+                'reference_is_empty' => trim($reference) === '',
+            ]);
+
+            return self::CLAIM_UNPROTECTED_UNUSABLE_INPUT;
         }
 
         try {
@@ -106,7 +192,7 @@ final class GatewayReference
                 'updated_at' => now(),
             ]);
 
-            return true;
+            return self::CLAIM_RECORDED;
         } catch (\Illuminate\Database\UniqueConstraintViolationException $e) {
             /* ALREADY SEEN. The engine refused it, which is the answer rather than a failure. */
             Log::warning('gateway capture replayed: the reference is already recorded', [
@@ -114,7 +200,7 @@ final class GatewayReference
                 'store_id' => $storeId,
             ]);
 
-            return false;
+            return self::CLAIM_REPLAY;
         } catch (\Illuminate\Database\QueryException $e) {
             /*
              * Older engines and drivers report a duplicate key as a plain QueryException rather
@@ -129,7 +215,7 @@ final class GatewayReference
                     'store_id' => $storeId,
                 ]);
 
-                return false;
+                return self::CLAIM_REPLAY;
             }
 
             Log::error('gateway reference could not be recorded', [
@@ -138,7 +224,7 @@ final class GatewayReference
                 'error' => $e->getMessage(),
             ]);
 
-            return true;
+            return self::CLAIM_UNPROTECTED_STORE_FAULT;
         }
     }
 

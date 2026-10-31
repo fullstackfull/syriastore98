@@ -63,11 +63,12 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Helper/helper.php:429` | paid download url not issued |
 | `app/Http/Controllers/PaidDownloadController.php:329` | paid download refused: resolved path escapes the uploads root |
 | `app/Http/Controllers/PaidDownloadController.php:349` | paid download refused |
-| `app/Services/GatewayReference.php:85` | gateway reference not recorded: the table is absent |
-| `app/Services/GatewayReference.php:112` | gateway capture replayed: the reference is already recorded |
-| `app/Services/GatewayReference.php:127` | gateway capture replayed (23000): the reference is already recorded |
+| `app/Services/GatewayReference.php:156` | gateway reference not recorded: the table is absent |
+| `app/Services/GatewayReference.php:174` | gateway reference not recorded: the store id or reference is unusable |
+| `app/Services/GatewayReference.php:198` | gateway capture replayed: the reference is already recorded |
+| `app/Services/GatewayReference.php:213` | gateway capture replayed (23000): the reference is already recorded |
 
-### `warning` — 162 lines
+### `warning` — 163 lines
 
 | line | message |
 |---|---|
