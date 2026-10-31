@@ -2737,3 +2737,48 @@ condition 5.
 **What stays blocked.** The storefront and the customer API remain out of scope: a
 customer-initiated replacement is a different authorisation question and this decision does not
 touch it.
+
+---
+
+## D-33 — Benefit and Flutterwave are DEFERRED out of Phase 02 scope (owner, 2026-10-31)
+
+**The owner's words:**
+
+> The owner explicitly authorizes deferring Benefit and Flutterwave from Phase 02 implementation
+> and acceptance scope. … Do not wait for Benefit Tap charge samples or Flutterwave verify response
+> captures to finish the remaining Phase 02 engineering. … This decision narrows the earlier D-31
+> five-provider completion scope for Phase 02 only. Preserve D-31's permanent financial-integrity
+> principles for all implemented payment providers.
+
+**Why this was the right call to make, and it is the owner's to make rather than mine.** D-31
+required all five plan providers protected before F229 could be called complete. Two of them cannot
+be protected from this container at all: the intent binding needs a reference the **provider**
+attests, and establishing that needs each provider's documented response contract. Both official
+documentation hosts fail DNS here — `developers.tap.company` and `developer.flutterwave.com` both
+return `getaddrinfo ENOTFOUND`, which is this environment's network policy rather than a missing
+page. Requirement 8 forbids guessing a contract, so the alternative to deferral was an indefinite
+wait on an environment change.
+
+**The five conditions this deferral carries, each of which must hold and be tested:**
+
+1. Documented as **DEFERRED / BLOCKED**, never DONE.
+2. **No paid subscription activated without verified payment evidence** on either provider.
+3. **Fail-closed behaviour on unsupported or unverified paths, tested.**
+4. Compatibility and business impact documented explicitly.
+5. Available for a future separately approved integration task.
+
+**What is NOT narrowed.** D-31's financial-integrity principles stand in full for every provider
+that *is* implemented — Paytm, Cashfree and Mollie. The server-owned intent, the plan binding, the
+exact-money comparison where a contract exists, replay resistance and the recovery record are
+unaffected by this decision.
+
+**What this means for F229's status.** F229 is **not closed**. Its scope for Phase 02 acceptance is
+now Paytm, Cashfree and Mollie; Benefit and Flutterwave move to a future task. Saying F229 is
+"complete" would still be wrong — the amount contracts for Cashfree and Mollie remain unestablished
+(see below) — and this decision does not change that.
+
+**And one thing it does not authorise:** bypassing a security check, fabricating a provider
+response, or silently accepting an unsafe payment. The owner stated all three explicitly. The
+deferral is an exclusion from scope, not a relaxation of the controls on what remains.
+
+**The Master Execution Prompt is unchanged**, as the owner instructed.
