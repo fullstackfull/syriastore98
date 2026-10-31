@@ -2375,6 +2375,17 @@ product media/file-type gaps, and the P2-08 acceptance matrix) all stand as prev
 | **D-29.6** | F217 secure paid downloads | ✅ **HIGH PRIORITY** | ⚠️ **the serving path, not the containment** — `103bf45b`/`3ffbcb51`: `PaidDownloadController`, `DownloadGrant`, the exposure census | ✅ 10 entitlement cases | ❌ **AND THE GAP IS THE POINT:** files already written stay reachable at their public URLs. Closing that is a file move plus a database path rewrite — a production data write, forbidden here. Runbook-only. |
 | **D-29.7** | P2-01-17 header acceptance | ✅ **OWNER ACCEPTED for Phase 02 scope** | ✅ D-25's three steps (`51c4fc46`, `b2f7f1fb`, `731ad458`) | ✅ **status changed `41d8a202`+**; the owner's condition is live — 13 header tests pass (4 accessible names, 9 contrast); if they go red the acceptance lapses | n/a |
 
+**[2026-10-30] THE `VERIFIED` COLUMN NOW HAS A GATE BEHIND IT, AND UNTIL NOW IT DID NOT.** An
+adversarial sweep found three of the four implemented D-29 rows marked VERIFIED on the strength of
+**targeted runs only** — no full known-outcome Feature gate covered any commit from `103bf45b`
+onward, which is the whole D-29 implementation set. That matters because `0753189c` itself records a
+later census *"fixing six Security failures"* that the targeted runs had missed: **targeted green is
+not the gate.** The authoritative gate is now on **`e95afda4`** — `2 failed, 17 skipped, 6956
+passed`, asserter *"matches the manifest exactly … nothing undeclared"*, Unit 657, Contract 26,
+MariaDB 32/0 — and it took two runs, the first of which failed on an undeclared failure of mine.
+Both are recorded in `PHASE-02-TASK-LEDGER.md`'s P2-08 row with evidence files, including the one
+that failed.
+
 **The separation is not bookkeeping.** D-29.1 is approved, implemented and verified and is **still
 not closed in production** — the owner says so twice: *"do not change production settings, or run a
 production migration, or activate the isolation on production now"*, and *"do not consider F194
