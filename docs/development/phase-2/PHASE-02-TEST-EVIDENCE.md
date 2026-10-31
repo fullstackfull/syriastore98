@@ -1,5 +1,13 @@
 # Phase 02 — test evidence
 
+> **TRANSFER BANNER — 2026-10-31.** Handed to another account mid-work; see §0 of
+> [`PHASE-02-HANDOFF.md`](PHASE-02-HANDOFF.md). Every figure here is the result of a run that was
+> actually executed, on the commit named with it — **but the last FULL gate measured `e95afda4`,
+> and the delivered head is `4b917079`, seven commits later.** The `6956 / 2 / 17` Feature figures
+> are a BASELINE for `e95afda4` and must not be copied forward as a result for any later head.
+> Unit, Contract, the MariaDB scripts and Flutter have not been re-run since that gate.
+
+
 Every claim below names the command, the engine it ran on, and the output. A claim with no command
 under it is not in this file. Where something could **not** be run, that is stated instead of being
 worked around.

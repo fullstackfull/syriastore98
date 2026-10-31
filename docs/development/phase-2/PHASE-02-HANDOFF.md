@@ -1,14 +1,182 @@
 # Phase 02 — handoff
 
-**State: Phase 02 engineering is PARTIALLY COMPLETE.** Read §1 before anything else.
+> ## §0. SESSION HANDOFF — 2026-10-31. READ THIS FIRST; IT SUPERSEDES ANY OLDER STATEMENT BELOW.
+>
+> This session was transferred to a different account mid-work. Everything below §0 was written
+> earlier and parts of it are stale **by design** — the branch name and head SHAs in the table
+> that used to sit here were from an earlier branch entirely. The facts in this section are the
+> ones measured at transfer.
+>
+> **PHASE 02 IS NOT OWNER ACCEPTED AND IS NOT RELEASE READY.** D-30 in
+> [`PHASE-02-DECISION-REGISTER.md`](PHASE-02-DECISION-REGISTER.md) is the owner's ruling and it is
+> authoritative: Phase 02 remains OPEN, blocked on E13, E14, the critical financial/security
+> findings, a final comprehensive verification and an explicit owner acceptance. Keep the six
+> states separate — OWNER APPROVED / IMPLEMENTED / VERIFIED / PRODUCTION ACTIVATED / OWNER
+> ACCEPTED / RELEASE READY — and do not read a passing suite as any of the last three.
+>
+> ### The branch, and the only one
+>
+> **`claude/store-syria-p02-continuation-smlpwi`, in both repositories.** The older
+> `claude/store-syria-p02-merchant-experience` named below is **not** where work continues. Nothing
+> merged to `main`, nothing deployed, no production migration run, no force-push, no history
+> rewritten.
+>
+> | | |
+> |---|---|
+> | Laravel head (pushed, verified) | `4b91707962d381a36ae45bae5bc00163fe81e0c4` (`fullstackfull/syriastore98`) |
+> | Flutter head (pushed, verified) | `1978aff74920bf5bb1b06ac03004f9de230f3f43` (`fullstackfull/StoreSyria_app98`) |
+> | Working trees at transfer | **both clean, nothing unpushed, no WIP branch needed** |
+> | Last AUTHORITATIVE full gate | **`e95afda4`** — Feature 6956 passed / 2 declared failures / 17 declared skips, Unit 657, Contract 26, MariaDB 32/32. **Seven commits have landed since.** |
+>
+> ### The gate gap, stated plainly
+>
+> **No full Known-Outcome Feature Gate has been run on `4b917079`.** The `e95afda4` figures above
+> are a BASELINE and must not be copied forward as a result for this head — the owner's §7 says so
+> in terms. What *was* executed on the current code is in §0's test table below and in
+> [`PHASE-02-TEST-EVIDENCE.md`](PHASE-02-TEST-EVIDENCE.md). **The first thing a successor owes the
+> owner is that gate on the delivered head**, not more engineering.
+>
+> ### What landed in the seven commits since the gate
+>
+> | commit | what |
+> |---|---|
+> | `8483374f` | the authoritative gate recorded on `e95afda4`, both runs including the one that failed |
+> | `439ecaa8` | **D-30** recorded — the owner's ruling that Phase 02 remains OPEN, and the two register states that were missing |
+> | `fa40e1ef` | **E13 slice 1** — the durable stock-evidence record (`app/Services/StockMovement.php`, dev/test-only migration), with **UNKNOWN as a real state** rather than a failure mode |
+> | `d73fbe12` | **E13 slice 2** — two-phase attribution, because `AppliesCartStockChanges::decrementStockOrFail()` runs before `new Order()` exists, so there is no order id at decrement time |
+> | `67de44ed` | **E14/F220 census CORRECTED** — the "19 unguarded gateway returns" were never order writers; see §0's E14 block |
+> | `139bcc22` | **F228/F232** — one provider reference, one plan activation, across four providers; three defects in that fix found by independent review and corrected |
+> | `4b917079` | **E13-C / F233/F235/F236** — the cancellation consults the evidence; two further live defects found by review in the same handler |
+>
+> ### E13 — where it actually stands
+>
+> | requirement | state | evidence |
+> |---|---|---|
+> | A. re-evaluate the architecture, not the stale analysis | **DONE** | [`E13-ARCHITECTURE-REEVALUATION-2026-10-31.md`](E13-ARCHITECTURE-REEVALUATION-2026-10-31.md) — of the three 2026-10-26 blockers, one is **RESOLVED BY D-21** (the nine stock writers now route through `ProductStockService`, 26 call sites in 7 files), two stand and are now measured |
+> | B. the smallest durable stock-evidence design | **DONE** | `app/Services/StockMovement.php` + `database/migrations/2026_10_31_000100_create_stock_movements_table.php` (**DEVELOPMENT AND TEST ONLY**). `direction` is `out`/`in`, deliberately not a signed quantity. `movedOutFor()` answers MOVED / NOT_MOVED / **UNKNOWN** |
+> | B-bis. two-phase attribution | **DONE** | `newToken()`, `attributeToOrder()` (idempotent via `whereNull('order_id')`, returns the row count, cannot re-point), `unattributed()` — the stock-side twin of F186's captured-payment-without-order, surfaced for a reviewer with nothing acting on it. Threaded at all **six** sites in `AppliesCartStockChanges` |
+> | C. the five cancellation doors | **DONE for the door that restores** | Measured: only `OrderController::status_cancel` restores; the shared `Order::order_status_change()` cancel arm restores nothing and the other four reach it; all five write identical state. It now consults the record. **F233/F235/F236** |
+> | D. the linked replacement itself | **NOT STARTED** | the owner's requirement D (a linked-original-order reference, in isolated dev/test databases only). Nothing of it is built. **This is the next engineering action for E13.** |
+> | E. collected / partial / unverifiable payments | **NOT STARTED** | no refusal path, no pending-review state, no audit record for them yet |
+> | F. the eleven scenarios | **PARTIAL** | the stock-evidence and cancellation scenarios are driven (42 cases across `StockMovementEvidenceTest` and `OrderCancelRestockTest`). **The MariaDB real-concurrency scenarios, two concurrent replacement attempts, exception-before/after-commit and the Flutter/web compatibility pass are NOT run.** D-30's rule applies: a scenario that cannot satisfy D-15 is marked BLOCKED with evidence, not shortcut |
+>
+> **The one E13 test the owner named that does NOT exist yet:** stock moves and then order
+> persistence fails. The compensation loop in `AppliesCartStockChanges` is instrumented with
+> `REASON_ORDER_CANCEL` at both restore sites, so the machinery is there; the scenario is not driven.
+>
+> ### E14 / F220 — the census was WRONG and that is the headline
+>
+> **The old row claimed 31 order-writing controllers / 8 guarded / 19 unguarded gateway returns / 4
+> non-gateway. All four numbers were wrong and its six tests passed.** Do not carry them forward.
+>
+> * `Order::create\s*\(` has **no left anchor**, so it matched the substring inside
+>   `PlanOrder::create(`. **None of the nineteen named gateways writes a customer `Order`** — every
+>   one writes `App\Models\PlanOrder`, a SaaS *plan* sale, and every live route on them is a plan
+>   route. Their storefront returns land on `route('store.payment.status')` =
+>   `PaymentController::getProductStatus`, **which does claim**. Two of the nineteen matched inside
+>   a docblock.
+> * The glob was **non-recursive**, so `app/Http/Controllers/Api/` was invisible and three live
+>   customer-order writers were never censused → **F226**.
+> * The guard test was **file-scoped** (`str_contains($source, 'GuardsGatewayReturn')`), crediting
+>   an import rather than a call → **F227**.
+>
+> **MEASURED TRUTH: 15 customer-order write sites in 11 files** — 7 guarded gateway returns, 1
+> unguarded-and-unrouted (PayU: trait imported, `claimGatewayReturn()` never called, method not on
+> the route table — F94), **3 client-API writers with no idempotency control** (F226, one of them
+> the route the shipped merchant Flutter app posts orders to), **1 unauthenticated storefront
+> writer** (F227, `PaymentController::whatsapp` at `POST {storeSlug?}/whatsapp` and `/telegram`), 2
+> merchant-typed, 1 not a write. Derived from the parsed tree by
+> `tests/Support/Commerce/OrderWriteCensus.php`: recursive, comments dropped, class names resolved
+> through each file's own `use` map **including the grouped form** (which is the only way
+> `NMIPayController`'s writer is reachable), and the claim question asked of the **enclosing
+> method**.
+>
+> **E14 is therefore NOT DONE, and the remaining work is different from what the old row implied:**
+> the nineteen need nothing; **F226 and F227 need an idempotency control**, and the owner's §3
+> requirement 5 (the `GatewayReference` failure policy, eight named states) is **not started**. An
+> independent audit of that policy was taken this session and its substance is recorded in the
+> ledger rows; `claim()` has three `return true` paths that mean "could not record", one of them
+> silent, and **`claim()`/`bind()` have zero production callers**, so the exposure is prospective.
+> That is the cheapest moment to fix the policy, before any writer is wired to it.
+>
+> ### E13-C — which cancellation entry points consult the evidence
+>
+> | door | reaches | restores stock? | consults the record? |
+> |---|---|---|---|
+> | `OrderController::status_cancel` | its own path | **yes** | **YES — this session** |
+> | `OrderController::order_status_change` | `Order::order_status_change()` | no | n/a (nothing to guard) |
+> | `Api\ApiController::order_status_change` | same | no | n/a |
+> | `Api\DashboardController` (`type == 'cancel'`) | same | no | n/a |
+> | `Api\DashboardController:546` (`cancel_date = now()`) | writes the field directly | no | n/a |
+>
+> **Still needing work:** the **eight restore sites that thread no evidence** — `OrderController`'s
+> return loop (`:1405`, `:1431`), `Order::product_return()` (`:1062`, `:1093`),
+> `OrderRefundController` (`:803`, `:869`) and `PaymentService` (`:207`, `:209`). Their restores are
+> invisible to the record. The cancellation now stamps `Order::LINE_STOCK_RESTORED` so the return
+> loop's own existing check spans both doors (F236), but the *movement* record does not cover them.
+> **No adversarial MariaDB concurrency test exists for the cancellation path.**
+>
+> ### What was executed on this code, and what was not
+>
+> | suite | result | on |
+> |---|---|---|
+> | `OrderCancelRestockTest` + `StockMovementEvidenceTest` + 3 ratchets | **55 passed, 201 assertions** | `4b917079` |
+> | `PlanActivationReplayGuardTest` + `PlanPaymentFailClosedTest` + `PlanPaymentVerificationInventoryTest` + `SecurityLogInventoryTest` + `PlanPaymentBypassTest` | **116 passed, 411 assertions** | `139bcc22` |
+> | `GatewayReplayGuardCensusTest` (rewritten) | **8 passed, 49 assertions, 4 bites** | `67de44ed` |
+> | Feature `--filter=Security` | **4543 passed, 4 skipped, 0 undeclared failures** | `139bcc22` |
+> | Feature `--filter=Commerce` | **920 passed, 7 skipped** | `67de44ed` |
+> | Feature `--filter='Commerce|Inventory|Tenancy'` | **1483 passed, 13 skipped** | pre-`4b917079` |
+> | **full Known-Outcome Feature Gate** | **NOT RUN on `4b917079`** | — |
+> | Unit / Contract / MariaDB / Flutter | **NOT RE-RUN since `e95afda4`** | — |
+>
+> ### Open security findings recorded this session, and the owner decisions they need
+>
+> | | |
+> |---|---|
+> | **F226** | three client-API customer-order writers with **no idempotency control**; `api/admin/createOrderViaApi` is Flutter-facing, so the control must not change a response shape or add a 401 (the app force-logs-out on any 401) |
+> | **F227** | `PaymentController::whatsapp` — live, **unauthenticated**, storefront order writer, previously reported as guarded by a file-scoped check on its sibling method |
+> | **F229** | the **amount-substitution** half of the plan-return family (Benefit, Cashfree, Mollie, Paytm, Flutterwave): paying once for the cheapest plan and naming a dearer one on the FIRST return still succeeds. **ONE OWNER DECISION:** authorise a sandbox per provider so the unit convention can be measured, or authorise the refusal in log-only mode first. The trait's header already records why a blind amount comparison is unsafe — getting one provider's minor/major units wrong refuses every legitimate purchase on it |
+> | **F230** | **CyberSource plan path**: caller-supplied `amount` and plan id from a **plaintext, unsigned** hidden field; `apitest.cybersource.com` (the **sandbox**) hardcoded at six sites; and the three CyberSource routes carry **no `auth` middleware**. Recorded, not fixed — the fix rewrites the method's inputs, and the sandbox host is an owner/operator question |
+> | **F231** | **Flutterwave** gates on the verify CALL's envelope, not the transaction's own state, and is now the only envelope-gated plan handler left. **BLOCKED on one captured verify response** — guessing the field name would refuse every legitimate purchase |
+> | **F234** | a **Coingate checkout burns a coupon use, and can exhaust a limited coupon for everybody**, on a request that cannot succeed: the usage is persisted and the coupon deactivated 54 lines before the code reads a setting that throws. Measured. A direct violation of F196 Option A ("refusal must precede persistence"), so it needs no new decision — only its own slice. **Worth checking whether the other ~25 plan initiators share the ordering, since the coupon block looks copied** |
+> | **#120** | remains **DEFERRED BY OWNER and OPEN SECURITY-WISE**. Do not delete git history, rotate production secrets, modify leaked data, or claim remediation. It may independently block RELEASE READY |
+> | **Phase 01** | its outstanding release gates in [`../phase-1/PHASE-01-CLOSURE-EXECUTION.md`](../phase-1/PHASE-01-CLOSURE-EXECUTION.md) are **not cleared** and must not be cleared under Phase 02 authority |
+>
+> ### The next engineering action, in order
+>
+> 1. **Run the full Known-Outcome Feature Gate on `4b917079`** (the command is in the project
+>    CLAUDE.md §3), plus Unit, Contract and the MariaDB scripts. Record the **actual** outcome set.
+>    Never whitelist a new failure or skip. Keep both failed and successful logs.
+> 2. **F234** — one small slice, no new decision needed: move the provider-config read above the
+>    coupon write, and check the sibling initiators.
+> 3. **E13 requirement D** — the linked-original-order reference, in isolated dev/test databases
+>    only, within D-15. A replacement must not double-charge, duplicate stock movements, or
+>    silently change economic values. Requirement E (collected/partial/unverifiable payments) is
+>    refusal-and-pending-review, never auto-replacement.
+> 4. **F226** — the idempotency control for `createOrderViaApi` first (it is the only one a shipped
+>    client calls, and the only one with no accidental dedupe: the two storefront writers consume
+>    the cart, which pre-refuses a sequential replay). Build the key from the authenticated
+>    principal and server-resolved data, never from caller input alone, and reuse the repository's
+>    own `Cache::add()` idiom.
+> 5. **The `GatewayReference` failure policy** — the owner's eight states. Its `bool` cannot carry
+>    three outcomes; `true` currently means *recorded*, *deliberately unprotected* and *broken*.
+> 6. **Only then** the remaining Phase 02 UI rows in §1 and §3b below.
+>
+> **Do not start Phase 2.5, Phase 03, or any other phase.** The six-phase Master Product Plan
+> remains authoritative and [`PHASE-02-MASTER-EXECUTION-PROMPT.md`](PHASE-02-MASTER-EXECUTION-PROMPT.md)
+> is unchanged and must stay so.
 
-**Branch:** `claude/store-syria-p02-merchant-experience` in both repositories. Nothing merged to
-`main`, nothing deployed, no production migration run.
+---
+
+**State (written earlier): Phase 02 engineering is PARTIALLY COMPLETE.** Read §1 after §0.
+
+**Branch — SUPERSEDED, see §0:** ~~`claude/store-syria-p02-merchant-experience`~~. Nothing merged
+to `main`, nothing deployed, no production migration run.
 
 | | |
 |---|---|
-| Laravel head | `e53d9fc8` (`fullstackfull/syriastore98`) |
-| Flutter head | `fd76ac8` (`fullstackfull/StoreSyria_app98`) |
+| Laravel head — **SUPERSEDED, see §0** | ~~`e53d9fc8`~~ (`fullstackfull/syriastore98`) |
+| Flutter head — **SUPERSEDED, see §0** | ~~`fd76ac8`~~ (`fullstackfull/StoreSyria_app98`) |
 | Requirements | [`PHASE-02-MASTER-EXECUTION-PROMPT.md`](PHASE-02-MASTER-EXECUTION-PROMPT.md) — the owner's prompt, verbatim |
 | Requirement coverage | [`PHASE-02-COVERAGE-AUDIT-2026-10-25.md`](PHASE-02-COVERAGE-AUDIT-2026-10-25.md) — which of the prompt's 104 workstream requirements have a ledger row, and which do not |
 | Row-level status | [`PHASE-02-TASK-LEDGER.md`](PHASE-02-TASK-LEDGER.md) |
@@ -508,7 +676,14 @@ paints, measure that surface. `--ss-*` tokens follow `data-ss-theme`; the host's
 and the two disagree inside modals, pinned table cells (see `components/datatable.blade.php`) and
 anywhere else the host sets its own background.
 
-## 5. What a successor should do first
+## 5. What a successor should do first — **SUPERSEDED BY §0 FOR ORDERING**
+
+> The numbered list below is the MERCHANT-EXPERIENCE ordering from before Phase 02 was reopened.
+> It is still accurate about what those rows need, and its measurements are still worth having —
+> but §0's ordering takes precedence: the gate on the delivered head, then F234, then E13
+> requirement D, then F226, then the GatewayReference failure policy. Do not resume at P2-07-10
+> or P2-05-5 before those.
+
 
 1. **Read [`PHASE-02-MASTER-EXECUTION-PROMPT.md`](PHASE-02-MASTER-EXECUTION-PROMPT.md)**, not a
    summary of it. Its coverage check names four workstream requirements that have no ledger row.

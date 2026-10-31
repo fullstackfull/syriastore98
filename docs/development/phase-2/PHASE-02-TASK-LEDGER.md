@@ -1,5 +1,15 @@
 # Phase 02 — task ledger
 
+> **TRANSFER BANNER — 2026-10-31.** This session was handed to another account mid-work. The
+> authoritative statement of state is §0 of [`PHASE-02-HANDOFF.md`](PHASE-02-HANDOFF.md). Branch
+> `claude/store-syria-p02-continuation-smlpwi`; Laravel head `4b917079`, Flutter head `1978aff7`;
+> both trees clean. **The last full Known-Outcome Feature Gate measured `e95afda4`, seven commits
+> back — no gate has been run on the delivered head.** Rows marked DONE below mean IMPLEMENTED and
+> VERIFIED AT THEIR OWN SCOPE, never OWNER ACCEPTED or RELEASE READY: D-30 keeps Phase 02 OPEN.
+> **F220's old 31/8/19/4 census was wrong in all four numbers and is corrected in its own row;
+> do not quote the old figures.** Newest findings this session: F226, F227, F228–F236.
+
+
 One row per task. **Status values:** `DONE` (implemented and verified by something executed) ·
 `IN PROGRESS` · `TODO` · `BLOCKED` (a genuine external blocker, named) · `NOT STARTED`.
 
