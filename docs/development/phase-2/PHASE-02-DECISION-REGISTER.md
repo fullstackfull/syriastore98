@@ -2584,3 +2584,109 @@ gates** must be documented and not ignored; and the standing prohibitions are un
 to main, no production deployment, no production migrations, no production cache or environment
 changes, no production data writes, no secret rotation, no force push, no vendored WorkDo
 modification, and no Phase 2.5 or Phase 03 before owner acceptance.
+
+---
+
+## D-31 — F229: the owner REJECTS log-only and instructs a PERMANENT, FAIL-CLOSED FIX (owner, 2026-10-31)
+
+**Status: owner decision taken. F229 stays OPEN until every affected provider is proven safe.**
+
+The previous session's recommendation — and this session's own, after measuring that all five
+providers send the amount server-side without a multiplier — was to authorise the refusal in
+**log-only** mode first, so that real traffic would measure each provider's report-side unit
+convention. **The owner has rejected that as the final solution**, in terms:
+
+> *"I do NOT approve log-only monitoring as the final solution for F229. I want a permanent, proven,
+> fail-closed solution that prevents payment amount substitution and unauthorized SaaS plan
+> activation. … Target: permanent financial integrity, not temporary detection."*
+
+Log-only is **not** forbidden outright. It is demoted:
+
+> *"Log-only diagnostics may be used strictly as an auxiliary development or sandbox measurement,
+> never as a substitute for enforcement or as proof of remediation."*
+
+So instrumentation may be used in development or a sandbox to *establish* a provider's contract, and
+may never be presented as the remediation, nor deployed as one.
+
+### Scope of the authorisation, and its limits
+
+Granted: **the permanent engineering fix, in Phase 02, within existing development/test-only
+permissions.** Explicitly NOT granted:
+
+> *"It is NOT authorization for production deployment."*
+
+and the standing prohibitions are restated by the owner unchanged: no merge to `main`, no production
+deployment, no production migration, no production environment change, and no Phase 2.5. Phase 02
+remains OPEN under **D-30**.
+
+### The ten binding requirements, as given
+
+1. Preserve a **server-owned payment intent** binding the purchaser, plan, expected payable amount,
+   currency, discount and provider transaction reference.
+2. **Verify the actual payment with each provider before granting the subscription.** Never trust
+   callback-supplied plan IDs, amounts or success flags as payment evidence.
+3. Build **provider-specific amount normalization** based on verified API contracts and real sandbox
+   evidence. **Never guess minor/major unit conversions** or use **imprecise floating-point
+   comparisons**.
+4. Require verified transaction **status**, correct **amount** and **currency**, and a **binding to
+   the original server-owned purchase intent** before activation.
+5. Prevent **replay, double activation, cross-user reference reuse and concurrent activation
+   races.** Preserve **safe recovery when payment succeeds but entitlement assignment fails.**
+6. Cover **Benefit, Cashfree, Mollie, Paytm and Flutterwave**, using the existing **Paystack
+   verification principles** where applicable.
+7. Test **legitimate payments, cheaper-plan substitution, wrong currency, missing fields, forged
+   callbacks, replay, concurrency, and failures before and after persistence.**
+8. **If a provider's verified response contract cannot yet be established, mark that provider
+   BLOCKED.** Do not activate paid subscriptions without sufficient evidence. **Document any
+   compatibility or operational impact of fail-closed handling.**
+9. **Introduce no new refund or settlement behaviour**, and do not automatically refund or cancel a
+   captured payment without approved business rules.
+10. Obtain **independent security review** and execute the **relevant test gates** before declaring
+    F229 complete.
+
+### What this instruction settles, and what it leaves open
+
+**Settled.** Requirement 3 ends the question this register previously treated as the blocker. The
+earlier framing was a binary — *authorise five sandboxes, or authorise log-only*. The owner has
+chosen neither: the unit convention must be established from **verified API contracts and real
+sandbox evidence**, and where it cannot be, requirement 8 says the provider is **BLOCKED** rather
+than guessed or merely watched. So the absence of evidence now produces a refusal, not a log line.
+
+**Consequence for F231, and it is now a dependency rather than a sibling.** Flutterwave is in
+requirement 6's list and is simultaneously BLOCKED for want of one captured verify response. Under
+requirement 8 that is a coherent state, not a contradiction: Flutterwave is marked BLOCKED and its
+paid activations fail closed until the evidence exists. The same test applies to each of the other
+four — a provider is covered when its contract is *verified*, not when it is *assumed*.
+
+**Consequence for the measurement already taken.** This session measured, without a sandbox, that
+all five send the amount server-side with no multiplier (`BenefitPaymentController:96`,
+`CashfreeController:140`, `PaytmPaymentController:142`, `MolliePaymentController:135`, and the blade
+this server renders at `plans/stripe.blade.php:3364` for Flutterwave, against `:3228`/`:3275` which
+*do* multiply). That is **send-side** evidence and it is real, but requirement 3 asks for the
+**verified response contract**, which it is not. It narrows the work; it does not discharge it.
+
+**Requirement 1 is new build, not a repair.** No server-owned payment intent exists for plan
+purchases. `grep -rn "payment_intent\|PaymentIntent\|purchase_intent" app/` does return three hits,
+and they are **not** this: all three are Stripe's own `\Stripe\PaymentIntent` API object in a
+**storefront order** path (`Api/ApiController.php:7719`, `:7841`, `:7906`), which is a different
+surface and a different defect. There is no persisted intent on any plan-purchase path. The nearest
+existing thing is `GuardsPlanActivation::serverOwnedPlanPrice()`, which recomputes a price on demand
+but persists no intent and binds no reference. Requirement 4's "binding to the original server-owned
+purchase intent" therefore cannot be satisfied by any current mechanism, and requirement 1 is the
+one that has to be built before 4 can be met.
+
+**Requirement 5's recovery clause interacts with D-15 and must not be read as widening it.**
+"Safe recovery when payment succeeds but entitlement assignment fails" is a *recovery* obligation.
+Requirement 9 forbids new refund or settlement behaviour, and D-15 condition 3 already separates
+reversing a merchant's balance from a real refund to a customer. So recovery here means a durable,
+reviewable record of a captured payment whose entitlement did not land — the plan-side twin of
+F186's captured-payment-without-order — and **not** an automatic refund, which requirement 9 and
+D-15 both exclude.
+
+**Sequencing, as the owner set it.** F237 remains the immediate engineering priority, then F234,
+then this. Recorded here so the decision is durable before that work begins; the owner also
+instructed that the Master Execution Prompt be preserved unchanged, which it is.
+
+**Not recorded here:** any approval the owner did not give. In particular this is not acceptance of
+Phase 02, not release readiness, not production authorisation, and not a change to Issue #120's
+deferred-but-open status.
