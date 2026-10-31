@@ -49,6 +49,43 @@ class ServiceLayerRawQueryInventoryTest extends TestCase
      * store-less statement cannot hide behind one.
      */
     private const STORE_LESS_BY_DESIGN = [
+        /* ---- F229 / D-31: the PLAN purchase intent. A SaaS plan sale is not a tenant event.
+           `plan_purchase_intents` carries no `store_id` COLUMN at all, and that is the design
+           rather than an omission: a plan is bought by a USER from the platform, not by one of a
+           merchant's stores from another. `plans` has no `store_id` either, and `plan_orders` --
+           the row these intents produce -- keys on `user_id`. The isolation this table needs is
+           PER-PURCHASER, which is requirement 5's "cross-user reference reuse", and it is
+           enforced: `verifyAndConsume()` refuses an intent whose `user_id` is not the
+           authenticated principal, BEFORE it compares the amount, so a stranger probing a
+           reference cannot even learn what that purchase was worth.
+           `PlanPurchaseIntentTest::test_another_account_cannot_consume_someone_elses_intent`
+           ratchets that, and `verify-plan-purchase-intent-on-mysql.php` drives it on a real engine
+           together with the two-connection race. Scoping these statements by `store_id` would
+           require inventing a column whose value no plan purchase has. */
+        "DB::table(self::TABLE)->insert" =>
+            'Creating a plan purchase intent. A plan sale belongs to a USER and the platform, not '
+            . 'to a store, so there is no store_id to predicate on. The purchaser is the isolation '
+            . 'boundary and is written here from the authenticated principal.',
+
+        "DB::table(self::TABLE) ->where('provider', \$provider)" =>
+            'Reading or consuming an intent by provider + reference. The reference is 128 bits of '
+            . 'random minted by the server, so it is not guessable, and every consuming path '
+            . 'checks `user_id` against the authenticated principal before it discloses or '
+            . 'changes anything. Per-purchaser isolation, not per-tenant -- a plan has no tenant.',
+
+        "DB::table(self::TABLE) ->where('id', \$intent->id)" =>
+            'The one conditional UPDATE that consumes an intent, keyed on the row the reads above '
+            . 'already resolved and already checked the purchaser of. `where status = pending` is '
+            . 'what makes two concurrent callbacks produce exactly one activation; a store_id '
+            . 'predicate would add nothing a plan purchase has.',
+
+        "DB::table(self::TABLE) ->where(function (\$query)" =>
+            'The unreconciled-intents review query: captured payments that activated nothing. It '
+            . 'is deliberately platform-wide, because that is the population an operator needs to '
+            . 'see -- narrowing it to one tenant would hide exactly the rows it exists to surface. '
+            . 'Read-only, called by no request path, and it decides nothing (requirement 9 forbids '
+            . 'acting on it).',
+
         // ---- the tenant RESOLVER. It cannot be tenant-scoped; it is what produces the tenant.
         "DB::table('users')->whereNotNull('deliverysyria_secret')" =>
             'This IS the tenant resolution step for the DeliverySyria integration: given a bearer '
@@ -125,8 +162,17 @@ class ServiceLayerRawQueryInventoryTest extends TestCase
          * raw-over-Eloquent as the six above: this table is written on the checkout path and read
          * immediately afterwards, and a `Cachable` model would serve a pre-write row.
          */
+        /*
+         * 33 -> 39 on 2026-10-31 [F229 / D-31 req 1]: `PlanPurchaseIntent` adds SIX, and -- unlike
+         * every previous delta in this file -- **none of them names `store_id`, so the store-less
+         * count moves too (8 -> 14)**. That is the design and not an oversight: the table has no
+         * `store_id` column, because a SaaS plan is bought by a USER from the platform. The
+         * isolation is per-purchaser and is enforced before any disclosure. All six are declared
+         * with their reason in STORE_LESS_BY_DESIGN above, which is what
+         * `test_every_store_less_service_statement_is_declared_with_its_reason` requires.
+         */
         $this->assertSame(
-            33,
+            39,
             $total,
             "The number of raw query-builder statements in app/Services moved. Every one is "
             . "invisible to every Eloquent global scope, so a new one needs a `store_id` "
@@ -135,7 +181,7 @@ class ServiceLayerRawQueryInventoryTest extends TestCase
         );
 
         $this->assertSame(25, $scoped, 'statements naming store_id');
-        $this->assertCount(8, $storeLess, 'statements naming store_id nowhere');
+        $this->assertCount(14, $storeLess, 'statements naming store_id nowhere');
     }
 
     public function test_every_store_less_service_statement_is_declared_with_its_reason(): void

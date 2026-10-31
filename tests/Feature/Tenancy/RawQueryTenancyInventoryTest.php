@@ -315,7 +315,18 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // assertion below does not move. They answer the question `attributeToOrder()`'s row count
         // cannot: zero rows moved means "already attributed" OR "rows exist and did not move", and
         // the second must never be reported as success.
-        $this->assertSame(['app' => 162, 'packages' => 45], $perDir,
+        // 162 -> 168 on 2026-10-31 [F229 / D-31 req 1]: `app/Services/PlanPurchaseIntent.php`,
+        // the server-owned plan purchase intent, adds SIX entry points. **None names `store_id`,
+        // and the table has no such column** -- a SaaS plan is bought by a USER from the platform,
+        // not by one merchant's store from another (`plans` has no store_id either, and
+        // `plan_orders` keys on user_id). The isolation this needs is PER-PURCHASER, which is
+        // requirement 5's cross-user reuse, and `verifyAndConsume()` refuses an intent whose
+        // user_id is not the authenticated principal BEFORE comparing the amount -- so a probe
+        // cannot even learn what the purchase was worth. All six are declared with their reason in
+        // ServiceLayerRawQueryInventoryTest::STORE_LESS_BY_DESIGN, ratcheted by
+        // PlanPurchaseIntentTest and driven on a real engine (two connections racing) by
+        // verify-plan-purchase-intent-on-mysql.php.
+        $this->assertSame(['app' => 168, 'packages' => 45], $perDir,
             'The raw query-builder entry-point count moved. Every one of these is invisible to '
             . 'every Eloquent global scope, so a NEW site needs an explicit `store_id` predicate '
             . 'written at the call site -- there is no other remedy. A REMOVED one probably means '
@@ -376,7 +387,12 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         //   They exist because a row count cannot carry the answer: `attributeToOrder()` returning
         //   zero means EITHER already-attributed (success) OR rows that exist and did not move (a
         //   failure), and the caller must not read the second as the first.
-        $this->assertSame(207, array_sum($perDir));
+        // 207 -> 213 [2026-10-31, F229 req 1]: the six PlanPurchaseIntent entry points above.
+        // The UNSCOPED sum DOES move here, for the first time in this file's history, and that
+        // is deliberate rather than drift: the table carries no store_id column at all, so
+        // there is nothing to scope by. Each one is declared with its reason and the isolation
+        // is per-purchaser. See the note on the per-directory assertion above.
+        $this->assertSame(213, array_sum($perDir));
     }
 
     /**

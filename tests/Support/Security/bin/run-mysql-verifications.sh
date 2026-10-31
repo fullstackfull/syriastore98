@@ -369,6 +369,16 @@ run_one verify-plan-coupon-refusal-ordering-on-mysql \
   "F234_MYSQL_SOCKET=${SOCK}" "F234_MYSQL_HOST=${HOST}" "F234_MYSQL_PORT=${PORT}" \
   "F234_MYSQL_DATABASE=f234_verify" "F234_MYSQL_USERNAME=${USER_NAME}" "F234_MYSQL_PASSWORD=${PASS}"
 
+# F229 / D-31. THREE properties here cannot be observed on SQLite at all, which is why the owner's
+# instruction asks for real MariaDB concurrency evidence rather than a SQLite claim standing in for
+# one: (1) two callbacks racing for one intent -- SQLite :memory: is one connection in one process,
+# so there is no second writer to lose; (2) DECIMAL(16,4), which MySQL enforces and SQLite ignores
+# by type affinity (449.10 reads back as '449.1' there and '449.1000' here -- the same affinity
+# difference that let P01-SEC-13 survive a green suite); (3) the UNIQUE constraint on `reference`.
+run_one verify-plan-purchase-intent-on-mysql \
+  "F229_MYSQL_SOCKET=${SOCK}" "F229_MYSQL_HOST=${HOST}" "F229_MYSQL_PORT=${PORT}" \
+  "F229_MYSQL_DATABASE=f229_verify" "F229_MYSQL_USERNAME=${USER_NAME}" "F229_MYSQL_PASSWORD=${PASS}"
+
 echo "==========================================================================="
 echo "passed: ${#PASSED[@]}   failed: ${#FAILED[@]}"
 if [ "${#FAILED[@]}" -gt 0 ]; then

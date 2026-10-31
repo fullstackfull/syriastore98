@@ -771,13 +771,66 @@ class PlanActivationReplayGuardTest extends PlanPaymentTestCase
         $plan = $this->makePlan('499');
         $merchant = $this->makeMerchant();
 
-        $this->paytmReturn($this->paytmBody(), $plan->id, $merchant);
+        /*
+         * F229 / D-31 WIDENED WHAT "CORRECTLY" MEANS HERE, and this fixture is the difference.
+         *
+         * This case used to need only a well-checksummed body. It now needs two more things,
+         * because the owner's instruction is that *"a valid checksum by itself is not sufficient
+         * proof of a successful payment"*:
+         *
+         *   1. A RECORDED INTENT. The server decides what is being bought before the buyer
+         *      leaves, and the return reads the plan from that record rather than from the
+         *      `Crypt` route parameter -- which is forgeable, since `APP_KEY` is in git history.
+         *      Without an intent there is nothing the payment can be matched against, so the
+         *      activation refuses.
+         *   2. A PROVIDER CONFIRMATION. The return asks Paytm directly, server to server. That
+         *      call is unreachable from this container, so the verifier is bound to a double that
+         *      answers VERIFIED with the figures the intent expects. **The double is the only way
+         *      this path is testable at all**: the SDK's transport is `callAPI()`, a global using
+         *      curl, which `Http::fake()` cannot intercept -- which is exactly why
+         *      `PaytmTransactionVerifier` exists as a seam rather than being inlined.
+         *
+         * The ASSERTION is unchanged: a legitimate purchase must still activate. What changed is
+         * that "legitimate" now includes the provider agreeing and the server having said in
+         * advance what it was selling.
+         */
+        $reference = \App\Services\PlanPurchaseIntent::create([
+            'provider' => 'Paytm',
+            'user_id' => $merchant->id,
+            'plan_id' => $plan->id,
+            'expected_amount' => '499.00',
+            'currency' => 'USD',
+        ]);
+
+        $this->assertNotNull($reference, 'premise: the purchase intent was not recorded');
+
+        $this->app->instance(\App\Services\PaytmTransactionVerifier::class, new class extends \App\Services\PaytmTransactionVerifier {
+            public function verify(string $reference): array
+            {
+                return [
+                    'state' => \App\Services\PaytmTransactionVerifier::VERIFIED,
+                    'amount' => '499.00',
+                    'currency' => 'USD',
+                    'txn_id' => 'PAYTM-CONFIRMED',
+                    'reason' => '',
+                ];
+            }
+        });
+
+        $this->paytmReturn($this->paytmBody(['ORDERID' => $reference]), $plan->id, $merchant);
 
         $this->assertSame(
             1,
             (int) DB::table('plan_orders')->count(),
-            'A correctly checksummed Paytm return no longer activates the plan. The refusal above '
-            . 'is too wide.'
+            'A correctly checksummed Paytm return, with a recorded intent and a provider that '
+            . 'confirms the payment, no longer activates the plan. The refusal is too wide.'
+        );
+
+        $this->assertSame(
+            \App\Services\PlanPurchaseIntent::CONSUMED,
+            DB::table('plan_purchase_intents')->where('reference', $reference)->value('status'),
+            'the intent was not consumed by the activation it authorised, so the same payment '
+            . 'could be presented again'
         );
     }
 
