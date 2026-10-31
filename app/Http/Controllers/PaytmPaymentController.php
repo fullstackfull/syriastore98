@@ -121,30 +121,45 @@ class PaytmPaymentController extends Controller
                  *
                  * `<= 0` is a strict subset of `< 1`, so the genuinely-free case is unchanged.
                  */
-                if ($price <= 0) {
-                    $order_id = strtoupper(str_replace('.', '', uniqid('', true)));
-                    $statuses = 'success';
-                    if ($coupon_id != '') {
-
-
-                        $userCoupon         = new PlanUserCoupon();
-                        $userCoupon->user_id   = $authuser->id;
-                        $userCoupon->coupon_id = $coupons->id;
-                        $userCoupon->order  = $order_id;
-                        $userCoupon->save();
-                        $usedCoupun = $coupons->used_coupon();
-                        if ($coupons->limit <= $usedCoupun) {
-                            $coupons->is_active = 0;
-                            $coupons->save();
-                        }
-                    }
-                }
+                /*
+                 * ═══════════════════════════════════════════════════════════════════════════════
+                 * F240. THE COUPON IS CONSUMED **AFTER** THE ACTIVATION SUCCEEDS, not before it.
+                 * ═══════════════════════════════════════════════════════════════════════════════
+                 *
+                 * What stood here wrote the `PlanUserCoupon` row and deactivated the coupon in its
+                 * own `if ($price <= 0)` block, and only THEN entered the activation block below.
+                 * Between the two sat `$authuser->plan = $plan->id; $authuser->save();` --
+                 * and **there is no `users.plan` column**. The real column is `users.plan_id`,
+                 * which `assignPlan()` writes correctly on the next line. So the save raised, the
+                 * enclosing `try` swallowed it, and the coupon use that had already committed was
+                 * never undone: a 100%-off plan purchase burned the coupon, activated nothing, and
+                 * on a limited coupon took a use away from every merchant on the platform
+                 * (`PlanCoupon::used_coupon()` counts across users).
+                 *
+                 * MEASURED: `Schema::hasColumn('users', 'plan')` is **false** on the schema the
+                 * migrations build, and `users.plan_id` is true. Pinned by
+                 * `PlanCouponRefusalPersistsNothingTest::test_premise_f240_...`, so if anyone adds
+                 * that column the finding dissolves loudly instead of rotting.
+                 *
+                 * Two things are fixed together, and both are F196 Option A / D-28b -- the refusal
+                 * must precede the persistence:
+                 *
+                 *   1. the dead write to the non-existent column is gone. `assignPlan()` already
+                 *      sets `plan_id`, so nothing is lost; `users.plan` never held anything.
+                 *   2. the coupon consumption moved below the activation and inside its success
+                 *      branch, beside the `PlanOrder::create()` it belongs with -- and it now uses
+                 *      `$orderID`, the id of the plan order actually written, instead of a second
+                 *      `uniqid()` for which no order ever existed. `plan_user_coupons.order` was
+                 *      unresolvable before; now it points at a real row.
+                 *
+                 * THE BRANCH IS UNREACHABLE FROM THE FEATURE SUITE, which is why this is argued
+                 * from the source rather than driven: the coupon lookup above is
+                 * `PlanCoupon::whereRaw('BINARY `code` = ?')`, a syntax error on SQLite, so a
+                 * probe redirects 302 having written nothing. That is the dialect blindness
+                 * `verify-plan-coupon-refusal-ordering-on-mysql.php` exists for.
+                 */
                 if($price <= 0)
                 {
-
-                    $authuser->plan = $plan->id;
-                    $authuser->save();
-
                     $assignPlan = $authuser->assignPlan($plan->id);
 
                     if ($assignPlan['is_success'] == true && !empty($plan)) {
@@ -176,6 +191,31 @@ class PaytmPaymentController extends Controller
                                 'user_id' => $authuser->id,
                             ]
                         );
+
+                        /*
+                         * F240 -- THE COUPON IS CONSUMED HERE, after the entitlement landed and
+                         * beside the order it belongs to. See the block comment above.
+                         *
+                         * `$orderID` is the plan order that was just written, so
+                         * `plan_user_coupons.order` resolves to a real row for the first time: it
+                         * used to carry a second, unrelated `uniqid()` for which no order was
+                         * ever created.
+                         */
+                        if ($coupon_id != '' && ! empty($coupons)) {
+                            $userCoupon            = new PlanUserCoupon();
+                            $userCoupon->user_id   = $authuser->id;
+                            $userCoupon->coupon_id = $coupons->id;
+                            $userCoupon->order     = $orderID;
+                            $userCoupon->save();
+
+                            $usedCoupun = $coupons->used_coupon();
+
+                            if ($coupons->limit <= $usedCoupun) {
+                                $coupons->is_active = 0;
+                                $coupons->save();
+                            }
+                        }
+
                         $res['msg'] = __("Plan successfully upgraded.");
                         $res['flag'] = 2;
                         return $res;

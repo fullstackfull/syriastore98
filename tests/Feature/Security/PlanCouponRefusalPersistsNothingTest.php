@@ -119,73 +119,78 @@ class PlanCouponRefusalPersistsNothingTest extends PlanPaymentTestCase
     }
 
     /**
-     * F240's PREMISE — recorded, measured, and deliberately NOT fixed in the commit that adds it.
+     * F240 — FIXED, AND THIS IS NOW THE REGRESSION GUARD FOR IT.
      *
-     * Independent review found a third member of this family that this file's own census missed,
-     * because the census asked a narrower question than the family's name: *"does a provider-
-     * credential refusal come after the coupon write?"* Paytm's free-plan branch fails for a
-     * different reason and so answered "no" to that question while still burning a coupon on a
-     * request that cannot succeed.
+     * `planPayWithPaytm`'s free-plan branch used to write the `PlanUserCoupon` row and deactivate
+     * the coupon, and only then run `$authuser->plan = $plan->id; $authuser->save();` --
+     * **a write to a column that does not exist**. The real column is `users.plan_id`, which
+     * `assignPlan()` sets on the next line. So the save raised, the enclosing `try` swallowed it,
+     * and the committed coupon use was never undone: a 100%-off purchase burned the coupon,
+     * activated nothing, and on a limited coupon took a use from every merchant on the platform,
+     * because `PlanCoupon::used_coupon()` counts across users.
      *
-     * `PaytmPaymentController::planPayWithPaytm` writes the `PlanUserCoupon` row and deactivates
-     * the coupon on its limit, and then — five to seventeen lines later, on the `$price <= 0`
-     * branch — runs `$authuser->plan = $plan->id; $authuser->save();`. **There is no `users.plan`
-     * column.** The real column is `users.plan_id`, which `assignPlan()` on the next line writes
-     * correctly. So the save raises, the enclosing `try` swallows it, and the coupon use that was
-     * already committed is never undone.
+     * Both halves are now asserted, and the first is what makes the second meaningful:
      *
-     * TWO REASONS THIS IS A PREMISE ASSERTION RATHER THAN A DEFECT TEST.
+     *   1. the dead write is gone. Nothing is lost by removing it -- `users.plan` never held
+     *      anything -- and the column's continued absence is asserted so that a future reader who
+     *      re-adds `$authuser->plan` is told why it was removed.
+     *   2. the coupon consumption now comes AFTER `assignPlan()`, inside its success branch. That
+     *      is F196 Option A / D-28b: the refusal must precede the persistence.
      *
-     * First, **the branch cannot be reached from this suite at all.** Its coupon lookup is
-     * `PlanCoupon::whereRaw('BINARY `code` = ?')`, which is a syntax error on SQLite — a probe
-     * driving the real route with a 100% coupon redirected 302 having written nothing, because the
-     * dialect error was swallowed before the coupon was ever found. That is precisely the blindness
-     * `verify-plan-coupon-refusal-ordering-on-mysql.php` exists for, and it is why a passing test
-     * here would have proved nothing about Paytm.
-     *
-     * Second, CLAUDE.md's standing warning cuts both ways: *"the migrations are not the schema."*
-     * This asserts the column's absence from **the schema the migrations build**, which is what
-     * every fresh install and every test run gets. The restored production dump may differ, and
-     * this test does not claim otherwise.
-     *
-     * What it does do is keep F240 from rotting. Column existence is not an affinity question — a
-     * column the migrations never add cannot be present on any engine — so if someone adds
-     * `users.plan`, this fails and the finding dissolves with it.
+     * ASKED OF THE SOURCE, because the branch cannot be driven from this suite at all: its coupon
+     * lookup is `whereRaw('BINARY `code` = ?')`, a syntax error on SQLite, so a probe through the
+     * real route redirects 302 having written nothing -- measured, and the reason
+     * `verify-plan-coupon-refusal-ordering-on-mysql.php` exists. Comments are stripped first,
+     * because this method's own docblocks now quote both the removed write and the ordering in
+     * order to explain them.
      */
-    public function test_premise_f240_the_paytm_free_plan_branch_writes_a_column_that_does_not_exist(): void
+    public function test_f240_the_free_plan_coupon_is_consumed_only_after_the_plan_activates(): void
     {
         $this->assertFalse(
             Schema::hasColumn('users', 'plan'),
-            'F240 has dissolved: `users.plan` now exists, so `$authuser->plan = ...; save()` in '
-            . 'PaytmPaymentController::planPayWithPaytm no longer raises. Re-read the finding — the '
-            . 'coupon-ordering half may still stand on its own, but its stated cause does not.'
+            'A `users.plan` column now exists. The write that F240 removed was dead BECAUSE it did '
+            . 'not -- re-read the finding before restoring anything that writes it.'
         );
+        $this->assertTrue(Schema::hasColumn('users', 'plan_id'), 'users.plan_id is the real column');
 
-        $this->assertTrue(
-            Schema::hasColumn('users', 'plan_id'),
-            'Premise broken the other way: if `users.plan_id` is also absent then this is not a '
-            . 'wrong-column-name defect and F240 is mis-stated.'
-        );
-
-        /*
-         * And the ordering itself, read off the source rather than driven, because the branch is
-         * unreachable here. Asked of the method, not the file: the file-scoped version of this
-         * question is the mistake that produced F227's false guard claim.
-         */
         $source = file_get_contents(base_path('app/Http/Controllers/PaytmPaymentController.php'));
-        $method = substr($source, strpos($source, 'public function planPayWithPaytm('));
-        $method = substr($method, 0, strpos($method, 'public function ', 10));
+        $start = strpos($source, 'public function planPayWithPaytm(');
+        $this->assertNotFalse($start, 'the initiator has been renamed; re-read F240');
+        $method = substr($source, $start);
+        $next = strpos($method, 'public function ', 10);
+        $method = $next === false ? $method : substr($method, 0, $next);
 
-        $couponWrite = strpos($method, 'new PlanUserCoupon()');
-        $theSaveThatRaises = strpos($method, '$authuser->plan = $plan->id;');
+        $code = implode('', array_map(
+            fn ($token) => is_array($token) && in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true) ? '' : (is_array($token) ? $token[1] : $token),
+            token_get_all('<?php ' . $method)
+        ));
 
-        $this->assertNotFalse($couponWrite, 'the coupon write has moved; re-read F240');
-        $this->assertNotFalse($theSaveThatRaises, 'the failing save has moved or been fixed; re-read F240');
+        $this->assertStringNotContainsString(
+            '$authuser->plan =',
+            $code,
+            'the write to the non-existent `users.plan` column is back. It raises, the enclosing '
+            . 'try swallows it, and anything persisted before it is never undone.'
+        );
+
+        $activation = strpos($code, '$authuser->assignPlan(');
+        $burn = strpos($code, 'new PlanUserCoupon()');
+
+        $this->assertNotFalse($activation, 'assignPlan has moved out of this method');
+        $this->assertNotFalse($burn, 'the coupon consumption has moved out of this method');
         $this->assertLessThan(
-            $theSaveThatRaises,
-            $couponWrite,
-            'F240 is FIXED: the coupon consumption no longer precedes the save that raises. Close '
-            . 'the finding and delete this premise.'
+            $burn,
+            $activation,
+            'the coupon is consumed BEFORE the plan activates, so a failure in between burns a '
+            . 'use -- platform-wide on a limited coupon -- for a purchase that activated nothing. '
+            . 'F196 Option A: the refusal must precede the persistence.'
+        );
+
+        /* And it records the order it actually belongs to, not a second unrelated uniqid(). */
+        $this->assertStringContainsString(
+            '$userCoupon->order     = $orderID;',
+            $code,
+            'the usage row carries an order id for which no plan order is ever created, so '
+            . '`plan_user_coupons.order` resolves to nothing'
         );
     }
 
@@ -235,15 +240,24 @@ class PlanCouponRefusalPersistsNothingTest extends PlanPaymentTestCase
             . 'platform-wide, so the coupon dies for everybody at half its intended usage.'
         );
 
-        $write = strpos($code, 'new PlanUserCoupon()');
-        $this->assertNotFalse($write, 'the usage write has moved out of this method; re-read F3');
+        /*
+         * THERE IS NOW EXACTLY ONE PRICE CONDITION IN THIS METHOD, which is the structural reason
+         * F3 cannot recur: F240's fix merged the two blocks, so the usage write lives inside the
+         * activation's own success branch and cannot be guarded by a different test from it.
+         * The ORDERING is asserted by `test_f240_...` above; what is unique to F3 is that no
+         * second, wider condition exists to re-open the gap.
+         */
+        $this->assertSame(
+            1,
+            preg_match_all('/if\s*\(\s*\$price\s*[<>=]/', $code),
+            'this method has more than one price condition again. F3 was two of them disagreeing: '
+            . 'the usage write under `< 1` and the activation under `<= 0`, so a price strictly '
+            . 'between them wrote a usage row AND sent the buyer to the gateway.'
+        );
 
-        $guard = strrpos(substr($code, 0, $write), 'if ($price');
-        $this->assertNotFalse($guard, 'the usage write is no longer guarded by a price condition at all');
-        $this->assertStringStartsWith(
-            'if ($price <= 0)',
-            substr($code, $guard, 20),
-            'the condition guarding the usage write is not the activation condition'
+        $this->assertNotFalse(
+            strpos($code, 'new PlanUserCoupon()'),
+            'the usage write has moved out of this method; re-read F3'
         );
 
         /* AND THE LIMIT GATE IS `>=`. With `==`, once `used` exceeds `limit` -- which the

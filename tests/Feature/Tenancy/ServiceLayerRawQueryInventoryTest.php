@@ -180,9 +180,16 @@ class ServiceLayerRawQueryInventoryTest extends TestCase
          * where nothing about the payment was established. Already covered by the
          * `->where('provider', $provider)` declaration above, which is why the
          * every-statement-declared test did not move.
+         *
+         * 40 -> 41 on 2026-10-31 [F229, Cashfree + Mollie]: `consumeForPlanBinding()` adds ONE,
+         * store-less for the same reason as the rest (15 -> 16). It is the plan binding WITHOUT
+         * the amount comparison -- the two controls are independent, and binding the plan to the
+         * intent needs nothing about how a provider reports money, which is what let Cashfree and
+         * Mollie be protected while their amount contracts stay BLOCKED under requirement 8.
+         * Covered by the `->where('provider', $provider)` declaration above.
          */
         $this->assertSame(
-            40,
+            41,
             $total,
             "The number of raw query-builder statements in app/Services moved. Every one is "
             . "invisible to every Eloquent global scope, so a new one needs a `store_id` "
@@ -191,7 +198,7 @@ class ServiceLayerRawQueryInventoryTest extends TestCase
         );
 
         $this->assertSame(25, $scoped, 'statements naming store_id');
-        $this->assertCount(15, $storeLess, 'statements naming store_id nowhere');
+        $this->assertCount(16, $storeLess, 'statements naming store_id nowhere');
     }
 
     public function test_every_store_less_service_statement_is_declared_with_its_reason(): void

@@ -267,7 +267,25 @@ class PlanPurchaseIntent
             return null;
         }
 
-        $reference = self::newReference();
+        /*
+         * A CALLER MAY SUPPLY THE REFERENCE, AND FOR SOME PROVIDERS IT MUST.
+         *
+         * An intent is only a control if its reference is one the PROVIDER attests. Paytm had no
+         * such value before the redirect, so the server mints one and sends it as the Paytm
+         * `order` -- `newReference()`, 128 bits of random, is right there.
+         *
+         * Cashfree and Mollie already have one. Cashfree's order id is minted by this server and
+         * is the id its settlements and payments APIs are then asked about; Mollie's payment id is
+         * minted by Mollie before the buyer leaves. Minting a SECOND identifier for those would
+         * leave two values to drift apart and bind the intent to neither, so the caller passes the
+         * provider's own.
+         *
+         * `reference` is UNIQUE, so a supplied value that collides is refused by the database
+         * rather than silently overwriting another purchase -- which is also why a caller cannot
+         * use this to point at somebody else's intent.
+         */
+        $supplied = trim((string) ($intent['reference'] ?? ''));
+        $reference = $supplied !== '' ? substr($supplied, 0, 64) : self::newReference();
 
         try {
             DB::table(self::TABLE)->insert([
@@ -344,6 +362,96 @@ class PlanPurchaseIntent
      *                                  This method does not guess units — requirement 3.
      * @return array{0:string,1:object|null,2:string}
      */
+    /**
+     * BIND THE PLAN WITHOUT COMPARING THE AMOUNT — and the second half of that sentence is a
+     * deliberate, documented limitation, not an oversight.
+     *
+     * ══════════════════════════════════════════════════════════════════════════════════════════
+     * WHY THIS EXISTS: THE SUBSTITUTION VECTOR NEEDS NO PROVIDER AMOUNT CONTRACT AT ALL
+     * ══════════════════════════════════════════════════════════════════════════════════════════
+     *
+     * F229 is the **substitution** half of the plan-return family: pay once for the cheapest plan
+     * and name a dearer one on the first return. Its vector is the **plan id**, not the amount —
+     * every one of these handlers reads the plan from a value the caller supplies (a raw
+     * `plan_id` query parameter, or a `Crypt` ciphertext forgeable because `APP_KEY` is in git
+     * history), and then activates whatever it names.
+     *
+     * Binding the plan to a server-owned intent closes that, and it requires knowing **nothing**
+     * about how the provider reports money. That is what unblocked Cashfree and Mollie: D-31
+     * requirement 3 asks for amount normalisation from *verified* API contracts and real sandbox
+     * evidence, requirement 8 says a provider whose contract cannot be established is BLOCKED —
+     * and for a while that read as "no provider can be protected until its sandbox exists". It
+     * does not. The two controls are independent:
+     *
+     * | control | closes | needs the provider's amount contract |
+     * |---|---|---|
+     * | plan bound to the intent | pay for A, activate B | **no** |
+     * | captured amount compared | pay less than A costs for A | yes |
+     *
+     * `verifyAndConsume()` does both and is right for Paytm, where the write side corroborates
+     * the unit convention. This does the first alone, for a provider where the second cannot yet
+     * be done honestly.
+     *
+     * ══════════════════════════════════════════════════════════════════════════════════════════
+     * WHAT STILL PROTECTS THE AMOUNT, so the residual risk is stated rather than implied
+     * ══════════════════════════════════════════════════════════════════════════════════════════
+     *
+     * The amount is **already server-owned at initiation** on both callers: Cashfree's
+     * `order_amount` and Mollie's `amount.value` are computed from `$plan->price` minus a
+     * server-resolved coupon and sent in a server-to-server order creation, not posted from a
+     * form. A buyer cannot lower what the gateway asks for. So the comparison on the return is
+     * defence in depth against a provider reporting something other than what it collected — real,
+     * but not the vector F229 names, and not worth refusing every legitimate purchase to guess at.
+     *
+     * **The residual, named:** if a provider can be made to capture less than the order it was
+     * given, this does not catch it. That is what the amount comparison is for and it stays
+     * BLOCKED for these providers until one captured sandbox response per provider exists.
+     *
+     * Everything else `verifyAndConsume()` enforces is enforced here identically: the intent must
+     * exist for this provider and reference, it must belong to the authenticated purchaser, and
+     * exactly one concurrent callback can consume it (the same conditional UPDATE from `pending`).
+     *
+     * @return array{0:string,1:?object,2:string} [state, intent, reason]
+     */
+    public static function consumeForPlanBinding(string $provider, string $reference, $authenticatedUserId, $providerTxnId = null): array
+    {
+        if (! self::available()) {
+            return [self::UNVERIFIABLE, null, 'the purchase-intent record is not installed'];
+        }
+
+        $intent = self::find($provider, $reference);
+
+        if ($intent === null) {
+            return [self::UNVERIFIABLE, null, 'no intent exists for this provider and reference'];
+        }
+
+        /* The purchaser is checked BEFORE anything about the purchase is returned, so a stranger
+           probing a reference learns nothing -- the same ordering `verifyAndConsume()` uses. */
+        if (! is_numeric($authenticatedUserId) || (int) $intent->user_id !== (int) $authenticatedUserId) {
+            return [self::REFUSED_MISMATCH, $intent, 'the intent belongs to a different purchaser'];
+        }
+
+        try {
+            $claimed = DB::table(self::TABLE)
+                ->where('id', $intent->id)
+                ->where('status', self::PENDING)
+                ->update([
+                    'status' => self::CONSUMED,
+                    'consumed_at' => now(),
+                    'provider_txn_id' => is_scalar($providerTxnId) ? substr((string) $providerTxnId, 0, 191) : null,
+                    'updated_at' => now(),
+                ]);
+        } catch (\Throwable $theConsumptionFailed) {
+            return [self::UNVERIFIABLE, $intent, 'the intent could not be consumed: ' . $theConsumptionFailed->getMessage()];
+        }
+
+        if ($claimed !== 1) {
+            return [self::REFUSED_MISMATCH, $intent, 'the intent was already consumed'];
+        }
+
+        return [self::VERIFIED, $intent, ''];
+    }
+
     public static function verifyAndConsume(
         string $provider,
         string $reference,

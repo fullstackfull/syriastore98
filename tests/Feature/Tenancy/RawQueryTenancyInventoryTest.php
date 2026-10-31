@@ -315,6 +315,9 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // assertion below does not move. They answer the question `attributeToOrder()`'s row count
         // cannot: zero rows moved means "already attributed" OR "rows exist and did not move", and
         // the second must never be reported as success.
+        // 169 -> 170 on 2026-10-31 [F229, Cashfree + Mollie]: `consumeForPlanBinding()`, the plan
+        // binding without the amount comparison. Same table, same per-purchaser isolation, same
+        // unattributable remainder because it names `self::TABLE`.
         // 168 -> 169 on 2026-10-31 [F229 round 3]: `PlanPurchaseIntent::recordRecoverableRefusal()`,
         // added because round 2's REFUSED_RECOVERABLE left the row `pending` having written
         // nothing -- which `unreconciled()` could not match, so a captured payment was
@@ -331,7 +334,7 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // ServiceLayerRawQueryInventoryTest::STORE_LESS_BY_DESIGN, ratcheted by
         // PlanPurchaseIntentTest and driven on a real engine (two connections racing) by
         // verify-plan-purchase-intent-on-mysql.php.
-        $this->assertSame(['app' => 169, 'packages' => 45], $perDir,
+        $this->assertSame(['app' => 170, 'packages' => 45], $perDir,
             'The raw query-builder entry-point count moved. Every one of these is invisible to '
             . 'every Eloquent global scope, so a NEW site needs an explicit `store_id` predicate '
             . 'written at the call site -- there is no other remedy. A REMOVED one probably means '
@@ -392,13 +395,14 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         //   They exist because a row count cannot carry the answer: `attributeToOrder()` returning
         //   zero means EITHER already-attributed (success) OR rows that exist and did not move (a
         //   failure), and the caller must not read the second as the first.
+        // 214 -> 215 [2026-10-31, F229 Cashfree+Mollie]: consumeForPlanBinding(), see above.
         // 213 -> 214 [2026-10-31, F229 round 3]: recordRecoverableRefusal(), see the note above.
         // 207 -> 213 [2026-10-31, F229 req 1]: the six PlanPurchaseIntent entry points above.
         // The UNSCOPED sum DOES move here, for the first time in this file's history, and that
         // is deliberate rather than drift: the table carries no store_id column at all, so
         // there is nothing to scope by. Each one is declared with its reason and the isolation
         // is per-purchaser. See the note on the per-directory assertion above.
-        $this->assertSame(214, array_sum($perDir));
+        $this->assertSame(215, array_sum($perDir));
     }
 
     /**
