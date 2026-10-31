@@ -6460,6 +6460,83 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('defult_currancy_sy
             ], 404);
         }
 
+        /*
+         * ═══════════════════════════════════════════════════════════════════════════════════════
+         * F226. ONE SUBMISSION, ONE ORDER — the idempotency control this writer never had.
+         * ═══════════════════════════════════════════════════════════════════════════════════════
+         *
+         * Of the fifteen customer-order write sites the parsed census found, this is the one a
+         * shipped client calls and the one with **no accidental dedupe**: the two storefront
+         * writers consume the cart, so a sequential replay finds it empty and refuses itself, and
+         * seven gateway returns go through `claimGatewayReturn()`. This one takes a payload and
+         * writes. So a double tap, or an app retrying a request whose response was lost, wrote two
+         * orders and decremented the same stock twice. MEASURED before the fix: two submissions,
+         * two `orders` rows, `10 - 3 - 3 = 4` on the variant.
+         *
+         * The retry is the case that matters, because it is CORRECT client behaviour. A client
+         * cannot tell a lost response from a failed write, so it must retry — and the server has
+         * to make that safe rather than punish it.
+         *
+         * WHY A CONTENT FINGERPRINT. The shipped app sends no idempotency key, so a control that
+         * requires one protects nobody who is at risk today. `orderIntakeFingerprint()` therefore
+         * hashes a canonical form of the validated payload together with the authenticated
+         * principal and the server-resolved store — never caller input alone, which this project's
+         * standing rule forbids and which would let one merchant evict another's claim. Both
+         * halves of that are tested: a second merchant's identical payload is its own order, and a
+         * caller refused 403 above leaves no claim behind, because the claim is taken *after* the
+         * tenant and permission gates and not before them.
+         *
+         * `Cache::add()` and not a lock, for the reason the Paymera docblock sets out at
+         * `PaymentController.php:672`: it is atomic and has no owner to expire, so the first caller
+         * to add the key wins and every later one is answered for as long as the key lives,
+         * whatever the first caller is doing meanwhile.
+         *
+         * THE COST, STATED RATHER THAN HIDDEN. Two genuinely distinct but byte-identical orders
+         * inside the window are treated as one: same customer, same lines, same prices, same
+         * address, same note, within `ORDER_INTAKE_CLAIM_SECONDS`. That is a double submit in
+         * essentially every real case, and for the case where it is not, an `Idempotency-Key`
+         * header is folded into the fingerprint — so a client that wants two can ask for two.
+         *
+         * AND THE WINDOW IS THE LIMIT OF THE CONTROL. The cache is not durable: an eviction, or a
+         * replay arriving after the TTL, writes a second order. That bounds this to what F226
+         * actually reports — the double submit and the immediate retry — and the upgrade path is a
+         * durable intake record, the shape `plan_purchase_intents` now uses for plan purchases.
+         */
+        $ssIntakeFingerprint = $this->orderIntakeFingerprint($validated, (int) $store->id, (int) $userId, $request);
+
+        if (! \Illuminate\Support\Facades\Cache::add($ssIntakeFingerprint, self::ORDER_INTAKE_WRITING, now()->addSeconds(self::ORDER_INTAKE_CLAIM_SECONDS))) {
+            \DB::rollBack();
+
+            $ssAlreadyAnswered = \Illuminate\Support\Facades\Cache::get($ssIntakeFingerprint);
+
+            if (is_array($ssAlreadyAnswered)) {
+                /*
+                 * THE FIRST ORDER'S OWN RESPONSE, kept verbatim rather than rebuilt from the
+                 * persisted row. D-21's condition is that the shipped app sees no change, and a
+                 * rebuild is exactly where that breaks: `orders.product_price` reads back as a
+                 * STRING where the original response carried a float, so a client decoding into a
+                 * typed model would fail on the retry and not on the first attempt — the worst
+                 * possible place for a type to drift. Replaying the stored payload makes the two
+                 * identical by construction, which `AdminApiOrderIdempotencyTest` asserts.
+                 */
+                return response()->json($ssAlreadyAnswered, 201);
+            }
+
+            /*
+             * The first attempt is still in flight. 409 is a NEW code for a NEW condition — no
+             * response the app has ever received changes — and the envelope is the one every other
+             * refusal in this method uses, so a generic `if (201) ... else showError(message)`
+             * handles it. It is deliberately NOT 401: `lib/network/network.dart` maps any 401 to a
+             * forced logout that clears stored preferences.
+             */
+            return response()->json([
+                'status' => 'error',
+                'message' => __('This order is already being created. Please wait a moment and check your orders.'),
+            ], 409);
+        }
+
+        $ssIntakeCommitted = false;
+
         foreach ($validated['products'] as $item) {
             /*
              * THE PRODUCT MUST BELONG TO THE STORE THIS ORDER IS BEING WRITTEN FOR.
@@ -6657,7 +6734,9 @@ if (!empty($validated['additional_note'])) {
 }
         \DB::commit();
 
-        return response()->json([
+        $ssIntakeCommitted = true;
+
+        $ssIntakeAnswer = [
             'status' => 'success',
             'message' => 'Order created successfully',
             'data' => [
@@ -6681,7 +6760,13 @@ if (!empty($validated['additional_note'])) {
                 'payment_type' => $order->payment_type,
                 'payment_status' => $order->payment_status,
             ]
-        ], 201);
+        ];
+
+        /* Written only after the commit, so a replay arriving mid-write meets the `writing`
+           sentinel and is told to wait rather than handed a half-built answer. */
+        \Illuminate\Support\Facades\Cache::put($ssIntakeFingerprint, $ssIntakeAnswer, now()->addSeconds(self::ORDER_INTAKE_CLAIM_SECONDS));
+
+        return response()->json($ssIntakeAnswer, 201);
 
     } catch (\Exception $e) {
         \DB::rollBack();
@@ -6691,7 +6776,89 @@ if (!empty($validated['additional_note'])) {
             'status' => 'error',
             'message' => 'Failed to create order: ' . $e->getMessage()
         ], 500);
+    } finally {
+        /*
+         * A CLAIM MUST NOT OUTLIVE A WRITE THAT NEVER HAPPENED.
+         *
+         * This method refuses in six places AFTER the claim is taken -- a variant that is not the
+         * product's, two stock shortfalls, and the catch above -- and every one of them rolls back
+         * and writes nothing. A surviving claim would answer the merchant's corrected retry as a
+         * replay of an order that does not exist, turning a recoverable refusal into a dead end.
+         * That is the direction the Paymera docblock warns about, and `finally` is what makes it
+         * hold for the early `return`s as well as for the throw, without a release line beside
+         * each one waiting to be forgotten.
+         *
+         * The converse is equally deliberate: on success the claim is NOT released, because
+         * releasing it after a successful write is what hands a replay the second order.
+         */
+        if (isset($ssIntakeFingerprint) && empty($ssIntakeCommitted)) {
+            \Illuminate\Support\Facades\Cache::forget($ssIntakeFingerprint);
+        }
     }
+}
+
+/** The sentinel a claim holds while the write is in flight. Not an array, which is the test. */
+private const ORDER_INTAKE_WRITING = 'writing';
+
+/**
+ * How long one submission's answer is remembered. Long enough to cover a client timing out and
+ * retrying -- the case this control exists for -- and short enough that two genuinely identical
+ * baskets from one merchant are not plausibly inside it.
+ */
+private const ORDER_INTAKE_CLAIM_SECONDS = 120;
+
+/**
+ * THE FINGERPRINT OF ONE SUBMISSION.
+ *
+ * Canonical, because the same basket must hash the same whatever order the client sent its keys
+ * or its lines in: the lines are rendered to strings and sorted, the money fields are normalised
+ * to a fixed scale so `10` and `10.00` agree, and the remaining keys are sorted.
+ *
+ * The principal and the store are part of the hash and are taken from the SERVER's resolution of
+ * them, never from the request: `$userId` is `auth()->id()` and `$storeId` is the id of the store
+ * `resolveOwnedStore()` admitted. A fingerprint over the payload alone would let any caller who
+ * could guess another merchant's basket pre-claim it.
+ *
+ * `Idempotency-Key` is honoured if the client sends one and is folded in rather than replacing the
+ * content hash: a distinct key buys a distinct order, which is the escape hatch for two
+ * legitimately identical baskets, and an absent one leaves the content hash doing the work for the
+ * shipped app that sends none.
+ */
+private function orderIntakeFingerprint(array $validated, int $storeId, int $userId, Request $request): string
+{
+    $lines = [];
+
+    foreach ($validated['products'] as $line) {
+        $lines[] = implode('|', [
+            (int) ($line['product_id'] ?? 0),
+            (int) ($line['variant_id'] ?? 0),
+            (int) ($line['quantity'] ?? 0),
+            number_format((float) ($line['price'] ?? 0), 4, '.', ''),
+        ]);
+    }
+
+    sort($lines);
+
+    $fields = $validated;
+    unset($fields['products']);
+
+    foreach (['delivery_price', 'tax_price'] as $money) {
+        if (array_key_exists($money, $fields)) {
+            $fields[$money] = number_format((float) $fields[$money], 4, '.', '');
+        }
+    }
+
+    ksort($fields);
+
+    $suppliedKey = $request->header('Idempotency-Key');
+
+    return 'ss_order_intake_v2:' . hash('sha256', implode("\n", [
+        $storeId,
+        $userId,
+        is_string($suppliedKey) ? $suppliedKey : '',
+        implode(';', $lines),
+        json_encode($fields),
+    ]));
 }
 public function getActivePaymentMethods(Request $request)
 {
