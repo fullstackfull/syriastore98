@@ -48,9 +48,18 @@
                      way to open the list a count referred to. See
                      docs/development/phase-2/design/P2-DESIGN-FOUNDATION.md §3a.
 
-                     Everything below this block is unchanged: the theme card,
-                     top category, the chart, storage, latest products and
-                     recent orders all still render exactly as before. --}}
+                     THAT WAS TRUE UNTIL WS C AND IS NOT ANY MORE, so the claim
+                     is corrected rather than left to mislead. P2-02 left
+                     everything below this block untouched — which is how the
+                     page came to show the SAME order list twice, once gated on
+                     `Manage Order` by the region above and once not gated at
+                     all by the markup below. WS C deleted that duplicate,
+                     gated the two "By Sales" cards and the latest-products
+                     list on the same permissions the region above uses, and
+                     gave the period tabs ids that do not collide. The theme
+                     card, the storage card and the chart are unchanged in
+                     content; the storage card's WORDING changed, because it
+                     was stating a quota it did not have. --}}
                 <div class="col-12">
                     @include('dashboard.overview')
                 </div>
@@ -76,6 +85,20 @@
                                 </div>
                             </div>
                         </div>
+                        {{-- WS C. GATED, AND THE GATE IS THE POINT.
+
+                             Both cards report SUM(orders.final_price) grouped by category and by
+                             brand -- the same money the overview region above withholds from a
+                             principal without `Manage Order`. `/dashboard` carries no permission
+                             middleware, so every member of the tenant reached this markup: a
+                             staff member whose role grants only Manage Blog was shown the
+                             overview WITHOUT "Order value" and then these two cards WITH the
+                             store's order revenue, broken down, a few hundred pixels lower.
+
+                             One definition answers both now
+                             (App\Support\MerchantDashboardAbilities), so the page cannot
+                             disagree with itself about who may see order money again. --}}
+                        @if (\App\Support\MerchantDashboardAbilities::mayManageOrders())
                         <div class="col-xxl-4 col-12">
                             <div class="dashboard-card">
                                 <div class="d-flex align-items-center justify-content-between gap-3 mb-4">
@@ -89,8 +112,8 @@
                                             role="presentation">
                                             <a href="#all-category-order" class="nav-link btn-sm f-w-600 active"
                                                 id="all-category-tab" data-bs-toggle="pill"
-                                                data-bs-target="#all-category-home" type="button" role="tab"
-                                                aria-controls="all-category-home" aria-selected="true">
+                                                data-bs-target="#category-tab-data" type="button" role="tab"
+                                                aria-controls="category-tab-data" aria-selected="true">
                                                 {{ __('All') }}
                                             </a>
                                         </li>
@@ -98,38 +121,42 @@
                                             role="presentation">
                                             <a href="#today-category-order" class="nav-link btn-sm f-w-600"
                                                 id="today-category-tab" data-bs-toggle="pill"
-                                                data-bs-target="#today-category" type="button" role="tab"
-                                                aria-controls="today-category" aria-selected="true">
+                                                data-bs-target="#category-tab-data" type="button" role="tab"
+                                                aria-controls="category-tab-data" aria-selected="false" tabindex="-1">
                                                 {{ __('Today') }}
                                             </a>
                                         </li>
                                         <li class="nav-item col-xxl-2 col-xl-3 col-md-4 col-sm-6 col-12 text-center"
                                             role="presentation">
                                             <a href="#week-category-order" class="nav-link btn-sm f-w-600"
-                                                id="pills-seo-tab" data-bs-toggle="pill" data-bs-target="#pills-seo"
-                                                type="button" role="tab" aria-controls="pills-seo" aria-selected="true">
+                                                id="week-category-tab" data-bs-toggle="pill"
+                                                data-bs-target="#category-tab-data" type="button" role="tab"
+                                                aria-controls="category-tab-data" aria-selected="false" tabindex="-1">
                                                 {{ __('Week') }}
                                             </a>
                                         </li>
                                         <li class="nav-item col-xxl-2 col-xl-3 col-md-4 col-sm-6 col-12 text-center"
                                             role="presentation">
                                             <a href="#month-category-order" class="nav-link btn-sm f-w-600"
-                                                id="pills-seo-tab" data-bs-toggle="pill" data-bs-target="#pills-seo"
-                                                type="button" role="tab" aria-controls="pills-seo" aria-selected="true">
+                                                id="month-category-tab" data-bs-toggle="pill"
+                                                data-bs-target="#category-tab-data" type="button" role="tab"
+                                                aria-controls="category-tab-data" aria-selected="false" tabindex="-1">
                                                 {{ __('Month') }}
                                             </a>
                                         </li>
                                         <li class="nav-item col-xxl-2 col-xl-3 col-md-4 col-sm-6 col-12 text-center"
                                             role="presentation">
                                             <a href="#year-category-order" class="nav-link btn-sm f-w-600"
-                                                id="pills-seo-tab" data-bs-toggle="pill" data-bs-target="#pills-seo"
-                                                type="button" role="tab" aria-controls="pills-seo" aria-selected="true">
+                                                id="year-category-tab" data-bs-toggle="pill"
+                                                data-bs-target="#category-tab-data" type="button" role="tab"
+                                                aria-controls="category-tab-data" aria-selected="false" tabindex="-1">
                                                 {{ __('Year') }}
                                             </a>
                                         </li>
                                     </ul>
                                     <div class="tab-content dash-category-tab-content mt-4">
-                                        <div id="category-tab-data"></div>
+                                        <div id="category-tab-data" class="tab-pane fade show active" role="tabpanel"
+                                             aria-labelledby="all-category-tab"></div>
                                     </div>
                                 </div>
                             </div>
@@ -146,50 +173,57 @@
                                         <li class="nav-item col-xxl-2 col-xl-3 col-md-4 col-sm-6 col-12 text-center"
                                             role="presentation">
                                             <a href="#all-brand-order" class="nav-link btn-sm f-w-600 active"
-                                                id="all-brand-tab" data-bs-toggle="pill" data-bs-target="#all-brand"
-                                                type="button" role="tab" aria-controls="all-brand" aria-selected="true">
+                                                id="all-brand-tab" data-bs-toggle="pill"
+                                                data-bs-target="#brand-tab-data" type="button" role="tab"
+                                                aria-controls="brand-tab-data" aria-selected="true">
                                                 {{ __('All') }}
                                             </a>
                                         </li>
                                         <li class="nav-item col-xxl-2 col-xl-3 col-md-4 col-sm-6 col-12 text-center"
                                             role="presentation">
                                             <a href="#today-brand-order" class="nav-link btn-sm f-w-600"
-                                                id="today-brand-tab" data-bs-toggle="pill" data-bs-target="#today-brand"
-                                                type="button" role="tab" aria-controls="today-brand" aria-selected="true">
+                                                id="today-brand-tab" data-bs-toggle="pill"
+                                                data-bs-target="#brand-tab-data" type="button" role="tab"
+                                                aria-controls="brand-tab-data" aria-selected="false" tabindex="-1">
                                                 {{ __('Today') }}
                                             </a>
                                         </li>
                                         <li class="nav-item col-xxl-2 col-xl-3 col-md-4 col-sm-6 col-12 text-center"
                                             role="presentation">
-                                            <a href="#week-brand-order" class="nav-link btn-sm f-w-600" id="pills-seo-tab"
-                                                data-bs-toggle="pill" data-bs-target="#pills-seo" type="button" role="tab"
-                                                aria-controls="pills-seo" aria-selected="true">
+                                            <a href="#week-brand-order" class="nav-link btn-sm f-w-600"
+                                                id="week-brand-tab" data-bs-toggle="pill"
+                                                data-bs-target="#brand-tab-data" type="button" role="tab"
+                                                aria-controls="brand-tab-data" aria-selected="false" tabindex="-1">
                                                 {{ __('Week') }}
                                             </a>
                                         </li>
                                         <li class="nav-item col-xxl-2 col-xl-3 col-md-4 col-sm-6 col-12 text-center"
                                             role="presentation">
-                                            <a href="#month-brand-order" class="nav-link btn-sm f-w-600" id="pills-seo-tab"
-                                                data-bs-toggle="pill" data-bs-target="#pills-seo" type="button" role="tab"
-                                                aria-controls="pills-seo" aria-selected="true">
+                                            <a href="#month-brand-order" class="nav-link btn-sm f-w-600"
+                                                id="month-brand-tab" data-bs-toggle="pill"
+                                                data-bs-target="#brand-tab-data" type="button" role="tab"
+                                                aria-controls="brand-tab-data" aria-selected="false" tabindex="-1">
                                                 {{ __('Month') }}
                                             </a>
                                         </li>
                                         <li class="nav-item col-xxl-2 col-xl-3 col-md-4 col-sm-6 col-12 text-center"
                                             role="presentation">
-                                            <a href="#year-brand-order" class="nav-link btn-sm f-w-600" id="pills-seo-tab"
-                                                data-bs-toggle="pill" data-bs-target="#pills-seo" type="button" role="tab"
-                                                aria-controls="pills-seo" aria-selected="true">
+                                            <a href="#year-brand-order" class="nav-link btn-sm f-w-600"
+                                                id="year-brand-tab" data-bs-toggle="pill"
+                                                data-bs-target="#brand-tab-data" type="button" role="tab"
+                                                aria-controls="brand-tab-data" aria-selected="false" tabindex="-1">
                                                 {{ __('Year') }}
                                             </a>
                                         </li>
                                     </ul>
                                     <div class="tab-content dash-category-tab-content mt-4">
-                                        <div id="brand-tab-data"></div>
+                                        <div id="brand-tab-data" class="tab-pane fade show active" role="tabpanel"
+                                             aria-labelledby="all-brand-tab"></div>
                                     </div>
                                 </div>
                             </div>
                         </div>
+                        @endif
                     </div>
                 </div>
             </div>
@@ -271,16 +305,78 @@
                         </div>
                         <div class="col-12">
                             <div class="dashboard-card">
+                                @php
+                                    /* WS C — THE CARD USED TO STATE A QUOTA IT DID NOT HAVE.
+                                     *
+                                     * MEASURED IN THE BROWSER, not reasoned about: the dev
+                                     * fixture's plan is on WorkDo's UNLIMITED sentinel and the
+                                     * card rendered
+                                     *
+                                     *     Storage Status (MB / -1MB)
+                                     *
+                                     * — an empty used figure and a NEGATIVE quota — above a donut
+                                     * reading 0% Used. Three statements, none of them true.
+                                     *
+                                     * `-1` IS "UNLIMITED" and this codebase already knows it:
+                                     * `Utility::updateStorageLimit()` refuses an upload when
+                                     * `$plan->storage_limit <= $total_storage && $plan->storage_limit != -1`
+                                     * (Utility.php:812), so -1 is the value that never refuses.
+                                     * A plain `?? 0` turned that into a quota of zero already
+                                     * exceeded; `> 0` alone would turn it into "no limit
+                                     * recorded", which is a DIFFERENT statement from "no limit".
+                                     *
+                                     * Three states, three sentences:
+                                     *   quota      ->  "12MB / 500MB"      + the percentage donut
+                                     *   unlimited  ->  "12 MB used of unlimited storage", no donut
+                                     *                  (a percentage of unlimited is not a number)
+                                     *   unrecorded ->  "12 MB used", no donut
+                                     *
+                                     * The donut itself only renders for the first, because
+                                     * HomeController:401-408 leaves `$storage_limit` at 0 for the
+                                     * other two — so showing it there is showing a 0% that means
+                                     * "not computed". */
+                                    $ssStorageUsed      = (float) ($users->storage_limit ?? 0);
+                                    $ssStorageQuota     = (float) ($plan->storage_limit ?? 0);
+                                    $ssStorageUnlimited = $plan !== null && (int) $ssStorageQuota === -1;
+                                    $ssStorageKnown     = $plan !== null && $ssStorageQuota > 0;
+                                @endphp
                                 <div class="card-header">
-                                    <h4>{{ __('Storage Status') }}<small>({{ $users->storage_limit . 'MB' }} / {{ ($plan->storage_limit ?? 0) . 'MB' }})</small></h4>
+                                    {{-- `@else(` WOULD HAVE EATEN THIS. Blade's statement pattern
+                                         treats the parenthesised group after a directive as its
+                                         expression, so `@else({{ … }})` compiles to a bare `else:`
+                                         and DISCARDS the text -- measured: the <small> rendered
+                                         empty. Hence the explicit variable. --}}
+                                    @php
+                                        if ($ssStorageKnown) {
+                                            $ssStorageNote = $ssStorageUsed . 'MB / ' . $ssStorageQuota . 'MB';
+                                        } elseif ($ssStorageUnlimited) {
+                                            $ssStorageNote = __(':used MB used of unlimited storage', ['used' => $ssStorageUsed]);
+                                        } else {
+                                            $ssStorageNote = __(':used MB used', ['used' => $ssStorageUsed]);
+                                        }
+                                    @endphp
+                                    <h4>{{ __('Storage Status') }}<small>({{ $ssStorageNote }})</small></h4>
                                 </div>
                                 <div class="card-body">
-                                    <div id="device-chart"></div>
+                                    @if ($ssStorageKnown)
+                                        <div id="device-chart"></div>
+                                    @elseif ($ssStorageUnlimited)
+                                        <p class="m-0 text-muted">{{ __('This plan includes unlimited storage, so there is no percentage to show.') }}</p>
+                                    @else
+                                        <p class="m-0 text-muted">{{ __('This plan records no storage limit, so there is no percentage to show.') }}</p>
+                                    @endif
                                 </div>
                             </div>
                         </div>
                     </div>
                 </div>
+                {{-- WS C: gated on `Manage Products` for the same reason the two sales
+                     cards above are gated on `Manage Order` -- the overview region withholds
+                     its product figures and its best-selling list from a principal without
+                     that permission, and this list (newest products, WITH prices) sat below
+                     it ungated. Not deleted: newest-first is a different question from
+                     best-selling and no other region on the page answers it. --}}
+                @if (\App\Support\MerchantDashboardAbilities::mayManageProducts())
                 {{-- latest product --}}
                 <div class="col-xxl-4 col-12">
                     <div class="overflow-auto dashboard-card">
@@ -349,123 +445,7 @@
                         </div>
                     </div>
                 </div>
-                <div class="col-xxl-4 col-12">
-                    <div class="dashboard-card">
-                        <div class="d-flex justify-content-between align-items-center flex-wrap">
-                            <h4>{{ __('Recent Orders') }}</h4>
-                            @if ($new_orders && count($new_orders) > 0)
-                                <a class="text-primary" href="{{ route('order.index') }}">{{ __('View All') }}</a>
-                            @endif
-                        </div>
-                        <div class="table-responsive">
-                            <table class="table dataTable">
-                                <thead>
-                                    <tr>
-                                        <th scope="col">{{ __('Orders') }}</th>
-                                        <th scope="col" class="sort">{{ __('Date') }}</th>
-                                        <th scope="col" class="sort">{{ __('Status') }}</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    @if (count($new_orders) > 0)
-                                        @foreach ($new_orders as $order)
-                                            @if ($order->status != 'Cancel Order')
-                                                <tr>
-                                                    <td>
-                                                        <div class="d-flex align-items-center table-inner-text">
-                                                            <a href="{{ route('order.view', \Illuminate\Support\Facades\Crypt::encrypt($order->id)) }}"
-                                                                @php $btn_class = 'bg-info';
-                                                                    if (
-                                                                        $order->delivered_status == 2 ||
-                                                                        $order->delivered_status == 3
-                                                                    ) {
-                                                                        $btn_class = 'bg-danger';
-                                                                    } elseif ($order->delivered_status == 1) {
-                                                                        $btn_class = 'bg-success';
-                                                                    } elseif ($order->delivered_status == 4) {
-                                                                        $btn_class = ' bg-warning';
-                                                                    } elseif ($order->delivered_status == 5) {
-                                                                        $btn_class = 'bg-secondary';
-                                                                    } elseif ($order->delivered_status == 6) {
-                                                                        $btn_class = 'bg-dark';
-                                                                } @endphp
-                                                                class="btn bg-primary btn-sm text-sm btn-badge" data-bs-toggle="tooltip"
-                                                                title="{{ __('Invoice ID') }}">
-                                                                <span class="btn-inner--icon"></span>
-                                                                <span class="btn-inner--text">#{{ $order->product_order_id }}</span>
-                                                            </a>
-                                                        </div>
-                                                    </td>
-                                                    <td>
-                                                        <h6 class="m-0">
-                                                            {{ \App\Models\Utility::dateFormat($order->order_date) }}
-                                                        </h6>
-                                                    </td>
-
-
-
-                                                    <td class="">
-                                                        @if ($order->delivered_status == 0)
-                                                            <button type="button" class="btn btn-sm btn-info btn-icon">
-
-                                                                <span class="btn-inner--text"> {{ __('Pending') }}
-                                                                </span>
-                                                            </button>
-                                                        @elseif ($order->delivered_status == 1)
-                                                            <button type="button" class="btn btn-sm btn-success btn-icon">
-
-                                                                <span class="btn-inner--text"> {{ __('Delivered') }}
-                                                                </span>
-                                                            </button>
-                                                        @elseif ($order->delivered_status == 2)
-                                                            <button type="button" class="btn btn-sm btn-danger btn-icon">
-
-                                                                <span class="btn-inner--text"> {{ __('Cancel') }}
-                                                                </span>
-                                                            </button>
-                                                        @elseif ($order->delivered_status == 3)
-                                                            <button type="button" class="btn btn-sm btn-danger btn-icon">
-
-                                                                <span class="btn-inner--text"> {{ __('Return') }}
-                                                                </span>
-                                                            </button>
-                                                        @elseif ($order->delivered_status == 4)
-                                                            <button type="button" class="btn btn-sm btn-warning btn-icon">
-
-                                                                <span class="btn-inner--text"> {{ __('Confirmed') }}
-
-                                                                </span>
-                                                            </button>
-                                                        @elseif ($order->delivered_status == 5)
-                                                            <button type="button" class="btn btn-sm btn-secondary btn-icon">
-
-                                                                <span class="btn-inner--text"> {{ __('Picked Up') }}
-
-                                                                </span>
-                                                            </button>
-                                                        @elseif ($order->delivered_status == 6)
-                                                            <button type="button" class="btn btn-sm btn-dark btn-icon">
-
-                                                                <span class="btn-inner--text"> {{ __(key: 'Shipped') }}
-                                                                </span>
-                                                            </button>
-                                                        @elseif ($order->delivered_status == 8)
-                                                            <button type="button" class="btn btn-sm btn-dark btn-icon">
-                                                                <span class="btn-inner--text"> {{ __('Pre Order') }}
-
-                                                                </span>
-                                                            </button>
-                                                        @endif
-                                                    </td>
-                                                </tr>
-                                            @endif
-                                        @endforeach
-                                    @endif
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
+                @endif
             </div>
         </div>
     </div>
@@ -531,7 +511,7 @@
                     }
                 },
                 colors: ["var(--theme-color)"],
-                labels: ['Used'],
+                labels: [@json(__('Used'))],
                 responsive: [{
                     breakpoint: 600,
                     options: {
@@ -575,8 +555,11 @@
                 ]
             };
 
-            var chart = new ApexCharts(document.querySelector("#device-chart"), options);
-            chart.render();
+            var ssStorageChartEl = document.querySelector("#device-chart");
+            if (ssStorageChartEl) {
+                var chart = new ApexCharts(ssStorageChartEl, options);
+                chart.render();
+            }
         });
 
 

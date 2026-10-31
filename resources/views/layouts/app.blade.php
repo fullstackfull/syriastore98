@@ -517,12 +517,18 @@
             </div>
         </div>
 
-        <div id="commanModelOver" class="modal fade" tabindex="-1" role="dialog" aria-labelledby="modelCommanModelLabel"
+        {{-- WS C: ITS OWN LABEL id. Both modals named `modelCommanModelLabel`, so the id
+             appeared twice on every admin page and this modal's accessible name resolved to the
+             FIRST modal's (empty) title element -- a screen reader opening the nested dialog was
+             told the name of the dialog underneath it, or nothing at all. `custom.js:76` sets the
+             text through `#commanModelOver .modal-title`, by class and scoped to this modal, so
+             the id is used by nothing but the ARIA reference it was breaking. --}}
+        <div id="commanModelOver" class="modal fade" tabindex="-1" role="dialog" aria-labelledby="modelCommanModelOverLabel"
         aria-hidden="true">
             <div class="modal-dialog">
                 <div class="modal-content ">
                     <div class="modal-header">
-                        <h4 class="modal-title" id="modelCommanModelLabel"></h4>
+                        <h4 class="modal-title" id="modelCommanModelOverLabel"></h4>
                         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                     </div>
                     <div class="modal-body"></div>

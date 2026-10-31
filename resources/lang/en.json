@@ -3314,5 +3314,9 @@
     "Nothing on this page changes an order, a payment status or stock. Settling one of these requires confirmation from the payment provider.": "Nothing on this page changes an order, a payment status or stock. Settling one of these requires confirmation from the payment provider.",
     "No store is selected, so collected payments cannot be reviewed.": "No store is selected, so collected payments cannot be reviewed.",
     "product is out of stock|products are out of stock": "product is out of stock|products are out of stock",
-    "Skip to main content": "Skip to main content"
+    "Skip to main content": "Skip to main content",
+    ":used MB used": ":used MB used",
+    "This plan records no storage limit, so there is no percentage to show.": "This plan records no storage limit, so there is no percentage to show.",
+    ":used MB used of unlimited storage": ":used MB used of unlimited storage",
+    "This plan includes unlimited storage, so there is no percentage to show.": "This plan includes unlimited storage, so there is no percentage to show."
 }

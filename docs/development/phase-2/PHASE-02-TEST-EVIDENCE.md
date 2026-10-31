@@ -9972,3 +9972,142 @@ an undo for a mutation layered on uncommitted work; a file copy is.
 ```
 Unit 657 passed · Contract 26 passed · the plan/payment suites 55 passed
 ```
+
+---
+
+## WS C slice 1 — the merchant dashboard's figures, its duplicates and its Arabic (2026-10-31)
+
+Eight findings, F242–F249. One of them is a correction to this slice's own first answer, and it is
+the most useful row in the set.
+
+### What was measured, and with what
+
+| | |
+|---|---|
+| `tests/Feature/Merchant/DashboardPluralFormsTest.php` | **11 tests, 142 assertions.** Arabic grammar through the real translator and through two real page renders |
+| `tests/Feature/Merchant/DashboardFigureHonestyTest.php` | **18 tests, 78 assertions.** `/dashboard` rendered in full under the Feature suite — 200, ~100 KB — for a merchant, for a staff member holding only `Manage Blog`, for a Customer and for a guest |
+| `tests/Unit/Ui/DashboardOverviewOperatorGateTest.php` | **5 tests, 16 assertions.** The operator-first rule, now asserted where it lives, with comments stripped |
+| `docs/development/phase-2/tools/shoot-wsc-dashboard-live.cjs` | **84 checks per run** in a real Chromium — desktop 1440×900 and mobile 390×844 × en/LTR and ar/RTL × light and dark. **before: 52 failed. after: 0 failed.** |
+| `tests/Support/Security/bin/verify-dashboard-top-sales-scope-on-mysql.php` | **15 checks** on MariaDB 10.11.14, the engine the query actually needs |
+| regression | Unit **664/664**, Contract **27/27**, `tests/Feature/Merchant` **421/421** |
+
+### F243 — the finding that matters most, because it is mine
+
+WS C removed the `/100` in `resources/views/order/brand_category_chart.blade.php`. The reasoning
+was sound and file-scoped: `$sale->total_sale` is `SUM(orders.final_price)`, and
+`orders.final_price` is a major-unit decimal at the order view, the receipt, the shipping label,
+the invoice and the latest-products card **on the same page**, none of them scaled. A division by
+100 applied to that is a minor-unit conversion that does not belong.
+
+It is a compensation for a CROSS JOIN fan-out. Measured on MariaDB:
+
+```
+id  product_id  join_rows  summed
+ 1  7                 100   450000
+ 4  7,11                1      100
+```
+
+`numbers.n` runs 1..100 and nothing bounds it to the number of elements in `orders.product_id`, so
+`SUBSTRING_INDEX('7', ',', n)` returns `'7'` for every one of the hundred values and a
+single-product order's price is summed a hundred times. **Removing the division would have
+multiplied every figure on both "By Sales" cards by one hundred.**
+
+Nothing in the repository could have caught it:
+
+- the Feature suite **cannot execute the query at all** — SQLite has no `SUBSTRING_INDEX`, which is
+  why `DashboardFigureHonestyTest::test_the_sales_endpoint_admits_a_principal_who_holds_manage_order`
+  uses that very failure as its distinguisher;
+- the browser harness renders both cards **empty in all eight configurations**, in the before set
+  and the after set alike, for the same reason.
+
+It was caught because a MariaDB script had been written for the *other* half of the same change —
+the tenant predicate — and the arithmetic did not come out. The lesson is the one F234 and the S19
+census already recorded, now with a money figure attached: **a file-scoped question gives a
+confident wrong answer about a query two files away.**
+
+The division is restored. `test_the_sales_figure_keeps_its_compensation_for_the_query_fan_out`
+feeds the view `450000` — what the query really returns for one 4,500 order — and asserts the card
+renders 4,500, with a premise assertion that the store currency formats 4,500 and 450,000
+differently so the test cannot pass by the two being indistinguishable. The residual defect, that
+the compensation is exact only for single-product orders, is **F242**: open, because fixing it
+changes a figure the cards report.
+
+### F244 / F245 — the money that was not the merchant's, and who could read it
+
+The twelve queries filtered `categories.store_id` / `product_brands.store_id` and nothing else.
+`Order` registers no global scope and is absent from `config/tenancy.php`'s `scoped_models`, so an
+order placed in **another store** that referenced one of this store's products was summed into this
+store's revenue — reachable because `Product` is unscoped too (S19). Measured: a store whose own
+revenue was 4,500 was shown **14,400**.
+
+`->where('orders.store_id', getCurrentStore())` on all twelve. The MariaDB check runs the same
+query **with and without** the predicate and fails if the two agree, so it cannot pass against a
+fixture that cannot tell them apart.
+
+And `top.brand.category.chart` carried `['auth','xss','setlocate','verified']` with **no permission
+middleware**, so any authenticated member of the tenant could POST it and read that breakdown —
+while the overview region on the same page withheld "Order value" from the same principal.
+
+### F246 — one order list, not two, and one answer to "who may see it"
+
+The overview's "Latest orders" and the WorkDo page's "Recent Orders" iterated the **same
+`$new_orders` collection**; only the overview gated it. The duplicate is deleted and
+`App\Support\MerchantDashboardAbilities` now answers the question once for both files — because a
+flag defined inside an `@include` is invisible to its parent, and that is precisely how one page
+came to hold two answers.
+
+The class carries an `instanceof User` guard on the Laratrust call. Not defensive programming: a
+recorded incident. `isAbleTo()` is a **fatal** on a `Customer`, and P2-06-7 records the same call
+without the guard turning 112 storefront security tests into 500s. Driven directly here rather
+than reasoned about again — `test_a_customer_on_the_web_guard_is_refused_rather_than_fatally_erroring`
+fails with a fatal when the guard is inverted.
+
+### F247 — the Arabic dashboard was wrong for every count a merchant can see
+
+`resources/lang/ar.json` stored six live `trans_choice` values as `singular|plural`, the shape
+English needs. `MessageSelector::getPluralIndex('ar', $n)` returns six indices and `choose()` falls
+back to `$segments[0]` for any index it cannot find:
+
+```
+n = 1          index 1    -> segment[1]   the PLURAL, for one
+n = 2 … 99     index 2-4  -> absent       falls back to the SINGULAR
+n = 100 +      index 5    -> absent       falls back to the SINGULAR
+```
+
+Confirmed on the painted page, not only in the selector: `1 طلبات بانتظار التأكيد` and
+`4 منتج نفد من المخزون`, in both themes and both viewports.
+
+The fix is Laravel's own explicit-range syntax, which `extract()` resolves **before** it ever asks
+for a plural index, so it is locale-independent. Reverting `ar.json` alone fails **9 of 11** tests.
+The ratchet (`test_every_arabic_plural_value_declares_its_own_ranges`) fails any Arabic plural
+value that returns to the two-segment shape, including a key added later, and carries an
+anti-vacuity floor so a rename cannot make it assert nothing.
+
+### F248 / F249 — what only a browser could see
+
+- `pills-seo-tab` appeared **six times** per page and `modelCommanModelLabel` twice, so every
+  `aria-labelledby` / `aria-controls` naming them resolved to whichever copy came first;
+- **10 of 10** tabs named an `aria-controls` target that is not an element on the page, and each
+  tab list reported **5 of 5** tabs as `aria-selected="true"`;
+- the storage card rendered **`Storage Status (MB / -1MB)`** above a donut reading **`0% Used`** —
+  an empty used figure, a negative quota and a percentage of nothing. `-1` is WorkDo's *unlimited*
+  sentinel (`Utility::updateStorageLimit()` treats it as never-refuse), printed as a number.
+
+### Two false readings caught inside this slice's own tools
+
+1. **The harness's Arabic check was vacuous.** It looked for a heading matching
+   `/Recent Orders|الطلبات الأخيرة/`; the shipped translation is `أوامر حديثة`, so four of eight
+   configurations reported zero WorkDo copies against a page that had one. The before-run's failure
+   count was 32 rather than the true 36 until the value was read out of `ar.json` instead of
+   guessed.
+2. **`DashboardOverviewOperatorGateTest`'s comment stripper stripped nothing.** A Blade file never
+   opens with `<?php`, so `token_get_all()` returns one `T_INLINE_HTML` token for the lot. The
+   first version of `executable()` left every `/* … */` inside `@php` blocks intact, and the
+   delegation assertion then failed against the F223 docblock **quoting the call it had removed** —
+   the same trap, caught by its own assertion. `@php … @endphp` bodies are now tokenised
+   individually.
+
+And one assertion elsewhere was corrected rather than weakened: `BreadcrumbContractTest` asserted
+the literal `<ol class="ss-breadcrumb` and had been failing since WS A added `ss-scope` to the
+component roots — against markup that is still an ordered list carrying the breadcrumb class. It
+now matches the class list rather than a prefix.

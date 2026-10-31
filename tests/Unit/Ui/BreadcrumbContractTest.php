@@ -221,8 +221,12 @@ class BreadcrumbContractTest extends TestCase
         $this->assertMatchesRegularExpression('/<nav\b[^>]*aria-label=/', $component,
             'a breadcrumb is a navigation landmark and needs a name to be distinguishable from the '
             . 'other navigation regions on the page');
-        $this->assertStringContainsString('<ol class="ss-breadcrumb', $component,
-            'a breadcrumb trail is a sequence, so it is an ordered list');
+        /* THE CLASS LIST, NOT A PREFIX. This asserted the literal `<ol class="ss-breadcrumb`
+           and broke the moment WS A added `ss-scope` to the component roots — against markup
+           that is still an ordered list carrying the breadcrumb class. The property is "an <ol>
+           that is the breadcrumb"; where in its class attribute the name sits is not. */
+        $this->assertMatchesRegularExpression('/<ol\b[^>]*\bclass="[^"]*\bss-breadcrumb\b/', $component,
+            'a breadcrumb trail is a sequence, so it is an ordered list carrying .ss-breadcrumb');
     }
 
     public function test_the_separator_is_a_pseudo_element_and_is_mirrored_for_rtl(): void

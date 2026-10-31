@@ -1331,8 +1331,48 @@ class HomeController extends Controller
         }
     }
 
+    /**
+     * The dashboard's "Top Category / Top Brand — By Sales" bodies.
+     *
+     * WS C ADDED THE PERMISSION CHECK, and it is not belt-and-braces. The route
+     * (`routes/web.php:399`, `top.brand.category.chart`) carries
+     * `['auth','xss','setlocate','verified']` and NO permission middleware, so
+     * every principal on the `web` guard in the tenant could POST it and read
+     * the store's order revenue broken down by category and by brand — the same
+     * money the dashboard's own overview region withholds from anyone without
+     * `Manage Order`. The gate is operator-first, because `isAbleTo()` alone
+     * refuses the platform operator; the one definition lives in
+     * App\Support\MerchantDashboardAbilities.
+     *
+     * AND THE TWELVE QUERIES NOW NAME THE STORE'S ORDERS. They filtered
+     * `categories.store_id` / `product_brands.store_id` only; `orders` carries
+     * no global scope in this codebase (it is absent from
+     * `config/tenancy.php`'s `scoped_models`), so the sum reached every
+     * tenant's orders that happened to reference one of this store's products.
+     * `handleRegularUser()` has always scoped its own order figures with
+     * `Order::where('store_id', getCurrentStore())`, so the two "By Sales"
+     * cards were the only order money on the page not filtered that way.
+     *
+     * The twelve near-identical query bodies are left as they are: only the
+     * date predicate differs between them, and collapsing them is a change to
+     * vendored shape that this slice does not need.
+     */
     public function top_brand_category_chart(Request $request)
     {
+        if (! \App\Support\MerchantDashboardAbilities::mayManageOrders()) {
+            /* No partial, no figures, and NOT an exception: the dashboard calls
+               this on page load for both cards, and a 403 there would put an
+               error in the console of a staff member who is simply not
+               entitled to the number. The cards themselves are hidden by the
+               same check in `dashboard.blade.php`, so a refusal here is only
+               reached by a direct POST. */
+            return response()->json([
+                'html' => '',
+                'tab_name' => '',
+                'type' => '',
+            ]);
+        }
+
         $tab_name = $request->tabId;
         $type = $request->type;
         if ($type == 'category') {
@@ -1344,6 +1384,7 @@ class HomeController extends Controller
                             ->crossJoin(\DB::raw('(SELECT 1 + a.N + b.N * 10 AS n FROM (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS a CROSS JOIN (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS b) AS numbers'));
                     })
                     ->where('categories.store_id', getCurrentStore())
+                    ->where('orders.store_id', getCurrentStore())
                     ->groupBy('categories.name')
                     ->orderBy('total_sale', 'desc')
                     ->get();
@@ -1358,6 +1399,7 @@ class HomeController extends Controller
                             ->whereDate('orders.created_at', '=', \DB::raw('CURDATE()'));
                     })
                     ->where('categories.store_id', getCurrentStore())
+                    ->where('orders.store_id', getCurrentStore())
                     ->groupBy('categories.name')
                     ->orderBy('total_sale', 'desc')
                     ->get();
@@ -1371,6 +1413,7 @@ class HomeController extends Controller
                             ->whereBetween('orders.created_at', [now()->startOfWeek(), now()->endOfWeek()]);
                     })
                     ->where('categories.store_id', getCurrentStore())
+                    ->where('orders.store_id', getCurrentStore())
                     ->groupBy('categories.name')
                     ->orderBy('total_sale', 'desc')
                     ->get();
@@ -1385,6 +1428,7 @@ class HomeController extends Controller
                             ->whereMonth('orders.created_at', now()->month);
                     })
                     ->where('categories.store_id', getCurrentStore())
+                    ->where('orders.store_id', getCurrentStore())
                     ->groupBy('categories.name')
                     ->orderBy('total_sale', 'desc')
                     ->get();
@@ -1397,6 +1441,7 @@ class HomeController extends Controller
                             ->whereYear('orders.created_at', now()->year);
                     })
                     ->where('categories.store_id', getCurrentStore())
+                    ->where('orders.store_id', getCurrentStore())
                     ->groupBy('categories.name')
                     ->orderBy('total_sale', 'desc')
                     ->get();
@@ -1408,6 +1453,7 @@ class HomeController extends Controller
                             ->crossJoin(\DB::raw('(SELECT 1 + a.N + b.N * 10 AS n FROM (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS a CROSS JOIN (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS b) AS numbers'));
                     })
                     ->where('categories.store_id', getCurrentStore())
+                    ->where('orders.store_id', getCurrentStore())
                     ->groupBy('categories.name')
                     ->orderBy('total_sale', 'desc')
                     ->get();
@@ -1421,6 +1467,7 @@ class HomeController extends Controller
                             ->crossJoin(\DB::raw('(SELECT 1 + a.N + b.N * 10 AS n FROM (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS a CROSS JOIN (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS b) AS numbers'));
                     })
                     ->where('product_brands.store_id', getCurrentStore())
+                    ->where('orders.store_id', getCurrentStore())
                     ->groupBy('product_brands.name')
                     ->orderBy('total_sale', 'desc')
                     ->get();
@@ -1434,6 +1481,7 @@ class HomeController extends Controller
                             ->whereDate('orders.created_at', '=', \DB::raw('CURDATE()'));
                     })
                     ->where('product_brands.store_id', getCurrentStore())
+                    ->where('orders.store_id', getCurrentStore())
                     ->groupBy('product_brands.name')
                     ->orderBy('total_sale', 'desc')
                     ->get();
@@ -1447,6 +1495,7 @@ class HomeController extends Controller
                             ->whereBetween('orders.created_at', [now()->startOfWeek(), now()->endOfWeek()]);
                     })
                     ->where('product_brands.store_id', getCurrentStore())
+                    ->where('orders.store_id', getCurrentStore())
                     ->groupBy('product_brands.name')
                     ->orderBy('total_sale', 'desc')
                     ->get();
@@ -1460,6 +1509,7 @@ class HomeController extends Controller
                             ->whereMonth('orders.created_at', now()->month);
                     })
                     ->where('product_brands.store_id', getCurrentStore())
+                    ->where('orders.store_id', getCurrentStore())
                     ->groupBy('product_brands.name')
                     ->orderBy('total_sale', 'desc')
                     ->get();
@@ -1472,6 +1522,7 @@ class HomeController extends Controller
                             ->whereYear('orders.created_at', now()->year);
                     })
                     ->where('product_brands.store_id', getCurrentStore())
+                    ->where('orders.store_id', getCurrentStore())
                     ->groupBy('product_brands.name')
                     ->orderBy('total_sale', 'desc')
                     ->get();
@@ -1483,6 +1534,7 @@ class HomeController extends Controller
                             ->crossJoin(\DB::raw('(SELECT 1 + a.N + b.N * 10 AS n FROM (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS a CROSS JOIN (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS b) AS numbers'));
                     })
                     ->where('product_brands.store_id', getCurrentStore())
+                    ->where('orders.store_id', getCurrentStore())
                     ->groupBy('product_brands.name')
                     ->orderBy('total_sale', 'desc')
                     ->get();

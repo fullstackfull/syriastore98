@@ -105,11 +105,16 @@
      *
      * It failed in the SAFE direction -- the operator was shown LESS, never more -- which is why
      * nothing broke and nobody noticed.
+     *
+     * WS C MOVED THE ANSWER, NOT THE RULE. The three flags now come from
+     * App\Support\MerchantDashboardAbilities, because a flag defined inside an
+     * @include is invisible to the parent and `dashboard.blade.php` was
+     * therefore answering the SAME questions a second time, differently — it
+     * showed "Top Category — By Sales", "Top Brand — By Sales" and "Recent
+     * Orders" to principals this file had just decided must not see order
+     * money or the order list. One definition, two readers.
      */
-    $ssMayOrders    = auth()->check() && (
-        strtolower(trim((string) auth()->user()->type)) === 'super admin'
-        || auth()->user()->isAbleTo('Manage Order')
-    );
+    $ssMayOrders    = \App\Support\MerchantDashboardAbilities::mayManageOrders();
     /*
      * `Manage Products`, PLURAL. This read `Manage Product`, SINGULAR -- a permission that
      * EXISTS NOWHERE: not in Utility's seeded `$companyNewPermission`, not in the live
@@ -123,8 +128,8 @@
      * set. Found by driving /dashboard in the running application. The ratchet that stops it
      * coming back is Tests\Unit\Dashboard\DashboardPermissionNamesTest.
      */
-    $ssMayProducts  = auth()->check() && auth()->user()->isAbleTo('Manage Products');
-    $ssMayCustomers = auth()->check() && auth()->user()->isAbleTo('Manage Customer');
+    $ssMayProducts  = \App\Support\MerchantDashboardAbilities::mayManageProducts();
+    $ssMayCustomers = \App\Support\MerchantDashboardAbilities::mayManageCustomers();
 @endphp
 
 <div class="ss-scope">
@@ -174,7 +179,7 @@
                 // moved past the name the installer generated.
                 'done'  => ! empty($store?->name) && ! empty($store?->email),
                 'href'  => route('app-setting.index'),
-                'can'   => auth()->check() && auth()->user()->isAbleTo('Manage Store Setting'),
+                'can'   => \App\Support\MerchantDashboardAbilities::mayManageStoreSettings(),
             ],
             [
                 'label' => __('Receive your first order'),
