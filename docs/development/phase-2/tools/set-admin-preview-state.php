@@ -41,21 +41,49 @@ if (! $storeId || ! $theme || ! $dir || ! $lang || ! $email) {
     exit(2);
 }
 
-$write = function (string $name, string $value) use ($storeId): void {
+/**
+ * THE ROW IS CREATED WHEN IT IS ABSENT, AND THE SUMMARY SAYS WHICH HAPPENED.
+ *
+ * This used to warn on STDERR and return — while the success line at the bottom printed
+ * `cust_darklayout=on` regardless. A rebuilt `p2dev.sqlite` has NO `settings` rows at all
+ * (`seed-p2dev.php` seeds products, orders and categories, not settings), so every "dark" run of
+ * every dashboard harness silently measured the LIGHT theme and reported it as dark: eight
+ * configurations that were really four, each measured twice. Caught only when a theme PREMISE
+ * assertion was added to `shoot-wsc-dashboard-live.cjs` — the same assertion the P2-01-14 ledger
+ * row says had to be added for the same reason, to a different harness, a fortnight earlier.
+ *
+ * A warning nobody reads, next to a summary that contradicts it, is worse than no warning.
+ *
+ * Creating a row is correct here and nowhere else: this script exists only to put a DEV fixture
+ * into a known state, and it refuses to run against anything it did not create (the caller passes
+ * the sqlite path). `updateOrCreate` through Eloquent, never `DB::table()`, because `Setting` is
+ * `Cachable`.
+ *
+ * @return string what actually happened, for the summary
+ */
+$write = function (string $name, string $value) use ($storeId): string {
     $row = Setting::where('name', $name)->where('store_id', $storeId)->first();
 
     if (! $row) {
-        fwrite(STDERR, "warning: no `{$name}` row for store {$storeId}; nothing written\n");
+        Setting::create([
+            'name' => $name,
+            'value' => $value,
+            'store_id' => $storeId,
+            'created_by' => \App\Models\User::where('type', 'admin')->value('id') ?? 1,
+        ]);
 
-        return;
+        return "{$name}={$value} (row created)";
     }
 
     $row->value = $value;
     $row->save();
+
+    return "{$name}={$value}";
 };
 
-$write('cust_darklayout', $theme === 'dark' ? 'on' : 'off');
-$write('SITE_RTL', $dir === 'rtl' ? 'on' : 'off');
+$written = [];
+$written[] = $write('cust_darklayout', $theme === 'dark' ? 'on' : 'off');
+$written[] = $write('SITE_RTL', $dir === 'rtl' ? 'on' : 'off');
 
 $user = User::where('email', $email)->first();
 
@@ -71,6 +99,7 @@ $user->save();
 (new User)->flushCache();
 Cache::flush();
 
-echo "store={$storeId} cust_darklayout=" . ($theme === 'dark' ? 'on' : 'off')
-   . ' SITE_RTL=' . ($dir === 'rtl' ? 'on' : 'off')
+/* THE SUMMARY REPORTS WHAT WAS WRITTEN, not what was asked for. The previous version echoed
+   the ARGUMENTS, so it said `cust_darklayout=on` on a run that had written nothing at all. */
+echo "store={$storeId} " . implode(' ', $written)
    . " users.language={$lang} ({$email})\n";

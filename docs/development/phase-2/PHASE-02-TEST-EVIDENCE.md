@@ -10111,3 +10111,118 @@ And one assertion elsewhere was corrected rather than weakened: `BreadcrumbContr
 the literal `<ol class="ss-breadcrumb` and had been failing since WS A added `ss-scope` to the
 component roots — against markup that is still an ordered list carrying the breadcrumb class. It
 now matches the class list rather than a prefix.
+
+---
+
+## WS C slice 2 — the three dashboard regions that did not exist (2026-11-01)
+
+Workstream C lists eight things a merchant home dashboard should answer. Five were built under
+P2-02. These are the three that were not, plus three defects this slice's own work produced and
+one that it inherited.
+
+### What was measured, and with what
+
+| | |
+|---|---|
+| `tests/Feature/Merchant/DashboardMissingRegionsTest.php` | **13 tests, 37 assertions** — `/dashboard` rendered in full for a merchant and for a staff member holding only `Manage Blog` |
+| `docs/development/phase-2/tools/shoot-wsc-dashboard-live.cjs` | **164 checks per run**, 8 configurations. **slice-2 before: 48 of 156 FAIL. after: 0 of 164.** |
+| `docs/development/phase-2/tools/browser-checks-p02.cjs` | **159/159** against freshly rendered fixtures |
+| regression | Unit **664/664**, Contract **27/27**, `tests/Feature/Merchant` **436/436** |
+
+### F250 — the committed slice had broken the preview harness, and it would have reported a PASS
+
+Found by the independent `tenant-authz-reviewer` pass, not by any suite.
+`docs/design-system/tools/render-preview.php` has **no Composer autoloader** and shims every app
+class one by one. Moving the dashboard's permission flags into `MerchantDashboardAbilities` left
+it with nothing to require, so all twelve `dashboard-after` fixtures died with *class not found*
+— measured at the committed HEAD, **10 of 41 fixtures rendered**.
+
+The fatal is not the hazard. `render-all-fixtures.sh` wrote into a directory it did not clear, so
+the preview server kept serving the **previous run's HTML** and `browser-checks-p02.cjs` reported
+**159/159 against pre-change markup**. `PHASE-02-TEST-EVIDENCE` records the `OrderStatusTone`
+move doing exactly this a fortnight earlier.
+
+Three fixes, because the first alone is not enough:
+
+1. the class is shimmed beside `OrderStatusTone`;
+2. a minimal `App\Models\User` is stubbed so `PreviewUser` satisfies the new `instanceof` guard —
+   **without it the shim would have rendered every fixture as the no-permission case and still
+   passed**, which is the quieter version of the same false green;
+3. `render-all-fixtures.sh` now `rm -rf`s its output directory first, so a failed render leaves
+   404s.
+
+Bitten: removing the shim drops the render to 10 of 41, exits 255, and turns the browser suite
+into a loud `HARNESS ERROR` instead of 159/159.
+
+### F255 — every "dark" run of every dashboard harness had been measuring the light theme
+
+`set-admin-preview-state.php` wrote `cust_darklayout` only when a row already existed; otherwise
+it warned on STDERR and returned — while its success line printed `cust_darklayout=on`
+**regardless of what it had done**. A `p2dev.sqlite` rebuilt from `seed-p2dev.php` has **no
+`settings` rows at all**, so the write was skipped every time and the summary said it had
+happened. Eight configurations were really four, each measured twice.
+
+Caught by adding a **theme premise assertion** to the WS C harness — precisely the assertion the
+P2-01-14 ledger row says had to be added, for the same reason, to a different harness. Before the
+fix: `data-ss-theme="light" wanted "dark", body bg rgb(249, 250, 251)` in all four dark
+configurations.
+
+The setter creates the row now and reports what it actually wrote. **A warning nobody reads,
+beside a summary that contradicts it, is worse than no warning.**
+
+### F256 — `.ss-link` was a class that did nothing, and in dark mode that cost 1.68:1
+
+The design system styles links as `:where(.ss-card, .ss-panel, …) a:not([class])` — deliberately,
+so a component's own link styling wins. The consequence nobody had met until a region used it:
+writing `class="ss-link"`, which reads like the obvious way to ask for the design system's link
+colour, **silently opts out of it**. Measured from painted pixels: the digest's link at
+**1.68:1** against the dark card, under AA, while reading in the source as though it had been
+given `--ss-link`.
+
+`.ss-link` is a real rule now, in both themes and in the focus-ring list. After: **5.68:1 light,
+7.75:1 dark**. The missing focus ring was found by *biting* the digest's hidden state — rendering
+it visible for an ungated staff member failed "every design-system control shows a focus ring" —
+not by reading the CSS.
+
+### The three regions
+
+**Inventory alerts.** The block reported what had run out and nothing about what was nearly out,
+while the product list has had an `?ss_stock=low` filter since P2-03-9. The count is
+`ProductDataTable::scopeToLowStock()`, the list's own predicate **extracted rather than copied**,
+and `test_the_dashboard_count_and_the_product_list_predicate_agree` drives a fixture spanning
+every boundary and compares the two numbers rather than trusting that one method is shared.
+
+**Store overview.** The page never said which store its figures were about.
+`@hasSection('page-subtitle')` keeps it opt-in, so the other 333 screens render exactly what they
+rendered before — asserted, because an empty element on 333 screens is a spacing change nobody
+asked to re-measure.
+
+**Important store notifications.** Filled by the same single fetch the bell already makes: one
+request, one server-side authorization decision. Unread only, at most three, absent when there
+are none. `test_the_digest_adds_no_second_feed_request` asserts the feed URL appears exactly once
+on the page.
+
+### Three defects this slice's own work produced
+
+1. **The digest borrowed `.ss-attention__item` / `.ss-attention__text`.** The Arabic grammar
+   census immediately reported three English notification titles as attention rows with
+   unrecognised phrases — the same failure `data-ss-list` exists to prevent one card over. Two
+   regions, two names; and the census is scoped to `.ss-attention` as well, in both directions.
+2. **An English notification inside the Arabic card rendered its full stop at the start of the
+   line.** Visible in the dark Arabic crop before the fix. `dir="auto"` per row plus
+   `unicode-bidi: isolate`: a notification's text is written by whatever produced the event, so
+   one row can be LTR inside an RTL page.
+3. **The store-identity check was passing on the wrong element.** `.ss-page-header__subtitle` is
+   also what `x-ss.card`'s `note` slot renders, so an unscoped query found the orders-by-status
+   card's note — "All time. Select a status to open that list." — and the check would have passed
+   on a page with no store identity at all. Visible in the before-run, which is the only reason
+   it was noticed.
+
+### One browser check was made more precise rather than weakened
+
+`ungated staff are given no link the controller would refuse` counted every `.ss-scope a[href]`
+in the DOM, including links inside a region that ships `hidden`. A link nobody can see is not an
+offer, and failing on it would push the next author to delete a correct region rather than look
+at it. It now filters on `offsetParent !== null` — behavioural, not an allowlist — and the
+assertion is still **zero**. Bitten: rendering the digest visible for an ungated staff member
+fails it again.

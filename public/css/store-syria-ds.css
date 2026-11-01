@@ -392,6 +392,12 @@
 .ss-table__sort:focus-visible,
 .ss-breadcrumb__link:focus-visible,
 .ss-dialog__close:focus-visible,
+/* WS C: `.ss-link` joins the list. Found by BITING the hidden-region rule rather than by
+   reading: rendering the notification digest visible for an ungated staff member failed
+   "every design-system control shows a focus ring" on its "View all notifications" link.
+   A region that ships hidden still gets focused the moment it is revealed, which for this
+   one is whenever the merchant has anything unread -- i.e. the normal case. */
+.ss-link:focus-visible,
 .ss-checkbox:focus-visible {
     outline: var(--ss-focus-width) solid var(--ss-focus-ring);
     outline-offset: var(--ss-focus-offset);
@@ -455,6 +461,21 @@
     color: var(--ss-link);
     text-decoration: underline;
 }
+
+/* WS C. `.ss-link` AS A REAL CLASS, because the rule above cannot reach a link that has one.
+   `a:not([class])` is deliberate -- it leaves a component's own link styling alone -- but it
+   also means that writing `class="ss-link"`, which reads like the obvious way to ask for the
+   design system's link colour, SILENTLY OPTS OUT of it. Measured in the dark theme: the
+   dashboard's notification-digest link fell back to the host chrome's `<a>` colour at
+   **1.68:1**, well under AA, while reading in the source as though it had been given the DS
+   colour. The same spelling is used by the dashboard's storefront link, which sits outside any
+   `.ss-card` and so was never covered by the rule above at all. */
+.ss-link {
+    color: var(--ss-link);
+    text-decoration: underline;
+}
+.ss-link:hover,
+.ss-link:focus-visible { color: var(--ss-link); text-decoration: underline; }
 
 .ss-page-header__subtitle {
     margin: var(--ss-space-1) 0 0;
@@ -1643,6 +1664,33 @@
 }
 .ss-attention__text { color: var(--ss-fg-muted); flex: 1 1 auto; min-width: 0; }
 
+/* WS C. THE NOTIFICATION DIGEST'S OWN CLASSES, and the reason is not styling.
+   Its first version reused `.ss-attention__item` / `.ss-attention__text`, which made every
+   selector keyed on those classes read BOTH regions -- the dashboard's Arabic grammar check
+   immediately reported three English notification titles as attention rows with unrecognised
+   phrases. That is the same failure `data-ss-list` exists to prevent one card over, where a
+   caption-based check read the latest-orders table and reported it as the best-selling one. Two
+   regions, two names. The visual result is deliberately the same: same tokens, same rhythm. */
+.ss-digest__list { list-style: none; margin: 0 0 var(--ss-space-3); padding: 0; }
+.ss-digest__item {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--ss-space-2) var(--ss-space-3);
+    padding-block: var(--ss-space-2);
+    border-block-start: 1px solid var(--ss-border);
+}
+.ss-digest__item:first-child { border-block-start: 0; }
+.ss-digest__text {
+    color: var(--ss-fg);
+    flex: 1 1 auto;
+    min-width: 0;
+    /* Pairs with `dir="auto"` on the element: the direction is detected per row, and isolation
+       stops one row's direction leaking into the next. `.ss-attention__count` already does this
+       for the same reason. */
+    unicode-bidi: isolate;
+}
+
 /* ---- Side panel (sheet) ----
    Enters from the inline-end edge, so it comes from the right in English and
    from the left in Arabic without a second rule. [hidden] keeps it out of the
@@ -2139,6 +2187,15 @@
 /* NO `.ss-sr-only` HERE: `.ss-visually-hidden` already exists in this file and does exactly
    this. A second name for one component is how two of them drift apart. The board's move control
    uses the existing class. */
+
+/* WS C. THE MUTED FOREGROUND, AS A CLASS.
+   `--ss-fg-muted` has existed since the first token pass and is redefined per theme, but every
+   consumer so far reached it through a component class (`.ss-page-header__subtitle`,
+   `.ss-stat__period`). The dashboard's notification digest builds its rows in JavaScript, which
+   has no component class to borrow -- and a class that does not exist renders at full weight, so
+   a "secondary" line ends up competing with the title beside it. One token, one utility, both
+   themes. */
+.ss-muted { color: var(--ss-fg-muted); }
 
 .ss-menu__item--danger { color: var(--ss-danger-fg); }
 .ss-menu__item--danger:hover,

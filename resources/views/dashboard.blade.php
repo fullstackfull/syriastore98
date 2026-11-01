@@ -29,6 +29,31 @@
 @section('breadcrumb')
 @endsection
 
+{{-- WS C — "STORE OVERVIEW", the master prompt's first dashboard bullet, and the one region
+     the page genuinely lacked.
+
+     WHY HERE AND NOT AS A CARD. The store's name already appears twice further down — on the
+     theme card's badge and as the QR card's heading — and this slice has just deleted a
+     duplicate order list for being a duplicate. A third copy of the name in a card of its own
+     would be the same mistake. What was missing is not the NAME, it is the page saying WHICH
+     STORE this dashboard is about, at the top, before any figure: a merchant with two stores
+     reads these numbers without ever being told whose they are.
+
+     So it goes in the page header, next to "Dashboard", which is where
+     `x-ss.page-header`'s own docblock has said the store name belongs since P2-01-11.
+
+     THE STOREFRONT LINK IS `rel="noopener"` and opens in a new tab: it leaves the admin for the
+     public site, and `target="_blank"` without `noopener` hands the opened page a handle on this
+     one. --}}
+@section('page-subtitle')
+    {{ $store->name ?? __('No store selected') }}
+    @isset($theme_url)
+        <a href="{{ $theme_url }}" class="ss-link" target="_blank" rel="noopener noreferrer">
+            {{ __('View storefront') }}
+        </a>
+    @endisset
+@endsection
+
 @php
     /* The nine inline SVG icon strings that used to live here fed the eight
        <x-dashboard-card> tiles that P2-02 replaced. They were 9 KB of markup

@@ -3318,5 +3318,11 @@
     ":used MB used": ":used MB used",
     "This plan records no storage limit, so there is no percentage to show.": "This plan records no storage limit, so there is no percentage to show.",
     ":used MB used of unlimited storage": ":used MB used of unlimited storage",
-    "This plan includes unlimited storage, so there is no percentage to show.": "This plan includes unlimited storage, so there is no percentage to show."
+    "This plan includes unlimited storage, so there is no percentage to show.": "This plan includes unlimited storage, so there is no percentage to show.",
+    "product is running low|products are running low": "product is running low|products are running low",
+    "View storefront": "View storefront",
+    "Unread notifications": "Unread notifications",
+    "View all notifications": "View all notifications",
+    ":n notifications you have not read": ":n notifications you have not read",
+    "Open": "Open"
 }

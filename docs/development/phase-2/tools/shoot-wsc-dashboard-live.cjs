@@ -76,6 +76,7 @@ const ARABIC_FORMS = {
     pending: { 1: 'طلب بانتظار التأكيد', 2: 'طلبان بانتظار التأكيد', many: 'طلبات بانتظار التأكيد' },
     stock: { 1: 'منتج نفد من المخزون', 2: 'منتجان نفدا من المخزون', many: 'منتجات نفدت من المخزون' },
     returns: { 1: 'طلب مُرتجَع', 2: 'طلبان مُرتجَعان', many: 'طلبات مُرتجَعة' },
+    low: { 1: 'منتج على وشك النفاد', 2: 'منتجان على وشك النفاد', many: 'منتجات على وشك النفاد' },
 };
 
 (async () => {
@@ -120,12 +121,28 @@ const ARABIC_FORMS = {
                 /* ---------------------------------------------------------- premises first */
                 const premise = await page.evaluate(() => ({
                     dir: document.documentElement.getAttribute('dir') || '',
+                    theme: document.documentElement.getAttribute('data-ss-theme') || 'light',
                     bg: getComputedStyle(document.body).backgroundColor,
                     title: (document.querySelector('h1, h2, .ss-page-header__title') || {}).textContent || '',
                 }));
                 const wantDir = locale === 'ar' ? 'rtl' : 'ltr';
                 check(cfg, 'premise: the document direction is the one asked for',
                     premise.dir === wantDir, `dir="${premise.dir}" wanted "${wantDir}" | ${stateLine}`);
+
+                /* PREMISE: THE THEME TOO, AND THIS ONE IS NOT PAPERWORK.
+                 * `data-ss-theme` comes from the `cust_darklayout` SETTING, not from Playwright's
+                 * colorScheme, and the P2-06 ledger records a harness where both the "light" and
+                 * the "dark" cases ran dark for want of exactly this assertion -- so half the
+                 * configurations were measured twice and half never. Without it, these eight
+                 * runs are four. */
+                check(cfg, 'premise: the theme is the one asked for',
+                    premise.theme === theme,
+                    `data-ss-theme="${premise.theme}" wanted "${theme}", body bg ${premise.bg}`);
+                check(cfg, 'premise: and the painted background really differs by theme',
+                    theme === 'dark'
+                        ? premise.bg !== 'rgb(255, 255, 255)'
+                        : premise.bg !== 'rgb(0, 0, 0)',
+                    premise.bg);
 
                 /* --------------------------------------------------- 1. the order list, once */
                 const lists = await page.evaluate(() => ({
@@ -205,8 +222,13 @@ const ARABIC_FORMS = {
                 }
 
                 /* ------------------------------------------- 5. the Arabic attention row grammar */
+                /* SCOPED TO `.ss-attention`, which the first version was not: the notification
+                 * digest's rows briefly carried the same classes, and this census then reported
+                 * three English notification titles as attention rows with unrecognised Arabic
+                 * phrases. Fixed in both directions -- the digest has its own classes now, and
+                 * this query names the region it means. */
                 const attention = await page.evaluate(() => Array.from(
-                    document.querySelectorAll('.ss-attention__item'),
+                    document.querySelectorAll('.ss-attention .ss-attention__item'),
                 ).map((li) => ({
                     count: ((li.querySelector('.ss-attention__count') || {}).textContent || '').trim(),
                     text: ((li.querySelector('.ss-attention__text') || {}).textContent || '').trim(),
@@ -230,6 +252,123 @@ const ARABIC_FORMS = {
                         'no .ss-attention__item on the page, so the grammar was not measured');
                 }
 
+                /* ------------------------------------------ 6. the three WS C regions */
+                const regions = await page.evaluate(() => {
+                    /* SCOPED TO THE PAGE HEADER. `.ss-page-header__subtitle` is also what
+                     * `x-ss.card`'s `note` slot renders, so an unscoped query finds the FIRST
+                     * one in the document -- which in the before-run was the orders-by-status
+                     * card's note, "All time. Select a status to open that list.". The check
+                     * then passed on a page that had no store identity at all. */
+                    const header = document.querySelector('.page-header-title .ss-page-header__subtitle');
+                    const digest = document.querySelector('[data-ss-notification-digest]');
+                    const lowRow = Array.from(document.querySelectorAll('.ss-attention .ss-attention__item'))
+                        .map((li) => ({
+                            count: ((li.querySelector('.ss-attention__count') || {}).textContent || '').trim(),
+                            text: ((li.querySelector('.ss-attention__text') || {}).textContent || '').trim(),
+                            href: (li.querySelector('a') || {}).getAttribute
+                                ? (li.querySelector('a').getAttribute('href') || '')
+                                : '',
+                        }));
+                    return {
+                        subtitle: header ? (header.textContent || '').replace(/\s+/g, ' ').trim() : null,
+                        storefront: !!document.querySelector('.page-header-title .ss-page-header__subtitle a[rel~="noopener"]'),
+                        digestPresent: !!digest,
+                        digestVisible: !!(digest && !digest.hidden),
+                        digestItems: digest ? digest.querySelectorAll('[data-ss-digest-list] .ss-digest__item').length : 0,
+                        digestBorrowsAttentionClasses: digest
+                            ? digest.querySelectorAll('.ss-attention__item, .ss-attention__text').length
+                            : 0,
+                        digestStatus: digest
+                            ? ((digest.querySelector('[data-ss-digest-status]') || {}).textContent || '').trim()
+                            : '',
+                        rows: lowRow,
+                    };
+                });
+
+                check(cfg, 'the page header names the store these figures belong to',
+                    !!regions.subtitle && regions.subtitle.length > 0 && regions.storefront,
+                    regions.subtitle || '(no subtitle)');
+
+                const low = regions.rows.find((r) => /running low|على وشك النفاد/.test(r.text));
+                check(cfg, 'the inventory alert reports what is running low, linked to that list',
+                    !!low && /ss_stock=low/.test(low.href || ''),
+                    low ? `${low.count} ${low.text} -> ${low.href}` : 'no low-stock row rendered');
+
+                /* THE DIGEST IS THE ONE REGION A PHPUnit TEST CANNOT MEASURE: it is filled by
+                 * JavaScript from the bell's own fetch, so only a real browser shows whether it
+                 * fills, what it fills with, and whether it announces a sentence. */
+                check(cfg, 'the notification digest fills from the bell\'s fetch and becomes visible',
+                    regions.digestPresent && regions.digestVisible && regions.digestItems > 0,
+                    `present=${regions.digestPresent} visible=${regions.digestVisible} items=${regions.digestItems}`);
+                check(cfg, 'and it does not borrow the attention block\'s classes',
+                    regions.digestBorrowsAttentionClasses === 0,
+                    `${regions.digestBorrowsAttentionClasses} borrowed element(s) -- any selector `
+                    + 'keyed on those classes would read both regions as one');
+                check(cfg, 'and it shows at most three, not the whole feed',
+                    regions.digestItems > 0 && regions.digestItems <= 3,
+                    `${regions.digestItems} item(s)`);
+                check(cfg, 'and its live region announces a phrase, not a bare number',
+                    /\d/.test(regions.digestStatus) && regions.digestStatus.replace(/[0-9\s]/g, '').length > 3,
+                    regions.digestStatus || '(empty)');
+
+                /* ------------------------------------------ 7. contrast on the new region
+                 *
+                 * MEASURED FROM THE PAINTED PIXELS, not from the token table. This project has
+                 * already shipped option names at 1.00:1 white-on-white in dark mode, and a new
+                 * region whose colours come from `--ss-fg`, `--ss-fg-muted` and `--ss-link` is
+                 * exactly where that recurs: all three are redefined per theme, and only one of
+                 * the two themes is usually looked at. Walks up for the first non-transparent
+                 * background, because the row itself has none. */
+                const contrast = await page.evaluate(() => {
+                    const parse = (c) => {
+                        const m = /rgba?\(([^)]+)\)/.exec(c || '');
+                        if (!m) { return null; }
+                        const [r, g, b, a] = m[1].split(',').map((n) => parseFloat(n));
+                        return { r, g, b, a: a === undefined ? 1 : a };
+                    };
+                    const lum = ({ r, g, b }) => {
+                        const f = (v) => {
+                            v /= 255;
+                            return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+                        };
+                        return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+                    };
+                    const bgOf = (el) => {
+                        for (let n = el; n; n = n.parentElement) {
+                            const c = parse(getComputedStyle(n).backgroundColor);
+                            if (c && c.a > 0) { return c; }
+                        }
+                        return { r: 255, g: 255, b: 255, a: 1 };
+                    };
+                    const ratio = (el) => {
+                        const fg = parse(getComputedStyle(el).color);
+                        if (!fg) { return null; }
+                        const a = lum(fg), b = lum(bgOf(el));
+                        return Math.round(((Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)) * 100) / 100;
+                    };
+                    const digest = document.querySelector('[data-ss-notification-digest]');
+                    if (!digest || digest.hidden) { return null; }
+                    const out = {};
+                    const title = digest.querySelector('.ss-card__title');
+                    const row = digest.querySelector('.ss-digest__text');
+                    const muted = digest.querySelector('.ss-muted');
+                    const link = digest.querySelector('[data-ss-digest-all]');
+                    if (title) { out.title = ratio(title); }
+                    if (row) { out.row = ratio(row); }
+                    if (muted) { out.detail = ratio(muted); }
+                    if (link) { out.link = ratio(link); }
+                    return out;
+                });
+
+                check(cfg, 'premise: the digest was visible, so its contrast could be measured',
+                    contrast !== null, contrast === null ? 'digest hidden or absent' : 'measured');
+                if (contrast) {
+                    const below = Object.keys(contrast).filter((k) => !(contrast[k] >= 4.5));
+                    check(cfg, 'every colour in the notification digest meets AA (4.5:1)',
+                        below.length === 0,
+                        Object.keys(contrast).map((k) => `${k}=${contrast[k]}`).join(' '));
+                }
+
                 check(cfg, 'no page error and no unexplained 500', errors.length === 0,
                     errors.join('; ') || 'none');
 
@@ -238,6 +377,8 @@ const ARABIC_FORMS = {
 
                 for (const [name, selector] of [
                     ['attention', '.ss-attention'],
+                    ['digest', '[data-ss-notification-digest]'],
+                    ['identity', '.page-header-title'],
                     ['storage', '.dashboard-card:has(#device-chart), .card-header:has(h4)'],
                     ['sales-cards', '.dash-category-tab'],
                 ]) {

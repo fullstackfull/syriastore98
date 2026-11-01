@@ -151,7 +151,27 @@ function permission_check($p) { global $GRANTS; return !empty($GRANTS[$p]); }
  * views previewed here. A preview harness that silently granted operator
  * status would make every gate look passable.
  */
-class PreviewUser
+/* AND A MINIMAL `App\Models\User`, because the ability class type-checks its principal.
+ *
+ * `MerchantDashboardAbilities::holds()` refuses anything that is not an `App\Models\User` before
+ * calling `isAbleTo()` — a guard this project paid for once already (P2-06-7: the same call
+ * without it turned 112 storefront security tests into 500s, because `isAbleTo()` is a FATAL on a
+ * `Customer`, not a false). The real model cannot be loaded here: it extends Laravel's
+ * `Authenticatable` and uses six traits, none of which exist without the framework.
+ *
+ * WITHOUT THIS STUB THE SHIM ABOVE IS NOT ENOUGH, and the failure is the dangerous kind rather
+ * than the loud kind: `PreviewUser` would not satisfy the type test, every ability would answer
+ * false, and all twelve dashboard fixtures would render as though the viewer held no permissions
+ * at all — which is exactly what the `noperm` fixture is supposed to be the only one showing. A
+ * harness that renders the no-permission state for every case still renders, still screenshots,
+ * and still passes its own checks.
+ *
+ * So `PreviewUser` extends it. Nothing is inherited but the identity. */
+if (!class_exists('App\Models\User')) {
+    eval('namespace App\Models; class User {}');
+}
+
+class PreviewUser extends \App\Models\User
 {
     public $type = 'admin';
     public function isAbleTo($permission) { return permission_check($permission); }
@@ -243,6 +263,32 @@ if (!class_exists('App\\Support\\OrderStatusTone')) {
         exit(3);
     }
     require_once $__ssTone;
+}
+
+/* AND THE SAME SHIM FOR THE DASHBOARD'S ABILITY CLASS, for the same reason and after the same
+ * defect. WS C moved the overview's `$ssMayOrders` / `$ssMayProducts` / `$ssMayCustomers` /
+ * `$ssMayStoreSettings` flags into `App\Support\MerchantDashboardAbilities`, because
+ * `dashboard.blade.php` needed the same answers and a flag defined inside an `@include` is
+ * invisible to its parent. This harness has no Composer autoloader, so that move killed the
+ * dashboard fixtures outright — exactly as the OrderStatusTone move did, and PHASE-02-TEST-EVIDENCE
+ * records what made that one dangerous rather than merely broken: **the first browser run after it
+ * still reported 159/159**, because `render-all-fixtures.sh` had exited non-zero and the STALE HTML
+ * was still on disk and still being served. A false green, not a red.
+ *
+ * `render-all-fixtures.sh` renders `dashboard-after` twelve times (en/ar x full/empty/noperm x
+ * light/dark) and every one of them includes `dashboard.overview`.
+ *
+ * The harness's stand-in principal answers the class correctly once it is loaded: `PreviewUser`
+ * has `$type = 'admin'` (so `isOperator()` is false) and an `isAbleTo()` that reads `$GRANTS`, so
+ * the `noperm` fixture still models a staff member holding only `Manage Blog`. */
+if (!class_exists('App\Support\MerchantDashboardAbilities')) {
+    $__ssAbilities = dirname(__DIR__, 3) . '/app/Support/MerchantDashboardAbilities.php';
+    if (!is_file($__ssAbilities)) {
+        fwrite(STDERR, "HARNESS: app/Support/MerchantDashboardAbilities.php is missing -- the "
+            . "dashboard preview cannot resolve who may see which region.\n");
+        exit(3);
+    }
+    require_once $__ssAbilities;
 }
 
 if (!function_exists('getStoreById')) {

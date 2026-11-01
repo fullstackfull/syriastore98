@@ -479,6 +479,19 @@
                                      so nothing broke visibly -- but the DOM a screen reader and
                                      any heading-order audit walk was malformed. --}}
                                 <h2 class="h3 mb-0 ss-scope">@yield('page-title')</h2>
+                                {{-- WS C: AN OPT-IN SUBTITLE, and it is opt-in on purpose.
+                                     `x-ss.page-header` has carried a `store` prop since P2-01-11
+                                     — "the store name is restated here on screens where knowing
+                                     which store you are editing matters" — but exactly ONE view
+                                     in the repository renders that component, while 334 set
+                                     `@section('page-title')`. So the mechanism existed and
+                                     reached nothing. `@hasSection` means a screen that defines
+                                     no subtitle renders exactly the markup it rendered before:
+                                     no empty element, no spacing change, nothing to re-measure
+                                     on 333 screens. --}}
+                                @hasSection('page-subtitle')
+                                    <p class="ss-scope ss-page-header__subtitle mb-0">@yield('page-subtitle')</p>
+                                @endif
                             </div>
                             @if (\Request::route()->getName() != 'dashboard')
                                 {{-- P2-01-14 / WS A3: the ONE breadcrumb, for all 107 merchant

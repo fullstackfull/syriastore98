@@ -366,6 +366,30 @@ class HomeController extends Controller
             })
             ->count();
 
+        /* WS C — INVENTORY ALERTS, the master prompt's own phrase, and the half that was missing.
+         *
+         * `$out_of_stock_products` above answers "what has run out". It does NOT answer "what is
+         * about to", which is the alert a merchant can still act on — and that was the gap: the
+         * dashboard had no low-stock figure at all while the product list has had an
+         * `?ss_stock=low` filter since P2-03-9.
+         *
+         * THE PREDICATE IS THE LIST'S OWN, not a second copy of it. `ProductDataTable` records
+         * what happened the last time this expression existed twice: the badge and the filter
+         * disagreed at the boundary. A count that disagrees with the list it links to is worse
+         * than no count, because the merchant follows it.
+         *
+         * Variant parents are excluded on the same terms as the out-of-stock count — their stock
+         * lives on the variant rows, so the parent's own `product_stock` is not a quantity.
+         */
+        $low_stock_products = (clone $productQuery)
+            ->where(function ($q) {
+                $q->where('variant_product', '!=', 1)->orWhereNull('variant_product');
+            })
+            ->where(function ($q) {
+                \App\DataTables\ProductDataTable::scopeToLowStock($q);
+            })
+            ->count();
+
         $orderCountsToday = $this->getOrderCounts($orderQuery, $todayStart, $todayEnd);
         $orderCounts = $this->getOrderCounts($orderQuery);
 
@@ -428,6 +452,7 @@ class HomeController extends Controller
             'totle_cancel_order',
             'out_of_stock_threshold',
             'out_of_stock_products',
+            'low_stock_products',
             'theme_name',
             'pending_order',
             'delivered_order',
@@ -1356,6 +1381,21 @@ class HomeController extends Controller
      * The twelve near-identical query bodies are left as they are: only the
      * date predicate differs between them, and collapsing them is a change to
      * vendored shape that this slice does not need.
+     *
+     * TWO THINGS AN INDEPENDENT REVIEW OF THIS CHANGE INSISTED BE WRITTEN DOWN:
+     *
+     *  - `orders.store_id` IS NULLABLE (create_orders_table.php:43), so an order carrying a NULL
+     *    discriminator now drops out of both cards' totals. That is a change to a reported
+     *    FIGURE, not to isolation, and it narrows rather than widens. If `getCurrentStore()`
+     *    itself returns null the predicate becomes `IS NULL` on both columns — tighter than the
+     *    unconstrained join it replaces, which reached every tenant.
+     *
+     *  - DO NOT "COMPLETE THE SWEEP" ONTO `showCategory()`. The thirteenth query that joins
+     *    `orders` in this file (around :2030) is a LEFT JOIN, and pasting this same
+     *    `->where('orders.store_id', …)` onto its outer builder would silently convert it to an
+     *    inner join and drop every category with no orders. For an outer join the predicate
+     *    belongs in the ON clause. All twelve here are inner joins, where WHERE and ON are
+     *    equivalent, which is why the outer builder is the right place for these.
      */
     public function top_brand_category_chart(Request $request)
     {

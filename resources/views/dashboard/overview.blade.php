@@ -38,8 +38,10 @@
 @php
     $ssPendingOrders = (int) ($pending_order ?? 0);
     $ssOutOfStock    = (int) ($out_of_stock_products ?? 0);
+    $ssLowStock      = (int) ($low_stock_products ?? 0);
     $ssReturnOrders  = (int) ($return_order ?? 0);
-    $ssNeedsAttention = $ssPendingOrders > 0 || $ssOutOfStock > 0 || $ssReturnOrders > 0;
+    $ssNeedsAttention = $ssPendingOrders > 0 || $ssOutOfStock > 0 || $ssLowStock > 0
+        || $ssReturnOrders > 0;
 
     /* Entitlement for what this partial shows, resolved once.
      *
@@ -242,6 +244,31 @@
                     :action="$ssMayProducts ? __('Review stock') : null" />
             @endif
 
+            {{-- WS C — THE OTHER HALF OF "INVENTORY ALERTS", which the master prompt asks for
+                 by name and this region did not have. The row above answers "what has run out";
+                 this one answers "what is about to", which is the alert a merchant can still do
+                 something about. It sits BELOW the out-of-stock row deliberately: what has
+                 already run out is the more urgent of the two, and a list ordered by urgency is
+                 the only reason to have an attention region rather than a dashboard of tiles.
+
+                 The count is `ProductDataTable::scopeToLowStock()` — the product list's OWN
+                 predicate, not a second copy of it, so the figure and the list it links to
+                 cannot disagree at the boundary. That disagreement is exactly what happened
+                 between the stock badge and the stock filter before P2-03-9 shared their rule.
+
+                 AND THE LINK CARRIES THE FILTER, unlike the out-of-stock row above. That row is
+                 deliberately unfiltered because its count includes untracked products the
+                 merchant marked out of stock, which `ss_stock=out` cannot match (it requires
+                 `track_stock = 1`). "Low" has no such mismatch: both sides are tracked products
+                 only, so the link can be precise. --}}
+            @if ($ssLowStock > 0)
+                <x-ss.attention-item
+                    :count="$ssLowStock"
+                    :text="trans_choice('product is running low|products are running low', $ssLowStock)"
+                    :href="$ssMayProducts ? route('product.index', ['ss_stock' => 'low']) : null"
+                    :action="$ssMayProducts ? __('Review stock') : null" />
+            @endif
+
             @if ($ssReturnOrders > 0)
                 <x-ss.attention-item
                     :count="$ssReturnOrders"
@@ -251,6 +278,49 @@
             @endif
         </x-ss.attention>
     @endif
+
+    {{-- WS C — "IMPORTANT STORE NOTIFICATIONS", the master prompt's seventh dashboard bullet.
+
+         WHY THIS IS NOT A SECOND FEED. The notification bell in the shared header already
+         fetches `merchant.notifications.feed` once per page load, on this page and every other.
+         Building a dashboard card with its own request, its own authorization and its own idea of
+         which types this principal may read would be a second copy of a security decision — the
+         exact failure this slice spent its morning deleting one of. So the markup below is filled
+         by THE SAME SINGLE FETCH the bell already makes: one request, two consumers, one
+         server-side gate (`MerchantNotificationController::context()`, which resolves the
+         readable types per store through `MerchantPermissions::names()`).
+
+         IT IS NOT A SECOND COPY OF THE BELL EITHER. The bell answers "is there anything?" with a
+         number you must click to read. This answers "what, specifically, have I not seen?" —
+         UNREAD only, at most three, and ABSENT when there are none, on the same rule as "Needs
+         attention" above: a permanent "0 notifications" panel teaches merchants to stop looking.
+
+         NO BLADE PERMISSION GATE, deliberately. The feed is authorized on the server and returns
+         nothing a principal may not read, so a gate here would be a third place that has to agree
+         about notification types. The region simply stays hidden when the feed is empty — which
+         is also what it does for a principal the server refuses.
+
+         THE STATUS LINE IS A CONTEXTUAL PHRASE, NOT A BARE NUMBER. A live region announcing "3"
+         tells a screen-reader user nothing; `role="status"` with `aria-atomic` on a complete
+         sentence is the pattern, and it does not move focus. --}}
+    <section class="ss-scope ss-card mb-4" data-ss-notification-digest hidden
+             data-ss-digest-open="{{ __('Open') }}"
+             aria-labelledby="ss-notification-digest-title">
+        <div class="ss-card__header">
+            <div class="ss-page-header__text">
+                <h2 class="ss-card__title" id="ss-notification-digest-title">{{ __('Unread notifications') }}</h2>
+            </div>
+        </div>
+        <div class="ss-card__body">
+            <p class="ss-visually-hidden" role="status" aria-atomic="true"
+               data-ss-digest-status
+               data-ss-digest-template="{{ __(':n notifications you have not read') }}"></p>
+            <ul class="ss-digest__list" data-ss-digest-list></ul>
+            <a href="{{ route('merchant.notifications') }}" class="ss-link" data-ss-digest-all>
+                {{ __('View all notifications') }}
+            </a>
+        </div>
+    </section>
 
     <x-ss.stats :label="__('Store totals')">
         <x-ss.stat :label="__('Orders')"

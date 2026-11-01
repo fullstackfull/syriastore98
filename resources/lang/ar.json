@@ -3348,5 +3348,11 @@
     ":used MB used": ":used ميجابايت مستعملة",
     "This plan records no storage limit, so there is no percentage to show.": "لا تسجّل هذه الخطة حدًّا للتخزين، فلا توجد نسبة لعرضها.",
     ":used MB used of unlimited storage": ":used ميجابايت مستعملة من تخزين غير محدود",
-    "This plan includes unlimited storage, so there is no percentage to show.": "تشمل هذه الخطة تخزينًا غير محدود، فلا توجد نسبة لعرضها."
+    "This plan includes unlimited storage, so there is no percentage to show.": "تشمل هذه الخطة تخزينًا غير محدود، فلا توجد نسبة لعرضها.",
+    "product is running low|products are running low": "{0} منتجات على وشك النفاد|{1} منتج على وشك النفاد|{2} منتجان على وشك النفاد|[3,10] منتجات على وشك النفاد|[11,99] منتجًا على وشك النفاد|[100,*] منتج على وشك النفاد",
+    "View storefront": "عرض المتجر",
+    "Unread notifications": "إشعارات غير مقروءة",
+    "View all notifications": "عرض كل الإشعارات",
+    ":n notifications you have not read": ":n إشعارات لم تقرأها",
+    "Open": "فتح"
 }

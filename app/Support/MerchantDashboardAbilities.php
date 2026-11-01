@@ -14,7 +14,7 @@ use App\Models\User;
  * vendored WorkDo page) and `resources/views/dashboard/overview.blade.php`
  * (the Phase 02 region it `@include`s at the top). The route carries
  * `['auth','xss','setlocate','verified']` and NO permission middleware
- * (routes/web.php:398-400), so every principal on the `web` guard in the
+ * (routes/web.php:411-414), so every principal on the `web` guard in the
  * tenant reaches both — including a staff member whose role grants only, say,
  * Manage Blog.
  *
@@ -60,6 +60,16 @@ use App\Models\User;
  */
 final class MerchantDashboardAbilities
 {
+    /**
+     * SINGULAR, AND `Manage Orders` PLURAL IS A DIFFERENT SEEDED ROW.
+     *
+     * Both exist in `Utility`'s permission lists. The singular is the name every order screen
+     * checks — `OrderController::mayUseOrderScreen`, the order document guard, the `finance`
+     * gate — so it is the one that makes this dashboard agree with the screens it links to. A
+     * future edit that "corrects" the spelling to the plural would gate on a permission no order
+     * screen uses, and the dashboard would start withholding orders from people who can open
+     * them. Found by an independent authorization review of this class.
+     */
     public const PERMISSION_ORDERS = 'Manage Order';
 
     public const PERMISSION_PRODUCTS = 'Manage Products';

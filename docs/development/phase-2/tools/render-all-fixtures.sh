@@ -18,6 +18,22 @@ set -euo pipefail
 
 OUT="${1:?usage: render-all-fixtures.sh <outDir>}"
 cd "$(dirname "$0")/../../../.."
+
+# THE OLD HTML IS DELETED FIRST, AND THAT IS THE POINT OF THIS LINE.
+#
+# `set -e` makes this script stop on the first failed render, which is correct -- but it leaves
+# whatever was rendered LAST TIME sitting in $OUT, and the preview server happily serves it. That
+# has already produced the worst kind of result once: moving the status tones into
+# `App\Support\OrderStatusTone` broke the harness (no Composer autoloader here), the render exited
+# 255, and the browser suite then reported **159/159 against the previous run's HTML**. A false
+# green, not a red. PHASE-02-TEST-EVIDENCE records it; WS C hit the same wall with
+# `MerchantDashboardAbilities` and is the reason this is now enforced rather than remembered.
+#
+# With the directory emptied, a failed render leaves the suite with 404s, which fail loudly.
+# Guarded on the path being non-empty and not `/`, because this does `rm -rf`.
+if [ -n "$OUT" ] && [ "$OUT" != "/" ]; then
+    rm -rf -- "${OUT:?}"
+fi
 mkdir -p "$OUT"
 
 R=docs/design-system/tools/render-preview.php

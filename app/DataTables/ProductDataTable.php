@@ -323,6 +323,32 @@ class ProductDataTable extends DataTable
         return (int) ($settings['out_of_stock_threshold'] ?? 0);
     }
 
+    /**
+     * THE LOW-STOCK PREDICATE, AS A PREDICATE OTHER CALLERS CAN APPLY.
+     *
+     * WS C needed this on the dashboard — an "inventory alerts" region that reports what the
+     * product list would show under `?ss_stock=low` — and the only alternative was to write the
+     * same `COALESCE(NULLIF(low_stock_threshold, 0), ?)` a second time in `HomeController`. That
+     * is precisely the shape this class's own docblock records going wrong before: the badge and
+     * the filter disagreed because they were two copies of one expression. A count that disagrees
+     * with the list it links to is worse than no count, because the merchant follows it.
+     *
+     * TRACKED PRODUCTS ONLY, and that is not an oversight. `track_stock = 0` means the number is
+     * not counted, so such a product is in no stock state at all — the same reason
+     * `trackedStockState()` is named for tracked products and the `out` count has to add
+     * untracked `stock_status = 'out_of_stock'` rows separately.
+     *
+     * @param  \Illuminate\Database\Eloquent\Builder|QueryBuilder  $query
+     */
+    public static function scopeToLowStock($query, ?int $fallback = null): void
+    {
+        $fallback ??= self::stockFallbackThreshold();
+
+        $query->where('track_stock', 1)
+            ->where('product_stock', '>', 0)
+            ->whereRaw('product_stock <= COALESCE(NULLIF(low_stock_threshold, 0), ?)', [$fallback]);
+    }
+
     private function applyStockFilter(QueryBuilder $query, string $stock): void
     {
         /* ONE SOURCE FOR THE FALLBACK, shared with the badge (P2-03-9). The SQL below cannot call
@@ -333,23 +359,21 @@ class ProductDataTable extends DataTable
            expressions written to match still do. */
         $fallback = self::stockFallbackThreshold();
 
-        $query->where('track_stock', 1);
-
         if ($stock === 'out') {
-            $query->where('product_stock', '<=', 0);
+            $query->where('track_stock', 1)->where('product_stock', '<=', 0);
 
             return;
         }
-
-        $query->where('product_stock', '>', 0);
 
         if ($stock === 'low') {
-            $query->whereRaw('product_stock <= COALESCE(NULLIF(low_stock_threshold, 0), ?)', [$fallback]);
+            self::scopeToLowStock($query, $fallback);
 
             return;
         }
 
-        $query->whereRaw('product_stock > COALESCE(NULLIF(low_stock_threshold, 0), ?)', [$fallback]);
+        $query->where('track_stock', 1)
+            ->where('product_stock', '>', 0)
+            ->whereRaw('product_stock > COALESCE(NULLIF(low_stock_threshold, 0), ?)', [$fallback]);
     }
 
     /**

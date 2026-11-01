@@ -1495,6 +1495,92 @@
        unread. A bell that renders an error is worse than a bell that renders
        nothing. */
 
+    /* WS C: ONE FETCH, TWO CONSUMERS. The dashboard's "Unread notifications"
+       region is filled from this same request rather than making its own.
+
+       A second fetch would also have meant a second place deciding which
+       notification types this principal may read -- the server already decides
+       that in MerchantNotificationController::context(), per store, through
+       MerchantPermissions::names(). The region is inert markup until this
+       fills it, so a principal the server refuses simply never sees it. */
+    var DIGEST_LIMIT = 3;
+
+    function fillNotificationDigest(data) {
+        var digest = document.querySelector('[data-ss-notification-digest]');
+        if (!digest) { return; }
+
+        var list = digest.querySelector('[data-ss-digest-list]');
+        var status = digest.querySelector('[data-ss-digest-status]');
+        if (!list) { return; }
+
+        var items = Array.isArray(data.items) ? data.items : [];
+        var unreadItems = items.filter(function (i) { return i && !i.read; });
+
+        /* ABSENT, NOT EMPTY. Same rule as the attention block above it: a
+           permanent "0 notifications" panel teaches merchants to stop looking
+           at that part of the screen. */
+        if (unreadItems.length === 0) { return; }
+
+        unreadItems.slice(0, DIGEST_LIMIT).forEach(function (item) {
+            var li = document.createElement('li');
+            li.className = 'ss-digest__item';
+
+            /* `textContent` throughout, never innerHTML. Titles and messages are
+               written by StoreNotificationService from order and customer data,
+               so they are not trusted as markup -- the same rule the command
+               palette and the badge above follow. */
+            var text = document.createElement('span');
+            text.className = 'ss-digest__text';
+            /* `dir="auto"` PER ROW, and it is not decoration. A notification title is written by
+               whatever produced the event -- an order reference, a customer's own words, a
+               product name -- so a single row can be LTR inside an RTL page. Measured in the
+               Arabic dark run before this line existed: "New order #SY-10425 … item." rendered
+               its FULL STOP at the start of the line, because the paragraph direction won. */
+            text.setAttribute('dir', 'auto');
+            text.textContent = String(item.title || '');
+
+            if (item.message) {
+                var detail = document.createElement('span');
+                detail.setAttribute('dir', 'auto');
+                /* `.ss-muted` is the design system's own muted-foreground class; there is
+                   no `.ss-text-muted` in store-syria-ds.css and a class that does not
+                   exist renders at full weight, which is how a "secondary" line ends up
+                   competing with the title it sits beside. */
+                detail.className = 'ss-muted';
+                detail.textContent = String(item.message);
+                text.appendChild(document.createTextNode(' \u2014 '));
+                text.appendChild(detail);
+            }
+
+            li.appendChild(text);
+
+            /* A link only where the server gave one. `hrefFor()` returns null for
+               a notification with nowhere to go, and a link to nowhere is worse
+               than no link. */
+            if (item.href) {
+                var a = document.createElement('a');
+                a.className = 'ss-btn ss-btn--secondary ss-btn--sm';
+                a.href = String(item.href);
+                a.textContent = (digest.getAttribute('data-ss-digest-open') || 'Open');
+                li.appendChild(a);
+            }
+
+            list.appendChild(li);
+        });
+
+        digest.hidden = false;
+
+        /* A CONTEXTUAL PHRASE, NOT A BARE NUMBER. `role="status"` announcing "3"
+           tells a screen-reader user nothing; the sentence comes from the server-
+           rendered template because this file has no translator. */
+        if (status) {
+            var template = status.getAttribute('data-ss-digest-template') || '';
+            if (template) {
+                status.textContent = template.replace(':n', String(unreadItems.length));
+            }
+        }
+    }
+
     function updateNotificationBadge() {
         var bell = document.querySelector('[data-ss-notification-bell]');
         if (!bell) { return; }
@@ -1513,6 +1599,8 @@
             .then(function (r) { return r.ok ? r.json() : null; })
             .then(function (data) {
                 if (!data) { return; }
+
+                fillNotificationDigest(data);
 
                 var unread = parseInt(data.unread, 10);
                 if (!(unread > 0)) { return; }

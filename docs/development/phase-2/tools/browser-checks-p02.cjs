@@ -144,9 +144,21 @@ const VARIANTS = [
   check('ungated staff still see the order and customer counts',
         /1,284/.test(npBody) && /412/.test(npBody));
 
+  /* OFFERED, NOT MERELY PRESENT. This counted every `.ss-scope a[href]` in the DOM, including
+     links inside a region that ships `hidden` -- and WS C added one: the notification digest
+     renders hidden and is revealed by script only when the feed returns something this principal
+     may read. A link nobody can see is not an offer, and failing on it would push the next
+     author to delete a correct region rather than to look.
+
+     `offsetParent === null` is the behavioural test for "not rendered", so this stays strict in
+     the direction that matters: if the digest ever became VISIBLE for a principal with no
+     readable notifications, its link would be counted again and this check would fail. The
+     assertion is still zero. */
   const npLinks = await page.$$eval('.ss-scope a[href]', els =>
-    els.map(e => e.getAttribute('href')).filter(h => h && h !== '#'));
-  check('ungated staff are given no link the controller would refuse',
+    els.filter(e => e.offsetParent !== null)
+       .map(e => e.getAttribute('href'))
+       .filter(h => h && h !== '#'));
+  check('ungated staff are OFFERED no link the controller would refuse',
         npLinks.length === 0, npLinks.join(', ') || 'no links');
 
   const npChips = await page.$$eval('.ss-chip', els =>

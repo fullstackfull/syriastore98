@@ -7,10 +7,19 @@ Mandatory Visual Evidence for the WS C dashboard slice, per the Phase 02 Master 
 | harness | `docs/development/phase-2/tools/shoot-wsc-dashboard-live.cjs` (Playwright, Chromium) |
 | instance | the real application at `http://127.0.0.1:8899`, SQLite `database/p2dev.sqlite`, invented fixture data only |
 | configurations | **8** — desktop 1440×900 and mobile 390×844 × **English LTR / Arabic RTL** × **light / dark** |
-| before | the working tree at `6df1ea07` (the WS C edits stashed; a genuine, reproducible before-state) |
-| after | the same tree with the WS C slice applied |
-| **before** | **52 of 84 checks FAIL** — `before-report.txt` |
-| **after** | **84 of 84 checks pass** — `after-report.txt` |
+| before | the working tree at `6df1ea07` (slice 1) and at `39526569` (slice 2), the WS C edits stashed — a genuine, reproducible before-state in both cases |
+| **slice 1 before** | **52 of 84 checks FAIL** — `before-report.txt` |
+| **slice 2 before** | **48 of 156 checks FAIL** — `before-slice2-report.txt` |
+| **after** | **164 of 164 checks pass** — `after-report.txt` |
+
+> **The `before-*.png` set was shot before the theme control was fixed (F255), so its "dark"
+> images are light.** `set-admin-preview-state.php` wrote `cust_darklayout` only when a row
+> already existed and printed a success line regardless; a rebuilt `p2dev.sqlite` has no
+> `settings` rows at all, so every "dark" run of every dashboard harness had been measuring the
+> light theme and saying otherwise. The `before-slice2-*` and `after-*` sets are shot with the
+> fix in place and are genuinely four light and four dark. Said here rather than quietly
+> re-shooting, because the slice-1 before-state is the record of what the defects looked like and
+> re-rendering it now would silently change what "before" meant.
 
 Each configuration produces `*-full.png` (full page) plus crops of `*-attention.png`,
 `*-storage.png` and `*-sales-cards.png`.
@@ -111,6 +120,56 @@ it cannot pass against a fixture that cannot tell them apart.
 **The quota branch of the storage card is not visible here either**: the dev fixture's plan
 carries the unlimited sentinel, so this instance exercises the *unlimited* branch.
 `DashboardFigureHonestyTest` covers all three branches.
+
+## Slice 2 — the three regions the dashboard did not have
+
+Workstream C lists eight things a merchant home dashboard should answer. Five were built in
+P2-02. These are the three that were not.
+
+### Inventory alerts — what is about to run out, not only what has
+
+The attention block reported what had **run out** and nothing about what was **nearly** out,
+while the product list has had an `?ss_stock=low` filter since P2-03-9. The count is
+`ProductDataTable::scopeToLowStock()` — the list's own predicate, extracted rather than copied,
+because this repository has already watched the stock badge and the stock filter drift apart at
+the boundary. A count that disagrees with the list it links to is worse than no count, because
+the merchant follows it.
+
+Measured in Arabic: `5 منتجات على وشك النفاد`, with the link carrying `ss_stock=low`.
+
+### Store overview — which store these figures are about
+
+The page never said. A merchant with two stores read the numbers without being told whose they
+were. It is a page-header subtitle, not a card, because the store's name already appears twice
+further down and this slice deleted a duplicate order list for being a duplicate.
+`@hasSection('page-subtitle')` means the other 333 screens render exactly the markup they
+rendered before.
+
+### Important store notifications — what has not been seen
+
+Filled by **the same single fetch the bell already makes**, so there is one request and one
+server-side authorization decision rather than two. Unread only, at most three, and **absent**
+when there are none — the same rule the attention block follows, because a permanent "0
+notifications" panel teaches merchants to stop looking.
+
+Measured per configuration: it fills, becomes visible, shows at most three, announces a sentence
+rather than a bare number through `role="status"`, and every colour in it meets AA from the
+painted pixels — **title 16.06, rows 16.06, detail 5.94, link 5.68** in light; **11.1 / 11.1 /
+6.03 / 7.75** in dark.
+
+### Three defects this slice's own work produced, each caught by measurement
+
+1. **The digest borrowed the attention block's classes.** The Arabic grammar census immediately
+   reported three English notification titles as attention rows with unrecognised phrases. Two
+   regions, two names now — and the census is scoped to `.ss-attention` as well.
+2. **An English notification inside the Arabic card put its full stop at the start of the line.**
+   Visible in `after-desktop-ar-dark-digest.png` before the fix. `dir="auto"` per row plus
+   `unicode-bidi: isolate`, because a notification's text is written by whatever produced the
+   event and a single row can be LTR inside an RTL page.
+3. **`.ss-link` was a class that did nothing** (F256). The design system styles
+   `a:not([class])`, so the obvious spelling silently opted out of the DS colour and the digest's
+   link rendered at **1.68:1** against the dark card. Its missing focus ring was found by
+   *biting* the region's hidden state, not by reading it.
 
 ## Reproducing
 
