@@ -20,17 +20,26 @@ use Tests\Feature\Security\SecurityTestCase;
  * original is refused; and the `UNIQUE (order_id)` constraint exists in the test schema first.
  *
  * ──────────────────────────────────────────────────────────────────────────────────────────────
- * THE OPERATION IS UNREACHABLE IN PRODUCTION, AND THESE TESTS DRIVE THE SERVICE DIRECTLY
+ * [2026-11-01] THIS BLOCK USED TO SAY THE OPERATION WAS UNREACHABLE. IT IS NOT, AND LEAVING THAT
+ * SENTENCE HERE WOULD REPEAT THE EXACT MISTAKE E13 HAS ALREADY PRODUCED ONCE.
  * ──────────────────────────────────────────────────────────────────────────────────────────────
  *
- * There is no route. That is deliberate — design §6's **Q1** (may a replacement differ from the
- * original?) is unanswered, and the identical-lines-only variant implemented here is CORRECT
- * without that answer but must not be made REACHABLE without it.
+ * What stood here said *"There is no route. That is deliberate — design §6's Q1 is unanswered"*.
+ * **D-32 (owner, 2026-10-31) answered Q1** with the narrowest of the design's three readings —
+ * identical products, identical quantities, identical prices — which is what makes Q2 (a
+ * partially-paid original) and Q3 (original prices or today's) *fall away*, so opening the door
+ * invents no refund, settlement or stock rule. Different-item replacement is Phase 04.
  *
- * So these tests call `OrderReplacement::cancelAndReplace()` rather than driving HTTP, and that is
- * stated rather than hidden: they prove the operation behaves as specified, **not** that any
- * merchant can perform it. F237 is the cautionary case — a mechanism recorded as DONE whose
- * production callers never existed — and the difference here is that nothing claims otherwise.
+ * `POST order-replace/{id}` exists, `OrderController::order_replace()` handles it, and the
+ * merchant reaches it from `order/view.blade.php`. The last six cases in this file drive that
+ * route; the ones before them call the service directly, because a direct call isolates the
+ * operation's own behaviour from the middleware stack.
+ *
+ * **Why the correction is recorded rather than quietly made:** a stale cell in
+ * `PHASE-02-TASK-LEDGER.md` saying this workflow did not exist is what led me to report to the
+ * owner that E13 had no replacement engine. The owner corrected me. A docblock that says
+ * "unreachable" about a reachable, merchant-facing, money-adjacent operation is the same defect
+ * one file over, and it would be read by whoever next decides whether this path is safe.
  */
 class OrderReplacementTest extends SecurityTestCase
 {
@@ -571,5 +580,137 @@ class OrderReplacementTest extends SecurityTestCase
                 'the refusal names the internal token `' . $internal . '` to the merchant'
             );
         }
+    }
+
+    /**
+     * D-32's CONDITION ITSELF: IDENTICAL PRODUCTS, IDENTICAL QUANTITIES, IDENTICAL PRICES.
+     *
+     * This is the clause the owner's answer to Q1 consists of, and nothing in this file asserted
+     * it. `test_the_original_keeps_its_lines_and_totals_untouched` proves the ORIGINAL is not
+     * rewritten; it says nothing about what the REPLACEMENT carries. So an implementation that
+     * dropped a line, rounded a price or re-read the catalogue would have passed every case here.
+     *
+     * **THE CATALOGUE IS MOVED BEFORE THE REPLACEMENT RUNS, and that is the whole design of this
+     * test.** With the order's prices equal to the product's — which is how every other case in
+     * this file is set up — copying and recomputing give the SAME ANSWER, so the test would pass
+     * against an implementation that consulted the catalogue. That is Q3 (original prices or
+     * today's) returning through the back door: D-32 only disposes of Q3 because nothing here
+     * reads the catalogue, and a test that cannot tell the two apart does not hold that open.
+     *
+     * Two lines with different quantities and different unit prices, so a dropped line, a swapped
+     * quantity and a reused unit price each bite separately.
+     */
+    public function test_the_replacement_carries_the_original_products_quantities_and_prices(): void
+    {
+        [$merchant, $store] = $this->makeTenant();
+        $actor = $this->actor($merchant);
+
+        $a = $this->productIn($store);
+        $b = $this->productIn($store);
+
+        $lines = [
+            ['product_id' => $a->id, 'name' => $a->name, 'quantity' => 2, 'price' => 100, 'variant_id' => 0],
+            ['product_id' => $b->id, 'name' => $b->name, 'quantity' => 3, 'price' => 250, 'variant_id' => 0],
+        ];
+
+        $original = $this->orderIn($store, $a, 2, [
+            'product_json' => json_encode($lines),
+            'product_id' => $a->id . ',' . $b->id,
+            'product_price' => 950,
+            'coupon_price' => 25,
+            'delivery_price' => 40,
+            'tax_price' => 60,
+            'final_price' => 1025,
+        ]);
+
+        /* THE CATALOGUE MOVES. Through Eloquent rather than `DB::table()`, because 79 of the 95
+           models here are `Cachable` and a raw write leaves Eloquent reads serving the pre-write
+           row for the rest of the test. */
+        $a->update(['price' => 777, 'sale_price' => 777]);
+        $b->update(['price' => 888, 'sale_price' => 888]);
+
+        $this->assertSame(777, (int) $a->fresh()->price, 'premise: the catalogue price really moved');
+        $this->assertSame(888, (int) $b->fresh()->price, 'premise: the catalogue price really moved');
+
+        [$state, $replacement] = OrderReplacement::cancelAndReplace($original, $actor);
+
+        $this->assertSame(OrderReplacement::REPLACED, $state, 'the replacement was refused');
+        $this->assertNotNull($replacement);
+
+        $carried = json_decode((string) $replacement->fresh()->product_json, true);
+
+        $this->assertIsArray($carried);
+        $this->assertCount(
+            count($lines),
+            $carried,
+            'the replacement carries a different number of lines than the original -- a line was dropped or duplicated'
+        );
+
+        foreach ($lines as $i => $expected) {
+            $this->assertSame(
+                (int) $expected['product_id'],
+                (int) $carried[$i]['product_id'],
+                "line {$i}: the replacement names a different product than the original"
+            );
+            $this->assertSame(
+                (int) $expected['quantity'],
+                (int) $carried[$i]['quantity'],
+                "line {$i}: the quantity changed, which D-32 forbids"
+            );
+            $this->assertEquals(
+                $expected['price'],
+                $carried[$i]['price'],
+                "line {$i}: the unit price changed -- if it now equals the catalogue's "
+                . 'new price, the implementation is recomputing rather than copying, which is Q3 '
+                . 'returning through the back door'
+            );
+        }
+
+        /* The ONLY permitted difference in a line is the stock stamp, which is what tells the
+           cancellation arm that this line's stock was already accounted for on the original. A
+           whitelist rather than a spot-check, so a future key added to the copy has to come here
+           and be declared. */
+        foreach ($carried as $i => $line) {
+            $extra = array_diff(array_keys($line), array_keys($lines[$i]));
+
+            $this->assertSame(
+                [Order::LINE_STOCK_CARRIED],
+                array_values($extra),
+                "line {$i}: the replacement's line differs from the original by more than the "
+                . 'stock-carried stamp'
+            );
+            $this->assertSame(1, (int) $line[Order::LINE_STOCK_CARRIED], "line {$i}: the stamp is not set");
+        }
+
+        /* EVERY ECONOMIC TOTAL IS COPIED, NOT RECOMPUTED. Compared against the original's own
+           stored values rather than against the literals above, so the assertion stays true if
+           the fixture changes. */
+        $before = DB::table('orders')->where('id', $original->id)
+            ->select('product_price', 'coupon_price', 'delivery_price', 'tax_price', 'final_price',
+                'currency_code', 'currency_symbol', 'payment_type', 'customer_id', 'is_guest')
+            ->first();
+
+        $after = DB::table('orders')->where('id', $replacement->id)
+            ->select('product_price', 'coupon_price', 'delivery_price', 'tax_price', 'final_price',
+                'currency_code', 'currency_symbol', 'payment_type', 'customer_id', 'is_guest')
+            ->first();
+
+        foreach ((array) $before as $column => $value) {
+            $this->assertEquals(
+                $value,
+                ((array) $after)[$column],
+                "`{$column}` was not carried across unchanged; a replacement that recomputes a "
+                . 'money column is inventing a pricing rule the owner did not approve'
+            );
+        }
+
+        /* And the two things that MUST differ, pinned here so this test cannot be read as
+           "the replacement is a byte copy of the original". */
+        $this->assertSame('Unpaid', $replacement->payment_status, 'the replacement must start owing');
+        $this->assertSame(
+            (int) $original->id,
+            (int) $replacement->replaced_order_id,
+            'the replacement is not linked to its original'
+        );
     }
 }
