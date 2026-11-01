@@ -68,8 +68,17 @@ class GatewayReplayGuardCensusTest extends TestCase
     /** It is a gateway return and the writing method does NOT claim. A finding. */
     private const UNGUARDED = 'gateway-return/unguarded';
 
-    /** A client API posts the order. No gateway return, and no idempotency control either. */
-    private const CLIENT_API = 'client-api/no-idempotency-control';
+    /**
+     * A client API posts the order. No gateway return, so a gateway-return claim is not the
+     * control; double-submit idempotency is.
+     *
+     * THE BUCKET WAS RENAMED BY F276, because its old name said `no-idempotency-control` and that
+     * had stopped being true. All three sites in it now take a `Cache::add()` claim: F226 closed
+     * `createOrderViaApi`, F276 closed `place_order` and `ordersave`. A bucket name that asserts
+     * an absence is a claim like any other, and leaving it would have told the next reader these
+     * writers were open when they are not.
+     */
+    private const CLIENT_API = 'client-api/double-submit-claim';
 
     /** An authenticated merchant or the operator typing an order. */
     private const MERCHANT = 'merchant-or-operator';
@@ -91,16 +100,23 @@ class GatewayReplayGuardCensusTest extends TestCase
             'POST api/{slug}/place-order and place-order-guest, middleware custom.auth. The '
             . 'storefront API order writer. No gateway return is involved — the order is written '
             . 'first and payment follows — so a gateway-return claim is not the control; '
-            . 'double-submit idempotency is. There is none.'],
+            . 'double-submit idempotency is. F276 added one: a Cache::add() claim fingerprinted '
+            . 'on the route\'s store, resolveStoreCustomer()\'s customer and a canonical basket, '
+            . 'taken before any stock moves. MEASURED before the fix: a second post wrote a '
+            . 'second order and took stock twice.'],
 
         'Api/ApiController.php::ordersave' => [self::CLIENT_API,
-            'The second storefront API writer, same shape and same absence of a control.'],
+            'The second storefront API writer, same shape and the same claim since F276 — keyed '
+            . 'on the DERIVED customer id, because this handler\'s else branch once took '
+            . '$request->customer_id and a claim on caller input would inherit that trust.'],
 
         'Api/DashboardController.php::createOrderViaApi' => [self::CLIENT_API,
             'POST api/admin/createOrderViaApi, middleware custom.auth — the prefix the shipped '
             . 'merchant Flutter app calls. A merchant posting an order from the admin app. '
             . 'AdminApiOrderStockOwnershipTest already proves it refuses another merchant\'s '
-            . 'product; nothing makes a repeated post idempotent.'],
+            . 'product, and F226 made a repeated post idempotent. This note used to end "nothing '
+            . 'makes a repeated post idempotent" and went stale when F226 landed — recorded here '
+            . 'because a census whose prose outlives the code is how the next reader is misled.'],
 
         'AuthorizeNetPaymnetController.php::getOrderPaymentStatus' => [self::GUARDED, 'Authorize.Net return.'],
         'CinetPayController.php::getProductStatus' => [self::GUARDED, 'CinetPay return.'],

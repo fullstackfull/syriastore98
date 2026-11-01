@@ -98,14 +98,16 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/Concerns/AppliesCartStockChanges.php:208` | stock evidence incomplete: fewer movements recorded than stock decrements applied |
 | `app/Http/Controllers/Concerns/AppliesCartStockChanges.php:230` | stock evidence not attributed: stock moved for this request and no row now owns the order |
 | `app/Http/Controllers/Concerns/AppliesCartStockChanges.php:240` | stock evidence not attributed: the attempt threw |
+| `app/Http/Controllers/Api/ApiController.php:3505` | Storefront order intake refused as a duplicate submission |
+| `app/Http/Controllers/Api/ApiController.php:8623` | Storefront order intake refused as a duplicate submission |
 | `app/Http/Controllers/Api/ApiController.php:129` | Coupon refused: the basket could not be priced |
-| `app/Http/Controllers/Api/ApiController.php:3435` | order: refused, basket holds a non-positive quantity |
-| `app/Http/Controllers/Api/ApiController.php:6993` | order: refused, basket holds a non-positive quantity |
-| `app/Http/Controllers/Api/ApiController.php:7084` | coupon: refused an implausible discounted total |
-| `app/Http/Controllers/Api/ApiController.php:7860` | payment_sheet refused: basket names a product from another store |
-| `app/Http/Controllers/Api/ApiController.php:7886` | payment_sheet: refused, basket holds a non-positive quantity |
-| `app/Http/Controllers/Api/ApiController.php:8499` | order: refused, basket holds a non-positive quantity |
-| `app/Http/Controllers/Api/ApiController.php:8624` | coupon: refused an implausible discounted total |
+| `app/Http/Controllers/Api/ApiController.php:3539` | order: refused, basket holds a non-positive quantity |
+| `app/Http/Controllers/Api/ApiController.php:7110` | order: refused, basket holds a non-positive quantity |
+| `app/Http/Controllers/Api/ApiController.php:7201` | coupon: refused an implausible discounted total |
+| `app/Http/Controllers/Api/ApiController.php:7977` | payment_sheet refused: basket names a product from another store |
+| `app/Http/Controllers/Api/ApiController.php:8003` | payment_sheet: refused, basket holds a non-positive quantity |
+| `app/Http/Controllers/Api/ApiController.php:8657` | order: refused, basket holds a non-positive quantity |
+| `app/Http/Controllers/Api/ApiController.php:8782` | coupon: refused an implausible discounted total |
 | `app/Http/Controllers/Api/AuthController.php:186` | register: social identity verification refused |
 | `app/Http/Controllers/Api/DeliverySyriaOrderController.php:82` | Delivery Syria invalid credentials |
 | `app/Http/Controllers/AuthorizeNetPaymnetController.php:342` | Pending partial payment refused: the balance named does not belong to this customer. |

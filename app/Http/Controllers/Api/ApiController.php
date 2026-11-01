@@ -3295,6 +3295,77 @@ public function saveStoreFcmToken(Request $request)
         }
     }
 
+    /** The value a storefront checkout claim holds while the order is being written. */
+    private const STOREFRONT_INTAKE_WRITING = 'writing';
+
+    /**
+     * How long one storefront checkout's claim survives.
+     *
+     * Long enough to cover a phone that timed out and retried, and a shopper tapping Pay again
+     * because nothing visibly happened. Short enough that a shopper genuinely buying the same
+     * basket again minutes later is not refused -- and that case is not hypothetical for a
+     * consumable.
+     */
+    private const STOREFRONT_INTAKE_CLAIM_SECONDS = 120;
+
+    /**
+     * F276 — E14's payment half, on the two storefront writers that had no control at all.
+     *
+     * The master prompt's Workstream E rule 14 is "no duplication of payments or inventory
+     * movements". `GatewayReplayGuardCensusTest` — which PARSES the tree, after the previous
+     * census was found wrong in every number it asserted — classified exactly three customer-order
+     * writers as `client-api/no-idempotency-control`. F226 closed `createOrderViaApi`. These two
+     * were left, with the census's own note reading "nothing makes a repeated post idempotent".
+     *
+     * MEASURED BEFORE IT WAS FIXED, on both writers: a second post of one checkout wrote a SECOND
+     * order and decremented stock a SECOND time
+     * (`StorefrontOrderIntakeIdempotencyTest::test_a_repeated_checkout_post_does_not_write_a_second_order`).
+     *
+     * AND THE RETRY IS THE ORDINARY CASE HERE, not the attack. These are the storefront API's
+     * checkout endpoints; the client is a phone on a mobile network, where a request that timed
+     * out client-side has still arrived. `ApiResponser::error()` answering HTTP 200 makes it
+     * worse, because a client cannot tell a refusal from a success by status code alone.
+     *
+     * THE CART IS NOT THE CONTROL, which is the same lesson F269 recorded at the till. A completed
+     * order clears the cart, so a bare second post usually finds nothing to sell — but two
+     * requests in flight together each hold their own view of the basket, and neither sees the
+     * other's clear. The claim therefore lives in the cache: `Cache::add()` is a single atomic
+     * put-if-absent, an INSERT against the `cache` primary key on the production `database` store.
+     * Same primitive as F226, F269 and F270: one idempotency mechanism in this codebase, not four.
+     *
+     * THE FINGERPRINT IS SERVER-DERIVED. The store comes from the route's slug and the customer
+     * from `resolveStoreCustomer()` — the shared predicate CLAUDE.md names — never from
+     * `$request->customer_id`, which is caller input and which THIS HANDLER was once exploitable
+     * through. Two shoppers with identical baskets are separate claims because the customer
+     * differs; the same shopper posting the same basket twice inside the window is the duplicate
+     * this exists to stop.
+     */
+    private function storefrontIntakeFingerprint(array $products, int $storeId, int $customerId, $paymentType): string
+    {
+        $lines = [];
+
+        foreach ($products as $line) {
+            $line = is_object($line) ? (array) $line : (array) $line;
+
+            $lines[] = [
+                'id' => (string) ($line['product_id'] ?? $line['id'] ?? ''),
+                'variant' => (string) ($line['variant_id'] ?? ''),
+                'qty' => (string) ($line['qty'] ?? $line['quantity'] ?? ''),
+                'price' => (string) ($line['price'] ?? $line['final_price'] ?? ''),
+            ];
+        }
+
+        /* Sorted, so one basket assembled in a different order is one basket. */
+        usort($lines, fn ($a, $b) => [$a['id'], $a['variant']] <=> [$b['id'], $b['variant']]);
+
+        return 'storefront_intake:' . hash('sha256', json_encode([
+            'store' => $storeId,
+            'customer' => $customerId,
+            'payment' => is_scalar($paymentType) ? (string) $paymentType : '',
+            'lines' => $lines,
+        ]));
+    }
+
     public function place_order(Request $request, $slug = '')
     {
         $ssOrderWritten = false;
@@ -3406,6 +3477,39 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
             $billing = is_string($request->billing_info) ? (array) json_decode($request->billing_info) : $request->billing_info;
             $taxes = !empty($cartlist['tax_info']) ? $cartlist['tax_info'] : '';
             $products = $cartlist['product_list'];
+
+            /*
+             * F276. THE CLAIM, TAKEN BEFORE ANY STOCK MOVES. See
+             * `storefrontIntakeFingerprint()` for why the cart cannot be the control and why the
+             * fingerprint is server-derived.
+             */
+            $ssIntakeClaim = $this->storefrontIntakeFingerprint(
+                (array) $products,
+                (int) $store->id,
+                (int) $customerId,
+                $request->payment_type
+            );
+
+            if (! \Illuminate\Support\Facades\Cache::add($ssIntakeClaim, self::STOREFRONT_INTAKE_WRITING, now()->addSeconds(self::STOREFRONT_INTAKE_CLAIM_SECONDS))) {
+                $ssHeld = \Illuminate\Support\Facades\Cache::get($ssIntakeClaim);
+
+                /* THE ORDER ALREADY EXISTS, so the honest answer is the one the first post got --
+                   the same envelope carrying the SAME order id. The client gets its confirmation
+                   and the ledger holds one order. */
+                if (is_array($ssHeld) && ! empty($ssHeld['order_id'])) {
+                    return $this->success(['order_id' => $ssHeld['order_id'], 'slug' => $slug]);
+                }
+
+                /* The first post is still writing. There is no order id to hand back yet and
+                   nothing truthful to call a success. */
+                \Illuminate\Support\Facades\Log::warning('Storefront order intake refused as a duplicate submission', [
+                    'store_id' => $store->id,
+                    'customer_id' => $customerId,
+                    'path' => $request->path(),
+                ]);
+
+                return $this->error(['message' => __('This order is already being placed. Please wait a moment before trying again.')]);
+            }
         } else {
             return $this->error(['message' => 'User not found.']);
         }
@@ -3932,6 +4036,19 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
            that exists claims its goods, and returning them puts the shopper's items on the
            shelf for someone else while their order stands. */
         $ssOrderWritten = true;
+
+        /*
+         * F276. THE CLAIM NOW CARRIES THE ANSWER, written the instant "an order exists" becomes
+         * true and before the webhook, the mails and the rest. If any of those dies, the retry
+         * that follows must be told the order exists rather than allowed to place it again.
+         */
+        if (isset($ssIntakeClaim)) {
+            \Illuminate\Support\Facades\Cache::put(
+                $ssIntakeClaim,
+                ['order_id' => $order->id],
+                now()->addSeconds(self::STOREFRONT_INTAKE_CLAIM_SECONDS)
+            );
+        }
 
         Utility::paymentWebhook( $order );
         // add in  Order table end
@@ -8470,6 +8587,47 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
             $billing = $request->billing_info;
 
             $products = $cartlist['product_list'];
+
+            /*
+             * F276. THE CLAIM, TAKEN BEFORE ANY STOCK MOVES — the same control as `place_order`
+             * and for the same reason. See `storefrontIntakeFingerprint()`.
+             *
+             * `$customer_id`, the DERIVED value, not the request's: this handler's own docblock
+             * records that the else branch once took `$request->customer_id`, so a merchant's or
+             * driver's token placed an order in a shopper's name. A claim keyed on caller input
+             * would inherit that trust and let one principal sit on another's checkout.
+             */
+            $ssIntakeClaim = $this->storefrontIntakeFingerprint(
+                (array) $products,
+                (int) $store->id,
+                (int) $customer_id,
+                $request->payment_type
+            );
+
+            if (! \Illuminate\Support\Facades\Cache::add($ssIntakeClaim, self::STOREFRONT_INTAKE_WRITING, now()->addSeconds(self::STOREFRONT_INTAKE_CLAIM_SECONDS))) {
+                $ssHeld = \Illuminate\Support\Facades\Cache::get($ssIntakeClaim);
+
+                if (is_array($ssHeld) && ! empty($ssHeld['order_id'])) {
+                    $ssReplayOrder = \App\Models\Order::where('store_id', $store->id)
+                        ->where('id', $ssHeld['order_id'])
+                        ->first();
+
+                    /* THE ENVELOPE IS REBUILT FROM THE ROW, not cached wholesale. `ordersave`
+                       answers with the order DETAIL array, and a stale copy of that would
+                       misreport a status the merchant may have changed in the meantime. */
+                    if ($ssReplayOrder !== null) {
+                        return $this->success($ssReplayOrder->order_detail(), __('Order added successfully.'));
+                    }
+                }
+
+                \Illuminate\Support\Facades\Log::warning('Storefront order intake refused as a duplicate submission', [
+                    'store_id' => $store->id,
+                    'customer_id' => $customer_id,
+                    'path' => $request->path(),
+                ]);
+
+                return $this->error(['message' => __('This order is already being placed. Please wait a moment before trying again.')]);
+            }
         } else {
             return $this->error(['message' => __('User not found.')],  __('User not found.'));
         }
@@ -9153,6 +9311,19 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
            that exists claims its goods, and returning them puts the shopper's items on the
            shelf for someone else while their order stands. */
         $ssOrderWritten = true;
+
+        /*
+         * F276. THE CLAIM NOW CARRIES THE ANSWER, written the instant "an order exists" becomes
+         * true and before the webhook, the mails and the rest. If any of those dies, the retry
+         * that follows must be told the order exists rather than allowed to place it again.
+         */
+        if (isset($ssIntakeClaim)) {
+            \Illuminate\Support\Facades\Cache::put(
+                $ssIntakeClaim,
+                ['order_id' => $order->id],
+                now()->addSeconds(self::STOREFRONT_INTAKE_CLAIM_SECONDS)
+            );
+        }
         // P1-ORD-15: the posted values are IDS and this looked the city up by NAME, so every
         // order inserted a city named after an id. The state and country ids are kept too: the
         // order_billing_details columns below are joined to cities.id / states.id / countries.id
