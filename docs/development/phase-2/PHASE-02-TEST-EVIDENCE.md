@@ -10226,3 +10226,37 @@ offer, and failing on it would push the next author to delete a correct region r
 at it. It now filters on `offsetParent !== null` — behavioural, not an allowlist — and the
 assertion is still **zero**. Bitten: rendering the digest visible for an ungated staff member
 fails it again.
+
+### F257 — the one money figure on the dashboard counts cancelled orders (2026-11-01)
+
+`DashboardOrderValueTest` (9 tests, 26 assertions) was the last named item on Workstream C's
+recount list, and writing it found this.
+
+`$total_revenues` sums `final_price` over
+
+```php
+->where(function ($query) {
+    $query->where(function ($subquery) {
+        $subquery->where('delivered_status', '!=', 2)
+            ->where('delivered_status', '!=', 3);
+    })->orWhere('return_status', '!=', 2);
+})
+```
+
+The limbs are joined by **`orWhere`**. A cancelled order has `delivered_status = 2`, so the first
+group is false — and `return_status` defaults to `0`, so `0 != 2` is true and the order is
+counted anyway. The only orders the filter excludes are those whose return has been *approved*
+and which are also cancelled or returned by fulfilment status. The figure is, in practice, every
+order's total.
+
+Measured, not argued: `test_a_cancelled_order_is_counted_because_the_or_limb_admits_it` drives a
+400 delivered order and a 600 cancelled one and asserts the card reads 1,000. Changing the
+`orWhere` to `where` makes exactly that test fail, and nothing else.
+
+**Not fixed.** The label reads *"The total value of orders placed"*, and a cancelled order was
+placed — so one reading says the figure is right and the filter is dead weight. The other reading
+is that the filter's shape shows somebody meant to exclude cancellations. They disagree about a
+number the merchant reads, so it is **F257** for the owner. What this file does instead is pin
+the contract as it stands — gross order value, store-scoped, not payments received, gated on
+`Manage Order`, stating its period — so whichever way the decision goes, the change announces
+itself.
