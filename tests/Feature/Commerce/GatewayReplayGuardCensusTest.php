@@ -83,7 +83,13 @@ class GatewayReplayGuardCensusTest extends TestCase
     /** An authenticated merchant or the operator typing an order. */
     private const MERCHANT = 'merchant-or-operator';
 
-    /** A public storefront writer that is not a gateway return. */
+    /**
+     * A public storefront writer that is not a gateway return.
+     *
+     * The one member, `PaymentController::whatsapp`, is NOT uncontrolled: it holds an
+     * `ss_order_intake` lock and `WhatsappIntakeReplayTest` measures six cases through the real
+     * route. The bucket name says what KIND of writer it is, not that it is unprotected.
+     */
     private const PUBLIC_NON_GATEWAY = 'public-storefront/not-a-gateway-return';
 
     /** The parser sees a constructor call that is never persisted. */
@@ -142,12 +148,22 @@ class GatewayReplayGuardCensusTest extends TestCase
             . 'is not listed as protected.'],
 
         'PaymentController.php::whatsapp' => [self::PUBLIC_NON_GATEWAY,
-            'POST {storeSlug?}/whatsapp and POST {storeSlug?}/telegram, middleware web + '
-            . 'ActiveTheme + ThemeLanguage — NO auth. The order is written and the shopper then '
-            . 'messages the merchant, so there is no gateway arrival to replay and a '
-            . 'gateway-return claim is the wrong control. A repeated post is still a second order '
-            . 'and a second stock movement. The previous census reported this writer as guarded '
-            . 'because its sibling method in the same file claims.'],
+            'POST {storeSlug?}/whatsapp and POST {storeSlug?}/telegram (routes/customer.php:184-185), '
+            . 'middleware web + ActiveTheme + ThemeLanguage — NO auth. The order is written and '
+            . 'the shopper then messages the merchant, so there is no gateway arrival to replay '
+            . 'and a gateway-return claim is the wrong control. The previous census reported this '
+            . 'writer as guarded because its SIBLING method in the same file claims. '
+            . 'THIS NOTE USED TO END "a repeated post is still a second order and a second stock '
+            . 'movement", AND THAT IS REFUTED BY THIS PROJECT\'S OWN MEASUREMENT. `whatsapp()` '
+            . 'takes an `ss_order_intake` lock keyed on the same value the cart read uses to '
+            . 'decide what the basket contains, and `WhatsappIntakeReplayTest` (F227) drives six '
+            . 'cases through the real route: a sequential guest replay and a sequential customer '
+            . 'replay each write NO second order, and a held lock refuses the second caller. So '
+            . 'the duplication this note asserted does not occur. What F227 does record, and what '
+            . 'stands, is that the SEQUENTIAL refusal comes from the cart being consumed rather '
+            . 'than from a control anybody chose — it would stop protecting this path the moment '
+            . 'an order could be placed without emptying a cart. That is a conditional residual, '
+            . 'not an open duplication.'],
 
         'OrderController.php::store' => [self::MERCHANT,
             'The merchant typing an order by hand, on a CSRF-protected form. No third-party '
