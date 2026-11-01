@@ -147,6 +147,35 @@
                                                     <i class="fa fa-check text-danger me-1" style="margin-left: -5px;"></i> {{ __(' Cancel Order') }}
                                                 </a>
                                             @endif
+                                            {{--
+                                                E13 / D-32 — cancel the order and issue ONE linked
+                                                replacement with identical products, quantities and
+                                                prices.
+
+                                                `$ssCanReplaceOrder` is computed in
+                                                `OrderController::order_view()` and asks the SAME
+                                                four questions the service refuses on, so this is
+                                                offered only when it could proceed. The service
+                                                re-checks all four, including inside its
+                                                transaction — this is an affordance, not the
+                                                control.
+
+                                                It sits beside Cancel Order because that is what it
+                                                is: a cancel plus a reissue, gated on the same
+                                                `updateStatus` policy as any other status change.
+                                            --}}
+                                            @if (!empty($ssCanReplaceOrder))
+                                                <a class="dropdown-item ss-menu__item ss-menu__item--danger order_replace"
+                                                    href="#"
+                                                    data-url="{{ route('order.replace', $order['id']) }}"
+                                                    data-confirm="{{ __('Cancel and replace this order?') }}"
+                                                    data-text="{{ __('The original order is cancelled and a new order is created with the same products, quantities and prices. The original is kept and linked. This cannot be undone.') }}"
+                                                    data-text-yes="{{ __('Yes') }}"
+                                                    data-text-no="{{ __('No') }}"
+                                                    aria-label="{{ __('Cancel and replace order :id', ['id' => $order['order_id'] ?? $order['id']]) }}">
+                                                    <i class="ti ti-refresh text-danger me-1" style="margin-left: -5px;" aria-hidden="true"></i> {{ __('Cancel and Replace') }}
+                                                </a>
+                                            @endif
                                             @if ($order['order_status'] == 1 && $order['is_guest'] == 0)
                                                 <a class="dropdown-item order_status ss-menu__item ss-menu__item--danger" href="#" data-value="return">
                                                     <i class="fa fa-check text-danger me-1" style="margin-left: -5px;"></i> {{ __(' Return Order') }}
@@ -734,6 +763,86 @@ class="text-start ps-3"><b>{{ order_currency_format_with_sym($order['coupon_pric
                                 : '{{ __('Something went wrong. Please try again.') }}'));
                     show_toastr('{{ __('Error') }}', message, 'error')
                 }
+            });
+        });
+
+        /*
+         * E13 / D-32 — cancel and replace.
+         *
+         * NOT `.show_confirm`, deliberately. That shared handler ends in `form.submit()` on the
+         * trigger's closest form (custom.js:161), and this control is a menu anchor posting by
+         * AJAX — reusing it would either submit the wrong form or nothing. The DIALOG is mirrored
+         * exactly, including `reverseButtons` and the Bootstrap button classes, so a merchant sees
+         * the same confirmation they see everywhere else, and it reads the same four data-
+         * attributes.
+         *
+         * `e.preventDefault()` first, for the reason F204 records on the shared handler:
+         * SweetAlert resolves on a later tick, so the click's own default would otherwise run
+         * before the merchant has answered.
+         */
+        $(document).on('click', '.order_replace', function(e) {
+            e.preventDefault();
+
+            var url = $(this).attr('data-url');
+            var title = $(this).attr('data-confirm') || '{{ __('Are You Sure?') }}';
+            var text = $(this).attr('data-text') || '';
+            var yes = $(this).attr('data-text-yes') || '{{ __('Yes') }}';
+            var no = $(this).attr('data-text-no') || '{{ __('No') }}';
+
+            Swal.mixin({
+                customClass: {
+                    confirmButton: 'btn btn-success',
+                    cancelButton: 'btn btn-danger'
+                },
+                buttonsStyling: false
+            }).fire({
+                title: title,
+                text: text,
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonText: yes,
+                cancelButtonText: no,
+                reverseButtons: true
+            }).then(function(result) {
+                if (!result.isConfirmed) {
+                    return;
+                }
+
+                $('#loader').fadeIn();
+
+                $.ajax({
+                    url: url,
+                    method: 'POST',
+                    data: { _token: '{{ csrf_token() }}' },
+                    success: function(data) {
+                        $('#loader').fadeOut();
+
+                        /* THE HANDLER'S NAMED REFUSALS REACH THE MERCHANT. `order_replace()`
+                           answers `{status:false, message:<one of seven>}` at HTTP 200, so a
+                           refusal arrives HERE and not in `error:` — the same shape WS K found
+                           across the Flutter app. Showing `data.message` is what tells a merchant
+                           the order was already replaced rather than leaving the menu to look
+                           broken. */
+                        if (data.status == false) {
+                            show_toastr('{{ __('Error') }}', data.message, 'error');
+                            return;
+                        }
+
+                        show_toastr('{{ __('Success') }}', data.message, 'success');
+
+                        /* The original is cancelled and a new order exists; the page is showing
+                           stale status and no link to the replacement, so reload rather than
+                           patch half of it. */
+                        window.location.reload();
+                    },
+                    error: function(xhr) {
+                        $('#loader').fadeOut();
+                        var message = (xhr.responseJSON && xhr.responseJSON.message)
+                            ? xhr.responseJSON.message
+                            : '{{ __('Something was wrong.') }}';
+                        show_toastr('{{ __('Error') }}', message, 'error');
+                    }
+                });
             });
         });
 

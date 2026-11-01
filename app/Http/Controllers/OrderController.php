@@ -781,7 +781,38 @@ public function store(Request $request)
                  */
                 $orderSource = Order::where('id', $id)->value('order_source');
 
-                return view('order.view', compact('order', 'store', 'order_notes', 'deliveryboys', 'orderSource'));
+                /*
+                 * E13 / D-32. WHETHER TO OFFER THE CANCEL-AND-REPLACE CONTROL.
+                 *
+                 * `OrderReplacement::cancelAndReplace()`, `order_replace()` and the
+                 * `order-replace/{id}` route all shipped and were tested; NO VIEW RENDERED A
+                 * TRIGGER FOR ANY OF IT, so the approved capability was complete in the engine
+                 * and unreachable in the product. This is the whole gap, and the service is not
+                 * rebuilt or re-wrapped to close it.
+                 *
+                 * THE FOUR CONDITIONS ARE THE SERVICE'S OWN REFUSALS, asked here so the merchant
+                 * is not offered a control that is certain to be declined:
+                 *   available()            -> REFUSED_COLUMN_ABSENT
+                 *   updateStatus policy    -> REFUSED_NOT_AUTHORISED (OrderPolicy: Manage Order)
+                 *   delivered_status === 0 -> REFUSED_ALREADY_DISPATCHED
+                 *   no linked replacement  -> REFUSED_ALREADY_REPLACED
+                 *
+                 * THE SERVICE STILL RE-CHECKS EVERY ONE, including inside its transaction. This
+                 * is an affordance, never the control -- a view that decided authorisation would
+                 * be the defect, not the fix.
+                 *
+                 * Computed here rather than in Blade because two of the four are queries, and a
+                 * query in a view is how an N+1 reaches a list later.
+                 */
+                $ssOrderModel = Order::find($id);
+
+                $ssCanReplaceOrder = $ssOrderModel !== null
+                    && \App\Services\OrderReplacement::available()
+                    && \Illuminate\Support\Facades\Gate::allows('updateStatus', $ssOrderModel)
+                    && (int) $ssOrderModel->delivered_status === 0
+                    && ! Order::where('replaced_order_id', $ssOrderModel->id)->exists();
+
+                return view('order.view', compact('order', 'store', 'order_notes', 'deliveryboys', 'orderSource', 'ssCanReplaceOrder'));
             } catch (DecryptException $e) {
                 return redirect()->back()->with('error', __('Something was wrong.'));
             } catch (\Exception $e) {
