@@ -142,11 +142,22 @@ class DashboardOrderValueTest extends SecurityTestCase
     }
 
     /**
-     * F257, MEASURED RATHER THAN ARGUED. A cancelled order carries `delivered_status = 2` and the
-     * default `return_status = 0`; `0 != 2` is true, so the `orWhere` limb admits it. This is the
-     * behaviour as it ships.
+     * [2026-11-01] F257 IS DECIDED, AND THIS CASE IS INVERTED. The owner's decision: the dashboard's
+     * actionable order-value metric EXCLUDES cancelled orders.
+     *
+     * **THIS TEST USED TO ASSERT THE OPPOSITE, ON PURPOSE.** It read
+     * `test_a_cancelled_order_is_counted_because_the_or_limb_admits_it`, and its failure message
+     * said: *"the cancelled order is no longer counted — which may be an improvement, but it is a
+     * change to a reported business figure and belongs to the owner (F257), not to a refactor."*
+     * That was the right thing to assert while the decision was open: it held the shipped figure so
+     * no refactor could change a business number by accident. The decision has been taken, so the
+     * pin comes off.
+     *
+     * The old predicate excluded almost nothing. `where(delivered_status != 2 AND != 3) OR
+     * (return_status != 2)` — a cancelled order fails the first group and `return_status` defaults
+     * to 0, so `0 != 2` admits it through the second. It is now one AND-ed predicate.
      */
-    public function test_a_cancelled_order_is_counted_because_the_or_limb_admits_it(): void
+    public function test_a_cancelled_order_is_excluded(): void
     {
         $this->makeOrder($this->store, ['final_price' => 400.00, 'delivered_status' => HomeController::ORDER_STATUS_DELIVERED]);
         $this->makeOrder($this->store, [
@@ -156,25 +167,60 @@ class DashboardOrderValueTest extends SecurityTestCase
         ]);
         (new Order)->flushCache();
 
-        $this->assertSame($this->expectedFormat(1000.00), $this->renderedOrderValue(),
-            'the cancelled order is no longer counted — which may be an improvement, but it is a '
-            . 'change to a reported business figure and belongs to the owner (F257), not to a '
-            . 'refactor'
+        $this->assertSame($this->expectedFormat(400.00), $this->renderedOrderValue(),
+            'the cancelled order is still counted. 1000.00 means the OR limb is back; the owner '
+            . 'decided (F257) that this figure excludes cancellations'
         );
     }
 
-    /** The one combination the filter really does exclude. */
-    public function test_a_cancelled_order_whose_return_was_approved_is_excluded(): void
+    /**
+     * A CANCELLED ORDER IS EXCLUDED WHATEVER ITS RETURN STATUS, because the predicate no longer
+     * consults `return_status` at all. Both values are driven so a reintroduced OR limb fails here
+     * too rather than only in the case above.
+     */
+    public function test_a_cancelled_order_is_excluded_for_every_return_status(): void
+    {
+        $this->makeOrder($this->store, ['final_price' => 400.00, 'delivered_status' => HomeController::ORDER_STATUS_DELIVERED]);
+
+        foreach ([0, 1, 2] as $returnStatus) {
+            $this->makeOrder($this->store, [
+                'final_price' => 600.00,
+                'delivered_status' => HomeController::ORDER_STATUS_CANCEL,
+                'return_status' => $returnStatus,
+            ]);
+        }
+
+        (new Order)->flushCache();
+
+        $this->assertSame($this->expectedFormat(400.00), $this->renderedOrderValue(),
+            'a cancelled order was counted for some return_status, so the figure still depends on '
+            . 'a column the decision does not mention');
+    }
+
+    /**
+     * RETURNED ORDERS ARE STILL INCLUDED, and this pins that as a NON-decision rather than an
+     * oversight — the same service the inverted case above used to perform.
+     *
+     * The dead first group of the old predicate shows its author meant to exclude status 3 as well,
+     * and there is a case for it: a returned order's money came back just as a cancelled one's never
+     * arrived. But the owner's F257 decision names CANCELLED orders and nothing else, so excluding
+     * returns here would be inventing the next decision. If the owner wants it, this test is the one
+     * that flips.
+     */
+    public function test_a_returned_order_is_still_counted_pending_a_separate_decision(): void
     {
         $this->makeOrder($this->store, ['final_price' => 400.00, 'delivered_status' => HomeController::ORDER_STATUS_DELIVERED]);
         $this->makeOrder($this->store, [
             'final_price' => 600.00,
-            'delivered_status' => HomeController::ORDER_STATUS_CANCEL,
-            'return_status' => 2,
+            'delivered_status' => HomeController::ORDER_STATUS_RETURN,
         ]);
         (new Order)->flushCache();
 
-        $this->assertSame($this->expectedFormat(400.00), $this->renderedOrderValue());
+        $this->assertSame($this->expectedFormat(1000.00), $this->renderedOrderValue(),
+            'returned orders stopped being counted. That may well be right, but F257 decided '
+            . 'CANCELLED orders only — so this is a second reported-figure change and belongs to '
+            . 'the owner, not to a slice that was asked for the first one'
+        );
     }
 
     /**
@@ -210,6 +256,30 @@ class DashboardOrderValueTest extends SecurityTestCase
             . 'period is the commonest way a dashboard misleads'
         );
         $this->assertStringContainsString('This is not payments received, and not profit', $body);
+
+        /*
+         * F257 ASKED THE LABEL TO STATE FOUR THINGS: the meaning, the period, the currency and the
+         * exclusion. The first three were already there; the exclusion is new, and it has to be
+         * VISIBLE rather than only in the hint — a hint is hover-only, and a phone has no hover, so
+         * an exclusion a merchant cannot see is one they will not know about.
+         */
+        $this->assertStringContainsString('excluding cancelled', $body,
+            'the label does not say that cancelled orders are excluded, so a merchant comparing '
+            . 'this figure against their own order list has no way to reconcile the difference');
+
+        $this->assertMatchesRegularExpression(
+            '/all time, gross, excluding cancelled/',
+            $body,
+            'the exclusion is not on the visible period line'
+        );
+
+        /* THE CURRENCY. `currency_format_with_sym()` prints the STORE's symbol, so a merchant never
+           has to guess which currency a dashboard figure is in. Asserted against the store's own
+           formatter rather than a hardcoded symbol, so a store configured in another currency does
+           not fail this. */
+        $this->assertStringContainsString($this->expectedFormat(100.00), $body,
+            'the figure is not rendered through the store currency formatter, so it carries no '
+            . 'currency at all');
     }
 
     /**

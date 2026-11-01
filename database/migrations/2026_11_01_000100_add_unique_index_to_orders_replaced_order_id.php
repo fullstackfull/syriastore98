@@ -97,8 +97,15 @@ return new class extends Migration
     }
 
     /**
-     * Driver-agnostic, because this runs on SQLite in the suite and MySQL/MariaDB everywhere else
-     * and `SHOW INDEX` exists only on one of them. Laravel's own introspection covers both.
+     * Driver-agnostic introspection, because this runs on SQLite in the suite and MySQL/MariaDB
+     * everywhere else, and each has its own catalogue syntax. `Schema::getIndexes()` covers both,
+     * so no raw driver-specific statement is issued here at all.
+     *
+     * (Worded without naming MySQL's catalogue statement on purpose: `MigrationHygieneTest` scans
+     * migration FILES as text for MySQL-only SQL, and it cannot tell a comment from a query. It
+     * flagged this file when the previous wording mentioned that statement by name. The ratchet is
+     * right to be a dumb text scan — a smarter one is a parser nobody will maintain — so the
+     * comment moves rather than the check.)
      */
     private function indexExists(string $name): bool
     {

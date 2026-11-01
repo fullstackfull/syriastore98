@@ -2874,6 +2874,8 @@
     "Order value": "قيمة الطلبات",
     "all time": "من البداية",
     "all time, gross": "من البداية، قيمة إجمالية",
+    "all time, gross, excluding cancelled": "كل الفترات، إجمالي، باستثناء الملغاة",
+    "The total value of orders placed, in this store's currency, excluding orders that were cancelled. Returned orders are still included. This is not payments received, and not profit.": "إجمالي قيمة الطلبات المُسجَّلة، بعملة هذا المتجر، باستثناء الطلبات الملغاة. الطلبات المُرتجَعة لا تزال محتسبة. هذا ليس المبالغ المُحصَّلة ولا الربح.",
     "in this store": "في هذا المتجر",
     "last 7 days": "آخر ٧ أيام",
     "The total value of orders placed. This is not payments received, and not profit.": "القيمة الإجمالية للطلبات التي تم إنشاؤها. هذه ليست المبالغ المحصَّلة وليست الربح.",

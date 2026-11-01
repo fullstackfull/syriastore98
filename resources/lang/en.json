@@ -2843,6 +2843,8 @@
     "Order value": "Order value",
     "all time": "all time",
     "all time, gross": "all time, gross",
+    "all time, gross, excluding cancelled": "all time, gross, excluding cancelled",
+    "The total value of orders placed, in this store's currency, excluding orders that were cancelled. Returned orders are still included. This is not payments received, and not profit.": "The total value of orders placed, in this store's currency, excluding orders that were cancelled. Returned orders are still included. This is not payments received, and not profit.",
     "in this store": "in this store",
     "last 7 days": "last 7 days",
     "The total value of orders placed. This is not payments received, and not profit.": "The total value of orders placed. This is not payments received, and not profit.",

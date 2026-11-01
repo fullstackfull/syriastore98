@@ -281,12 +281,44 @@ class HomeController extends Controller
 
         $totle_cancel_order = (clone $orderQuery)->where('delivered_status', 2)->count();
 
-        $total_revenues = (clone $orderQuery)->where(function ($query) {
-            $query->where(function ($subquery) {
-                $subquery->where('delivered_status', '!=', 2)
-                    ->where('delivered_status', '!=', 3);
-            })->orWhere('return_status', '!=', 2);
-        })->sum('final_price');
+        /*
+         * F257 — OWNER DECISION: THE ACTIONABLE ORDER-VALUE FIGURE EXCLUDES CANCELLED ORDERS.
+         *
+         * WHAT THIS REPLACED, AND WHY IT EXCLUDED ALMOST NOTHING. The predicate was
+         *
+         *     where(delivered_status != 2 AND delivered_status != 3)
+         *     OR  (return_status != 2)
+         *
+         * and the two limbs are joined by **OR**. A cancelled order has `delivered_status = 2`, so
+         * it fails the first group — and `return_status` defaults to `0`, so `0 != 2` is TRUE and
+         * the second limb admits it anyway. The only orders the filter could exclude were those
+         * whose return has been APPROVED *and* which are also cancelled or returned by fulfilment
+         * status. In practice the figure was every order's total, cancellations included, while
+         * reading as though it excluded them.
+         *
+         * NOW: one AND-ed predicate, cancellations out.
+         *
+         * **RETURNS (status 3) ARE STILL INCLUDED, and that is a deliberate non-decision.** The
+         * dead first group above shows its author intended to exclude them too, and there is a case
+         * for it — a returned order's money came back just as a cancelled one's never arrived. But
+         * the owner's F257 decision names CANCELLED orders and nothing else, and widening it here
+         * would be inventing the next decision rather than implementing this one. Recorded as an
+         * open question in the ledger instead.
+         *
+         * **NOTHING FINANCIAL CHANGES.** This is a displayed metric: no settlement, no ledger, no
+         * transaction status, no merchant balance. The cancelled orders themselves are untouched and
+         * still counted by `$totle_cancel_order` and by the status breakdown, so the money is not
+         * hidden — it is attributed to the bucket that describes it.
+         *
+         * **PER-CUSTOMER LIFETIME SPEND IS A DIFFERENT REPORT AND IS NOT TOUCHED.**
+         * `Api\DashboardController` computes `$totalSpend` per customer over every order including
+         * cancellations. That answers "what has this customer spent with you", which is a different
+         * question with a different right answer, and the owner's instruction is to preserve such a
+         * report with an accurate label rather than silently change its meaning.
+         */
+        $total_revenues = (clone $orderQuery)
+            ->where('delivered_status', '!=', self::ORDER_STATUS_CANCEL)
+            ->sum('final_price');
 
         $topSellingProductIds = (clone $orderQuery)->pluck('product_id')
             ->flatMap(function ($productIds) {

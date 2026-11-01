@@ -16,8 +16,12 @@
 
     HONESTY, and these are not stylistic choices:
 
-    - `$total_revenues` is sum(final_price). It is labelled ORDER VALUE and
-      qualified "gross". It is not revenue, not cash collected and not profit.
+    - `$total_revenues` is sum(final_price) over every order EXCEPT cancelled
+      ones (F257, owner decision 2026-11-01). It is labelled ORDER VALUE and
+      qualified "gross, excluding cancelled". It is not revenue, not cash
+      collected and not profit. Returned orders are still included, which the
+      hint says: the owner's decision named cancellations and widening it would
+      be inventing the next decision.
       Phase 01's P1-PAY-04 established that Delivered is not Paid, and
       HANDOFF §13c records that an order's stored components cannot always
       reproduce its own final_price -- so the persisted total is shown and
@@ -343,10 +347,20 @@
              data exists, the viewer may not see it, and those are different
              statements. --}}
         @if ($ssMayOrders)
+            {{-- F257 — the label states all four things the owner asked for: what the figure
+                 MEANS, its reporting PERIOD, its CURRENCY, and what it EXCLUDES.
+
+                 The currency is carried by `currency_format_with_sym()`, which prints the store's
+                 own symbol rather than a hardcoded one — so a merchant never has to guess which
+                 currency a dashboard figure is in.
+
+                 "excluding cancelled" is in the PERIOD line, not only the hint, because a hint is
+                 hover-only: on a phone there is no hover, and an exclusion a merchant cannot see
+                 is an exclusion they will not know about. --}}
             <x-ss.stat :label="__('Order value')"
                        :value="currency_format_with_sym($total_revenues ?? 0, getCurrentStore())"
-                       :period="__('all time, gross')"
-                       :hint="__('The total value of orders placed. This is not payments received, and not profit.')" />
+                       :period="__('all time, gross, excluding cancelled')"
+                       :hint="__('The total value of orders placed, in this store\'s currency, excluding orders that were cancelled. Returned orders are still included. This is not payments received, and not profit.')" />
         @endif
 
         <x-ss.stat :label="__('Customers')"
