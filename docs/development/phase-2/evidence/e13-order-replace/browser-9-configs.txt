@@ -1,0 +1,219 @@
+E13 cancel-and-replace control — 9 configurations
+
+  ok    desktop en/ltr/light — premise: the three fixture orders are reachable from the list
+  ok    desktop en/ltr/light — the order-status menu opens
+  ok    desktop en/ltr/light — the control is on a replaceable order
+  ok    desktop en/ltr/light — and it is actually VISIBLE once the menu is open
+  ok    desktop en/ltr/light — rendered beside the existing cancel control
+  ok    desktop en/ltr/light — it carries the replacement route, not a bare class (order-replace/1)
+  ok    desktop en/ltr/light — it has an accessible name
+  ok    desktop en/ltr/light — it is keyboard-reachable
+  ok    desktop en/ltr/light — its icon is hidden from assistive tech
+  ok    desktop en/ltr/light — the label reaches 4.5:1 (9.1177)
+  ok    desktop en/ltr/light — the control sits inside the viewport
+  ok    desktop en/ltr/light — the page does not scroll sideways (1440 vs 1440)
+  ok    desktop en/ltr/light — the confirmation title is set
+  ok    desktop en/ltr/light — the confirmation body is set
+  ok    desktop en/ltr/light — the button label is set
+  ok    desktop en/ltr/light — the page is LTR (dir=ltr)
+  ok    desktop en/ltr/light — clicking opens a confirmation
+  ok    desktop en/ltr/light — and sends NOTHING before the merchant confirms (0 POSTs)
+  ok    desktop en/ltr/light — Escape dismisses it
+  ok    desktop en/ltr/light — Escape sends nothing (0 POSTs)
+  ok    desktop en/ltr/light — the control is withheld on a cancelled order (ORD-2045)
+  ok    desktop en/ltr/light — the control is withheld on a dispatched order (ORD-2044)
+  ok    desktop en/ltr/light — no page errors or 5xx
+  ok    desktop en/ltr/dark — premise: the three fixture orders are reachable from the list
+  ok    desktop en/ltr/dark — the order-status menu opens
+  ok    desktop en/ltr/dark — the control is on a replaceable order
+  ok    desktop en/ltr/dark — and it is actually VISIBLE once the menu is open
+  ok    desktop en/ltr/dark — rendered beside the existing cancel control
+  ok    desktop en/ltr/dark — it carries the replacement route, not a bare class (order-replace/1)
+  ok    desktop en/ltr/dark — it has an accessible name
+  ok    desktop en/ltr/dark — it is keyboard-reachable
+  ok    desktop en/ltr/dark — its icon is hidden from assistive tech
+  ok    desktop en/ltr/dark — the label reaches 4.5:1 (6.8876)
+  ok    desktop en/ltr/dark — the control sits inside the viewport
+  ok    desktop en/ltr/dark — the page does not scroll sideways (1440 vs 1440)
+  ok    desktop en/ltr/dark — the confirmation title is set
+  ok    desktop en/ltr/dark — the confirmation body is set
+  ok    desktop en/ltr/dark — the button label is set
+  ok    desktop en/ltr/dark — the page is LTR (dir=ltr)
+  ok    desktop en/ltr/dark — clicking opens a confirmation
+  ok    desktop en/ltr/dark — and sends NOTHING before the merchant confirms (0 POSTs)
+  ok    desktop en/ltr/dark — Escape dismisses it
+  ok    desktop en/ltr/dark — Escape sends nothing (0 POSTs)
+  ok    desktop en/ltr/dark — the control is withheld on a cancelled order (ORD-2045)
+  ok    desktop en/ltr/dark — the control is withheld on a dispatched order (ORD-2044)
+  ok    desktop en/ltr/dark — no page errors or 5xx
+  ok    desktop ar/rtl/light — premise: the three fixture orders are reachable from the list
+  ok    desktop ar/rtl/light — the order-status menu opens
+  ok    desktop ar/rtl/light — the control is on a replaceable order
+  ok    desktop ar/rtl/light — and it is actually VISIBLE once the menu is open
+  ok    desktop ar/rtl/light — rendered beside the existing cancel control
+  ok    desktop ar/rtl/light — it carries the replacement route, not a bare class (order-replace/1)
+  ok    desktop ar/rtl/light — it has an accessible name
+  ok    desktop ar/rtl/light — it is keyboard-reachable
+  ok    desktop ar/rtl/light — its icon is hidden from assistive tech
+  ok    desktop ar/rtl/light — the label reaches 4.5:1 (9.1177)
+  ok    desktop ar/rtl/light — the control sits inside the viewport
+  ok    desktop ar/rtl/light — the page does not scroll sideways (1440 vs 1440)
+  ok    desktop ar/rtl/light — the confirmation title is Arabic, not the English literal
+  ok    desktop ar/rtl/light — the confirmation body is Arabic, not the English literal
+  ok    desktop ar/rtl/light — the button label is Arabic
+  ok    desktop ar/rtl/light — the page direction is the store's setting, not the locale (dir=rtl, expected rtl)
+  ok    desktop ar/rtl/light — clicking opens a confirmation
+  ok    desktop ar/rtl/light — and sends NOTHING before the merchant confirms (0 POSTs)
+  ok    desktop ar/rtl/light — Escape dismisses it
+  ok    desktop ar/rtl/light — Escape sends nothing (0 POSTs)
+  ok    desktop ar/rtl/light — the control is withheld on a cancelled order (ORD-2045)
+  ok    desktop ar/rtl/light — the control is withheld on a dispatched order (ORD-2044)
+  ok    desktop ar/rtl/light — no page errors or 5xx
+  ok    desktop ar/rtl/dark — premise: the three fixture orders are reachable from the list
+  ok    desktop ar/rtl/dark — the order-status menu opens
+  ok    desktop ar/rtl/dark — the control is on a replaceable order
+  ok    desktop ar/rtl/dark — and it is actually VISIBLE once the menu is open
+  ok    desktop ar/rtl/dark — rendered beside the existing cancel control
+  ok    desktop ar/rtl/dark — it carries the replacement route, not a bare class (order-replace/1)
+  ok    desktop ar/rtl/dark — it has an accessible name
+  ok    desktop ar/rtl/dark — it is keyboard-reachable
+  ok    desktop ar/rtl/dark — its icon is hidden from assistive tech
+  ok    desktop ar/rtl/dark — the label reaches 4.5:1 (6.8876)
+  ok    desktop ar/rtl/dark — the control sits inside the viewport
+  ok    desktop ar/rtl/dark — the page does not scroll sideways (1440 vs 1440)
+  ok    desktop ar/rtl/dark — the confirmation title is Arabic, not the English literal
+  ok    desktop ar/rtl/dark — the confirmation body is Arabic, not the English literal
+  ok    desktop ar/rtl/dark — the button label is Arabic
+  ok    desktop ar/rtl/dark — the page direction is the store's setting, not the locale (dir=rtl, expected rtl)
+  ok    desktop ar/rtl/dark — clicking opens a confirmation
+  ok    desktop ar/rtl/dark — and sends NOTHING before the merchant confirms (0 POSTs)
+  ok    desktop ar/rtl/dark — Escape dismisses it
+  ok    desktop ar/rtl/dark — Escape sends nothing (0 POSTs)
+  ok    desktop ar/rtl/dark — the control is withheld on a cancelled order (ORD-2045)
+  ok    desktop ar/rtl/dark — the control is withheld on a dispatched order (ORD-2044)
+  ok    desktop ar/rtl/dark — no page errors or 5xx
+  ok    mobile en/ltr/light — premise: the three fixture orders are reachable from the list
+  ok    mobile en/ltr/light — the order-status menu opens
+  ok    mobile en/ltr/light — the control is on a replaceable order
+  ok    mobile en/ltr/light — and it is actually VISIBLE once the menu is open
+  ok    mobile en/ltr/light — rendered beside the existing cancel control
+  ok    mobile en/ltr/light — it carries the replacement route, not a bare class (order-replace/1)
+  ok    mobile en/ltr/light — it has an accessible name
+  ok    mobile en/ltr/light — it is keyboard-reachable
+  ok    mobile en/ltr/light — its icon is hidden from assistive tech
+  ok    mobile en/ltr/light — the label reaches 4.5:1 (9.1177)
+  ok    mobile en/ltr/light — the control sits inside the viewport
+  ok    mobile en/ltr/light — the page does not scroll sideways (390 vs 390)
+  ok    mobile en/ltr/light — the confirmation title is set
+  ok    mobile en/ltr/light — the confirmation body is set
+  ok    mobile en/ltr/light — the button label is set
+  ok    mobile en/ltr/light — the page is LTR (dir=ltr)
+  ok    mobile en/ltr/light — clicking opens a confirmation
+  ok    mobile en/ltr/light — and sends NOTHING before the merchant confirms (0 POSTs)
+  ok    mobile en/ltr/light — Escape dismisses it
+  ok    mobile en/ltr/light — Escape sends nothing (0 POSTs)
+  ok    mobile en/ltr/light — the control is withheld on a cancelled order (ORD-2045)
+  ok    mobile en/ltr/light — the control is withheld on a dispatched order (ORD-2044)
+  ok    mobile en/ltr/light — no page errors or 5xx
+  ok    mobile en/ltr/dark — premise: the three fixture orders are reachable from the list
+  ok    mobile en/ltr/dark — the order-status menu opens
+  ok    mobile en/ltr/dark — the control is on a replaceable order
+  ok    mobile en/ltr/dark — and it is actually VISIBLE once the menu is open
+  ok    mobile en/ltr/dark — rendered beside the existing cancel control
+  ok    mobile en/ltr/dark — it carries the replacement route, not a bare class (order-replace/1)
+  ok    mobile en/ltr/dark — it has an accessible name
+  ok    mobile en/ltr/dark — it is keyboard-reachable
+  ok    mobile en/ltr/dark — its icon is hidden from assistive tech
+  ok    mobile en/ltr/dark — the label reaches 4.5:1 (6.8876)
+  ok    mobile en/ltr/dark — the control sits inside the viewport
+  ok    mobile en/ltr/dark — the page does not scroll sideways (390 vs 390)
+  ok    mobile en/ltr/dark — the confirmation title is set
+  ok    mobile en/ltr/dark — the confirmation body is set
+  ok    mobile en/ltr/dark — the button label is set
+  ok    mobile en/ltr/dark — the page is LTR (dir=ltr)
+  ok    mobile en/ltr/dark — clicking opens a confirmation
+  ok    mobile en/ltr/dark — and sends NOTHING before the merchant confirms (0 POSTs)
+  ok    mobile en/ltr/dark — Escape dismisses it
+  ok    mobile en/ltr/dark — Escape sends nothing (0 POSTs)
+  ok    mobile en/ltr/dark — the control is withheld on a cancelled order (ORD-2045)
+  ok    mobile en/ltr/dark — the control is withheld on a dispatched order (ORD-2044)
+  ok    mobile en/ltr/dark — no page errors or 5xx
+  ok    mobile ar/rtl/light — premise: the three fixture orders are reachable from the list
+  ok    mobile ar/rtl/light — the order-status menu opens
+  ok    mobile ar/rtl/light — the control is on a replaceable order
+  ok    mobile ar/rtl/light — and it is actually VISIBLE once the menu is open
+  ok    mobile ar/rtl/light — rendered beside the existing cancel control
+  ok    mobile ar/rtl/light — it carries the replacement route, not a bare class (order-replace/1)
+  ok    mobile ar/rtl/light — it has an accessible name
+  ok    mobile ar/rtl/light — it is keyboard-reachable
+  ok    mobile ar/rtl/light — its icon is hidden from assistive tech
+  ok    mobile ar/rtl/light — the label reaches 4.5:1 (9.1177)
+  ok    mobile ar/rtl/light — the control sits inside the viewport
+  ok    mobile ar/rtl/light — the page does not scroll sideways (390 vs 390)
+  ok    mobile ar/rtl/light — the confirmation title is Arabic, not the English literal
+  ok    mobile ar/rtl/light — the confirmation body is Arabic, not the English literal
+  ok    mobile ar/rtl/light — the button label is Arabic
+  ok    mobile ar/rtl/light — the page direction is the store's setting, not the locale (dir=rtl, expected rtl)
+  ok    mobile ar/rtl/light — clicking opens a confirmation
+  ok    mobile ar/rtl/light — and sends NOTHING before the merchant confirms (0 POSTs)
+  ok    mobile ar/rtl/light — Escape dismisses it
+  ok    mobile ar/rtl/light — Escape sends nothing (0 POSTs)
+  ok    mobile ar/rtl/light — the control is withheld on a cancelled order (ORD-2045)
+  ok    mobile ar/rtl/light — the control is withheld on a dispatched order (ORD-2044)
+  ok    mobile ar/rtl/light — no page errors or 5xx
+  ok    mobile ar/rtl/dark — premise: the three fixture orders are reachable from the list
+  ok    mobile ar/rtl/dark — the order-status menu opens
+  ok    mobile ar/rtl/dark — the control is on a replaceable order
+  ok    mobile ar/rtl/dark — and it is actually VISIBLE once the menu is open
+  ok    mobile ar/rtl/dark — rendered beside the existing cancel control
+  ok    mobile ar/rtl/dark — it carries the replacement route, not a bare class (order-replace/1)
+  ok    mobile ar/rtl/dark — it has an accessible name
+  ok    mobile ar/rtl/dark — it is keyboard-reachable
+  ok    mobile ar/rtl/dark — its icon is hidden from assistive tech
+  ok    mobile ar/rtl/dark — the label reaches 4.5:1 (6.8876)
+  ok    mobile ar/rtl/dark — the control sits inside the viewport
+  ok    mobile ar/rtl/dark — the page does not scroll sideways (390 vs 390)
+  ok    mobile ar/rtl/dark — the confirmation title is Arabic, not the English literal
+  ok    mobile ar/rtl/dark — the confirmation body is Arabic, not the English literal
+  ok    mobile ar/rtl/dark — the button label is Arabic
+  ok    mobile ar/rtl/dark — the page direction is the store's setting, not the locale (dir=rtl, expected rtl)
+  ok    mobile ar/rtl/dark — clicking opens a confirmation
+  ok    mobile ar/rtl/dark — and sends NOTHING before the merchant confirms (0 POSTs)
+  ok    mobile ar/rtl/dark — Escape dismisses it
+  ok    mobile ar/rtl/dark — Escape sends nothing (0 POSTs)
+  ok    mobile ar/rtl/dark — the control is withheld on a cancelled order (ORD-2045)
+  ok    mobile ar/rtl/dark — the control is withheld on a dispatched order (ORD-2044)
+  ok    mobile ar/rtl/dark — no page errors or 5xx
+  ok    desktop en/rtl/light — premise: the three fixture orders are reachable from the list
+  ok    desktop en/rtl/light — the order-status menu opens
+  ok    desktop en/rtl/light — the control is on a replaceable order
+  ok    desktop en/rtl/light — and it is actually VISIBLE once the menu is open
+  ok    desktop en/rtl/light — rendered beside the existing cancel control
+  ok    desktop en/rtl/light — it carries the replacement route, not a bare class (order-replace/1)
+  ok    desktop en/rtl/light — it has an accessible name
+  ok    desktop en/rtl/light — it is keyboard-reachable
+  ok    desktop en/rtl/light — its icon is hidden from assistive tech
+  ok    desktop en/rtl/light — the label reaches 4.5:1 (9.1177)
+  ok    desktop en/rtl/light — the control sits inside the viewport
+  ok    desktop en/rtl/light — the page does not scroll sideways (1440 vs 1440)
+  ok    desktop en/rtl/light — the confirmation title is set
+  ok    desktop en/rtl/light — the confirmation body is set
+  ok    desktop en/rtl/light — the button label is set
+  ok    desktop en/rtl/light — the page is RTL (dir=rtl)
+  ok    desktop en/rtl/light — clicking opens a confirmation
+  ok    desktop en/rtl/light — and sends NOTHING before the merchant confirms (0 POSTs)
+  ok    desktop en/rtl/light — Escape dismisses it
+  ok    desktop en/rtl/light — Escape sends nothing (0 POSTs)
+  ok    desktop en/rtl/light — the control is withheld on a cancelled order (ORD-2045)
+  ok    desktop en/rtl/light — the control is withheld on a dispatched order (ORD-2044)
+  ok    desktop en/rtl/light — no page errors or 5xx
+
+  confirming for real (once), then restoring the fixture
+  ok    confirm — exactly ONE POST is sent (1)
+  ok    confirm — a replacement row exists and is linked (1)
+  ok    confirm — the original is cancelled (delivered_status=2)
+  fixture: restored: order 1 is delivered_status=0, 1 replacement(s) removed
+  ok    the fixture order was put back for the next run
+
+passed: 211   failed: 0
+screenshots: /tmp/claude-0/-home-user/b6125cbb-7240-5aaa-aa1c-26f6eb6655a3/scratchpad/finalgate/e13-shots3
