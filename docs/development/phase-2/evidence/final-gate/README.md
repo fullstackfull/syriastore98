@@ -101,3 +101,45 @@ run. The script now asserts the new behaviour with the whole account in its own 
   editing it.
 - **Not production readiness.** A passing gate is necessary evidence, not proof of a releasable
   build. Phase 01's closure gates and Issue #120 are untouched and still owed.
+
+---
+
+## WS C closure gate — `9cc93380` (2026-11-01)
+
+`gate-9cc93380.txt`. Run on the HEAD that closes Workstream C, with provenance captured at BOTH
+ends of the run rather than only at launch:
+
+```
+HEAD_AT_LAUNCH  = 9cc933809177721af3dda8bede6ad7cc1e1b9871   DIRTY_AT_LAUNCH  = 0
+HEAD_AT_FINISH  = 9cc933809177721af3dda8bede6ad7cc1e1b9871   DIRTY_AT_FINISH  = 0
+```
+
+Both ends, because a gate measures a commit only if the tree is quiescent for the WHOLE run —
+two earlier runs in this phase were voided when the tree moved underneath them, and the second
+of those was caught only by `DIRTY_AT_FINISH`.
+
+Result: **7229 passed, 2 failures, 17 skips, 0 errors — the manifest's set exactly.**
+
+### The run before it was RED, and that is the part worth recording
+
+The first run of this gate, on `ccf0e6d6`, reported **3** failures against a manifest declaring 2.
+The extra one was `SecurityLogInventoryTest::test_the_observability_inventory_matches_the_source`:
+
+```
+These security log lines exist in app/ and are NOT in
+docs/security/P01-OBSERVABILITY-INVENTORY.md. A line with no entry in the inventory is a
+line with no stated destination:
+  app/Http/Controllers/Concerns/RefusesDeferredGateway.php:130
+  app/Http/Controllers/Concerns/RefusesDeferredGateway.php:180
+```
+
+**Not a Workstream C regression.** The D-33 correction (`6df1ea07`) added a second `Log::warning`
+to `RefusesDeferredGateway` and moved the first; neither reached the inventory. It had been
+failing since that commit was pushed, and this was the first gate run on a clean HEAD since —
+which is the whole argument for running the gate on a quiescent tree rather than inferring from
+targeted suites, and the reason the directive says nothing substitutes for it.
+
+Repaired the way the test itself prescribes: the genuinely NEW line added by hand, because
+`resync-observability-inventory.py` refuses to invent a destination for a line no person has
+described, and then `--write` to re-point the one that had only moved (`:100` → `:180`). Two
+lines of diff. `SecurityLogInventoryTest` 5/5.
