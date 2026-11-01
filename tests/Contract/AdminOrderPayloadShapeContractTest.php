@@ -189,9 +189,39 @@ class AdminOrderPayloadShapeContractTest extends SecurityTestCase
             'the payload does not carry the order number where this test expects it, so the shape '
             . 'being compared may not be the order list at all');
 
-        /* Drop it and ask again, mirroring the migration's own `down()`. */
-        Schema::table('orders', function ($table) {
-            $table->dropIndex('orders_replaced_order_id_index');
+        /*
+         * Drop it and ask again, mirroring BOTH migrations' `down()`.
+         *
+         * [2026-11-01] THE UNIQUE INDEX HAD TO BE ADDED HERE, and the failure was informative:
+         * migration `2026_11_01_000100` adds `orders_replaced_order_id_unique` so that
+         * "one replacement per original" is a database fact (D-15 condition 8). SQLite then refuses
+         * the column drop with
+         *
+         *     error in index orders_replaced_order_id_unique after drop column:
+         *     no such column: replaced_order_id
+         *
+         * — an index cannot outlive the column it is on. The index must go first, and both indexes
+         * are dropped defensively because which ones exist depends on how far the migrations ran.
+         */
+        /*
+         * INTROSPECTED, NOT try/caught. A `try` around `$table->dropIndex()` catches nothing:
+         * Blueprint QUEUES the statement and the builder executes it after the closure returns, so
+         * a failure is raised outside the try. Both indexes happen to exist here, so a try/catch
+         * version passed — and would have thrown the moment only one did, which is exactly the
+         * kind of guard that works until it matters.
+         */
+        $present = array_map(
+            static fn ($index) => $index['name'] ?? '',
+            Schema::getIndexes('orders')
+        );
+
+        Schema::table('orders', function ($table) use ($present) {
+            foreach (['orders_replaced_order_id_unique', 'orders_replaced_order_id_index'] as $index) {
+                if (in_array($index, $present, true)) {
+                    $table->dropIndex($index);
+                }
+            }
+
             $table->dropColumn('replaced_order_id');
         });
 

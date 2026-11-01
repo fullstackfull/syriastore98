@@ -334,7 +334,40 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // ServiceLayerRawQueryInventoryTest::STORE_LESS_BY_DESIGN, ratcheted by
         // PlanPurchaseIntentTest and driven on a real engine (two connections racing) by
         // verify-plan-purchase-intent-on-mysql.php.
-        $this->assertSame(['app' => 170, 'packages' => 45], $perDir,
+        /*
+         * 170 -> 174 on 2026-11-01, FOUR NEW SITES, ALL STORE-SCOPED — and this census had already
+         * been RED for several commits, which is the finding worth recording beside the number.
+         *
+         * Measured by running this file's own scan over `git archive <sha> app` for each commit
+         * since the last full gate, rather than inferred:
+         *
+         *     4852b380  170   <- the last sha the Feature gate was actually run on
+         *     401a185c  170
+         *     bc9ff2a5  171   <- P0 / E13 added the replacement lock read
+         *     59c79155  174   <- P1 / F242 added three in TopSellersByRevenue
+         *     bbc712a6  174
+         *     9f9fff7d  174
+         *
+         * So two committed slices moved the count and neither moved this assertion. The gate was
+         * failing from `bc9ff2a5` onward and nobody looked, because it was not run again until this
+         * pass. **That is a process failure, not a code one** — the ratchet did exactly its job the
+         * moment it was executed — and it is the reason the final verification runs the whole gate
+         * on a frozen tree rather than trusting per-slice runs.
+         *
+         * THE FOUR SITES:
+         *   - `app/Services/OrderReplacement.php` +1 — the `lockForUpdate()` re-read of the
+         *     original order (D-15 condition 8), now carrying `->where('store_id',
+         *     $original->store_id)`.
+         *   - `app/Support/TopSellersByRevenue.php` +3 — `DB::table('products')`,
+         *     `DB::table($table)` and `DB::table('orders')`, each with `->where('store_id',
+         *     $storeId)`. `$table` comes from a hardcoded `match` on the dimension, never from
+         *     request input, so the variable table name is not a caller-controlled identifier.
+         *
+         * Only three of the four reach the per-table census below, because `DB::table($table)` has
+         * no literal name for `LITERAL_TABLE_PATTERN` to capture. That is why `app` moves by 4 while
+         * the per-table rows move by 3.
+         */
+        $this->assertSame(['app' => 174, 'packages' => 45], $perDir,
             'The raw query-builder entry-point count moved. Every one of these is invisible to '
             . 'every Eloquent global scope, so a NEW site needs an explicit `store_id` predicate '
             . 'written at the call site -- there is no other remedy. A REMOVED one probably means '
@@ -402,7 +435,9 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // is deliberate rather than drift: the table carries no store_id column at all, so
         // there is nothing to scope by. Each one is declared with its reason and the isolation
         // is per-purchaser. See the note on the per-directory assertion above.
-        $this->assertSame(215, array_sum($perDir));
+        // 215 -> 219 [2026-11-01]: the same four sites as the per-directory assertion above
+        // (174 + 45). Stated here as well because this sum is what a reader quotes.
+        $this->assertSame(219, array_sum($perDir));
     }
 
     /**
@@ -509,7 +544,10 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // row it returns, for the engine reason recorded on the per-directory assertion above.
             'order_partial_payments' => [1, 0],
             'order_refunds' => [2, 2],    // P1-ORD-12: OrderDocumentAccessGuard resolves a refund id to its order id; the ORDER's store is what is compared to the caller
-            'orders' => [1, 0],
+            // 1 -> 3 [2026-11-01]: OrderReplacement's lockForUpdate re-read (E13 / D-15 condition 8) and
+            // TopSellersByRevenue's line-revenue query (F242). **THE UNSCOPED HALF STAYS AT 0, which is the
+            // assertion that matters** -- both new sites name `store_id` at the call site.
+            'orders' => [3, 0],
             'owner_menu_items' => [1, 1],
             'owner_menu_settings' => [1, 1],
             'owner_menus' => [1, 1],
@@ -539,7 +577,7 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // remedy is, uniquely here, the defect. Verified on MySQL 8.0.46 by
             // tests/Support/Security/bin/verify-category-product-cascade-on-mysql.php (6 checks, 0 failures) and by
             // mutant B of the removal check. None of the three returns rows -- each is a COUNT read only to refuse.
-            'products' => [6, 3],     // 1 -> 2 with P1-SEC-04 ModuleStorefrontInputGuard::productOfStoreOrAbsent, WITH a store_id predicate -- the product must be the slug store's own. 5 -> 6 total [2026-10-30, F207 / D-29.2] with ModuleResourceOwnershipGuard:523's existence check; THE UNSCOPED HALF STAYS AT 3, which is the assertion that matters -- the new site names `store_id`
+            'products' => [7, 3],     // 1 -> 2 with P1-SEC-04 ModuleStorefrontInputGuard::productOfStoreOrAbsent, WITH a store_id predicate -- the product must be the slug store's own. 5 -> 6 total [2026-10-30, F207 / D-29.2] with ModuleResourceOwnershipGuard:523's existence check; THE UNSCOPED HALF STAYS AT 3, which is the assertion that matters -- the new site names `store_id`. 6 -> 7 [2026-11-01, F242] with TopSellersByRevenue:106's dimension lookup, AGAIN WITH a store_id predicate, so the unscoped half still does not move
             'settings' => [17, 5],   // 16 -> 17 with P1-SEC-11 criterion 4's review follow-up (DocumentDirection::ownRow reads the ORDER store's SITE_RTL and invoice_logo rows, WITH a store_id predicate -- see the entry-point note above for why it cannot go through GetValueByName); 15 -> 16 with P1-SEC-11 (OrderController::shippinglabel reads the order store's five address rows, WITH a store_id predicate); earlier: 15 -> 16 with P1-SEC-27 (StoreSettingsAccess::storedRows, WITH a store_id predicate); 16 -> 15 and 9 -> 5 with P1-SEC-29 (HostClaims)
             'shetabit_visits' => [16, 0],
             'side_menus_option' => [28, 0],
@@ -642,10 +680,17 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // LIMIT 2 in this class's docblock rather than a new weakness. What covers them instead is
         // direct: GatewayReferenceIdempotencyTest drives tenant isolation on the service, and the
         // per-directory assertion above counts all six.
-        $this->assertSame(164, array_sum(array_map(fn ($r) => $r[0], $actual)),
-            '164 literal-table sites of the 207 entry points; the other 43 build their table name '
+        $this->assertSame(167, array_sum(array_map(fn ($r) => $r[0], $actual)),
+            '167 literal-table sites of the 219 entry points; the other 52 build their table name '
             . 'from a variable or a class constant and so cannot be attributed (see LIMIT 2 in '
-            . 'this class docblock). 41 -> 43 on 2026-10-31 [F237]: both of '
+            . 'this class docblock). [2026-11-01] THIS MESSAGE SAID "164 of 207 / the other 43" '
+            . 'while the assertion itself read 164 and the real total was 215 -- the number in the '
+            . 'ASSERTION was ratcheted and the numbers in its own MESSAGE were not, which is the '
+            . 'same split this file keeps finding elsewhere. Measured now: 167 + 52 = 219. '
+            . '164 -> 167 [F242 / E13]: TopSellersByRevenue adds two literal sites (products, '
+            . 'orders) and OrderReplacement one (orders); its third statement names the table '
+            . 'through a variable and so joins the unattributable remainder. '
+            . '41 -> 43 on 2026-10-31 [F237]: both of '
             . '`StockMovement::attributionStateFor()`\'s statements name the table through '
             . '`self::TABLE`, so they join that unattributable remainder for the same reason '
             . 'F216\'s four GatewayReference statements did. What covers them instead is direct: '

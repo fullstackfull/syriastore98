@@ -829,6 +829,139 @@ class OrderReplacementTest extends SecurityTestCase
         }
     }
 
+    /**
+     * D-15 CONDITION 8, THE PAYMENT HALF — THE STATE CAN CHANGE WHILE THE MERCHANT IS DECIDING,
+     * AND THE GATE ALONE WAS ANSWERED ABOUT A STATE THAT NO LONGER EXISTED.
+     *
+     * ══════════════════════════════════════════════════════════════════════════════════════════
+     * THE WINDOW, AND WHY IT IS REAL RATHER THAN THEORETICAL
+     * ══════════════════════════════════════════════════════════════════════════════════════════
+     *
+     * `payment_status` is NOT written by the merchant on the order screen. It is written by gateway
+     * returns and provider callbacks, which arrive whenever the provider sends them. So the
+     * sequence that matters is:
+     *
+     *   1. the merchant opens an UNPAID order; `eligibility()` answers `REPLACED`
+     *   2. a provider callback marks that same order `Paid`
+     *   3. the merchant clicks Replace
+     *
+     * Before this change, step 3 proceeded: `cancelAndReplace()` re-tested the dispatch state and
+     * the already-replaced state under the row lock, and **not the payment state**. The order whose
+     * money had just been collected was cancelled and reissued — the exact case D-15 condition 3
+     * refuses — reached through a window rather than through a missing check.
+     *
+     * ══════════════════════════════════════════════════════════════════════════════════════════
+     * HOW THE RACE IS DRIVEN WITHOUT A SECOND PROCESS, and why this is the real window
+     * ══════════════════════════════════════════════════════════════════════════════════════════
+     *
+     * The pre-transaction gate reads the `Order` MODEL it was handed. The under-lock re-check reads
+     * the row through `DB::table('orders')` — it has to, because `Order` is `Cachable` and a lock
+     * must take the DATABASE row rather than a cached copy. **Those are two different reads of the
+     * same order, and that difference IS the window.** So writing the raw table after the model is
+     * in hand reproduces it exactly: the model still says `Unpaid` and passes the gate, the locked
+     * row says `Paid` and the re-check refuses.
+     *
+     * Not a stand-in for the lock itself. `FOR UPDATE` is silently ignored by SQLite, so this suite
+     * proves the LOGIC; the serialisation is proven on MariaDB by
+     * `tests/Support/Security/bin/verify-order-replacement-concurrency-on-mysql.php`.
+     */
+    public function test_a_payment_that_lands_after_the_gate_is_refused_under_the_lock(): void
+    {
+        [$merchant, $store] = $this->makeTenant();
+        $actor = $this->actor($merchant);
+        $product = $this->productIn($store);
+        $original = $this->orderIn($store, $product, 2, ['payment_status' => 'Unpaid']);
+        $this->proveStockMovedOut($original);
+
+        /* PREMISE: this order is eligible as the gate sees it, or the case proves nothing. */
+        $this->assertSame(OrderReplacement::REPLACED, OrderReplacement::eligibility($original),
+            'premise: the order is not eligible before the simulated callback, so the refusal below '
+            . 'could come from any gate rather than from the under-lock payment re-check');
+
+        /* THE CALLBACK LANDS. Raw, so the in-memory model keeps its pre-callback value — which is
+           what the pre-transaction gate will read, exactly as in the live window. */
+        \DB::table('orders')->where('id', $original->id)->update(['payment_status' => 'Paid']);
+
+        $this->assertSame('Unpaid', (string) $original->payment_status,
+            'premise: the in-memory model already reflects the raw write, so there is no window '
+            . 'left to drive and this case would pass for the wrong reason');
+
+        [$state, $replacement, $reason] = OrderReplacement::cancelAndReplace($original, $actor);
+
+        $this->assertSame(OrderReplacement::REFUSED_PAYMENT_COLLECTED, $state, $reason);
+        $this->assertNull($replacement);
+
+        /* AND NOTHING WAS WRITTEN. The refusal is thrown INSIDE the transaction, after the lock and
+           before `order_status_change`, so the rollback has to leave the original untouched. */
+        (new Order)->flushCache();
+        $after = Order::withoutGlobalScopes()->findOrFail($original->id);
+        $this->assertSame(0, (int) $after->delivered_status,
+            'the original was cancelled before the under-lock refusal, so the transaction did not '
+            . 'roll back cleanly');
+        $this->assertSame('Paid', (string) $after->payment_status,
+            "the original's payment status was rewritten by a refused replacement");
+        $this->assertSame(0, Order::where('replaced_order_id', $original->id)->count());
+    }
+
+    /** The same window, for the partial-payment refusal rather than the collected one. */
+    public function test_a_partial_payment_that_lands_after_the_gate_is_refused_under_the_lock(): void
+    {
+        [$merchant, $store] = $this->makeTenant();
+        $actor = $this->actor($merchant);
+        $product = $this->productIn($store);
+        $original = $this->orderIn($store, $product, 2, ['payment_status' => 'Unpaid']);
+        $this->proveStockMovedOut($original);
+
+        $this->assertSame(OrderReplacement::REPLACED, OrderReplacement::eligibility($original),
+            'premise: the order is not eligible before the simulated callback');
+
+        \DB::table('orders')->where('id', $original->id)->update(['payment_status' => 'Partially Paid']);
+
+        [$state, $replacement, $reason] = OrderReplacement::cancelAndReplace($original, $actor);
+
+        $this->assertSame(OrderReplacement::REFUSED_PAYMENT_PARTIAL, $state, $reason);
+        $this->assertNull($replacement);
+        $this->assertSame(0, Order::where('replaced_order_id', $original->id)->count());
+    }
+
+    /**
+     * AND THE REFUSAL IS REPORTED BY ITS OWN NAME, which it would not have been.
+     *
+     * `cancelAndReplace()`'s `catch (\RuntimeException)` translated the message into a state with
+     * `match (true)`, and its `default` arm was `REFUSED_ALREADY_REPLACED` — correct for the only
+     * unnamed thrower that existed when it was written. The under-lock payment re-check added two
+     * more, so a merchant whose order had just been paid would have been told **"this order has
+     * already been replaced"**: the operation refused correctly and the reason was wrong, on the
+     * one gate that exists to protect money. A ledger entry or a support ticket built on that
+     * message would send somebody looking for a replacement that does not exist.
+     *
+     * Asserted as "not the old default" as well as "the right state", because a future edit that
+     * loses an arm fails here rather than silently relabelling a money refusal.
+     */
+    public function test_an_under_lock_payment_refusal_is_not_reported_as_already_replaced(): void
+    {
+        [$merchant, $store] = $this->makeTenant();
+        $actor = $this->actor($merchant);
+        $product = $this->productIn($store);
+
+        foreach ([
+            'Paid' => OrderReplacement::REFUSED_PAYMENT_COLLECTED,
+            'Partially Paid' => OrderReplacement::REFUSED_PAYMENT_PARTIAL,
+        ] as $landed => $expected) {
+            $original = $this->orderIn($store, $product, 2, ['payment_status' => 'Unpaid']);
+            $this->proveStockMovedOut($original);
+
+            \DB::table('orders')->where('id', $original->id)->update(['payment_status' => $landed]);
+
+            [$state] = OrderReplacement::cancelAndReplace($original, $actor);
+
+            $this->assertNotSame(OrderReplacement::REFUSED_ALREADY_REPLACED, $state,
+                "a \"{$landed}\" refusal from inside the transaction was reported as "
+                . 'already_replaced, which is the old `default` arm swallowing a money refusal');
+            $this->assertSame($expected, $state);
+        }
+    }
+
     /** D-15 CONDITION 6 — a partial payment has no approved settlement rule, so it is refused. */
     public function test_a_partially_paid_order_is_refused(): void
     {

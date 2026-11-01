@@ -6044,7 +6044,30 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         $customer_id = $customer->id;
         $cart = Cart::where('customer_id', $customer_id)->where('store_id', $store->id)->get();
         $ProductVariant_array = [];
-        $shipping_method = ShippingMethod::find($request->method_id);
+        /*
+         * F263 (3 of 4). STORE-SCOPED, matching `CartController::get_shipping_method()`'s
+         * P01-COMMERCE-SEC-01 predicate.
+         *
+         * This was a bare `ShippingMethod::find($request->method_id)` on a REQUIRED,
+         * caller-supplied `method_id` (see the rules above). `ShippingMethod` is absent from
+         * `config/tenancy.php`'s `scoped_models`, so nothing else added a predicate, and this
+         * handler's whole job is to answer with a delivery charge — so a shopper could ask for
+         * any tenant's method and be quoted that tenant's `cost`, a merchant-controlled column
+         * that may be negative.
+         *
+         * `delivery_charge` QUOTES; it does not persist an order, so this is the cross-tenant read
+         * and a wrong quote, not a poisoned payable. The payable is computed by the order writer
+         * from the already-scoped lookup.
+         *
+         * A NULL `store_id` is still accepted, for the reason the sibling records: the column is
+         * nullable, legacy rows may not carry it, and refusing those would hide a merchant's own
+         * method.
+         */
+        $shipping_method = ShippingMethod::where('id', $request->method_id)
+            ->where(function ($q) use ($store) {
+                $q->where('store_id', $store->id ?? 0)->orWhereNull('store_id');
+            })
+            ->first();
         $price = 0;
         if (!empty($shipping_method)) {
             foreach ($cart as $key => $Product) {

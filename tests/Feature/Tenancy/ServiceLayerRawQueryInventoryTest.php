@@ -187,9 +187,28 @@ class ServiceLayerRawQueryInventoryTest extends TestCase
          * intent needs nothing about how a provider reports money, which is what let Cashfree and
          * Mollie be protected while their amount contracts stay BLOCKED under requirement 8.
          * Covered by the `->where('provider', $provider)` declaration above.
+         *
+         * 41 -> 42 on 2026-11-01 [E13 / D-15 condition 8]: `OrderReplacement::cancelAndReplace()`
+         * adds ONE — the `lockForUpdate()` re-read of the original order that serialises two
+         * concurrent replacements. **AND THIS CENSUS WAS ALREADY RED AT THAT POINT, which is the
+         * part worth recording:** the statement landed with the E13 commit and the count was not
+         * moved with it, so `app/Services` really held 42 while this file asserted 41. Measured by
+         * running the same scan over `git archive HEAD app/Services` — HEAD total 42 — rather than
+         * inferred from the failure, because the whole value of a census is that its number is a
+         * measurement.
+         *
+         * **THE STORE-LESS COUNT DOES NOT MOVE (stays 16), and that is the other half of the fix.**
+         * The statement now carries `->where('store_id', $original->store_id)` at the call site, so
+         * it needs no STORE_LESS_BY_DESIGN entry at all. It was added that way deliberately rather
+         * than declared: the caller does authorise the order, but this file's rule — scope at the
+         * call site, or declare with a reason, and *"the caller checks"* is the weaker of the two —
+         * is the right one for a raw statement that no global scope can see. A row whose `store_id`
+         * is NULL now fails to lock and the replacement is refused, which is fail-closed and
+         * deliberate: `where('store_id', null)` compiles to `IS NULL` and would match any other
+         * orphan.
          */
         $this->assertSame(
-            41,
+            42,
             $total,
             "The number of raw query-builder statements in app/Services moved. Every one is "
             . "invisible to every Eloquent global scope, so a new one needs a `store_id` "
@@ -197,7 +216,7 @@ class ServiceLayerRawQueryInventoryTest extends TestCase
             . implode("\n  ", array_keys($storeLess))
         );
 
-        $this->assertSame(25, $scoped, 'statements naming store_id');
+        $this->assertSame(26, $scoped, 'statements naming store_id');
         $this->assertCount(16, $storeLess, 'statements naming store_id nowhere');
     }
 

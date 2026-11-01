@@ -35,10 +35,21 @@ entirely pre-existing third-party-integration failure reporting, `info` (22) and
 diagnostics; none of them is a security signal and enumerating them would bury the ones that are.
 
 
-### `critical` — 21 lines
+### `critical` — 30 lines
+
+> **[2026-11-01] THIS COUNT WAS STALE, AND NOT BY THIS CHANGE'S DOING.** It read **21** against a
+> table of **28** rows before F241 and F263 added two more; the `warning` heading read **166**
+> against **174**. The rows themselves were right — `SecurityLogInventoryTest` asserts the table
+> against `app/` in both directions and has been green — so what drifted was a number in prose that
+> nothing checked, while the thing that matters was ratcheted. Recorded rather than quietly
+> corrected, because "the heading is stale and the table is not" is the shape of drift to expect in
+> this file, and the next reader should know which half to trust. Measured now: 30 + 179 = **209**,
+> which is what the resync tool reports as the source total.
 
 | line | message |
 |---|---|
+| `app/Http/Controllers/PaymentCallbackController.php:188` | Paytm plan callback: the payment is verified and the intent consumed, but the purchaser no longer exists. The plan was NOT activated and this needs a human. |
+| `app/Http/Controllers/PaymentCallbackController.php:203` | Paytm plan callback: the payment is verified and the intent consumed, but assignPlan refused. This needs a human. |
 | `app/Http/Controllers/Concerns/AppliesCartStockChanges.php:346` | Insufficient stock on an order path that cannot refuse; order kept, stock oversold |
 | `app/Http/Controllers/Concerns/AppliesCartStockChanges.php:420` | Stock compensation failed: inventory was consumed and could not be returned. |
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:954` | Gateway return gave up after the capture was classified: |
@@ -68,10 +79,15 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/GatewayReference.php:198` | gateway capture replayed: the reference is already recorded |
 | `app/Services/GatewayReference.php:213` | gateway capture replayed (23000): the reference is already recorded |
 
-### `warning` — 166 lines
+### `warning` — 179 lines
 
 | line | message |
 |---|---|
+| `app/Http/Controllers/PaymentCallbackController.php:106` | Paytm plan callback refused: no usable order reference. |
+| `app/Http/Controllers/PaymentCallbackController.php:131` | Paytm plan callback refused: the provider did not confirm the payment. |
+| `app/Http/Controllers/PaymentCallbackController.php:163` | Paytm plan callback refused at the intent. |
+| `app/Http/Controllers/ShippingController.php:148` | shipping class write refused: the platform operator has read rights only |
+| `app/Http/Controllers/TaxMethodController.php:129` | tax method write refused: the platform operator has read rights only |
 | `app/Http/Controllers/PaytmPaymentController.php:270` | Paytm plan purchase refused: the purchase intent could not be recorded. |
 | `app/Http/Controllers/CashfreeController.php:170` | Cashfree plan purchase refused: the purchase intent could not be recorded. |
 | `app/Http/Controllers/CashfreeController.php:307` | Cashfree plan activation refused: the payment does not match a recorded purchase intent. |
@@ -89,9 +105,9 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/PlanPurchaseIntent.php:252` | Plan purchase intent not recorded: no usable purchaser or plan. |
 | `app/Services/PlanPurchaseIntent.php:263` | Plan purchase intent not recorded: the expected amount is not numeric. |
 | `app/Services/PlanPurchaseIntent.php:309` | Plan purchase intent not recorded. |
-| `app/Services/PlanPurchaseIntent.php:614` | Plan purchase intent refusal not recorded. |
-| `app/Services/PlanPurchaseIntent.php:653` | Plan purchase intent recoverable refusal not recorded. |
-| `app/Services/PlanPurchaseIntent.php:674` | Plan purchase intent order not attached. |
+| `app/Services/PlanPurchaseIntent.php:702` | Plan purchase intent refusal not recorded. |
+| `app/Services/PlanPurchaseIntent.php:741` | Plan purchase intent recoverable refusal not recorded. |
+| `app/Services/PlanPurchaseIntent.php:762` | Plan purchase intent order not attached. |
 | `app/Http/Controllers/CyberSourceController.php:122` | CyberSource plan purchase refused: the posted plan id matches no plan. |
 | `app/Http/Controllers/Concerns/GuardsPlanActivation.php:159` | Plan purchase refused before any write: the provider has no usable credentials. |
 | `app/Http/Controllers/Concerns/AppliesCartStockChanges.php:179` | stock evidence not attributed: the order carries no usable id or store |
@@ -99,21 +115,21 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/Concerns/AppliesCartStockChanges.php:230` | stock evidence not attributed: stock moved for this request and no row now owns the order |
 | `app/Http/Controllers/Concerns/AppliesCartStockChanges.php:240` | stock evidence not attributed: the attempt threw |
 | `app/Http/Controllers/Api/ApiController.php:3718` | Storefront order intake refused as a duplicate submission |
-| `app/Http/Controllers/Api/ApiController.php:8957` | Storefront order intake refused as a duplicate submission |
+| `app/Http/Controllers/Api/ApiController.php:8980` | Storefront order intake refused as a duplicate submission |
 | `app/Http/Controllers/Api/ApiController.php:129` | Coupon refused: the basket could not be priced |
 | `app/Http/Controllers/Api/ApiController.php:3533` | order: refused, basket holds a non-positive quantity |
-| `app/Http/Controllers/Api/ApiController.php:7178` | order: refused, basket holds a non-positive quantity |
-| `app/Http/Controllers/Api/ApiController.php:7269` | coupon: refused an implausible discounted total |
-| `app/Http/Controllers/Api/ApiController.php:8045` | payment_sheet refused: basket names a product from another store |
-| `app/Http/Controllers/Api/ApiController.php:8071` | payment_sheet: refused, basket holds a non-positive quantity |
-| `app/Http/Controllers/Api/ApiController.php:8685` | order: refused, basket holds a non-positive quantity |
-| `app/Http/Controllers/Api/ApiController.php:8810` | coupon: refused an implausible discounted total |
+| `app/Http/Controllers/Api/ApiController.php:7201` | order: refused, basket holds a non-positive quantity |
+| `app/Http/Controllers/Api/ApiController.php:7292` | coupon: refused an implausible discounted total |
+| `app/Http/Controllers/Api/ApiController.php:8068` | payment_sheet refused: basket names a product from another store |
+| `app/Http/Controllers/Api/ApiController.php:8094` | payment_sheet: refused, basket holds a non-positive quantity |
+| `app/Http/Controllers/Api/ApiController.php:8708` | order: refused, basket holds a non-positive quantity |
+| `app/Http/Controllers/Api/ApiController.php:8833` | coupon: refused an implausible discounted total |
 | `app/Http/Controllers/Api/AuthController.php:186` | register: social identity verification refused |
 | `app/Http/Controllers/Api/DeliverySyriaOrderController.php:82` | Delivery Syria invalid credentials |
 | `app/Http/Controllers/AuthorizeNetPaymnetController.php:342` | Pending partial payment refused: the balance named does not belong to this customer. |
 | `app/Http/Controllers/AuthorizeNetPaymnetController.php:384` | AuthorizeNet capture refused: no server-computed payable in the stored state. |
-| `app/Http/Controllers/CartController.php:222` | product_cart: refused a non-positive or non-integer quantity |
-| `app/Http/Controllers/CartController.php:275` | product_cart: refused a product belonging to another store |
+| `app/Http/Controllers/CartController.php:247` | product_cart: refused a non-positive or non-integer quantity |
+| `app/Http/Controllers/CartController.php:300` | product_cart: refused a product belonging to another store |
 | `app/Http/Controllers/CinetPayController.php:516` | Pending partial payment refused: the balance named does not belong to this customer. |
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:133` | Gateway return refused: no server-stored checkout state. |
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:282` | Gateway return carries no claimable identity; falling back to the session control alone. |
@@ -138,18 +154,18 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/KhaltiPaymnetController.php:497` | Khalti order refused before any stock moved: the gateway rejected the capture |
 | `app/Http/Controllers/NMIPayController.php:428` | Pending partial payment refused: the balance named does not belong to this customer. |
 | `app/Http/Controllers/OrderController.php:322` | Manual order total did not match its components; the computed total was stored |
-| `app/Http/Controllers/OrderController.php:1339` | Return approval restored no stock: order carries no readable product_json |
-| `app/Http/Controllers/OrderController.php:1385` | Return approval skipped a line whose stock was already credited |
-| `app/Http/Controllers/OrderController.php:1405` | Return approval skipped a line with an unusable product id or quantity |
-| `app/Http/Controllers/OrderController.php:1426` | Return approval skipped a line whose product is not in the order |
-| `app/Http/Controllers/OrderController.php:1460` | Return approval skipped a line whose variant does not belong to its product |
-| `app/Http/Controllers/OrderController.php:1575` | Order replacement refused. |
-| `app/Http/Controllers/OrderController.php:1899` | Customer cancellation endpoint refused a status it does not serve |
-| `app/Http/Controllers/OrderController.php:1969` | Order cancellation skipped a line with an unusable product id or quantity |
-| `app/Http/Controllers/OrderController.php:1984` | Order cancellation skipped a line whose product is not in the order |
-| `app/Http/Controllers/OrderController.php:2041` | Order cancellation skipped a line the stock record says never took stock out |
-| `app/Http/Controllers/OrderController.php:2085` | Order cancellation skipped a line whose variant does not belong to its product |
-| `app/Http/Controllers/OrderController.php:2327` | Order assignment refused: the delivery boy is not in a store this caller owns |
+| `app/Http/Controllers/OrderController.php:1352` | Return approval restored no stock: order carries no readable product_json |
+| `app/Http/Controllers/OrderController.php:1398` | Return approval skipped a line whose stock was already credited |
+| `app/Http/Controllers/OrderController.php:1418` | Return approval skipped a line with an unusable product id or quantity |
+| `app/Http/Controllers/OrderController.php:1439` | Return approval skipped a line whose product is not in the order |
+| `app/Http/Controllers/OrderController.php:1473` | Return approval skipped a line whose variant does not belong to its product |
+| `app/Http/Controllers/OrderController.php:1588` | Order replacement refused. |
+| `app/Http/Controllers/OrderController.php:1912` | Customer cancellation endpoint refused a status it does not serve |
+| `app/Http/Controllers/OrderController.php:1982` | Order cancellation skipped a line with an unusable product id or quantity |
+| `app/Http/Controllers/OrderController.php:1997` | Order cancellation skipped a line whose product is not in the order |
+| `app/Http/Controllers/OrderController.php:2054` | Order cancellation skipped a line the stock record says never took stock out |
+| `app/Http/Controllers/OrderController.php:2098` | Order cancellation skipped a line whose variant does not belong to its product |
+| `app/Http/Controllers/OrderController.php:2340` | Order assignment refused: the delivery boy is not in a store this caller owns |
 | `app/Http/Controllers/OrderRefundController.php:180` | Refund transition refused: unrecognised current state |
 | `app/Http/Controllers/OrderRefundController.php:202` | Refund transition refused: illegal transition |
 | `app/Http/Controllers/OrderRefundController.php:416` | Refund cancellation refused: the record does not match the order |
@@ -374,6 +390,55 @@ is the one to fear, and it is now covered in both windows of both writers.
 **Destination:** the same channel as every other row here (section 2), with the same caveat.
 
 ---
+
+### The seven rows added 2026-11-01 (F241 and F263), with their destination and reader
+
+The resync tool refuses to write when a line is **added** rather than moved, because a new row needs
+a destination and a reader that only a person can state. These are those statements. **No line
+numbers are cited in this prose on purpose:** the table above is machine-resynced and prose citations
+rot — that rule is this document's own, learned from P1-ORD-15.
+
+**`PaymentCallbackController` — the F241 Paytm plan callback. Five lines, and the route is GATED
+OFF.** `config('payments.paytm_callback_enabled')` opens only on an unambiguous yes, and it ships
+shut because no LIVE Paytm transaction has been verified from this container — there are no Paytm
+credentials here and no network path to `securegw.paytm.in`. So none of these five can fire in a
+deployment that has not deliberately opened the gate. They are inventoried now rather than when it
+opens, because the lines exist in `app/` and a line with no stated destination is exactly what this
+document exists to prevent.
+
+- **"no usable order reference", `warning`.** Read by whoever opened the gate, during the first
+  sandbox run. A burst means Paytm is posting a field this handler does not read — it accepts
+  `ORDERID` and `orderid` only — so it is a misconfiguration rather than an attack.
+- **"the provider did not confirm the payment", `warning`.** The one to watch. It covers an
+  unreachable status endpoint, a failed checksum and a malformed response alike, so a steady stream
+  is an outage while a single line beside a complaining merchant is a captured payment that could
+  not be confirmed. **It does not depend on anybody reading the log:** the refusal is also recorded
+  against the intent, so `PlanPurchaseIntent::unreconciled()` surfaces it for a human.
+- **"refused at the intent", `warning`.** `state` is what distinguishes a benign replay — a provider
+  retrying a delivery it already made, answered 200 on purpose so it stops retrying — from an amount
+  or currency mismatch, which is a misconfiguration and is kept OPEN by `recordRecoverableRefusal()`
+  rather than closed, because closing an intent over a display-label mismatch would destroy a
+  captured payment.
+- **"the purchaser no longer exists", `critical`.** **A person, the same day.** Money has moved, the
+  intent is spent, and no plan was granted. It cannot be retried, and that is the deliberate trade:
+  the alternative leaves the intent open while a plan may or may not exist, which is the ambiguity
+  `unreconciled()` exists to prevent. Resolve by granting the plan by hand or refunding.
+- **"assignPlan refused", `critical`.** **A person, the same day**, for the same reason. `reason`
+  carries `assignPlan()`'s own message, which is where to start.
+
+**`ShippingController` and `TaxMethodController` — the F263 platform-operator write refusals,
+`warning`, one line each.** Twins of the `ShippingMethodController` row already in the table, and
+they exist for the same reason: the refusal is the owner's F157 decision — *the operator reads and
+exports, it does not rewrite a merchant's commercial settings* — and without a line an operator who
+tried would see only "Permission denied." and reasonably report it as a bug. Read by whoever supports
+the operator. Repeated lines from one operator mean the **decision** needs revisiting, not the code.
+The tax one is worth distinguishing from the shipping one because a tax rate is a money input: an
+operator trying to correct a merchant's rate is a support request this line turns into a visible
+event.
+
+**None of the seven carries a credential, a token, an email address or a card field.** The Paytm rows
+log the merchant order reference, the provider's own status and reason strings, and internal ids; the
+two F263 rows log the acting user's id, their `current_store` and the permission name.
 
 ## 2. Where these lines actually go
 

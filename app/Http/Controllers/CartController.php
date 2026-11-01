@@ -38,7 +38,32 @@ class CartController extends Controller
         $admin = User::find($store->created_by);
         $plan  = Plan::find($admin->plan_id);
         if (!$request->shipping_price) {
-            $shippingMethod = ShippingMethod::find($request->method_id);
+            /*
+             * F263 (2 of 4). STORE-SCOPED, THE SAME WAY `get_shipping_method()` BELOW ALREADY IS.
+             *
+             * This was a bare `ShippingMethod::find($request->method_id)`. `ShippingMethod` is not
+             * in `config/tenancy.php`'s `scoped_models`, so no global scope adds a predicate, and
+             * `method_id` is caller-supplied — so the sidebar applied ANY tenant's shipping cost,
+             * at that tenant's figure, to this store's displayed total. That is a cross-tenant
+             * READ of a merchant-controlled money column, and `cost` can legitimately be
+             * negative (see the P01-COMMERCE-SEC-01 note on `get_shipping_method`), so the figure
+             * shown to a shopper could be pulled down by another store's row.
+             *
+             * This path only DISPLAYS: `$request['shipping_final_price']` feeds the sidebar's
+             * totals, and the payable is computed by `process-order` from `get_shipping_method`'s
+             * already-scoped lookup. So poisoning a payable through this door is NOT claimed — the
+             * defect fixed here is the cross-tenant read and the wrong number on the screen.
+             *
+             * A NULL `store_id` is still accepted, exactly as the sibling does: the column is
+             * nullable and legacy rows may not carry it, and refusing those would hide a
+             * merchant's OWN shipping method — a broken storefront rather than a fix. What is
+             * refused is a method belonging to a DIFFERENT store.
+             */
+            $shippingMethod = ShippingMethod::where('id', $request->method_id)
+                ->where(function ($q) use ($store) {
+                    $q->where('store_id', $store->id ?? 0)->orWhereNull('store_id');
+                })
+                ->first();
 
             if ($shippingMethod) {
                 $request['shipping_final_price'] = $shippingMethod->cost;

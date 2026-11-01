@@ -452,6 +452,94 @@ class PlanPurchaseIntent
         return [self::VERIFIED, $intent, ''];
     }
 
+    /**
+     * F241 / §2.2 — CONSUME AN INTENT FOR A PROVIDER CALLBACK, WHERE THERE IS NO BROWSER PRINCIPAL.
+     *
+     * ══════════════════════════════════════════════════════════════════════════════════════════
+     * WHY THIS EXISTS AND WHY IT IS NOT A BYPASS
+     * ══════════════════════════════════════════════════════════════════════════════════════════
+     *
+     * `verifyAndConsume()` compares the intent's `user_id` against an AUTHENTICATED user id,
+     * because every caller today runs inside the `auth` group: a merchant in their own browser.
+     * That comparison is the control that stops one account consuming another's intent.
+     *
+     * **A provider callback has no session, and giving it one is what the owner forbids.** So the
+     * question "does this intent belong to the caller?" has no answer on that path — there is no
+     * caller in the account sense. The architecture's answer (§2.2) is to invert it: *"the route is
+     * outside `auth` and establishes the principal FROM the intent's `user_id`"*.
+     *
+     * This method does exactly that and nothing else. It is a thin, explicit wrapper over
+     * `verifyAndConsume()` so that **every other control is literally the same code** — the same
+     * single conditional `UPDATE … WHERE status = 'pending'` for replay and concurrency, the same
+     * exact scaled-integer amount comparison, the same currency handling, the same
+     * `REFUSED_RECOVERABLE` distinction. Nothing about the money is re-derived here.
+     *
+     * **A SEPARATE METHOD RATHER THAN PASSING `$intent->user_id` AT THE CALL SITE, deliberately.**
+     * Reading the intent and feeding its own id back into a parameter named `$authenticatedUserId`
+     * would be the same instructions and would read, in the controller, exactly like a bypass of
+     * the ownership check. A reader auditing that line could not tell a correct session-less
+     * callback from a defect. Here the name says there is no browser principal, this docblock says
+     * why that is sound, and the controller's line says what it means.
+     *
+     * **WHAT STILL PROTECTS THE PURCHASE when the ownership comparison cannot apply:**
+     *
+     *   - the reference is one the SERVER minted (`newReference()`) and stored on the intent, so a
+     *     caller cannot name an arbitrary purchase;
+     *   - the caller must first have passed provider AUTHENTICITY — for Paytm, a server-to-server
+     *     status call over TLS this server validates, whose response carries Paytm's own checksum.
+     *     A stranger posting a guessed reference never reaches this method;
+     *   - the plan, the expected amount and the currency come from the INTENT, never from the
+     *     request;
+     *   - the conditional UPDATE means exactly one call consumes it, ever.
+     *
+     * So the ownership check is not removed; it is replaced by something stronger — the provider's
+     * evidence that this specific server-minted reference was paid.
+     *
+     * @return array{0:string,1:?object,2:string} [state, intent, reason]
+     */
+    public static function consumeForProviderCallback(
+        string $provider,
+        string $reference,
+        string $reportedAmount,
+        string $reportedCurrency,
+        $providerTxnId = null
+    ): array {
+        if (! self::available()) {
+            return [self::UNVERIFIABLE, null, 'the purchase-intent record is not installed'];
+        }
+
+        $intent = self::find($provider, $reference);
+
+        if ($intent === null) {
+            /* The same answer a browser caller gets, and for the same reason: an intent that does
+               not exist cannot be consumed, and saying more would tell a prober whether a
+               reference is real. */
+            return [self::UNVERIFIABLE, null, 'no intent exists for this provider and reference'];
+        }
+
+        if (! is_numeric($intent->user_id) || (int) $intent->user_id <= 0) {
+            /*
+             * NO PRINCIPAL TO ESTABLISH, SO NOTHING IS ACTIVATED. An intent with no purchaser is a
+             * corrupt row, and `verifyAndConsume()` below would refuse it on the `is_numeric`
+             * check anyway — but refusing here says why, and keeps the reason out of the
+             * mismatch bucket where a human would read it as somebody else's purchase.
+             */
+            return [self::UNVERIFIABLE, $intent, 'the intent names no purchaser, so no principal can be established'];
+        }
+
+        return self::verifyAndConsume(
+            $provider,
+            $reference,
+            /* THE PRINCIPAL IS THE INTENT'S OWN PURCHASER. §2.2: a provider has no session, so the
+               intent is what says whose purchase this is. Tautological by construction and
+               correct — see this method's header for what protects it instead. */
+            $intent->user_id,
+            $reportedAmount,
+            $reportedCurrency,
+            $providerTxnId
+        );
+    }
+
     public static function verifyAndConsume(
         string $provider,
         string $reference,

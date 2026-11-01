@@ -157,7 +157,26 @@ class OrderReplacement
      */
     public static function paymentEligibility(Order $original): string
     {
-        $status = strtolower(trim((string) $original->payment_status));
+        return self::paymentVerdict($original->payment_status, $original->payment_type);
+    }
+
+    /**
+     * The payment rule itself, over two RAW VALUES rather than a model.
+     *
+     * **IT TAKES VALUES SO THAT THE LOCKED RE-CHECK CAN ASK THE SAME QUESTION.** The transaction in
+     * `cancelAndReplace()` re-reads the order through `DB::table('orders')` — it has to, because
+     * `Order` is `Cachable` and a lock must take the DATABASE row rather than a cached copy — and
+     * that gives it a `stdClass`, not an `Order`. Routing both callers through one method is what
+     * stops the gate and the re-check from being two expressions that have to be kept in step by
+     * hand; this codebase has already paid for that twice (the stock badge and its filter, the
+     * dashboard count and its list).
+     *
+     * @param  mixed  $paymentStatus  `orders.payment_status`, free text written by 70 modules.
+     * @param  mixed  $paymentType    `orders.payment_type`, for the refund-driver question.
+     */
+    private static function paymentVerdict($paymentStatus, $paymentType): string
+    {
+        $status = strtolower(trim((string) $paymentStatus));
 
         if (str_contains($status, 'partial')) {
             return self::REFUSED_PAYMENT_PARTIAL;
@@ -168,7 +187,7 @@ class OrderReplacement
         }
 
         /* Resolved through the container so a future real driver is picked up here automatically. */
-        if (! app(RefundIntegrityService::class)->hasGatewayRefundDriver($original->payment_type)) {
+        if (! app(RefundIntegrityService::class)->hasGatewayRefundDriver($paymentType)) {
             return self::REFUSED_PAYMENT_COLLECTED;
         }
 
@@ -370,7 +389,27 @@ class OrderReplacement
                  * Saying so here because a green suite would otherwise read as proof of something
                  * it cannot test.
                  */
-                $locked = DB::table('orders')->where('id', $original->id)->lockForUpdate()->first();
+                /*
+                 * THE LOCK CARRIES THE ROW'S OWN `store_id`, and that is not decoration.
+                 *
+                 * `Order` is absent from `config/tenancy.php`'s `scoped_models` AND a raw
+                 * query-builder statement is invisible to every Eloquent global scope anyway, so
+                 * this predicate is the only tenant statement this line can make. The caller does
+                 * authorise the order — `OrderController` resolves it for the acting merchant and
+                 * `cancelAndReplace()` checks again — but `ServiceLayerRawQueryInventoryTest`'s
+                 * rule is the right one: a raw statement is scoped AT THE CALL SITE or declared
+                 * with its reason, and "the caller checks" is the weakest of the two.
+                 *
+                 * A row whose `store_id` is NULL therefore fails to lock and the replacement is
+                 * refused. That is fail-closed and deliberate: such an order is already broken,
+                 * and `where('store_id', null)` would compile to `IS NULL` and match any other
+                 * orphan — the exact trap this codebase keeps paying for.
+                 */
+                $locked = DB::table('orders')
+                    ->where('id', $original->id)
+                    ->where('store_id', $original->store_id)
+                    ->lockForUpdate()
+                    ->first();
 
                 if (! $locked) {
                     throw new \RuntimeException(self::REFUSED_CANCEL_FAILED . ': the order disappeared');
@@ -384,6 +423,33 @@ class OrderReplacement
 
                 if (Order::where('replaced_order_id', $original->id)->exists()) {
                     throw new \RuntimeException(self::REFUSED_ALREADY_REPLACED);
+                }
+
+                /*
+                 * THE PAYMENT STATE IS RE-TESTED UNDER THE LOCK TOO, AND IT IS THE ONE THAT CAN
+                 * REALLY MOVE WHILE A MERCHANT IS DECIDING.
+                 *
+                 * `payment_status` is written by gateway returns and provider callbacks, which
+                 * arrive whenever the provider sends them — not by the merchant on this screen. So
+                 * between `eligibility()` answering `REPLACED` for an UNPAID order and this
+                 * transaction opening, a callback can legitimately mark that same order `Paid`. The
+                 * pre-transaction gate would then have been answered about a state that no longer
+                 * exists, and the replacement would proceed for an order whose money HAS been
+                 * collected — exactly the case D-15 condition 3 refuses, reached through a window
+                 * rather than through a missing check.
+                 *
+                 * Asked of `$locked`, which is the row as the database holds it a moment ago under
+                 * `FOR UPDATE`, through the same `paymentVerdict()` the gate used.
+                 *
+                 * THE STOCK EVIDENCE IS DELIBERATELY NOT RE-TESTED HERE, and the asymmetry is the
+                 * point rather than an omission: `stock_movements` rows for THIS order are written
+                 * when the order is placed, which has already happened and cannot happen again, so
+                 * there is no concurrent writer to race. `payment_status` has one.
+                 */
+                $lockedPayment = self::paymentVerdict($locked->payment_status ?? null, $locked->payment_type ?? null);
+
+                if ($lockedPayment !== self::REPLACED) {
+                    throw new \RuntimeException($lockedPayment);
                 }
 
                 /* STEP 2. The existing engine, not a copy of it. The Observer reverses the money. */
@@ -478,12 +544,39 @@ class OrderReplacement
 
             return [self::REFUSED_CANCEL_FAILED, null, $theDatabaseRefusedTheSecondWriter->getMessage()];
         } catch (\RuntimeException $theReplacementWasRefused) {
+            /*
+             * EVERY REFUSAL THROWN INSIDE THE TRANSACTION IS NAMED HERE, and the `default` used to
+             * swallow the ones that were not.
+             *
+             * It read `default => self::REFUSED_ALREADY_REPLACED`, which was true of the only
+             * unnamed thrower at the time — and then the under-lock PAYMENT re-check was added, and
+             * a `payment_partially_paid` or `payment_collected_without_refund_path` refusal would
+             * have been reported to the merchant, and to the ledger, as *"this order has already
+             * been replaced"*. The operation was correctly refused either way; what would have been
+             * wrong is the REASON, on the one gate that exists to protect money.
+             *
+             * So each state is matched by name, and the default is now an honest general refusal
+             * plus a log, because an unrecognised throw from inside this transaction means somebody
+             * added a refusal and did not add its arm. The transaction has rolled back in every
+             * case, so the original is unchanged whichever arm is taken.
+             */
             $reason = $theReplacementWasRefused->getMessage();
             $state = match (true) {
                 str_starts_with($reason, self::REFUSED_CANCEL_FAILED) => self::REFUSED_CANCEL_FAILED,
                 $reason === self::REFUSED_ALREADY_DISPATCHED => self::REFUSED_ALREADY_DISPATCHED,
-                default => self::REFUSED_ALREADY_REPLACED,
+                $reason === self::REFUSED_ALREADY_REPLACED => self::REFUSED_ALREADY_REPLACED,
+                $reason === self::REFUSED_PAYMENT_PARTIAL => self::REFUSED_PAYMENT_PARTIAL,
+                $reason === self::REFUSED_PAYMENT_COLLECTED => self::REFUSED_PAYMENT_COLLECTED,
+                default => self::REFUSED_CANCEL_FAILED,
             };
+
+            if ($state === self::REFUSED_CANCEL_FAILED
+                && ! str_starts_with($reason, self::REFUSED_CANCEL_FAILED)) {
+                Log::error('Order replacement was refused inside the transaction for a reason this method does not name; reported as a general refusal. The original is unchanged. Add an arm for it.', [
+                    'original_order_id' => $original->id,
+                    'reason' => $reason,
+                ]);
+            }
 
             return [$state, null, $reason];
         } catch (\Throwable $theReplacementFailed) {
