@@ -3348,6 +3348,32 @@ public function saveStoreFcmToken(Request $request)
             $line = is_object($line) ? (array) $line : (array) $line;
 
             $lines[] = [
+                /* THE CART ROW ID IS IN THE KEY, and leaving it out was the same hole F269 left
+                   at the till before the press id went in. Keyed on content alone, a shopper who
+                   buys two widgets and then rebuilds the SAME basket and buys again inside the
+                   window hashes identically -- so their second purchase is answered as a replay:
+                   money taken by the gateway that follows, nothing recorded. A rebuilt cart has
+                   NEW `carts.id` values, so it is a different claim; two requests racing read the
+                   SAME rows, so they are still one claim. `cart_list` emits it per line
+                   (ApiController:809), which is why no new plumbing is needed.
+
+                   AND THE COST IT BUYS, because this note used to state only the benefit: a retry
+                   that REBUILDS the basket before re-posting is no longer caught -- new row ids,
+                   new claim, second order, second stock decrement. That is the original F276
+                   shape, re-admitted for one specific client behaviour: a client that holds the
+                   basket in local state, re-syncs it after a timeout and re-posts.
+
+                   NOT LIVE TODAY, and the reason is worth stating exactly rather than
+                   comfortably: CLAUDE.md records that no client in either repository calls the
+                   storefront API, and the realistic sequential retry never reaches this claim at
+                   all -- the first post deletes the cart rows, so the retry is refused by the
+                   empty-basket check that PRECEDES the claim. If a storefront client ever
+                   appears, the fix is a client-supplied submission nonce and NOT removing the
+                   cart id: a caller-supplied value can only SPLIT the caller's own key space,
+                   because the key still binds the route-resolved store and
+                   `resolveStoreCustomer()`'s customer. That is safe in a way a caller-supplied
+                   TENANT predicate never is, and it is a contract change. */
+                'cart' => (string) ($line['cart_id'] ?? ''),
                 'id' => (string) ($line['product_id'] ?? $line['id'] ?? ''),
                 'variant' => (string) ($line['variant_id'] ?? ''),
                 'qty' => (string) ($line['qty'] ?? $line['quantity'] ?? ''),
@@ -3356,7 +3382,7 @@ public function saveStoreFcmToken(Request $request)
         }
 
         /* Sorted, so one basket assembled in a different order is one basket. */
-        usort($lines, fn ($a, $b) => [$a['id'], $a['variant']] <=> [$b['id'], $b['variant']]);
+        usort($lines, fn ($a, $b) => [$a['cart'], $a['id'], $a['variant']] <=> [$b['cart'], $b['id'], $b['variant']]);
 
         return 'storefront_intake:' . hash('sha256', json_encode([
             'store' => $storeId,
@@ -3478,38 +3504,6 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
             $taxes = !empty($cartlist['tax_info']) ? $cartlist['tax_info'] : '';
             $products = $cartlist['product_list'];
 
-            /*
-             * F276. THE CLAIM, TAKEN BEFORE ANY STOCK MOVES. See
-             * `storefrontIntakeFingerprint()` for why the cart cannot be the control and why the
-             * fingerprint is server-derived.
-             */
-            $ssIntakeClaim = $this->storefrontIntakeFingerprint(
-                (array) $products,
-                (int) $store->id,
-                (int) $customerId,
-                $request->payment_type
-            );
-
-            if (! \Illuminate\Support\Facades\Cache::add($ssIntakeClaim, self::STOREFRONT_INTAKE_WRITING, now()->addSeconds(self::STOREFRONT_INTAKE_CLAIM_SECONDS))) {
-                $ssHeld = \Illuminate\Support\Facades\Cache::get($ssIntakeClaim);
-
-                /* THE ORDER ALREADY EXISTS, so the honest answer is the one the first post got --
-                   the same envelope carrying the SAME order id. The client gets its confirmation
-                   and the ledger holds one order. */
-                if (is_array($ssHeld) && ! empty($ssHeld['order_id'])) {
-                    return $this->success(['order_id' => $ssHeld['order_id'], 'slug' => $slug]);
-                }
-
-                /* The first post is still writing. There is no order id to hand back yet and
-                   nothing truthful to call a success. */
-                \Illuminate\Support\Facades\Log::warning('Storefront order intake refused as a duplicate submission', [
-                    'store_id' => $store->id,
-                    'customer_id' => $customerId,
-                    'path' => $request->path(),
-                ]);
-
-                return $this->error(['message' => __('This order is already being placed. Please wait a moment before trying again.')]);
-            }
         } else {
             return $this->error(['message' => 'User not found.']);
         }
@@ -3684,6 +3678,54 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                 __('Your cart contains an invalid quantity.')
             );
         }
+
+        /*
+         * F276. THE CLAIM, TAKEN HERE — IMMEDIATELY BEFORE THE STOCK LOOP, AND NOT EARLIER.
+         *
+         * The first version of this change took it as soon as the basket resolved, which read
+         * like "before any stock moves" and was true. INDEPENDENT REVIEW FOUND WHAT IT ALSO DID:
+         * it swept every remaining request-validation refusal INSIDE the claim. On `ordersave`
+         * that is fifteen of them — fourteen billing and delivery field checks plus the request
+         * validator itself — and none of them changes the fingerprint. So a shopper who left
+         * `billing_city` empty took the claim, was refused, corrected the field, resubmitted, and
+         * was told "This order is already being placed" for the next two minutes. My guard had
+         * made their own checkout unusable, with no attacker involved. Measured and reproduced.
+         *
+         * Here, every refusal that is about the REQUEST has already happened and everything below
+         * spends something. That is also where `PosController::store()` puts it, which is the
+         * precedent this was supposed to follow.
+         */
+        $ssIntakeClaim = $this->storefrontIntakeFingerprint(
+            (array) ($products ?? []),
+            (int) $store->id,
+            (int) $customerId,
+            $request->payment_type
+        );
+
+        if (! \Illuminate\Support\Facades\Cache::add($ssIntakeClaim, self::STOREFRONT_INTAKE_WRITING, now()->addSeconds(self::STOREFRONT_INTAKE_CLAIM_SECONDS))) {
+            $ssHeld = \Illuminate\Support\Facades\Cache::get($ssIntakeClaim);
+
+            /* THE ORDER ALREADY EXISTS, so the honest answer is the one the first post got --
+               the same envelope carrying the SAME order id. This handler's success is
+               `['order_id' => $order->id, 'slug' => $slug]`, so the replay is byte-identical in
+               shape to it. */
+            if (is_array($ssHeld) && ! empty($ssHeld['order_id'])) {
+                return $this->success(['order_id' => $ssHeld['order_id'], 'slug' => $slug]);
+            }
+
+            /* The first post is still writing. There is no order id to hand back yet and nothing
+               truthful to call a success. */
+            \Illuminate\Support\Facades\Log::warning('Storefront order intake refused as a duplicate submission', [
+                'store_id' => $store->id,
+                'customer_id' => $customerId,
+                'path' => $request->path(),
+            ]);
+
+            $ssIntakeBusy = __('This order is already being placed. Please wait a moment before trying again.');
+
+            return $this->error(['message' => $ssIntakeBusy], $ssIntakeBusy);
+        }
+
         // Order stock decrease start
         $prodduct_id_array = [];
         if (!empty($products)) {
@@ -4258,6 +4300,32 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
             return $this->error(['message' => __('Somthing went wrong.')]);
         }
             } catch (\Throwable $ssStockGuardError) {
+            /*
+             * F276. THE CLAIM IS RELEASED FIRST, and ONLY while it still holds the writing
+             * sentinel. Once the order exists the claim carries `['order_id' => ...]`, so this
+             * cannot free a claim standing for a real order -- which is why the test is on the
+             * VALUE and not on `$ssOrderClaimsIt`.
+             *
+             * IT SITS ABOVE THE D-13 BLOCK BECAUSE THAT BLOCK IS TEXTUALLY FENCED ON BOTH SIDES.
+             * `GatewayStockDecrementRoutingTest` requires the `$ssOrderClaimsIt` assignment to be
+             * immediately followed by its guard, and the `restoreStockDecrements(...)` call to be
+             * immediately followed by the rethrow -- two separate regexes, so there is no gap
+             * inside it to occupy. Both fired when I tried, correctly: the rules are that the
+             * compensation asks whether an order claims the stock, and that it does not change
+             * the response the caller sees. Neither is about the claim, and nothing here touches
+             * `$appliedStockChanges`, so this goes above the whole block rather than the ratchets
+             * being widened to accommodate it.
+             *
+             * WHAT RELEASING COSTS, stated as F269 states it: a throw AFTER the order was written
+             * leaves the claim held, which is correct. A throw BEFORE it releases the claim and
+             * permits a retry that decrements again -- the pre-change behaviour, and better than
+             * a checkout dead for two minutes with no order to show for it.
+             */
+            if (isset($ssIntakeClaim)
+                && \Illuminate\Support\Facades\Cache::get($ssIntakeClaim) === self::STOREFRONT_INTAKE_WRITING) {
+                \Illuminate\Support\Facades\Cache::forget($ssIntakeClaim);
+            }
+
             /*
              * D-13 — GIVE THE STOCK BACK ONLY IF NO ORDER ROW CLAIMS IT.
              *
@@ -8588,46 +8656,6 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
 
             $products = $cartlist['product_list'];
 
-            /*
-             * F276. THE CLAIM, TAKEN BEFORE ANY STOCK MOVES — the same control as `place_order`
-             * and for the same reason. See `storefrontIntakeFingerprint()`.
-             *
-             * `$customer_id`, the DERIVED value, not the request's: this handler's own docblock
-             * records that the else branch once took `$request->customer_id`, so a merchant's or
-             * driver's token placed an order in a shopper's name. A claim keyed on caller input
-             * would inherit that trust and let one principal sit on another's checkout.
-             */
-            $ssIntakeClaim = $this->storefrontIntakeFingerprint(
-                (array) $products,
-                (int) $store->id,
-                (int) $customer_id,
-                $request->payment_type
-            );
-
-            if (! \Illuminate\Support\Facades\Cache::add($ssIntakeClaim, self::STOREFRONT_INTAKE_WRITING, now()->addSeconds(self::STOREFRONT_INTAKE_CLAIM_SECONDS))) {
-                $ssHeld = \Illuminate\Support\Facades\Cache::get($ssIntakeClaim);
-
-                if (is_array($ssHeld) && ! empty($ssHeld['order_id'])) {
-                    $ssReplayOrder = \App\Models\Order::where('store_id', $store->id)
-                        ->where('id', $ssHeld['order_id'])
-                        ->first();
-
-                    /* THE ENVELOPE IS REBUILT FROM THE ROW, not cached wholesale. `ordersave`
-                       answers with the order DETAIL array, and a stale copy of that would
-                       misreport a status the merchant may have changed in the meantime. */
-                    if ($ssReplayOrder !== null) {
-                        return $this->success($ssReplayOrder->order_detail(), __('Order added successfully.'));
-                    }
-                }
-
-                \Illuminate\Support\Facades\Log::warning('Storefront order intake refused as a duplicate submission', [
-                    'store_id' => $store->id,
-                    'customer_id' => $customer_id,
-                    'path' => $request->path(),
-                ]);
-
-                return $this->error(['message' => __('This order is already being placed. Please wait a moment before trying again.')]);
-            }
         } else {
             return $this->error(['message' => __('User not found.')],  __('User not found.'));
         }
@@ -8866,6 +8894,77 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                 __('Your cart contains an invalid quantity.')
             );
         }
+
+        /*
+         * F276. THE CLAIM, TAKEN HERE — IMMEDIATELY BEFORE THE STOCK LOOP, AND NOT EARLIER.
+         *
+         * The first version of this change took it as soon as the basket resolved, which read
+         * like "before any stock moves" and was true. INDEPENDENT REVIEW FOUND WHAT IT ALSO DID:
+         * it swept every remaining request-validation refusal INSIDE the claim. On `ordersave`
+         * that is fifteen of them — fourteen billing and delivery field checks plus the request
+         * validator itself — and none of them changes the fingerprint. So a shopper who left
+         * `billing_city` empty took the claim, was refused, corrected the field, resubmitted, and
+         * was told "This order is already being placed" for the next two minutes. My guard had
+         * made their own checkout unusable, with no attacker involved. Measured and reproduced.
+         *
+         * Here, every refusal that is about the REQUEST has already happened and everything below
+         * spends something. That is also where `PosController::store()` puts it, which is the
+         * precedent this was supposed to follow.
+         */
+        $ssIntakeClaim = $this->storefrontIntakeFingerprint(
+            (array) ($products ?? []),
+            (int) $store->id,
+            (int) $customer_id,
+            $request->payment_type
+        );
+
+        if (! \Illuminate\Support\Facades\Cache::add($ssIntakeClaim, self::STOREFRONT_INTAKE_WRITING, now()->addSeconds(self::STOREFRONT_INTAKE_CLAIM_SECONDS))) {
+            $ssHeld = \Illuminate\Support\Facades\Cache::get($ssIntakeClaim);
+
+            /*
+             * THE ORDER ALREADY EXISTS. The first version of this branch called
+             * `$ssReplayOrder->order_detail()` with NO ARGUMENT, and independent review caught
+             * what that does: `Order::order_detail()` is a STATIC method with `$order_id = 0`, so
+             * the call never read the row it had just fetched -- it ran `Order::find(0)`, took the
+             * not-found arm, and answered HTTP 200 `{status: 1, message: "Order added
+             * successfully.", data: {message: "Order not found."}}`. Every `order-save` replay
+             * told the client a lie, and the test was green because it asserted only the order
+             * count and the stock figure.
+             *
+             * AND `order_detail()` IS NOT THIS HANDLER'S SUCCESS SHAPE EITHER. `ordersave`
+             * answers with `$order_array` whose `order_id` is the `product_order_id` STRING,
+             * while `order_detail()` sets `order_id` to `'#' . product_order_id` and adds `id`.
+             * So the payload is a superset with `order_id` overlaid to this handler's own
+             * convention: a client reading `order_id` gets what the first post gave it, and one
+             * reading more gets more. The partiality is stated rather than discovered.
+             */
+            if (is_array($ssHeld) && ! empty($ssHeld['order_id'])) {
+                $ssReplayOrder = \App\Models\Order::where('store_id', $store->id)
+                    ->where('customer_id', $customer_id)
+                    ->where('id', $ssHeld['order_id'])
+                    ->first();
+
+                if ($ssReplayOrder !== null) {
+                    $ssReplayPayload = (array) \App\Models\Order::order_detail((int) $ssReplayOrder->id);
+                    $ssReplayPayload['order_id'] = $ssReplayOrder->product_order_id ?? 0;
+
+                    return $this->success($ssReplayPayload, __('Order added successfully.'));
+                }
+            }
+
+            /* The first post is still writing. There is no order id to hand back yet and nothing
+               truthful to call a success. */
+            \Illuminate\Support\Facades\Log::warning('Storefront order intake refused as a duplicate submission', [
+                'store_id' => $store->id,
+                'customer_id' => $customer_id,
+                'path' => $request->path(),
+            ]);
+
+            $ssIntakeBusy = __('This order is already being placed. Please wait a moment before trying again.');
+
+            return $this->error(['message' => $ssIntakeBusy], $ssIntakeBusy);
+        }
+
         // Order stock decrease start
         $prodduct_id_array = [];
         if (!empty($products)) {
@@ -9431,6 +9530,32 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
 
         return $this->success($order_array,  __('Order added successfully.'));
             } catch (\Throwable $ssStockGuardError) {
+            /*
+             * F276. THE CLAIM IS RELEASED FIRST, and ONLY while it still holds the writing
+             * sentinel. Once the order exists the claim carries `['order_id' => ...]`, so this
+             * cannot free a claim standing for a real order -- which is why the test is on the
+             * VALUE and not on `$ssOrderClaimsIt`.
+             *
+             * IT SITS ABOVE THE D-13 BLOCK BECAUSE THAT BLOCK IS TEXTUALLY FENCED ON BOTH SIDES.
+             * `GatewayStockDecrementRoutingTest` requires the `$ssOrderClaimsIt` assignment to be
+             * immediately followed by its guard, and the `restoreStockDecrements(...)` call to be
+             * immediately followed by the rethrow -- two separate regexes, so there is no gap
+             * inside it to occupy. Both fired when I tried, correctly: the rules are that the
+             * compensation asks whether an order claims the stock, and that it does not change
+             * the response the caller sees. Neither is about the claim, and nothing here touches
+             * `$appliedStockChanges`, so this goes above the whole block rather than the ratchets
+             * being widened to accommodate it.
+             *
+             * WHAT RELEASING COSTS, stated as F269 states it: a throw AFTER the order was written
+             * leaves the claim held, which is correct. A throw BEFORE it releases the claim and
+             * permits a retry that decrements again -- the pre-change behaviour, and better than
+             * a checkout dead for two minutes with no order to show for it.
+             */
+            if (isset($ssIntakeClaim)
+                && \Illuminate\Support\Facades\Cache::get($ssIntakeClaim) === self::STOREFRONT_INTAKE_WRITING) {
+                \Illuminate\Support\Facades\Cache::forget($ssIntakeClaim);
+            }
+
             /*
              * D-13 — GIVE THE STOCK BACK ONLY IF NO ORDER ROW CLAIMS IT.
              *
