@@ -1,0 +1,255 @@
+   Woah! You appear to be trying to run flutter as root.
+   We strongly recommend running the flutter tool without superuser privileges.
+  /
+📎
+Analyzing StoreSyria_app98...                                   
+
+   info • Unnecessary braces in a string interpolation. Try removing the braces • lib/config/repository/customer_repository.dart:59:68 • unnecessary_brace_in_string_interps
+   info • Unnecessary override. Try adding behavior in the overriding member or removing the override • lib/core/controller/delivery_boy/delivery_boy_controller.dart:357:8 • unnecessary_overrides
+   info • 'MaterialStateProperty' is deprecated and shouldn't be used. Use WidgetStateProperty instead. Moved to the Widgets layer to make code available outside of Material. This feature was deprecated after v3.19.0-0.3.pre. Try replacing the use of the deprecated member with the replacement • lib/core/controller/setting_controller/theme_controller.dart:14:22 • deprecated_member_use
+   info • Use 'const' for final variables initialized to a constant value. Try replacing 'final' with 'const' • lib/core/controller/setting_controller/theme_controller.dart:75:5 • prefer_const_declarations
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/create_product_model.dart:18:22 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/create_product_model.dart:19:23 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/create_product_model.dart:60:9 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/create_product_model.dart:61:26 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/create_product_model.dart:63:9 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/create_product_model.dart:64:25 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/create_product_model.dart:66:9 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/create_product_model.dart:67:25 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/create_product_model.dart:86:18 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/create_product_model.dart:87:20 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/create_product_model.dart:107:9 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/create_product_model.dart:108:43 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/create_product_model.dart:141:9 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/create_product_model.dart:143:9 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/create_product_model.dart:145:9 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/create_product_model.dart:147:9 • unnecessary_this
+   info • Unnecessary constructor invocation. Try using a collection literal • lib/core/model/order_detail_model.dart:21:39 • prefer_collection_literals
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:22:22 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:23:23 • unnecessary_this
+   info • Unnecessary constructor invocation. Try using a collection literal • lib/core/model/order_detail_model.dart:173:39 • prefer_collection_literals
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:174:18 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:175:24 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:176:27 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:177:30 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:178:24 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:179:31 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:180:29 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:181:34 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:182:28 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:183:37 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:184:27 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:185:33 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:186:28 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:187:36 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:188:9 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:189:25 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:191:25 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:192:9 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:193:38 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:195:9 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:196:39 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:198:28 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:199:23 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:200:30 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:201:24 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:202:32 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:203:9 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:204:29 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:206:9 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:207:21 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:209:25 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:210:25 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:211:27 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:212:9 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:213:23 • unnecessary_this
+   info • Unnecessary constructor invocation. Try using a collection literal • lib/core/model/order_detail_model.dart:257:39 • prefer_collection_literals
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:258:26 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:259:21 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:260:20 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:261:29 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:262:35 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:263:42 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:264:30 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:265:27 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:266:19 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:267:26 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:268:28 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:269:22 • unnecessary_this
+   info • Unnecessary constructor invocation. Try using a collection literal • lib/core/model/order_detail_model.dart:298:39 • prefer_collection_literals
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:299:20 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:300:23 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:301:21 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:302:23 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:303:20 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:304:25 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:305:21 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:306:21 • unnecessary_this
+   info • Unnecessary constructor invocation. Try using a collection literal • lib/core/model/order_detail_model.dart:335:39 • prefer_collection_literals
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:336:22 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:337:23 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:338:20 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:339:31 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:340:21 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:341:32 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:342:31 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:343:24 • unnecessary_this
+   info • Unnecessary constructor invocation. Try using a collection literal • lib/core/model/order_detail_model.dart:360:39 • prefer_collection_literals
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:361:26 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:362:28 • unnecessary_this
+   info • Unnecessary constructor invocation. Try using a collection literal • lib/core/model/order_detail_model.dart:402:39 • prefer_collection_literals
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:403:18 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:404:24 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:405:27 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:406:20 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:407:25 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:408:22 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:409:26 • unnecessary_this
+   info • Unnecessary 'this.' qualifier. Try removing 'this.' • lib/core/model/order_detail_model.dart:410:26 • unnecessary_this
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/core/services/firebase_messaging_service.dart:91:54 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/core/services/firebase_messaging_service.dart:157:9 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/core/services/firebase_messaging_service.dart:158:20 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/routes/routes.dart:72:19 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/routes/routes.dart:88:21 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/routes/routes.dart:93:21 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/routes/routes.dart:98:21 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/routes/routes.dart:133:18 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/routes/routes.dart:149:19 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/utils/colors.dart:5:25 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/utils/colors.dart:6:26 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/utils/colors.dart:7:25 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/utils/colors.dart:8:30 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/utils/colors.dart:10:37 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/utils/colors.dart:11:28 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/utils/colors.dart:12:39 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/utils/colors.dart:13:34 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/utils/colors.dart:14:26 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/utils/colors.dart:15:23 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/utils/colors.dart:16:30 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/utils/colors.dart:17:28 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/utils/colors.dart:18:31 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/utils/colors.dart:19:29 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/utils/colors.dart:21:24 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/utils/colors.dart:22:29 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/utils/colors.dart:23:24 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/utils/colors.dart:24:32 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/utils/colors.dart:25:25 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/utils/colors.dart:26:27 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/utils/colors.dart:27:28 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/utils/colors.dart:28:26 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/utils/colors.dart:29:27 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/utils/colors.dart:30:27 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/utils/colors.dart:35:30 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/utils/colors.dart:36:34 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/utils/colors.dart:37:27 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/utils/colors.dart:38:26 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/utils/colors.dart:39:27 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/utils/colors.dart:42:24 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/utils/colors.dart:43:33 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/utils/colors.dart:44:25 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/utils/colors.dart:45:39 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/utils/colors.dart:48:27 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/utils/colors.dart:49:24 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/utils/colors.dart:50:26 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/utils/colors.dart:51:27 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/utils/colors.dart:52:26 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/utils/colors.dart:53:31 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/utils/colors.dart:57:30 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/utils/colors.dart:60:24 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/utils/colors.dart:61:25 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/utils/colors.dart:62:39 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/utils/colors.dart:64:27 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/utils/colors.dart:65:24 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/utils/colors.dart:66:26 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/utils/colors.dart:67:24 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/utils/colors.dart:68:32 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/utils/colors.dart:69:26 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/utils/colors.dart:70:25 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/utils/colors.dart:71:26 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/utils/colors.dart:72:27 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/utils/colors.dart:73:27 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/utils/colors.dart:74:26 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/utils/colors.dart:75:31 • prefer_const_constructors
+   info • Use interpolation to compose strings and values. Try using string interpolation to build the composite string • lib/utils/helper.dart:85:15 • prefer_interpolation_to_compose_strings
+   info • Use 'const' literals as arguments to constructors of '@immutable' classes. Try adding 'const' before the literal • lib/view/new_widgets/category_widget.dart:101:32 • prefer_const_literals_to_create_immutables
+   info • Unnecessary use of string interpolation. Try replacing the string literal with the variable name • lib/view/new_widgets/coupon_widget.dart:47:37 • unnecessary_string_interpolations
+   info • The import of 'package:flutter/services.dart' is unnecessary because all of the used elements are also provided by the import of 'package:flutter/material.dart'. Try removing the import directive • lib/view/new_widgets/delivery_boy_widget.dart:2:8 • unnecessary_import
+   info • 'activeColor' is deprecated and shouldn't be used. Use activeTrackColor instead. This feature was deprecated after v3.24.0-0.2.pre. Try replacing the use of the deprecated member with the replacement • lib/view/new_widgets/exchange_currency_widget.dart:312:15 • deprecated_member_use
+   info • The import of 'package:flutter/cupertino.dart' is unnecessary because all of the used elements are also provided by the import of 'package:flutter/material.dart'. Try removing the import directive • lib/view/new_widgets/lang_widget.dart:1:8 • unnecessary_import
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/view/new_widgets/lang_widget.dart:87:24 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/view/new_widgets/lang_widget.dart:88:28 • prefer_const_constructors
+   info • The variable name 'MyPlanCard' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • lib/view/new_widgets/my_plan_widget.dart:8:8 • non_constant_identifier_names
+   info • The variable name 'SearchRowWidget' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • lib/view/new_widgets/search_widget.dart:7:8 • non_constant_identifier_names
+   info • Parameter 'key' could be a super parameter. Trying converting 'key' to a super parameter • lib/view/new_widgets/social_widget.dart:12:9 • use_super_parameters
+   info • Parameter 'key' could be a super parameter. Trying converting 'key' to a super parameter • lib/view/new_widgets/social_widget.dart:181:9 • use_super_parameters
+   info • 'color' is deprecated and shouldn't be used. Use colorFilter instead. Try replacing the use of the deprecated member with the replacement • lib/view/new_widgets/top_orders.dart:244:23 • deprecated_member_use
+   info • Constructors in '@immutable' classes should be declared as 'const'. Try adding 'const' to the constructor declaration • lib/view/screen/auth/login_widget.dart:14:3 • prefer_const_constructors_in_immutables
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/view/screen/auth/login_widget.dart:230:29 • prefer_const_constructors
+   info • 'activeColor' is deprecated and shouldn't be used. Use activeTrackColor instead. This feature was deprecated after v3.24.0-0.2.pre. Try replacing the use of the deprecated member with the replacement • lib/view/screen/coupon_screen/new_coupon_bottomsheet.dart:401:13 • deprecated_member_use
+   info • 'trackColor' is deprecated and shouldn't be used. Use inactiveTrackColor instead. This feature was deprecated after v3.24.0-0.2.pre. Try replacing the use of the deprecated member with the replacement • lib/view/screen/coupon_screen/new_coupon_bottomsheet.dart:403:13 • deprecated_member_use
+   info • 'activeColor' is deprecated and shouldn't be used. Use activeTrackColor instead. This feature was deprecated after v3.24.0-0.2.pre. Try replacing the use of the deprecated member with the replacement • lib/view/screen/coupon_screen/new_coupon_bottomsheet.dart:491:13 • deprecated_member_use
+   info • 'trackColor' is deprecated and shouldn't be used. Use inactiveTrackColor instead. This feature was deprecated after v3.24.0-0.2.pre. Try replacing the use of the deprecated member with the replacement • lib/view/screen/coupon_screen/new_coupon_bottomsheet.dart:493:13 • deprecated_member_use
+   info • 'activeColor' is deprecated and shouldn't be used. Use activeThumbColor or activeTrackColor instead. This feature was deprecated after v3.31.0-2.0.pre. Try replacing the use of the deprecated member with the replacement • lib/view/screen/customers/customer_bottom_sheet.dart:305:13 • deprecated_member_use
+   info • 'value' is deprecated and shouldn't be used. Use initialValue instead. This will set the initial value for the form field. This feature was deprecated after v3.33.0-1.0.pre. Try replacing the use of the deprecated member with the replacement • lib/view/screen/customers/customer_bottom_sheet.dart:665:9 • deprecated_member_use
+   info • 'value' is deprecated and shouldn't be used. Use initialValue instead. This will set the initial value for the form field. This feature was deprecated after v3.33.0-1.0.pre. Try replacing the use of the deprecated member with the replacement • lib/view/screen/customers/customer_bottom_sheet.dart:784:7 • deprecated_member_use
+   info • 'activeColor' is deprecated and shouldn't be used. Use activeThumbColor or activeTrackColor instead. This feature was deprecated after v3.31.0-2.0.pre. Try replacing the use of the deprecated member with the replacement • lib/view/screen/delivery_boys/delivery_boy_bottom_sheet.dart:206:13 • deprecated_member_use
+   info • 'activeColor' is deprecated and shouldn't be used. Use activeTrackColor instead. This feature was deprecated after v3.24.0-0.2.pre. Try replacing the use of the deprecated member with the replacement • lib/view/screen/home_screen/add_category_bottomsheet.dart:332:13 • deprecated_member_use
+   info • 'trackColor' is deprecated and shouldn't be used. Use inactiveTrackColor instead. This feature was deprecated after v3.24.0-0.2.pre. Try replacing the use of the deprecated member with the replacement • lib/view/screen/home_screen/add_category_bottomsheet.dart:334:13 • deprecated_member_use
+   info • 'activeColor' is deprecated and shouldn't be used. Use activeTrackColor instead. This feature was deprecated after v3.24.0-0.2.pre. Try replacing the use of the deprecated member with the replacement • lib/view/screen/home_screen/add_category_bottomsheet.dart:423:13 • deprecated_member_use
+   info • 'trackColor' is deprecated and shouldn't be used. Use inactiveTrackColor instead. This feature was deprecated after v3.24.0-0.2.pre. Try replacing the use of the deprecated member with the replacement • lib/view/screen/home_screen/add_category_bottomsheet.dart:425:13 • deprecated_member_use
+   info • Unnecessary empty statement. Try removing the empty statement or restructuring the code • lib/view/screen/home_screen/home_screen_widget.dart:22:70 • empty_statements
+   info • Unnecessary empty statement. Try removing the empty statement or restructuring the code • lib/view/screen/home_screen/home_screen_widget.dart:108:70 • empty_statements
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/view/screen/home_screen/home_screen_widget.dart:197:60 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/view/screen/home_screen/home_screen_widget.dart:197:74 • prefer_const_constructors
+   info • Unnecessary empty statement. Try removing the empty statement or restructuring the code • lib/view/screen/home_screen/home_screen_widget.dart:258:70 • empty_statements
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/view/screen/home_screen/home_screen_widget.dart:284:19 • prefer_const_constructors
+   info • Unnecessary empty statement. Try removing the empty statement or restructuring the code • lib/view/screen/home_screen/home_screen_widget.dart:386:70 • empty_statements
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/view/screen/home_screen/home_screen_widget.dart:532:91 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/view/screen/home_screen/home_screen_widget.dart:532:122 • prefer_const_constructors
+   info • 'Share' is deprecated and shouldn't be used. Use SharePlus instead. Try replacing the use of the deprecated member with the replacement • lib/view/screen/home_screen/home_screen_widget.dart:551:3 • deprecated_member_use
+   info • 'share' is deprecated and shouldn't be used. Use SharePlus.instance.share() instead. Try replacing the use of the deprecated member with the replacement • lib/view/screen/home_screen/home_screen_widget.dart:551:9 • deprecated_member_use
+   info • Parameter 'key' could be a super parameter. Trying converting 'key' to a super parameter • lib/view/screen/home_screen/shipping_screen.dart:24:9 • use_super_parameters
+   info • Constructors in '@immutable' classes should be declared as 'const'. Try adding 'const' to the constructor declaration • lib/view/screen/notification_screen/notification_screen.dart:16:3 • prefer_const_constructors_in_immutables
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/view/screen/notification_screen/notification_screen.dart:95:26 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/view/screen/notification_screen/notification_screen.dart:95:64 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/view/screen/notification_screen/notification_screen.dart:171:24 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/view/screen/notification_screen/notification_screen.dart:184:36 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/view/screen/notification_screen/notification_screen.dart:239:19 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/view/screen/notification_screen/notification_screen.dart:367:39 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/view/screen/notification_screen/notification_screen.dart:390:31 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/view/screen/notification_screen/notification_screen.dart:433:17 • prefer_const_constructors
+   info • Parameter 'key' could be a super parameter. Trying converting 'key' to a super parameter • lib/view/screen/onboarding_screen/onboarding_screen.dart:13:9 • use_super_parameters
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/view/screen/onboarding_screen/onboarding_screen.dart:34:23 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/view/screen/onboarding_screen/onboarding_screen.dart:118:21 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/view/screen/onboarding_screen/onboarding_screen.dart:169:13 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/view/screen/onboarding_screen/onboarding_screen.dart:171:25 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/view/screen/onboarding_screen/onboarding_screen.dart:267:19 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/view/screen/onboarding_screen/onboarding_screen.dart:304:33 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/view/screen/onboarding_screen/onboarding_screen.dart:373:29 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/view/screen/onboarding_screen/onboarding_screen.dart:388:37 • prefer_const_constructors
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/view/screen/onboarding_screen/onboarding_screen.dart:426:17 • prefer_const_constructors
+   info • 'value' is deprecated and shouldn't be used. Use initialValue instead. This will set the initial value for the form field. This feature was deprecated after v3.33.0-1.0.pre. Try replacing the use of the deprecated member with the replacement • lib/view/screen/order_screen/create_order_screen.dart:892:7 • deprecated_member_use
+   info • Parameter 'key' could be a super parameter. Trying converting 'key' to a super parameter • lib/view/screen/order_screen/invoice_pdf_view.dart:27:9 • use_super_parameters
+   info • Use 'const' literals as arguments to constructors of '@immutable' classes. Try adding 'const' before the literal • lib/view/screen/order_screen/invoice_pdf_view.dart:102:24 • prefer_const_literals_to_create_immutables
+   info • 'activeColor' is deprecated and shouldn't be used. Use activeTrackColor instead. This feature was deprecated after v3.24.0-0.2.pre. Try replacing the use of the deprecated member with the replacement • lib/view/screen/product_screen/add_new_product_screen.dart:806:13 • deprecated_member_use
+   info • 'trackColor' is deprecated and shouldn't be used. Use inactiveTrackColor instead. This feature was deprecated after v3.24.0-0.2.pre. Try replacing the use of the deprecated member with the replacement • lib/view/screen/product_screen/add_new_product_screen.dart:808:13 • deprecated_member_use
+   info • 'activeColor' is deprecated and shouldn't be used. Use activeThumbColor instead. This feature was deprecated after v3.31.0-2.0.pre. Try replacing the use of the deprecated member with the replacement • lib/view/screen/product_screen/add_rating_screen.dart:284:37 • deprecated_member_use
+   info • Parameter 'key' could be a super parameter. Trying converting 'key' to a super parameter • lib/view/screen/product_screen/product_widget.dart:470:9 • use_super_parameters
+   info • The variable name 'widget_isNotEmpty' isn't a lowerCamelCase identifier. Try changing the name to follow the lowerCamelCase style • lib/view/screen/product_screen/product_widget.dart:619:15 • non_constant_identifier_names
+   info • Unnecessary empty statement. Try removing the empty statement or restructuring the code • lib/view/screen/product_screen/products_screen.dart:128:72 • empty_statements
+   info • Constructors in '@immutable' classes should be declared as 'const'. Try adding 'const' to the constructor declaration • lib/view/screen/profile_screen/profile_screen.dart:22:3 • prefer_const_constructors_in_immutables
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/view/screen/profile_screen/profile_screen.dart:172:25 • prefer_const_constructors
+   info • Constructors in '@immutable' classes should be declared as 'const'. Try adding 'const' to the constructor declaration • lib/view/screen/setting_screen/app_settings.dart:17:3 • prefer_const_constructors_in_immutables
+   info • 'activeColor' is deprecated and shouldn't be used. Use activeTrackColor instead. This feature was deprecated after v3.24.0-0.2.pre. Try replacing the use of the deprecated member with the replacement • lib/view/screen/setting_screen/app_settings.dart:177:11 • deprecated_member_use
+   info • 'activeColor' is deprecated and shouldn't be used. Use activeTrackColor instead. This feature was deprecated after v3.24.0-0.2.pre. Try replacing the use of the deprecated member with the replacement • lib/view/screen/setting_screen/loyality_setting_screen.dart:80:25 • deprecated_member_use
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • lib/view/screen/welcome_screen.dart:60:20 • prefer_const_constructors
+   info • Parameter 'key' could be a super parameter. Trying converting 'key' to a super parameter • lib/view/widget/common_button.dart:21:3 • use_super_parameters
+   info • Parameter 'key' could be a super parameter. Trying converting 'key' to a super parameter • lib/view/widget/common_button.dart:87:3 • use_super_parameters
+   info • Parameter 'key' could be a super parameter. Trying converting 'key' to a super parameter • lib/view/widget/common_button.dart:143:3 • use_super_parameters
+   info • Parameter 'key' could be a super parameter. Trying converting 'key' to a super parameter • lib/view/widget/common_button.dart:207:3 • use_super_parameters
+   info • Parameter 'key' could be a super parameter. Trying converting 'key' to a super parameter • lib/view/widget/common_button.dart:257:3 • use_super_parameters
+   info • Parameter 'key' could be a super parameter. Trying converting 'key' to a super parameter • lib/view/widget/common_button.dart:314:3 • use_super_parameters
+   info • The import of 'dart:ui' is unnecessary because all of the used elements are also provided by the import of 'package:flutter/material.dart'. Try removing the import directive • lib/view/widget/common_snak_bar_widget.dart:2:8 • unnecessary_import
+   info • Use 'const' with the constructor to improve performance. Try adding the 'const' keyword to the constructor invocation • test/ui/setting_gate_rendering_test.dart:105:34 • prefer_const_constructors
+
+247 issues found. (ran in 3.7s)

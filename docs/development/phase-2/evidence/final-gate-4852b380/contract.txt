@@ -1,0 +1,39 @@
+
+   PASS  Tests\Contract\AdminOrderPayloadShapeContractTest
+  ✓ the admin order payload has the same keys with and without the new…  0.72s  
+
+   PASS  Tests\Contract\LynomiaAudienceFieldsContractTest
+  ✓ the artifact is the one the producer repository holds                0.09s  
+  ✓ the real producer response resolves this installations store         0.20s  
+  ✓ the real producer response names this installations store in the re… 0.18s  
+  ✓ without the external store id the scope is not sent at all           0.16s  
+  ✓ another providers store is not mistaken for this one                 0.16s  
+
+   PASS  Tests\Contract\LynomiaConsentContractTest
+  ✓ the artifact is the one the producer repository holds                0.11s  
+  ✓ the real producer payload is accepted and projected                  0.18s  
+  ✓ the partner grant sample is accepted in its own scope                0.20s  
+  ✓ a payload without the workspace is refused                           0.18s  
+  ✓ a payload naming another workspace is refused                        0.19s  
+  ✓ a tampered body fails the signature the producer computes            0.15s  
+  ✓ a duplicate delivery of the real payload changes nothing             0.17s  
+  ✓ a delayed grant with an older revision cannot reinstate a withdrawa… 0.17s  
+  ✓ a partner grant cannot mask a native withdrawal                      0.14s  
+
+   PASS  Tests\Contract\LynomiaDeliveryStatusContractTest
+  ✓ the artifact is the one the producer repository holds                0.11s  
+  ✓ a queued message is not recorded as sent                             0.11s  
+  ✓ the provider acceptance sample is accepted and projected             0.11s  
+  ✓ the delivery sample is accepted and projected                        0.11s  
+  ✓ a policy refusal and a provider failure arrive as different outcome… 0.12s  
+  ✓ a payload without the workspace is refused                           0.12s  
+  ✓ a payload naming another workspace is refused                        0.11s  
+  ✓ a tampered body fails the signature the producer computes            0.10s  
+  ✓ a duplicate delivery of the real payload changes nothing             0.12s  
+  ✓ a delayed acceptance cannot overwrite a delivery that already lande… 0.18s  
+  ✓ a newer delivery may follow a failure                                0.17s  
+  ✓ every outcome the producer sends is one this side understands        0.09s  
+
+  Tests:    27 passed (91 assertions)
+  Duration: 4.50s
+
