@@ -135,154 +135,168 @@ try {
            SUBSTRING_INDEX machinery this script exists to exercise. Not a mistake in the
            fixture: it is the shipped column. */
         $t->string('product_id', 191);
-        $t->float('final_price')->default(0);
+        /* `product_json` IS THE AUTHORITATIVE PER-LINE RECORD and the new computation's only
+           input. The old query never read it, which is the root of F242. */
+        $t->text('product_json')->nullable();
+        $t->decimal('final_price', 16, 4)->default(0);
         $t->unsignedBigInteger('store_id')->nullable();
         $t->timestamps();
     });
 
-    echo "0. the premise -- MySQL really has the functions SQLite does not\n";
+    echo "0. the premise -- MySQL has the functions SQLite does not, so the OLD shape can be RUN here\n";
     $probe = DB::connection('ogr_a')
         ->selectOne("SELECT SUBSTRING_INDEX(SUBSTRING_INDEX('7,9,11', ',', 2), ',', -1) v");
     check('SUBSTRING_INDEX picks the nth element of a comma list', (string) $probe->v === '9',
-        'got ' . var_export($probe->v, true) . '; if this fails the script measured nothing');
+        'got ' . var_export($probe->v ?? null, true));
 
-    /* ---------------------------------------------------------------- the fixture
-     *
-     * Store 1 owns category "Lamps" and product 7.
-     * Store 2 owns category "Rugs"  and product 9.
-     *
-     * Three orders:
-     *   A  store 1, product 7,  4500.00   <- store 1's own revenue
-     *   B  store 2, product 7,  9900.00   <- ANOTHER TENANT'S order, naming store 1's product
-     *   C  store 2, product 9,   250.00   <- store 2's own, unrelated
-     *
-     * Order B is the one that matters. `Product` registers no StoreScope and is not in
-     * `scoped_models`, so a storefront in store 2 can reach store 1's catalogue (finding S19) and
-     * produce exactly this row. Without an `orders.store_id` predicate, store 1's "Top Category"
-     * reports 14,400 — more than half of it another tenant's money.
-     */
-    DB::connection('ogr_a')->table('categories')->insert([
-        ['id' => 1, 'name' => 'Lamps', 'image_path' => null, 'store_id' => 1],
-        ['id' => 2, 'name' => 'Rugs',  'image_path' => null, 'store_id' => 2],
-    ]);
-    DB::connection('ogr_a')->table('products')->insert([
-        ['id' => 7, 'name' => 'Brass lamp', 'category_id' => 1, 'store_id' => 1],
-        ['id' => 9, 'name' => 'Kilim',      'category_id' => 2, 'store_id' => 2],
-    ]);
-    DB::connection('ogr_a')->table('orders')->insert([
-        ['id' => 1, 'product_id' => '7', 'final_price' => 4500.00, 'store_id' => 1, 'created_at' => now(), 'updated_at' => now()],
-        ['id' => 2, 'product_id' => '7', 'final_price' => 9900.00, 'store_id' => 2, 'created_at' => now(), 'updated_at' => now()],
-        ['id' => 3, 'product_id' => '9', 'final_price' =>  250.00, 'store_id' => 2, 'created_at' => now(), 'updated_at' => now()],
+    $past = DB::connection('ogr_a')
+        ->selectOne("SELECT SUBSTRING_INDEX(SUBSTRING_INDEX('7,9', ',', 50), ',', -1) v");
+    check('and PAST the end it returns the LAST element -- the fan-out\'s cause',
+        (string) $past->v === '9', 'got ' . var_export($past->v ?? null, true));
+
+    // ------------------------------------------------------------------ 1. THE FIXTURE
+    $a = DB::connection('ogr_a');
+
+    $a->table('categories')->insert([
+        ['id' => 1, 'name' => 'Lamps', 'image_path' => 'l.png',  'store_id' => 1],
+        ['id' => 2, 'name' => 'Rugs',  'image_path' => 'r.png',  'store_id' => 1],
+        ['id' => 3, 'name' => 'Tiles', 'image_path' => 't.png',  'store_id' => 1],
+        ['id' => 4, 'name' => 'Lamps', 'image_path' => 'l2.png', 'store_id' => 2],
     ]);
 
-    /** The shipped query shape, with the store predicate under test made optional. */
-    $topSales = function (int $storeId, bool $scopeOrders) {
-        $q = DB::connection('ogr_a')->table('categories')
-            ->select('categories.name as sale_name', DB::raw('SUM(orders.final_price) as total_sale'))
-            ->join('products', 'categories.id', '=', 'products.category_id')
-            ->join('orders', function ($join) {
-                $join->on('products.id', '=', DB::raw("SUBSTRING_INDEX(SUBSTRING_INDEX(orders.product_id, ',', numbers.n), ',', -1)"))
-                    ->crossJoin(DB::raw('(SELECT 1 + a.N + b.N * 10 AS n FROM (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS a CROSS JOIN (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS b) AS numbers'));
-            })
-            ->where('categories.store_id', $storeId);
-
-        if ($scopeOrders) {
-            $q->where('orders.store_id', $storeId);
-        }
-
-        return $q->groupBy('categories.name')->orderBy('total_sale', 'desc')->get();
-    };
-
-    echo "\n1. the query runs at all on this engine\n";
-    $scoped = $topSales(1, true);
-    check('store 1 gets exactly one category row', $scoped->count() === 1,
-        'got ' . $scoped->count() . ' row(s)');
-    check('and it is the category store 1 owns', ($scoped->first()->sale_name ?? '') === 'Lamps',
-        (string) ($scoped->first()->sale_name ?? '(none)'));
-
-    echo "\n2. the tenant predicate -- another store's order is NOT in this store's revenue\n";
-    /* RAW sums, before the view's /100. Section 4 explains why that division exists; here the
-       only question is WHOSE orders are in the total, and the fan-out multiplies both sides of
-       the comparison equally. */
-    $scopedTotal = (float) ($scoped->first()->total_sale ?? 0);
-    check('store 1 sees its own order and nothing else (4500 x the 100-row fan-out)',
-        abs($scopedTotal - 450000.0) < 0.001, 'got ' . $scopedTotal);
-
-    $unscoped = $topSales(1, false);
-    $unscopedTotal = (float) ($unscoped->first()->total_sale ?? 0);
-    check('THE BITE: without the predicate the same query returns a different, larger figure',
-        abs($unscopedTotal - $scopedTotal) > 0.001,
-        'scoped=' . $scopedTotal . ' unscoped=' . $unscopedTotal
-        . ' -- the two agree, so this fixture cannot tell the predicate from its absence');
-    check('and that figure carries the other tenant\'s 9900 as well: (4500 + 9900) x 100',
-        abs($unscopedTotal - 1440000.0) < 0.001, 'got ' . $unscopedTotal);
-    check('which the card would have shown as 14400 rather than 4500',
-        abs(($unscopedTotal / 100) - 14400.0) < 0.001, 'got ' . ($unscopedTotal / 100));
-
-    echo "\n3. store 2 is not harmed by the predicate -- it keeps the order it really placed\n";
-    $two = $topSales(2, true);
-    $byName = $two->keyBy('sale_name');
-    check('store 2 sees its own category', $byName->has('Rugs'), $two->pluck('sale_name')->implode(', '));
-    check('at 250 x the fan-out, which the card shows as 250',
-        abs(((float) ($byName['Rugs']->total_sale ?? 0)) - 25000.0) < 0.001,
-        'got ' . ((float) ($byName['Rugs']->total_sale ?? 0)));
-    check('and its order for ANOTHER store\'s product is not attributed to that store\'s category',
-        ! $byName->has('Lamps'),
-        'store 2 is being shown store 1\'s category, which it does not own');
-
-    echo "\n4. WHY THE /100 EXISTS -- the cross join fans a single-product order out 100 times\n";
-    /* THE MEASUREMENT THAT CORRECTED WS C. `numbers.n` runs 1..100 and nothing bounds it to the
-       number of elements in `orders.product_id`, so `SUBSTRING_INDEX('7', ',', n)` returns '7'
-       for every n and the order joins a hundred times. The view's `/100` is a compensation for
-       that, NOT a minor-unit conversion -- which is what it looks like, and what WS C first took
-       it for. */
-    $fan = DB::connection('ogr_a')->select(
-        "SELECT o.id, o.product_id, COUNT(*) rows_joined, SUM(o.final_price) summed
-           FROM orders o CROSS JOIN (SELECT 1 + a.N + b.N * 10 AS n FROM (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS a CROSS JOIN (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS b) AS numbers
-          WHERE SUBSTRING_INDEX(SUBSTRING_INDEX(o.product_id, ',', numbers.n), ',', -1) = '7'
-            AND o.id = 1
-          GROUP BY o.id, o.product_id"
-    );
-    check('a SINGLE-product order joins 100 times, not once',
-        (int) ($fan[0]->rows_joined ?? 0) === 100,
-        'joined ' . ((int) ($fan[0]->rows_joined ?? 0)) . ' time(s)');
-    check('so its 4500 is summed as 450000, and /100 renders the right 4500',
-        abs(((float) ($fan[0]->summed ?? 0)) - 450000.0) < 0.001
-        && abs((((float) ($fan[0]->summed ?? 0)) / 100) - 4500.0) < 0.001,
-        'summed ' . ((float) ($fan[0]->summed ?? 0)));
-    check('THE BITE: removing the /100 would have shown 450000 for a 4500 category',
-        abs($scopedTotal - 450000.0) < 0.001, 'got ' . $scopedTotal);
-
-    echo "\n5. a multi-product order still attributes to every category it names\n";
-    /* The SUBSTRING_INDEX machinery exists for this case, and it is worth one check: a predicate
-       added to the wrong clause could silently drop these rows. */
-    DB::connection('ogr_a')->table('products')->insert([
-        ['id' => 11, 'name' => 'Copper lamp', 'category_id' => 1, 'store_id' => 1],
+    $a->table('products')->insert([
+        ['id' => 7,  'name' => 'Brass lamp', 'category_id' => 1, 'store_id' => 1],
+        ['id' => 9,  'name' => 'Kilim rug',  'category_id' => 2, 'store_id' => 1],
+        ['id' => 11, 'name' => 'Zellige',    'category_id' => 3, 'store_id' => 1],
+        ['id' => 21, 'name' => 'Other lamp', 'category_id' => 4, 'store_id' => 2],
     ]);
-    DB::connection('ogr_a')->table('orders')->insert([
-        ['id' => 4, 'product_id' => '7,11', 'final_price' => 100.00, 'store_id' => 1, 'created_at' => now(), 'updated_at' => now()],
+
+    $a->table('orders')->insert([
+        [   // store 1, THREE products: 60 + 100 + 15 = 175 product revenue, +40 order-level money
+            'id' => 1, 'product_id' => '7,9,11',
+            'product_json' => json_encode([
+                ['product_id' => 7,  'qty' => 3, 'price' => 20, 'final_price' => 60],
+                ['product_id' => 9,  'qty' => 2, 'price' => 50, 'final_price' => 100],
+                ['product_id' => 11, 'qty' => 1, 'price' => 15, 'final_price' => 15],
+            ]),
+            'final_price' => '215.0000', 'store_id' => 1,
+            'created_at' => now(), 'updated_at' => now(),
+        ],
+        [   // store 1, ONE product, written with the OTHER spelling: 5 x 8 = 40
+            'id' => 2, 'product_id' => '7',
+            'product_json' => json_encode([['product_id' => 7, 'quantity' => 5, 'price' => 8]]),
+            'final_price' => '80.0000', 'store_id' => 1,
+            'created_at' => now(), 'updated_at' => now(),
+        ],
+        [   // store 2
+            'id' => 3, 'product_id' => '21',
+            'product_json' => json_encode([['product_id' => 21, 'qty' => 1, 'price' => 999, 'final_price' => 999]]),
+            'final_price' => '999.0000', 'store_id' => 2,
+            'created_at' => now(), 'updated_at' => now(),
+        ],
     ]);
-    $after = $topSales(1, true);
-    $lamps = (float) ($after->firstWhere('sale_name', 'Lamps')->total_sale ?? 0);
 
-    /* F242, MEASURED. Product 7 matches only n=1 ('7'), product 11 matches n=2..100 ('11'), so
-       the 100 is summed 1 + 99 = 100 times -- the SAME hundredfold the single-product case gets,
-       by a different route, which is why the card happens to read 100 for this order too. The
-       defect shows up as soon as the two products sit in DIFFERENT categories, or the list has
-       three elements: the per-element counts stop summing to 100. Recorded, not fixed. */
-    check('the raw sum is 450000 + 100x100, so the card reads 4500 + 100',
-        abs($lamps - 460000.0) < 0.001, 'got ' . $lamps);
-    check('F242: the compensation is arithmetic coincidence, not a bound -- a THREE-element list '
-        . 'does not sum to 100 per order',
-        (int) DB::connection('ogr_a')->selectOne(
-            "SELECT COUNT(*) c FROM (SELECT 1 + a.N + b.N * 10 AS n FROM (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS a CROSS JOIN (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS b) AS numbers
-               WHERE SUBSTRING_INDEX(SUBSTRING_INDEX('7,11,13', ',', numbers.n), ',', -1) = '11'"
-        )->c === 1,
-        'the middle element of a three-element list matches a number of times other than 1, so '
-        . 'this record of F242 is wrong');
+    // ------------------- 2. THE OLD SHAPE, EXECUTED, SO F242 IS A NUMBER AND NOT AN ARGUMENT
+    //
+    // By hand for order 1 ('7,9,11'):  n=1 -> 7 (1 row) · n=2 -> 9 (1 row) · n=3..100 -> 11 (98 rows)
+    // so SUM(final_price) is 215, 215 and 215*98 = 21070, which /100 renders as 2.15, 2.15, 210.70
+    // for an order whose real split is 60 / 100 / 15.
+    $numbers = '(SELECT 1 + a.N + b.N * 10 AS n FROM (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL '
+        . 'SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 '
+        . 'UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS a CROSS JOIN (SELECT 0 AS N '
+        . 'UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL '
+        . 'SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS b) AS numbers';
 
-    echo "\n" . str_repeat('-', 86) . "\n";
-    echo "{$checks} checks, {$failures} failed\n";
+    $old = $a->table('categories')
+        ->select('categories.name as sale_name', DB::raw('SUM(orders.final_price) as total_sale'))
+        ->join('products', 'categories.id', '=', 'products.category_id')
+        ->join('orders', function ($join) use ($numbers) {
+            $join->on('products.id', '=', DB::raw("SUBSTRING_INDEX(SUBSTRING_INDEX(orders.product_id, ',', numbers.n), ',', -1)"))
+                ->crossJoin(DB::raw($numbers));
+        })
+        ->where('categories.store_id', 1)
+        ->where('orders.store_id', 1)
+        ->groupBy('categories.name')
+        ->get()
+        ->keyBy('sale_name');
+
+    echo "\n2. the OLD query, executed -- what the card used to show\n";
+    $oldShown = fn ($n) => round(((float) ($old[$n]->total_sale ?? 0)) / 100, 2);
+
+    foreach (['Lamps' => 100.0, 'Rugs' => 100.0, 'Tiles' => 15.0] as $name => $truth) {
+        printf("     %-6s truth %9.2f    old card showed %12.2f\n", $name, $truth, $oldShown($name));
+    }
+
+    check('the OLD card UNDER-reported Rugs (truth 100.00, showed ' . $oldShown('Rugs') . ')',
+        abs($oldShown('Rugs') - 100.0) > 1.0,
+        'the old shape agreed with the truth, so this fixture does not reproduce F242');
+
+    check('and OVER-reported Tiles (truth 15.00, showed ' . $oldShown('Tiles') . ')',
+        $oldShown('Tiles') > 100.0,
+        'the last element was not fanned out, so the non-uniform fan-out is not reproduced');
+
+    check('so NO single divisor could correct both at once -- which is F242',
+        abs($oldShown('Rugs') - 100.0) > 1.0 && $oldShown('Tiles') > 100.0);
+
+    // ---------------------------- 3. THE NEW COMPUTATION, AGAINST THIS ENGINE
+    echo "\n3. the NEW computation on this engine\n";
+    config(['database.default' => 'ogr_a']);
+
+    $rows = collect(\App\Support\TopSellersByRevenue::compute(
+        \App\Support\TopSellersByRevenue::CATEGORY, 1
+    ))->keyBy('sale_name');
+
+    $got = fn ($n) => round((float) ($rows[$n]->total_sale ?? -1), 2);
+
+    /* Lamps is 100, not 60: product 7 is in BOTH of store 1's orders -- 60 from the three-line one
+       and 5 x 8 = 40 from the single-line one, which is written with `quantity` rather than `qty`.
+       So this figure also proves the spelling tolerance on the real engine. */
+    foreach (['Lamps' => 100.0, 'Rugs' => 100.0, 'Tiles' => 15.0] as $name => $expected) {
+        check(sprintf('%s is %.2f', $name, $expected), abs($got($name) - $expected) < 0.001,
+            'got ' . $got($name) . ($name === 'Lamps' ? '; 60 means the `quantity` line was dropped' : ''));
+    }
+
+    check('ORDER-LEVEL MONEY IS EXCLUDED: 215 of product revenue, not the 295 of order totals',
+        abs(array_sum($rows->pluck('total_sale')->all()) - 215.0) < 0.001,
+        'got ' . array_sum($rows->pluck('total_sale')->all()));
+
+    check('store 2 is absent despite owning a category of the SAME NAME', $rows->count() === 3,
+        'rows: ' . $rows->pluck('sale_name')->implode(', '));
+
+    // ---------------------------- 4. THE OTHER TENANT
+    $two = collect(\App\Support\TopSellersByRevenue::compute(
+        \App\Support\TopSellersByRevenue::CATEGORY, 2
+    ))->keyBy('sale_name');
+
+    check('store 2 sees its own Lamps at 999.00',
+        abs((float) ($two['Lamps']->total_sale ?? 0) - 999.0) < 0.001,
+        'got ' . ((float) ($two['Lamps']->total_sale ?? 0)));
+    check('and exactly one row', $two->count() === 1, 'rows: ' . $two->count());
+
+    // ---------------------------- 5. THE DATE WINDOW
+    $a->table('orders')->where('id', 2)->update(['created_at' => now()->subYears(2)]);
+
+    $thisYear = collect(\App\Support\TopSellersByRevenue::compute(
+        \App\Support\TopSellersByRevenue::CATEGORY, 1,
+        now()->startOfYear()->toDateTimeString(),
+        now()->startOfYear()->addYear()->toDateTimeString()
+    ))->keyBy('sale_name');
+
+    check('a two-year-old order leaves the year window (Lamps 100 -> 60)',
+        abs((float) ($thisYear['Lamps']->total_sale ?? 0) - 60.0) < 0.001,
+        'got ' . ((float) ($thisYear['Lamps']->total_sale ?? 0)));
+
+    echo "\n" . str_repeat('=', 86) . "\n";
+    echo "checks  : {$checks}\nfailures: {$failures}\n";
+
+    if ($failures === 0) {
+        echo "\nALL ASSERTIONS HELD on " . DB::connection('ogr_a')->selectOne('SELECT VERSION() v')->v . ".\n";
+        echo "The OLD cross-join query is EXECUTED here and shown wrong on real MySQL: on one\n";
+        echo "three-product order it under-reported one category and over-reported another, so no\n";
+        echo "single divisor could have corrected it. The NEW computation returns the figures that\n";
+        echo "arithmetic on the fixture predicts, excludes order-level money, tolerates both line\n";
+        echo "spellings, isolates each store and honours a half-open date window.\n";
+    }
 } finally {
     try { DB::connection('ogr_boot')->statement("DROP DATABASE IF EXISTS `{$database}`"); } catch (Throwable $e) {}
 }

@@ -1415,171 +1415,44 @@ class HomeController extends Controller
 
         $tab_name = $request->tabId;
         $type = $request->type;
-        if ($type == 'category') {
-            if ($tab_name == '#all-category-order') {
-                $top_sales = Category::select('categories.name as sale_name', 'categories.image_path as sale_image_path', \DB::raw('SUM(orders.final_price) as total_sale'))
-                    ->join('products', 'categories.id', '=', 'products.category_id')
-                    ->join('orders', function ($join) {
-                        $join->on('products.id', '=', \DB::raw("SUBSTRING_INDEX(SUBSTRING_INDEX(orders.product_id, ',', numbers.n), ',', -1)"))
-                            ->crossJoin(\DB::raw('(SELECT 1 + a.N + b.N * 10 AS n FROM (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS a CROSS JOIN (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS b) AS numbers'));
-                    })
-                    ->where('categories.store_id', getCurrentStore())
-                    ->where('orders.store_id', getCurrentStore())
-                    ->groupBy('categories.name')
-                    ->orderBy('total_sale', 'desc')
-                    ->get();
 
-            } elseif ($tab_name == '#today-category-order') {
+        /*
+         * F242 — THE TWELVE CROSS-JOIN QUERIES ARE GONE, replaced by one computation over the real
+         * per-line values. The owner approved the fix; the reasoning is in
+         * `App\Support\TopSellersByRevenue`, and the short version is that the old shape was wrong
+         * in two independent ways:
+         *
+         *   1. The `numbers.n` 1..100 cross join fanned each order out NON-UNIFORMLY — products
+         *      1..k-1 matched once and product k matched 101-k times — so the view's `/100` was
+         *      exact only for single-product orders and under-reported every earlier category of a
+         *      multi-product order a hundredfold.
+         *   2. It summed `orders.final_price`, crediting each matched category the WHOLE order
+         *      including shipping and tax, so a two-category order was counted twice over.
+         *
+         * The window is HALF-OPEN `[from, to)` so a midnight order belongs to one period, and the
+         * tab names are unchanged so the dashboard's AJAX and its tab ids keep working.
+         */
+        $dimension = $type === 'category'
+            ? \App\Support\TopSellersByRevenue::CATEGORY
+            : \App\Support\TopSellersByRevenue::BRAND;
 
-                $top_sales = Category::select('categories.name as sale_name', 'categories.image_path as sale_image_path', \DB::raw('SUM(orders.final_price) as total_sale'))
-                    ->join('products', 'categories.id', '=', 'products.category_id')
-                    ->join('orders', function ($join) {
-                        $join->on('products.id', '=', \DB::raw("SUBSTRING_INDEX(SUBSTRING_INDEX(orders.product_id, ',', numbers.n), ',', -1)"))
-                            ->crossJoin(\DB::raw('(SELECT 1 + a.N + b.N * 10 AS n FROM (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS a CROSS JOIN (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS b) AS numbers'))
-                            ->whereDate('orders.created_at', '=', \DB::raw('CURDATE()'));
-                    })
-                    ->where('categories.store_id', getCurrentStore())
-                    ->where('orders.store_id', getCurrentStore())
-                    ->groupBy('categories.name')
-                    ->orderBy('total_sale', 'desc')
-                    ->get();
+        $suffix = $type === 'category' ? '-category-order' : '-brand-order';
 
-            } elseif ($tab_name == '#week-category-order') {
-                $top_sales = Category::select('categories.name as sale_name', 'categories.image_path as sale_image_path', \DB::raw('SUM(orders.final_price) as total_sale'))
-                    ->join('products', 'categories.id', '=', 'products.category_id')
-                    ->join('orders', function ($join) {
-                        $join->on('products.id', '=', \DB::raw("SUBSTRING_INDEX(SUBSTRING_INDEX(orders.product_id, ',', numbers.n), ',', -1)"))
-                            ->crossJoin(\DB::raw('(SELECT 1 + a.N + b.N * 10 AS n FROM (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS a CROSS JOIN (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS b) AS numbers'))
-                            ->whereBetween('orders.created_at', [now()->startOfWeek(), now()->endOfWeek()]);
-                    })
-                    ->where('categories.store_id', getCurrentStore())
-                    ->where('orders.store_id', getCurrentStore())
-                    ->groupBy('categories.name')
-                    ->orderBy('total_sale', 'desc')
-                    ->get();
+        [$from, $to] = match ($tab_name) {
+            '#today' . $suffix => [now()->startOfDay(), now()->startOfDay()->addDay()],
+            '#week' . $suffix => [now()->startOfWeek(), now()->startOfWeek()->addWeek()],
+            '#month' . $suffix => [now()->startOfMonth(), now()->startOfMonth()->addMonth()],
+            '#year' . $suffix => [now()->startOfYear(), now()->startOfYear()->addYear()],
+            default => [null, null],
+        };
 
-            } elseif ($tab_name == '#month-category-order') {
-                $top_sales = Category::select('categories.name as sale_name', 'categories.image_path as sale_image_path', \DB::raw('SUM(orders.final_price) as total_sale'))
-                    ->join('products', 'categories.id', '=', 'products.category_id')
-                    ->join('orders', function ($join) {
-                        $join->on('products.id', '=', \DB::raw("SUBSTRING_INDEX(SUBSTRING_INDEX(orders.product_id, ',', numbers.n), ',', -1)"))
-                            ->crossJoin(\DB::raw('(SELECT 1 + a.N + b.N * 10 AS n FROM (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS a CROSS JOIN (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS b) AS numbers'))
-                            ->whereYear('orders.created_at', now()->year)
-                            ->whereMonth('orders.created_at', now()->month);
-                    })
-                    ->where('categories.store_id', getCurrentStore())
-                    ->where('orders.store_id', getCurrentStore())
-                    ->groupBy('categories.name')
-                    ->orderBy('total_sale', 'desc')
-                    ->get();
-            } elseif ($tab_name == '#year-category-order') {
-                $top_sales = Category::select('categories.name as sale_name', 'categories.image_path as sale_image_path', \DB::raw('SUM(orders.final_price) as total_sale'))
-                    ->join('products', 'categories.id', '=', 'products.category_id')
-                    ->join('orders', function ($join) {
-                        $join->on('products.id', '=', \DB::raw("SUBSTRING_INDEX(SUBSTRING_INDEX(orders.product_id, ',', numbers.n), ',', -1)"))
-                            ->crossJoin(\DB::raw('(SELECT 1 + a.N + b.N * 10 AS n FROM (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS a CROSS JOIN (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS b) AS numbers'))
-                            ->whereYear('orders.created_at', now()->year);
-                    })
-                    ->where('categories.store_id', getCurrentStore())
-                    ->where('orders.store_id', getCurrentStore())
-                    ->groupBy('categories.name')
-                    ->orderBy('total_sale', 'desc')
-                    ->get();
-            } else {
-                $top_sales = Category::select('categories.name as sale_name', 'categories.image_path as sale_image_path', \DB::raw('SUM(orders.final_price) as total_sale'))
-                    ->join('products', 'categories.id', '=', 'products.category_id')
-                    ->join('orders', function ($join) {
-                        $join->on('products.id', '=', \DB::raw("SUBSTRING_INDEX(SUBSTRING_INDEX(orders.product_id, ',', numbers.n), ',', -1)"))
-                            ->crossJoin(\DB::raw('(SELECT 1 + a.N + b.N * 10 AS n FROM (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS a CROSS JOIN (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS b) AS numbers'));
-                    })
-                    ->where('categories.store_id', getCurrentStore())
-                    ->where('orders.store_id', getCurrentStore())
-                    ->groupBy('categories.name')
-                    ->orderBy('total_sale', 'desc')
-                    ->get();
-            }
-        } else {
-            if ($tab_name == '#all-brand-order') {
-                $top_sales = ProductBrand::select('product_brands.name as sale_name', 'product_brands.logo as sale_image_path', \DB::raw('SUM(orders.final_price) as total_sale'))
-                    ->join('products', 'product_brands.id', '=', 'products.brand_id')
-                    ->join('orders', function ($join) {
-                        $join->on('products.id', '=', \DB::raw("SUBSTRING_INDEX(SUBSTRING_INDEX(orders.product_id, ',', numbers.n), ',', -1)"))
-                            ->crossJoin(\DB::raw('(SELECT 1 + a.N + b.N * 10 AS n FROM (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS a CROSS JOIN (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS b) AS numbers'));
-                    })
-                    ->where('product_brands.store_id', getCurrentStore())
-                    ->where('orders.store_id', getCurrentStore())
-                    ->groupBy('product_brands.name')
-                    ->orderBy('total_sale', 'desc')
-                    ->get();
-            } elseif ($tab_name == '#today-brand-order') {
+        $top_sales = collect(\App\Support\TopSellersByRevenue::compute(
+            $dimension,
+            getCurrentStore(),
+            $from?->toDateTimeString(),
+            $to?->toDateTimeString()
+        ));
 
-                $top_sales = ProductBrand::select('product_brands.name as sale_name', \DB::raw('SUM(orders.final_price) as total_sale'))
-                    ->join('products', 'product_brands.id', '=', 'products.brand_id')
-                    ->join('orders', function ($join) {
-                        $join->on('products.id', '=', \DB::raw("SUBSTRING_INDEX(SUBSTRING_INDEX(orders.product_id, ',', numbers.n), ',', -1)"))
-                            ->crossJoin(\DB::raw('(SELECT 1 + a.N + b.N * 10 AS n FROM (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS a CROSS JOIN (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS b) AS numbers'))
-                            ->whereDate('orders.created_at', '=', \DB::raw('CURDATE()'));
-                    })
-                    ->where('product_brands.store_id', getCurrentStore())
-                    ->where('orders.store_id', getCurrentStore())
-                    ->groupBy('product_brands.name')
-                    ->orderBy('total_sale', 'desc')
-                    ->get();
-
-            } elseif ($tab_name == '#week-brand-order') {
-                $top_sales = ProductBrand::select('product_brands.name as sale_name', 'product_brands.logo as sale_image_path', \DB::raw('SUM(orders.final_price) as total_sale'))
-                    ->join('products', 'product_brands.id', '=', 'products.brand_id')
-                    ->join('orders', function ($join) {
-                        $join->on('products.id', '=', \DB::raw("SUBSTRING_INDEX(SUBSTRING_INDEX(orders.product_id, ',', numbers.n), ',', -1)"))
-                            ->crossJoin(\DB::raw('(SELECT 1 + a.N + b.N * 10 AS n FROM (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS a CROSS JOIN (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS b) AS numbers'))
-                            ->whereBetween('orders.created_at', [now()->startOfWeek(), now()->endOfWeek()]);
-                    })
-                    ->where('product_brands.store_id', getCurrentStore())
-                    ->where('orders.store_id', getCurrentStore())
-                    ->groupBy('product_brands.name')
-                    ->orderBy('total_sale', 'desc')
-                    ->get();
-            } elseif ($tab_name == '#month-brand-order') {
-                $top_sales = ProductBrand::select('product_brands.name as sale_name', 'product_brands.logo as sale_image_path', \DB::raw('SUM(orders.final_price) as total_sale'))
-                    ->join('products', 'product_brands.id', '=', 'products.brand_id')
-                    ->join('orders', function ($join) {
-                        $join->on('products.id', '=', \DB::raw("SUBSTRING_INDEX(SUBSTRING_INDEX(orders.product_id, ',', numbers.n), ',', -1)"))
-                            ->crossJoin(\DB::raw('(SELECT 1 + a.N + b.N * 10 AS n FROM (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS a CROSS JOIN (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS b) AS numbers'))
-                            ->whereYear('orders.created_at', now()->year)
-                            ->whereMonth('orders.created_at', now()->month);
-                    })
-                    ->where('product_brands.store_id', getCurrentStore())
-                    ->where('orders.store_id', getCurrentStore())
-                    ->groupBy('product_brands.name')
-                    ->orderBy('total_sale', 'desc')
-                    ->get();
-            } elseif ($tab_name == '#year-brand-order') {
-                $top_sales = ProductBrand::select('product_brands.name as sale_name', 'product_brands.logo as sale_image_path', \DB::raw('SUM(orders.final_price) as total_sale'))
-                    ->join('products', 'product_brands.id', '=', 'products.brand_id')
-                    ->join('orders', function ($join) {
-                        $join->on('products.id', '=', \DB::raw("SUBSTRING_INDEX(SUBSTRING_INDEX(orders.product_id, ',', numbers.n), ',', -1)"))
-                            ->crossJoin(\DB::raw('(SELECT 1 + a.N + b.N * 10 AS n FROM (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS a CROSS JOIN (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS b) AS numbers'))
-                            ->whereYear('orders.created_at', now()->year);
-                    })
-                    ->where('product_brands.store_id', getCurrentStore())
-                    ->where('orders.store_id', getCurrentStore())
-                    ->groupBy('product_brands.name')
-                    ->orderBy('total_sale', 'desc')
-                    ->get();
-            } else {
-                $top_sales = ProductBrand::select('product_brands.name as sale_name', 'product_brands.logo as sale_image_path', \DB::raw('SUM(orders.final_price) as total_sale'))
-                    ->join('products', 'product_brands.id', '=', 'products.brand_id')
-                    ->join('orders', function ($join) {
-                        $join->on('products.id', '=', \DB::raw("SUBSTRING_INDEX(SUBSTRING_INDEX(orders.product_id, ',', numbers.n), ',', -1)"))
-                            ->crossJoin(\DB::raw('(SELECT 1 + a.N + b.N * 10 AS n FROM (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS a CROSS JOIN (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS b) AS numbers'));
-                    })
-                    ->where('product_brands.store_id', getCurrentStore())
-                    ->where('orders.store_id', getCurrentStore())
-                    ->groupBy('product_brands.name')
-                    ->orderBy('total_sale', 'desc')
-                    ->get();
-            }
-        }
         $html = '';
         $html = view('order.brand_category_chart', compact('tab_name', 'top_sales'))->render();
 

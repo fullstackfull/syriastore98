@@ -140,41 +140,47 @@ class DashboardFigureHonestyTest extends SecurityTestCase
     // ---------------------------------------------------------------------------------------
 
     /**
-     * THE DIVISION STAYS, AND THIS IS THE RATCHET THAT SAYS SO.
+     * [2026-11-01] THE DIVISION IS GONE, AND THIS RATCHET IS INVERTED. F242, owner-approved.
      *
-     * It reads like a minor-unit conversion applied to a column that is already major units —
-     * which is exactly what WS C first took it for, and removed. On a real MariaDB the twelve
-     * queries behind this partial fan a single-product order out across a 1..100 generated
-     * series, so its price arrives summed a hundred times; the division is the compensation.
-     * Removing it would have rendered a 4,500 category as 450,000.
+     * WHAT THIS TEST USED TO ASSERT, and why it was right at the time: the twelve queries behind
+     * this partial cross-joined a 1..100 generated series, so a single-product order's price arrived
+     * summed a hundred times and the view's `/100` was the compensation. WS C removed the divisor
+     * once on the reasoning that `final_price` is already major units; that reasoning was right
+     * about the column and wrong about the query, and this ratchet existed to stop a second attempt.
      *
-     * The partial is rendered directly with a known figure because the queries themselves are
-     * MySQL-only and cannot run in this suite at all. What the arithmetic MEANS is measured in
-     * `tests/Support/Security/bin/verify-dashboard-top-sales-scope-on-mysql.php`; what this test
-     * guards is the contract between that query and this view.
+     * WHY IT IS NOW THE OPPOSITE: the fan-out itself is gone. `App\Support\TopSellersByRevenue`
+     * sums each order LINE's revenue from `orders.product_json`, so `total_sale` arrives as real
+     * money and a `/100` would render every figure on both cards as a hundredth of the truth.
+     *
+     * The divisor could never have been correct anyway, which is what F242 recorded and what
+     * `verify-dashboard-top-sales-scope-on-mysql.php` now measures on a real MariaDB: the fan-out
+     * was NON-UNIFORM, so on one three-product order the old card showed Rugs as **2.15** against a
+     * truth of 100.00 and Tiles as **210.70** against a truth of 15.00. No single divisor corrects
+     * both directions at once.
      */
-    public function test_the_sales_figure_keeps_its_compensation_for_the_query_fan_out(): void
+    public function test_the_sales_figure_is_printed_as_real_money_with_no_divisor(): void
     {
         $this->actingAs($this->merchant);
 
         $html = View::make('order.brand_category_chart', [
             'tab_name' => '#all-category-order',
-            /* What the query really returns for one 4,500 order: 4,500 x the hundredfold join. */
+            /* What the computation really returns now: the money itself. */
             'top_sales' => collect([
-                (object) ['sale_name' => 'Lamps', 'sale_image_path' => null, 'total_sale' => 450000],
+                (object) ['sale_name' => 'Lamps', 'sale_image_path' => null, 'total_sale' => 4500],
             ]),
         ])->render();
 
         $expected = currency_format_with_sym(4500, getCurrentStore());
-        $unscaled = currency_format_with_sym(450000, getCurrentStore());
+        $hundredth = currency_format_with_sym(45, getCurrentStore());
 
-        $this->assertNotSame($expected, $unscaled,
-            'the store currency formats 4500 and 450000 identically, so this test cannot tell '
-            . 'the two apart and proves nothing');
+        $this->assertNotSame($expected, $hundredth,
+            'the store currency formats 4500 and 45 identically, so this test cannot tell the two '
+            . 'apart and proves nothing');
         $this->assertStringContainsString($expected, $html,
-            'the view no longer compensates for the query\'s 100-row fan-out');
-        $this->assertStringNotContainsString($unscaled, $html,
-            'every "By Sales" figure on the dashboard is now one hundred times the real money');
+            'the figure is not printed as given, so the card is rescaling real money');
+        $this->assertStringNotContainsString($hundredth, $html,
+            'the `/100` is back while the cross join that justified it is gone, so every "By Sales" '
+            . 'figure now reads a hundredth of the truth');
     }
 
     /**
@@ -227,35 +233,38 @@ class DashboardFigureHonestyTest extends SecurityTestCase
     }
 
     /**
-     * THE ALLOW PATH, AND WHAT IT CAN AND CANNOT PROVE HERE.
+     * THE ALLOW PATH — AND IT CAN NOW PROVE WHAT IT ALWAYS WANTED TO.
      *
-     * The twelve queries join `orders` on
-     * `SUBSTRING_INDEX(SUBSTRING_INDEX(orders.product_id, ',', numbers.n), ',', -1)`.
-     * `SUBSTRING_INDEX` is MySQL-only, so on this suite's SQLite the statement cannot execute —
-     * the same class of trap as `whereRaw('BINARY …')` elsewhere in this repository, where code
-     * was unreachable in tests and the tests still passed.
+     * THIS TEST USED TO MEASURE A CRASH. The twelve queries used `SUBSTRING_INDEX`, which SQLite
+     * does not have, so the statement could not execute in this suite at all — and that failure was
+     * pressed into service as the DISTINGUISHER: reaching it proved the principal got past the
+     * permission gate, which the refusal case above cannot show on its own.
      *
-     * That failure is therefore the DISTINGUISHER: reaching it proves the principal got PAST the
-     * gate, which the refusal test above cannot show on its own (an endpoint that always returned
-     * the empty payload would satisfy that test too). The figures the query produces, and the
-     * `orders.store_id` predicate WS C added to all twelve, are measured on a real MariaDB by
-     * tests/Support/Security/bin/verify-dashboard-top-sales-scope-on-mysql.php.
+     * It worked, and it was a symptom. An endpoint whose only in-suite evidence is the exception it
+     * raises has no coverage of what it returns. F242's fix removed the MySQL-only SQL
+     * (`App\Support\TopSellersByRevenue` is portable PHP over `product_json`), so this case now
+     * asserts the real payload: a 200 carrying the partial's own markup for the requested tab.
+     *
+     * The figures themselves are measured by `TopSellersRevenueAccuracyTest` in this suite and by
+     * `verify-dashboard-top-sales-scope-on-mysql.php` on a real MariaDB.
      */
     public function test_the_sales_endpoint_admits_a_principal_who_holds_manage_order(): void
     {
-        $this->withoutExceptionHandling();
+        $response = $this->actingAs($this->merchant)
+            ->post(route('top.brand.category.chart'), ['tabId' => '#all-category-order', 'type' => 'category']);
 
-        try {
-            $this->actingAs($this->merchant)
-                ->post(route('top.brand.category.chart'), ['tabId' => '#all-category-order', 'type' => 'category']);
+        $response->assertStatus(200);
 
-            $this->fail('the MySQL-only SUBSTRING_INDEX query did not fail on SQLite, so this '
-                . 'test no longer distinguishes "passed the gate" from "was refused"');
-        } catch (\Illuminate\Database\QueryException $e) {
-            $this->assertStringContainsStringIgnoringCase('SUBSTRING_INDEX', $e->getMessage(),
-                'the query failed for some other reason than the MySQL-only function, so what '
-                . 'this test measured is not what it claims');
-        }
+        $this->assertSame('#all-category-order', $response->json('tab_name'),
+            'the endpoint did not echo the requested tab, so the dashboard cannot place the result');
+        $this->assertSame('category', $response->json('type'));
+
+        /* The DISTINGUISHER, replacing the crash: a refused principal gets three empty strings
+           (asserted in the case above), so a non-empty html proves this one got past the gate.
+           The dev fixture has no orders in this test's database, so the partial renders its own
+           empty state rather than rows -- which is still markup, and still distinguishable. */
+        $this->assertNotSame('', (string) $response->json('html'),
+            'the endpoint returned the refusal payload for a principal who holds Manage Order');
     }
 
     // ---------------------------------------------------------------------------------------

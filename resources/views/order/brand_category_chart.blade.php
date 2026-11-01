@@ -3,42 +3,37 @@
     `#category-tab-data` / `#brand-tab-data` by the dashboard's AJAX.
 
     ---------------------------------------------------------------------------
-    THE `/100` IS NOT A CURRENCY SCALE, AND IT STAYS. READ THIS BEFORE TOUCHING IT.
+    [2026-11-01] THE `/100` IS GONE, AND SO IS THE FAN-OUT IT COMPENSATED FOR (F242, owner-approved).
 
-    WS C first removed it, on the reasoning that `$sale->total_sale` is
-    `SUM(orders.final_price)` and `orders.final_price` is a major-unit decimal
-    everywhere else it is displayed. That reasoning is correct about the column
-    and WRONG about the query, and a real MariaDB said so:
+    EVERYTHING THIS BLOCK USED TO SAY WAS TRUE OF A QUERY THAT NO LONGER EXISTS, and it is kept in
+    outline because the reasoning is the record of why the divisor was defended twice before it was
+    removed correctly.
 
-        tests/Support/Security/bin/verify-dashboard-top-sales-scope-on-mysql.php
+    WS C once removed `/100` on the reasoning that `total_sale` is `SUM(orders.final_price)` and
+    `final_price` is a major-unit decimal. That reasoning was right about the column and wrong about
+    the query: the twelve queries in `HomeController::top_brand_category_chart()` cross-joined a
+    generated series `numbers.n` of 1..100, so a single-product order joined 100 times and its price
+    was summed 100 times. A real MariaDB said so, and removing the divisor then multiplied every
+    figure on both cards by a hundred. So it went back.
 
-    The twelve queries in `HomeController::top_brand_category_chart()` CROSS JOIN
-    a generated series `numbers.n` of 1..100 and match on
-    `SUBSTRING_INDEX(SUBSTRING_INDEX(orders.product_id, ',', numbers.n), ',', -1)`.
-    Nothing bounds `n` to the number of elements in the list. For a
-    SINGLE-product order, `SUBSTRING_INDEX('7', ',', n)` returns `'7'` for every
-    one of the hundred values of `n`, so the row joins 100 TIMES and its price is
-    summed 100 times. Measured, not reasoned:
+    WHAT THE DIVISOR COULD NEVER FIX, and what F242 recorded as still wrong: the fan-out is NOT
+    UNIFORM. Nothing bounded `n` to the element count, so for an order of `k` products the first
+    `k-1` matched once each and the last matched `101-k` times. `/100` was therefore exact only for
+    `k = 1`, and under-reported every earlier category of a multi-product order a hundredfold. And
+    separately, summing an ORDER total credited each matched category the whole order, shipping and
+    tax included, so a two-category order was counted twice over.
 
-        order        join rows   SUM(final_price)
-        '7'   4500      100          450000
-        '7,11' 100        1             100
+    BOTH ARE FIXED AT THE SOURCE. `App\Support\TopSellersByRevenue` sums each order LINE's own
+    revenue from `orders.product_json` and attributes it to that line's product's category or brand.
+    No cross join, so no fan-out; no divisor, arbitrary or otherwise; correct for 1, 2, 3 and more
+    products; explicit store and half-open date predicates. It runs on SQLite as well as MySQL, so
+    these figures are testable in the ordinary Feature suite for the first time — the old query
+    could not execute there at all, which is why the only coverage was a MariaDB script and why the
+    browser harness rendered these cards empty.
 
-    So `/100` is a compensation for the fan-out. Removing it multiplies every
-    figure on both cards by one hundred — a 4,500 category would have read
-    450,000. It was caught before it shipped only because the MariaDB script
-    existed; the Feature suite cannot execute this query at all (SQLite has no
-    `SUBSTRING_INDEX`), and the browser harness renders these cards empty for the
-    same reason.
-
-    WHAT IS STILL WRONG, measured and deliberately NOT fixed here (finding F242):
-    the compensation is exact only for single-product orders. A two-product order
-    joins once per product, so its price is summed once per product and then
-    divided by 100 — under-reporting it a hundredfold. Correcting that means
-    bounding `numbers.n` to the element count AND deciding whether an order's
-    total should be counted once per CATEGORY or once per PRODUCT, which changes
-    the figure the two cards report. That is a reporting-figure change for the
-    owner to take, not a side effect of an accessibility fix.
+    SO `total_sale` IS NOW PRODUCT REVENUE IN MAJOR UNITS, printed as-is. It is deliberately NOT the
+    sum of order totals: shipping, tax and coupon discounts are order-level and belong to no
+    category, so these figures do not add up to the dashboard's order-value tile and should not.
     ---------------------------------------------------------------------------
 
     WS C DID FIX THE WRAPPER'S FALSE ARIA. It carried an `id` and an
@@ -58,7 +53,7 @@
             </div>
             <div class="cat-tab-text d-flex align-items-start gap-2">
                 <p class="m-0 text-muted">{{ $sale->sale_name }}</p>
-                <span class="cat-price"><b>{{ currency_format_with_sym((($sale->total_sale ?? 0) / 100), getCurrentStore()) }}</b></span>
+                <span class="cat-price"><b>{{ currency_format_with_sym(($sale->total_sale ?? 0), getCurrentStore()) }}</b></span>
             </div>
         </div>
     @endforeach
