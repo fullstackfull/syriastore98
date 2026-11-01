@@ -10260,3 +10260,97 @@ number the merchant reads, so it is **F257** for the owner. What this file does 
 the contract as it stands — gross order value, store-scoped, not payments received, gated on
 `Manage Order`, stating its period — so whichever way the decision goes, the change announces
 itself.
+
+---
+
+## WS F slice 1 — three tenancy defects, two refuted claims, and two vacuous tests of my own (2026-11-01)
+
+The reconnaissance that opened Workstream F verified six recorded claims and swept five lenses.
+**Two of the six claims were refuted**, and acting on either would have made the codebase worse.
+What the claims missed was more serious than what they named.
+
+### The two refutations, which are the most valuable output
+
+**`loadPanel()` is not inert.** The claim said the replacement for 19 nested dialogs never runs.
+An agent booted the application, logged in as the real merchant fixture and drove the button in
+Chromium. The script is injected unconditionally at `layouts/app.blade.php:236`; the panel is a
+sibling of `#commanModel` at `:596`; **all 19 former `data-ajax-popup-over` sites now reach it**,
+with 0 occurrences of that attribute left in `resources/views` or `packages/workdo`, down from 19
+across 16 views. The measurement was bitten by blocking the script — 6 checks flipped to FAIL,
+exactly the loadPanel-dependent ones, while the script-tag and panel-in-DOM checks kept passing.
+Acting on the claim would have reverted the only thing P2-01-19 shipped.
+
+**`window.ssConfirmDefaults` does not exist.** Nothing defines it; nothing reads it. The real
+global is `window.ssConfirmVariantDelete`, deliberately kept out of the layout because
+`store-syria-ds.js:361-364` rejects a `window`-level string table for bilingual reasons. Adding it
+would have shipped dead code and installed the pattern the design system rejects.
+
+### F258 / F261 — two controllers with no authorization, whose writes stole rows
+
+`ShippingMethodController`: `grep -c 'isAbleTo\|authorize(\|permission'` over all 155 lines
+returned **0**. Six reachable handlers, every one resolving its row with a bare
+`ShippingMethod::find($id)` — and `ShippingMethod` is absent from `scoped_models`, so `StoreScope`
+adds no predicate. Each of the three writes ended with `$shipping->store_id = getCurrentStore()`,
+so another tenant's row was not merely edited but **moved into the caller's store**.
+
+The independent review then found the same defect one route away, and worse.
+`ShippingZoneController::destroy` deleted another tenant's zone **and** a `shipping_methods` row
+belonging to them, on nothing more than holding `Delete Shipping Zone` — which a merchant's own
+tenant role grants. A capability check is not an ownership check. `update()` carried the identical
+theft and then inserted rows against the victim's zone. `edit()` had no permission check at all.
+
+### F260 — the order panel published another tenant's file path
+
+`order/order_show.blade.php` resolved each line item's product with a bare `Product::where('id',…)`.
+`Product` is unscoped (S19), and the only field read becomes an `href`. The fix already existed one
+file over, scoped to the ORDER's store so the platform operator is not blanked — P2-04-6 landed it
+on the pencil button's page and not on the eye button's.
+
+### F262 — two of this cycle's own tests were vacuous
+
+This is the row worth reading.
+
+**The operator case asserted a decision it never exercised.** The controller refuses the platform
+operator explicitly, and its docblock says why: a bare `isAbleTo()` refuses them too, but only as a
+side effect of Laratrust having no super-admin bypass, so the next person adding an operator limb
+"for consistency" would hand the operator every merchant's shipping prices. The test built an
+operator **with no permission grant** — so `isAbleTo()` refused it anyway, and deleting the
+operator limb entirely changed nothing the test could see. Caught by the independent review, not
+by me. With the grant in place, deleting the limb now turns it red.
+
+**The order-panel fixture rendered zero line items.** `SecurityTestCase::makeOrder()` defaults
+`product_json` to `'[]'`, and `Order::order_detail()` builds `$order['product']` from that column —
+not from `orders.product_id`, which is what the test set. So the panel's `@foreach` ran zero times
+and three "the foreign path is absent" assertions passed trivially. Caught by the allow-path case
+failing, which is the entire reason to write one. `openPanel()` now asserts the premise before any
+absence claim.
+
+Both are the same failure mode this phase has now met in five separate places: **the assertion was
+right and the premise was not.**
+
+### And one more the review corrected before it shipped
+
+The first version gated the three edit-FORM reads on `Manage Shipping` — which is the
+**navigation-group** permission (`CompanyMenuListener:316` adds it with `'route' => ''`), and
+before that change nothing in the codebase called `isAbleTo()` on it at all. It would have
+promoted a menu-visibility permission into a data-read permission: a staff member holding only the
+menu entry could GET all three forms and read every shipping cost while being unable to save. It
+also used the WRITE refusal for those reads, so the platform operator lost a read they had before
+the change — an unstated second decision riding on a security fix. Both corrected: reads admit the
+operator and writes refuse, per the F157 coupon precedent, and all six handlers use
+`Edit Shipping Method`.
+
+### Evidence
+
+| | |
+|---|---|
+| `tests/Feature/Merchant/ShippingMethodTenancyTest.php` | **14 tests, 40 assertions** — cross-tenant write, the `store_id` move asserted separately from the cost, cross-tenant read, unpermissioned staff, operator write refused and operator read admitted, the zone sibling, and two anti-deletion cases |
+| `tests/Feature/Security/OrderPanelProductScopeTest.php` | **4 tests, 11 assertions**, with the premise asserted |
+| `tests/Unit/Ui/PanelStringContractTest.php` | **4 tests** — a ratchet on every panel declaration, including that the strings go through `__()` and have a real Arabic value |
+| bites | removing the shipping predicate fails 4; the permission 1; the operator limb 1; the zone predicate 3; the order-panel predicate 2; the panel strings 2 |
+| regression | Unit **668/668** |
+
+Every victim read goes through `withoutGlobalScopes()`, every `Cachable` read-back is preceded by
+a `flushCache()`, and `assertReachedHandler()` fails any request that 405s — which it had to,
+because the first version POSTed to a `Route::resource` update that is PUT|PATCH, and every
+cross-tenant assertion was passing while the router rejected the request.

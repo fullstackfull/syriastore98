@@ -119,11 +119,50 @@
                         @endif
                     </tr>
                 </thead>
+                @php
+                    /* F260. THE SAME LEAK P2-04-6 FIXED ON THE OTHER ORDER PANEL, left on this one.
+                     *
+                     * These two lookups were `ProductVariant::where('id', $item['variant_id'])` and
+                     * `Product::where('id', $item['product_id'])` — PER LINE ITEM, inside the
+                     * @foreach, with NO store predicate. `Product` registers no `StoreScope` and is
+                     * absent from `config/tenancy.php`'s `scoped_models` (finding S19), so a bare
+                     * lookup by id reaches every tenant's catalogue. The only field read becomes an
+                     * `href` below: `get_file($product->downloadable_product)`. So an order naming
+                     * another store's product id rendered THAT STORE'S FILE PATH as a download link
+                     * on this panel.
+                     *
+                     * `resources/views/order/view.blade.php:314-335` already carries the fix. It
+                     * landed on the pencil button's page and not on the eye button's — the one a
+                     * merchant opens far more often.
+                     *
+                     * SCOPED TO THE ORDER'S STORE, NOT THE CALLER'S, and that distinction is the
+                     * twin's and worth repeating: the platform operator legitimately opens another
+                     * store's order (the operator limb is first in both
+                     * `OrderController::mayUseOrderScreen()` and `OrderDocumentAccessGuard`), so
+                     * `getCurrentStore()` here would blank the line items for exactly the principal
+                     * the guard admits. `Order::order_detail()` supplies the order's own store_id.
+                     *
+                     * Lifting them above the loop also replaces 2N queries with 2. */
+                    $ssOrderStore = $order['store_id'] ?? null;
+
+                    $ssItemProductIds = collect($order['product'])->pluck('product_id')->filter()->unique();
+                    $ssItemVariantIds = collect($order['product'])->pluck('variant_id')->filter()->unique();
+
+                    $ssItemProducts = $ssOrderStore === null || $ssItemProductIds->isEmpty()
+                        ? collect()
+                        : \App\Models\Product::whereIn('id', $ssItemProductIds)
+                            ->where('store_id', $ssOrderStore)->get()->keyBy('id');
+
+                    $ssItemVariants = $ssOrderStore === null || $ssItemVariantIds->isEmpty()
+                        ? collect()
+                        : \App\Models\ProductVariant::whereIn('id', $ssItemVariantIds)
+                            ->where('store_id', $ssOrderStore)->get()->keyBy('id');
+                @endphp
                 <tbody>
                     @foreach ($order['product'] as $item)
                         @php
-                            $variant = \App\Models\ProductVariant::where('id', $item['variant_id'])->first();
-                            $product = \App\Models\Product::where('id', $item['product_id'])->first();
+                            $variant = $ssItemVariants->get($item['variant_id']);
+                            $product = $ssItemProducts->get($item['product_id']);
                         @endphp
 
                         <tr>

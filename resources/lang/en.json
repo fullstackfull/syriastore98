@@ -3324,5 +3324,7 @@
     "Unread notifications": "Unread notifications",
     "View all notifications": "View all notifications",
     ":n notifications you have not read": ":n notifications you have not read",
-    "Open": "Open"
+    "Open": "Open",
+    "Generating…": "Generating…",
+    "This could not be generated. Please try again.": "This could not be generated. Please try again."
 }

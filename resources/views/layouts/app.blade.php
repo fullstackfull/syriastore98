@@ -593,7 +593,16 @@
          The AJAX contract is untouched -- same `route('generate', [...])` per site, now in
          `data-ss-panel-url`, which the design system's panel loads with its own loading and error
          states. Each site's permission gate (`currentPlan->enable_chatgpt == 'on'`) is unchanged. --}}
-    <x-ss.panel id="ai-generate" title="{{ __('Generate Content With AI') }}" />
+    {{-- F259. THE ONE PANEL OF FOUR THAT PASSED NO STRINGS, so an Arabic merchant was shown the
+         hardcoded English in `public/js/store-syria-ds.js:228` and `:248` — "Loading…" and "This
+         could not be loaded." — inside a `dir="rtl"` document. The other three
+         (`order/index.blade.php:118`, `notification/index.blade.php:152`,
+         `product/index.blade.php:57`) all pass both through `__()`; the component's own docblock
+         warns about exactly this, because the JS has no translator and cannot have one. --}}
+    <x-ss.panel id="ai-generate"
+                :title="__('Generate Content With AI')"
+                :loading-text="__('Generating…')"
+                :error-text="__('This could not be generated. Please try again.')" />
 
     @include('partision.command-palette')
 

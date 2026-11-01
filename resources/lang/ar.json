@@ -3354,5 +3354,7 @@
     "Unread notifications": "إشعارات غير مقروءة",
     "View all notifications": "عرض كل الإشعارات",
     ":n notifications you have not read": ":n إشعارات لم تقرأها",
-    "Open": "فتح"
+    "Open": "فتح",
+    "Generating…": "جارٍ الإنشاء…",
+    "This could not be generated. Please try again.": "تعذّر الإنشاء. يرجى المحاولة مرة أخرى."
 }
