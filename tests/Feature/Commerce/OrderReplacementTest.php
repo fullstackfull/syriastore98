@@ -5,6 +5,7 @@ namespace Tests\Feature\Commerce;
 use App\Models\Order;
 use App\Models\Product;
 use App\Services\OrderReplacement;
+use App\Services\StockMovement;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -98,11 +99,48 @@ class OrderReplacementTest extends SecurityTestCase
             'tax_price' => 0,
             'final_price' => 200,
             'payment_type' => 'cod',
-            'payment_status' => 'paid',
+            /*
+             * D-15 CONDITION 6 — THE FIXTURE IS UNPAID, AND IT USED TO BE `paid`.
+             *
+             * Every success case in this file was written against a `paid` order, and every one of
+             * them passed — because the service had no payment test at all. When the gate landed,
+             * ten of these cases went red at once. That is the measurement that says the old green
+             * was green against an unsafe path, so the fixture moves rather than the gate.
+             */
+            'payment_status' => 'Unpaid',
             'delivered_status' => 0,
             'store_id' => $store->id,
             'created_by' => $store->created_by,
         ], $overrides));
+    }
+
+    /**
+     * D-15 CONDITIONS 4 AND 5 — MAKE THE ORIGINAL'S OUT-MOVEMENT PROVABLE.
+     *
+     * Without this the service reads `unknown` for every line and refuses, which is correct: an
+     * order nothing observed is an order whose stock consumption cannot be claimed. So a test that
+     * wants the SAFE path has to supply the evidence the safe path requires, and that is the point
+     * of the helper being explicit rather than folded into `orderIn()`.
+     *
+     * `variant_id` is coerced to NULL rather than 0, because `movedOutFor()` matches a
+     * product-only line with `whereNull('variant_id')` while `record()` would store a literal 0 —
+     * so a 0 here records a row the lookup can never find, and the test would read `unknown` while
+     * looking like it had seeded evidence.
+     */
+    private function proveStockMovedOut(Order $order): void
+    {
+        foreach ((array) json_decode((string) $order->product_json, true) as $line) {
+            StockMovement::record([
+                'store_id' => $order->store_id,
+                'order_id' => $order->id,
+                'product_id' => $line['product_id'] ?? null,
+                'variant_id' => ($line['variant_id'] ?? null) ?: null,
+                'direction' => StockMovement::OUT,
+                'quantity' => (int) ($line['quantity'] ?? 1),
+                'applied' => true,
+                'reason' => StockMovement::REASON_ORDER_PLACE,
+            ]);
+        }
     }
 
     public function test_premise_the_additive_column_is_installed_in_this_suite(): void
@@ -119,6 +157,7 @@ class OrderReplacementTest extends SecurityTestCase
         $actor = $this->actor($merchant);
         $product = $this->productIn($store);
         $original = $this->orderIn($store, $product);
+        $this->proveStockMovedOut($original);
 
         [$state, $replacement] = OrderReplacement::cancelAndReplace($original, $actor);
 
@@ -149,6 +188,7 @@ class OrderReplacementTest extends SecurityTestCase
         $actor = $this->actor($merchant);
         $product = $this->productIn($store, 50);
         $original = $this->orderIn($store, $product, 2);
+        $this->proveStockMovedOut($original);
 
         $stockBefore = (int) Product::withoutGlobalScopes()->find($product->id)->product_stock;
 
@@ -195,6 +235,7 @@ class OrderReplacementTest extends SecurityTestCase
         $actor = $this->actor($merchant);
         $product = $this->productIn($store);
         $original = $this->orderIn($store, $product);
+        $this->proveStockMovedOut($original);
 
         $before = DB::table('orders')->where('id', $original->id)
             ->select('product_json', 'product_price', 'coupon_price', 'delivery_price', 'tax_price', 'final_price', 'return_price')
@@ -218,6 +259,7 @@ class OrderReplacementTest extends SecurityTestCase
         $actor = $this->actor($merchant);
         $product = $this->productIn($store);
         $original = $this->orderIn($store, $product);
+        $this->proveStockMovedOut($original);
 
         OrderReplacement::cancelAndReplace($original, $actor);
         $this->assertSame(1, Order::where('replaced_order_id', $original->id)->count());
@@ -244,6 +286,7 @@ class OrderReplacementTest extends SecurityTestCase
         $actor = $this->actor($merchant);
         $product = $this->productIn($store);
         $original = $this->orderIn($store, $product, 2, ['delivered_status' => 1]);
+        $this->proveStockMovedOut($original);
 
         [$state, $replacement] = OrderReplacement::cancelAndReplace($original, $actor);
 
@@ -274,6 +317,7 @@ class OrderReplacementTest extends SecurityTestCase
 
         $product = $this->productIn($storeA);
         $original = $this->orderIn($storeA, $product);
+        $this->proveStockMovedOut($original);
 
         [$state, $replacement] = OrderReplacement::cancelAndReplace($original, $intruder);
 
@@ -292,6 +336,7 @@ class OrderReplacementTest extends SecurityTestCase
         $actor = $this->actor($merchant);
         $product = $this->productIn($store);
         $original = $this->orderIn($store, $product, 2, ['product_json' => 'not json at all']);
+        $this->proveStockMovedOut($original);
 
         [$state, $replacement] = OrderReplacement::cancelAndReplace($original, $actor);
 
@@ -323,6 +368,7 @@ class OrderReplacementTest extends SecurityTestCase
         $actor = $this->actor($merchant);
         $product = $this->productIn($store);
         $original = $this->orderIn($store, $product);
+        $this->proveStockMovedOut($original);
 
         $this->assertSame(0, (int) $original->fresh()->delivered_status, 'premise: the original starts live');
 
@@ -435,6 +481,7 @@ class OrderReplacementTest extends SecurityTestCase
         $actor = $this->actor($merchant);
         $product = $this->productIn($store);
         $original = $this->orderIn($store, $product);
+        $this->proveStockMovedOut($original);
 
         $response = $this->replaceViaRoute($actor, $original);
 
@@ -464,6 +511,7 @@ class OrderReplacementTest extends SecurityTestCase
 
         $product = $this->productIn($storeA);
         $original = $this->orderIn($storeA, $product);
+        $this->proveStockMovedOut($original);
 
         $response = $this->replaceViaRoute($intruder, $original);
 
@@ -486,6 +534,7 @@ class OrderReplacementTest extends SecurityTestCase
         [, $store] = $this->makeTenant();
         $product = $this->productIn($store);
         $original = $this->orderIn($store, $product);
+        $this->proveStockMovedOut($original);
 
         $response = $this->post(route('order.replace', $original->id));
 
@@ -515,7 +564,9 @@ class OrderReplacementTest extends SecurityTestCase
         $product = $this->productIn($store, 100);
 
         $named = $this->orderIn($store, $product);
+        $this->proveStockMovedOut($named);
         $other = $this->orderIn($store, $product);
+        $this->proveStockMovedOut($other);
 
         $this->replaceViaRoute($actor, $named, ['id' => $other->id]);
 
@@ -540,6 +591,7 @@ class OrderReplacementTest extends SecurityTestCase
         $actor = $this->actor($merchant);
         $product = $this->productIn($store);
         $original = $this->orderIn($store, $product);
+        $this->proveStockMovedOut($original);
 
         $this->replaceViaRoute($actor, $original);
         $response = $this->replaceViaRoute($actor, $original->fresh());
@@ -570,6 +622,7 @@ class OrderReplacementTest extends SecurityTestCase
         $intruder = $this->actor($merchantB);
         $product = $this->productIn($storeA);
         $original = $this->orderIn($storeA, $product);
+        $this->proveStockMovedOut($original);
 
         $body = (string) $this->replaceViaRoute($intruder, $original)->getContent();
 
@@ -622,6 +675,7 @@ class OrderReplacementTest extends SecurityTestCase
             'tax_price' => 60,
             'final_price' => 1025,
         ]);
+        $this->proveStockMovedOut($original);
 
         /* THE CATALOGUE MOVES. Through Eloquent rather than `DB::table()`, because 79 of the 95
            models here are `Cachable` and a raw write leaves Eloquent reads serving the pre-write
@@ -712,5 +766,342 @@ class OrderReplacementTest extends SecurityTestCase
             (int) $replacement->replaced_order_id,
             'the replacement is not linked to its original'
         );
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    // D-15's FINANCIAL AND STOCK PROOF CONDITIONS
+    //
+    // The owner's directive named a discrepancy between this service and D-15: the identical-lines
+    // rule in D-32 does NOT waive the financial or stock proof requirements. Every case below was
+    // absent, and the service passed its whole suite without them.
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+
+    /**
+     * D-15 CONDITION 6 — A COLLECTED PAYMENT IS REFUSED, because no provable refund path exists.
+     *
+     * This is the case that mattered most and was missing entirely: before the gate, a `Paid` order
+     * was cancelled and reissued, the shopper's money was neither returned nor accounted for, and
+     * the suite was green.
+     *
+     * `cod` is used deliberately. A cash-on-delivery order marked paid means the MERCHANT holds the
+     * shopper's cash; returning it is a real-world act this system cannot observe, so treating it as
+     * "provably correct" would be the same inference condition 3 forbids.
+     */
+    public function test_a_collected_payment_is_refused_and_nothing_is_written(): void
+    {
+        [$merchant, $store] = $this->makeTenant();
+        $actor = $this->actor($merchant);
+        $product = $this->productIn($store);
+        $original = $this->orderIn($store, $product, 2, ['payment_status' => 'Paid']);
+        $this->proveStockMovedOut($original);
+
+        [$state, $replacement, $reason] = OrderReplacement::cancelAndReplace($original, $actor);
+
+        $this->assertSame(OrderReplacement::REFUSED_PAYMENT_COLLECTED, $state, $reason);
+        $this->assertNull($replacement);
+        $this->assertSame(0, (int) $original->fresh()->delivered_status,
+            'the original was cancelled despite the refusal, so a refusal is not leaving the order alone');
+        $this->assertSame(0, Order::where('replaced_order_id', $original->id)->count());
+    }
+
+    /**
+     * THE SAME REFUSAL FOR EVERY CASING THE PLATFORM WRITES, because `payment_status` is free text
+     * written by 70 vendored modules and the gate is an allowlist of UNCOLLECTED states.
+     *
+     * The provider shapes (`succeeded`, `success`, `Approved`) are the ones that would slip through
+     * a denylist of `['paid']`, which is what makes the direction of the list load-bearing rather
+     * than stylistic.
+     */
+    public function test_every_collected_spelling_is_refused(): void
+    {
+        [$merchant, $store] = $this->makeTenant();
+        $actor = $this->actor($merchant);
+        $product = $this->productIn($store);
+
+        foreach (['Paid', 'paid', 'succeeded', 'success', 'Succeeded', 'Approved', 'settled'] as $status) {
+            $original = $this->orderIn($store, $product, 2, ['payment_status' => $status]);
+            $this->proveStockMovedOut($original);
+
+            [$state] = OrderReplacement::cancelAndReplace($original, $actor);
+
+            $this->assertSame(OrderReplacement::REFUSED_PAYMENT_COLLECTED, $state,
+                "payment_status \"{$status}\" was treated as uncollected");
+        }
+    }
+
+    /** D-15 CONDITION 6 — a partial payment has no approved settlement rule, so it is refused. */
+    public function test_a_partially_paid_order_is_refused(): void
+    {
+        [$merchant, $store] = $this->makeTenant();
+        $actor = $this->actor($merchant);
+        $product = $this->productIn($store);
+
+        foreach (['Partially Paid', 'partially paid', 'PARTIAL'] as $status) {
+            $original = $this->orderIn($store, $product, 2, ['payment_status' => $status]);
+            $this->proveStockMovedOut($original);
+
+            [$state, $replacement] = OrderReplacement::cancelAndReplace($original, $actor);
+
+            $this->assertSame(OrderReplacement::REFUSED_PAYMENT_PARTIAL, $state,
+                "payment_status \"{$status}\" was not recognised as partial");
+            $this->assertNull($replacement);
+        }
+    }
+
+    /**
+     * D-15 CONDITION 3 — REVERSING THE MERCHANT'S WALLET IS NOT A REFUND TO THE CUSTOMER, and this
+     * test exists because the cancellation DOES reverse the merchant's balance.
+     *
+     * So there is a real temptation to read that reversal as "the money went back" and let a
+     * collected order through. The assertion is that the platform has no customer-refund mechanism
+     * at all — `hasGatewayRefundDriver()` is false for every provider — and that the service's
+     * refusal is keyed on that rather than on the wallet event which happens regardless.
+     */
+    public function test_a_merchant_wallet_reversal_is_never_read_as_a_customer_refund(): void
+    {
+        $refunds = app(\App\Services\RefundIntegrityService::class);
+
+        foreach ([null, 'cod', 'stripe', 'paypal', 'paytm', 'razorpay', 'bank_transfer'] as $type) {
+            $this->assertFalse($refunds->hasGatewayRefundDriver($type),
+                "a refund driver appeared for \"{$type}\"; if that is real, D-15 condition 6 now has "
+                . 'a satisfiable case and this test plus the service gate must be revisited together');
+        }
+
+        /* And the gate is keyed on exactly that, for a collected order of every provider. */
+        [$merchant, $store] = $this->makeTenant();
+        $actor = $this->actor($merchant);
+        $product = $this->productIn($store);
+
+        foreach (['cod', 'stripe', 'paypal'] as $type) {
+            $original = $this->orderIn($store, $product, 2, [
+                'payment_status' => 'Paid',
+                'payment_type' => $type,
+            ]);
+            $this->proveStockMovedOut($original);
+
+            $this->assertSame(OrderReplacement::REFUSED_PAYMENT_COLLECTED,
+                OrderReplacement::paymentEligibility($original->fresh()),
+                "a collected {$type} order was treated as refundable");
+        }
+    }
+
+    /**
+     * D-15 CONDITION 4 — AN ORDER NOTHING OBSERVED IS REFUSED. Silence is not evidence.
+     *
+     * No movement rows at all is what an order written before `stock_movements` existed looks like,
+     * and what an order from a writer not yet enrolled looks like. `movedOutFor()` answers
+     * `unknown` for it, and the service must refuse rather than stamp `LINE_STOCK_CARRIED`.
+     */
+    public function test_an_order_with_no_stock_evidence_is_refused(): void
+    {
+        [$merchant, $store] = $this->makeTenant();
+        $actor = $this->actor($merchant);
+        $product = $this->productIn($store);
+        $original = $this->orderIn($store, $product);   // deliberately NOT proved
+
+        $this->assertSame(StockMovement::UNKNOWN,
+            StockMovement::movedOutFor($store->id, $original->id, $product->id),
+            'premise: this order has no observable movement');
+
+        [$state, $replacement] = OrderReplacement::cancelAndReplace($original, $actor);
+
+        $this->assertSame(OrderReplacement::REFUSED_STOCK_EVIDENCE_UNKNOWN, $state);
+        $this->assertNull($replacement);
+        $this->assertSame(0, (int) $original->fresh()->delivered_status, 'the original was cancelled anyway');
+    }
+
+    /**
+     * D-15 CONDITION 5 — AN ORDER WHOSE DECREMENT PROVABLY DID NOT HAPPEN IS REFUSED, so the
+     * "stock already decremented" marker is never written on it.
+     *
+     * Two real shapes produce `not_moved`, and both are driven: a REFUSED decrement, recorded
+     * `direction = out, applied = false`; and a line taken and then given back, which nets to zero.
+     * Stamping the marker in either case would be a false claim AND would suppress the restore the
+     * cancellation should perform — so stock would go missing on paper.
+     */
+    public function test_an_order_whose_stock_provably_did_not_move_is_refused(): void
+    {
+        [$merchant, $store] = $this->makeTenant();
+        $actor = $this->actor($merchant);
+
+        // Shape 1: the decrement was refused.
+        $p1 = $this->productIn($store);
+        $refused = $this->orderIn($store, $p1);
+        StockMovement::record([
+            'store_id' => $store->id, 'order_id' => $refused->id, 'product_id' => $p1->id,
+            'direction' => StockMovement::OUT, 'quantity' => 2, 'applied' => false,
+            'outcome' => 'refused', 'reason' => StockMovement::REASON_ORDER_PLACE,
+        ]);
+
+        $this->assertSame(StockMovement::NOT_MOVED,
+            StockMovement::movedOutFor($store->id, $refused->id, $p1->id), 'premise: refused decrement');
+
+        [$state] = OrderReplacement::cancelAndReplace($refused, $actor);
+        $this->assertSame(OrderReplacement::REFUSED_STOCK_NOT_MOVED, $state,
+            'a line whose decrement was refused was carried as though it had consumed stock');
+
+        // Shape 2: taken out and already given back, netting to zero.
+        $p2 = $this->productIn($store);
+        $returned = $this->orderIn($store, $p2);
+        $this->proveStockMovedOut($returned);
+        StockMovement::record([
+            'store_id' => $store->id, 'order_id' => $returned->id, 'product_id' => $p2->id,
+            'direction' => StockMovement::IN, 'quantity' => 2, 'applied' => true,
+            'reason' => StockMovement::REASON_ORDER_CANCEL,
+        ]);
+
+        $this->assertSame(StockMovement::NOT_MOVED,
+            StockMovement::movedOutFor($store->id, $returned->id, $p2->id), 'premise: already restored');
+
+        [$state2] = OrderReplacement::cancelAndReplace($returned, $actor);
+        $this->assertSame(OrderReplacement::REFUSED_STOCK_NOT_MOVED, $state2,
+            'a line already given back was carried as though it were still out');
+    }
+
+    /**
+     * ALL-OR-NOTHING: ONE UNPROVEN LINE REFUSES THE WHOLE ORDER.
+     *
+     * A replacement carrying the marker on some lines and not others would need a rule for what the
+     * unmarked lines do about stock, and no such rule is approved. This drives a two-line order
+     * where only the first line is proven — the shape a partial enrolment produces.
+     */
+    public function test_one_unproven_line_refuses_the_whole_order(): void
+    {
+        [$merchant, $store] = $this->makeTenant();
+        $actor = $this->actor($merchant);
+        $a = $this->productIn($store);
+        $b = $this->productIn($store);
+
+        $original = $this->orderIn($store, $a, 2, [
+            'product_json' => json_encode([
+                ['product_id' => $a->id, 'name' => $a->name, 'quantity' => 2, 'price' => 100, 'variant_id' => 0],
+                ['product_id' => $b->id, 'name' => $b->name, 'quantity' => 1, 'price' => 100, 'variant_id' => 0],
+            ]),
+        ]);
+
+        // Only line A is observed.
+        StockMovement::record([
+            'store_id' => $store->id, 'order_id' => $original->id, 'product_id' => $a->id,
+            'direction' => StockMovement::OUT, 'quantity' => 2, 'applied' => true,
+            'reason' => StockMovement::REASON_ORDER_PLACE,
+        ]);
+
+        $this->assertSame(StockMovement::MOVED,
+            StockMovement::movedOutFor($store->id, $original->id, $a->id), 'premise: line A is proven');
+
+        /*
+         * LINE B READS `not_moved`, NOT `unknown`, AND THE DISTINCTION IS THE RECORD BEING PRECISE
+         * RATHER THAN THE TEST BEING WRONG — my first expectation here was `unknown`.
+         *
+         * `movedOutFor()` falls back to "did we observe this ORDER taking anything out at all". Line
+         * A's row makes the answer yes, so line B's own absence of rows is positive evidence that
+         * line B took nothing out, rather than silence. That is the correct reading and it is the
+         * stricter of the two: `not_moved` is a statement, `unknown` is an absence.
+         */
+        $this->assertSame(StockMovement::NOT_MOVED,
+            StockMovement::movedOutFor($store->id, $original->id, $b->id),
+            'premise: line B is observed-and-unmoved rather than unobserved');
+
+        [$state, $replacement] = OrderReplacement::cancelAndReplace($original, $actor);
+
+        $this->assertSame(OrderReplacement::REFUSED_STOCK_NOT_MOVED, $state,
+            'a half-proven order produced a replacement, so some lines carried an unproven claim');
+        $this->assertNull($replacement);
+    }
+
+    /**
+     * D-15 CONDITION 8 — "ONE REPLACEMENT PER ORIGINAL" IS A DATABASE INVARIANT, NOT A SELECT.
+     *
+     * The service's in-transaction `exists()` re-check is an early answer: two transactions can both
+     * pass it before either inserts, because a read of a NON-unique index takes no gap lock under
+     * MySQL's default isolation. The guarantee has to live in the schema, so this asserts the unique
+     * index exists AND that a direct second insert is refused by the database itself — which is the
+     * only way to show the invariant without two real connections.
+     */
+    public function test_the_database_itself_refuses_a_second_replacement_of_one_original(): void
+    {
+        $names = array_map(
+            fn ($i) => $i['name'] ?? null,
+            \Illuminate\Support\Facades\Schema::getIndexes('orders')
+        );
+
+        $this->assertContains('orders_replaced_order_id_unique', $names,
+            'the unique index is absent, so "one replacement per original" rests on a SELECT that '
+            . 'two concurrent writers can both pass');
+
+        [$merchant, $store] = $this->makeTenant();
+        $actor = $this->actor($merchant);
+        $product = $this->productIn($store);
+        $original = $this->orderIn($store, $product);
+        $this->proveStockMovedOut($original);
+
+        [$state, $replacement] = OrderReplacement::cancelAndReplace($original, $actor);
+        $this->assertSame(OrderReplacement::REPLACED, $state, 'premise: the first replacement happened');
+
+        /* A second row claiming the same original, inserted directly — bypassing every PHP guard,
+           which is the point: the database must be the thing that says no. */
+        $this->expectException(\Illuminate\Database\QueryException::class);
+
+        DB::table('orders')->insert([
+            'product_order_id' => 'R2-' . strtoupper(uniqid()),
+            'order_date' => now(),
+            'customer_id' => 0,
+            'is_guest' => 1,
+            'product_json' => $original->product_json,
+            'product_id' => (string) $product->id,
+            'product_price' => 200, 'coupon_price' => 0, 'delivery_price' => 0,
+            'tax_price' => 0, 'final_price' => 200,
+            'payment_type' => 'cod', 'payment_status' => 'Unpaid', 'delivered_status' => 0,
+            'store_id' => $store->id, 'created_by' => $store->created_by,
+            'replaced_order_id' => $original->id,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+    }
+
+    /**
+     * THE BUTTON AND THE SERVICE CANNOT DISAGREE, which is the directive's "hidden or disabled for
+     * ineligible orders" requirement expressed as one predicate rather than two.
+     *
+     * `eligibility()` is what `OrderController::order_view()` calls. Driven across every refusal so
+     * a future condition added to the service reaches the button for free.
+     */
+    public function test_eligibility_answers_for_every_refusal_the_service_makes(): void
+    {
+        [$merchant, $store] = $this->makeTenant();
+        $actor = $this->actor($merchant);
+        $product = $this->productIn($store);
+
+        $eligible = $this->orderIn($store, $product);
+        $this->proveStockMovedOut($eligible);
+        $this->assertSame(OrderReplacement::REPLACED, OrderReplacement::eligibility($eligible->fresh()));
+
+        $unobserved = $this->orderIn($store, $product);
+        $this->assertSame(OrderReplacement::REFUSED_STOCK_EVIDENCE_UNKNOWN,
+            OrderReplacement::eligibility($unobserved->fresh()));
+
+        $collected = $this->orderIn($store, $product, 2, ['payment_status' => 'Paid']);
+        $this->proveStockMovedOut($collected);
+        $this->assertSame(OrderReplacement::REFUSED_PAYMENT_COLLECTED,
+            OrderReplacement::eligibility($collected->fresh()));
+
+        $partial = $this->orderIn($store, $product, 2, ['payment_status' => 'Partially Paid']);
+        $this->proveStockMovedOut($partial);
+        $this->assertSame(OrderReplacement::REFUSED_PAYMENT_PARTIAL,
+            OrderReplacement::eligibility($partial->fresh()));
+
+        $dispatched = $this->orderIn($store, $product, 2, ['delivered_status' => 1]);
+        $this->proveStockMovedOut($dispatched);
+        $this->assertSame(OrderReplacement::REFUSED_ALREADY_DISPATCHED,
+            OrderReplacement::eligibility($dispatched->fresh()));
+
+        $unreadable = $this->orderIn($store, $product, 2, ['product_json' => 'not json at all']);
+        $this->assertSame(OrderReplacement::REFUSED_UNREADABLE_LINES,
+            OrderReplacement::eligibility($unreadable->fresh()));
+
+        /* And an order already replaced answers already_replaced rather than anything else. */
+        [$state] = OrderReplacement::cancelAndReplace($eligible->fresh(), $actor);
+        $this->assertSame(OrderReplacement::REPLACED, $state, 'premise');
+        $this->assertSame(OrderReplacement::REFUSED_ALREADY_REPLACED,
+            OrderReplacement::eligibility($eligible->fresh()));
     }
 }

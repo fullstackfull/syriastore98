@@ -806,11 +806,24 @@ public function store(Request $request)
                  */
                 $ssOrderModel = Order::find($id);
 
+                /*
+                 * E13 / D-15 — THE BUTTON ASKS THE SERVICE'S OWN QUESTION, NOT A COPY OF IT.
+                 *
+                 * This used to re-express four of the service's conditions inline. The service then
+                 * grew three more (D-15's payment gate and its two stock-evidence gates) and the
+                 * inline copy did not, so the control would be offered for orders the service
+                 * refuses — the exact "hidden or disabled for ineligible orders" requirement,
+                 * broken by duplication.
+                 *
+                 * `OrderReplacement::eligibility()` is now the single predicate and both callers
+                 * use it. Authorization stays separate because it is the CALLER's question: the
+                 * service asks it again for the action, and a merchant who may not change this
+                 * order's status must not see the control whatever its eligibility.
+                 */
                 $ssCanReplaceOrder = $ssOrderModel !== null
-                    && \App\Services\OrderReplacement::available()
                     && \Illuminate\Support\Facades\Gate::allows('updateStatus', $ssOrderModel)
-                    && (int) $ssOrderModel->delivered_status === 0
-                    && ! Order::where('replaced_order_id', $ssOrderModel->id)->exists();
+                    && \App\Services\OrderReplacement::eligibility($ssOrderModel)
+                        === \App\Services\OrderReplacement::REPLACED;
 
                 return view('order.view', compact('order', 'store', 'order_notes', 'deliveryboys', 'orderSource', 'ssCanReplaceOrder'));
             } catch (DecryptException $e) {

@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Order;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Log;
@@ -13,25 +14,50 @@ use Illuminate\Support\Facades\Log;
  * Implemented exactly as `E13-CANCEL-AND-REPLACEMENT-DESIGN.md` §5 specifies, under D-15.
  *
  * ══════════════════════════════════════════════════════════════════════════════════════════════
- * IT IS DELIBERATELY UNREACHABLE, AND SAYING SO IS THE POINT
+ * REACHABLE SINCE D-32, AND FAIL-CLOSED ON D-15's PROOF OBLIGATIONS
  * ══════════════════════════════════════════════════════════════════════════════════════════════
  *
- * **No route, no controller action and no UI entry point call this.** That is not an oversight and
- * it is not "half done" — it is the honest state of a slice whose commercial rule is unanswered.
+ * D-32 (owner, 2026-10-31) answered the design's §6 **Q1** with the narrowest reading — identical
+ * products, quantities and prices — so `POST order-replace/{id}` exists and the merchant reaches it
+ * from `order/view.blade.php`.
  *
- * The design's §6 **Q1** asks whether a replacement may differ from the original at all. If the
- * answer is "identical lines only", §5 is complete and Q2 (a partially-paid original) and Q3
- * (original prices or today's) *fall away* — which is why this implements the identical-lines-only
- * variant and nothing wider. It invents no pricing rule, no settlement rule and no stock delta,
- * so it needs no commercial decision to be CORRECT. What it needs a decision for is to be
- * REACHABLE: wiring a money path to a design whose business rule the owner has not settled is
- * exactly what the standing limits forbid.
+ * **D-32 DOES NOT WAIVE D-15's FINANCIAL OR STOCK PROOF REQUIREMENTS, and a first version of this
+ * class read as though it did.** It checked authorization, dispatch status, readable lines and
+ * one-replacement-per-original — and nothing at all about money or stock. Measured against D-15's
+ * nine conditions, three were unenforced:
  *
- * **And F237 is why that is written here in capitals rather than left implicit.** F237 was a
- * mechanism recorded as DONE whose production callers never existed, so a guard that read as
- * working was inert for every real order. The difference between that and this is not the code —
- * it is that this says so. A reader who wants the replacement reachable needs Q1 answered and one
- * route; a reader who assumes it already works has been told otherwise.
+ *   - **Condition 6** — *refuse the automatic path for partial payments, and for collected payments
+ *     whose refund or transfer is not provably correct.* There was no payment test of any kind, so
+ *     a `Paid` order was replaced and the customer's money was neither refunded nor accounted for.
+ *   - **Conditions 4 and 5** — *do not treat the original as having consumed stock without evidence
+ *     from the real processing path; do not use a "stock already decremented" marker on an order
+ *     whose decrement is not proven.* Every line was stamped `LINE_STOCK_CARRIED` unconditionally.
+ *     On an order whose decrement never happened that marker is a false claim, and it suppresses
+ *     the restore the cancellation would otherwise perform — so stock went missing on paper.
+ *   - **Condition 8** — *safe under concurrency.* The in-transaction `exists()` re-check is not a
+ *     concurrency guard: two transactions can both pass it before either inserts.
+ *
+ * All three are now enforced, and the enforcement is **fail-closed**: anything this class cannot
+ * prove, it refuses. `eligibility()` is public and the controller calls the same method, so the
+ * merchant's button is absent for exactly the orders the service would refuse.
+ *
+ * **CONDITION 3 IS A RULE ABOUT WORDS AS MUCH AS CODE.** Reversing the MERCHANT's wallet is not a
+ * refund to the CUSTOMER. `Order::order_status_change('cancel')` and its Observer reverse the
+ * merchant's balance; that is the correct bookkeeping for a cancellation and it is **not** evidence
+ * that the shopper got their money back. Nothing here reads it as such — which is why a collected
+ * payment is refused outright rather than "handled" by the reversal that already happens.
+ *
+ * **WHY THE ALLOWED SET IS CURRENTLY ONLY UNCOLLECTED ORDERS.**
+ * `RefundIntegrityService::hasGatewayRefundDriver()` is a hardcoded `return false` — no gateway
+ * refund driver exists for any provider, and `RefundIntegrityTest` ratchets that. So condition 6's
+ * "provably correct refund" is satisfiable by nothing today, and every collected payment falls into
+ * its refusal. That is not this class being conservative; it is the measured state of the platform,
+ * and the moment a real driver lands this class widens on its own with no edit here.
+ *
+ * **F237 remains the cautionary case**: a mechanism recorded as DONE whose production callers never
+ * existed, so a guard that read as working was inert for every real order. The stock test below is
+ * written against `StockMovement::movedOutFor()`, which F237 wired, and it refuses `UNKNOWN` — the
+ * verdict an uninstrumented order produces — rather than treating silence as consent.
  *
  * ══════════════════════════════════════════════════════════════════════════════════════════════
  * THE FIVE STEPS, AND WHICH CONDITION EACH SATISFIES
@@ -43,8 +69,12 @@ use Illuminate\Support\Facades\Log;
  * 2. **Cancel the original through the existing engine** — `Order::order_status_change()`, not a
  *    copy of its body. The Observer then reverses the money exactly as it does today.
  * 3. **Create the replacement from the original's own `product_json`**, lines identical, each
- *    stamped `LINE_STOCK_CARRIED`. *"Do not duplicate stock movements"* is satisfied by the stamp:
- *    the goods never came back, so nothing goes out again.
+ *    stamped `LINE_STOCK_CARRIED` — **but only once every line's out-movement is PROVEN**.
+ *    *"Do not duplicate stock movements"* is satisfied by the stamp: the goods never came back, so
+ *    nothing goes out again. D-15 conditions 4 and 5 are satisfied by refusing to apply the stamp
+ *    at all unless `StockMovement::movedOutFor()` says `moved` for that exact product or variant.
+ *    `unknown` and `not_moved` both refuse the whole operation: a partly-stamped replacement would
+ *    be a stock rule nobody approved.
  * 4. **One transaction**, so a failure leaves neither a cancelled original without a replacement
  *    nor the reverse.
  * 5. **Authorised exactly as the existing status change is** — `OrderPolicy::updateStatus`, which
@@ -70,12 +100,169 @@ class OrderReplacement
     public const REFUSED_UNREADABLE_LINES = 'unreadable_lines';
     public const REFUSED_COLUMN_ABSENT = 'column_absent';
     public const REFUSED_CANCEL_FAILED = 'cancel_failed';
+
+    /** D-15 condition 6 — a partial payment has no approved safe scenario. */
+    public const REFUSED_PAYMENT_PARTIAL = 'payment_partially_paid';
+
+    /** D-15 conditions 3 and 6 — money was collected and no provable refund path exists. */
+    public const REFUSED_PAYMENT_COLLECTED = 'payment_collected_without_refund_path';
+
+    /** D-15 conditions 4 and 5 — this line's out-movement cannot be proven either way. */
+    public const REFUSED_STOCK_EVIDENCE_UNKNOWN = 'stock_evidence_unknown';
+
+    /** D-15 condition 5 — this line provably took no stock out, so the carried marker would lie. */
+    public const REFUSED_STOCK_NOT_MOVED = 'stock_not_moved';
+
     public const REPLACED = 'replaced';
+
+    /**
+     * PAYMENT STATES THAT MEAN NOTHING WAS COLLECTED — AN ALLOWLIST, AND THE DIRECTION MATTERS.
+     *
+     * A denylist of "collected" states would let an unrecognised value through to the replacement;
+     * an allowlist sends it to the refusal instead. `orders.payment_status` is free text written by
+     * 70 vendored modules in mixed case (`Paid`, `paid`, `succeeded`, `success`, `Approved`,
+     * `Pending payment`…), so an unrecognised value is not hypothetical, and the safe reading of
+     * one is "money may have moved".
+     */
+    private const UNCOLLECTED_PAYMENT_STATES = [
+        '', 'unpaid', 'pending', 'pending payment', 'awaiting payment',
+        'failed', 'rejected', 'declined', 'cancelled', 'canceled', 'void', 'voided',
+    ];
 
     /** Is the additive column present? Without it there is no link, so there is no operation. */
     public static function available(): bool
     {
         return \Illuminate\Support\Facades\Schema::hasColumn('orders', 'replaced_order_id');
+    }
+
+    /**
+     * D-15 CONDITIONS 3 AND 6 — MAY THIS ORDER'S PAYMENT STATE BE REPLACED AUTOMATICALLY?
+     *
+     * Returns `REPLACED` when the payment state permits it, or the refusal that applies.
+     *
+     * **A PARTIAL PAYMENT IS REFUSED OUTRIGHT.** Condition 6 names it, and there is no approved
+     * safe scenario for one: the shopper has paid part of a sum that is about to be cancelled, and
+     * deciding what happens to that part is a settlement rule the owner has not made.
+     *
+     * **A COLLECTED PAYMENT IS REFUSED UNLESS A REAL REFUND PATH EXISTS.** Condition 3 separates
+     * reversing the merchant's balance from refunding the customer, and condition 6 refuses the
+     * automatic path where the refund is "not provably correct". `hasGatewayRefundDriver()` is the
+     * platform's own answer to that question, and it is currently `false` for every provider — so
+     * the refusal covers every collected payment rather than a subset. When a driver lands, this
+     * method widens with no edit.
+     *
+     * **COD IS NOT EXEMPT, deliberately.** A `Paid` cash-on-delivery order means the merchant holds
+     * the shopper's cash. Returning it is a real-world act this system cannot observe, so claiming
+     * it as "provably correct" would be the same inference condition 3 forbids one layer up.
+     */
+    public static function paymentEligibility(Order $original): string
+    {
+        $status = strtolower(trim((string) $original->payment_status));
+
+        if (str_contains($status, 'partial')) {
+            return self::REFUSED_PAYMENT_PARTIAL;
+        }
+
+        if (in_array($status, self::UNCOLLECTED_PAYMENT_STATES, true)) {
+            return self::REPLACED;
+        }
+
+        /* Resolved through the container so a future real driver is picked up here automatically. */
+        if (! app(RefundIntegrityService::class)->hasGatewayRefundDriver($original->payment_type)) {
+            return self::REFUSED_PAYMENT_COLLECTED;
+        }
+
+        return self::REPLACED;
+    }
+
+    /**
+     * D-15 CONDITIONS 4 AND 5 — IS EVERY LINE'S OUT-MOVEMENT PROVEN?
+     *
+     * Returns `REPLACED` when every line reads `moved`, otherwise the refusal for the first line
+     * that does not. **`unknown` and `not_moved` are both refusals, for different reasons:**
+     *
+     *   - `unknown` means the platform never observed this order's placement — an order written
+     *     before `stock_movements` existed, or by a writer not yet enrolled. Condition 4 forbids
+     *     treating it as having consumed stock, and silence is not evidence.
+     *   - `not_moved` means the platform observed the order and it provably took nothing out (a
+     *     refused decrement records `direction = out, applied = false`). Stamping
+     *     `LINE_STOCK_CARRIED` would then be a false claim — condition 5 by name — and it would
+     *     also suppress a restore that should happen, so stock would go missing on paper.
+     *
+     * **ALL-OR-NOTHING, not per line.** A replacement carrying the marker on some lines and not
+     * others would need a rule for what the unmarked lines do about stock, and no such rule is
+     * approved. Refusing is the only option that invents nothing.
+     */
+    public static function stockEvidence(Order $original, array $lines): string
+    {
+        if (! StockMovement::available()) {
+            return self::REFUSED_STOCK_EVIDENCE_UNKNOWN;
+        }
+
+        foreach ($lines as $line) {
+            if (! is_array($line)) {
+                return self::REFUSED_STOCK_EVIDENCE_UNKNOWN;
+            }
+
+            $verdict = StockMovement::movedOutFor(
+                $original->store_id,
+                $original->id,
+                $line['product_id'] ?? null,
+                $line['variant_id'] ?? null
+            );
+
+            if ($verdict === StockMovement::NOT_MOVED) {
+                return self::REFUSED_STOCK_NOT_MOVED;
+            }
+
+            if ($verdict !== StockMovement::MOVED) {
+                return self::REFUSED_STOCK_EVIDENCE_UNKNOWN;
+            }
+        }
+
+        return self::REPLACED;
+    }
+
+    /**
+     * THE WHOLE ELIGIBILITY QUESTION IN ONE PLACE, so the merchant's button and the service cannot
+     * disagree about who is eligible.
+     *
+     * `OrderController::order_view()` calls this to decide whether to render the control, and
+     * `cancelAndReplace()` calls it again before doing anything. The directive's requirement —
+     * *"keep the merchant action hidden or disabled for ineligible orders"* — is met by there being
+     * exactly one predicate rather than two that drift.
+     *
+     * It does NOT test authorization: the caller's permission is the caller's question, and the
+     * controller already asks `Gate::allows('updateStatus')` for the button while the service asks
+     * it again for the action.
+     */
+    public static function eligibility(Order $original): string
+    {
+        if (! self::available()) {
+            return self::REFUSED_COLUMN_ABSENT;
+        }
+
+        if (Order::where('replaced_order_id', $original->id)->exists()) {
+            return self::REFUSED_ALREADY_REPLACED;
+        }
+
+        if ((int) $original->delivered_status !== 0) {
+            return self::REFUSED_ALREADY_DISPATCHED;
+        }
+
+        $lines = json_decode((string) $original->product_json, true);
+
+        if (! is_array($lines) || $lines === []) {
+            return self::REFUSED_UNREADABLE_LINES;
+        }
+
+        $payment = self::paymentEligibility($original);
+
+        if ($payment !== self::REPLACED) {
+            return $payment;
+        }
+
+        return self::stockEvidence($original, $lines);
     }
 
     /**
@@ -134,12 +321,67 @@ class OrderReplacement
             return [self::REFUSED_UNREADABLE_LINES, null, 'the order\'s lines cannot be read'];
         }
 
+        /*
+         * D-15 CONDITIONS 3 AND 6 — THE PAYMENT GATE, BEFORE ANYTHING IS WRITTEN.
+         *
+         * This is the condition the first version of this class did not have at all. Placed before
+         * the transaction because a refusal must leave the original exactly as it was, and because
+         * the merchant should learn the reason without the order being touched.
+         */
+        $payment = self::paymentEligibility($original);
+
+        if ($payment !== self::REPLACED) {
+            return [$payment, null, $payment === self::REFUSED_PAYMENT_PARTIAL
+                ? 'the order is partially paid, and no approved settlement rule covers that'
+                : 'money was collected for this order and no provable customer-refund path exists'];
+        }
+
+        /*
+         * D-15 CONDITIONS 4 AND 5 — THE STOCK-EVIDENCE GATE.
+         *
+         * `LINE_STOCK_CARRIED` is applied below on every line. It is a CLAIM that the original took
+         * that stock out, and condition 5 forbids making it without proof. So the proof is demanded
+         * here, for every line, before a single stamp is written.
+         */
+        $stock = self::stockEvidence($original, $lines);
+
+        if ($stock !== self::REPLACED) {
+            return [$stock, null, $stock === self::REFUSED_STOCK_NOT_MOVED
+                ? 'a line of this order provably took no stock out, so it cannot be carried'
+                : 'this order\'s stock movement cannot be proven, so it cannot be carried'];
+        }
+
         $replacement = null;
 
         try {
             DB::transaction(function () use ($original, &$replacement, $lines) {
-                /* Re-read under the transaction and re-test, so two concurrent calls cannot both
-                   pass the checks above and both write. */
+                /*
+                 * D-15 CONDITION 8 — THE CRITICAL CONDITIONS ARE RE-TESTED UNDER A ROW LOCK.
+                 *
+                 * `lockForUpdate()` on the ORIGINAL serialises two concurrent replacements of the
+                 * same order: the second blocks here until the first commits, and then reads the
+                 * row the first left behind. Read through the query builder rather than Eloquent on
+                 * purpose — `Order` is `Cachable`, and a lock must take the DATABASE row, not a
+                 * cached copy of it.
+                 *
+                 * **SQLite IGNORES `FOR UPDATE`**, so in the PHPUnit suite this is a no-op and the
+                 * suite proves the LOGIC only. The serialisation itself is proven on MariaDB by
+                 * `tests/Support/Security/bin/verify-order-replacement-concurrency-on-mysql.php`.
+                 * Saying so here because a green suite would otherwise read as proof of something
+                 * it cannot test.
+                 */
+                $locked = DB::table('orders')->where('id', $original->id)->lockForUpdate()->first();
+
+                if (! $locked) {
+                    throw new \RuntimeException(self::REFUSED_CANCEL_FAILED . ': the order disappeared');
+                }
+
+                /* Dispatch state is re-tested under the lock: a concurrent status change could have
+                   shipped or cancelled this order between the check above and this transaction. */
+                if ((int) $locked->delivered_status !== 0) {
+                    throw new \RuntimeException(self::REFUSED_ALREADY_DISPATCHED);
+                }
+
                 if (Order::where('replaced_order_id', $original->id)->exists()) {
                     throw new \RuntimeException(self::REFUSED_ALREADY_REPLACED);
                 }
@@ -210,11 +452,38 @@ class OrderReplacement
                     'created_by' => $original->created_by,
                 ]);
             });
+        } catch (QueryException $theDatabaseRefusedTheSecondWriter) {
+            /*
+             * D-15 CONDITION 8 — THE DATABASE-ENFORCED HALF OF "ONE REPLACEMENT PER ORIGINAL".
+             *
+             * `orders_replaced_order_id_unique` (migration 2026_11_01_000100) makes the second
+             * concurrent INSERT fail rather than succeed. Two transactions can both pass a SELECT
+             * before either inserts — on MySQL's default REPEATABLE READ a read of a NON-unique
+             * index takes no gap lock — so the `exists()` test above is an early answer, not a
+             * guard. This arm is where the guarantee actually lives.
+             *
+             * Only an integrity violation is translated into the named refusal. Any other database
+             * error falls through to the general arm, because reporting a connection failure as
+             * "already replaced" would hide a fault behind a business refusal.
+             */
+            if ($theDatabaseRefusedTheSecondWriter->getCode() === '23000'
+                || str_contains(strtolower($theDatabaseRefusedTheSecondWriter->getMessage()), 'unique')) {
+                return [self::REFUSED_ALREADY_REPLACED, null, 'this order has already been replaced'];
+            }
+
+            Log::error('Order replacement failed on a database error and was rolled back; the original is unchanged.', [
+                'original_order_id' => $original->id,
+                'reason' => $theDatabaseRefusedTheSecondWriter->getMessage(),
+            ]);
+
+            return [self::REFUSED_CANCEL_FAILED, null, $theDatabaseRefusedTheSecondWriter->getMessage()];
         } catch (\RuntimeException $theReplacementWasRefused) {
             $reason = $theReplacementWasRefused->getMessage();
-            $state = str_starts_with($reason, self::REFUSED_CANCEL_FAILED)
-                ? self::REFUSED_CANCEL_FAILED
-                : self::REFUSED_ALREADY_REPLACED;
+            $state = match (true) {
+                str_starts_with($reason, self::REFUSED_CANCEL_FAILED) => self::REFUSED_CANCEL_FAILED,
+                $reason === self::REFUSED_ALREADY_DISPATCHED => self::REFUSED_ALREADY_DISPATCHED,
+                default => self::REFUSED_ALREADY_REPLACED,
+            };
 
             return [$state, null, $reason];
         } catch (\Throwable $theReplacementFailed) {

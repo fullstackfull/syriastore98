@@ -132,9 +132,18 @@ try {
 
     /*
      * Only the columns this question needs, shaped after the real `orders` table plus the additive
-     * column. `replaced_order_id` is declared INDEXED and NOT UNIQUE, exactly as the migration
-     * declares it -- making it UNIQUE here would test a constraint production does not have and
-     * would report the in-transaction guard as working when the database was doing the work.
+     * column. `replaced_order_id` is declared **UNIQUE**, matching migration
+     * `2026_11_01_000100_add_unique_index_to_orders_replaced_order_id`.
+     *
+     * **[2026-11-01] THIS CHANGED, AND THE OLD SHAPE IS WHY.** This script used to declare the
+     * column merely INDEXED and assert that as a premise, concluding that "the in-transaction guard
+     * is doing the work, not the database". That conclusion was correct and it was the problem: a
+     * SELECT inside a transaction is not a concurrency guard, because two transactions can both
+     * pass it before either inserts -- a read of a NON-unique index takes no gap lock under
+     * REPEATABLE READ. The owner's directive asked for "an actual database-enforced invariant where
+     * necessary", so the invariant now exists and this script proves the database refuses the
+     * second writer rather than proving that it does not have to.
+     *
      * ENGINE=InnoDB is forced because the row-lock claim does not transfer to any other engine.
      */
     $a->statement('CREATE TABLE orders (
@@ -145,7 +154,7 @@ try {
         store_id BIGINT UNSIGNED NULL,
         final_price DECIMAL(16,4) NOT NULL DEFAULT 0,
         created_at TIMESTAMP NULL, updated_at TIMESTAMP NULL,
-        INDEX orders_replaced_order_id_index (replaced_order_id)
+        UNIQUE KEY orders_replaced_order_id_unique (replaced_order_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
 
     $a->table('orders')->insert([
@@ -162,16 +171,31 @@ try {
 
     // ---------------------------------------------------------------- 1. THE PREMISE, STATED
     //
-    // If `replaced_order_id` were UNIQUE here, every check below would pass on the strength of a
-    // constraint production does not have. Asserted rather than trusted.
+    // The invariant has to BE there for the checks below to mean anything, and it has to be the
+    // same shape the migration creates. Asserted rather than trusted.
     $indexes = $a->select("SHOW INDEX FROM orders WHERE Column_name = 'replaced_order_id'");
-    $nonUnique = array_filter($indexes, fn ($i) => (int) $i->Non_unique === 1);
+    $unique = array_filter($indexes, fn ($i) => (int) $i->Non_unique === 0);
 
     check(
-        'premise: replaced_order_id is INDEXED and NOT UNIQUE, as the migration declares it',
-        count($indexes) > 0 && count($nonUnique) === count($indexes),
-        'if it were unique, the database would refuse the second replacement and this script '
-        . 'would report the in-transaction guard as working when it had not run'
+        'premise: replaced_order_id is UNIQUE, as migration 2026_11_01_000100 declares it',
+        count($unique) > 0,
+        'the column is not unique here, so this script is testing a schema the migration does not '
+        . 'create and the database-refusal check below would prove nothing'
+    );
+
+    // MULTIPLE NULLS MUST STILL BE PERMITTED, or the index would break every ordinary order.
+    $a->table('orders')->insert([
+        ['product_order_id' => 'ORD-NULL-1', 'store_id' => 1, 'final_price' => '1.0000',
+         'created_at' => now(), 'updated_at' => now()],
+        ['product_order_id' => 'ORD-NULL-2', 'store_id' => 1, 'final_price' => '1.0000',
+         'created_at' => now(), 'updated_at' => now()],
+    ]);
+
+    check(
+        'two orders with replaced_order_id NULL coexist, so ordinary orders are unaffected',
+        (int) $a->table('orders')->whereNull('replaced_order_id')->count() >= 3,
+        'the unique index is rejecting NULLs, which would make every non-replacement order '
+        . 'conflict with every other -- the index must not be added in that case'
     );
 
     // ----------------------------------------------- 2. A HOLDS ITS REPLACEMENT UNCOMMITTED
@@ -272,6 +296,38 @@ try {
         ]);
     }
 
+    // --------------------------------- 3b. THE DATABASE ITSELF REFUSES A SECOND REPLACEMENT
+    //
+    // The checks above show the SERVICE's guard answering correctly. This shows that the guard is
+    // not the only thing standing between one original and two replacements: a writer that skips
+    // every PHP check -- a second app server, a console command, a future caller that forgets --
+    // is refused by the schema. Error 1062 is MySQL/MariaDB's duplicate-entry code.
+    $duplicateRefused = false;
+    $duplicateCode = null;
+
+    try {
+        $b->table('orders')->insert([
+            'replaced_order_id' => $originalId,
+            'product_order_id' => 'R-ORD-ORIGINAL-BYPASS',
+            'delivered_status' => 0,
+            'store_id' => 1,
+            'final_price' => '200.0000',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+    } catch (Throwable $theDatabaseRefusedIt) {
+        $duplicateCode = (int) ($theDatabaseRefusedIt->errorInfo[1] ?? 0);
+        $duplicateRefused = $duplicateCode === 1062;
+    }
+
+    check(
+        'a writer that bypasses every PHP guard is refused by the UNIQUE index (1062)',
+        $duplicateRefused,
+        $duplicateCode === null
+            ? 'the insert SUCCEEDED, so "one replacement per original" rests entirely on PHP'
+            : 'it failed with code ' . $duplicateCode . ' rather than 1062, so the refusal is not '
+              . 'the unique index'
+    );
+
     $replacements = (int) $a->table('orders')->where('replaced_order_id', $originalId)->count();
 
     check(
@@ -291,9 +347,10 @@ try {
 
     if ($failures === 0) {
         echo "\nALL ASSERTIONS HELD on " . $a->selectOne('select version() as v')->v . ".\n";
-        echo "Two concurrent replacement attempts on one order produce exactly one replacement,\n";
-        echo "the second genuinely blocks on the first's row lock, and `replaced_order_id` is NOT\n";
-        echo "unique -- so the in-transaction guard is doing the work, not the database.\n";
+        echo "Two concurrent replacement attempts on one order produce exactly one replacement; the\n";
+        echo "second genuinely BLOCKS on the first's row lock; and `replaced_order_id` is UNIQUE, so a\n";
+        echo "writer that bypasses every PHP guard is refused by the database with 1062. The lock\n";
+        echo "serialises and the index guarantees -- D-15 condition 8 does not rest on a SELECT.\n";
     }
 } catch (Throwable $theVerificationFailed) {
     fwrite(STDERR, "\nUNEXPECTED: {$theVerificationFailed->getMessage()}\n");

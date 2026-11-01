@@ -95,17 +95,57 @@ class OrderReplacementEntryPointTest extends SecurityTestCase
     }
 
     /** A cancellable order with readable lines — the shape the service accepts. */
-    private function replaceableOrder(array $overrides = []): Order
+    /**
+     * AN ORDER THE SERVICE WOULD ACTUALLY ACCEPT — and it used to be one the service would refuse.
+     *
+     * This fixture was `payment_status => 'Paid'` with no stock evidence, and five cases here were
+     * green against it, because the service had neither a payment gate nor a stock gate. D-15
+     * conditions 4, 5 and 6 are now enforced, so "replaceable" has to mean replaceable: UNPAID, and
+     * with the original's out-movement observed.
+     *
+     * `$prove` exists so the ineligible cases can ask for the same order WITHOUT the evidence and
+     * assert the control is withheld — which is the directive's "hidden or disabled for ineligible
+     * orders" requirement, and it needs both halves of the pair to mean anything.
+     */
+    private function replaceableOrder(array $overrides = [], bool $prove = true): Order
     {
-        return $this->makeOrder($this->store, array_merge([
+        $order = $this->makeOrder($this->store, array_merge([
             'delivered_status' => 0,
-            'payment_status' => 'Paid',
+            'payment_status' => 'Unpaid',
             'product_json' => json_encode([[
                 'product_id' => 1, 'name' => 'Lamp', 'qty' => 1, 'quantity' => 1,
                 'price' => 10, 'orignal_price' => 10, 'final_price' => 10,
                 'variant_id' => null, 'variant_name' => null,
             ]]),
         ], $overrides));
+
+        if ($prove) {
+            $this->proveStockMovedOut($order);
+        }
+
+        return $order;
+    }
+
+    /**
+     * D-15 conditions 4 and 5 — record the out-movement that makes the original's stock claim
+     * provable. `variant_id` is coerced to NULL, because `movedOutFor()` matches a product-only line
+     * with `whereNull('variant_id')` while `record()` would store a literal 0, and a 0 writes a row
+     * the lookup can never find.
+     */
+    private function proveStockMovedOut(Order $order): void
+    {
+        foreach ((array) json_decode((string) $order->product_json, true) as $line) {
+            \App\Services\StockMovement::record([
+                'store_id' => $order->store_id,
+                'order_id' => $order->id,
+                'product_id' => $line['product_id'] ?? null,
+                'variant_id' => ($line['variant_id'] ?? null) ?: null,
+                'direction' => \App\Services\StockMovement::OUT,
+                'quantity' => (int) ($line['quantity'] ?? 1),
+                'applied' => true,
+                'reason' => \App\Services\StockMovement::REASON_ORDER_PLACE,
+            ]);
+        }
     }
 
     /**
@@ -289,5 +329,31 @@ class OrderReplacementEntryPointTest extends SecurityTestCase
             'a re-opened original that already has a linked replacement is offering the control '
             . 'again. The dispatch limb no longer covers this state, so the already-replaced '
             . 'limb is the only thing between the merchant and a button the service refuses.');
+    }
+
+    /**
+     * THE DIRECTIVE'S "HIDDEN OR DISABLED FOR INELIGIBLE ORDERS", for the two conditions that had
+     * no coverage at all because the service had no such conditions.
+     *
+     * Both are driven through the real page rather than through `eligibility()`, because the thing
+     * at risk is the CONTROL: a merchant offered a button the service will refuse learns about the
+     * refusal from a red toast on a destructive action, which is the worst place to learn it.
+     */
+    public function test_a_collected_order_is_not_offered_the_replacement(): void
+    {
+        $order = $this->replaceableOrder(['payment_status' => 'Paid']);
+
+        $this->assertFalse($this->controlIsOffered($this->detailPage($order), $order),
+            'the control was offered for a collected payment, which the service refuses under '
+            . 'D-15 condition 6 — so the merchant would meet the refusal only after clicking');
+    }
+
+    public function test_an_order_with_no_stock_evidence_is_not_offered_the_replacement(): void
+    {
+        $order = $this->replaceableOrder([], false);   // no movement recorded
+
+        $this->assertFalse($this->controlIsOffered($this->detailPage($order), $order),
+            'the control was offered for an order whose stock movement is unproven, which the '
+            . 'service refuses under D-15 conditions 4 and 5');
     }
 }
