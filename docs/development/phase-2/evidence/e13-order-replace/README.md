@@ -45,8 +45,10 @@ node docs/development/phase-2/tools/check-order-replace-live.cjs
 
 The control is present on a replaceable order and **actually visible once the menu is open**; it
 carries the replacement route rather than only its CSS class; it has an accessible name; it is
-keyboard-reachable; its icon is hidden from assistive tech; its label reaches **9.1177:1**; it sits
-inside the viewport and the page does not scroll sideways. Clicking it **opens a confirmation and
+keyboard-reachable; its icon is hidden from assistive tech; its label reaches **at least 6.8876:1** — 9.1177:1 in the light
+configurations and 6.8876:1 in the dark ones, so every configuration clears 4.5 and no check fails,
+but 9.1177 is the light figure rather than the figure every configuration proved; it sits inside the
+viewport and the page does not scroll sideways. Clicking it **opens a confirmation and
 sends nothing**; Escape dismisses it and sends nothing. It is **withheld** on a cancelled order
 (ORD-2045) and on a dispatched one (ORD-2044). In Arabic the title, body and label are Arabic and
 not the English literal.
