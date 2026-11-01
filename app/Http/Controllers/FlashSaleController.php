@@ -668,11 +668,42 @@ class FlashSaleController extends Controller
         return response()->json($data);
     }
 
+    /**
+     * F268 — the toggle F266 did not reach.
+     *
+     * `findOrFail($request->input('flashsaleId'))` on an unscoped model, with no permission check
+     * at all: any authenticated member of any tenant could switch another store's flash sale on
+     * or off. Switching one ON applies its discount to that store's catalogue; switching it OFF
+     * removes a discount the merchant is advertising. Both change what shoppers pay.
+     *
+     * The id comes from the REQUEST BODY rather than the route here, which is the shape
+     * CLAUDE.md names explicitly: a predicate built from caller-supplied input is not a tenant
+     * check. `scopedFlashSale()` resolves it against the session's store instead.
+     *
+     * A JSON refusal, not a redirect: the only caller is a fetch from the index page, and a
+     * redirect body would be parsed as a failed status update rather than as a refusal.
+     */
     public function updateStatus(Request $request)
     {
-        $flashSaleId = $request->input('flashsaleId');
+        $user = auth()->user();
+
+        if (! $user || UserPolicy::isOperator($user) || ! $user->isAbleTo('Edit Flash Sale')) {
+            return response()->json([
+                'status' => false,
+                'message' => __('Permission denied.'),
+            ], 403);
+        }
+
+        $flashSale = $this->scopedFlashSale($request->input('flashsaleId'));
+
+        if ($flashSale === null) {
+            return response()->json([
+                'status' => false,
+                'message' => __('Flash sale not found.'),
+            ], 404);
+        }
+
         $isActivated = $request->input('isActivated');
-        $flashSale = FlashSale::findOrFail($flashSaleId);
         if ($isActivated == 'true') {
             $flashSale->is_active = 1;
         } else {

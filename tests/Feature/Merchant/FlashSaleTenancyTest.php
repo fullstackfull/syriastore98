@@ -309,6 +309,66 @@ class FlashSaleTenancyTest extends SecurityTestCase
             ->assertStatus(200);
     }
 
+    // ---------------------------------------------------------------------------------------
+    //  F268 — THE TOGGLE, WHOSE ID COMES FROM THE REQUEST BODY
+    // ---------------------------------------------------------------------------------------
+    //
+    // `updateStatus()` did `findOrFail($request->input('flashsaleId'))` with no permission check
+    // at all. Switching another store's sale ON applies its discount to that store's catalogue;
+    // switching it OFF removes a discount they are advertising. Both change what shoppers pay.
+
+    public function test_another_tenant_cannot_toggle_this_stores_flash_sale(): void
+    {
+        $before = (int) $this->victim()->is_active;
+
+        $response = $this->actingAs($this->merchantA)
+            ->post(route('update-flashsale-status'), [
+                'flashsaleId' => $this->saleB->id,
+                'isActivated' => $before === 1 ? 'false' : 'true',
+            ]);
+        $this->assertReachedHandler($response, 'cross-tenant flash sale toggle');
+
+        $this->assertSame($before, (int) $this->victim()->is_active,
+            "store A switched store B's flash sale, which changes what store B's shoppers pay");
+    }
+
+    public function test_a_staff_member_without_the_permission_cannot_toggle(): void
+    {
+        $own = $this->makeSale($this->storeA, 'Store A summer sale', '10');
+        $before = (int) FlashSale::withoutGlobalScopes()->findOrFail($own->id)->is_active;
+
+        $staff = $this->makeStaff($this->merchantA, ['current_store' => $this->storeA->id]);
+        $this->grantPermission(User::find($staff->id), 'Manage Blog');
+
+        $this->actingAs(User::find($staff->id))
+            ->post(route('update-flashsale-status'), [
+                'flashsaleId' => $own->id,
+                'isActivated' => $before === 1 ? 'false' : 'true',
+            ]);
+
+        (new FlashSale)->flushCache();
+        $this->assertSame($before,
+            (int) FlashSale::withoutGlobalScopes()->findOrFail($own->id)->is_active);
+    }
+
+    /** And the gate is not a deletion. */
+    public function test_a_permitted_merchant_still_toggles_their_own_flash_sale(): void
+    {
+        $own = $this->makeSale($this->storeA, 'Store A summer sale', '10');
+
+        $response = $this->actingAs($this->merchantA)
+            ->post(route('update-flashsale-status'), [
+                'flashsaleId' => $own->id,
+                'isActivated' => 'true',
+            ]);
+        $response->assertStatus(200);
+
+        (new FlashSale)->flushCache();
+        $this->assertSame(1,
+            (int) FlashSale::withoutGlobalScopes()->findOrFail($own->id)->is_active,
+            'the merchant can no longer switch on their own flash sale');
+    }
+
     public function test_an_unknown_id_is_refused_rather_than_raising_a_500(): void
     {
         $response = $this->actingAs($this->merchantA)->get(route('flash-sale.edit', 999999));
