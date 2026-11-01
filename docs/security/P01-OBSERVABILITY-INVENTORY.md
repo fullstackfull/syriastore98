@@ -184,7 +184,12 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/PaystackPaymentController.php:377` | Paystack plan activation refused: this reference is already recorded against a different buyer or plan. |
 | `app/Http/Controllers/PaystackPaymentController.php:444` | Paystack plan activation refused: the captured payment does not match the plan being activated. |
 | `app/Http/Controllers/PaytmPaymentController.php:332` | Paytm plan return refused: no merchant key is configured, so the checksum proves nothing. |
-| `app/Http/Controllers/PosController.php:246` | POS sale skipped a line whose product is not this store |
+| `app/Http/Controllers/PosController.php:405` | POS sale refused as a duplicate submission |
+| `app/Http/Controllers/PosController.php:664` | POS sale failed after stock may have moved; the claim was released so the till can retry |
+| `app/Http/Controllers/PosController.php:487` | POS sale skipped a line whose product is not this store |
+| `app/Http/Controllers/StoreFinanceController.php:81` | Manual wallet change refused as a duplicate submission |
+| `app/Http/Controllers/StoreFinanceController.php:1728` | Manual wallet change refused as a duplicate submission |
+| `app/Http/Controllers/StoreFinanceController.php:1929` | Manual wallet change refused as a duplicate submission |
 | `app/Http/Controllers/SavedViewController.php:117` | Saved view apply refused: not the owner or no such view |
 | `app/Http/Controllers/SavedViewController.php:136` | Saved view delete refused: not the owner or no such view |
 | `app/Http/Controllers/SenangPayController.php:140` | SenangPay plan return refused: the return hash could not be verified. |

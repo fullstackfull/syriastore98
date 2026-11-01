@@ -10,10 +10,87 @@ use App\Models\StoreWalletTransaction;
 use App\Models\StoreWithdrawal;
 use App\Services\OrderFinancialService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class StoreFinanceController extends Controller
 {
+    /** The value a wallet-change claim holds while the change is being written. */
+    private const WALLET_CHANGE_WRITING = 'writing';
+
+    /**
+     * How long one manual wallet change's claim survives.
+     *
+     * Shorter than the till's 120s, and deliberately: a manual deposit is a deliberate act typed
+     * into a modal, so the window only has to cover a double-click and a resubmit of the same
+     * form. A genuine second change of the same amount with the same description a minute later
+     * is then accepted rather than refused.
+     */
+    private const WALLET_CHANGE_CLAIM_SECONDS = 60;
+
+    /**
+     * F270 — A DOUBLE SUBMIT CREDITED THE WALLET TWICE, AND THE LOCK DID NOT STOP IT.
+     *
+     * `addBalance()` and `deductBalance()` each wrap their work in `DB::transaction()` around a
+     * `StoreWallet::where('store_id', $storeId)->lockForUpdate()->firstOrFail()`, which is correct
+     * and is not the problem. A row lock SERIALISES two writes; it does not make the second one
+     * redundant. So two submits of the same manual deposit took the lock one after the other and
+     * credited the wallet twice, writing two `manual_deposit` rows that are indistinguishable from
+     * two deliberate deposits.
+     *
+     * AND THE FORM INVITES IT. `finance/index.blade.php:466-487` is a plain
+     * `<form method="POST">` with a submit button and NO disable-on-submit, inside a Bootstrap
+     * modal — a double-click submits twice. Nothing client-side would be a control anyway.
+     *
+     * THE CONTROL IS THE SAME ATOMIC CLAIM F269 AND F226 USE, taken before the transaction opens
+     * and released only on a path that wrote nothing. `Cache::add()` is a single put-if-absent; on
+     * the production `database` store it is an INSERT against the `cache` table's primary key, so
+     * exactly one of two concurrent submits can take it.
+     *
+     * THE FINGERPRINT IS SERVER-DERIVED where it matters — the resolved store and the
+     * authenticated actor — and canonicalises the amount, so `100`, `100.00` and `100.000` are one
+     * deposit rather than three. The direction is part of it, so a credit and a debit of the same
+     * figure never collide.
+     *
+     * FIVE CLAIM SITES NOW SHARE THIS PRIMITIVE BY CONVENTION RATHER THAN BY CODE —
+     * `Concerns\GuardsGatewayReturn`, `PaymentController` (twice), `Api\DashboardController`,
+     * `PosController` and here. Extracting a shared concern would mean editing four already
+     * reviewed and tested payment handlers, which is a larger change than this slice, so it is
+     * RECORDED rather than done.
+     */
+    private function walletChangeFingerprint(
+        string $direction,
+        $storeId,
+        int $actorId,
+        $amount,
+        $description
+    ): string {
+        return 'wallet_change:' . hash('sha256', json_encode([
+            'store' => (string) $storeId,
+            'actor' => $actorId,
+            'direction' => $direction,
+            'amount' => number_format((float) $amount, 2, '.', ''),
+            'description' => trim((string) $description),
+        ]));
+    }
+
+    /** The one answer a refused duplicate gets, so both handlers cannot drift apart. */
+    private function refuseDuplicateWalletChange(string $direction, $storeId)
+    {
+        Log::warning('Manual wallet change refused as a duplicate submission', [
+            'direction' => $direction,
+            'store_id' => $storeId,
+            'user_id' => auth()->id(),
+        ]);
+
+        return redirect()
+            ->route('finance.index')
+            ->with(
+                'error',
+                __('A wallet change with the same amount and description was recorded a moment ago. This submission was ignored, so the balance has not been changed twice.')
+            );
+    }
     /**
      * Authorize a finance action.
      *
@@ -599,6 +676,33 @@ class StoreFinanceController extends Controller
 
         $storeId = getCurrentStore();
 
+        /*
+         * F270. NO STORE, NO WRITE — and this is not defensive padding.
+         * `where('store_id', null)` compiles to `store_id IS NULL`, so a principal who resolves
+         * no store would either fail on `firstOrFail()` or, if a wallet row with a null
+         * `store_id` exists, CREDIT THAT ROW. A fingerprint keyed on an empty store would also
+         * put every such principal onto one shared claim.
+         */
+        if (empty($storeId)) {
+            return redirect()
+                ->route('finance.index')
+                ->with('error', __('No store is selected.'));
+        }
+
+        $walletClaim = $this->walletChangeFingerprint(
+            'credit',
+            $storeId,
+            (int) auth()->id(),
+            $request->amount,
+            $request->description
+        );
+
+        if (! Cache::add($walletClaim, self::WALLET_CHANGE_WRITING, now()->addSeconds(self::WALLET_CHANGE_CLAIM_SECONDS))) {
+            return $this->refuseDuplicateWalletChange('credit', $storeId);
+        }
+
+        try {
+
         DB::transaction(function () use (
             $request,
             $storeId
@@ -656,6 +760,19 @@ class StoreFinanceController extends Controller
             ]);
         });
 
+        } catch (\Throwable $e) {
+            /*
+             * THE TRANSACTION ROLLED BACK, so nothing was written and the claim must not hold.
+             * Releasing only here is the point: a claim is released on a path that wrote nothing
+             * and NEVER on a path that wrote something, which is what keeps a retry after a
+             * successful write from crediting twice. The exception is re-thrown so the outcome
+             * for the caller is exactly what it was before this guard existed.
+             */
+            Cache::forget($walletClaim);
+
+            throw $e;
+        }
+
         return redirect()
             ->route('finance.index')
             ->with(
@@ -678,6 +795,25 @@ class StoreFinanceController extends Controller
         ]);
 
         $storeId = getCurrentStore();
+
+        /* F270, same reasoning as addBalance: `where('store_id', null)` compiles to `IS NULL`. */
+        if (empty($storeId)) {
+            return redirect()
+                ->route('finance.index')
+                ->with('error', __('No store is selected.'));
+        }
+
+        $walletClaim = $this->walletChangeFingerprint(
+            'debit',
+            $storeId,
+            (int) auth()->id(),
+            $request->amount,
+            $request->description
+        );
+
+        if (! Cache::add($walletClaim, self::WALLET_CHANGE_WRITING, now()->addSeconds(self::WALLET_CHANGE_CLAIM_SECONDS))) {
+            return $this->refuseDuplicateWalletChange('debit', $storeId);
+        }
 
         try {
 
@@ -745,6 +881,14 @@ class StoreFinanceController extends Controller
             });
 
         } catch (\Exception $e) {
+
+            /*
+             * F270. NOTHING WAS WRITTEN — `DB::transaction` rolled back — so the claim is
+             * released. "Insufficient wallet balance." reaches here, and an admin who tops the
+             * wallet up and retries the SAME figure must not be refused as a duplicate of a
+             * deduction that never happened.
+             */
+            Cache::forget($walletClaim);
 
             return redirect()
                 ->route('finance.index')
@@ -1554,6 +1698,46 @@ public function walletTransactionsApi(Request $request)
             'description' => 'required|string|max:255',
         ])->validate();
 
+
+        /*
+         * F270. THE API TWIN CARRIES THE SAME DEFECT, and leaving it would be half a fix: the
+         * shipped Flutter admin posts here (`wallet_repository.dart:28-43`), and its submit
+         * button has no in-flight guard either.
+         *
+         * THE CLAIM IS TAKEN AFTER THE OWNERSHIP CHECK, DELIBERATELY. `$storeId` arrives as
+         * `$request->query('store_id')` — caller-supplied — and the block above is what ties it
+         * to this caller. Claiming before that check would let any authenticated caller name
+         * ANOTHER store's id and evict or block its claim, which is this codebase's standing
+         * rule: a predicate built from caller input is not a control until it has been checked.
+         *
+         * THE REFUSAL IS A 409 IN THE API'S OWN ENVELOPE. The Flutter client's error parser
+         * prefers `data.message` (`network.dart:242-246`), so the refusal text reaches the
+         * merchant's toast through the existing `onFailure` branch with no app change; 409 falls
+         * into that parser's `default` arm, so it neither logs the merchant out (401) nor arms
+         * the rate-limit backoff (429).
+         */
+        $walletClaim = $this->walletChangeFingerprint(
+            'credit',
+            $storeId,
+            (int) $adminUser->id,
+            $request->amount,
+            $request->description
+        );
+
+        if (! Cache::add($walletClaim, self::WALLET_CHANGE_WRITING, now()->addSeconds(self::WALLET_CHANGE_CLAIM_SECONDS))) {
+            Log::warning('Manual wallet change refused as a duplicate submission', [
+                'direction' => 'credit',
+                'store_id' => $storeId,
+                'user_id' => $adminUser->id,
+            ]);
+
+            return response()->json([
+                'status' => 0,
+                'message' => __('A wallet change with the same amount and description was recorded a moment ago. This submission was ignored, so the balance has not been changed twice.'),
+                'data' => ['message' => __('A wallet change with the same amount and description was recorded a moment ago. This submission was ignored, so the balance has not been changed twice.')]
+            ], 409);
+        }
+
         $result = DB::transaction(function () use ($request, $storeId, $adminUser) {
             
             $wallet = \App\Models\StoreWallet::where('store_id', $storeId)
@@ -1643,6 +1827,21 @@ public function walletTransactionsApi(Request $request)
         ], 422);
 
     } catch (\Exception $e) {
+
+        /*
+         * F270. The transaction rolled back, so nothing was written and the claim must not hold.
+         * Released ONLY here — never on a path that wrote something, which is what stops a retry
+         * after a successful write from changing the balance twice.
+         *
+         * `isset` BECAUSE THIS CATCH IS WIDER THAN THE CLAIM. It also catches a throw from the
+         * store lookup ABOVE the claim — `QueryException` extends `Exception` — and at that point
+         * `$walletClaim` does not exist yet. Forgetting an undefined variable would turn a
+         * database error into a second, misleading one.
+         */
+        if (isset($walletClaim)) {
+            Cache::forget($walletClaim);
+        }
+
         \Log::error('API Add Balance Error: ' . $e->getMessage() . ' | File: ' . $e->getFile() . ' | Line: ' . $e->getLine());
 
         return response()->json([
@@ -1699,6 +1898,46 @@ public function deductBalanceApi(Request $request)
             'amount' => 'required|numeric|min:0.01',
             'description' => 'required|string|max:255',
         ]);
+
+
+        /*
+         * F270. THE API TWIN CARRIES THE SAME DEFECT, and leaving it would be half a fix: the
+         * shipped Flutter admin posts here (`wallet_repository.dart:28-43`), and its submit
+         * button has no in-flight guard either.
+         *
+         * THE CLAIM IS TAKEN AFTER THE OWNERSHIP CHECK, DELIBERATELY. `$storeId` arrives as
+         * `$request->query('store_id')` — caller-supplied — and the block above is what ties it
+         * to this caller. Claiming before that check would let any authenticated caller name
+         * ANOTHER store's id and evict or block its claim, which is this codebase's standing
+         * rule: a predicate built from caller input is not a control until it has been checked.
+         *
+         * THE REFUSAL IS A 409 IN THE API'S OWN ENVELOPE. The Flutter client's error parser
+         * prefers `data.message` (`network.dart:242-246`), so the refusal text reaches the
+         * merchant's toast through the existing `onFailure` branch with no app change; 409 falls
+         * into that parser's `default` arm, so it neither logs the merchant out (401) nor arms
+         * the rate-limit backoff (429).
+         */
+        $walletClaim = $this->walletChangeFingerprint(
+            'debit',
+            $storeId,
+            (int) $adminUser->id,
+            $request->amount,
+            $request->description
+        );
+
+        if (! Cache::add($walletClaim, self::WALLET_CHANGE_WRITING, now()->addSeconds(self::WALLET_CHANGE_CLAIM_SECONDS))) {
+            Log::warning('Manual wallet change refused as a duplicate submission', [
+                'direction' => 'debit',
+                'store_id' => $storeId,
+                'user_id' => $adminUser->id,
+            ]);
+
+            return response()->json([
+                'status' => 0,
+                'message' => __('A wallet change with the same amount and description was recorded a moment ago. This submission was ignored, so the balance has not been changed twice.'),
+                'data' => ['message' => __('A wallet change with the same amount and description was recorded a moment ago. This submission was ignored, so the balance has not been changed twice.')]
+            ], 409);
+        }
 
         $result = DB::transaction(function () use ($request, $storeId, $adminUser) {
             
@@ -1782,6 +2021,21 @@ public function deductBalanceApi(Request $request)
         ], 422);
 
     } catch (\Exception $e) {
+
+        /*
+         * F270. The transaction rolled back, so nothing was written and the claim must not hold.
+         * Released ONLY here — never on a path that wrote something, which is what stops a retry
+         * after a successful write from changing the balance twice.
+         *
+         * `isset` BECAUSE THIS CATCH IS WIDER THAN THE CLAIM. It also catches a throw from the
+         * store lookup ABOVE the claim — `QueryException` extends `Exception` — and at that point
+         * `$walletClaim` does not exist yet. Forgetting an undefined variable would turn a
+         * database error into a second, misleading one.
+         */
+        if (isset($walletClaim)) {
+            Cache::forget($walletClaim);
+        }
+
         \Log::error('API Deduct Balance Error: ' . $e->getMessage() . ' | File: ' . $e->getFile() . ' | Line: ' . $e->getLine());
 
         return response()->json([
