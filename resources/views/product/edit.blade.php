@@ -505,7 +505,8 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                                         {{-- `accept` from UploadLimits -- see create.blade.php. --}}
                                         <input type="file" class="form-control" name="downloadable_product"
                                             id="downloadable_product"
-                                            accept="{{ $ssUpload['accept'] }}"
+                                            {{-- F190: the field's own list; platform fallback while F217 gates it. --}}
+                                            accept="{{ \App\Support\UploadRules::accept('downloadable_product', $ssUpload['accept']) }}"
                                             onchange="document.getElementById('downloadable_product').src = window.URL.createObjectURL(this.files[0]);"
                                             multiple>
                                         @if ($product->downloadable_product != '')
@@ -526,7 +527,8 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                                         {{-- `accept` from UploadLimits -- see create.blade.php, and F190. --}}
                                         <input type="file" class="form-control" name="preview_video"
                                             id="preview_video"
-                                            accept="{{ $ssUpload['accept'] }}"
+                                            {{-- F190: .mp4,.webm,.mov, matching the server rule. --}}
+                                            accept="{{ \App\Support\UploadRules::accept('preview_video', $ssUpload['accept']) }}"
                                             value="{{ $product->preview_type == 'Video File' ? $product->preview_content : '' }}"
                                             onchange="document.getElementById('preview_video').src = window.URL.createObjectURL(this.files[0]);"
                                             multiple>

@@ -427,7 +427,10 @@
                              offered every file type and the save then refused most of them -- F75's defect
                              shape, one field over. See F190 for what the server's list does NOT contain. --}}
                         <input type="file" class="form-control" name="downloadable_product" id="downloadable_product"
-                          accept="{{ $ssUpload['accept'] }}"
+                          {{-- F190: the field's OWN list, from the same config the server validates against.
+                               Falls back to the platform list while the F217 gate holds this field off,
+                               because that is then what the server really uses. --}}
+                          accept="{{ \App\Support\UploadRules::accept('downloadable_product', $ssUpload['accept']) }}"
                           onchange="document.getElementById('downloadable_product').src = window.URL.createObjectURL(this.files[0]);"
                           multiple>
                         <div class="invalid-feedback">{{ __('invalid form file') }}</div>
@@ -443,7 +446,10 @@
                         {{-- See the downloadable field above. F190: on a default install this list holds no
                              video format at all, so this field cannot accept the thing it is named for. --}}
                         <input type="file" class="form-control" name="preview_video" id="preview_video"
-                          accept="{{ $ssUpload['accept'] }}"
+                          {{-- F190: .mp4,.webm,.mov -- the only types the server accepts here. It used to
+                               advertise the platform IMAGE list, so every file the picker offered was
+                               refused and the ones that work were not offered. --}}
+                          accept="{{ \App\Support\UploadRules::accept('preview_video', $ssUpload['accept']) }}"
                           onchange="document.getElementById('preview_video').src = window.URL.createObjectURL(this.files[0]);"
                           multiple>
                         <div class="invalid-feedback">{{ __('invalid form file') }}</div>

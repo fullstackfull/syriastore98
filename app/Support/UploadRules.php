@@ -73,6 +73,60 @@ class UploadRules
         return array_values($rules);
     }
 
+    /**
+     * THE `accept` ATTRIBUTE FOR ONE FIELD, DERIVED FROM THE SAME CONFIG THE SERVER VALIDATES
+     * AGAINST — so the picker and the validator cannot disagree.
+     *
+     * ══════════════════════════════════════════════════════════════════════════════════════════
+     * WHAT THIS FIXES, and it was the live half of F190 that remained
+     * ══════════════════════════════════════════════════════════════════════════════════════════
+     *
+     * All four file inputs on the product editor carried the SAME generic attribute —
+     * `accept="{{ $ssUpload['accept'] }}"` — which is `UploadLimits::forStore()`'s platform-wide
+     * list, i.e. the IMAGE list (`jpg,jpeg,png,csv,svg,pdf` by default). Meanwhile the server
+     * validates `preview_video` against `mimes:mp4,webm,mov` + `extensions:mp4,webm,mov`. So:
+     *
+     *   - the picker OFFERED a merchant jpg/png/csv/pdf for a video field, and the server refused
+     *     every one of them;
+     *   - the picker did NOT offer mp4/webm/mov, the only types that can actually succeed.
+     *
+     * Every outcome of using that control as presented was a refusal. The owner's F190 decision
+     * asks for *"field-specific validation/accept rules matching actual permitted backend
+     * behavior"*, and the matching is the point: this reads the `extensions:` rule out of
+     * `config/uploads.php`, which is the same array `for()` hands to the validator.
+     *
+     * **FALLS BACK TO THE PLATFORM LIST WHEN THE FIELD IS NOT ENABLED, because that is then what
+     * the server really uses.** `for()` returns `[]` for a disabled or malformed field, and
+     * `Utility::upload_file()` then takes its own branch — the platform-wide list. So the fallback
+     * is not a default; it is the same answer, arrived at the same way. `downloadable_product` is
+     * gated off pending F217, so it correctly keeps advertising the platform list today and starts
+     * advertising its own the moment the gate opens, with no second edit.
+     *
+     * **DERIVED FROM `extensions:` AND NOT `mimes:`, deliberately.** `accept` is matched by the
+     * browser against the FILE NAME, and `extensions:` is the rule that validates the file name on
+     * the server. Deriving the client hint from the content rule would pair two things that answer
+     * different questions.
+     */
+    public static function accept(string $field, string $platformFallback = ''): string
+    {
+        foreach (self::for($field) as $rule) {
+            if (is_string($rule) && str_starts_with($rule, 'extensions:')) {
+                $extensions = array_values(array_filter(array_map(
+                    static fn ($e) => strtolower(ltrim(trim($e), '.')),
+                    explode(',', substr($rule, strlen('extensions:')))
+                )));
+
+                if ($extensions === []) {
+                    return $platformFallback;
+                }
+
+                return implode(',', array_map(static fn ($e) => '.' . $e, $extensions));
+            }
+        }
+
+        return $platformFallback;
+    }
+
     private static function carriesASizeRule(array $rules): bool
     {
         return self::names($rules, 'max:');

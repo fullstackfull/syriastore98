@@ -19,10 +19,21 @@ use PHPUnit\Framework\TestCase;
  * the picker offered everything and the save then refused most of it: F75's defect shape, one field
  * over.
  *
- * WHAT THIS SLICE DOES is make the client tell the truth — `accept` from `UploadLimits::forStore()`,
- * the same source the gallery upload already uses — and fix F76's panel. WHAT IT DOES NOT DO is
- * widen the server's list so a video field can take a video; that is **F190**, and it is a product
- * decision about what a merchant may sell, not a defect to patch inside a UI slice.
+ * WHAT THIS SLICE DID was make the client tell the truth — `accept` from `UploadLimits::forStore()`,
+ * the same source the gallery upload already uses — and fix F76's panel. WHAT IT DID NOT DO was
+ * widen the server's list so a video field can take a video; that was **F190**, a product decision
+ * about what a merchant may sell rather than a defect to patch inside a UI slice.
+ *
+ * ---------------------------------------------------------------------------------------------
+ * [2026-11-01] F190 LANDED, SO THE CONTRACT THIS FILE HOLDS HAS MOVED ONE STEP.
+ *
+ * D-29.5 approved per-field server lists and `config/uploads.php` now carries them;
+ * `UploadRules::accept()` derives each field's client hint from the same `extensions:` rule the
+ * validator receives. So the invariant is no longer *"every named field advertises the platform
+ * list"* — that would now be a lie on the video field — but *"every named field advertises the list
+ * its own server rule will enforce, falling back to the platform list when its per-field rules are
+ * off"*. The assertions below are updated, and the old wording is kept beside them because it was
+ * correct for the code it was written against.
  *
  * A UNIT TEST: it reads files and parses them. No container, no database.
  */
@@ -44,13 +55,34 @@ class UploadFieldAcceptContractTest extends TestCase
             foreach (self::FIELDS as $field) {
                 $tag = $this->inputTagFor($source, $field, $relative);
 
-                $this->assertMatchesRegularExpression(
-                    '/accept="\{\{\s*\$ssUpload\[\'accept\'\]\s*\}\}"/',
+                /*
+                 * [2026-11-01] THIS ASSERTION MOVED, AND THE OLD ONE WAS RIGHT WHEN WRITTEN.
+                 *
+                 * It required `accept="{{ $ssUpload['accept'] }}"` — the PLATFORM list — because at
+                 * the time that was genuinely what the server would enforce for these two fields:
+                 * `upload_file()` received an empty custom-validation array and fell back to
+                 * `local_storage_validation`. This file's own docblock says so, and says the
+                 * widening "is F190".
+                 *
+                 * F190 HAS SINCE LANDED. `config/uploads.php` now gives `preview_video`
+                 * `extensions:mp4,webm,mov`, so the platform list is no longer what the server
+                 * enforces there — and continuing to advertise it would mean the picker offers
+                 * jpg/png/csv/pdf that are all refused, and hides the three that work. The
+                 * invariant is therefore no longer "use the platform list" but "use the list YOUR
+                 * OWN server rule will enforce, with the platform list as the fallback for a field
+                 * whose per-field rules are off".
+                 */
+                $this->assertStringContainsString(
+                    "UploadRules::accept('" . $field . "', \$ssUpload['accept'])",
                     $tag,
-                    $relative . ': the `' . $field . '` input does not take its `accept` from'
-                    . ' UploadLimits. Without it the picker offers every file type and the save'
-                    . ' refuses most of them -- which is F75, one field over. Tag: ' . $tag
+                    $relative . ': the `' . $field . '` input does not derive its `accept` from its'
+                    . ' OWN server rule with the platform list as fallback. Without that the picker'
+                    . ' offers types the server refuses and hides the ones it takes -- F75\'s shape,'
+                    . ' one field over. Tag: ' . $tag
                 );
+
+                $this->assertStringContainsString('accept="', $tag,
+                    $relative . ': the `' . $field . '` input has no accept attribute at all');
             }
         }
     }
@@ -68,7 +100,14 @@ class UploadFieldAcceptContractTest extends TestCase
             foreach (self::FIELDS as $field) {
                 $tag = $this->inputTagFor($source, $field, $relative);
 
-                foreach (['image/*', 'video/*', '.jpg', '.png', '.mp4', 'application/'] as $hardcoded) {
+                /*
+                 * `.mp4` LEFT THIS LIST, and it is the one entry that had to. The video field's
+                 * accept is now DERIVED and resolves to `.mp4,.webm,.mov` at render time — so a
+                 * rendered page legitimately contains `.mp4`, while the SOURCE still must not
+                 * hardcode it. The rest stay: a literal list in the markup drifts from the
+                 * server's silently, which is what the derivation exists to prevent.
+                 */
+                foreach (['image/*', 'video/*', '.jpg', '.png', 'application/'] as $hardcoded) {
                     $this->assertStringNotContainsString(
                         $hardcoded,
                         $tag,
