@@ -28,11 +28,18 @@
                 {{ Form::open(['route' => 'order.store', 'method' => 'POST', 'id' => 'order-form']) }}
                 @csrf
 
+                {{-- F271. Every field's `invalid-feedback` is `display:none` until its control
+                     carries `is-invalid` (style.css:3297, :3320), and none of them did -- so a
+                     refused submit bounced the merchant back to a form that looked untouched and
+                     said nothing. The summary is the second half: a failing field below the fold
+                     is still invisible even once it is marked. --}}
+                <x-ss.error-summary :errors="$errors" class="mb-3" />
+
                 <div class="row">
                     <div class="col-md-6">
                         <div class="form-group">
                             {{ Form::label('customer_id', __('Customer'), ['class' => 'form-label']) }}
-                            <select name="customer_id" id="customer_id" class="form-control select2" required>
+                            <select name="customer_id" id="customer_id" class="form-control select2 @error('customer_id') is-invalid @enderror" required>
                                 <option value="">{{ __('Select Customer') }}</option>
                                 @foreach($customers as $customer)
                                     <option value="{{ $customer->id }}" 
@@ -50,7 +57,7 @@
                     <div class="col-md-6">
                         <div class="form-group">
                             {{ Form::label('payment_type', __('Payment Type'), ['class' => 'form-label']) }}
-                            <select name="payment_type" class="form-control select2" required>
+                            <select name="payment_type" class="form-control select2 @error('payment_type') is-invalid @enderror" required>
                                 <option value="">{{ __('Select Payment Method') }}</option>
                                 @foreach($activePaymentMethods as $key => $name)
                                     <option value="{{ $key }}">{{ $name }}</option>
@@ -65,7 +72,7 @@
                     <div class="col-md-6">
                         <div class="form-group">
                             {{ Form::label('payment_status', __('Payment Status'), ['class' => 'form-label']) }}
-                            <select name="payment_status" class="form-control" required>
+                            <select name="payment_status" class="form-control @error('payment_status') is-invalid @enderror" required>
                                 <option value="Unpaid">{{ __('Unpaid') }}</option>
                                 <option value="Paid">{{ __('Paid') }}</option>
                             </select>
@@ -78,7 +85,7 @@
                     <div class="col-md-12">
                         <div class="form-group">
                             {{ Form::label('additional_note', __('Additional Note'), ['class' => 'form-label']) }}
-                            {{ Form::textarea('additional_note', null, ['class' => 'form-control', 'rows' => 2, 'placeholder' => __('Optional note...')]) }}
+                            {{ Form::textarea('additional_note', null, ['class' => 'form-control' . ($errors->has('additional_note') ? ' is-invalid' : ''), 'rows' => 2, 'placeholder' => __('Optional note...')]) }}
                             @error('additional_note')
                                 <span class="invalid-feedback" role="alert"><strong>{{ $message }}</strong></span>
                             @enderror
@@ -87,7 +94,14 @@
                 </div>
 
                 <hr>
-                <h6 class="mb-3">{{ __('Products') }}</h6>
+                {{-- F271. `id="products"` SO THE SUMMARY'S LINK LANDS SOMEWHERE. The validator's
+                     `products` rule has no form control of its own -- it is about the whole
+                     repeated section -- so the summary rendered an eleventh link to `#products`
+                     and the browser had nothing to scroll to. The live harness counted 11 links
+                     and 10 resolving; this heading is the target. `tabindex="-1"` lets the link
+                     move focus here without adding a tab stop, the same reason the summary itself
+                     carries it. --}}
+                <h6 class="mb-3" id="products" tabindex="-1">{{ __('Products') }}</h6>
 
                 <div id="products-container">
                     <div class="product-item row mb-3 p-3 border rounded">
@@ -134,7 +148,7 @@
                     <div class="col-md-6">
                         <div class="form-group">
                             {{ Form::label('first_name', __('First Name'), ['class' => 'form-label']) }}
-                            {{ Form::text('first_name', null, ['class' => 'form-control', 'required' => 'required']) }}
+                            {{ Form::text('first_name', null, ['class' => 'form-control' . ($errors->has('first_name') ? ' is-invalid' : ''), 'required' => 'required']) }}
                             @error('first_name')
                                 <span class="invalid-feedback" role="alert"><strong>{{ $message }}</strong></span>
                             @enderror
@@ -143,7 +157,7 @@
                     <div class="col-md-6">
                         <div class="form-group">
                             {{ Form::label('last_name', __('Last Name'), ['class' => 'form-label']) }}
-                            {{ Form::text('last_name', null, ['class' => 'form-control', 'required' => 'required']) }}
+                            {{ Form::text('last_name', null, ['class' => 'form-control' . ($errors->has('last_name') ? ' is-invalid' : ''), 'required' => 'required']) }}
                             @error('last_name')
                                 <span class="invalid-feedback" role="alert"><strong>{{ $message }}</strong></span>
                             @enderror
@@ -152,7 +166,7 @@
                     <div class="col-md-6">
                         <div class="form-group">
                             {{ Form::label('email', __('Email'), ['class' => 'form-label']) }}
-                            {{ Form::email('email', null, ['class' => 'form-control', 'required' => 'required']) }}
+                            {{ Form::email('email', null, ['class' => 'form-control' . ($errors->has('email') ? ' is-invalid' : ''), 'required' => 'required']) }}
                             @error('email')
                                 <span class="invalid-feedback" role="alert"><strong>{{ $message }}</strong></span>
                             @enderror
@@ -161,7 +175,7 @@
                     <div class="col-md-6">
                         <div class="form-group">
                             {{ Form::label('telephone', __('Phone'), ['class' => 'form-label']) }}
-                            {{ Form::text('telephone', null, ['class' => 'form-control', 'required' => 'required']) }}
+                            {{ Form::text('telephone', null, ['class' => 'form-control' . ($errors->has('telephone') ? ' is-invalid' : ''), 'required' => 'required']) }}
                             @error('telephone')
                                 <span class="invalid-feedback" role="alert"><strong>{{ $message }}</strong></span>
                             @enderror
@@ -170,7 +184,7 @@
                     <div class="col-md-12">
                         <div class="form-group">
                             {{ Form::label('address', __('Address'), ['class' => 'form-label']) }}
-                            {{ Form::text('address', null, ['class' => 'form-control', 'required' => 'required']) }}
+                            {{ Form::text('address', null, ['class' => 'form-control' . ($errors->has('address') ? ' is-invalid' : ''), 'required' => 'required']) }}
                             @error('address')
                                 <span class="invalid-feedback" role="alert"><strong>{{ $message }}</strong></span>
                             @enderror
@@ -179,7 +193,7 @@
                     <div class="col-md-4">
                         <div class="form-group">
                             {{ Form::label('city', __('City'), ['class' => 'form-label']) }}
-                            {{ Form::text('city', null, ['class' => 'form-control', 'required' => 'required']) }}
+                            {{ Form::text('city', null, ['class' => 'form-control' . ($errors->has('city') ? ' is-invalid' : ''), 'required' => 'required']) }}
                             @error('city')
                                 <span class="invalid-feedback" role="alert"><strong>{{ $message }}</strong></span>
                             @enderror
@@ -188,7 +202,7 @@
                     <div class="col-md-4">
                         <div class="form-group">
                             {{ Form::label('state', __('State'), ['class' => 'form-label']) }}
-                            {{ Form::text('state', null, ['class' => 'form-control', 'required' => 'required']) }}
+                            {{ Form::text('state', null, ['class' => 'form-control' . ($errors->has('state') ? ' is-invalid' : ''), 'required' => 'required']) }}
                             @error('state')
                                 <span class="invalid-feedback" role="alert"><strong>{{ $message }}</strong></span>
                             @enderror
@@ -197,7 +211,7 @@
                     <div class="col-md-4">
                         <div class="form-group">
                             {{ Form::label('country', __('Country'), ['class' => 'form-label']) }}
-                            {{ Form::text('country', null, ['class' => 'form-control', 'required' => 'required']) }}
+                            {{ Form::text('country', null, ['class' => 'form-control' . ($errors->has('country') ? ' is-invalid' : ''), 'required' => 'required']) }}
                             @error('country')
                                 <span class="invalid-feedback" role="alert"><strong>{{ $message }}</strong></span>
                             @enderror
@@ -206,7 +220,7 @@
                     <div class="col-md-4">
                         <div class="form-group">
                             {{ Form::label('postcode', __('Postcode'), ['class' => 'form-label']) }}
-                            {{ Form::text('postcode', null, ['class' => 'form-control']) }}
+                            {{ Form::text('postcode', null, ['class' => 'form-control' . ($errors->has('postcode') ? ' is-invalid' : '')]) }}
                             @error('postcode')
                                 <span class="invalid-feedback" role="alert"><strong>{{ $message }}</strong></span>
                             @enderror

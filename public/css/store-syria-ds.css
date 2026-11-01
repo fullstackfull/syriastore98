@@ -3772,3 +3772,33 @@ a.ss-setup__item:focus-visible {
 .ss-appbar {
     color: var(--ss-fg-muted);
 }
+
+/* =================================================================================================
+   F271 — the validation message a merchant can now see, in a colour they can READ.
+   =================================================================================================
+
+   Making the messages visible immediately exposed a second defect, and the live harness is what
+   found it. The host theme paints `.invalid-feedback` in `#ff3a6e`
+   (`public/assets/css/style.css:3302`), measured against what is actually behind it:
+
+       #ff3a6e on #ffffff (light card)  ->  3.45:1
+       #ff3a6e on #292a33 (dark card)   ->  4.13:1
+
+   Both fail WCAG AA's 4.5:1 for body text, and LIGHT mode is the worse of the two — so this was
+   never a dark-mode-only problem, it was simply invisible before because the text was
+   `display: none`. The DS's own `--ss-danger` token is already theme-aware and already measured:
+
+       #b3261e on #ffffff  ->  6.54:1      (--ss-red-700, light)
+       #f3a9a4 on #292a33  ->  7.48:1      (dark override)
+
+   Using the token rather than a literal is what keeps the two themes in step: the dark value is
+   redefined once, in the same block as every other token, instead of here.
+
+   SCOPED TO `color` ONLY. The theme's `display`, `width`, `margin-top` and `font-size` are left
+   alone — in particular its `display: none`, which is the mechanism that keeps a message hidden
+   until its field is marked `is-invalid`, and which `ValidationFeedbackVisibilityTest` measures.
+   Overriding that here would show every message on every form at all times. */
+.invalid-feedback,
+.invalid-tooltip {
+    color: var(--ss-danger);
+}

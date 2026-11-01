@@ -26,12 +26,17 @@
                 </div>
                 <div class="card-body">
                     {{ Form::open(['route' => 'customer.store', 'method' => 'POST']) }}
+
+                    {{-- F271. The same defect as the manual order form: the messages below each
+                         field are `display:none` until the control carries `is-invalid`
+                         (style.css:3297, :3320). --}}
+                    <x-ss.error-summary :errors="$errors" class="mb-3" />
                     <div class="row">
                         <!-- الاسم الأول -->
                         <div class="col-md-6">
                             <div class="form-group">
                                 {{ Form::label('first_name', __('First Name'), ['class' => 'form-label']) }}
-                                {{ Form::text('first_name', null, ['class' => 'form-control', 'placeholder' => __('Enter First Name'), 'required' => 'required']) }}
+                                {{ Form::text('first_name', null, ['class' => 'form-control' . ($errors->has('first_name') ? ' is-invalid' : ''), 'placeholder' => __('Enter First Name'), 'required' => 'required']) }}
                                 @error('first_name')
                                     <span class="invalid-feedback" role="alert"><strong>{{ $message }}</strong></span>
                                 @enderror
@@ -42,7 +47,7 @@
                         <div class="col-md-6">
                             <div class="form-group">
                                 {{ Form::label('last_name', __('Last Name'), ['class' => 'form-label']) }}
-                                {{ Form::text('last_name', null, ['class' => 'form-control', 'placeholder' => __('Enter Last Name'), 'required' => 'required']) }}
+                                {{ Form::text('last_name', null, ['class' => 'form-control' . ($errors->has('last_name') ? ' is-invalid' : ''), 'placeholder' => __('Enter Last Name'), 'required' => 'required']) }}
                                 @error('last_name')
                                     <span class="invalid-feedback" role="alert"><strong>{{ $message }}</strong></span>
                                 @enderror
@@ -53,7 +58,7 @@
                         <div class="col-md-6">
                             <div class="form-group">
                                 {{ Form::label('email', __('Email'), ['class' => 'form-label']) }}
-                                {{ Form::email('email', null, ['class' => 'form-control', 'placeholder' => __('Enter Email'), 'required' => 'required']) }}
+                                {{ Form::email('email', null, ['class' => 'form-control' . ($errors->has('email') ? ' is-invalid' : ''), 'placeholder' => __('Enter Email'), 'required' => 'required']) }}
                                 @error('email')
                                     <span class="invalid-feedback" role="alert"><strong>{{ $message }}</strong></span>
                                 @enderror
@@ -64,7 +69,7 @@
                         <div class="col-md-6">
                             <div class="form-group">
                                 {{ Form::label('mobile', __('Mobile'), ['class' => 'form-label']) }}
-                                {{ Form::text('mobile', null, ['class' => 'form-control', 'placeholder' => __('Enter Mobile Number')]) }}
+                                {{ Form::text('mobile', null, ['class' => 'form-control' . ($errors->has('mobile') ? ' is-invalid' : ''), 'placeholder' => __('Enter Mobile Number')]) }}
                                 @error('mobile')
                                     <span class="invalid-feedback" role="alert"><strong>{{ $message }}</strong></span>
                                 @enderror
@@ -75,7 +80,7 @@
                         <div class="col-md-6">
                             <div class="form-group">
                                 {{ Form::label('password', __('Password'), ['class' => 'form-label']) }}
-                                {{ Form::password('password', ['class' => 'form-control', 'placeholder' => __('Enter Password'), 'required' => 'required']) }}
+                                {{ Form::password('password', ['class' => 'form-control' . ($errors->has('password') ? ' is-invalid' : ''), 'placeholder' => __('Enter Password'), 'required' => 'required']) }}
                                 @error('password')
                                     <span class="invalid-feedback" role="alert"><strong>{{ $message }}</strong></span>
                                 @enderror
@@ -86,7 +91,7 @@
                         <div class="col-md-6">
                             <div class="form-group">
                                 {{ Form::label('status', __('Status'), ['class' => 'form-label']) }}
-                                <select name="status" class="form-control select2" required>
+                                <select name="status" class="form-control select2 @error('status') is-invalid @enderror" required>
                                     <option value="1" {{ old('status') == '1' ? 'selected' : '' }}>{{ __('Active') }}</option>
                                     <option value="0" {{ old('status') == '0' ? 'selected' : '' }}>{{ __('Inactive') }}</option>
                                 </select>

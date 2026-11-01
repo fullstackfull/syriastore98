@@ -48,7 +48,31 @@ class DesignSystemStylesheetScopeTest extends TestCase
      * entry is a rule which really can reach outside the design system, and it needs a reason
      * written next to it rather than an addition made to make a test pass.
      */
-    private const UNCONFINED_ALLOWED = [':root'];
+    /**
+     * The selectors allowed to reach outside the design system's own namespace, each with its
+     * reason. This list held only `:root` for the whole of Phase 01 and most of Phase 02; adding
+     * to it is a deliberate loosening and the reason has to survive a reader.
+     *
+     * `.invalid-feedback` / `.invalid-tooltip` (F271). These are the HOST THEME's classes, not
+     * the design system's, and the override is **one property: `color`**.
+     *
+     * The theme paints them `#ff3a6e` (`public/assets/css/style.css:3302`). Measured against what
+     * is really behind them on a merchant form:
+     *
+     *     #ff3a6e on #ffffff (light card)  ->  3.45:1
+     *     #ff3a6e on #292a33 (dark card)   ->  4.13:1
+     *
+     * Both fail WCAG AA's 4.5:1 for body text, and light is the worse of the two. That is not a
+     * property of the two screens F271 fixed -- it is true of every `.invalid-feedback` the theme
+     * paints anywhere, including inside the 70 vendored modules. So the correction SHOULD apply
+     * everywhere the class is painted; confining it to `.ss-` would leave every other validation
+     * message in the product unreadable while declaring the problem solved on two screens.
+     *
+     * It changes `color` ONLY. The theme's `display: none` is untouched -- that is the mechanism
+     * that keeps a message hidden until its field carries `is-invalid`, which
+     * `ValidationFeedbackVisibilityTest` measures and which this override must not defeat.
+     */
+    private const UNCONFINED_ALLOWED = [':root', '.invalid-feedback', '.invalid-tooltip'];
 
     /** `from` / `to` / `37%` inside `@keyframes` are animation stops, not selectors. */
     private const KEYFRAME_STOP = '/^(from|to|-?\d+(\.\d+)?%)$/i';
