@@ -275,10 +275,15 @@ class ZidWebhookSecretTest extends TestCase
      * is exactly the surface the finding is about. Its job is to make the refusal above provable:
      * a 401 only matters if the thing being refused would otherwise happen.
      *
-     * NOTE WHAT IS AND IS NOT ASSERTED. The handler matches `application.uninstall` against the
-     * whole serialised payload (`str_contains($raw . ' ' . $event, 'application.uninstall')`), so
-     * a merchant id is enough to name the victim; that breadth is recorded here, not endorsed.
-     * And the id is a ZID merchant id, so this is not a Store Syria tenancy boundary.
+     * THAT BREADTH WAS A DEFECT AND IS FIXED, which is why this docblock no longer merely notes it.
+     * The handler used to match against `$raw . ' ' . $event` where `$raw` is the WHOLE serialised
+     * body, so any authenticated webhook containing the string anywhere unlinked the named
+     * merchant -- measured, with a product name, while `zid_events.event` recorded `order.create`.
+     * See NEW-ZID-UNINSTALL-SUBSTRING-01 in routes/web.php. The condition now reads the resolved
+     * event name, and `test_a_non_uninstall_event_mentioning_the_string_does_not_unlink_anyone`
+     * below is the regression test for it.
+     *
+     * The id is a ZID merchant id, so none of this is a Store Syria tenancy boundary.
      */
     public function test_an_authenticated_uninstall_does_remove_the_named_zid_merchant(): void
     {
@@ -311,5 +316,80 @@ class ZidWebhookSecretTest extends TestCase
             $this->events()->where('event', 'application.uninstall')->count(),
             'the uninstall was not recorded in `zid_events`'
         );
+    }
+
+    /**
+     * NEW-ZID-UNINSTALL-SUBSTRING-01 -- THE REGRESSION TEST FOR A DESTRUCTIVE WRITE THAT FIRED ON
+     * MERCHANT-CONTROLLED CONTENT.
+     *
+     * The unlink condition used to search the entire serialised request body:
+     *
+     *     str_contains($raw . ' ' . $event, 'application.uninstall')
+     *
+     * so an ordinary `order.create` webhook carrying the string in a PRODUCT NAME deleted the
+     * merchant's `zid_stores` row. Measured before the fix: HTTP 200, `zid_events.event` recorded
+     * as `order.create`, and zero rows left in `zid_stores`. The handler recorded one thing and
+     * did another, so even the audit row would not have explained the unlink. Product names, order
+     * notes and addresses are content Zid relays verbatim, so this needed no crafted request.
+     *
+     * It was unobservable until GATE F declared `zid_stores` on 2026-11-02 -- no environment built
+     * from this repository had a row to lose.
+     *
+     * THE BYSTANDER IS PART OF THE ASSERTION. A fix that simply stopped deleting anything would
+     * also pass this test, which is why the sibling above drives a REAL uninstall and proves the
+     * DELETE still happens.
+     */
+    public function test_a_non_uninstall_event_mentioning_the_string_does_not_unlink_anyone(): void
+    {
+        $this->linkZidMerchant(self::ZID_MERCHANT);
+
+        $this->configure(self::SECRET);
+        $this->withoutExceptionHandling();
+
+        $this->postJson(
+            self::URI,
+            [
+                'store_id' => self::ZID_MERCHANT,
+                'event' => 'order.create',
+                'order' => ['items' => [['name' => 'Guide to application.uninstall webhooks (paperback)']]],
+            ],
+            ['X-Hook-Secret' => self::SECRET]
+        )->assertOk();
+
+        $this->assertTrue(
+            $this->zidMerchantIsLinked(self::ZID_MERCHANT),
+            'A MERCHANT WAS UNLINKED BY A PRODUCT NAME. The unlink condition is matching a '
+            . 'substring of the whole request body again instead of the resolved event name, so '
+            . 'any content Zid relays can destroy OAuth credentials that cannot be reconstructed '
+            . 'without re-authorising. This is NEW-ZID-UNINSTALL-SUBSTRING-01.'
+        );
+
+        $this->assertSame(
+            'order.create',
+            $this->events()->value('event'),
+            'the recorded event name is not the one the request carried'
+        );
+    }
+
+    /**
+     * THE BASIC-AUTH USER COMPARISON HAS ITS OWN TEST, because nothing else made it bite.
+     *
+     * `test_wrong_basic_auth_credentials_are_refused` sends the RIGHT user with a wrong password,
+     * so it reddens if either comparison is removed -- and therefore proves neither. Deleting
+     * `hash_equals($configuredUser, $basicUser)` from the gate left every test in this class green
+     * before this one existed, which was found by independent review running that exact mutation
+     * rather than by reading the file.
+     */
+    public function test_the_right_password_under_a_wrong_user_is_refused(): void
+    {
+        $this->configure(self::SECRET);
+
+        $this->postJson(
+            self::URI,
+            ['store_id' => self::ZID_MERCHANT],
+            ['Authorization' => 'Basic ' . base64_encode('not-the-hook-user:' . self::SECRET)]
+        )->assertStatus(401);
+
+        $this->assertSame(0, $this->events()->count(), 'a refused request still recorded an event');
     }
 }

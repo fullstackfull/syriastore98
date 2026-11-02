@@ -9421,7 +9421,26 @@ public function searchCustomerByName(Request $request)
                 $commissionPercentage = (float) ($deliveryBoy->commission_percentage ?? 0);
                 $shippingCost = (float) ($order->delivery_price ?? 0);
 
-                if ($commissionPercentage > 0 && $shippingCost > 0) {
+                /*
+                 * P1-SEC-42 -- ONE COMMISSION ROW PER ORDER. The same defect as
+                 * OrderController::order_assign(), in the handler the Flutter admin app calls, and
+                 * fixed the same way. Read the long note there for the measurement.
+                 *
+                 * In short: the cleanup above is gated on a CHANGE of driver, the insert was gated
+                 * on nothing, so re-assigning the SAME driver credited them again. 3 POSTs produced
+                 * 3 rows and 6.00 owed where 2.00 is correct.
+                 *
+                 * `DB::beginTransaction()` does NOT help here and it is worth saying why: each
+                 * request is its own transaction and each one commits a valid-looking duplicate.
+                 * A transaction makes a write atomic, not idempotent.
+                 *
+                 * `exists()` rather than an unconditional delete or `updateOrCreate`, because both
+                 * of those reset a row already moved to `paid` back to `pending`. Evaluated after
+                 * the delete, so a genuine driver change still replaces the row.
+                 */
+                $alreadyRecorded = DeliveryEarning::where('order_id', $order->id)->exists();
+
+                if ($commissionPercentage > 0 && $shippingCost > 0 && ! $alreadyRecorded) {
                     $earningAmount = ($shippingCost * $commissionPercentage) / 100;
 
                     DeliveryEarning::create([

@@ -48,7 +48,11 @@ class DeliveryBoyScopeTest extends SecurityTestCase
         array $extra = []
     ): DeliveryBoy {
         $driver = new DeliveryBoy();
-        $driver->forceFill([
+        // `$extra + [...]`, and NOT `[...] + $extra`: the array-union operator keeps the LEFT
+        // operand's value on a key collision, so writing the defaults first would have made
+        // $extra silently unable to override any of them. Pointed out by independent review --
+        // it happens to be harmless today, because every caller passes only NEW keys.
+        $driver->forceFill($extra + [
             'name' => $name,
             'email' => $email,
             'password' => Hash::make($password),
@@ -57,7 +61,7 @@ class DeliveryBoyScopeTest extends SecurityTestCase
             'type' => 'deliveryboy',
             'store_id' => $store->id,
             'created_by' => $store->created_by,
-        ] + $extra)->save();
+        ])->save();
 
         // THIS COMMENT USED TO SAY the opposite, and GATE F refuted it. It read: "`delivery_boys`
         // has eleven columns and `is_active`, `commission_percentage` and `is_commission_enabled`

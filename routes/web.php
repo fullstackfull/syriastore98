@@ -1679,7 +1679,67 @@ Route::post('/zid/events/{v?}', function (\Illuminate\Http\Request $r) {
         'updated_at' => now(),
     ]);
 
-    if ($storeId && str_contains($raw . ' ' . $event, 'application.uninstall')) {
+    /*
+     * NEW-ZID-UNINSTALL-SUBSTRING-01 -- THE UNLINK IS DRIVEN BY THE EVENT NAME, NOT BY A
+     * SUBSTRING OF THE WHOLE BODY.
+     *
+     * This line used to read
+     *
+     *     if ($storeId && str_contains($raw . ' ' . $event, 'application.uninstall')) {
+     *
+     * where `$raw` is `json_encode($r->all())` -- THE ENTIRE REQUEST BODY. So the DELETE on the
+     * next line fired on any authenticated webhook whose body merely CONTAINED that string
+     * anywhere, in any field, at any depth.
+     *
+     * MEASURED, not reasoned about. An ordinary order webhook with the correct secret:
+     *
+     *     {"store_id":"7654321","event":"order.create",
+     *      "order":{"items":[{"name":"Guide to application.uninstall webhooks (paperback)"}]}}
+     *
+     * returned HTTP 200, recorded `event = "order.create"` in `zid_events`, and LEFT ZERO ROWS in
+     * `zid_stores`. The merchant's OAuth credentials were destroyed by a product name -- and the
+     * audit row this handler had just written said the event was `order.create`, so nothing in the
+     * system would have explained why they were unlinked. Product names, order notes and addresses
+     * are merchant- and shopper-controlled content that Zid relays verbatim, which makes this
+     * remotely triggerable by content, not by a request anyone had to craft. And
+     * 2026_11_02_000800_create_zid_stores_table.php's own down() records that the row "cannot be
+     * reconstructed without re-authorising", so the loss is not recoverable from this side.
+     *
+     * It was invisible until 2026-11-02 because `zid_stores` was declared by no migration, so no
+     * environment built from this repository had a row to delete. GATE F is what made it
+     * observable -- the direction nobody watches: behaviour that depended on a table being ABSENT.
+     *
+     * WHY THIS SHAPE, AND WHAT IS DELIBERATELY NOT DECIDED HERE. The condition now reads the event
+     * name THIS HANDLER ITSELF RESOLVED one screen up -- the same value it writes to
+     * `zid_events.event` -- so the handler can no longer record one thing and do another.
+     * `str_contains` is kept ON THE EVENT NAME rather than tightened to `===`, so a prefixed or
+     * versioned spelling still matches and the only requests whose behaviour changes are the ones
+     * where the string appears OUTSIDE the event name, which is exactly the defect.
+     *
+     * The open question is factual and is NOT guessed at: whether Zid's uninstall callback carries
+     * its event name in `X-Zid-Event` or in a top-level `event` key, which is where this handler
+     * looks. If it carries it somewhere else, an uninstall now goes UNPROCESSED -- so that case is
+     * LOGGED rather than dropped in silence, and the two failure modes are deliberately asymmetric:
+     * not unlinking is visible and reversible, unlinking wrongly is neither.
+     */
+    $resolvedEvent = (string) ($event ?? '');
+    $isUninstall = $resolvedEvent !== '' && str_contains($resolvedEvent, 'application.uninstall');
+
+    if (! $isUninstall && str_contains((string) $raw, 'application.uninstall')) {
+        \Illuminate\Support\Facades\Log::warning(
+            'Zid webhook: "application.uninstall" appears in the body but NOT in the resolved '
+            . 'event name, so the store was NOT unlinked. If this was a real uninstall, Zid sends '
+            . 'the event name somewhere this handler does not read -- see '
+            . 'NEW-ZID-UNINSTALL-SUBSTRING-01.',
+            [
+                'store_id' => $storeId,
+                'resolved_event' => $resolvedEvent,
+                'had_x_zid_event_header' => $r->hasHeader('X-Zid-Event'),
+            ]
+        );
+    }
+
+    if ($storeId && $isUninstall) {
         DB::table('zid_stores')->where('store_id', $storeId)->delete();
     }
 

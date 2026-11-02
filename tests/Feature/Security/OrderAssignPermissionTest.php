@@ -106,15 +106,17 @@ class OrderAssignPermissionTest extends SecurityTestCase
             'the same principal WITH Manage Order was still refused, so the refusal above was not '
             . 'about the permission');
 
-        /* `delivery_earnings` HAS NO MIGRATION (GATE F), so the handler's own write to it cannot
-         * complete in the test database. The authorization is what this file is about and it is
-         * asserted unconditionally; only the assignment's completion depends on that table, and it
-         * is read conditionally -- the pattern `OrderMutationTest:155-160` establishes, for the
-         * same reason: skipping the whole case would drop a guarantee unrelated to the gap. */
-        if (\Illuminate\Support\Facades\Schema::hasTable('delivery_earnings')) {
-            $this->assertSame((int) $driver->id, (int) $order->fresh()->deliveryboy_id,
-                'the permitted, owning merchant could not assign their own driver');
-        }
+        /* UNCONDITIONAL SINCE 2026-11-02. This assertion used to sit inside
+         * `if (Schema::hasTable('delivery_earnings'))` under a comment saying the table "HAS NO
+         * MIGRATION (GATE F)", which was true and is not any more:
+         * 2026_11_02_000600_create_delivery_earnings_table.php declares it with a structure
+         * measured against a restored copy of production. The condition was therefore always
+         * true, the wrapper was dead, and the comment was false -- a conditional whose premise has
+         * expired is worse than no conditional, because it reads as coverage that is being
+         * deliberately skipped. The same correction was made to the pattern this one cited,
+         * OrderMutationTest. */
+        $this->assertSame((int) $driver->id, (int) $order->fresh()->deliveryboy_id,
+            'the permitted, owning merchant could not assign their own driver');
     }
 
     public function test_the_platform_operator_may_assign_without_holding_the_permission(): void

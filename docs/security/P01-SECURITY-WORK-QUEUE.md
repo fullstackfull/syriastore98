@@ -4228,6 +4228,206 @@ from git before any commit; the tests now touch only sandbox paths.
 
 **A thing worth knowing about the process:** the first version of this fix was a deny-list of names, tested only on SQLite, and its first review found three HIGH defects — one of which the suite could not have seen on principle. The second review found the first fix's own regression and that a deny-list cannot be shown complete. The design that shipped puts the PERMISSION on the route and keeps the name rule only where a lower permission legitimately reaches a generic writer. The acceptance criterion that asked for per-writer allow-lists was deliberately not implemented (reasons in the task's evidence).
 
+## S47 — A merchant's Zid OAuth credentials were destroyed by a product name — **P1-SEC-41 CLOSED**
+
+**Found on 2026-11-02, by GATE F, in the direction nobody watches: application behaviour that
+depended on a table being ABSENT.** `zid_stores` was declared by no migration, so no environment
+built from this repository had a row to lose, and the defect could not be observed here at all.
+The migration arriving is what made it visible — the same class of change
+`docs/GATE-F-VERIFIED-SCHEMA.md` §4 warns about.
+
+Surfaced by an independent review agent on the wave-4 diagnosis, and then **re-measured
+independently** before anything was changed, because a claim this size is not accepted on a
+report.
+
+### The defect
+
+`routes/web.php`, the anonymous `POST /zid/events/{v?}` webhook. After the shared-secret gate it
+recorded the event and then:
+
+```php
+$event   = $r->header('X-Zid-Event') ?? $r->input('event');
+$raw     = json_encode($r->all(), JSON_UNESCAPED_UNICODE);   // THE WHOLE BODY
+$storeId = $r->input('store_id') ?? $r->input('store.id');
+...
+if ($storeId && str_contains($raw . ' ' . $event, 'application.uninstall')) {
+    DB::table('zid_stores')->where('store_id', $storeId)->delete();
+}
+```
+
+The condition searched **the entire serialised request body**. So the DELETE fired on any
+authenticated webhook whose body merely *contained* that string, in any field, at any depth — it
+was never a check on the event name.
+
+### What was measured, not reasoned about
+
+An ordinary order webhook with the correct `X-Hook-Secret`:
+
+```json
+{"store_id":"7654321","event":"order.create",
+ "order":{"items":[{"name":"Guide to application.uninstall webhooks (paperback)"}]}}
+```
+
+→ **HTTP 200**, `zid_events.event` recorded as **`order.create`**, and **zero rows left in
+`zid_stores`**.
+
+Two things make that worse than a wide match. **The handler recorded one thing and did another**:
+its own audit row said `order.create`, so nothing in the system would have explained why the
+merchant was unlinked. And **the trigger is content, not a crafted request** — product names,
+order notes and addresses are merchant- and shopper-controlled text that Zid relays verbatim.
+`2026_11_02_000800_create_zid_stores_table.php`'s own `down()` records that the row *"cannot be
+reconstructed without re-authorising"*, so the loss is not recoverable from this side.
+
+### Severity
+
+**S2 HIGH.** Not S1: it needs the platform-wide shared secret, so the caller is Zid or someone
+holding that secret, and it destroys an integration credential rather than disclosing customer
+data. But it is remotely triggerable by ordinary content, it is silent, and it is unrecoverable
+without the merchant re-authorising.
+
+### The fix, and the one thing it deliberately does not decide
+
+The condition now reads **the event name this handler itself resolved** — the same value it writes
+to `zid_events.event` — so it can no longer record one thing and do another. `str_contains` is
+kept *on the event name* rather than tightened to `===`, so a prefixed or versioned spelling still
+matches, and the only requests whose behaviour changes are the ones where the string appears
+outside the event name.
+
+**The open question is factual and was not guessed at.** `$event` is read only from the
+`X-Zid-Event` header or a top-level `event` key. Nothing in this repository states Zid's uninstall
+payload shape — `ZidOAuthController` subscribes only to `order.create`, `order.status.update` and
+`order.payment_status.update`, so the uninstall callback is not one this code registers. If Zid
+carries that event name somewhere else, an uninstall now goes **unprocessed**. That case is
+`Log::warning`-ed rather than dropped in silence, and the two failure modes are deliberately
+asymmetric: *not* unlinking is visible and reversible, unlinking wrongly is neither.
+
+**Owner action:** confirm where Zid's `application.uninstall` callback carries its event name. If
+it is neither the header nor a top-level `event`, the warning above will say so in the log and the
+read site needs widening — to the named keys, never back to the whole body.
+
+### Proof
+
+`tests/Feature/Security/ZidWebhookSecretTest` — 10 tests, 26 assertions.
+`test_a_non_uninstall_event_mentioning_the_string_does_not_unlink_anyone` is the regression test
+and drives the exact measured payload. Its pair,
+`test_an_authenticated_uninstall_does_remove_the_named_zid_merchant`, drives a real uninstall and
+proves the DELETE still happens with a bystander merchant left alone — without it the regression
+test would pass against a handler that had simply stopped deleting.
+
+Mutations, each run and each hitting exactly one test: restoring the whole-body match reddens only
+the regression test; deleting `hash_equals($configuredUser, $basicUser)` from the gate reddens only
+`test_the_right_password_under_a_wrong_user_is_refused`, which exists because that mutation left
+every other test in the class green — also found by the review, by running the mutation rather than
+by reading the file.
+
+### Two things found beside it, and left open
+
+- **The five refusal tests could not distinguish a refusal from a gate that answers 401 *after*
+  writing the event row.** Each now also asserts zero `zid_events` rows — an observation that was
+  impossible before GATE F.
+- **The 401-vs-403 question in that closure's own comment block is untouched and still open.**
+  Repo B forces a logout on any 401 from the API it calls; this is a non-`/api` server-to-server
+  path, so no claim about repo B's call sites is made here.
+
+---
+
+## S48 — A driver was paid the same commission once per button click — **P1-SEC-42 CLOSED**
+
+**A live money defect that GATE F made reachable, on 2026-11-02, in both handlers that write a
+delivery commission.** Found by independent review of the wave-4 diagnosis and **re-measured here
+through the real route before a line was changed**, because a claim about money is not accepted on
+a report.
+
+### The defect
+
+`OrderController::order_assign` (POST `/order-assign`) and
+`Api\DashboardController::assignOrder` (POST `api/admin/assignOrders`, the handler the Flutter
+admin app calls) both clean up the existing commission row only when the driver **changes**:
+
+```php
+if ($order->deliveryboy_id != $request->delivery_boy) {
+    DeliveryEarning::where('order_id', $order->id)->delete();
+}
+```
+
+and both then inserted a new row gated on nothing of the kind. So re-submitting the **same** driver
+skipped the delete and still inserted.
+
+### Measured, through the web route, before the fix
+
+A `local pickup` shipping method, `orders.delivery_price` 20, a driver at 10%:
+
+| submissions | rows | `SUM(commission_amount)` |
+|---|---|---|
+| 1 | 1 | **2.00** — correct |
+| 2 | 2 | 4.00 |
+| 3 | 3 | **6.00** |
+
+A merchant double-clicking the assign button is enough; so is an AJAX retry. The admin API's
+`DB::beginTransaction()` does not help, and it is worth saying why: each request is its own
+transaction and each commits a valid-looking duplicate. **A transaction makes a write atomic, not
+idempotent.**
+
+### Severity
+
+**S2 HIGH.** It inflates what a driver is owed, silently, from an ordinary merchant action, on both
+the web and the shipped Flutter admin app. Not S1 only because it needs an authenticated merchant
+with `Manage Order` on their own order, and it over-credits rather than disclosing or destroying.
+
+### Why it was invisible
+
+`delivery_earnings` was declared by no migration, so the insert answered HTTP 500 to every caller
+and nothing could be duplicated. GATE F's
+`2026_11_02_000600_create_delivery_earnings_table.php` is what made the path live — the same
+direction as `currency_rates` the same day, and the one nobody watches: **behaviour that depended
+on a table being ABSENT.** Directive E's prohibition list names this shape directly ("duplicate
+payments/withdrawals/stock movements").
+
+### The fix, and the two designs that were rejected
+
+The insert is now gated on the **absence** of a row for that order, evaluated **after** the delete.
+
+An unconditional delete, and an `updateOrCreate` on `order_id`, both also stop the duplication —
+and **both destroy money state**, because a row already moved to `paid` comes back as `pending`.
+Doing nothing when the earning is already recorded is the only one of the three that is idempotent
+in the `status` column too. Evaluating it after the delete is what keeps a genuine driver *change*
+working: the delete removes the old row, `exists()` is false, the new driver's earning is written.
+
+`DeliveryEarning` is one of the 16 models that are **not** `Cachable`, so that read sees the delete
+above it rather than a cached pre-delete row.
+
+### Proof
+
+`tests/Feature/Security/DeliveryCommissionIdempotencyTest` — **6 tests, 34 assertions**:
+
+| test | what it holds |
+|---|---|
+| premise | the commission branch is reachable at all — without it every assertion below is vacuous, which is how this family has passed for the wrong reason before |
+| web, 3 identical submissions | 1 row, 2.00 |
+| admin API, 3 identical submissions | 1 row, 2.00 |
+| a genuine driver **change** | still 1 row, and it belongs to the **new** driver — the way an idempotency guard usually goes wrong is by suppressing the replacement too |
+| a refused cross-store assignment | the commission already owed **survives**, which is the only thing proving the ownership guard returns BEFORE the destructive delete |
+| a commission already `paid` | stays `paid` — the only test that fails against the two rejected designs |
+
+**Mutations, each run.** Removing the guard from both handlers reddens three of the six, exactly
+the three about duplication. Hoisting the delete above the ownership guard reddens exactly the
+cross-store one and nothing else.
+
+### Found beside it and NOT closed here
+
+- **The driver-earnings read endpoints are untested and newly live.**
+  `Api\DashboardController` reads `DeliveryEarning` at :5335, :5341, :5401, :5442 and :5445 — the
+  endpoints the Flutter *driver* app calls. They answered 500 to every caller before 2026-11-02 and
+  now return data. **`DeliveryEarning` has no `store_id` column and is not in
+  `config/tenancy.php`'s `scoped_models`**, so those reads are keyed on `delivery_boy_id` alone and
+  no global scope adds a predicate. That is a surface worth its own package, not a line in this one.
+- **Two expired `Schema::hasTable('delivery_earnings')` wrappers** in
+  `OrderAssignPermissionTest` and `OrderMutationTest` — conditions that were always true, wrappers
+  that were dead, and comments that had become false. Made unconditional in the same change; a
+  conditional whose premise has expired reads as coverage being deliberately skipped.
+
+---
+
 ## Cross-repository row, carried over
 
 **B8 — a merchant can read their own webhook secret and forge events for their own store.**
