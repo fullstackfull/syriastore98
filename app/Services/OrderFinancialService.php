@@ -225,12 +225,38 @@ class OrderFinancialService
              * naming it with qty 2 -> store A's row carried `product_cost = 154`,
              * `gross_profit = 46`.
              *
-             * DOUBLY CREATED BY GATE F, which is why nothing saw it. Until 2026-11-02 the
-             * persistence threw (`store_order_financials` was declared by no migration) into
-             * `OrderObserver::created()`'s catch, AND `$product->cost_price` was null because
-             * `products.cost_price` was undeclared too -- `?? 0` made every cost zero. Both became
-             * real on the same day. No test produces a non-zero `product_cost` through this
-             * service at all.
+             * [CORRECTED 2026-11-02, owner Decision 4. THE PARAGRAPH BELOW IS WRONG AND IS KEPT
+             * SO THE CORRECTION HAS SOMETHING TO POINT AT.]
+             *
+             *     > DOUBLY CREATED BY GATE F, which is why nothing saw it. Until 2026-11-02 the
+             *     > persistence threw (`store_order_financials` was declared by no migration)
+             *     > into `OrderObserver::created()`'s catch, AND `$product->cost_price` was null
+             *     > because `products.cost_price` was undeclared too -- `?? 0` made every cost
+             *     > zero. Both became real on the same day.
+             *
+             * THIS REPOSITORY'S OWN MEASURED PRODUCTION DUMP REFUTES BOTH HALVES, and
+             * `docs/GATE-F-VERIFIED-SCHEMA.md` says so in a table headed "The three claims the
+             * dump refuted": `store_order_financials` holds 92 live P&L rows, "the service does
+             * not throw. The subsystem is running, and has been"; and `products.cost_price`
+             * "exists, decimal(15,2) NOT NULL DEFAULT 0.00, populated on all 45 products". Three
+             * of those 92 rows carry a NON-ZERO `product_cost`, written by the unscoped lookup
+             * this comment sits above.
+             *
+             * SO THE INFERENCE WAS THE ONE CLAUDE.md §1 EXISTS TO STOP -- "The migrations are not
+             * the schema ... the restored dump refuted it" -- and it was made anyway, in the
+             * comment on the fix for the defect it concerns.
+             *
+             * WHAT IS TRUE: no test produces a non-zero `product_cost` through this service, which
+             * is why the SUITE saw nothing. That is a statement about the suite, and it stands.
+             *
+             * AND THE HISTORICAL QUESTION IS NOW ANSWERED, against an isolated restore rather than
+             * by assumption: NONE of the 92 rows carries a foreign store's product cost. The only
+             * cross-store product references in the data (row 37, order 110 -> products 5 and 6,
+             * owned by store 3) sit on a row whose `product_cost` is 0.00, because those products
+             * carry no cost themselves. The mechanism was present in real data and had no payload.
+             * Reproducible: tests/Support/Security/bin/verify-p1sec44-reconciliation-on-mysql.php.
+             * That evidence is a point-in-time snapshot, and `DEPLOYED` is NO -- production still
+             * runs the unscoped lookup -- so the window is open until this fix ships.
              *
              * A FOREIGN LINE IS EXCLUDED AND LOGGED, not costed at zero. Both answers give a wrong
              * figure, because the ORDER is wrong -- but a zero silently inflates gross profit,
