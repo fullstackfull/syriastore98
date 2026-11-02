@@ -1,0 +1,20 @@
+P1-SEC-14 criterion 3 -- larabug configuration as this process resolves it
+------------------------------------------------------------------------------
+APP_ENV                 : local
+larabug.login_key       : SET BUT BLANK
+larabug.project_key     : SET BUT BLANK
+larabug.server          : https://www.larabug.com/api/log
+larabug.environments    : production
+larabug in this env     : no
+LOG_CHANNEL             : stack
+stack channels          : single, larabug
+------------------------------------------------------------------------------
+larabug.outbound_enabled: false
+------------------------------------------------------------------------------
+ScrubbedLaraBug::isConfigured() : false
+ScrubbedLaraBug::mayReportOutbound() : false -- nothing is posted
+
+ANSWER: this install is NOT keyed, so nothing is posted whatever outbound_enabled says. Criterion 3 is
+answered by this output.
+
+Nothing was modified, and no key value was printed. Paste this output onto issue #89.
