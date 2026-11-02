@@ -2782,3 +2782,108 @@ response, or silently accepting an unsafe payment. The owner stated all three ex
 deferral is an exclusion from scope, not a relaxation of the controls on what remains.
 
 **The Master Execution Prompt is unchanged**, as the owner instructed.
+
+---
+
+## D-34 — **PHASE 02 ENGINEERING IS OWNER ACCEPTED** (owner, 2026-11-02)
+
+> **Verified full SHAs at the moment of this decision**, both confirmed clean and in sync with
+> `origin` before this entry was written:
+>
+> | repository | branch | full SHA |
+> |---|---|---|
+> | `fullstackfull/syriastore98` | `claude/store-syria-p02-continuation-smlpwi` | `be7c08c16a1c07bd1d45bf3a026aa8e1553e5b83` |
+> | `fullstackfull/StoreSyria_app98` | `claude/store-syria-p02-continuation-smlpwi` | `6a8213f7b88a3c610d056e0bc2d811998b8772f5` |
+>
+> **The Laravel ENGINEERING-CODE baseline is `e03b2f2faa00014a65d09f03a2da8285d73d12ae`.**
+> Everything after it is documentation and observability only — verified, not asserted:
+> `git diff --stat e03b2f2f..HEAD -- . ':(exclude)docs' ':(exclude)*.md'` returns **empty**.
+
+**The owner's words:** *"I OFFICIALLY ACCEPT THE ENGINEERING COMPLETION OF STORE SYRIA PHASE 02.
+PHASE 02 IS CLOSED FOR ENGINEERING PURPOSES. MERGE AND PRODUCTION RELEASE ARE NOT AUTHORIZED."*
+
+### The six states, recorded exactly as the owner required
+
+| state | value |
+|---|---|
+| **PHASE 02 ENGINEERING COMPLETE** | **YES** |
+| **PHASE 02 ENGINEERING OWNER ACCEPTED** | **YES** |
+| **MERGED TO MAIN** | **NO** |
+| **RELEASE READY** | **NO** |
+| **DEPLOYED** | **NO** |
+| **NEXT PHASE IMPLEMENTATION AUTHORIZED** | **NO** |
+
+### What this supersedes, and what it leaves untouched
+
+**It supersedes D-30's withholding of Phase 02 engineering acceptance, AND NOTHING ELSE.** D-30 is
+**not erased and not amended** — it remains the record of the ruling of 2026-10-31 and of the four
+blockers that then stood. Those four are now closed on their engineering merits (E13 under D-15's
+conditions, E14 including F220, the critical financial and security findings, and the final
+comprehensive verification), which is precisely what made this acceptance available. **Every other
+safety, production, release and governance restriction in D-30 and in every earlier decision
+remains fully in force.**
+
+**This approval covers only the engineering scope and evidence established by the final Phase 02
+closure report** (`PHASE-02-FINAL-CLOSURE-AR.md`, §14 for the last round). It is **not** approval
+to merge, release, deploy, activate a payment provider, or begin the next phase.
+
+### The accepted evidence baseline, preserved
+
+| area | evidence |
+|---|---|
+| **E13** financial and stock protection | D-15's conditions enforced; one safe path (unpaid + proven stock movement) and ten named refusals; `UNIQUE` index makes "one replacement per original" a database fact |
+| **F241** Paytm callback | built, tested, and **SHIPPING FAIL-CLOSED**; no live provider transaction verified from this container |
+| **F242** revenue calculations | `TopSellersByRevenue` — real per-line revenue, no divisor, no cross-join multiplication |
+| **F257** cancelled-order exclusion | the dashboard order-value figure excludes cancelled orders and labels its meaning, period, currency and exclusion |
+| **F263** tenant isolation | four surfaces scoped; the `tax_id` injection closed at its only writer and neutralised at the read |
+| **F277** Flutter notification contrast | per-theme palette; two further contrast defects of the implementer's own found and fixed |
+| **F283** cart and shipping isolation | proven by a real two-tenant request, fixed at the boundary **and on the payable twin** |
+| **F251** design-system verification | 68/0; both original failures were in the measuring instruments, not the design system |
+| Laravel tests | Security 4,656 · Commerce 881 · Tenancy 444 · Merchant 541 · Contract 27 · Unit 669 |
+| Flutter tests | 1,367 passed; `flutter analyze` 247 info, **0 warning, 0 error** |
+| MariaDB | **35 scripts, 0 failed** on 10.11.14 |
+| browser tests | design-system 68/0 · Phase 02 160/0 · dashboard live 164/0 · E13 live 211/0 · contrast 104/0 |
+| screenshots | `screenshots/f251-focus/` (8) · `p2-final-dashboard/` (48 `.png`) · `e13-order-replace/` · 13 earlier folders |
+
+### THE KNOWN-OUTCOME RESULT, STATED AS IT MUST BE STATED
+
+```
+7,414 Feature tests passed · 2 previously declared failures · 17 declared skips
+36,561 assertions · 7,433 testcases · 0 errors
+OK: the observed outcome set matches the manifest exactly
+```
+
+**THE FEATURE SUITE IS NOT COMPLETELY GREEN AND MUST NEVER BE DESCRIBED AS SUCH.** The gate's own
+words, carried verbatim because paraphrasing them is what turns them into a greenness claim:
+
+> *"This is NOT a statement that the suite is green. It is a statement that the suite is failing and
+> skipping exactly the tests the project has recorded, for the reasons it has recorded."*
+
+The two failures are the manifest's declared ones (`RegistrationTest::test_new_users_can_register`,
+`ProfileTest::test_profile_page_is_displayed`) and the 17 skips are the declared GATE F / SCHEMA-01
+set. Both remain owed, to `app/`, and neither is closed by this decision.
+
+### RELEASE BLOCKERS — ALL REMAIN OPEN, TRACKED, AND NOT ACCEPTED AS RESOLVED
+
+| # | blocker | state |
+|---|---|---|
+| 1 | **Phase 01 outstanding release gates** (`phase-1/PHASE-01-CLOSURE-EXECUTION.md`) | **OPEN**, tracked separately |
+| 2 | **Security incident #120** — exposed database backup | **OPEN**; coordinated independently, and no UI work remediates it |
+| 3 | **GATE F** production-schema and migration controls | **OPEN** — 15 tables live code reads and writes with no migration, 6 money-bearing, all present in production with live data |
+| 4 | **Paytm callback activation** | **OPEN** pending authentic provider testing; `PAYTM_CALLBACK_ENABLED` stays shut |
+| 5 | **Benefit and Flutterwave** | **DEFERRED** under D-33, fail-closed; unchanged |
+| 6 | **Android build, signing and device verification** | **OPEN** — no Android SDK in the build container, so no APK/AAB can be produced or signed here |
+| 7 | any other documented production security, financial, infrastructure or operational gate | **OPEN** |
+
+**No payment activation setting is changed by this decision, and no unresolved finding is marked
+fixed by it.** Engineering acceptance does **not** authorise production use of any blocked feature.
+
+### Phase 02 engineering scope is now FROZEN
+
+Its completed requirements are not to be reopened without a **demonstrated material regression** or
+an **explicit new owner instruction**. No further broad audit, and no restart of previous
+implementation cycles. Future release preparation and the unresolved external dependencies above
+are tracked **separately** from accepted Phase 02 engineering completion.
+
+**The original six-phase Store Syria Master Product Plan stands unchanged**, with no phase
+redefined. Phase 2.5, Phase 03 and Phase 06 remain unstarted and unauthorised.
