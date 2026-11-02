@@ -97,9 +97,14 @@ fi
 # A malformed or non-array payload is an ERROR, not an absence of approvals. An API error body is
 # a JSON OBJECT, and treating that as "no reviews" would turn a failed fetch into a clean refusal
 # in enforce mode and into silence in report mode.
-if ! jq -e 'type == "array"' "$REVIEWS" >/dev/null 2>&1; then
-  echo "::error::'${REVIEWS}' is not a JSON array of reviews. The fetch probably failed; its" >&2
-  echo "::error::content follows. The gate could not be evaluated." >&2
+# Every element must be an OBJECT too, not merely the payload an array. `gh api --paginate
+# --slurp` (without --jq) returns `[[...]]`, whose elements are PAGES -- a well-formed array that
+# would pass a type check and then yield zero approvals silently. Measured: `--slurp` alone on an
+# empty endpoint returns `[[]]`.
+if ! jq -e 'type == "array" and (all(.[]; type == "object"))' "$REVIEWS" >/dev/null 2>&1; then
+  echo "::error::'${REVIEWS}' is not a flat JSON array of review objects. The fetch probably" >&2
+  echo "::error::failed, or returned pages rather than reviews; its content follows." >&2
+  echo "::error::The gate could not be evaluated." >&2
   head -c 400 "$REVIEWS" >&2 || true
   echo >&2
   exit 2

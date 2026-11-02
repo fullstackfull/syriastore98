@@ -114,10 +114,27 @@ jobs:
           #
           # --paginate because the reviews API pages at 30 and a long-lived pull request can
           # exceed that; without it a qualifying approval could sit on page 2 and be invisible.
-          gh api --paginate \
-            "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews" \
-            --slurp --jq 'flatten' > /tmp/pr-reviews.json
-          printf 'reviews fetched: %s\n' "$(jq 'length' /tmp/pr-reviews.json)"
+          #
+          # `--jq '.[]'` streams each review and `jq -s` slurps them back into ONE array. NOT
+          # `--slurp`: gh refuses it alongside `--jq` ("the `--slurp` option is not supported
+          # with `--jq` or `--template`"), which is how the first version of this step failed --
+          # gh printed its usage and the step died with exit 1. And NOT `--slurp` alone either:
+          # that yields a NESTED array, `[[...]]`, whose elements are pages rather than reviews,
+          # which the decision script would accept as a well-formed array and read as ZERO
+          # approvals. Both measured.
+          #
+          # A FAILED FETCH IS NOT AN ABSENCE OF APPROVALS. On failure this writes a deliberately
+          # non-array payload so the decision script produces its own clear "could not be
+          # evaluated" diagnostic and exits 2, instead of this step dying with a usage dump.
+          if ! gh api --paginate \
+                 "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews" \
+                 --jq '.[]' 2>/tmp/fetch-err.txt | jq -s '.' > /tmp/pr-reviews.json; then
+            echo "::warning::Fetching the reviews failed. The gate will report that it could not"
+            echo "::warning::be evaluated, which is not the same as reporting no approvals."
+            sed 's/^/  gh: /' /tmp/fetch-err.txt || true
+            printf '{"error":"the reviews fetch failed; see the step log"}\n' > /tmp/pr-reviews.json
+          fi
+          printf 'reviews fetched: %s\n' "$(jq 'if type == "array" then length else "FETCH FAILED" end' /tmp/pr-reviews.json)"
 
       - name: Require a review approval from a non-author identity, at this head
         env:

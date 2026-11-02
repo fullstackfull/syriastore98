@@ -159,6 +159,11 @@ printf '[%s,%s]\n' \
   "$(rev REQUEST_CHANGES a-human "$HEAD_SHA" 2026-11-02T10:00:00Z)" \
   "$(rev APPROVED a-human "$HEAD_SHA" 2026-11-02T11:00:00Z)"                      > "$R/re-approved.json"
 printf '{"message":"Not Found","status":"404"}\n'                                 > "$R/apierror.json"
+# A NESTED array -- what `gh api --paginate --slurp` returns WITHOUT --jq. Its elements are PAGES,
+# not reviews. It is a well-formed array, so a bare `type == "array"` check accepts it and then
+# finds zero approvals SILENTLY. Measured: `--slurp` alone on an empty endpoint returns `[[]]`.
+printf '[[]]\n'                                                                  > "$R/nested.json"
+printf '[[%s]]\n' "$(rev APPROVED a-human "$HEAD_SHA" 2026-11-02T10:00:00Z)"     > "$R/nested-full.json"
 printf 'a-human\n' > "$R/trusted.txt"
 printf 'someone-else\n' > "$R/trusted-other.txt"
 
@@ -176,7 +181,11 @@ expect 'B8 a trusted-list entry is accepted' 0 "$rc" "$out" 'APPROVED by a non-a
 run_app "$R/positive.json" enforce "$R/trusted-other.txt"
 expect 'B9 a login absent from the trusted list is rejected' 1 "$rc" "$out" 'not listed in'
 run_app "$R/apierror.json"
-expect 'B10 a failed fetch is exit 2, NOT "no approvals"' 2 "$rc" "$out" 'not a JSON array'
+expect 'B10 a failed fetch is exit 2, NOT "no approvals"' 2 "$rc" "$out" 'not a flat JSON array'
+run_app "$R/nested.json"
+expect 'B10a an empty NESTED array (--slurp without --jq) is exit 2, not "no approvals"' 2 "$rc" "$out" 'not a flat JSON array'
+run_app "$R/nested-full.json"
+expect 'B10b a nested array HIDING a real approval is exit 2, not a silent zero' 2 "$rc" "$out" 'not a flat JSON array'
 run_app "$R/none.json" report
 expect 'B11 report mode warns and exits 0, and says REPORTED IS NOT SATISFIED' 0 "$rc" "$out" 'REPORTED IS NOT SATISFIED'
 out="$(bash "$APPROVE" "$AUTHOR" "$HEAD_SHA" "$R/none.json" enfroce 2>&1)"; rc=$?
