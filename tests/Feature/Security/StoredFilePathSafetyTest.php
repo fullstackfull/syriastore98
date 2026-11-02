@@ -430,6 +430,13 @@ class StoredFilePathSafetyTest extends SecurityTestCase
     {
         [$merchant] = $this->makeTenant();
 
+        // `uploads/profile/` exists in a clean clone ONLY because `uploads/profile/avatar.png` is
+        // tracked and holds it open -- `git ls-files uploads/profile` returns exactly that one file.
+        // If it is ever renamed or untracked, `file_put_contents` warns and returns false, resolve()
+        // answers null, and this test fails with a message about the platform-default rule instead
+        // of about a missing directory. Its eleven siblings all do this; this one did not.
+        \Illuminate\Support\Facades\File::ensureDirectoryExists(base_path('uploads/profile'));
+
         $ordinary = base_path('uploads/profile/p1sec28-not-the-default.png');
         file_put_contents($ordinary, 'x');
         $this->scratch[] = $ordinary;

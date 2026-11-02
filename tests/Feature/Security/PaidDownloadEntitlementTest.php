@@ -85,8 +85,53 @@ final class PaidDownloadEntitlementTest extends SecurityTestCase
     {
         $link = public_path('uploads');
 
-        if (file_exists($link) || is_link($link)) {
+        // ALREADY THE PRODUCTION SHAPE. Nothing to do, and nothing of the operator's to touch.
+        if (is_link($link)) {
             return;
+        }
+
+        /*
+         * A REAL DIRECTORY, NOT A SYMLINK -- AND THIS BRANCH IS THE WHOLE REASON THE FIRST VERSION
+         * OF THIS HELPER WAS NOT ENOUGH.
+         *
+         * It tested `file_exists($link) || is_link($link)` and returned early on either. A real
+         * directory satisfies `file_exists()`, so the symlink was never created and the case failed
+         * anyway -- on its own "the containment landed" message, which is the misleading failure
+         * this helper exists to prevent.
+         *
+         * WHERE THE DIRECTORY COMES FROM, measured rather than guessed. A sibling in the SAME
+         * suite creates it: AdminApiSettingsSecretsTest::test_the_store_image_upload_lands_in_the_
+         * stores_own_folder drives `updateStoreOwnerInfo` with a fake image, and
+         * Api\DashboardController:8836 does `$file->move(public_path('uploads/' . $storeId), ...)`.
+         * Symfony's File::getTargetFile() creates the destination RECURSIVELY
+         * (`!@mkdir($directory, 0o777, true)`), so it creates `public/uploads/` on the way to
+         * `public/uploads/<id>/`, and that test's `finally` removes only the inner one. It runs
+         * BEFORE this class -- measured from the JUnit log of the last full run, not assumed.
+         * That sibling now cleans up after itself too, so this branch is a second line of defence
+         * rather than the only one.
+         *
+         * An EMPTY one is that leftover: remove it and establish the real shape. A NON-EMPTY one is
+         * somebody's actual upload directory and is not touched -- in that case the environment is
+         * genuinely not the production shape, because a paid file written to the repo-root
+         * `uploads/<id>/` is not underneath it, and saying so is better than quietly reporting a
+         * containment.
+         */
+        if (is_dir($link)) {
+            $entries = array_diff((array) @scandir($link) ?: [], ['.', '..']);
+
+            if ($entries !== []) {
+                $this->fail(
+                    '`public/uploads` is a real, NON-EMPTY directory rather than a symlink into the '
+                    . 'uploads root, so this environment is not the shape F217 is about and this '
+                    . 'case cannot characterize it. In production `public/uploads` is a symlink, '
+                    . 'which is why the web server serves a paid file before PHP is involved. '
+                    . 'Contents: ' . implode(', ', array_slice($entries, 0, 5))
+                );
+            }
+
+            if (! @rmdir($link)) {
+                $this->fail('`public/uploads` is an empty real directory that could not be removed.');
+            }
         }
 
         if (! is_dir(dirname($link))) {
@@ -257,10 +302,11 @@ final class PaidDownloadEntitlementTest extends SecurityTestCase
         $this->requirePublicUploadsView();
 
         $this->assertTrue(
-            is_link(public_path('uploads')) || is_dir(public_path('uploads')),
-            'public/uploads is neither a symlink nor a directory after requirePublicUploadsView(), '
-            . 'so the public view this case is about does not exist and nothing below it means '
-            . 'anything.'
+            is_link(public_path('uploads')),
+            'public/uploads is not a SYMLINK after requirePublicUploadsView(). A real directory is '
+            . 'not the shape F217 is about: a paid file written to the repo-root `uploads/<id>/` is '
+            . 'not underneath one. The first version of this premise accepted `is_dir()` too, and '
+            . 'that is exactly how the leftover directory a sibling test creates slipped past it.'
         );
 
         /*
