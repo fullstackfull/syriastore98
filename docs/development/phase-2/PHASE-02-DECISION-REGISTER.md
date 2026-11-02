@@ -2887,3 +2887,101 @@ are tracked **separately** from accepted Phase 02 engineering completion.
 
 **The original six-phase Store Syria Master Product Plan stands unchanged**, with no phase
 redefined. Phase 2.5, Phase 03 and Phase 06 remain unstarted and unauthorised.
+
+---
+
+## D-35 — **SECURITY INCIDENT #120 IS OWNER-DEFERRED; DEVELOPMENT-ONLY `main` INTEGRATION MAY PROCEED** (owner, 2026-11-02)
+
+**The next free identifier.** Checked, not assumed: `D-01`…`D-34` are present in this file and
+`grep -rhoE '\bD-3[5-9]\b' docs/ .claude/` returned nothing before this entry was written, so
+`D-35` was free. Directive E said *"do not assume that D-35 is available without checking"*; this
+is the check and its result.
+
+**The owner's words:** *"OWNER OVERRIDE: DEFER SECURITY INCIDENT #120. … Do not stop development or
+block the development-only merge into `main` solely because issue #120 remains unresolved."*
+
+### What this decision authorises
+
+Phase 01 and Phase 02 engineering may be integrated into `main` **without** `P1-SEC-40` (#120)
+being resolved first. That removal of the blocking condition is the entire content of this
+authorisation.
+
+### What this decision does NOT do — the seven constraints, as given
+
+| # | constraint, as the owner stated it |
+|---|---|
+| 1 | Development and the development-only `main` integration must **not** be stopped or blocked solely because #120 is unresolved. |
+| 2 | **Do not** delete the SQL database dump, rewrite Git history, rotate `APP_KEY`, change database credentials, or perform security-incident cleanup as part of this workstream. |
+| 3 | **Do not merge security PR #122** as part of this workstream. It stays separate for a later decision. |
+| 4 | Keep issue #120 recorded as **OWNER-DEFERRED / OPEN** — never `FIXED` and never `RESOLVED`. |
+| 5 | **Do not** spend further engineering time investigating #120 during this execution, unless new evidence shows an immediate material risk to the current work. |
+| 6 | **Do not** introduce additional sensitive database dumps, credentials or secrets into Git. |
+| 7 | The owner's statement that the customer records are test/demo data **does not establish that every exposed secret is harmless.** This distinction is preserved in the security register. |
+
+### The distinction constraint 7 requires, stated so it cannot be lost
+
+The owner has stated that the customer records in the exposed dump are test/demo data. That
+statement bears on **the personal-data impact of those rows** and on nothing else. It is **not** a
+finding that the dump is harmless, and it must never be summarised as one.
+
+What is already measured and remains true independently of it:
+
+- The dump is `storesyria_ecommercego.sql`, **20,470,785 bytes**, blob `d3d42e68`, added to `main`
+  by commit `3935dee8` on 2026-10-24 and **still present in `main`'s current tree**.
+- It restored to **198 tables, 84 holding rows, ~28,158 rows**, including `users`, `customers`,
+  `orders` and all six money-bearing tables.
+- It contains **no credentials** — 0 `DEFINER=`, 0 `IDENTIFIED BY`, 0 `GRANT`
+  (`docs/GATE-F-VERIFIED-SCHEMA.md`). So the exposure that *is* measured is personal and business
+  data, not a credential leak **from the dump**.
+- `APP_KEY` is a **separate** exposure, recorded separately, and is **not** covered by the demo-data
+  statement: `CLAUDE.md` §1 records that it is in Git history and unrotated, which is why
+  `Crypt::encrypt()` is an encoding in this codebase rather than a control. **Constraint 2 forbids
+  rotating it here**, so it stays OPEN and unrotated, and no claim of resolution attaches to it.
+- `git rm` does not remediate a pushed blob; purging needs history rewriting or GitHub Support,
+  which constraint 2 forbids in this workstream.
+
+### How the integration honours constraint 2 and the no-reintroduction rule at the same time
+
+Directive E §9 requires the merge to show **no reintroduction of the exposed dump**, while D-35
+constraint 2 forbids **deleting** it. Both hold simultaneously, and it was measured rather than
+argued:
+
+- `3935dee8` (the commit that added the dump) is **not** an ancestor of the merge-base
+  `5c63bcea`, and **not** an ancestor of the Phase 02 continuation branch.
+- Therefore the continuation branch neither adds the file nor deletes it relative to the merge
+  base, and the three-way merge **carries main's blob through untouched**.
+- Verified on the integration result: `git rev-parse HEAD:storesyria_ecommercego.sql` is
+  `d3d42e68…`, byte-identical to `origin/main`'s, at 20,470,785 bytes.
+- `git diff --name-status --diff-filter=A origin/main <merge-tree>` adds **no** `.sql`, `.dump`,
+  `.pem`, `.key`, `.p12`, `.jks`, `.keystore` or `.env` file, which satisfies constraint 6.
+
+So the merge performs **no** #120 remediation and **no** #120 regression. Remediation remains
+entirely with PR #122, which is **not merged**.
+
+### Status after this decision
+
+| item | state |
+|---|---|
+| **Issue #120 / `P1-SEC-40`** | **OWNER-DEFERRED / OPEN** — not fixed, not resolved, still a live exposure in `main`'s tree |
+| **PR #122** (dump removal + recurrence guard) | **OPEN, NOT MERGED**, left for a later owner decision |
+| **`APP_KEY` exposure** | **OPEN**, unrotated, tracked separately from the dump and not covered by the demo-data statement |
+| **`main` integration** | **UNBLOCKED** by this decision — and `main` integration is **NOT** production deployment |
+
+### What remains required before real customer data or a production claim
+
+The owner's own condition, carried verbatim in substance: *"`main` integration is NOT production
+deployment. The deferred security incident must remain visible and must be reassessed before
+handling real customer information or declaring the platform production-ready."*
+
+So **#120 must be reassessed** before: any real customer information is handled on this platform,
+and before the platform is described as production-ready or deployed. This decision does not weaken
+any unrelated security test, migration safeguard or financial verification, and none was weakened.
+
+### What this supersedes
+
+**It supersedes exactly one thing: blocker #2 in D-34's release-blocker table as a *blocking*
+condition on `main` integration.** The blocker itself is not closed — D-34's table is amended only
+in that respect, and every other blocker in it (Phase 01 release gates, GATE F, Paytm activation,
+Benefit/Flutterwave under D-33, Android build and signing, and any other documented production
+gate) stands exactly as recorded. Every safety, production, release and governance restriction in
+D-30, D-31, D-33 and D-34 remains fully in force.

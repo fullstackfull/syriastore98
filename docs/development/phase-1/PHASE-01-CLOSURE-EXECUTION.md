@@ -1245,6 +1245,25 @@ the remaining work, not about the system being correct.
    The upload itself was deliberate and useful: it is what unblocked the GATE F verification, which had
    stalled for want of a restored copy. The finding is that **it is still there.**
 
+   **2026-11-02 — OWNER-DEFERRED under `D-35`, and still OPEN.** The owner has overridden this
+   item's *blocking* effect on the development-only `main` integration, and nothing else. It is
+   **not** fixed and **not** resolved: the blob is still in `main`'s tree. Recorded exactly as
+   `D-35` requires:
+
+   | | |
+   |---|---|
+   | state | **OWNER-DEFERRED / OPEN** |
+   | blocks `main` integration | **no**, by `D-35` |
+   | blocks production deployment / real customer data | **YES** — must be reassessed first |
+   | remediation | PR #122, **OPEN and deliberately NOT MERGED** |
+   | forbidden in this workstream | deleting the dump, rewriting history, rotating `APP_KEY`, changing DB credentials, any incident cleanup |
+
+   **The owner's statement that the customer rows are test/demo data does not make every exposed
+   secret harmless, and is not recorded as if it did.** It bears on the personal-data impact of
+   those rows only. The `APP_KEY` exposure (`CLAUDE.md` §1 — in Git history, unrotated, which is
+   why `Crypt::encrypt()` is an encoding here and not a control) is a **separate** OPEN item that
+   the demo-data statement does not touch, and `D-35` constraint 2 forbids rotating it here.
+
 1. **13 environment / server observations** — `FINAL` §2a, unchanged. Plus the fourteenth of the
    same kind (`P1-PLT-04` #36 criterion 2), flagged there rather than renumbered.
 2. **5 D15-gated migrations** — `FINAL` §2b, unchanged. **The two ordering constraints must not be
