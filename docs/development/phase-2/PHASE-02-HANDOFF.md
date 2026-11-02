@@ -1,6 +1,82 @@
 # Phase 02 — handoff
 
 > ═══════════════════════════════════════════════════════════════════════════════════════════════
+> ## §-1. RELEASE INTEGRATION — 2026-11-02. NEWER THAN EVERYTHING BELOW, INCLUDING THE D-34 BLOCK.
+>
+> **The branch is `claude/loving-noether-f4qxdt`, in both repositories.** It is the dedicated
+> release-integration branch Directive E §2 asked for, created from the verified latest suitable
+> base and pushed. The Phase 02 continuation branch is **preserved untouched** and nothing was
+> force-pushed or rewritten.
+>
+> ### How it was assembled, measured rather than assumed
+>
+> | | |
+> |---|---|
+> | base | `origin/main` = `bf383bdbcf2c5a16ac1b8be8e3e72656256072ad` — which already holds **Phase 01 via PR #3** (merged 2026-10-24) and **PR #121** (merged 2026-10-24) |
+> | merged in | `origin/claude/store-syria-p02-continuation-smlpwi` = `20c3ad1fc160ad652de2c0721db1ebb2d386b301` |
+> | the merge commit | `8124ccf468aa912361f4a006983a7469f9f00e5a` |
+>
+> **The ACCEPTED continuation branch was merged, not the older one.** Directive E §2 warned against
+> merging `claude/store-syria-p02-merchant-experience` instead. Measured with
+> `git merge-base --is-ancestor`: that older branch's head (`97a82ead`) is **fully contained** in
+> the continuation branch, and `git log continuation..merchant-experience` is **empty** — so the
+> continuation branch is a strict superset and nothing from the older branch is lost.
+>
+> **The merge is clean.** `git merge-tree` reported **zero** conflicted paths before it was made,
+> and the resulting tree hash matched that dry run exactly (`7204cc88…`).
+>
+> **`.github/` is byte-identical** between `main` and the merge result, so no CI configuration and
+> no known-outcome manifest entry changed in the merge itself. `composer.lock` is byte-identical
+> too: no dependency drift.
+>
+> **`main` is NOT a protected branch** (`list_branches` reports `protected: false`), so GitHub
+> enforces no required status checks. The gates that matter are this project's own, and they were
+> run here rather than assumed to have run somewhere.
+>
+> ### Security incident #120 — the merge neither remediates nor regresses it
+>
+> **`D-35` (2026-11-02) defers it.** It stays **OWNER-DEFERRED / OPEN** — not fixed, not resolved.
+> The dump is still in `main`'s tree and **PR #122 is deliberately NOT merged**.
+>
+> Directive E §9 requires "no reintroduction of the exposed dump" while `D-35` constraint 2 forbids
+> deleting it. Both hold at once, and it was measured: commit `3935dee8` (which added the dump) is
+> **not** an ancestor of the merge-base `5c63bcea` and **not** an ancestor of the continuation
+> branch, so the three-way merge carries `main`'s blob through untouched. Verified on the
+> integration head — `HEAD:storesyria_ecommercego.sql` is `d3d42e68…`, 20,470,785 bytes, identical
+> to `origin/main`'s. No `.sql`, `.dump`, `.pem`, `.key`, `.p12`, `.jks`, `.keystore` or `.env` file
+> is added by the merge.
+>
+> ### What changed ON the integration branch
+>
+> | | |
+> |---|---|
+> | **GATE F is CLOSED** | all 15 SCHEMA-01 tables and all 3 columns have migrations, measured against a restored copy of production; `cod_collection_events` deliberately NOT created |
+> | **16 of 17 declared skips resolved** | the seven financial ones became nine real tests; the one remaining is `newsletters.user_id`, an undeclared *column* whose type was never measured |
+> | **Paytm matrix completed** | four cases Directive E §6 named and the matrix lacked; `PAYTM_CALLBACK_ENABLED` stays **shut** |
+> | **two Phase 01 gates closed** | the 5 D15-gated migrations, and the larabug reading for a from-source install |
+> | **Flutter verified, Android BLOCKED** | 1,367 tests pass, analyze 247 info / 0 warning / 0 error; no Android SDK in the container, and installing one is a vendor-licence decision |
+>
+> **No view, component, stylesheet or design token was touched.** Verified, not asserted:
+> `git diff 20c3ad1f..HEAD -- resources/views public/css docs/design-system` is **empty**.
+>
+> ### The six states, and what the integration does NOT change
+>
+> | state | value |
+> |---|---|
+> | PHASE 02 ENGINEERING COMPLETE | **YES** (D-34) |
+> | PHASE 02 ENGINEERING OWNER ACCEPTED | **YES** (D-34) |
+> | **MERGED TO MAIN** | see [`PHASE-02-TEST-EVIDENCE.md`](PHASE-02-TEST-EVIDENCE.md) for the recorded result of the integration gate; the merge is authorised by Directive E §9 **only** once the non-deferred checks pass |
+> | RELEASE READY | **NO** |
+> | DEPLOYED | **NO** |
+> | NEXT PHASE IMPLEMENTATION AUTHORIZED | **NO** — and [`PHASE-2.5-HANDOFF.md`](PHASE-2.5-HANDOFF.md) is *prepared*, not started |
+>
+> **Merging is not deployment authorisation, and `main` integration is not production deployment.**
+> Every release blocker in the D-34 block below remains open except GATE F, which is closed, and
+> #120, which is deferred rather than resolved.
+> ═══════════════════════════════════════════════════════════════════════════════════════════════
+
+
+> ═══════════════════════════════════════════════════════════════════════════════════════════════
 > **OWNER DECISION D-34 — 2026-11-02: PHASE 02 ENGINEERING IS OWNER ACCEPTED.**
 >
 > | state | value |

@@ -1,6 +1,36 @@
 # Phase 02 — task ledger
 
 > ═══════════════════════════════════════════════════════════════════════════════════════════════
+> ## RELEASE INTEGRATION — 2026-11-02. READ WITH §-1 OF [`PHASE-02-HANDOFF.md`](PHASE-02-HANDOFF.md).
+>
+> **Branch: `claude/loving-noether-f4qxdt`** in both repositories — `origin/main` (`bf383bdb`, which
+> already held Phase 01 via PR #3 and PR #121) with the **accepted** continuation branch
+> (`20c3ad1f`) merged into it. Clean merge, zero conflicted paths, `.github/` and `composer.lock`
+> byte-identical. The continuation branch is preserved; nothing was force-pushed or rewritten.
+>
+> ### What this changes in the rows below
+>
+> | row family | change |
+> |---|---|
+> | **GATE F** | **CLOSED.** All 15 SCHEMA-01 tables and all 3 columns now have migrations whose structure was MEASURED on a restored copy of production, not inferred from `$fillable`. `cod_collection_events` was deliberately **not** created — it is the one object production genuinely lacks (D-15) and creating it would silently activate COD settlement. Verified on MariaDB 10.11.14: 29 checks, 0 failed. |
+> | **the 17 declared skips** | **16 resolved and DELETED** from `.github/known-test-outcomes.json`, which that gate requires rather than permits. The seven financial ones became **nine real tests**. The one that remains is `newsletters.user_id` — an undeclared **column** whose type was never measured, so declaring it would be the guess GATE F exists to forbid. |
+> | **Paytm (E14 / F229 / D-31)** | matrix completed with the four cases Directive E §6 named and it lacked: an overpayment, a sub-scale difference, a cancelled/pending status, and that the plan callback writes **no** wallet or order-financial row. `PAYTM_CALLBACK_ENABLED` **stays shut**; `PlanPaymentPostureTest` is still 80/324, so D-31's activation map and D-33's fail-closed Benefit/Flutterwave posture are unchanged. |
+> | **Phase 01 outstanding gates** | two closed: the **5 D15-gated migrations** (both ordering constraints verifiable from the filenames) and the **larabug reading** — the latter DONE for a from-source install and still **OPEN for production**, which is an environment reading the owner holds. The rest stay open and are not reclassified. |
+> | **Flutter / Android (K, P2-07)** | Flutter **verified** — 1,367 tests pass, `flutter analyze` 247 info / 0 warning / 0 error. Android **BLOCKED**: no SDK in the container (installing one is a vendor-licence decision reserved to the owner), no release keystore, no device or emulator. Release signing was **reviewed** and is correct; it was **not exercised**, and nothing was invented. |
+>
+> **No Phase 02 UI row changed.** Verified rather than asserted:
+> `git diff 20c3ad1f..HEAD -- resources/views public/css docs/design-system` is **empty**. Every
+> `partial` and `not built` row in [`PHASE-02-HANDOFF.md`](PHASE-02-HANDOFF.md) §3b stands exactly
+> as it did.
+>
+> **The measured outcome of the integration gate is recorded in
+> [`PHASE-02-TEST-EVIDENCE.md`](PHASE-02-TEST-EVIDENCE.md), not here**, and the baseline below
+> (`7,414 · 2 · 17`) is **historical**: it was the result on the accepted head before GATE F closed,
+> and it is NOT the acceptance outcome for the integration.
+> ═══════════════════════════════════════════════════════════════════════════════════════════════
+
+
+> ═══════════════════════════════════════════════════════════════════════════════════════════════
 > **OWNER DECISION D-34 — 2026-11-02: PHASE 02 ENGINEERING IS OWNER ACCEPTED.**
 >
 > | state | value |
