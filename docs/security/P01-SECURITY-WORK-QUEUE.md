@@ -4804,6 +4804,108 @@ Recorded explicitly, because a fix to a *detector* must not be read as a fix to 
 | **P1-SEC-48b** | the same guard failed exit 1 on every developer's working copy | **CLOSED** — the inference is scoped to CI, reported locally |
 | **#120 / P1-OWN-09** | the live `APP_KEY` and database credentials reachable at `3c39c160:.env` | **OPEN, OWNER-DEFERRED.** Unchanged by this work. Must be reassessed before real customer data or any production-ready claim |
 
+## S52 — Two BLOCKING guards could pass while the change they forbid was present, because an earlier step in the same job truncated git history — **P1-SEC-49 CLOSED**
+
+Found by running S51's rewritten `.env` guard on a real pull request and reading one vague
+sentence in its output. The `.env` guard was fine. What it exposed beside it was not.
+
+### 1. What `ci.yml` did
+
+`static`'s *"composer audit must not grow"* step contains, at `ci.yml:491`:
+
+```bash
+if [ -n "${GITHUB_BASE_REF:-}" ] && [ "$found" -ge "$AUDIT_CEILING" ]; then
+  git fetch --no-tags --depth=1 origin "$GITHUB_BASE_REF" >/dev/null 2>&1 || true
+```
+
+A `--depth=1` fetch plants a boundary in `.git/shallow`, which makes **the whole repository
+shallow** — even though `actions/checkout` ran with `fetch-depth: 0` six steps earlier.
+
+**It fired on this very pull request.** The step printed `advisories found: 58 (ceiling 58)`, so
+`$found -ge $AUDIT_CEILING` was true, and `GITHUB_BASE_REF` is always set on a pull request. The
+condition is therefore satisfied on *every* PR whose advisory count sits at the ceiling, which is
+the normal state of this repository. The fetch ran at `16:11:39.18`; the next guard ran at
+`16:11:39.69`.
+
+### 2. What that did to the two guards after it
+
+`guard-no-workdo-changes.sh` and `guard-no-new-root-uploads.sh` are both **blocking**. Both have
+the same two lines:
+
+```bash
+if ! git rev-parse --verify --quiet "${BASE}" >/dev/null; then ... exit 1 ; fi
+CHANGED="$(git diff --name-only "${BASE}"...HEAD -- 'packages/workdo/' || true)"
+```
+
+Three things combine, and all three are needed:
+
+1. a **three-dot** diff needs a **merge base**, and a truncated graph has none;
+2. `git rev-parse --verify` succeeds for any object **present in the store**, whether or not the
+   graph can be walked to it — so the guards' own *"a guard that cannot see the diff must not
+   report success"* check **does not fire**;
+3. `|| true` turns git's `fatal: <base>...HEAD: no merge base` into an **empty result**, and an
+   empty result reads as *"nothing changed"*.
+
+So both printed `OK` and exited **0**.
+
+### 3. Measured in a synthetic repository, both guards, old and new, four states
+
+Not reasoned about. A ten-commit `main`, a `feature` branching at `main~7` that modifies
+`packages/workdo/thing.txt` **and** adds `uploads/leak.jpg`, cloned, then cut with the exact
+command `ci.yml` ran:
+
+| state | old guard | new guard |
+|---|---|---|
+| full history, violating change present | **exit 1**, names the file | **exit 1**, names the file — identical |
+| **cut graph, same violating change** | **exit 0, `OK: no changes`** | **exit 1**, naming *no merge base* **and** that the clone is shallow |
+| full history, no violating change | exit 0 | exit 0 — no false alarm |
+
+`git rev-parse --verify "${BASE}"` was confirmed to **still resolve** in the cut state, which is
+why the existing safeguard was no help.
+
+**What this means concretely: on a pull request at the advisory ceiling, a change under
+`packages/workdo/` — which `CLAUDE.md` prohibits outright — or a new user upload committed to the
+repository root would have sailed through two gates built to stop exactly that.** Neither
+previously reported a problem, and green told nobody anything, because for an innocent diff the
+vacuous answer and the true answer are the same word.
+
+### 4. The fix, at both ends
+
+**The guards refuse rather than pass.** The merge base is now a checked **premise**, named in the
+failure, and the diff's exit status is honoured instead of discarded. When the clone is shallow the
+message says so and points at *"a `git fetch --depth=...` in an EARLIER STEP of this same job"* —
+because that is what it will be.
+
+**The truncation is removed.** `ci.yml:491` drops `--depth=1` and only fetches when the ref is
+actually missing, which at `fetch-depth: 0` it never is — so in the normal case it now fetches
+**nothing at all**. Verified: the repository stays non-shallow, and the audit step's own
+`composer.lock` comparison still works.
+
+Belt **and** braces, deliberately: removing the truncation fixes today's instance, and the guards
+refusing catches the next one, from whatever step introduces it.
+
+### 5. Why this is the worst of the four premise-expired controls found this week
+
+S51's `.env` guard went quiet about a **recorded, owner-deferred** finding. These two went quiet
+about a **hypothetical future violation they exist to block** — and would have reported success
+while admitting it to themselves, since git printed `fatal: no merge base` into the log on the line
+above the `OK`. The text was right there in the CI output on every affected run.
+
+The shared lesson, stated so a census can key on it: **`|| true` on a measurement converts "I could
+not tell" into "nothing to report".** Wherever a control's passing condition is an *empty result*,
+the empty result must be proved to be a measurement and not an error. S51 keyed a control on
+absence; this one keyed a control on an unchecked emptiness. Same family.
+
+### 6. Status
+
+| id | finding | state |
+|---|---|---|
+| **P1-SEC-49** | `ci.yml:491`'s `--depth=1` fetch truncated history mid-job, and two blocking guards converted the resulting `git diff` failure into `OK` via `\|\| true` | **CLOSED** — both guards refuse and name the cause; the truncation removed; four states measured per guard, old and new |
+
+**Nothing was weakened.** Both guards behave identically to before on a full history, in both the
+violating and the innocent case. No manifest entry was added, no assertion loosened. Unit **692
+passed / 4,246 assertions**; the guard-referencing Feature tests **107 passed / 371 assertions**.
+
 ## Cross-repository row, carried over
 
 **B8 — a merchant can read their own webhook secret and forge events for their own store.**

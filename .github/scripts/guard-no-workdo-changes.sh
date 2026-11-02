@@ -53,7 +53,42 @@ FIRST_PARTY_MODULES=(
     LynomiaChat
 )
 
-CHANGED="$(git diff --name-only "${BASE}"...HEAD -- 'packages/workdo/' || true)"
+
+# ------------------------------------------------------------------------------------------
+# A DIFF THAT CANNOT BE COMPUTED IS NOT AN EMPTY DIFF.
+#
+# The `rev-parse --verify` above is NOT sufficient, and believing it was is what made this
+# guard able to pass while a violating change was present. `--verify` succeeds for any
+# object PRESENT in the store, whether or not the graph can be walked to it. A three-dot
+# diff needs a MERGE BASE, and a truncated history has none -- git then says
+# `fatal: <base>...HEAD: no merge base`, the `|| true` below turned that into an empty
+# result, and an empty result reads as "nothing changed".
+#
+# MEASURED, in a synthetic repository, not reasoned about: with a full clone the diff
+# correctly names the violating file; after `git fetch --no-tags --depth=1 origin main` --
+# the exact command `ci.yml` ran one step earlier in this same job -- `rev-parse --verify`
+# STILL RESOLVES, `git merge-base` prints nothing, the diff dies with `no merge base`, and
+# the guard printed `OK` and exited 0. See docs/security/P01-SECURITY-WORK-QUEUE.md S52.
+#
+# So the merge base is now a PREMISE, checked and named, and the diff's exit status is
+# honoured instead of discarded.
+# ------------------------------------------------------------------------------------------
+if ! MERGE_BASE="$(git merge-base "${BASE}" HEAD 2>&1)"; then
+    printf '  FAIL: there is no merge base between %s and HEAD, so the three-dot diff this\n' "${BASE}" >&2
+    printf '        guard depends on cannot be computed. git said: %s\n' "${MERGE_BASE}" >&2
+    if [[ "$(git rev-parse --is-shallow-repository 2>/dev/null || true)" == 'true' ]]; then
+        printf '        THE CLONE IS SHALLOW, so the history was truncated. Look for a\n' >&2
+        printf '        `git fetch --depth=...` in an EARLIER STEP of this same job.\n' >&2
+    fi
+    printf '        A guard that cannot see the diff must not report success.\n' >&2
+    exit 1
+fi
+
+if ! CHANGED="$(git diff --name-only "${BASE}"...HEAD -- 'packages/workdo/' 2>&1)"; then
+    printf '  FAIL: git diff against %s failed, so this guard could not be evaluated.\n' "${BASE}" >&2
+    printf '        git said: %s\n' "${CHANGED}" >&2
+    exit 1
+fi
 
 for module in "${FIRST_PARTY_MODULES[@]}"; do
     CHANGED="$(printf '%s\n' "${CHANGED}" | grep -v "^packages/workdo/${module}/" || true)"

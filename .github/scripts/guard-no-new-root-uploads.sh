@@ -43,7 +43,42 @@ if ! git rev-parse --verify --quiet "${BASE_REF}" >/dev/null; then
   exit 1
 fi
 
-ADDED="$(git diff --name-only --diff-filter=A "${BASE_REF}...HEAD" -- 'uploads/' || true)"
+
+# ------------------------------------------------------------------------------------------
+# A DIFF THAT CANNOT BE COMPUTED IS NOT AN EMPTY DIFF.
+#
+# The `rev-parse --verify` above is NOT sufficient, and believing it was is what made this
+# guard able to pass while a violating change was present. `--verify` succeeds for any
+# object PRESENT in the store, whether or not the graph can be walked to it. A three-dot
+# diff needs a MERGE BASE, and a truncated history has none -- git then says
+# `fatal: <base>...HEAD: no merge base`, the `|| true` below turned that into an empty
+# result, and an empty result reads as "nothing changed".
+#
+# MEASURED, in a synthetic repository, not reasoned about: with a full clone the diff
+# correctly names the violating file; after `git fetch --no-tags --depth=1 origin main` --
+# the exact command `ci.yml` ran one step earlier in this same job -- `rev-parse --verify`
+# STILL RESOLVES, `git merge-base` prints nothing, the diff dies with `no merge base`, and
+# the guard printed `OK` and exited 0. See docs/security/P01-SECURITY-WORK-QUEUE.md S52.
+#
+# So the merge base is now a PREMISE, checked and named, and the diff's exit status is
+# honoured instead of discarded.
+# ------------------------------------------------------------------------------------------
+if ! MERGE_BASE="$(git merge-base "${BASE_REF}" HEAD 2>&1)"; then
+  echo "::error::There is no merge base between ${BASE_REF} and HEAD, so the three-dot diff"
+  echo "::error::this guard depends on cannot be computed. git said: ${MERGE_BASE}"
+  if [ "$(git rev-parse --is-shallow-repository 2>/dev/null || true)" = 'true' ]; then
+    echo "::error::THE CLONE IS SHALLOW, so the history was truncated. Look for a"
+    echo "::error::\`git fetch --depth=...\` in an EARLIER STEP of this same job."
+  fi
+  echo "::error::A guard that cannot see the diff must not report success."
+  exit 1
+fi
+
+if ! ADDED="$(git diff --name-only --diff-filter=A "${BASE_REF}...HEAD" -- 'uploads/' 2>&1)"; then
+  echo "::error::git diff against ${BASE_REF} failed, so this guard could not be evaluated."
+  echo "::error::git said: ${ADDED}"
+  exit 1
+fi
 
 if [ -z "${ADDED}" ]; then
   echo "  OK: no file was added under uploads/."

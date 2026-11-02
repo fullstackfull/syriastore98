@@ -90,7 +90,8 @@
 > |---|---|
 > | PHASE 02 ENGINEERING COMPLETE | **YES** (D-34) |
 > | PHASE 02 ENGINEERING OWNER ACCEPTED | **YES** (D-34) |
-> | **MERGED TO MAIN** | see [`PHASE-02-TEST-EVIDENCE.md`](PHASE-02-TEST-EVIDENCE.md) for the recorded result of the integration gate; the merge is authorised by Directive E §9 **only** once the non-deferred checks pass |
+> | **MERGED TO MAIN** | **YES — development integration only.** Flutter `ab4d684`; Laravel PR #123 by the owner at `11:33:54Z` (`a5a9d7a2`, D-36), then **PR #124 under Directive E §9** (`230d2e12`, D-37) |
+> | **`main` CI GREEN** | **YES at `230d2e12`** — measured, run 41475644522, conclusion `success`. Five jobs success, one skipped (the merge-base gate does not run on a push to `main`), and *"The Feature outcome set must match the record"* passing in **both** required `Tests` jobs. This supersedes D-36's `NO at a5a9d7a2`, which was true of that commit |
 > | RELEASE READY | **NO** |
 > | DEPLOYED | **NO** |
 > | NEXT PHASE IMPLEMENTATION AUTHORIZED | **NO** — and [`PHASE-2.5-HANDOFF.md`](PHASE-2.5-HANDOFF.md) is *prepared*, not started |

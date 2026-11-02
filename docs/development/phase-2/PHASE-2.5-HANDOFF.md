@@ -23,7 +23,7 @@
 | which of them are tracked | [`PHASE-02-COVERAGE-AUDIT-2026-10-25.md`](PHASE-02-COVERAGE-AUDIT-2026-10-25.md) |
 | per-row status | [`PHASE-02-TASK-LEDGER.md`](PHASE-02-TASK-LEDGER.md) |
 | what was built and what was not | [`PHASE-02-HANDOFF.md`](PHASE-02-HANDOFF.md) §3b and the ledger's TODO rows |
-| every owner decision that governs it | [`PHASE-02-DECISION-REGISTER.md`](PHASE-02-DECISION-REGISTER.md) — `D-01`…`D-35` |
+| every owner decision that governs it | [`PHASE-02-DECISION-REGISTER.md`](PHASE-02-DECISION-REGISTER.md) — `D-01`…`D-37` (D-36 and D-37 are the two `main` merges and `main`'s own CI going green; read both before assuming anything about release state) |
 | the design system it must build on | `public/css/store-syria-ds.css`, `docs/design-system/README.md` |
 | the counter-intuitive facts of this codebase | `CLAUDE.md` §1 and `.claude/skills/store-syria-laravel-tenancy/` |
 

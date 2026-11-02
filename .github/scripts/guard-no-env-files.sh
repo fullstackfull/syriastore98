@@ -145,6 +145,47 @@ fi
 # ------------------------------------------------------------------------------------------
 # Is the known exposure still reachable from THIS checkout's history?
 # ------------------------------------------------------------------------------------------
+# WHICH REF, IF ANY, DESCENDS FROM THE RECORDED COMMIT -- and if none does, WHY.
+#
+# This used to print "its ancestry could not be confirmed here" and stop, which is the
+# same sin the rest of this script was just rewritten to stop committing: one vague
+# sentence covering several different states, printed on every run until nobody reads it.
+# It appeared on the first real CI run of the rewrite (`static`, pull_request, depth 0),
+# where `3c39c160` IS an ancestor of `main` -- GitHub's own compare API answers
+# `behind_by: 0` -- so a single `HEAD` probe is not a sufficient question. A pull_request
+# checkout is a detached synthetic merge ref, and an earlier step in this same job may run
+# `git fetch --depth=1` against the base ref, which can plant a boundary in `.git/shallow`
+# and cut the walk.
+#
+# So: probe several refs, and when none answers, say which refs were tried, what git's exit
+# code and message were, and whether the clone is shallow. A named reason can be fixed; a
+# shrug cannot.
+describe_ancestry () {
+    local probe rc msg shallow
+    shallow="$(git rev-parse --is-shallow-repository 2>/dev/null || printf 'unknown')"
+
+    for probe in HEAD "origin/${GITHUB_BASE_REF:-}" origin/main origin/master main master; do
+        [[ -z "${probe}" || "${probe}" == 'origin/' ]] && continue
+        git rev-parse --verify --quiet "${probe}^{commit}" >/dev/null 2>&1 || continue
+        msg="$(git merge-base --is-ancestor "${KNOWN_ENV_COMMIT}" "${probe}" 2>&1)" && rc=0 || rc=$?
+        if [[ "${rc}" -eq 0 ]]; then
+            printf 'an ancestor of %s' "${probe}"
+            return 0
+        fi
+        LAST_PROBE="${probe}"
+        LAST_RC="${rc}"
+        LAST_MSG="${msg}"
+    done
+
+    if [[ "${shallow}" == 'true' ]]; then
+        printf 'present in this clone; ancestry NOT established, and the clone is SHALLOW -- a boundary in .git/shallow cuts the walk, so this is a limit of the checkout and NOT evidence about the repository. Last probe %s, git exit %s%s' \
+            "${LAST_PROBE:-none resolvable}" "${LAST_RC:-n/a}" "${LAST_MSG:+, git said: ${LAST_MSG}}"
+    else
+        printf 'present in this clone; NOT an ancestor of any ref examined, and the clone is NOT shallow -- so this is a real answer, and the recorded commit may sit on an abandoned branch. RE-VERIFY BY HAND. Last probe %s, git exit %s%s' \
+            "${LAST_PROBE:-none resolvable}" "${LAST_RC:-n/a}" "${LAST_MSG:+, git said: ${LAST_MSG}}"
+    fi
+}
+
 HISTORY='cannot-tell'
 ANCESTRY='could not be determined'
 FOUND_BLOB=''
@@ -157,11 +198,7 @@ if [[ "${HAVE_GIT}" == 'yes' ]]; then
         HISTORY='cannot-tell'
     elif FOUND_BLOB="$(git rev-parse "${KNOWN_ENV_COMMIT}:${KNOWN_TRACKED_ENV}" 2>/dev/null)"; then
         HISTORY='reachable'
-        if git merge-base --is-ancestor "${KNOWN_ENV_COMMIT}" HEAD 2>/dev/null; then
-            ANCESTRY='an ancestor of HEAD'
-        else
-            ANCESTRY='present in this clone, but its ancestry could not be confirmed here'
-        fi
+        ANCESTRY="$(describe_ancestry)"
     else
         HISTORY='rewritten'
     fi
