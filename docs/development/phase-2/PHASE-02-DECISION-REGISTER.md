@@ -3214,14 +3214,17 @@ objection was received; it is recorded here so the distinction is not lost.
 | **DEPLOYED** | **NO** |
 | **PHASE 02 CLOSED** | **NO** |
 
-### A further follow-up is open and NOT merged
+### Two further follow-ups, opened after `main` went green — one merged, one open
 
-Opened after `main` went green, so neither is counted above:
+| pull request | state | carries |
+|---|---|---|
+| [StoreSyria_app98#6](https://github.com/fullstackfull/StoreSyria_app98/pull/6) | **MERGED, `94cdcdb0`, and Flutter `main`'s own CI is GREEN** on that commit (run 41482003708, conclusion `success`, both jobs) | **P1-SEC-46's client half.** The server now omits `cost_price` for a caller without `Manage Products`; Flutter `main` still rendered that row, and `formatPriceRaw(null)` returns an empty string, so a merchant saw a labelled blank reading as *"this product costs nothing"*. Found by checking the two repositories against each other after the server half merged — **not by either repository's own CI, neither of which can see the other.** Every §9 condition verified: `mergeable_state` clean, both CI jobs success across all 12 steps, `merge-tree` zero conflicts, 529 files on both sides, no credential-shaped file. **Its CI then caught F291** — `cost_price` was *declared* in `knownUntranslatedKeys`, so supplying copy made that declared entry stale, and the ratchet refused it in the same both-directions way the Laravel known-outcome gate does. |
+| [syriastore98#125](https://github.com/fullstackfull/syriastore98/pull/125) | **OPEN, not merged** | **F284–F291 / P1-SEC-48 and P1-SEC-49.** Began as the `.env` guard whose premise expired — it went silent and its silence was filed as a passing release gate in two Phase 01 attestations ([§S51](../../security/P01-SECURITY-WORK-QUEUE.md)). **Running that fix in real CI then exposed something worse** ([§S52](../../security/P01-SECURITY-WORK-QUEUE.md)): `ci.yml:491`'s `git fetch --depth=1` truncated history mid-job on every pull request at the advisory ceiling, and two **blocking** guards — `guard-no-workdo-changes.sh` and `guard-no-new-root-uploads.sh` — converted the resulting `fatal: no merge base` into `OK` through `\|\| true`. A change under `packages/workdo/` or a new root upload would have passed both. Measured in a synthetic repository, four states per guard, old and new. |
 
-| pull request | carries |
-|---|---|
-| [syriastore98#125](https://github.com/fullstackfull/syriastore98/pull/125) | **F284–F288 / P1-SEC-48** — the `.env` guard's premise expired, so it went silent, and its silence was filed as a passing release gate in two Phase 01 attestations. See [§S51](../../security/P01-SECURITY-WORK-QUEUE.md). |
-| [StoreSyria_app98#6](https://github.com/fullstackfull/StoreSyria_app98/pull/6) | **P1-SEC-46's client half.** The server now omits `cost_price` for a caller without `Manage Products`; Flutter `main` still renders that row, and `formatPriceRaw(null)` returns an empty string, so a merchant saw a labelled blank reading as *"this product costs nothing"*. Found by checking the two repositories against each other after the server half merged — not by either repository's own CI, neither of which can see the other. |
+**The second entry is the reason this register distinguishes "merged" from "verified".** A control
+that reports success because it could not take a measurement is indistinguishable from one that
+measured nothing wrong, and the only thing that separated them here was running the control and
+reading its output rather than its exit code.
 
 ### What this entry does not do
 
