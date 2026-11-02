@@ -79,10 +79,12 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/GatewayReference.php:198` | gateway capture replayed: the reference is already recorded |
 | `app/Services/GatewayReference.php:213` | gateway capture replayed (23000): the reference is already recorded |
 
-### `warning` — 179 lines
+### `warning` — 181 lines
 
 | line | message |
 |---|---|
+| `app/Http/Controllers/Api/ApiController.php:6252` | shipping quote refused a cart line naming another store |
+| `app/Models/Cart.php:1200` | flat-rate shipping refused a cart line naming another store |
 | `app/Http/Controllers/PaymentCallbackController.php:106` | Paytm plan callback refused: no usable order reference. |
 | `app/Http/Controllers/PaymentCallbackController.php:131` | Paytm plan callback refused: the provider did not confirm the payment. |
 | `app/Http/Controllers/PaymentCallbackController.php:163` | Paytm plan callback refused at the intent. |
@@ -115,15 +117,15 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/Concerns/AppliesCartStockChanges.php:230` | stock evidence not attributed: stock moved for this request and no row now owns the order |
 | `app/Http/Controllers/Concerns/AppliesCartStockChanges.php:240` | stock evidence not attributed: the attempt threw |
 | `app/Http/Controllers/Api/ApiController.php:3718` | Storefront order intake refused as a duplicate submission |
-| `app/Http/Controllers/Api/ApiController.php:8980` | Storefront order intake refused as a duplicate submission |
+| `app/Http/Controllers/Api/ApiController.php:9213` | Storefront order intake refused as a duplicate submission |
 | `app/Http/Controllers/Api/ApiController.php:129` | Coupon refused: the basket could not be priced |
 | `app/Http/Controllers/Api/ApiController.php:3533` | order: refused, basket holds a non-positive quantity |
-| `app/Http/Controllers/Api/ApiController.php:7201` | order: refused, basket holds a non-positive quantity |
-| `app/Http/Controllers/Api/ApiController.php:7292` | coupon: refused an implausible discounted total |
-| `app/Http/Controllers/Api/ApiController.php:8068` | payment_sheet refused: basket names a product from another store |
-| `app/Http/Controllers/Api/ApiController.php:8094` | payment_sheet: refused, basket holds a non-positive quantity |
-| `app/Http/Controllers/Api/ApiController.php:8708` | order: refused, basket holds a non-positive quantity |
-| `app/Http/Controllers/Api/ApiController.php:8833` | coupon: refused an implausible discounted total |
+| `app/Http/Controllers/Api/ApiController.php:7434` | order: refused, basket holds a non-positive quantity |
+| `app/Http/Controllers/Api/ApiController.php:7525` | coupon: refused an implausible discounted total |
+| `app/Http/Controllers/Api/ApiController.php:8301` | payment_sheet refused: basket names a product from another store |
+| `app/Http/Controllers/Api/ApiController.php:8327` | payment_sheet: refused, basket holds a non-positive quantity |
+| `app/Http/Controllers/Api/ApiController.php:8941` | order: refused, basket holds a non-positive quantity |
+| `app/Http/Controllers/Api/ApiController.php:9066` | coupon: refused an implausible discounted total |
 | `app/Http/Controllers/Api/AuthController.php:186` | register: social identity verification refused |
 | `app/Http/Controllers/Api/DeliverySyriaOrderController.php:82` | Delivery Syria invalid credentials |
 | `app/Http/Controllers/AuthorizeNetPaymnetController.php:342` | Pending partial payment refused: the balance named does not belong to this customer. |
@@ -439,6 +441,34 @@ event.
 **None of the seven carries a credential, a token, an email address or a card field.** The Paytm rows
 log the merchant order reference, the provider's own status and reason strings, and internal ids; the
 two F263 rows log the acting user's id, their `current_store` and the permission name.
+
+### The two rows added 2026-11-02 (F283), with their destination and reader
+
+**Both are tenant refusals on a shipping calculation, and the pair is deliberate: one guards the
+QUOTE and one guards the PAYABLE.** They are the same sentence on purpose, distinguished only by
+which calculation refused, because the thing an operator needs to know first is which of the two
+fired.
+
+- **`Api\ApiController::productOfCartLineStore()` — "shipping quote refused a cart line naming
+  another store's product", `warning`.** Read by whoever investigates a shopper complaining that a
+  quote looks wrong, and by security if it ever appears in volume. It fires when a cart row in one
+  store names a product in another — a row every cart writer refuses today
+  (`addtocart`'s hard store match, `product_cart`'s provable-mismatch refusal, and
+  `ModuleCartWriteGuard` for the two module routes), so **a single line means a row that predates
+  those guards or a writer that escaped them, and a burst means a new writer has been added without
+  one.** It logs the cart's store, the product's store and the product id: no price, no customer
+  field, no credential. The quote still answers — the line simply contributes nothing — so nothing
+  else surfaces this.
+- **`Cart::productOfStoreForShipping()` — "flat-rate shipping refused a cart line naming another
+  store's product", `warning`.** The same condition on the path that **charges money**: this
+  method's result becomes `$order_array['delivery_charge']` and from there
+  `orders.delivery_price` and `orders.final_price`. **Read with more urgency than its twin for
+  exactly that reason** — a line here means a foreign row reached an order's shipping arithmetic,
+  so the orders written around that time are worth checking even though the refusal means the
+  figure itself is sound. Same fields, same absence of anything sensitive.
+
+**Neither is reachable by an anonymous caller**: both sit behind a slug-resolved store and, on the
+API path, `resolveStoreCustomer()`.
 
 ## 2. Where these lines actually go
 
