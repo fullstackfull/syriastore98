@@ -103,6 +103,84 @@ final class SensitiveDiffGateTest extends TestCase
     }
 
     /**
+     * P1-SEC-56. THE CLASSIFIER DID NOT LOOK WHERE THIS CODEBASE KEEPS ITS DEFECTS.
+     *
+     * Measured 2026-11-02 against the pattern as it stood: PR #128 -- which adds an authorization
+     * gate to an OTP controller and moves an outbound send of a stored `api_secret` onto a pinned
+     * transport -- matched 0 of its 7 files, and the job log read `no security-sensitive paths in
+     * this diff.` The same pattern missed 0-of-7 on 2497f28e ("four live defects GATE F turned
+     * on") and 0-of-2 on d9a3fbc2 ("the shipping quote leaked another tenant's product price",
+     * which changed `app/Http/Controllers/Api/ApiController.php`).
+     *
+     * `app/Http/Controllers/`, `app/Services/` and `app/Models/` were simply not on the list,
+     * while `Policies/`, `Middleware/`, `routes/` and `config/` were. But CLAUDE.md's whole
+     * catalogue of this project's real defects is in controllers: the target derived from
+     * `$request->some_id` instead of the principal, the authorization check missing its
+     * operator-first clause, the `Product::find()` that is not scoped.
+     *
+     * The shell harness asserts all 27 surfaces in both directions. This is the same property in
+     * a second runner, on the one surface that matters most, so a pattern edit cannot go green
+     * here while the harness is skipped or vice versa.
+     *
+     * @dataProvider surfacesThatMustBeSensitive
+     */
+    public function test_the_surfaces_this_codebase_keeps_its_defects_on_are_sensitive(string $path): void
+    {
+        $this->commitFile($path);
+
+        [$code, $out] = $this->runGate('HEAD~1', '', 'enforce');
+
+        $this->assertSame(1, $code, "{$path} must be classified security-sensitive.\n{$out}");
+        $this->assertStringContainsString('SECURITY-SENSITIVE DIFF', $out);
+        $this->assertStringContainsString($path, $out);
+    }
+
+    public static function surfacesThatMustBeSensitive(): array
+    {
+        return [
+            'a controller -- where the authorization check is' => ['app/Http/Controllers/OtpIntegrationController.php'],
+            'the storefront API controller (d9a3fbc2)' => ['app/Http/Controllers/Api/ApiController.php'],
+            'a customer auth controller -- "Auth" was not on the list' => ['app/Http/Controllers/Customer/Auth/CustomerLoginController.php'],
+            'a FormRequest -- validation rules are a control' => ['app/Http/Requests/SomeRequest.php'],
+            'a service -- SafeWebhook, OtpTransport, the money services' => ['app/Services/OtpTransport.php'],
+            'a model -- global scopes, $hidden, casts' => ['app/Models/Product.php'],
+            'an observer -- what calls the financial service at all' => ['app/Observers/OrderObserver.php'],
+            'a security test -- weakening one is a security diff' => ['tests/Feature/Security/SomethingTest.php'],
+            'a tenancy test (83ae48d9)' => ['tests/Feature/Tenancy/SomethingTest.php'],
+            'the Flutter API contract' => ['tests/Contract/SomethingTest.php'],
+        ];
+    }
+
+    /**
+     * THE BOUND ON THE ABOVE, and it is load-bearing. Widening the classifier is only an
+     * improvement while a routine diff still clears it: if UI, copy, docs and assets started
+     * firing, the acknowledgement would become a reflex and the gate would mean nothing. These
+     * are the diffs this project produces in bulk.
+     *
+     * @dataProvider surfacesThatMustStayQuiet
+     */
+    public function test_an_ordinary_diff_is_still_not_security_sensitive(string $path): void
+    {
+        $this->commitFile($path);
+
+        [$code, $out] = $this->runGate('HEAD~1', '', 'enforce');
+
+        $this->assertSame(0, $code, "{$path} must NOT be classified security-sensitive.\n{$out}");
+        $this->assertStringContainsString('no security-sensitive paths', $out);
+    }
+
+    public static function surfacesThatMustStayQuiet(): array
+    {
+        return [
+            'a blade view' => ['resources/views/store/dashboard.blade.php'],
+            'an Arabic lang file' => ['lang/ar/messages.php'],
+            'the design-system stylesheet' => ['public/css/store-syria-ds.css'],
+            'a ledger document' => ['docs/development/phase-2/PHASE-02-TASK-LEDGER.md'],
+            'an ordinary commerce test' => ['tests/Feature/Commerce/SomethingTest.php'],
+        ];
+    }
+
+    /**
      * The property the whole control exists for. `enforce` is the pull-request mode.
      */
     public function test_enforce_mode_fails_a_sensitive_diff_with_no_acknowledgement(): void

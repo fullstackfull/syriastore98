@@ -112,6 +112,7 @@ the same defect one level up.
 | | proves | does **not** prove |
 |---|---|---|
 | `flag-sensitive-diff.sh`, anchored (items 1–3) | a line consisting exactly of the marker is present in the pull request body | **who put it there.** No field in GitHub's record distinguishes a line the owner typed from one an automation generated |
+| `flag-sensitive-diff.sh`, widened (P1-SEC-56, §7) | that a diff touching a controller, service, model, observer or security test is **asked the questions at all** — it was not, before | that the questions were answered honestly. It decides *whether the gate fires*, which is upstream of everything else in this table |
 | `assert-human-approval.sh` (items 4–5) | an `APPROVED` review exists, from a named login, that is not the author's, bound to the current head | nothing, while it runs in `report` mode. It **exits 0 either way**, so its check reports `success` on a pull request with zero reviews — measured on #126's head `abb1852f`. That is why §4.1.2 says not to require it yet, and why requiring it today would be worse than leaving it out |
 | `verify-attestation-gate-scenarios.sh` | both scripts behave as specified across 31 scenarios, re-checked on every pull request | that either gate is **required**. That is §1, and the click that fixes it is §4.1. |
 
@@ -392,19 +393,94 @@ both would otherwise insert at the same anchor.
 | the substring match satisfied by a sentence denying it, and the commit-message surface — **P1-SEC-53** | §S55, **arriving with #125** |
 | the four controls that reported success without measuring anything | §S51, §S52, §S54, **arriving with #125** |
 | **`main` unprotected, so every gate is advisory — P1-SEC-54** | **this document, §1.** It is recorded here rather than in the queue for the conflict-avoidance reason above; transcribe it into the queue once #125 has merged |
+| **the sensitive-diff classifier never looked at controllers, services or models — P1-SEC-56** | **this document, §7.** Same reason, same instruction: transcribe it once #125 has merged |
 
 ---
 
 ## 6. The sentence this document exists to make unambiguous
 
-A control can fail in three distinct ways, and this repository has now produced all three in one
+A control can fail in four distinct ways, and this repository has now produced all four inside one
 week:
 
-1. it measures nothing and reports success (`|| true` on a measurement);
+1. it measures nothing and reports success (`|| true` on a measurement — P1-SEC-51/52/54);
 2. it measures the wrong proposition — the presence of a string rather than the occurrence of an
-   act (a substring match for an acknowledgement);
+   act (a substring match for an acknowledgement — P1-SEC-50/53);
 3. it measures the right proposition, reports it correctly, **and nothing is required to listen**
-   (an unprotected branch).
+   (an unprotected branch — P1-SEC-54, §1);
+4. it measures the right proposition, binds correctly, **and is asked about the wrong files**
+   (P1-SEC-56, §7 — the newest, and the quietest, because a gate that is never asked looks
+   exactly like a gate that was satisfied).
 
-Items 1–5 of the owner's direction fix (1) and (2). **Only §4 step 1 fixes (3)**, and until it is
-done, the most honest description of every gate in this repository is: a report.
+Items 1–5 of the owner's direction fix (1) and (2). (4) is fixed on this branch and asserted in
+both directions. **Only §4 step 1 fixes (3)**, and until that click is made, the most honest
+description of every gate in this repository is: a report.
+
+---
+
+## 7. P1-SEC-56 — the gate was measuring the wrong set of files
+
+Found while watching this round's own pull request go green, which is the only reason it was found
+at all.
+
+### The measurement
+
+`flag-sensitive-diff.sh` decides whether a diff is security-sensitive by matching changed paths
+against one regular expression. Before this change that expression covered `config/`, `routes/`,
+`Middleware/`, `Policies/`, `Providers/`, `database/migrations/`, `.github/`, and anything named
+after a secret or a role — **and not `app/Http/Controllers/`, `app/Services/` or `app/Models/`.**
+
+| diff | what it did | files matched |
+|---|---|---|
+| [PR #128](https://github.com/fullstackfull/syriastore98/pull/128) | adds an authorization gate to an OTP controller; moves an outbound send of a stored `api_secret` onto a pinned, redirect-refusing transport | **0 of 7** |
+| `2497f28e` (inside PR #124) | *"four live defects GATE F turned on"* — the OTP SSRF guard and the cross-tenant product-cost leak among them | **0 of 7** |
+| `d9a3fbc2` | *"the shipping quote leaked another tenant's product price"*, in `app/Http/Controllers/Api/ApiController.php` | **0 of 2** |
+| `83ae48d9` | a tenancy-inventory change | **0 of 1** |
+
+PR #128's job log reads, in full: `no security-sensitive paths in this diff.` One of the seven
+files is named `tests/Feature/Security/OtpOutboundHardeningTest.php`.
+
+**PR #124 tripped this gate only through its *other* commits** — migrations, `.github/`,
+`Policies/`. The security fixes themselves were invisible to it. So the checklist that PR #124's
+retrospective review (PR #127) found had been acknowledged by an agent was, separately, never
+required by the files it was acknowledging.
+
+### Why the list was wrong
+
+Nothing exotic: it was built from where *framework* controls live, and this codebase's controls
+are not there. `CLAUDE.md`'s entire catalogue of real defects is in controllers — the handler that
+derives its target from `$request->some_id` instead of the authenticated principal, the
+authorization check missing its operator-first clause, the `Product::find()` that is unscoped
+because `Product` is not in `scoped_models`. `Auth` was not on the list either, while `Audit` was,
+which is probably why nobody read past it.
+
+### The fix, and the bound on it
+
+`PATTERN` is now an array where **every entry carries the reason it is there**, because a single
+line of twenty-six alternations is a list nobody can audit — and it was wrong for months precisely
+because nobody could read it. Added: `^app/Http/`, `^app/Services/`, `^app/Models/`,
+`^app/Support/`, `^app/Observers/`, `Auth`, `^tests/Feature/Security/`, `^tests/Feature/Tenancy/`,
+`^tests/Support/Security/`, `^tests/Contract/`.
+
+**Widening a classifier is only an improvement while a routine diff still clears it.** If views,
+copy, docs and assets began firing, the acknowledgement would become a reflex and the gate would
+mean nothing — so the bound is asserted as explicitly as the widening:
+
+| | asserted | runner |
+|---|---|---|
+| 19 surfaces that **must** fire | controllers (incl. `Api/` and `Customer/Auth/`), FormRequests, services, models, support, observers, security/tenancy/contract tests, plus the six that already worked | `verify-attestation-gate-scenarios.sh` §C — **58 passed, 0 failed** |
+| 8 surfaces that **must stay quiet** | README, docs, blade views, `lang/ar`, the design-system stylesheet, an ordinary commerce test, a unit test | same |
+| the same property, independently | 10 must-fire + 5 must-stay-quiet | `tests/Unit/Ci/SensitiveDiffGateTest.php` — **38 passed (396 assertions)** |
+
+Two mutations, both reverted byte-identically (md5 `bf3f0a9f`):
+
+- **remove the additions** → exactly **13 C-flag scenarios fail** and the six pre-existing
+  surfaces still pass, so the new assertions are not vacuous and the old coverage is intact. The
+  PHPUnit twin fails its 10 positives and keeps its 5 negatives.
+- **make the pattern match everything** (`(.)`) → exactly **8 C-quiet scenarios fail**, so the
+  bound is a real assertion rather than a sentence in a comment.
+
+### What this says about the rest of this document
+
+§6 lists three ways a control fails. This is a fourth, and it is the quietest of them: the control
+measured the right proposition, reported it correctly, and **was asked about the wrong files.** A
+gate's path list is part of the gate, and it had never been tested in either direction.

@@ -195,6 +195,87 @@ expect 'B13 a missing reviews file is exit 2, NOT "no approvals"' 2 "$rc" "$out"
 
 # =============================================================================================
 say ''
+say '############ C. WHICH PATHS COUNT AS SENSITIVE AT ALL (P1-SEC-56) ############'
+# =============================================================================================
+# A gate that measures the right proposition on the wrong set of files is still a gate that does
+# nothing. Measured 2026-11-02, against the pattern as it stood:
+#
+#   * PR #128 -- ADDS an authorization gate to an OTP controller, moves an outbound send of a
+#     stored `api_secret` onto a pinned transport -- matched 0 of its 7 files. Log line, in full:
+#     `no security-sensitive paths in this diff.`
+#   * 2497f28e -- the commit in PR #124 titled "four live defects GATE F turned on" -- 0 of 7.
+#   * d9a3fbc2 -- "the shipping quote leaked another tenant's product price",
+#     `app/Http/Controllers/Api/ApiController.php` -- 0 of 2.
+#
+# Both directions are asserted. The SENSITIVE list is the correction; the QUIET list is the bound
+# on it, so "widen the classifier" cannot silently become "flag every diff", which would make the
+# acknowledgement reflexive and therefore worthless.
+CREPO="$WORK/classify"
+
+# Builds a one-file synthetic diff at an arbitrary path and runs the gate against it.
+classify() { # path -> sets rc/out
+  rm -rf "$CREPO"
+  mkdir -p "$CREPO/$(dirname "$1")"
+  cd "$CREPO"
+  git init -q -b main . 2>/dev/null
+  git config user.email gate@test; git config user.name gate
+  printf 'base\n' > "$1"
+  # A second, certainly-boring file so the diff is never empty for the wrong reason.
+  mkdir -p docs; printf 'x\n' > docs/note.md
+  git add -A >/dev/null; git commit -qm base
+  local base; base="$(git rev-parse HEAD)"
+  printf 'changed\n' >> "$1"
+  git add -A >/dev/null; git commit -qm change
+  out="$(bash "$FLAG" "$base" /dev/null enforce 2>&1)"; rc=$?
+}
+
+# --- must be flagged -------------------------------------------------------------------------
+for f in \
+  'app/Http/Controllers/OtpIntegrationController.php' \
+  'app/Http/Controllers/Api/ApiController.php' \
+  'app/Http/Controllers/Customer/Auth/CustomerLoginController.php' \
+  'app/Http/Requests/StoreOrderRequest.php' \
+  'app/Services/OtpTransport.php' \
+  'app/Services/SafeWebhook.php' \
+  'app/Models/Product.php' \
+  'app/Support/Database/GateFSchemaGuard.php' \
+  'app/Observers/OrderObserver.php' \
+  'tests/Feature/Security/OtpOutboundHardeningTest.php' \
+  'tests/Feature/Tenancy/RawQueryTenancyInventoryTest.php' \
+  'tests/Support/Security/bin/verify-something.php' \
+  'tests/Contract/FlutterOrderContractTest.php' \
+  'config/tenancy.php' \
+  'routes/api.php' \
+  'app/Http/Middleware/CustomAuth.php' \
+  'app/Policies/UserPolicy.php' \
+  'database/migrations/2026_01_01_000000_x.php' \
+  '.github/scripts/flag-sensitive-diff.sh'
+do
+  classify "$f"
+  expect "C-flag  ${f}" 1 "$rc" "$out" 'SECURITY-SENSITIVE DIFF'
+done
+
+# --- must NOT be flagged ---------------------------------------------------------------------
+# These are the diffs the project actually produces in bulk -- UI, copy, docs, assets. If one of
+# them starts firing, the acknowledgement becomes a reflex and the gate stops meaning anything.
+for f in \
+  'README.md' \
+  'docs/development/phase-2/PHASE-02-TASK-LEDGER.md' \
+  'resources/views/store/dashboard.blade.php' \
+  'resources/views/profile/edit.blade.php' \
+  'lang/ar/messages.php' \
+  'public/css/store-syria-ds.css' \
+  'tests/Feature/Commerce/PaymentStatusNormalizationTest.php' \
+  'tests/Unit/Ui/VariantPanelTest.php'
+do
+  classify "$f"
+  expect "C-quiet ${f}" 0 "$rc" "$out" 'no security-sensitive paths'
+done
+
+cd "$WORK"
+
+# =============================================================================================
+say ''
 printf '%s\n' "----------------------------------------------------------------"
 printf 'attestation gate scenarios: %s passed, %s failed\n' "$PASS" "$FAIL"
 printf '%s\n' "----------------------------------------------------------------"

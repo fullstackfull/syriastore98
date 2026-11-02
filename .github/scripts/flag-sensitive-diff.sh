@@ -46,15 +46,90 @@ if [[ -z "$CHANGED" ]]; then
   exit 0
 fi
 
-# Every alternative here is a surface where a diff can remove a control without the new code looking
-# wrong. `Providers/` and `RateLimiter|Throttle` are on the list because the limiter definitions were
-# NOT: every rate limiter in the Lynomia integration lives in one service provider, and a diff
-# touching only that file -- retuning a multiple, reordering the throttle tiers -- matched nothing
-# here and cleared this gate with exit 0. That is the P0 the commerce and ingress fixes closed, so
-# the change that re-opens it has to be asked the questions. `src/app/` covers the integration's own
-# services, jobs, listeners and controllers for the same reason; its views, tests and lang files are
-# deliberately left out.
-PATTERN='(^config/|/config/|routes/|Audit|audit/|Middleware/|^routes/|bootstrap/app\.php|Policies/|Permission|Role|Billing|Entitlement|Seat|Plan|Signature|Secret|Credential|Token|/config/|^\.github/|Providers/|RateLimiter|Throttle|database/migrations/|packages/workdo/LynomiaChat/src/app/)'
+# ==============================================================================================
+# WHAT COUNTS AS A SECURITY-SENSITIVE PATH
+# ==============================================================================================
+# Every entry is a surface where a diff can remove a control WITHOUT THE NEW CODE LOOKING WRONG.
+# That is the whole test for membership. Each one carries the reason it is here, because a list of
+# bare regexes is a list nobody can audit -- and this list was wrong for months precisely because
+# nobody could read it.
+#
+# ----------------------------------------------------------------------------------------------
+# P1-SEC-56, 2026-11-02: THE LIST DID NOT INCLUDE THE PLACE THIS CODEBASE'S DEFECTS LIVE.
+# ----------------------------------------------------------------------------------------------
+# Measured, not inferred. Against the previous pattern:
+#
+#   * PR #128 -- which ADDS an authorization gate to an OTP controller and rewires an outbound
+#     send of a stored `api_secret` onto a pinned, redirect-refusing transport -- matched
+#     0 OF ITS 7 FILES. The job log read, in full: `no security-sensitive paths in this diff.`
+#     One of the seven is literally named `tests/Feature/Security/OtpOutboundHardeningTest.php`.
+#
+#   * 2497f28e, the commit inside PR #124 whose subject is "four live defects GATE F turned on"
+#     -- the OTP SSRF guard and the cross-tenant product-cost leak among them -- matched
+#     0 OF ITS 7 FILES. PR #124 tripped this gate only through its OTHER commits (migrations,
+#     `.github/`, `Policies/`). The security fixes themselves were invisible to it.
+#
+#   * d9a3fbc2, "the shipping quote leaked another tenant's product price", which changed
+#     `app/Http/Controllers/Api/ApiController.php` -- the most defect-dense file in the
+#     repository -- matched 0 OF ITS 2 FILES.
+#
+# The cause is simple and was never deliberate: the pattern covered policies, middleware, routes,
+# config and migrations, and NOT `app/Http/Controllers/`, `app/Services/` or `app/Models/`. But
+# CLAUDE.md's entire catalogue of this codebase's real defects lives in controllers: the handler
+# that derives a target from `$request->some_id` instead of the authenticated principal, the
+# authorization check that omits the operator-first clause, the `Product::find()` that is not
+# scoped because `Product` is not in `scoped_models`. `Auth` was not on the list either, so
+# `app/Http/Controllers/Customer/Auth/` was not sensitive; `Audit` is on it and reads similarly,
+# which is probably why nobody noticed.
+#
+# So the three widest entries below are not caution -- they are the correction of a gate that was
+# measuring a surface this project does not keep its defects on. The bound is in the other
+# direction: a diff of only views, lang files, public assets, docs or `README` still does NOT
+# fire, and `verify-attestation-gate-scenarios.sh` asserts that in both directions so the
+# widening cannot quietly become "everything".
+PATTERN_PARTS=(
+  # --- the original entries, unchanged in meaning -------------------------------------------
+  '^config/'                                  # a framework or tenancy setting (scoped_models, guards)
+  '/config/'                                  # the same inside a package
+  'routes/'                                   # a route's middleware stack, and route shadowing
+  'bootstrap/app\.php'                        # the global middleware list
+  'Middleware/'                               # the checks themselves
+  'Policies/'                                 # ditto
+  'Audit|audit/'                              # the audit trail that evidences the rest
+  'Permission|Role'                           # Laratrust's own surface
+  'Billing|Entitlement|Seat|Plan'             # what a tenant is allowed to have
+  'Signature|Secret|Credential|Token'         # anything named after a secret
+  '^\.github/'                                # the gates, including this script
+  'Providers/'                                # P0: every Lynomia rate limiter is defined in ONE provider,
+  'RateLimiter|Throttle'                      #   so retuning a multiple there matched nothing and passed
+  'database/migrations/'                      # the schema a control depends on
+  'packages/workdo/LynomiaChat/src/app/'      # the first-party integration's services, jobs, controllers.
+                                              #   Its views, tests and lang files stay out, deliberately.
+
+  # --- P1-SEC-56 additions, each with its measured defect ------------------------------------
+  '^app/Http/'                                # CONTROLLERS, where the authorization check, the tenant
+                                              #   predicate and the principal derivation actually are
+                                              #   (d9a3fbc2, 2497f28e) -- plus FormRequests, whose
+                                              #   validation rules are a control, and resources, whose
+                                              #   field list decides what leaves the server. Stated as
+                                              #   one entry because `^app/Http/Controllers/` would be
+                                              #   subsumed by it and a redundant line invites the
+                                              #   question of which one is load-bearing.
+  '^app/Services/'                            # SafeWebhook, SafeRemoteFetch, OtpTransport, the money
+                                              #   services. PR #128 and 2497f28e both land here.
+  '^app/Models/'                              # global scopes, $fillable, $hidden, casts, Cachable
+  '^app/Support/'                             # the schema guards and shared predicates
+  '^app/Observers/'                           # OrderObserver is what calls the financial service at all
+  'Auth'                                      # Auth controllers, auth config, auth middleware. Absent
+                                              #   before, which is how a customer login controller that
+                                              #   sends a stored credential was classified as harmless.
+  '^tests/Feature/Security/'                  # a diff that WEAKENS a security test is a security diff
+  '^tests/Feature/Tenancy/'                   # 83ae48d9 was a tenancy-inventory change, 0 of 1 matched
+  '^tests/Support/Security/'                  # the out-of-suite evidence scripts
+  '^tests/Contract/'                          # the Flutter API contract: a loosened assertion here is how
+                                              #   a client-visible auth change would stop being noticed
+)
+PATTERN="($(IFS='|'; echo "${PATTERN_PARTS[*]}"))"
 SENSITIVE="$(echo "$CHANGED" | grep -E "$PATTERN" || true)"
 
 if [[ -z "$SENSITIVE" ]]; then
