@@ -148,12 +148,55 @@ class DeliverySyriaOracleTest extends SecurityTestCase
         }
     }
 
+    /**
+     * A `zid_orders` row with the columns the REAL table requires.
+     *
+     * ADDED 2026-11-02. Five inline inserts here supplied only `zid_order_id`, `store_id` and the
+     * timestamps -- enough for the reduced stand-in this class used to build for itself, whose
+     * `zidSchema()` declared `zid_order_id` as a NULLABLE string and `store_id` as a nullable
+     * integer. Against the MIGRATED table they all failed with
+     * `NOT NULL constraint failed: zid_orders.raw`.
+     *
+     * That failure is the measured value of running against the real structure: production's `raw`
+     * is `longtext NOT NULL` -- it holds the Zid payload a row was ingested from, so a row without
+     * one is a row production cannot hold. `parcel_status` has a default and needs nothing here.
+     *
+     * ================================================================================================
+     *  AND READ THIS BEFORE QUOTING ANY RESULT FROM THIS CLASS: `store_id` HERE IS NOT WHAT
+     *  PRODUCTION PUTS IN THAT COLUMN.
+     * ================================================================================================
+     *
+     * `zid_orders.store_id` is `varchar(191)` holding **Zid's own merchant identifier**, written by
+     * `ZidProcessEvents::saveOrder()` straight from Zid's webhook payload -- which is why neither
+     * Zid table has a foreign key to `stores`. `routes/web.php` says it outright: *"zid_stores.store_id
+     * is Zid's own store id and the row links to a Delivery Syria merchant, not to a StoreSyria
+     * tenant, so there is no column to write an ownership predicate against"*.
+     *
+     * These fixtures pass this platform's `stores.id`, because that is what the controller compares
+     * against (`DeliverySyriaCredential::storeIdsFor()` returns `stores.id` integers). So what this
+     * class proves is that the `whereIn('store_id', ...)` CONFINEMENT works and that the endpoint is
+     * not an existence oracle -- not that a configured Zid merchant can move its own order. In
+     * production the namespaces do not meet, so that endpoint fails closed. Recorded as a finding
+     * against `DeliverySyriaStatusController` and deliberately not repaired inside a schema change;
+     * `DeliverySyriaWebhookTest` carries the same note and the constraint any repair must satisfy.
+     */
+    private function zidOrder(string $zidOrderId, $storeId): void
+    {
+        DB::table('zid_orders')->insert([
+            'zid_order_id' => $zidOrderId,
+            'store_id'     => (string) $storeId,
+            'raw'          => '{}',
+            'created_at'   => now(),
+            'updated_at'   => now(),
+        ]);
+    }
+
     public function test_the_zid_sibling_does_not_tell_an_existing_order_from_an_unknown_one_either(): void
     {
         $this->zidSchema();
         [$merchant, $store] = $this->makeTenant();
         $this->secretFor($merchant, 'REAL-SECRET-FIXTURE');
-        DB::table('zid_orders')->insert(['zid_order_id' => '555111', 'store_id' => $store->id, 'created_at' => now(), 'updated_at' => now()]);
+        $this->zidOrder('555111', $store->id);
 
         $exists = $this->hit(self::ZID, ['product_order_id' => 'ZID-555111', 'status' => 9], 'WRONG-TOKEN');
         $absent = $this->hit(self::ZID, ['product_order_id' => 'ZID-999999', 'status' => 9], 'WRONG-TOKEN');
@@ -169,7 +212,7 @@ class DeliverySyriaOracleTest extends SecurityTestCase
         [$attacker] = $this->makeTenant();
         [, $victimStore] = $this->makeTenant();
         $this->secretFor($attacker, 'ATTACKER-SECRET-FIXTURE');
-        DB::table('zid_orders')->insert(['zid_order_id' => '555222', 'store_id' => $victimStore->id, 'created_at' => now(), 'updated_at' => now()]);
+        $this->zidOrder('555222', $victimStore->id);
 
         $foreign = $this->hit(self::ZID, ['product_order_id' => 'ZID-555222', 'status' => 9], 'ATTACKER-SECRET-FIXTURE');
         $absent = $this->hit(self::ZID, ['product_order_id' => 'ZID-999998', 'status' => 9], 'ATTACKER-SECRET-FIXTURE');
@@ -183,13 +226,24 @@ class DeliverySyriaOracleTest extends SecurityTestCase
         $this->zidSchema();
         [$merchant, $store] = $this->makeTenant();
         $this->secretFor($merchant, 'REAL-SECRET-FIXTURE');
-        DB::table('zid_orders')->insert(['zid_order_id' => '555333', 'store_id' => $store->id, 'created_at' => now(), 'updated_at' => now()]);
+        $this->zidOrder('555333', $store->id);
 
         // status 9 has no Zid mapping: the handler answers 200 without any outbound call, which proves the order was found
         $response = $this->hit(self::ZID, ['product_order_id' => 'ZID-555333', 'status' => 9], 'REAL-SECRET-FIXTURE');
 
         $this->assertSame(200, $response->status(), $response->getContent());
-        $this->assertSame($store->id, $response->json('data.store_id'));
+
+        // COMPARED AS A STRING, deliberately. `zid_orders.store_id` is `varchar(191)` in the
+        // measured production schema -- it holds ZID's own merchant identifier -- so the handler
+        // echoes back whatever string the column held. The stand-in table this class used to build
+        // declared it as an unsignedBigInteger, which is why `assertSame($store->id, ...)` used to
+        // hold and now reports "'1' is identical to 1".
+        //
+        // That one-character difference is the whole namespace finding in miniature: code that
+        // compares this column against an integer `stores.id` is comparing two different identifier
+        // spaces. On MySQL such a comparison is coerced to DOUBLE, so '2abc' = 2 is TRUE while
+        // SQLite says false -- see the note on zidOrder() above.
+        $this->assertSame((string) $store->id, (string) $response->json('data.store_id'));
     }
 
     public function test_the_zid_local_status_write_touches_only_the_authenticated_stores_row(): void
@@ -199,18 +253,55 @@ class DeliverySyriaOracleTest extends SecurityTestCase
         [, $otherStore] = $this->makeTenant();
         $this->secretFor($merchant, 'REAL-SECRET-FIXTURE');
         $now = ['created_at' => now(), 'updated_at' => now()];
-        // the same Zid order number in two tenants: the provider's id space is not ours
-        DB::table('zid_orders')->insert(['zid_order_id' => '555444', 'store_id' => $store->id] + $now);
-        DB::table('zid_orders')->insert(['zid_order_id' => '555444', 'store_id' => $otherStore->id] + $now);
-        DB::table('zid_stores')->insert(['store_id' => $store->id, 'authorization' => \Illuminate\Support\Facades\Crypt::encryptString('AUTH-FIXTURE'),
+
+        /*
+         * ================================================================================================
+         *  THE OLD PREMISE OF THIS TEST IS A STATE PRODUCTION CANNOT HOLD, and GATE F is what revealed it.
+         * ================================================================================================
+         *
+         * It used to insert the SAME `zid_order_id` ('555444') for two tenants, with the comment
+         * "the provider's id space is not ours", and then assert that the status write touched only
+         * the caller's row. Against the stand-in table this class built for itself -- which had no
+         * keys at all -- that was constructible.
+         *
+         * The measured production schema has `UNIQUE KEY zid_orders_zid_order_id_unique
+         * (zid_order_id)`, and it is **GLOBAL, not per store**. So two rows sharing an order number
+         * cannot exist, in any tenant combination, and the second insert is refused by the database.
+         * The property the test was written to protect is therefore enforced by a KEY rather than
+         * resting on the handler's predicate -- which is strictly better, and worth asserting as
+         * such instead of simulating a scenario the schema forbids.
+         *
+         * BOTH HALVES ARE KEPT. The unique key is asserted directly, because that is the real
+         * guarantee; and the confinement is still exercised, with DISTINCT order numbers, because
+         * the key says nothing about which row a write lands on.
+         */
+        $this->zidOrder('555444', $store->id);
+
+        try {
+            $this->zidOrder('555444', $otherStore->id);
+            $this->fail(
+                'zid_orders accepted a second row with the same zid_order_id. Production has a '
+                . 'GLOBAL unique key on that column (zid_orders_zid_order_id_unique), so this '
+                . 'suite is running against a schema that is not production\'s -- check that '
+                . '2026_11_02_001400_create_zid_orders_table.php has not been reverted.'
+            );
+        } catch (\Illuminate\Database\UniqueConstraintViolationException $e) {
+            // The guarantee, exercised rather than described.
+        }
+
+        // A DISTINCT number for the other tenant, so the confinement below is about the handler's
+        // predicate and not about the key.
+        $this->zidOrder('555555', $otherStore->id);
+
+        DB::table('zid_stores')->insert(['store_id' => (string) $store->id, 'authorization' => \Illuminate\Support\Facades\Crypt::encryptString('AUTH-FIXTURE'),
             'access_token' => \Illuminate\Support\Facades\Crypt::encryptString('MANAGER-FIXTURE')] + $now);
         \Illuminate\Support\Facades\Http::fake(['api.zid.sa/*' => \Illuminate\Support\Facades\Http::response(['ok' => true], 200)]);
 
         $response = $this->hit(self::ZID, ['product_order_id' => 'ZID-555444', 'status' => 1], 'REAL-SECRET-FIXTURE');
 
         $this->assertSame(200, $response->status(), $response->getContent());
-        $this->assertSame('delivered', DB::table('zid_orders')->where('store_id', $store->id)->value('status_code'), 'Premise: the caller\'s own row was written.');
-        $this->assertNull(DB::table('zid_orders')->where('store_id', $otherStore->id)->value('status_code'), 'Another tenant\'s Zid order with the same number was overwritten.');
+        $this->assertSame('delivered', DB::table('zid_orders')->where('zid_order_id', '555444')->value('status_code'), 'Premise: the caller\'s own row was written.');
+        $this->assertNull(DB::table('zid_orders')->where('zid_order_id', '555555')->value('status_code'), 'Another tenant\'s Zid order was written by a call that named a different order.');
     }
 
     public function test_an_order_number_shared_by_two_stores_resolves_to_the_authenticated_stores_order(): void

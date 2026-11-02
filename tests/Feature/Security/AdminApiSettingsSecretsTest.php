@@ -478,6 +478,25 @@ class AdminApiSettingsSecretsTest extends SecurityTestCase
         $existed = is_dir($dir);
         $before = $existed ? scandir($dir) : [];
 
+        /*
+         * F238 -- THIS TEST CREATES `public/uploads` AND MUST REMOVE IT AGAIN.
+         *
+         * The handler is `Api\DashboardController:8836`, `$file->move(public_path('uploads/' .
+         * $storeId), ...)`, and Symfony's `File::getTargetFile()` creates the destination
+         * RECURSIVELY (`!@mkdir($directory, 0o777, true)`). So on a checkout without the operator's
+         * `public/uploads` symlink -- which is gitignored, so EVERY clean clone -- this test creates
+         * `public/uploads/` on the way to `public/uploads/<id>/`. The cleanup below removed only
+         * the inner directory, leaving an empty REAL directory at `public/uploads`.
+         *
+         * That is not cosmetic. `PaidDownloadEntitlementTest`'s F217 characterization needs
+         * `public/uploads` to be a SYMLINK into the uploads root, this class runs BEFORE it
+         * (measured from the JUnit log of a full run), and a real directory there made that case
+         * fail on its own "the containment landed" message -- reporting a containment that had not
+         * happened, on every clean-clone run. Both ends are fixed: that helper now removes an empty
+         * leftover, and this test no longer leaves one.
+         */
+        $publicUploadsExisted = is_dir(public_path('uploads')) || is_link(public_path('uploads'));
+
         try {
             $response = $this->post('/api/admin/updateStoreOwnerInfo?store_id=' . $this->store->id, [
                 'invoice_logo' => UploadedFile::fake()->image('logo.png'),
@@ -493,6 +512,18 @@ class AdminApiSettingsSecretsTest extends SecurityTestCase
             }
             if (! $existed && is_dir($dir)) {
                 @rmdir($dir);
+            }
+
+            // And the parent this test's own upload created -- only if it was not there before,
+            // only if it is a real directory rather than somebody's symlink, and only if removing
+            // it is safe because it is empty.
+            if (
+                ! $publicUploadsExisted
+                && is_dir(public_path('uploads'))
+                && ! is_link(public_path('uploads'))
+                && array_diff((array) @scandir(public_path('uploads')) ?: [], ['.', '..']) === []
+            ) {
+                @rmdir(public_path('uploads'));
             }
         }
     }

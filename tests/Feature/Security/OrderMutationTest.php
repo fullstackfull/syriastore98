@@ -144,21 +144,19 @@ class OrderMutationTest extends SecurityTestCase
             'store_id' => $victimStore->id,
         ]);
 
-        // `delivery_earnings` is one of the six MONEY tables that finding G1 lists as read
-        // and written by live code (Api/DashboardController.php:7688 deletes and :7707
-        // creates rows) while NO migration in this repository creates it -- verified across
-        // all 207 migration files. Agent 2 deliberately left the money tables behind GATE F
-        // instead of committing DDL with a guessed decimal precision, because the eventual
-        // correct migration is a Schema::hasTable() no-op and the guess would become
-        // permanent and invisible. On a from-source database the table is therefore
-        // legitimately absent.
+        // `delivery_earnings` WAS one of the six MONEY tables read and written by live code while
+        // no migration in this repository created it, so the financial assertion below was wrapped
+        // in `Schema::hasTable()` rather than skipping the whole test and dropping a
+        // tenant-isolation guarantee for an unrelated reason. The reasoning was right and the
+        // premise has expired: GATE F closed on 2026-11-02 and
+        // 2026_11_02_000600_create_delivery_earnings_table.php declares the table with a structure
+        // measured against a restored copy of production rather than a guessed decimal precision.
         //
-        // The authorization assertions below are what this test exists to prove and they run
-        // unconditionally. Only the financial-record assertion depends on the gated table,
-        // so it alone is conditional -- the alternative, skipping the whole test, would
-        // silently drop a tenant-isolation guarantee for a reason unrelated to it.
-        $hasEarnings = \Illuminate\Support\Facades\Schema::hasTable('delivery_earnings');
-        $earningsBefore = $hasEarnings ? \App\Models\DeliveryEarning::count() : null;
+        // So the condition was always true, the wrapper was dead, and the comment had become
+        // false. It is unconditional now -- and the count is taken BEFORE the refused request for
+        // the same reason it always was: the assertion is that a refusal moves no money, which
+        // needs a baseline rather than a zero.
+        $earningsBefore = \App\Models\DeliveryEarning::count();
 
         $this->actingAs($attacker)
             ->post('/order-assign', [
@@ -168,9 +166,11 @@ class OrderMutationTest extends SecurityTestCase
             ->assertForbidden();
 
         $this->assertNull($order->fresh()->deliveryboy_id);
-        if ($hasEarnings) {
-            $this->assertSame($earningsBefore, \App\Models\DeliveryEarning::count());
-        }
+        $this->assertSame(
+            $earningsBefore,
+            \App\Models\DeliveryEarning::count(),
+            'a REFUSED cross-store assignment moved money: the delivery_earnings count changed'
+        );
     }
 
     public function test_merchant_cannot_delete_another_stores_order(): void

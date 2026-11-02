@@ -37,13 +37,118 @@ final class PaidDownloadEntitlementTest extends SecurityTestCase
 
     private string $relativePath = '';
 
+    /** Set only when THIS class created `public/uploads`, so teardown never removes an operator's. */
+    private bool $createdPublicUploadsLink = false;
+
     protected function tearDown(): void
     {
         if ($this->relativePath !== '' && is_file(base_path($this->relativePath))) {
             @unlink(base_path($this->relativePath));
         }
 
+        if ($this->createdPublicUploadsLink && is_link(public_path('uploads'))) {
+            @unlink(public_path('uploads'));
+            $this->createdPublicUploadsLink = false;
+        }
+
         parent::tearDown();
+    }
+
+    /**
+     * F238 — MAKE THE PRECONDITION, RATHER THAN DEPENDING ON SOMEBODY HAVING MADE IT.
+     *
+     * `public/uploads` is a SYMLINK to `../uploads`, it is gitignored
+     * (`.gitignore:8:/public/uploads`), and it is created by an operator or a deploy step. So a
+     * clean `git clone` does not have it — and the case below, which asserts a paid file is
+     * reachable THROUGH it, failed in CI for that reason while passing on any machine where
+     * somebody had run the deploy step.
+     *
+     * THAT IS WORSE THAN IT LOOKS, AND IT IS WHY THIS HELPER EXISTS RATHER THAN A SKIP. The case
+     * is a characterization of a residual exposure: its failure is supposed to mean *"the
+     * containment landed, come and update F217."* In CI it was failing because the SYMLINK was
+     * absent, which means the suite has been reporting "contained" in the one environment that
+     * runs it on every push, while nothing was contained. A test whose verdict depends on who
+     * last ran a deploy script is not a characterization of anything.
+     *
+     * WHAT THE CASE STILL PROVES once the link is deterministic -- because "the test makes its own
+     * precondition" can be a way to make a tautology, and it is worth saying why this is not one.
+     * The claim is that **a paid downloadable is written into the directory tree that
+     * `public/uploads` exposes**. If containment landed -- paid files written somewhere not under
+     * `uploads/`, which is what F217's remedy would do -- then `$this->relativePath` would no
+     * longer sit under `uploads/`, the derived public view would not exist, and the case would fail
+     * exactly as designed. The symlink is the environment; the path is the claim.
+     *
+     * It creates the link ONLY if nothing is there, records that it did, and removes it in teardown
+     * only in that case -- so an operator's own symlink, or a real directory, is never touched.
+     */
+    private function requirePublicUploadsView(): void
+    {
+        $link = public_path('uploads');
+
+        // ALREADY THE PRODUCTION SHAPE. Nothing to do, and nothing of the operator's to touch.
+        if (is_link($link)) {
+            return;
+        }
+
+        /*
+         * A REAL DIRECTORY, NOT A SYMLINK -- AND THIS BRANCH IS THE WHOLE REASON THE FIRST VERSION
+         * OF THIS HELPER WAS NOT ENOUGH.
+         *
+         * It tested `file_exists($link) || is_link($link)` and returned early on either. A real
+         * directory satisfies `file_exists()`, so the symlink was never created and the case failed
+         * anyway -- on its own "the containment landed" message, which is the misleading failure
+         * this helper exists to prevent.
+         *
+         * WHERE THE DIRECTORY COMES FROM, measured rather than guessed. A sibling in the SAME
+         * suite creates it: AdminApiSettingsSecretsTest::test_the_store_image_upload_lands_in_the_
+         * stores_own_folder drives `updateStoreOwnerInfo` with a fake image, and
+         * Api\DashboardController:8836 does `$file->move(public_path('uploads/' . $storeId), ...)`.
+         * Symfony's File::getTargetFile() creates the destination RECURSIVELY
+         * (`!@mkdir($directory, 0o777, true)`), so it creates `public/uploads/` on the way to
+         * `public/uploads/<id>/`, and that test's `finally` removes only the inner one. It runs
+         * BEFORE this class -- measured from the JUnit log of the last full run, not assumed.
+         * That sibling now cleans up after itself too, so this branch is a second line of defence
+         * rather than the only one.
+         *
+         * An EMPTY one is that leftover: remove it and establish the real shape. A NON-EMPTY one is
+         * somebody's actual upload directory and is not touched -- in that case the environment is
+         * genuinely not the production shape, because a paid file written to the repo-root
+         * `uploads/<id>/` is not underneath it, and saying so is better than quietly reporting a
+         * containment.
+         */
+        if (is_dir($link)) {
+            $entries = array_diff((array) @scandir($link) ?: [], ['.', '..']);
+
+            if ($entries !== []) {
+                $this->fail(
+                    '`public/uploads` is a real, NON-EMPTY directory rather than a symlink into the '
+                    . 'uploads root, so this environment is not the shape F217 is about and this '
+                    . 'case cannot characterize it. In production `public/uploads` is a symlink, '
+                    . 'which is why the web server serves a paid file before PHP is involved. '
+                    . 'Contents: ' . implode(', ', array_slice($entries, 0, 5))
+                );
+            }
+
+            if (! @rmdir($link)) {
+                $this->fail('`public/uploads` is an empty real directory that could not be removed.');
+            }
+        }
+
+        if (! is_dir(dirname($link))) {
+            $this->fail('public/ does not exist, so the public view cannot be established at all.');
+        }
+
+        if (! @symlink('../uploads', $link)) {
+            $this->fail(
+                'Could not create the `public/uploads` symlink, so this characterization cannot '
+                . 'run. It is the operator artefact F217 is about: `public/uploads -> ../uploads`, '
+                . 'which is why the web server serves a paid file before PHP is involved. If '
+                . 'symlinks are unavailable on this platform, say so here rather than letting the '
+                . 'case report a containment that has not happened -- that is F238.'
+            );
+        }
+
+        $this->createdPublicUploadsLink = true;
     }
 
     /** The buyer whose order it is gets the bytes, and the response is an attachment. */
@@ -193,9 +298,16 @@ final class PaidDownloadEntitlementTest extends SecurityTestCase
         $this->assertFileExists(base_path($this->relativePath),
             'premise: the fixture really wrote a file under the uploads root');
 
-        $this->assertDirectoryExists(public_path('uploads'),
-            'public/uploads is absent, so this residual may already be contained — if that is '
-            . 'deliberate, update F217 and delete this case');
+        // F238: establish the operator artefact rather than depending on it -- see the helper.
+        $this->requirePublicUploadsView();
+
+        $this->assertTrue(
+            is_link(public_path('uploads')),
+            'public/uploads is not a SYMLINK after requirePublicUploadsView(). A real directory is '
+            . 'not the shape F217 is about: a paid file written to the repo-root `uploads/<id>/` is '
+            . 'not underneath one. The first version of this premise accepted `is_dir()` too, and '
+            . 'that is exactly how the leftover directory a sibling test creates slipped past it.'
+        );
 
         /*
          * Asserted as a FILESYSTEM fact rather than by driving an HTTP request, because PHPUnit's

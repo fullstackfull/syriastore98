@@ -274,51 +274,138 @@ class PaymentTypeLabelTest extends TestCase
     }
 
     /**
-     * THE SAME GUARANTEE, DERIVED RATHER THAN TRANSCRIBED.
+     * THE SAME GUARANTEE, DERIVED RATHER THAN TRANSCRIBED -- AND IT NOW ACTUALLY RUNS IN CI.
      *
      * The pinned list above is readable and names each label, which is worth having; but it is a
-     * hand copy, and a hand copy is exactly what let `DPO` through. This reads the replaced map
-     * out of the commit that removed it, so "this change only adds labels" is checked against the
-     * real former behaviour rather than against my transcription of it.
+     * hand copy, and a hand copy is exactly what let `DPO` through. This checks "this change only
+     * adds labels" against the real former behaviour rather than against my transcription of it.
+     *
+     * ================================================================================================
+     *  IT HAD NEVER EXECUTED ON A RUNNER, AND THAT IS WHY THIS METHOD WAS REWRITTEN.
+     * ================================================================================================
+     *
+     * It used to read the map straight out of git history:
+     *
+     *     shell_exec("git show c7283a3c~1:app/DataTables/OrderDataTable.php")
+     *     if (trim($old) === '') { $this->assertTrue(true, 'git history ... unavailable'); return; }
+     *
+     * `.github/workflows/ci.yml` checks out with `actions/checkout@v4` and **no `fetch-depth`** on
+     * both `tests` jobs, so the clone is depth 1 -- only `static`, `secrets` and the regression gate
+     * set `fetch-depth: 0`, each with a comment saying why. `c7283a3c` is 347 commits behind HEAD,
+     * so `git show` failed, the degrade branch fired, and this test asserted `true`. On every push.
+     *
+     * Proved with a real shallow clone rather than reasoned about: `git clone --depth 1` reports one
+     * cloned commit and `git show c7283a3c~1:...` answers *"fatal: invalid object name"*.
+     *
+     * So the DERIVED half of the ratchet was dead and only the hand copy ever ran -- the exact
+     * thing it exists to double-check. Found by a clean-clone sweep, not by a failure: a degrade
+     * branch that asserts `true` cannot fail, which is what made it invisible.
+     *
+     * THE FIX IS A COMMITTED FIXTURE PLUS A CROSS-CHECK, not `fetch-depth: 0`. A full clone on
+     * every run would fix it for one workflow and leave every other checkout -- a tarball, a
+     * `COPY`, `composer create-project` -- exactly as blind, while making CI fetch a history that
+     * carries a 20MB dump. The map is a fixed historical fact, so it belongs in a file.
+     *
+     *   - `tests/Support/Payments/removed-order-datatable-payment-map.json` holds it, extracted
+     *     with the SAME TWO REGEXES this method used, so it is not a transcription.
+     *   - the derived assertion runs from that file, everywhere.
+     *   - and where git history IS readable, the fixture is cross-checked against it, so it cannot
+     *     drift from the truth on any machine that can see the truth.
      */
     public function test_every_old_map_key_still_resolves(): void
     {
-        $removedIn = 'c7283a3c';
+        $fixture = base_path('tests/Support/Payments/removed-order-datatable-payment-map.json');
+
+        $this->assertFileExists(
+            $fixture,
+            'The removed map fixture is gone, so the DERIVED half of this ratchet cannot run and '
+            . 'only the hand-written list above would be left -- which is the thing it exists to '
+            . 'double-check.'
+        );
+
+        $recorded = json_decode((string) file_get_contents($fixture), true);
+
+        $this->assertIsArray($recorded, 'the fixture is not readable JSON');
+        $this->assertIsArray($recorded['map'] ?? null, 'the fixture carries no map');
+
+        // The floor the old assertion used, kept so a truncated fixture cannot pass.
+        $this->assertGreaterThanOrEqual(
+            53,
+            count($recorded['map']),
+            'the recorded map is smaller than the 53 pairs measured from the removed file'
+        );
+
+        foreach ($recorded['map'] as $key => $label) {
+            $this->assertNotNull(
+                PaymentTypeLabel::for((string) $key),
+                "the old map rendered '{$key}' as '{$label}' and it now renders a dash"
+            );
+        }
+
+        $this->crossCheckTheFixtureAgainstGit($recorded);
+    }
+
+    /**
+     * THE FIXTURE CANNOT DRIFT WHERE THE TRUTH IS READABLE.
+     *
+     * On a full clone this re-derives the map from the commit that removed it and asserts the
+     * fixture matches, with the same two regexes that produced it. On a shallow clone -- which is
+     * what CI has, and the whole reason the fixture exists -- there is nothing to compare against,
+     * and that is recorded rather than skipped: an undeclared skip fails
+     * `.github/scripts/assert-known-test-outcomes.php` in both directions.
+     *
+     * This is the degrade branch the OLD version had, moved to where it is harmless. It used to
+     * guard the only assertion in the test, so firing meant nothing was checked. It now guards
+     * only the fidelity cross-check, and the derived assertions above have already run.
+     *
+     * @param  array<string, mixed>  $recorded
+     */
+    private function crossCheckTheFixtureAgainstGit(array $recorded): void
+    {
+        $removedIn = (string) ($recorded['removed_in'] ?? '');
+        $source = (string) ($recorded['source'] ?? '');
+
+        $this->assertNotSame('', $removedIn, 'the fixture does not say which commit removed the map');
+        $this->assertNotSame('', $source, 'the fixture does not say which file carried it');
+
         $old = (string) shell_exec(sprintf(
-            'cd %s && git show %s~1:app/DataTables/OrderDataTable.php 2>/dev/null',
+            'cd %s && git show %s 2>/dev/null',
             escapeshellarg(base_path()),
-            escapeshellarg($removedIn)
+            escapeshellarg($removedIn . '~1:' . $source)
         ));
 
         if (trim($old) === '') {
-            /*
-             * A conditional skip would be a NEW undeclared skip, which
-             * `.github/scripts/assert-known-test-outcomes.php` fails in both directions — so where
-             * git history is unavailable this records the fact and leans on the pinned list above,
-             * which always runs.
-             */
-            $this->assertTrue(true, 'git history for ' . $removedIn . ' is unavailable here');
+            $this->assertTrue(
+                true,
+                'git history for ' . $removedIn . ' is unavailable here (a shallow clone, which is '
+                . 'what CI has), so the fixture cannot be cross-checked -- the derived assertions '
+                . 'above have already run against it, which is the point of the fixture'
+            );
 
             return;
         }
 
-        /*
-         * Scoped to the map itself: the old file has other `'x' => __('y')` pairs, among them a
-         * `'title'` key that would otherwise be demanded as a payment label.
-         */
-        $this->assertSame(1, preg_match('/\$paymentTypes = \[.*?\n\s*\];/s', $old, $block),
-            'the removed map could not be located in the old file');
+        $this->assertSame(
+            1,
+            preg_match('/\$paymentTypes = \[.*?\n\s*\];/s', $old, $block),
+            'the removed map could not be located in the old file'
+        );
 
         preg_match_all("/'([^']+)' => __\('([^']+)'\)/", $block[0], $pairs);
 
-        $this->assertGreaterThanOrEqual(53, count($pairs[1]), 'the old map was smaller than recorded');
+        $fromGit = [];
 
         foreach ($pairs[1] as $i => $key) {
-            $this->assertNotNull(
-                PaymentTypeLabel::for($key),
-                "the old map rendered '{$key}' as '{$pairs[2][$i]}' and it now renders a dash"
-            );
+            $fromGit[$key] = $pairs[2][$i];
         }
+
+        $this->assertSame(
+            $fromGit,
+            $recorded['map'],
+            'THE FIXTURE AND GIT HISTORY DISAGREE about the map that c7283a3c removed. The fixture '
+            . 'is a mechanical extract, so a disagreement means it was edited by hand or the commit '
+            . 'it names is not the one that removed the map. Re-extract it rather than editing it.'
+        );
     }
 
     public function test_both_spellings_of_the_one_ambiguous_provider_resolve(): void

@@ -5,7 +5,7 @@ namespace Tests\Feature\Commerce;
 use App\Services\OrderFinancialService;
 use PHPUnit\Framework\Attributes\DataProvider;
 use ReflectionMethod;
-use Tests\TestCase;
+use Tests\Feature\Security\SecurityTestCase;
 
 /**
  * THE PAYMENT STATUS A FINANCIAL RECORD IS WRITTEN WITH.
@@ -27,17 +27,39 @@ use Tests\TestCase;
  *
  * WHY IT SURVIVED. There was no test of this method at all -- not one, before this file.
  *
- * WHY THERE IS NO END-TO-END CASE HERE, which is a limit worth stating rather than hiding.
- * `store_order_financials` and `store_wallets` are GATE F tables: live code reads and writes
- * them, and NO migration in this repository creates them
- * (database/migrations/_gate_f_pending/README.md). They do not exist in the test schema, so
- * createForOrder() and syncFromOrder() cannot be exercised against a real row here, and
- * creating the tables to make that possible is the GATE F workstream, not this fix. What is
- * testable is the decision every one of those writes is derived FROM, and the census below is
- * the tripwire that would have caught the defect in the first place.
+ * THERE IS AN END-TO-END CASE NOW, AND THE WAY THIS FILE GOT ONE IS THE LESSON.
+ *
+ * The paragraph that stood here said -- correctly, when written -- that `store_order_financials`
+ * and `store_wallets` were GATE F tables created by no migration, so `createForOrder()` could not
+ * be exercised against a real row. It set a tripwire to say when that changed:
+ *
+ *     test_the_financial_tables_are_still_absent_so_this_files_scope_is_honest()
+ *     "If this ever fails, GATE F has cleared and an end-to-end case belongs here."
+ *
+ * GATE F cleared on 2026-11-02. THE TRIPWIRE DID NOT FIRE, and four days later it was still
+ * green. The reason is the one this project has already recorded about a sibling file
+ * (FinancialSurfaceCoverageTest's own docblock): **this class does not use `RefreshDatabase`**, so
+ * no migration ran and `Schema::hasTable()` was answering against an empty `:memory:` database. It
+ * was false for every table in the world, which made the absence assertion pass against a schema
+ * that had nothing in it at all.
+ *
+ * That is a test passing for the wrong reason, in the exact shape the wave-2 census was built to
+ * find -- and that census missed this one, because it was keyed on the ASSERTION's shape and the
+ * thing that differs here is the CLASS SETUP. Found by an independent completeness sweep.
+ *
+ * So the class migrates now, the tripwire is inverted, and the case its own message demanded is
+ * below.
  */
-class PaymentStatusNormalizationTest extends TestCase
+class PaymentStatusNormalizationTest extends SecurityTestCase
 {
+    /*
+     * ADDED 2026-11-02, and it is the FIX, not a convenience. Without it `Schema::hasTable()`
+     * answers against an un-migrated `:memory:` database -- see the class docblock. The other
+     * forty cases here are pure functions over normalizePaymentStatus() and do not need a
+     * database; they are unaffected by its presence.
+     */
+    use \Illuminate\Foundation\Testing\RefreshDatabase;
+
     /**
      * Every distinct literal this codebase writes to a `payment_status` column, and which
      * model owns it. MEASURED, by the census test below, not asserted from memory.
@@ -268,17 +290,95 @@ class PaymentStatusNormalizationTest extends TestCase
     }
 
     /**
-     * The scope limit, asserted rather than described: while these tables are GATE F, no test
-     * in this file can prove what landed in a financial row. If this ever fails, GATE F has
-     * cleared and an end-to-end case belongs here.
+     * THE INVERSE OF THE OLD TRIPWIRE. It asserted these tables were ABSENT and passed vacuously
+     * for four days after they arrived, because the class did not migrate -- see the class
+     * docblock. Both halves are fixed: the class migrates, and this asserts presence.
      */
-    public function test_the_financial_tables_are_still_absent_so_this_files_scope_is_honest(): void
+    public function test_the_financial_tables_are_present_so_an_end_to_end_case_is_possible(): void
     {
         foreach (['store_order_financials', 'store_wallets'] as $table) {
-            $this->assertFalse(\Schema::hasTable($table),
-                "{$table} now exists -- GATE F has cleared, so add the end-to-end case this file "
-                . 'could not have: a succeeded order must produce paid_amount = the total and a paid_at.');
+            $this->assertTrue(
+                \Schema::hasTable($table),
+                "{$table} is missing. GATE F declared it on 2026-11-02 with a structure measured "
+                . 'against a restored copy of production, so this means the migration has been '
+                . 'reverted or renamed -- and the end-to-end case below cannot run.'
+            );
         }
+    }
+
+    /**
+     * THE END-TO-END CASE THE OLD TRIPWIRE'S OWN MESSAGE DEMANDED, verbatim: *"a succeeded order
+     * must produce paid_amount = the total and a paid_at"*.
+     *
+     * It is the only test anywhere that joins the two halves this file is about -- the spelling in
+     * `orders.payment_status`, and what `createForOrder()` therefore WRITES. The forty cases above
+     * prove the normaliser maps 'succeeded' to 'paid'; this proves that answer reaches the row,
+     * which is where the money was lost: `paid_amount` is the customer total only when the status
+     * normalises to 'paid', and `paid_at` is set only then.
+     */
+    public function test_a_succeeded_order_is_recorded_as_paid_with_a_paid_at(): void
+    {
+        // THE FIXTURES ARE THE SHARED ONES, not hand-rolled. The first version of this test built
+        // the `stores` row itself and was refused by `stores.theme_id` being NOT NULL -- the same
+        // class of fixture guess GATE F has already falsified three times. makeTenant() and
+        // makeOrder() are the proven shapes, which is why this class now extends
+        // SecurityTestCase: a thin base whose only setUp is to disable Laratrust's permission
+        // cache, which the forty pure cases above do not notice.
+        [, $store] = $this->makeTenant();
+
+        \App\Models\StoreWallet::create([
+            'store_id' => $store->id,
+            'currency_code' => 'USD',
+            'available_balance' => 0,
+            'pending_balance' => 0,
+            'total_income' => 0,
+            'total_withdrawn' => 0,
+        ]);
+
+        // 'succeeded' is the spelling this file exists for: twenty order-write sites use it, and
+        // the normaliser's match arms did not name it.
+        $order = $this->makeOrder($store, [
+            'price' => 250,
+            'final_price' => 250,
+            'payment_status' => 'succeeded',
+        ]);
+
+        $financial = \Illuminate\Support\Facades\DB::table('store_order_financials')
+            ->where('order_id', $order->id)
+            ->first();
+
+        $this->assertNotNull(
+            $financial,
+            'No financial row was written for the order. OrderObserver::created() calls '
+            . 'createForOrder() inside a try/catch that only logs, so a failure here is silent in '
+            . 'production -- which is why this assertion exists before the ones below.'
+        );
+
+        $this->assertSame(
+            'paid',
+            $financial->payment_status,
+            'A \'succeeded\' order was NOT recorded as paid. normalizePaymentStatus() has stopped '
+            . 'naming that spelling again, and every figure below it derives from this one answer.'
+        );
+
+        $this->assertEqualsWithDelta(
+            (float) $financial->customer_total,
+            (float) $financial->paid_amount,
+            0.01,
+            'the paid amount is not the customer total, although the status normalised to paid'
+        );
+
+        $this->assertEqualsWithDelta(
+            0.0,
+            (float) $financial->remaining_amount,
+            0.01,
+            'a fully paid order still shows an outstanding remainder'
+        );
+
+        $this->assertNotNull(
+            $financial->paid_at,
+            'paid_at is null on a paid record, so nothing downstream can tell WHEN it was paid'
+        );
     }
 
     /** @return array<int,string> every distinct literal assigned to a payment_status column */

@@ -4228,6 +4228,454 @@ from git before any commit; the tests now touch only sandbox paths.
 
 **A thing worth knowing about the process:** the first version of this fix was a deny-list of names, tested only on SQLite, and its first review found three HIGH defects — one of which the suite could not have seen on principle. The second review found the first fix's own regression and that a deny-list cannot be shown complete. The design that shipped puts the PERMISSION on the route and keeps the name rule only where a lower permission legitimately reaches a generic writer. The acceptance criterion that asked for per-writer allow-lists was deliberately not implemented (reasons in the task's evidence).
 
+## S47 — A merchant's Zid OAuth credentials were destroyed by a product name — **P1-SEC-41 CLOSED**
+
+**Found on 2026-11-02, by GATE F, in the direction nobody watches: application behaviour that
+depended on a table being ABSENT.** `zid_stores` was declared by no migration, so no environment
+built from this repository had a row to lose, and the defect could not be observed here at all.
+The migration arriving is what made it visible — the same class of change
+`docs/GATE-F-VERIFIED-SCHEMA.md` §4 warns about.
+
+Surfaced by an independent review agent on the wave-4 diagnosis, and then **re-measured
+independently** before anything was changed, because a claim this size is not accepted on a
+report.
+
+### The defect
+
+`routes/web.php`, the anonymous `POST /zid/events/{v?}` webhook. After the shared-secret gate it
+recorded the event and then:
+
+```php
+$event   = $r->header('X-Zid-Event') ?? $r->input('event');
+$raw     = json_encode($r->all(), JSON_UNESCAPED_UNICODE);   // THE WHOLE BODY
+$storeId = $r->input('store_id') ?? $r->input('store.id');
+...
+if ($storeId && str_contains($raw . ' ' . $event, 'application.uninstall')) {
+    DB::table('zid_stores')->where('store_id', $storeId)->delete();
+}
+```
+
+The condition searched **the entire serialised request body**. So the DELETE fired on any
+authenticated webhook whose body merely *contained* that string, in any field, at any depth — it
+was never a check on the event name.
+
+### What was measured, not reasoned about
+
+An ordinary order webhook with the correct `X-Hook-Secret`:
+
+```json
+{"store_id":"7654321","event":"order.create",
+ "order":{"items":[{"name":"Guide to application.uninstall webhooks (paperback)"}]}}
+```
+
+→ **HTTP 200**, `zid_events.event` recorded as **`order.create`**, and **zero rows left in
+`zid_stores`**.
+
+Two things make that worse than a wide match. **The handler recorded one thing and did another**:
+its own audit row said `order.create`, so nothing in the system would have explained why the
+merchant was unlinked. And **the trigger is content, not a crafted request** — product names,
+order notes and addresses are merchant- and shopper-controlled text that Zid relays verbatim.
+`2026_11_02_001300_create_zid_stores_table.php`'s own `down()` records that the row *"cannot be
+reconstructed without re-authorising"*, so the loss is not recoverable from this side.
+
+### Severity
+
+**S2 HIGH** — and the FIRST VERSION OF THIS PARAGRAPH GAVE THE WRONG REASON, which independent
+review refuted. It said: *"Not S1: it needs the platform-wide shared secret, so the caller is Zid
+or someone holding that secret."* That is true and misleading in the same breath.
+
+**The shared secret is a literal in this repository.** `config/services.php:33-34` defines
+`services.zid.hook_user` and `services.zid.hook_pass` as plain strings, and the same block carries
+`services.zid.client_secret` at `:31` and `services.deliverysyria.api_key` at `:44`. This is
+already tracked: **SEC-CFG-02**, where `hook_pass` is rated **HIGH, P0 to rotate — "the nastiest of
+the four"** for exactly this reason (*"possession lets an attacker forge Zid webhook deliveries"*).
+So "someone holding that secret" is anyone who can read the repository, not a narrow set.
+
+**The rating still stands, for a different reason:** what this defect destroys is an integration
+credential, not customer data, and the row is re-creatable by the merchant re-authorising. What
+makes it HIGH rather than MEDIUM is that it was **remotely triggerable by ordinary content** — the
+attacker needed no credential at all, only to get a string into a product name that Zid relays, with
+Zid as the authenticated caller. That is a confused deputy, and the fix closes it.
+
+**Worth claiming and previously unclaimed:** the fail-open fix in the same closure is the
+**prerequisite** that makes SEC-CFG-02's remediation safe. Moving those literals to the environment
+before it would have turned `null === null` into an open endpoint.
+
+### The fix, and the one thing it deliberately does not decide
+
+The condition now reads **the event name this handler itself resolved** — the same value it writes
+to `zid_events.event` — so it can no longer record one thing and do another. `str_contains` is
+kept *on the event name* rather than tightened to `===`, so a prefixed or versioned spelling still
+matches, and the only requests whose behaviour changes are the ones where the string appears
+outside the event name.
+
+**The open question is factual and was not guessed at.** `$event` is read only from the
+`X-Zid-Event` header or a top-level `event` key. Nothing in this repository states Zid's uninstall
+payload shape — `ZidOAuthController` subscribes only to `order.create`, `order.status.update` and
+`order.payment_status.update`, so the uninstall callback is not one this code registers. If Zid
+carries that event name somewhere else, an uninstall now goes **unprocessed**. That case is
+`Log::warning`-ed rather than dropped in silence, and the two failure modes are deliberately
+asymmetric: *not* unlinking is visible and reversible, unlinking wrongly is neither.
+
+**Owner action, and it is CHEAPER THAN ASKING ZID.** `zid_events` holds live production data, so one
+query settles it: read the `event` column and the `payload` of a recent `order.create` row. A
+non-null `event` means the top-level key is real; null or blank means `X-Zid-Event` is the only
+source. The same query answers whether `application.uninstall` has **ever** arrived. Also confirm
+the exact **spelling and case** — raised by review, and acted on: the WARNING now matches
+case-insensitively while the ACTION stays case-sensitive, so `Application.Uninstall` is logged
+rather than silently ignored, and no other spelling is given licence to destroy credentials. If the
+name turns out to live elsewhere, widen the READ site to the named keys — never back to the whole
+body.
+
+**One piece of repository evidence supports the fix and was not used in the first version.**
+`ZidProcessEvents::saveNewEvents()` keys on `isset($o['id'], $o['order_status'])` and `saveOrder()`
+reads `data_get($o, 'store_id')` — both from the payload **root**, with no envelope. If order
+webhooks carried a top-level `event` key, that consumer would be reading past a wrapper it never
+looks for. Indirect, but it is the strongest evidence in the tree and it agrees with reading the
+header first.
+
+### Proof
+
+`tests/Feature/Security/ZidWebhookSecretTest` — 10 tests, 26 assertions.
+`test_a_non_uninstall_event_mentioning_the_string_does_not_unlink_anyone` is the regression test
+and drives the exact measured payload. Its pair,
+`test_an_authenticated_uninstall_does_remove_the_named_zid_merchant`, drives a real uninstall and
+proves the DELETE still happens with a bystander merchant left alone — without it the regression
+test would pass against a handler that had simply stopped deleting.
+
+**Two more tests exist because review ran mutations instead of reading the file.**
+`test_the_right_password_under_a_wrong_user_is_refused` exists because deleting
+`hash_equals($configuredUser, $basicUser)` from the gate left every other test green — the
+wrong-password case reddens if *either* comparison goes, and so proves neither.
+`test_the_event_name_is_taken_from_the_x_zid_event_header` exists because **nothing** drove
+`X-Zid-Event`, and this fix made that resolution load-bearing: before it, the body's `event` value
+was inside `$raw`, so the unlink fired on a body key even with header resolution broken.
+
+And the **`Log::warning` is now pinned**, through the logger's own `MessageLogged` event rather than
+a Mockery spy, so the assertion fails inside the test body. It had to be: the whole fail-safe
+argument rests on that warning, and without an assertion it could have been deleted silently.
+
+Mutations, each run, each hitting exactly the intended test: restoring the whole-body match reddens
+only the regression test; deleting the gate's user comparison reddens only the wrong-user test;
+deleting the `X-Zid-Event` half of the resolution reddens only the header test; deleting the whole
+`Log::warning` block reddens only the regression test. And one *negative* result worth recording —
+deleting the real `DB::table('zid_stores')->...->delete()` statement still reddens
+`OwnedPathRawQueryInventoryTest`, so the long code comment added here, which quotes the OLD
+condition, did **not** satisfy that text-scanning ratchet by accident. Review flagged it as a
+near-miss; it was measured, and it is a miss.
+
+### Two things found beside it, and left open
+
+- **The refusal tests could not distinguish a refusal from a gate that answers 401 *after* writing
+  the event row.** There are **six** of them, and the first version of this line said "five ...
+  each" when the assertion was on four — corrected after review, and the assertion added to the
+  other two so the sentence is now true as written: **all six** assert zero `zid_events` rows. For
+  the two fail-open cases the status assertion alone was already sufficient (an admitted request
+  answers 200, not 401); the row assertion was added anyway, because uniformity in a security class
+  is worth more than minimality. The observation itself was impossible before GATE F.
+- **The 401-vs-403 question in that closure's own comment block is untouched and still open.**
+  Repo B forces a logout on any 401 from the API it calls; this is a non-`/api` server-to-server
+  path, so no claim about repo B's call sites is made here.
+
+---
+
+## S48 — A driver was paid the same commission once per button click — **P1-SEC-42 CLOSED**
+
+**A live money defect that GATE F made reachable, on 2026-11-02, in both handlers that write a
+delivery commission.** Found by independent review of the wave-4 diagnosis and **re-measured here
+through the real route before a line was changed**, because a claim about money is not accepted on
+a report.
+
+### The defect
+
+`OrderController::order_assign` (POST `/order-assign`) and
+`Api\DashboardController::assignOrder` (POST `api/admin/assignOrders`, the handler the Flutter
+admin app calls) both clean up the existing commission row only when the driver **changes**:
+
+```php
+if ($order->deliveryboy_id != $request->delivery_boy) {
+    DeliveryEarning::where('order_id', $order->id)->delete();
+}
+```
+
+and both then inserted a new row gated on nothing of the kind. So re-submitting the **same** driver
+skipped the delete and still inserted.
+
+### Measured, through the web route, before the fix
+
+A `local pickup` shipping method, `orders.delivery_price` 20, a driver at 10%:
+
+| submissions | rows | `SUM(commission_amount)` |
+|---|---|---|
+| 1 | 1 | **2.00** — correct |
+| 2 | 2 | 4.00 |
+| 3 | 3 | **6.00** |
+
+A merchant double-clicking the assign button is enough; so is an AJAX retry. The admin API's
+`DB::beginTransaction()` does not help, and it is worth saying why: each request is its own
+transaction and each commits a valid-looking duplicate. **A transaction makes a write atomic, not
+idempotent.**
+
+### Severity
+
+**S2 HIGH.** It inflates what a driver is owed, silently, from an ordinary merchant action, on both
+the web and the shipped Flutter admin app. Not S1 only because it needs an authenticated merchant
+with `Manage Order` on their own order, and it over-credits rather than disclosing or destroying.
+
+### Why it was invisible
+
+`delivery_earnings` was declared by no migration, so the insert answered HTTP 500 to every caller
+and nothing could be duplicated. GATE F's
+`2026_11_02_000600_create_delivery_earnings_table.php` is what made the path live — the same
+direction as `currency_rates` the same day, and the one nobody watches: **behaviour that depended
+on a table being ABSENT.** Directive E's prohibition list names this shape directly ("duplicate
+payments/withdrawals/stock movements").
+
+### The fix, and the two designs that were rejected
+
+The insert is now gated on the **absence** of a row for that order, evaluated **after** the delete.
+
+An unconditional delete, and an `updateOrCreate` on `order_id`, both also stop the duplication —
+and **both destroy money state**, because a row already moved to `paid` comes back as `pending`.
+Doing nothing when the earning is already recorded is the only one of the three that is idempotent
+in the `status` column too. Evaluating it after the delete is what keeps a genuine driver *change*
+working: the delete removes the old row, `exists()` is false, the new driver's earning is written.
+
+`DeliveryEarning` is one of the 16 models that are **not** `Cachable`, so that read sees the delete
+above it rather than a cached pre-delete row.
+
+### Proof
+
+`tests/Feature/Security/DeliveryCommissionIdempotencyTest` — **6 tests, 34 assertions**:
+
+| test | what it holds |
+|---|---|
+| premise | the commission branch is reachable at all — without it every assertion below is vacuous, which is how this family has passed for the wrong reason before |
+| web, 3 identical submissions | 1 row, 2.00 |
+| admin API, 3 identical submissions | 1 row, 2.00 |
+| a genuine driver **change** | still 1 row, and it belongs to the **new** driver — the way an idempotency guard usually goes wrong is by suppressing the replacement too |
+| a refused cross-store assignment | the commission already owed **survives**, which is the only thing proving the ownership guard returns BEFORE the destructive delete |
+| a commission already `paid` | stays `paid` — the only test that fails against the two rejected designs |
+
+**Mutations, each run.** Removing the guard from both handlers reddens three of the six, exactly
+the three about duplication. Hoisting the delete above the ownership guard reddens exactly the
+cross-store one and nothing else.
+
+### Found beside it and NOT closed here
+
+- **The driver-earnings read endpoints are untested and newly live.**
+  `Api\DashboardController` reads `DeliveryEarning` at :5335, :5341, :5401, :5442 and :5445 — the
+  endpoints the Flutter *driver* app calls. They answered 500 to every caller before 2026-11-02 and
+  now return data. **`DeliveryEarning` has no `store_id` column and is not in
+  `config/tenancy.php`'s `scoped_models`**, so those reads are keyed on `delivery_boy_id` alone and
+  no global scope adds a predicate. That is a surface worth its own package, not a line in this one.
+- **Two expired `Schema::hasTable('delivery_earnings')` wrappers** in
+  `OrderAssignPermissionTest` and `OrderMutationTest` — conditions that were always true, wrappers
+  that were dead, and comments that had become false. Made unconditional in the same change; a
+  conditional whose premise has expired reads as coverage being deliberately skipped.
+
+---
+
+## S49 — One forged webhook creates a REAL parcel at Delivery Syria on another merchant's account, with an attacker-chosen COD amount — **P1-SEC-43, OPEN, OWNER DECISION REQUIRED BEFORE DEPLOYMENT**
+
+**S1.** Raised by independent review of S47 and **verified link by link here** before being written
+down. It is not fixed, and it is not fixable inside this workstream: containment needs either
+credential rotation or a change to what is sent to Zid at link time, both of which the owner holds.
+
+### The chain, each link read in code
+
+1. **Ingest.** `routes/web.php`, `POST /zid/events/{v?}` — anonymous, gated only by the
+   platform-wide shared secret, which is a **literal in `config/services.php:33-34`** (SEC-CFG-02,
+   already rated HIGH / P0-to-rotate). The handler writes the request body verbatim:
+   `DB::table('zid_events')->insert(['store_id' => $storeId, 'event' => $event, 'payload' => $raw, ...])`
+   where `$raw = json_encode($r->all())`. Nothing validates the body.
+2. **Drain.** `app/Console/Commands/ZidProcessEvents.php:47` takes 200 unprocessed `zid_events`
+   rows; `:53` calls `saveOrder($o)` for any payload where `isset($o['id'], $o['order_status'])`.
+3. **Promotion to an order row.** `saveOrder()` at `:78` writes
+   `'store_id' => (string) data_get($o, 'store_id')` — **read from the payload ROOT, not from the
+   `zid_events.store_id` column** — together with `consignee.name`, `consignee.mobile`,
+   `shipping.address.*`, `order_total` and `customer_note`, all caller-supplied, and inserts into
+   `zid_orders` with `parcel_status => 'pending'`.
+4. **The outbound call, on the victim's credential.** `sendPendingOrders():107` selects pending
+   rows; `sendOrder():128` looks `zid_stores` up by that **caller-supplied** `store_id`, and `:148`
+   does `Http::withToken(Crypt::decryptString($store->ds_secret))` — **the named merchant's
+   Delivery Syria secret** — POSTing `/api/parcel/create-with-security` with `cod_amount2` and
+   `selling_price` derived from the caller's `order_total`, and the caller's customer name, phone,
+   address and note.
+5. **It runs by itself.** `routes/console.php:9`:
+   `Schedule::command('zid:process-events')->everyMinute()->withoutOverlapping();`
+
+So **one `POST /zid/events` creates a real parcel at a third-party courier, on another merchant's
+account, with an attacker-chosen cash-on-delivery amount.** Forged rows keep `processed_at` NULL,
+so they are a stored, delayed payload: if the server is not currently running `schedule:run`, they
+drain in batches of 200 the first time it does.
+
+### Why this is S1 and S47 is S2
+
+S47 destroyed an integration credential the merchant could re-create by re-authorising. This one
+**takes an action in the physical world with money attached**, on a third party's account, and
+there is no undo in this codebase. The principal set is the same as S47's and just as wide: anyone
+who can read `config/services.php`.
+
+### Why it is NOT fixed here, stated rather than left implicit
+
+There is **no local authorization signal to fix it with.** The credential is platform-wide, so
+nothing distinguishes a genuine Zid delivery from a forged one. And a predicate cannot help: the
+payload's `store_id` and the ingest row's `store_id` come from the **same request**, so comparing
+them is the "a tenant predicate built from caller-supplied input is not a tenant check" trap this
+codebase has already produced four defects from.
+
+`zid_stores` also has no column linking a row to a local principal — `store_id` is Zid's merchant
+id, `ds_merchant_id` is Delivery Syria's, there is no `stores.id` and no foreign key — which is why
+the two read routes were restricted to the platform operator rather than given an ownership
+predicate.
+
+### The remedies, for the owner to choose between
+
+1. **Bind the webhook credential per merchant.** Zid's subscription API already takes a
+   `username`/`password` per webhook, and `ZidOAuthController.php:106-107` currently sends **the
+   same platform-wide pair for every merchant**. A per-merchant secret would let the handler resolve
+   the merchant **from the credential** and demote the body's `store_id` to a consistency check
+   (refuse if they disagree). This is the real fix. It changes what is sent to Zid at link time and
+   needs existing merchants to be re-subscribed, so it is an owner decision.
+2. **Rotate `services.zid.hook_pass` and move it to the environment** — SEC-CFG-02's existing P0.
+   This narrows the principal set from "anyone who can read the repository" back to Zid, but does
+   not fix the model: any holder of the rotated secret can still name any merchant.
+3. **An interim, if either of the above is slow:** stop the drain. Disabling
+   `zid:process-events` prevents the outbound call while leaving ingest and the audit rows intact.
+   It stops legitimate parcel creation too, so it is a trade the owner makes, not one this
+   workstream takes.
+
+**Nothing here was changed.** No credential was rotated, no schedule was disabled, no behaviour was
+altered on this path — that is the escalation, and it is deliberate.
+
+---
+
+## S50 — Four more defects GATE F turned on, found by asking the opposite question — **P1-SEC-44, -45, -46, -47 ALL CLOSED**
+
+**Found by an independent completeness sweep, not by the suite, because the suite was green.** The
+four waves before this one were each found by running the tests. This one could not be: it asked
+*what did making these objects exist make the application DO?* Every finding was then re-measured
+through the real route before a line was changed.
+
+The shape is the same every time: **application code whose behaviour depended on a table being
+ABSENT.** A write that threw into a `catch`. A column that was always null, so `?? 0` hid it. A
+validator rule that raised a `QueryException`, so the endpoint answered 500 to everyone. Each of
+those is a control by accident, and GATE F removed all of them on one day.
+
+### P1-SEC-44 — one store's confidential `cost_price` read into another store's P&L. **S2 HIGH.**
+
+`OrderFinancialService::calculateProductCost()` resolved each order line with
+`Product::find($productId)`. `Product` is **not** in `config/tenancy.php`'s `scoped_models`, so
+`StoreScope::isActiveFor()` short-circuits and that call added **no predicate for any principal**.
+`$productId` comes out of `orders.product_json`, which is caller-influenced — this repository
+already records that a cart line naming another merchant's product reaches an order (the S19/S32
+cross-tenant stock drain).
+
+**MEASURED:** store B's product at `cost_price` 77.00; a store A order naming it with `qty 2` →
+store A's row carried `product_cost = 154`, `gross_profit = 46`. Divide by the quantity you chose
+and you have a competitor's exact unit cost, on your own finance screen.
+
+**Doubly created by GATE F**, which is why nothing saw it: until 2026-11-02 the persistence threw
+(`store_order_financials` undeclared) into `OrderObserver::created()`'s catch, **and**
+`products.cost_price` was undeclared so `?? 0` made every cost zero. No test produces a non-zero
+`product_cost` through the service at all — the one test that touches the figure says in terms
+*"the order has no priced line items, so product_cost is 0"*.
+
+**Fixed** by scoping the lookup to `$order->store_id`. A foreign line is **excluded and logged**,
+not costed at zero: both give a wrong figure because the ORDER is wrong, but a zero silently
+inflates gross profit while a warning names the order and the product.
+
+### P1-SEC-45 — the OTP test endpoint shipped the store's secret to a caller-chosen host. **S2 HIGH.**
+
+`OtpIntegrationController::test()` validated **only `phone`**, then preferred `$request->base_url`
+over the stored row while sending `secret => $integration->api_secret` in the body. Its sibling
+`save()` validates `base_url` as `required|url`; `test()` validated nothing.
+
+**MEASURED**, as a principal holding no permission at all:
+
+```
+POST /otp-integration/test   base_url=http://169.254.169.254   phone=…
+-> HTTP 200 {"success":true,"message":"Test SMS OTP sent successfully."}
+-> outbound POST http://169.254.169.254/latest/meta-data/api/send/sms
+-> with the store's api_secret in the body
+```
+
+The handler also reflects the remote body and `$e->getMessage()`, so it was a semi-blind SSRF with
+error reflection on top of the credential leak.
+
+**Wave 5, not a new hole.** `routes/web.php` records that anonymously this route used to answer 500
+because `otp_integrations` was one of GATE F's fifteen. The fix taken then was to add `auth`; the
+caller-chosen-URL half was never closed, and the table now exists in every environment.
+
+**Fixed with the guard this codebase already has** — `SafeWebhook::allows()`, built for exactly
+this shape by P1-SEC-33 and already called by `WebhookController` on save. It judges through
+`SafeRemoteFetch::check`: http/https only, no credentials in the URL, no
+private/loopback/link-local/metadata address on **any** of the host's records, no numeric host
+spelling. The override is **kept**, so a merchant can still test a URL before saving it; what
+changes is that an internal one is refused before anything is sent.
+
+**Still open and NOT changed here:** that route carries no permission check, only
+`['auth','xss','setlocate','verified']`. `routes/web.php` already records that as a deferred
+cross-agent dependency, and adding an authorization gate is a different decision from closing an
+SSRF.
+
+### P1-SEC-46 — `ViewProduct` served the store's margin with no permission check. **S3 MEDIUM.**
+
+`Api\DashboardController::ProductList` serves `cost_price` behind
+`refuseWithoutPermission(['Manage Products'])`, with its own comment giving the reason: *"the
+store's margin, not just its catalogue"*. `ViewProduct` served the same field with **no permission
+check anywhere in the method**. Tenant isolation held — the query carries
+`->where('store_id', $store->id)` — the intra-tenant gate did not, so staff that `ProductList`
+refuses read it.
+
+It cost nothing until `products.cost_price` was declared: `?? 0` served `0.00` to everybody.
+
+**Fixed by omitting the field, not by refusing the request.** A 403 would change who may call
+`ViewProduct` at all, and the shipped Flutter app calls it — `CLAUDE.md` requires that contract
+preserved. Dropping one key narrows the disclosure without narrowing access.
+
+### P1-SEC-47 — an existence oracle over `delivery_boy_notifications.id`. **S3 MEDIUM.**
+
+`markAsRead` validated `notification_id` with `exists:delivery_boy_notifications,id` — the **whole
+table** — before its correctly-scoped `->where('delivery_boy_id', $user->id)` lookup. The table has
+no `store_id` and is not in `scoped_models`, so the validator saw every tenant's rows:
+
+```
+a foreign but EXISTING id -> "Notification not found."
+a NONEXISTENT id          -> "The selected notification id is invalid."
+```
+
+Two distinguishable bodies: a platform-wide existence oracle over sequential ids, leaking
+notification volume and activity but not content. Same defect class as P1-SEC-10's 404-vs-403 on
+the DeliverySyria webhook, on a different table. Unreachable before GATE F — the rule raised a
+`QueryException` and the endpoint answered 500 to everybody.
+
+**Fixed** with `Rule::exists(...)->where('delivery_boy_id', $user->id)`. The scoped `->first()`
+already answered correctly, so no successful call changes.
+
+### Proof
+
+`tests/Feature/Security/GateFActivatedSurfacesTest` — **8 tests, 20 assertions**, every refusal
+paired with a positive control. Four mutations, each run, each hitting exactly one test: the
+unscoped `Product::find`, the removed `SafeWebhook` guard, the bare `exists:` rule, and the removed
+`cost_price` gate.
+
+**Two of those tests were passing for the wrong reason and the pairing is what caught it** — worth
+recording because it is the discipline, not the luck: the OTP refusal held while `sms_mode` and
+`sms_gateway` were unset, because the handler returns *"Invalid SMS mode."* before it ever reaches
+the HTTP call, so `Http::assertNothingSent()` would have held with or without the guard; and the
+`cost_price` refusal read `data` instead of `data.Product`, a level that never carries the key, so
+`assertArrayNotHasKey` was vacuous. Both were found by their own positive controls failing.
+
+### And one from the same sweep that is NOT fixed, because it cannot be from this side
+
+**`P1-SEC-43`** — one forged Zid webhook creating a real parcel at Delivery Syria on another
+merchant's account, with an attacker-chosen COD amount. **S1, OPEN, owner decision required before
+deployment.** See S49 above.
+
+---
+
 ## Cross-repository row, carried over
 
 **B8 — a merchant can read their own webhook secret and forge events for their own store.**

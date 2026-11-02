@@ -3214,7 +3214,31 @@ public function ViewProduct(Request $request)
 
         $productArray['price'] = $formatNumber($productArray['price'] ?? 0);
         $productArray['sale_price'] = $formatNumber($productArray['sale_price'] ?? 0);
-        $productArray['cost_price'] = $formatNumber($productArray['cost_price'] ?? 0);
+
+        /*
+         * P1-SEC-46 -- `cost_price` IS THE STORE'S MARGIN AND NEEDS THE SAME GATE ITS SIBLING HAS.
+         *
+         * `ProductList` serves this field behind `refuseWithoutPermission(['Manage Products'])`,
+         * and its own comment says why: "the store's margin, not just its catalogue". `ViewProduct`
+         * served it with NO permission check anywhere in the method. Tenant isolation held -- the
+         * query carries `->where('store_id', $store->id)` -- but the intra-tenant gate did not, so
+         * any token-holding principal in the store read it, including staff that `ProductList`
+         * refuses.
+         *
+         * It cost nothing until GATE F: `products.cost_price` was declared by no migration, so
+         * `?? 0` served `0.00` to everybody. The column arriving is what made the asymmetry matter.
+         *
+         * THE FIELD IS OMITTED RATHER THAN THE REQUEST REFUSED, deliberately. Adding a 403 here
+         * would change who may call `ViewProduct` at all, and the shipped Flutter app calls it --
+         * CLAUDE.md requires its contract to be preserved. Dropping one key narrows the disclosure
+         * without narrowing access, and the client reads `cost_price` with a null-safe default.
+         */
+        if ($this->refuseWithoutPermission(['Manage Products'], $store->id) === null) {
+            $productArray['cost_price'] = $formatNumber($productArray['cost_price'] ?? 0);
+        } else {
+            unset($productArray['cost_price']);
+        }
+
         $productArray['final_price'] = $formatNumber($productArray['final_price'] ?? $productArray['price'] ?? 0);
 
         // ✅ 4. إضافة كود العملة ورمزها للاستجابة
@@ -9421,7 +9445,26 @@ public function searchCustomerByName(Request $request)
                 $commissionPercentage = (float) ($deliveryBoy->commission_percentage ?? 0);
                 $shippingCost = (float) ($order->delivery_price ?? 0);
 
-                if ($commissionPercentage > 0 && $shippingCost > 0) {
+                /*
+                 * P1-SEC-42 -- ONE COMMISSION ROW PER ORDER. The same defect as
+                 * OrderController::order_assign(), in the handler the Flutter admin app calls, and
+                 * fixed the same way. Read the long note there for the measurement.
+                 *
+                 * In short: the cleanup above is gated on a CHANGE of driver, the insert was gated
+                 * on nothing, so re-assigning the SAME driver credited them again. 3 POSTs produced
+                 * 3 rows and 6.00 owed where 2.00 is correct.
+                 *
+                 * `DB::beginTransaction()` does NOT help here and it is worth saying why: each
+                 * request is its own transaction and each one commits a valid-looking duplicate.
+                 * A transaction makes a write atomic, not idempotent.
+                 *
+                 * `exists()` rather than an unconditional delete or `updateOrCreate`, because both
+                 * of those reset a row already moved to `paid` back to `pending`. Evaluated after
+                 * the delete, so a genuine driver change still replaces the row.
+                 */
+                $alreadyRecorded = DeliveryEarning::where('order_id', $order->id)->exists();
+
+                if ($commissionPercentage > 0 && $shippingCost > 0 && ! $alreadyRecorded) {
                     $earningAmount = ($shippingCost * $commissionPercentage) / 100;
 
                     DeliveryEarning::create([

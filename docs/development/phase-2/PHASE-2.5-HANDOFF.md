@@ -188,3 +188,65 @@ phase's scope — which `CLAUDE.md` §4 forbids in both directions.
 
 Written 2026-11-02 on the release-integration branch. It records state and open questions only; it
 grants nothing and starts nothing.
+
+---
+
+## 9. WHAT GATE F TAUGHT, added 2026-11-02 — the one section here that is a warning rather than an inventory
+
+Phase 2.5 will change surfaces, not schema. Read this anyway, because the pattern below is about
+**any** change that makes something exist which did not, and the next such change will not be a
+migration — it will be a feature flag, a module activation, a seeded row or a config key.
+
+### Declaring fifteen tables broke the suite in FIVE distinct shapes, found in five waves
+
+Each wave was found by a census keyed on the **previous** wave's shape, and **every census missed
+the next one.** That is the finding, more than any individual defect:
+
+| wave | shape | how it surfaced |
+|---|---|---|
+| 1 | tests that **SKIPPED** on a missing table | the known-outcome gate, which declares its skip set in both directions |
+| 2 | tests that asserted the **ABSENCE** of a table or column | the full Feature run, as 8 failures |
+| 3 | fixtures whose **model of the schema** was wrong — `NOT NULL`, an enum rendered as a `CHECK`, a *global* unique key | the full Feature run, as 5 failures |
+| 4 | **absence used as a proof technique** ("a QueryException about a missing table proves the credential gate was passed"); a census classifying on `hasColumn('store_id')`; a fixture recursion cap firing at a leaf | the full Feature run, as 4 failures and 2 undeclared skips |
+| 5 | **dead fallbacks that INVENT the schema**, and application code that depended on the table being absent | nothing in the suite said so — found by a Unit ratchet whose exit condition had been written down in advance, and by independent review |
+
+**Wave 5 is the one to learn from.** Eleven test files carried
+`if (! Schema::hasTable('<money table>')) { Schema::create(...); }`. GATE F made all of them dead,
+which is harmless today and a loaded gun tomorrow: those blocks declared **columns only**, with
+none of production's unique keys or foreign keys, so removing one migration would have turned the
+suite green against a fabricated money schema. `GateFSchemaContainmentTest` could not see them,
+because a `Schema::create()` inside a test is not a discoverable migration.
+
+### And three LIVE application defects, all the same shape
+
+Code whose behaviour depended on a table being **absent** — the direction nobody watches:
+
+- **`SettingController`'s currency-rate auto-seed** took down **every** settings tab once
+  `currency_rates` existed, silently, through its own `catch`.
+- **The Zid webhook unlinked a merchant's OAuth credentials** when any authenticated body merely
+  *contained* the string `application.uninstall`. Measured: a product name did it, while the audit
+  row the same handler had just written said `event = order.create`. `P1-SEC-41`.
+- **A delivery commission was paid once per button click.** The cleanup was gated on a *change* of
+  driver, the insert on nothing. Measured: 3 submissions → 3 rows, 6.00 owed where 2.00 was
+  correct, on the web **and** in the Flutter admin API. `P1-SEC-42`.
+
+A fourth, **not fixed and reserved to the owner**: one forged webhook, behind a secret that is a
+literal in `config/services.php`, creates a **real parcel at Delivery Syria on another merchant's
+account** with an attacker-chosen COD amount. `P1-SEC-43`, S1, in
+`docs/security/P01-SECURITY-WORK-QUEUE.md`.
+
+### The four rules this leaves Phase 2.5
+
+1. **When you make something exist, search for code that assumed it did not.** `Schema::hasTable`,
+   `hasColumn`, `module_is_active`, `config(...)` guards, `rescue()`, and any `try`/`catch` around a
+   write. A `catch` that swallows is the one that will not tell you.
+2. **Never let an absence be a proof.** A test that concludes "the gate was passed" from an
+   exception proves nothing the moment the exception stops happening. Assert the positive outcome
+   and the row.
+3. **A fallback that builds a structure is worse than a skip.** A skip is declared and visible; a
+   fallback is invisible and wrong. There is now a ratchet forbidding both for the six money tables
+   — `GateFCoverageLedgerTest::test_no_test_creates_or_branches_on_a_gate_f_money_table`.
+4. **Write the exit condition into the test.** Three of these waves were caught *only* because a
+   docblock said, in advance, "when X happens this test must be rewritten, in the same commit, and
+   do not weaken the assertion". Each of those tests then failed exactly as designed. That habit is
+   the single cheapest control in this repository.

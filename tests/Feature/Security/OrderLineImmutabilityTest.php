@@ -51,35 +51,33 @@ class OrderLineImmutabilityTest extends SecurityTestCase
     ];
 
     /**
-     * `delivery_earnings` IS A GATE F TABLE — it has no migration, so it does not exist in the test
-     * database, and `OrderController::order_assign():1760` deletes from it. Without this the assign
-     * endpoint answers 500 here while working in production, where the table exists with live data
-     * (`docs/GATE-F-VERIFIED-SCHEMA.md:161`). The shape is that file's measured production DDL,
-     * narrowed to the columns this path touches; the same fixture decision
-     * `GateFReconciliationReportTest` makes for its three tables, and for the same reason.
+     * ASSERT THAT GATE F'S MIGRATION IS PRESENT. It does not create anything, and the name says so
+     * since 2026-11-02 (it was `ensureDeliveryEarningsTable`).
      *
-     * GUARDED, so this file keeps working once a migration exists — which is how the F58/GATE F
-     * lesson arrived: an unguarded `Schema::create` in a fixture standing in for absent schema
-     * collided with the migration that later supplied it and took ten tests down.
+     * WHAT USED TO BE HERE, AND WHY ITS REMOVAL IS THE POINT. This method built the table itself,
+     * behind `if (! Schema::hasTable(...))`, because the table was declared by no migration. That
+     * fallback is DELETED rather than left dead. It was a loaded gun: it declared COLUMNS ONLY,
+     * with none of production's unique keys or foreign keys, so if the real migration were ever
+     * reverted or renamed this suite would have gone GREEN against a fabricated money schema --
+     * the exact failure GATE F exists to prevent. And `GateFSchemaContainmentTest` could not see
+     * it, because a `Schema::create()` inside a test is not a discoverable migration.
+     *
+     * The structure now comes from the migration, measured against a restored copy of production
+     * and recorded in `docs/GATE-F-VERIFIED-SCHEMA.md` section 2. A missing table is reported as a
+     * missing table.
      */
-    private function ensureDeliveryEarningsTable(): void
+    private function assertDeliveryEarningsIsMigrated(): void
     {
-        if (\Illuminate\Support\Facades\Schema::hasTable('delivery_earnings')) {
-            return;
-        }
+        $this->assertTrue(
+            \Illuminate\Support\Facades\Schema::hasTable('delivery_earnings'),
+            '`delivery_earnings` is missing from a database built by this repository\'s migrations. '
+            . 'GATE F declared it on 2026-11-02 with a structure measured against a restored '
+            . 'copy of production, so this means the migration has been reverted or renamed. '
+            . 'Do NOT answer this by creating the table here: a Schema::create() in a test is '
+            . 'not a discoverable migration, carries none of production\'s unique keys or '
+            . 'foreign keys, and would make this suite green against a fabricated money schema.'
+        );
 
-        \Illuminate\Support\Facades\Schema::create('delivery_earnings', function ($table) {
-            $table->id();
-            $table->unsignedBigInteger('delivery_boy_id');
-            $table->unsignedBigInteger('order_id');
-            $table->unsignedBigInteger('shipping_method_id')->nullable();
-            $table->decimal('shipping_cost', 10, 2)->default(0);
-            $table->decimal('commission_percentage', 5, 2)->default(0);
-            $table->decimal('commission_amount', 10, 2)->default(0);
-            $table->string('status', 20)->default('pending');
-            $table->timestamp('paid_at')->nullable();
-            $table->timestamps();
-        });
     }
 
     private function orderIn($store, $merchant): Order
@@ -187,7 +185,7 @@ class OrderLineImmutabilityTest extends SecurityTestCase
         foreach (['Manage Order', 'Edit Order', 'Manage Order Refund Request'] as $permission) {
             $this->grantPermission($merchant, $permission);
         }
-        $this->ensureDeliveryEarningsTable();
+        $this->assertDeliveryEarningsIsMigrated();
         $driver = \App\Models\DeliveryBoy::forceCreate([
             'name' => 'Driver', 'email' => 'drv-' . uniqid() . '@example.test',
             'password' => bcrypt('x'), 'created_by' => $merchant->id, 'store_id' => $store->id,
@@ -261,7 +259,7 @@ class OrderLineImmutabilityTest extends SecurityTestCase
 
         $before = $this->lines($order->id);
 
-        $this->ensureDeliveryEarningsTable();
+        $this->assertDeliveryEarningsIsMigrated();
         $driver = \App\Models\DeliveryBoy::forceCreate([
             'name' => 'Driver', 'email' => 'drv-' . uniqid() . '@example.test',
             'password' => bcrypt('x'), 'created_by' => $merchant->id, 'store_id' => $store->id,

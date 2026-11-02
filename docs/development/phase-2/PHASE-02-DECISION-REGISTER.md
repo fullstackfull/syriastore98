@@ -3007,3 +3007,109 @@ in that respect, and every other blocker in it (Phase 01 release gates, GATE F, 
 Benefit/Flutterwave under D-33, Android build and signing, and any other documented production
 gate) stands exactly as recorded. Every safety, production, release and governance restriction in
 D-30, D-31, D-33 and D-34 remains fully in force.
+
+---
+
+## D-36 — **PR #123 IS MERGED INTO `main` BY THE OWNER; `main` IS RED AND A FOLLOW-UP IS REQUIRED** (owner act, 2026-11-02)
+
+**This entry records an act of the owner's, not a decision of mine, and it records it with its
+consequence attached.** The owner merged the release-integration pull request. `main` now holds
+Phase 01 and Phase 02 together with GATE F. It also holds nine undeclared Feature failures and two
+undeclared skips, so **`main`'s own CI run FAILED**, and that is stated here first because an
+entry that recorded only the merge would be a half-truth of exactly the kind this register exists
+to prevent.
+
+### The merge, measured from the GitHub API rather than described
+
+| | |
+|---|---|
+| pull request | [fullstackfull/syriastore98#123](https://github.com/fullstackfull/syriastore98/pull/123) |
+| state | `closed`, `merged: true` |
+| merged by | `fullstackfull` — **the owner**, not this workstream |
+| merged at | `2026-11-02T11:33:54Z` |
+| head merged | `69fec16e09cb23d53471f8b0f8e3b89e38b37eb4` |
+| base | `main` at `bf383bdbcf2c5a16ac1b8be8e3e72656256072ad` |
+| resulting merge commit | `a5a9d7a25ce160519e7e249bf6fca53091666fb5` |
+| `mergeable_state` at merge time | **`unstable`** — CI was not green, and the API said so |
+
+`69fec16e` is an ancestor of `origin/main`, verified with `git merge-base --is-ancestor`. The
+Flutter repository (`fullstackfull/StoreSyria_app98`) was merged earlier and is recorded in commit
+`c57b502e`.
+
+### `main`'s CI run failed, in the gate's own words
+
+Run [41437840794](https://github.com/fullstackfull/syriastore98/actions/runs/41437840794) on
+`a5a9d7a2`: **conclusion `failure`**. Four of six jobs succeeded — `Static checks`, `Secret scan`,
+the PayHere report, and the skipped merge-base gate. **Both required `Tests` jobs failed**, on the
+same blocking step, with the same message:
+
+```
+##[error]KNOWN-OUTCOME GATE FAILED. The observed outcome set does not match the manifest.
+skip reasons parsed  : 3 from feature-teamcity.txt
+```
+
+**That is the gate working, not the gate breaking.** `.github/known-test-outcomes.json` declares
+two failures and one skip, and it asserts the set in **both** directions. At `69fec16e` the Feature
+suite produced **19 failures and 3 skips** — the two declared failures, plus nine failures and two
+skips that are not in the record. An undeclared failure is a regression until someone proves
+otherwise, and that is precisely what the step said.
+
+**Nothing was weakened to accommodate this.** No manifest entry was added, no assertion was
+loosened, no test was skipped or deleted. The remedy is to fix the nine and the two, which is what
+the follow-up below does.
+
+### What the nine and the two were, and why they appeared
+
+Every one of them is GATE F closing — not new code, and not a tenancy or payment regression. The
+fifteen tables arriving made a family of tests stop meaning what they said, in four distinct
+shapes, and the first two shapes were already fixed inside PR #123 (commits `69fec16e` and
+earlier). The remaining two shapes are:
+
+- **wave 3 — fixtures whose model of the schema was wrong.** `zid_orders.raw` is `NOT NULL` and
+  `zid_orders.zid_order_id` carries a *global* unique key, so four `DeliverySyriaOracleTest` inserts
+  were refused; and the measured `chatwoot_integrations` default carries the hardcoded endpoint
+  literal that `LegacyChatwootRemovedTest` forbids in source, which GATE F had to reproduce to keep
+  production parity. Commit `003be197`.
+- **wave 4 — a census that was about to tell a lie, two refusals that proved nothing, and two
+  undeclared skips.** Commit `3bd9f936`. The census one is worth naming in this register because
+  it is a *security* artefact: `RawQueryTenancyInventoryTest` classified a table as
+  tenant-discriminated on `hasColumn('store_id')`, and GATE F declared three `zid_*` tables whose
+  `store_id` is **Zid's own merchant id**, written from `api.zid.sa` at
+  `ZidOAuthController.php:80-83`. Thirteen statements were about to be reported as "unconstrained
+  cross-tenant queries". The census now separates the two namespaces structurally, by the column's
+  measured type, and the nine measured types are asserted so the split cannot rot.
+
+### State, recorded separately as D-30 requires
+
+| state | value |
+|---|---|
+| **PHASE 02 ENGINEERING COMPLETE** | **YES** (D-34) |
+| **PHASE 02 ENGINEERING OWNER ACCEPTED** | **YES** (D-34) |
+| **MERGED TO MAIN** | **YES — development integration, 2026-11-02, by the owner.** Amends D-34's `NO` in this one respect and in no other. |
+| **`main` CI GREEN** | **NO** at `a5a9d7a2`. A follow-up is required and exists. |
+| **RELEASE READY** | **NO** |
+| **DEPLOYED** | **NO** |
+| **PHASE 02 CLOSED** | **NO** |
+
+### What this supersedes, and what it does not
+
+**It amends exactly one cell: `MERGED TO MAIN` in D-34's state table, from `NO` to `YES`.** D-34's
+text is not edited — the merge is an event after it, and this is where the event lives.
+
+Every other restriction stands untouched: **D-30** (Phase 02 remains open), **D-31** (F229's
+permanent fail-closed fix), **D-32**, **D-33** (Benefit and Flutterwave deferred, fail-closed),
+**D-34**'s remaining release blockers, and **D-35** (security incident #120 is
+**OWNER-DEFERRED / OPEN** — not fixed, not resolved; PR #122 closed and unmerged; `APP_KEY`
+unrotated and tracked separately from the dump; the owner's demo-data statement does not establish
+that every exposed secret is harmless).
+
+**`main` integration is not production deployment.** No migration was applied to any production
+database, no payment gate was opened, and no previously deferred or accepted risk is reclassified
+as resolved by this entry.
+
+### The follow-up is a NEW pull request, not a reopened one
+
+PR #123 is merged and therefore finished; it cannot track the follow-up. Branch
+`claude/loving-noether-f4qxdt` was re-based onto `origin/main` (`a5a9d7a2`) **preserving** its one
+unmerged commit rather than discarding it, so `69fec16e` remains an ancestor and no history was
+rewritten and no force-push was used. Waves 3 and 4 sit on top. A new pull request carries them.

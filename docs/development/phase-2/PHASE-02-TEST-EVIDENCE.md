@@ -1,5 +1,99 @@
 # Phase 02 — test evidence
 
+> ═══════════════════════════════════════════════════════════════════════════════════════════════
+> ## RELEASE INTEGRATION, 2026-11-02 — THESE FIGURES SUPERSEDE EVERY EARLIER ONE IN THIS FILE.
+>
+> **The suites ran on `59ca8384`** on branch `claude/loving-noether-f4qxdt` in
+> `fullstackfull/syriastore98`. The two commits above it are documentation only
+> (`git diff 59ca8384 f4ba0ddf --stat` touches `docs/` alone), which is stated because this file
+> has twice carried a figure attributed to the wrong commit.
+>
+> **The `7,414 passed · 2 · 17` baseline in D-34 is HISTORICAL** — the result on the accepted
+> Phase 02 head *before* GATE F closed. Directive E §8 said so in terms, and it is not the
+> acceptance outcome for this integration.
+>
+> ### The Known-Outcome Feature Gate — PASSES
+>
+> ```
+> php artisan test --testsuite=Feature --log-junit … --log-teamcity …
+>   Tests: 2 failed, 1 skipped, 7457 passed (37204 assertions)   Duration: 1762.38s
+>
+> php .github/scripts/assert-known-test-outcomes.php …
+>   testcases observed   : 7460  (manifest floor 1000)
+>   failures observed    : 2  (manifest declares 2)
+>   errors observed      : 0  (always expected: 0)
+>   skips observed       : 1  (manifest declares 1)
+>   skip reasons parsed  : 1 from feature-teamcity.txt
+>
+>   OK: the observed outcome set matches the manifest exactly -- 2 declared failures,
+>   1 declared skips, 0 errors, and nothing undeclared.
+>
+> ASSERT_EXIT=0
+> ```
+>
+> **`FEATURE_EXIT=1` IS THE EXPECTED VALUE and is not a failure of the gate.** The suite carries
+> two failures the owner has accepted by name, so PHPUnit exits non-zero by construction. The
+> assertion script is the gate, and it exits **0**.
+>
+> **THE SUITE IS NOT GREEN AND MUST NEVER BE DESCRIBED AS SUCH.** The gate's own words, carried
+> verbatim because paraphrasing them is what turns them into a greenness claim:
+>
+> > *"This is NOT a statement that the suite is green. It is a statement that the suite is failing
+> > and skipping exactly the tests the project has recorded, for the reasons it has recorded."*
+>
+> The two declared failures are unchanged and still owed to `app/`
+> (`RegistrationTest::test_new_users_can_register`, `ProfileTest::test_profile_page_is_displayed`).
+> The single declared skip is `newsletters.user_id` — an undeclared **column** whose type was never
+> measured, so it is absent from `docs/GATE-F-VERIFIED-SCHEMA.md` §2 and declaring it would be
+> exactly the guess GATE F exists to forbid. **Sixteen skips were deleted** when GATE F closed,
+> because the gate asserts its set in *both* directions: a listed entry that starts passing fails
+> CI until the entry is removed. Deleting them is the opposite of rebaselining.
+>
+> ### The other suites and checks, on the same head
+>
+> | check | command | result |
+> |---|---|---|
+> | Unit | `php artisan test --testsuite=Unit` | **692 passed**, 4,240 assertions, exit 0 |
+> | Contract (the Flutter API contract) | `php artisan test --testsuite=Contract` | **27 passed**, 92 assertions, exit 0 |
+> | GATE F + wave-5 classes together | 11 classes, named below | **127 passed**, 421 assertions |
+> | GATE F containment guard | `.github/scripts/guard-gate-f-containment.sh .` | **intact**, exit 0 — now **six** properties |
+> | design-system token contrast | `python3 docs/design-system/tools/check-contrast.py public/css/store-syria-ds.css` | **ALL 58 PAIRS PASS (light + dark)**; auto scope identical to dark across 36 tokens |
+> | observability inventory | `python3 docs/development/phase-1/tools/resync-observability-inventory.py` | **213 documented against 213 source lines**, 0 re-pointed |
+> | Flutter static analysis | `flutter analyze` on **3.47.7**, the version CI pins | **247 info · 0 warning · 0 error**, none of the 247 in a file this work changed |
+>
+> The eleven classes in that 127: `GateFSchemaContainmentTest`, `GateFSchemaGuardTest`,
+> `GateFCoverageLedgerTest`, `CodCollectionEventsStillAbsentTest`, `FinancialSurfaceCoverageTest`,
+> `GateFReconciliationReportTest`, `GateFActivatedSurfacesTest`,
+> `DeliveryCommissionIdempotencyTest`, `ZidWebhookSecretTest`, `RawQueryTenancyInventoryTest`,
+> `PaymentStatusNormalizationTest`.
+>
+> ### What was NOT run or NOT claimed, stated rather than omitted
+>
+> - **The Android build.** `/opt/android-sdk` exists and holds `cmdline-tools` **only** — no
+>   `platforms`, no `build-tools`. Fetching them is `sdkmanager`, which requires accepting the
+>   Android SDK licence: a **vendor licence**, reserved to the owner by Directive E §11. No APK or
+>   AAB exists and Android is **not** reported as verified. This corrects an earlier record that
+>   gave the reason as `No Android SDK found`.
+> - **Release signing with real credentials.** No keystore and no `key.properties` anywhere in the
+>   Flutter repository (checked with `find`), and none was invented.
+> - **Any device or emulator test.** Neither exists here.
+> - **A post-fix `flutter test` figure.** The suite measured **1,315 passed / 2 failed** before the
+>   translation fix, both failures predating this work (proven from git). No figure is claimed
+>   after it: the container's Flutter toolchain rewrites `analysis_options.yaml` and five generated
+>   plugin registrants on every invocation, and working around that left the SDK unable to resolve
+>   `vector_math`, so the two tests failed at **load** rather than on their assertions. Everything
+>   touched is reverted and `analysis_options.yaml` is byte-identical to its pre-session state, but
+>   a number measured after that measures the disturbance. **This is the Flutter counterpart of
+>   F238** and is recorded, not worked around.
+> - **`verify-gate-f-migrations-on-mysql.php` was not re-run today.** Its result stands from
+>   2026-11-02 earlier in this workstream: **29 checks, 0 failed, MariaDB 10.11.14**. Nothing in
+>   the migrations or `GateFProductionSchema` changed after it.
+> - **`verify-gate-f-schema-on-mysql.php` against a restored production dump.** The dump was
+>   destroyed after the 2026-10-24 measurement; the structure it measured is what
+>   `GateFProductionSchema` carries, and the newer script verifies the migrations against *that*.
+> - **Any migration against a production database.** Forbidden by the authorisation, and not done.
+> ═══════════════════════════════════════════════════════════════════════════════════════════════
+
 > **TRANSFER BANNER — 2026-10-31.** Handed to another account mid-work; see §0 of
 > [`PHASE-02-HANDOFF.md`](PHASE-02-HANDOFF.md). Every figure here is the result of a run that was
 > actually executed, on the commit named with it. **The FULL gate has now been run on the delivered

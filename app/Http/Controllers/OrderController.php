@@ -2399,7 +2399,37 @@ public function store(Request $request)
             $commissionPercentage = (float) ($deliveryBoy->commission_percentage ?? 0);
             $shippingCost = (float) ($order->delivery_price ?? 0);
 
-            if ($commissionPercentage > 0 && $shippingCost > 0) {
+            /*
+             * P1-SEC-42 -- ONE COMMISSION ROW PER ORDER. Re-submitting the SAME driver used to
+             * credit the driver again, every time.
+             *
+             * The cleanup above is gated on a CHANGE of driver
+             * (`if ($order->deliveryboy_id != $request->delivery_boy)`). The insert below was
+             * gated on nothing of the kind, so an UNCHANGED driver skipped the delete and still
+             * inserted. MEASURED through this route, with a `local pickup` method, delivery_price
+             * 20 and a driver at 10%: 1 POST -> 1 row / 2.00; 2 POSTs -> 2 rows / 4.00; 3 POSTs ->
+             * 3 rows / 6.00, where 2.00 is what is owed. A merchant double-clicking the assign
+             * button, or the AJAX caller retrying, is enough.
+             *
+             * It was LATENT while `delivery_earnings` was declared by no migration -- the insert
+             * answered 500 to every caller -- and became LIVE the moment GATE F's
+             * 2026_11_02_000600_create_delivery_earnings_table.php landed. Found by independent
+             * review of the GATE F wave-4 diagnosis and re-measured before being changed.
+             *
+             * WHY `exists()` AND NOT AN UNCONDITIONAL DELETE OR `updateOrCreate`. Both of those
+             * also fix the duplication, and both LOSE MONEY STATE: a row already moved to
+             * `paid` would be deleted and re-created, or overwritten, as `pending`. Doing nothing
+             * when the earning is already recorded is the only one of the three that is idempotent
+             * in the `status` column too. Evaluated here -- AFTER the delete -- so a genuine driver
+             * change still replaces the row: the delete removes it, `exists()` is false, and the
+             * new driver's earning is written.
+             *
+             * `DeliveryEarning` is one of the 16 models that are NOT `Cachable`, so this read sees
+             * the delete above rather than a cached pre-delete row.
+             */
+            $alreadyRecorded = \App\Models\DeliveryEarning::where('order_id', $order->id)->exists();
+
+            if ($commissionPercentage > 0 && $shippingCost > 0 && ! $alreadyRecorded) {
                 $earningAmount = ($shippingCost * $commissionPercentage) / 100;
 
                 \App\Models\DeliveryEarning::create([

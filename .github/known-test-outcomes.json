@@ -138,7 +138,7 @@
         "moves the money and markFinancialAsUnpaid() returns the balance to exactly where it started,",
         "that a cross-currency conversion applies the stored rate in the right DIRECTION, that a",
         "deactivated rate refuses rather than falling back to par, and that delivery_earnings rows",
-        "persist. 22 tests, 120 assertions, 0 skips.",
+        "persist. MEASURED 2026-11-02: 15 tests, 69 assertions, 0 skips. THIS FIGURE IS A CORRECTION -- this line read \"22 tests, 120 assertions\", which is not this class: it has 15 test methods and no data provider, so 22 was never reachable. Re-measured by running it. The kind of stale prose this file already flags for its own earlier Unit and Feature counts, and the reason every figure here names the command that produced it.",
         "",
         "ONE SKIP REMAINS, and it is not GATE F: newsletters.user_id, an undeclared COLUMN whose type",
         "was never measured. Its entry says what measuring it would take.",
