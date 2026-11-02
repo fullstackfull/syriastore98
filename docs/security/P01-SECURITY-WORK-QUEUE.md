@@ -5007,6 +5007,127 @@ than either, because those two went quiet by accident while this one was written
 |---|---|---|
 | **P1-SEC-50** | the `human checklist` gate concluded `success` on #124 because the acknowledgement marker was written by this workstream rather than by a person; the gate cannot distinguish the two | **OPEN — OWNER DECISION REQUIRED.** Not closed by me, by design. #125 is held red and unmerged rather than acknowledged |
 
+## S54 — An adversarial review of S51/S52's own fix found a complete bypass of the vendored-code guard, three ways past the credential-file net, and six defects the fix itself introduced — **P1-SEC-51 CLOSED; one item recorded OPEN**
+
+**Read this section before trusting S51 or S52.** Those two fixes were real, and both were also
+wrong in ways only an attempt to break them surfaced. Four reviewers were set on them with one
+instruction — *refute the claim that this is safe to merge* — and each finding was then handed to a
+separate verifier told to show it **wrong**. Sixteen claims, **fifteen reproduced by execution**,
+one correctly dismissed. Two were rated *blocks-merge*.
+
+### 1. The worst one, and it was PRE-EXISTING: `packages/workdo/` could be bypassed completely
+
+`guard-no-workdo-changes.sh` is the gate behind `CLAUDE.md`'s flat prohibition on editing vendored
+code. `diff.renames` defaults to true, and `git diff --name-only` prints only a rename's
+**destination**. So a `git mv` of vendored code **into** the exempt `packages/workdo/LynomiaChat/`
+tree showed as one path, the first-party `grep -v` stripped it, and the guard printed
+*"OK: no changes under packages/workdo/"*.
+
+Measured twice, with the mutation itself verified rather than assumed:
+
+| mutation | git's view | vendored code afterwards | old guard | new guard |
+|---|---|---|---|---|
+| one vendored file `git mv`'d into `LynomiaChat/` | `R099`, one path printed | **gone from `HEAD`** | **exit 0** | **exit 1** |
+| a whole vendored module `git mv`'d in | 52 entries, **all `R100`** | `git ls-tree` → **0 entries** | **exit 0** | **exit 1** |
+
+Fixed with `--no-renames`, which makes both sides print. The exemption still works — a change
+confined to `LynomiaChat/` exits 0, a real vendored edit exits 1, a clean tree exits 0. The same
+one-flag fix closes the uploads guard's equivalent: a `git mv` **inside** the root `uploads/` tree
+created a new unauthenticated URL while the guard said *"OK: no file was added"* (old exit 0, new
+exit 1 naming the path).
+
+**The first attempt at this test proved nothing, and that is worth recording.** The scratch clone
+was sparse, so the vendored file was never materialised, `git mv` produced an `A` rather than an
+`R`, and my own probe printed *"the vendored file is gone: STILL THERE"*. The result — new guard
+exit 0 — looked like a failed fix and was actually a failed harness. Re-run with the path in the
+sparse set, it behaves as the table says. A second false reading in the same session: `$?` taken
+after `cmd | sed` reports **sed's** status, which made two guards look like they exited 0 while
+printing FAIL.
+
+### 2. Three ways past the credential-file net, also pre-existing
+
+Detection was four literal basenames, `find -maxdepth 2`, and four **root-only** `git ls-files`
+pathspecs. Each of these was measured passing with *"No NEW credential file. Exiting 0"*:
+
+| what | why it passed | now |
+|---|---|---|
+| `.env.staging` written at the root **in CI** | not one of the four names | **exit 1** |
+| `.env.backup` committed and tracked (a live env copy) | same | **exit 1** |
+| `storage/app/private/.env.production`, tracked and on disk | past `-maxdepth 2` **and** past a root-only pathspec | **exit 1** |
+
+So this script's own header — *"a second credential file cannot slip in behind the first"* — and
+`ci.yml`'s *"exits 1 for ANY other live or tracked env file"* were both false. **And nothing else
+covered it:** `scan-secrets.sh` was measured **exit 0** on the tracked case, because it requires the
+value after `=` to be a *quoted* literal and env assignments are unquoted; the gitleaks history
+scan is `continue-on-error: true` by design. Now every `.env` and `.env.*` at any depth, minus the
+two committed templates, with `vendor`, `node_modules` and `.git` pruned. A clean CI tree still
+exits 0, so the templates do not trip it.
+
+### 3. Six defects the S51/S52 fix ITSELF introduced, and one of them was serious
+
+| | defect | consequence | state |
+|---|---|---|---|
+| a | `CHANGED="$(git diff ... 2>&1)"` folded git's **stderr** into the list read as paths | git warns and still exits 0, so a warning line became a phantom changed path and **failed a clean tree**. With `warning: exhaustive rename detection was skipped` it also **defeats the LynomiaChat exemption**, because the grep strips real paths but not the warning. Measured: previous fix exit 1, new exit 0, on a tree where the real diff is empty | **fixed** — stdout only; the error text is fetched on the failure path |
+| b | `git merge-base` used as the premise | it prints **nothing** when there is no common ancestor, so the promised `git said: %s` was **always blank** on its most common failure path — a shrug, in a change whose thesis is that a named reason beats one | **fixed** — the diff is the premise and explains itself: `git said: fatal: main...HEAD: no merge base`, plus whether the clone is shallow |
+| c | `[[ -n "${CI:-}" ]]` | treated `CI=false` as "in CI" — a documented workaround in several JS toolchains — reproducing **exactly the false alarm the change was written to remove** | **fixed** — the value is tested |
+| d | `shallow` has three states, the consumer tested one | `unknown` (the probe itself failing) was reported as the affirmative *"the clone is NOT shallow — so this is a real answer"*, which is the one thing this file's header forbids | **fixed** — three branches |
+| e | `LAST_PROBE`/`LAST_RC`/`LAST_MSG` not `local` | values **inherited from the environment** were printed as this run's measurement; a reviewer injected `LAST_RC=7` and a fabricated message and the guard reported them | **fixed** — declared `local` |
+| f | two sentences asserting what the run had not checked | the `reachable` warning said *"It is no longer in the index"* eleven lines after measuring the opposite; the `cannot-tell` warning asserted *"it is reachable from `main`"* from the one checkout shape that cannot look | **fixed** — both derived, neither asserted |
+
+### 4. Recorded OPEN, not fixed
+
+**`ci.yml`'s all-zeros `before` falls back to `HEAD~1`.** On a push whose `github.event.before` is
+all zeros, the base resolution at three sites inspects a multi-commit range exactly **one commit
+deep**, and both diff guards then exit 0 on a violation introduced earlier in the range — measured.
+Left open deliberately: all-zeros means the `main`/`master` ref was just **created**, which happens
+once in a repository's life, and redesigning a fourth control's base resolution inside a change
+that already rewrites three is how review quality drops. The repro is in the review transcript.
+
+### 5. One claim was DISMISSED, and the dismissal is the most reassuring result here
+
+A reviewer argued the de-depthed fetch in `ci.yml`'s audit step cannot repair an already-shallow
+repository. Every git observation reproduced — but the verifier measured the **actual consumer**:
+line 511 is a **two-dot** diff, which needs no merge base, and it returned the correct answer in
+exactly the shallow state the claim described. The merge-base machinery the reviewer measured
+belongs to the two guard scripts, which resolve their own base elsewhere. Wrong consumer, so not a
+defect.
+
+### 6. A correction, scoped precisely to where the error actually was
+
+A reviewer flagged that the framing *"no OTHER step was altered"* is false, and it is: a semantic
+YAML diff finds **three** changed fields, not two — `static.steps[5].run`,
+`static.steps[7].name` and `tests.steps[3].run`.
+
+**That phrase was in the review brief I wrote, not in what was reported to the owner.** The
+owner-facing summary said *"three hunks, and only one executable line changed in the whole
+workflow"*, and both halves of that are measured: three changed fields, and `tests.steps[3].run`
+goes from 3 code lines to 3 with an **empty** executable diff after stripping comments. So the
+reviewer caught a false premise in my own instructions to them — which is worth recording, because
+a brief that understates the diff is a brief that can steer a reviewer away from part of it — but
+the statement of record was correct. Noted in both directions rather than confessed in one, since
+overstating an error is its own inaccuracy.
+
+### 7. Verification
+
+Every case above executed, with a control beside each refusal. The two diff guards: both rename
+bypasses, the LynomiaChat-only control, a real vendored edit, a clean tree, an ambiguous refname, no
+merge base. The env guard: all three net-evasions, a clean CI tree, `CI=false`, `CI=true`, the
+shimmed-git `unknown` state, and the poisoned-environment probe. All five repository guards exit 0
+against the real tree. Unit **692 passed / 4,246 assertions**; the guard-referencing Feature tests
+**139 passed / 489 assertions**. `.github/known-test-outcomes.json` unmodified.
+
+### 8. Status
+
+| id | finding | state |
+|---|---|---|
+| **P1-SEC-51** | the vendored-code guard could be bypassed by `git mv` into the exempt tree; the credential-file net missed three shapes; the S51/S52 fix introduced six defects of its own, one of which could defeat the first-party exemption | **CLOSED** — 11 fixes, every one mutation-tested with a control |
+| **P1-SEC-52** | `ci.yml`'s all-zeros `before` inspects a multi-commit push one commit deep at three sites | **OPEN, recorded.** Reachable only on creation of `main`/`master` |
+
+**The lesson, which is the one this whole sequence keeps teaching:** S51 and S52 were written *by*
+reading controls for exactly this defect class, and both shipped with new instances of it. The
+difference between finding them and not was setting reviewers on the fix with instructions to break
+it, and verifying each claim by **running** it rather than by agreeing with it.
+
 ## Cross-repository row, carried over
 
 **B8 — a merchant can read their own webhook secret and forge events for their own store.**

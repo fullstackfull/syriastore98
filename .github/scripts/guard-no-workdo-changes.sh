@@ -73,20 +73,57 @@ FIRST_PARTY_MODULES=(
 # So the merge base is now a PREMISE, checked and named, and the diff's exit status is
 # honoured instead of discarded.
 # ------------------------------------------------------------------------------------------
-if ! MERGE_BASE="$(git merge-base "${BASE}" HEAD 2>&1)"; then
-    printf '  FAIL: there is no merge base between %s and HEAD, so the three-dot diff this\n' "${BASE}" >&2
-    printf '        guard depends on cannot be computed. git said: %s\n' "${MERGE_BASE}" >&2
-    if [[ "$(git rev-parse --is-shallow-repository 2>/dev/null || true)" == 'true' ]]; then
-        printf '        THE CLONE IS SHALLOW, so the history was truncated. Look for a\n' >&2
-        printf '        `git fetch --depth=...` in an EARLIER STEP of this same job.\n' >&2
+# THREE THINGS, each of which an adversarial review reproduced against the previous version
+# of this block. All three were found by TRYING TO BREAK IT rather than by reading it.
+#
+# `--no-renames` -- WITHOUT IT THIS GUARD COULD BE BYPASSED COMPLETELY. `diff.renames` defaults
+# to true, and `--name-only` prints only a rename's DESTINATION. So `git mv` of a vendored file
+# (or of a whole vendored module) INTO the exempt `packages/workdo/LynomiaChat/` tree shows as
+# one path, the first-party `grep -v` below strips it, and the guard printed
+# "OK: no changes under packages/workdo/" while the vendored file no longer existed. Measured:
+# `git mv packages/workdo/AdditionalCustomFields packages/workdo/LynomiaChat/...` produced 52
+# R100 entries, an empty `git ls-tree` for the original module, and exit 0. With
+# `--no-renames` both sides print and the guard fails. This was PRE-EXISTING, and it is fixed
+# here because the sentence this script's header makes -- everything outside the list still
+# fails -- was not what the code did.
+#
+# STDOUT ONLY. The previous version captured `2>&1`, which folds git's WARNINGS into the
+# variable that is then read as a list of paths. `git diff` warns and still exits 0, so the
+# `if !` never fires and every warning line became a phantom changed path. Reproduced two ways:
+# `warning: origin/main...HEAD: multiple merge bases` (two merge bases, an ordinary
+# criss-cross), and `warning: exhaustive rename detection was skipped due to too many files`
+# at 1001 candidates -- the second one DEFEATS THE FIRST-PARTY EXEMPTION, because the grep
+# strips the real paths but not the warning, so a change confined to LynomiaChat failed with
+# "packages/workdo/ WAS MODIFIED". That was a defect introduced by the previous fix.
+#
+# THE DIFF IS THE PREMISE, not `git merge-base`. `git merge-base` with no common ancestor
+# exits 1 and prints NOTHING, so the old "git said: %s" was always blank on its most common
+# failure path -- a shrug, in a change whose whole thesis is that a named reason beats one.
+# `git diff A...HEAD` is the thing we actually need and it DOES explain itself
+# (`fatal: <base>...HEAD: no merge base`), so it is checked directly and its own words are
+# reported. See docs/security/P01-SECURITY-WORK-QUEUE.md S52 and S54.
+if ! CHANGED="$(git diff --no-renames --name-only "${BASE}"...HEAD -- 'packages/workdo/' 2>/dev/null)"; then
+    DIFF_ERR="$(git diff --no-renames --name-only "${BASE}"...HEAD -- 'packages/workdo/' 2>&1 >/dev/null || true)"
+    printf '  FAIL: the diff against %s could not be computed, so this guard could not be\n' "${BASE}" >&2
+    printf '        evaluated. git said: %s\n' "${DIFF_ERR:-(nothing)}" >&2
+    if ! git merge-base "${BASE}" HEAD >/dev/null 2>&1; then
+        printf '        There is no merge base between %s and HEAD.\n' "${BASE}" >&2
     fi
+    case "$(git rev-parse --is-shallow-repository 2>/dev/null || printf 'unknown')" in
+        true)
+            printf '        THE CLONE IS SHALLOW, so the history was truncated. Look for a\n' >&2
+            printf '        `git fetch --depth=...` in an EARLIER STEP of this same job.\n' >&2
+            ;;
+        false)
+            printf '        The clone is NOT shallow, so this is not a truncation: the two\n' >&2
+            printf '        histories are probably unrelated (a re-created branch, a force-push).\n' >&2
+            ;;
+        *)
+            printf '        Whether the clone is shallow could NOT be determined, so the cause is\n' >&2
+            printf '        unknown -- which is not the same as absent.\n' >&2
+            ;;
+    esac
     printf '        A guard that cannot see the diff must not report success.\n' >&2
-    exit 1
-fi
-
-if ! CHANGED="$(git diff --name-only "${BASE}"...HEAD -- 'packages/workdo/' 2>&1)"; then
-    printf '  FAIL: git diff against %s failed, so this guard could not be evaluated.\n' "${BASE}" >&2
-    printf '        git said: %s\n' "${CHANGED}" >&2
     exit 1
 fi
 

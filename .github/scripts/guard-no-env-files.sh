@@ -120,26 +120,57 @@ KNOWN_ENV_BLOB='aa5c75b8bc005cc14a00453e8dc0de16fa54260d'
 cd "${ROOT}"
 
 # Is this a CI runner? The on-disk-untracked inference holds here and only here.
+#
+# THE VALUE IS TESTED, NOT JUST ITS EMPTINESS. `[[ -n "${CI:-}" ]]` treated the literal string
+# `CI=false` as "in CI" -- and `CI=false` is a documented workaround in several JS toolchains and
+# is routinely exported in IDE terminals. Measured: `env -u GITHUB_ACTIONS CI=false` made this
+# guard exit 1 on the repository's own gitignored `.env`, which is EXACTLY the false alarm the
+# 2026-11-02 change was written to remove. Found by an adversarial review of that change.
 IN_CI='no'
-if [[ -n "${GITHUB_ACTIONS:-}" || -n "${CI:-}" ]]; then
+if [[ "${GITHUB_ACTIONS:-}" =~ ^([Tt]rue|1|yes)$ || "${CI:-}" =~ ^([Tt]rue|1|yes)$ ]]; then
     IN_CI='yes'
 fi
 
+# WHAT COUNTS AS AN ENV FILE. Widened on 2026-11-02 after an adversarial review MEASURED three
+# ways past the old net, each of which this script then reported as "No NEW credential file":
+#
+#   .env.staging written at the repository root IN CI       -> not one of the four listed names
+#   .env.backup committed and tracked (a full live env copy) -> same
+#   storage/app/private/.env.production, tracked and on disk -> past `-maxdepth 2`, and past a
+#                                                               ROOT-ONLY `git ls-files` pathspec
+#
+# The old net was four literal basenames, `find -maxdepth 2`, and four unqualified `ls-files`
+# pathspecs -- which match the repository root only. So the header's claim that "a second
+# credential file cannot slip in behind the first" was false, and so was ci.yml's "exits 1 for
+# ANY other live or tracked env file". Nothing else blocked it either: `scan-secrets.sh` was
+# measured exit 0 on the tracked case, because it requires the value after `=` to be a QUOTED
+# literal and env assignments are unquoted, and the gitleaks history scan is
+# `continue-on-error: true` by design.
+#
+# Now: every `.env` and `.env.*` at ANY depth, minus the two committed templates, with vendor,
+# node_modules and .git pruned. `.gitignore:61` is `.env.*`, which blocks the ACCIDENTAL commit
+# of one -- but not `git add -f`, and not a file written during a build, which is the case the
+# WHY paragraph at the top of this file exists for.
 ON_DISK=()
 while IFS= read -r candidate; do
     [[ -z "${candidate}" ]] && continue
     ON_DISK+=("${candidate#./}")
 done < <(
-    find . -maxdepth 2 \
-        \( -name '.env' -o -name '.env.local' -o -name '.env.production' -o -name '.env.prod' \) \
-        2>/dev/null | grep -v '/vendor/' | grep -v '/node_modules/' || true
+    find . \
+        \( -name vendor -o -name node_modules -o -name .git \) -prune -o \
+        -type f \( -name '.env' -o -name '.env.*' \) \
+        ! -name '.env.example' ! -name '.env.testing' \
+        -print 2>/dev/null || true
 )
 
 HAVE_GIT='no'
 TRACKED=""
 if git rev-parse --git-dir >/dev/null 2>&1; then
     HAVE_GIT='yes'
-    TRACKED="$(git ls-files '.env' '.env.local' '.env.production' '.env.prod' || true)"
+    # `:(glob)**/` matches the root as well as every subdirectory -- verified, against a plain
+    # pathspec which matches the root ONLY.
+    TRACKED="$(git ls-files ':(glob)**/.env' ':(glob)**/.env.*' 2>/dev/null \
+        | grep -vE '(^|/)\.env\.(example|testing)$' || true)"
 fi
 
 # ------------------------------------------------------------------------------------------
@@ -161,7 +192,12 @@ fi
 # code and message were, and whether the clone is shallow. A named reason can be fixed; a
 # shrug cannot.
 describe_ancestry () {
+    # LAST_PROBE/LAST_RC/LAST_MSG ARE local. Without that, a value inherited from the
+    # environment was printed as though it were this run's measurement: an adversarial review
+    # ran `env LAST_PROBE=refs/heads/INVENTED LAST_RC=7 LAST_MSG='a message from no run at all'`
+    # and the guard reported exactly those, from a loop that had recorded nothing.
     local probe rc msg shallow
+    local LAST_PROBE='' LAST_RC='' LAST_MSG=''
     shallow="$(git rev-parse --is-shallow-repository 2>/dev/null || printf 'unknown')"
 
     for probe in HEAD "origin/${GITHUB_BASE_REF:-}" origin/main origin/master main master; do
@@ -177,13 +213,26 @@ describe_ancestry () {
         LAST_MSG="${msg}"
     done
 
-    if [[ "${shallow}" == 'true' ]]; then
-        printf 'present in this clone; ancestry NOT established, and the clone is SHALLOW -- a boundary in .git/shallow cuts the walk, so this is a limit of the checkout and NOT evidence about the repository. Last probe %s, git exit %s%s' \
-            "${LAST_PROBE:-none resolvable}" "${LAST_RC:-n/a}" "${LAST_MSG:+, git said: ${LAST_MSG}}"
-    else
-        printf 'present in this clone; NOT an ancestor of any ref examined, and the clone is NOT shallow -- so this is a real answer, and the recorded commit may sit on an abandoned branch. RE-VERIFY BY HAND. Last probe %s, git exit %s%s' \
-            "${LAST_PROBE:-none resolvable}" "${LAST_RC:-n/a}" "${LAST_MSG:+, git said: ${LAST_MSG}}"
-    fi
+    # THREE STATES, NOT TWO. `shallow` can be `true`, `false` or `unknown` -- the last when the
+    # `--is-shallow-repository` probe itself fails (it landed in git 2.15). The previous version
+    # tested only `== 'true'` and so reported `unknown` as the affirmative "the clone is NOT
+    # shallow -- so this is a real answer", which is the one thing this file's own header
+    # forbids: "'The exposure is gone' and 'I could not look' must never print the same
+    # sentence." Reproduced by an adversarial review with a shimmed `git`.
+    case "${shallow}" in
+        true)
+            printf 'present in this clone; ancestry NOT established, and the clone is SHALLOW -- a boundary in .git/shallow cuts the walk, so this is a limit of the checkout and NOT evidence about the repository. Last probe %s, git exit %s%s' \
+                "${LAST_PROBE:-none resolvable}" "${LAST_RC:-n/a}" "${LAST_MSG:+, git said: ${LAST_MSG}}"
+            ;;
+        false)
+            printf 'present in this clone; NOT an ancestor of any ref examined, and the clone is NOT shallow -- so this is a real answer, and the recorded commit may sit on an abandoned branch. RE-VERIFY BY HAND. Last probe %s, git exit %s%s' \
+                "${LAST_PROBE:-none resolvable}" "${LAST_RC:-n/a}" "${LAST_MSG:+, git said: ${LAST_MSG}}"
+            ;;
+        *)
+            printf 'present in this clone; ancestry NOT established, and WHETHER THE CLONE IS SHALLOW COULD NOT BE DETERMINED (the `git rev-parse --is-shallow-repository` probe failed), so this is NOT a real answer either way -- it is "I could not look". Last probe %s, git exit %s%s' \
+                "${LAST_PROBE:-none resolvable}" "${LAST_RC:-n/a}" "${LAST_MSG:+, git said: ${LAST_MSG}}"
+            ;;
+    esac
 }
 
 HISTORY='cannot-tell'
@@ -262,8 +311,18 @@ fi
 # ------------------------------------------------------------------------------------------
 case "${HISTORY}" in
     reachable)
-        printf '::warning title=OPEN SECURITY RISK::A live `.env` is reachable from this repository history at %s:.env (blob %s) and contains a live APP_KEY and database credentials. It is no longer in the index, which does NOT un-leak it. Accepted and deferred by the project owner; OPEN, NOT fixed, NOT production-ready. The owner notes the data is demo data, which does not establish that every exposed secret is harmless. Remediation order: rotate every credential FIRST, then consider a history rewrite. See SECURITY.md.\n' \
-            "${KNOWN_ENV_COMMIT:0:8}" "${KNOWN_ENV_BLOB:0:8}"
+        # THE INDEX CLAUSE IS DERIVED, NOT ASSERTED. This line used to say "It is no longer in
+        # the index" unconditionally -- eleven lines after the script had already measured the
+        # opposite into ${TRACKED}. An adversarial review re-committed `.env` with brand-new
+        # credentials and the warning still announced it was not in the index, which is the log
+        # contradicting itself in precisely the direction that gets quoted as evidence later.
+        if [[ "${TRACKED}" == *"${KNOWN_TRACKED_ENV}"* ]]; then
+            INDEX_CLAUSE='It is ALSO TRACKED IN THE INDEX RIGHT NOW, so the working tree carries it too'
+        else
+            INDEX_CLAUSE='It is no longer in the index, which does NOT un-leak it'
+        fi
+        printf '::warning title=OPEN SECURITY RISK::A live `.env` is reachable from this repository history at %s:.env (blob %s) and contains a live APP_KEY and database credentials. %s. Accepted and deferred by the project owner; OPEN, NOT fixed, NOT production-ready. The owner notes the data is demo data, which does not establish that every exposed secret is harmless. Remediation order: rotate every credential FIRST, then consider a history rewrite. See SECURITY.md.\n' \
+            "${KNOWN_ENV_COMMIT:0:8}" "${KNOWN_ENV_BLOB:0:8}" "${INDEX_CLAUSE}"
         printf '  OPEN RISK, reported not enforced: .env is reachable at %s:.env (%s).\n' \
             "${KNOWN_ENV_COMMIT:0:8}" "${ANCESTRY}"
         if [[ -n "${FOUND_BLOB}" && "${FOUND_BLOB}" != "${KNOWN_ENV_BLOB}" ]]; then
@@ -280,7 +339,13 @@ case "${HISTORY}" in
         exit 0
         ;;
     *)
-        printf '::warning title=OPEN SECURITY RISK NOT CHECKED::The known .env exposure could not be checked from this checkout: %s is not present (a shallow clone, or no git dir). This is NOT a report that the exposure is gone -- it is reachable from `main`, and the `static` job, which checks out with fetch-depth: 0, reports it in this same workflow run. Set fetch-depth: 0 on this job to check it here too.\n' \
+        # THIS BRANCH NO LONGER ASSERTS REACHABILITY. It used to say "it is reachable from
+        # `main`" -- a present-tense claim about the repository, printed by the one kind of
+        # checkout that CANNOT check it (depth 1: `tests`, `tests-degraded`,
+        # `lockfile-reproducibility`). After a history rewrite those three would have gone on
+        # asserting it while `static` printed STALE RECORD. That is the same shape of defect
+        # this whole file was rewritten to remove: a claim that outlives its premise.
+        printf '::warning title=OPEN SECURITY RISK NOT CHECKED::The known .env exposure could NOT be checked from this checkout: %s is not present (a shallow clone, or no git dir). THIS IS NOT A REPORT THAT THE EXPOSURE IS GONE, and it is not a report that it is still there either -- this job cannot tell. The `static` job in this same workflow run checks out with fetch-depth: 0 and reports whichever is true; read its verdict, not this one. Set fetch-depth: 0 on this job to check it here too.\n' \
             "${KNOWN_ENV_COMMIT:0:8}"
         printf '  COULD NOT BE CHECKED: %s is not in this clone, so history was not examined. No NEW credential file. Exiting 0.\n' \
             "${KNOWN_ENV_COMMIT:0:8}"
