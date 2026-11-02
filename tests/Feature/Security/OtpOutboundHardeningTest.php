@@ -292,6 +292,392 @@ class OtpOutboundHardeningTest extends SecurityTestCase
         );
     }
 
+    /**
+     * THE NULL-PRINCIPAL LIMB, ASSERTED ON THE GATE ITSELF -- and the first version of this test
+     * did not do that, which my own mutation run caught.
+     *
+     * The reviewer measured that `test_an_unauthenticated_caller_cannot_reach_either_endpoint`
+     * passes with the gate entirely removed, because `auth` on `routes/web.php:343` stops the
+     * request first. So I wrote a behavioural test driving `save1` through a route without `auth`
+     * -- AND IT HAD THE SAME DEFECT ONE LAYER DOWN. With the gate stubbed to `return true` it
+     * still passed, because `resolvedStoreId()` then refuses: `getCurrentStore()` returns null
+     * for a null user, so the write never happens and the assertion holds for the wrong reason.
+     *
+     * Two assertions now, each isolating one limb:
+     *
+     *   1. THE GATE'S OWN DECISION, read by reflection with nobody authenticated. This is the
+     *      only way to assert `mayManageOtpIntegration()` in isolation, because every route to it
+     *      is defended twice over.
+     *   2. The behavioural outcome, kept for what it proves -- that no unauthenticated write
+     *      reaches the row by ANY limb -- with its docblock no longer claiming it proves the gate.
+     */
+    public function test_the_gate_itself_refuses_a_null_principal(): void
+    {
+        [, $store] = $this->makeTenant();
+        $integration = $this->integration($store->id);
+
+        $this->assertNull(auth()->user(), 'premise: nobody is authenticated');
+
+        $gate = new \ReflectionMethod(
+            \App\Http\Controllers\OtpIntegrationController::class,
+            'mayManageOtpIntegration'
+        );
+        $gate->setAccessible(true);
+
+        $this->assertFalse(
+            $gate->invoke(new \App\Http\Controllers\OtpIntegrationController()),
+            'THE GATE ADMITS A NULL PRINCIPAL. StoreSettingsAccess::permits(null) is false, so '
+            . 'this can only break by the gate being replaced with something that assumes a user.'
+        );
+
+        \Illuminate\Support\Facades\Route::middleware('web')->post(
+            '/__test__/otp-integration/no-auth',
+            [\App\Http\Controllers\OtpIntegrationController::class, 'save1']
+        );
+
+        $this->post('/__test__/otp-integration/no-auth', [
+            'base_url' => 'https://attacker.example.test',
+            'otp_channel' => 'sms',
+            'sms_mode' => 'credits',
+        ]);
+
+        $this->assertSame(
+            'https://sms.example.test',
+            $integration->fresh()->base_url,
+            'AN UNAUTHENTICATED CALLER REWROTE THE OTP DESTINATION through a route without the '
+            . '`auth` middleware. Note this holds even with the gate stubbed open, because the '
+            . 'store guard also refuses -- which is why the reflection assertion above exists.'
+        );
+    }
+
+    /**
+     * F4: THE REFUSAL LOG MUST NOT CARRY A CREDENTIAL.
+     *
+     * `$baseUrl` is caller-supplied, and one of the shapes `SafeRemoteFetch::check` REFUSES is
+     * userinfo in the URL. So the exact input that reaches the refusal log is the one that would
+     * write `https://user:pass@host` into `storage/logs/` -- and incident #120 is still open.
+     *
+     * THIS TEST EXISTS BECAUSE THE FIX HAD NONE. Reverting `loggableHost()` to `$baseUrl` left
+     * all 25 other tests green, which is the definition of an unasserted fix.
+     */
+    public function test_the_refusal_log_does_not_carry_credentials_from_the_url(): void
+    {
+        [$merchant, $store] = $this->makeTenant();
+        $this->integration($store->id);
+
+        $records = [];
+
+        \Illuminate\Support\Facades\Log::listen(function ($message) use (&$records) {
+            $records[] = $message;
+        });
+
+        $this->actingAs($merchant->fresh())->post('/otp-integration/test', [
+            'phone' => '0100000000',
+            'base_url' => 'https://leaked-user:leaked-pass@127.0.0.1',
+        ]);
+
+        $this->assertNotEmpty($records, 'premise: the refusal must have logged something');
+
+        $dump = json_encode(array_map(
+            fn ($r) => [$r->message ?? '', $r->context ?? []],
+            $records
+        ));
+
+        foreach (['leaked-pass', 'leaked-user'] as $secret) {
+            $this->assertStringNotContainsString(
+                $secret,
+                (string) $dump,
+                "THE REFUSAL LOG CONTAINS `{$secret}` FROM THE SUBMITTED URL. The refused shape "
+                . 'is credentials-in-URL, so logging the address whole writes the credential to '
+                . 'disk on exactly the input that triggers the refusal.'
+            );
+        }
+
+        $this->assertStringContainsString(
+            '127.0.0.1',
+            (string) $dump,
+            'premise: the host must still be logged, or the redaction has removed the diagnostic '
+            . 'as well as the credential and this test would pass vacuously.'
+        );
+    }
+
+    /**
+     * THE OPERATOR MUST NOT INHERIT STORE 1 (F2).
+     *
+     * `app/Helper/helper.php:774-775` returns the LITERAL `1` for `users.type == 'super admin'`
+     * with an empty `current_store`. So before `resolvedStoreId()`, an operator in that state
+     * would read and overwrite whichever tenant holds store id 1 -- and `test()` would transmit
+     * THAT tenant's `api_secret` to a caller-named host.
+     *
+     * Not an escalation (the operator is entitled to everything) but wrong-tenant exposure and an
+     * unintended credential write, which is why `CouponController:171-177`,
+     * `StoreFinanceController:332-335`, `TaxMethodController:107-108` and
+     * `FlashSaleController:66-69` all refuse the same default.
+     *
+     * The fixture gives store id 1 a DIFFERENT tenant's row on purpose: if the guard regresses,
+     * this test shows a cross-tenant write rather than a harmless one.
+     */
+    public function test_an_operator_with_no_current_store_does_not_fall_through_to_store_one(): void
+    {
+        $victim = OtpIntegration::withoutGlobalScopes()->updateOrCreate(
+            ['store_id' => 1],
+            [
+                'base_url' => 'https://victim.example.test',
+                'api_secret' => 'victim-secret-must-not-leave',
+                'otp_channel' => 'sms',
+                'sms_mode' => 'credits',
+                'is_active' => 1,
+            ]
+        );
+
+        $operator = $this->makeMerchant(['type' => 'super admin', 'current_store' => null]);
+
+        $this->assertSame(
+            1,
+            (int) getCurrentStore($operator->id),
+            'premise: getCurrentStore() must still answer the hardcoded 1 for this principal, or '
+            . 'this test proves nothing about the guard.'
+        );
+
+        $this->actingAs($operator->fresh())->post('/otp-integration/test', [
+            'phone' => '0100000000',
+            'base_url' => 'https://attacker.example.test',
+        ]);
+
+        $this->assertCount(
+            0,
+            $this->sent,
+            'AN OPERATOR WITH NO current_store CAUSED STORE 1\'s api_secret TO BE TRANSMITTED.'
+        );
+
+        $this->actingAs($operator->fresh())->post('/otp-integration', [
+            'base_url' => 'https://attacker.example.test',
+            'otp_channel' => 'sms',
+            'sms_mode' => 'credits',
+        ]);
+
+        $this->assertSame(
+            'https://victim.example.test',
+            OtpIntegration::withoutGlobalScopes()->find($victim->id)->base_url,
+            'the same principal overwrote store 1\'s OTP destination'
+        );
+    }
+
+    /**
+     * EVERY WRITER OF THE OTP ROW IS GATED, not just every routed one.
+     *
+     * Decision 2 says "Apply authorization to the relevant controller ACTIONS and routes." The
+     * first pass gated the two ROUTED actions and stopped there. Finishing the census found a
+     * third: `OtpIntegrationController::save1()`, a near-duplicate of `save()` that writes
+     * `base_url` and `api_secret` to the same row and is registered by no route at all.
+     *
+     * This test drives it THROUGH A ROUTE IT REGISTERS ITSELF, because the property under test is
+     * a property of the method, not of `routes/web.php`. `save` and `save1` differ by one
+     * character; a later registration is the easiest mistake available here, and CLAUDE.md records
+     * that a later `Route::` declaration for the same method+URI silently replaces the earlier one
+     * and drops its middleware. If someone wires `save1` up, this test is what keeps the gate.
+     */
+    public function test_every_writer_of_the_integration_is_gated_including_the_unrouted_one(): void
+    {
+        [$merchant, $store] = $this->makeTenant();
+        $integration = $this->integration($store->id);
+
+        \Illuminate\Support\Facades\Route::middleware('web')->post(
+            '/__test__/otp-integration/save1',
+            [\App\Http\Controllers\OtpIntegrationController::class, 'save1']
+        );
+
+        $staff = $this->makeStaff($merchant, ['current_store' => $store->id]);
+
+        $this->actingAs($staff->fresh())->post('/__test__/otp-integration/save1', [
+            'base_url' => 'https://attacker.example.test',
+            'otp_channel' => 'sms',
+            'sms_mode' => 'credits',
+        ]);
+
+        $this->assertSame(
+            'https://sms.example.test',
+            $integration->fresh()->base_url,
+            'save1() REWROTE THE OTP DESTINATION for a staff user holding no permission. It is '
+            . 'unrouted today, so this is not a live defect -- but the gate belongs to the action, '
+            . 'and one route registration is all that separates the two.'
+        );
+    }
+
+    /**
+     * THE CENSUS ITSELF, so a FOURTH writer cannot be added without this failing.
+     *
+     * The question is not "are the three I know about gated" -- that is the test above. It is
+     * "are there exactly three, and does each one carry the gate". A new `public function` on
+     * this controller that touches the row, or a write to `OtpIntegration` from anywhere else in
+     * `app/`, fails here.
+     *
+     * Measured when written: `OtpIntegrationController` has `index` (renders only),
+     * `save`, `save1`, `test`, plus two private helpers; `SettingController`'s `otp_setting`
+     * branch READS the row to render the settings tab and writes nothing; and no other file in
+     * `app/` or `packages/` constructs or updates an `OtpIntegration`.
+     */
+    public function test_no_fourth_writer_of_the_otp_integration_exists(): void
+    {
+        $controller = base_path('app/Http/Controllers/OtpIntegrationController.php');
+        $source = (string) file_get_contents($controller);
+
+        // Every public action on the controller, in declaration order.
+        preg_match_all('/public function (\w+)\s*\(/', $source, $m);
+        $actions = $m[1];
+
+        $this->assertSame(
+            ['index', 'save', 'save1', 'test'],
+            $actions,
+            'The public surface of OtpIntegrationController changed. If an action was ADDED, '
+            . 'decide whether it writes or transmits the integration and gate it with '
+            . 'mayManageOtpIntegration() before updating this list.'
+        );
+
+        /*
+         * Each action that touches the row must call the gate. `index` is excluded by name and
+         * with a reason: it only renders, and it is measured broken anyway (see below).
+         */
+        foreach (['save', 'save1', 'test'] as $action) {
+            /*
+             * COMMENTS ARE STRIPPED FIRST, and that is the point rather than tidiness. The
+             * reviewer noted that `assertStringContainsString('mayManageOtpIntegration()')` is
+             * satisfied by the identifier appearing in a COMMENT -- and that this file's docblocks
+             * discuss the gate at length, so the assertion sat one paste away from vacuous.
+             * `php_strip_whitespace` removes comments using the real tokenizer, so what is matched
+             * is code.
+             */
+            $body = $this->methodBody($this->codeOnly($source), $action);
+
+            $this->assertStringContainsString(
+                'mayManageOtpIntegration()',
+                $body,
+                "OtpIntegrationController::{$action}() does not call the authorization gate. It "
+                . 'writes or transmits the store OTP credential, so an unauthorised staff member '
+                . 'can change the destination or cause a send.'
+            );
+        }
+
+        /*
+         * And no other first-party file may write the row. A READ is fine -- SettingController
+         * renders the settings tab from it -- so the pattern is write verbs only.
+         */
+        $writers = [];
+
+        foreach (['app', 'packages'] as $dir) {
+            $iterator = new \RecursiveIteratorIterator(
+                new \RecursiveDirectoryIterator(base_path($dir), \FilesystemIterator::SKIP_DOTS)
+            );
+
+            foreach ($iterator as $file) {
+                if ($file->getExtension() !== 'php') {
+                    continue;
+                }
+
+                $relative = ltrim(str_replace(base_path(), '', $file->getPathname()), '/');
+
+                if ($relative === 'app/Http/Controllers/OtpIntegrationController.php') {
+                    continue;
+                }
+
+                $contents = (string) file_get_contents($file->getPathname());
+
+                /*
+                 * WIDER THAN THE STATIC CONSTRUCTORS. The reviewer pointed out that matching only
+                 * `OtpIntegration::create|updateOrCreate|...` would let a future
+                 * `DB::table('otp_integrations')->update()` or
+                 * `OtpIntegration::where(...)->update()` past this gate. Neither exists today;
+                 * both are matched now so neither can be added quietly.
+                 */
+                $writePatterns = [
+                    '/OtpIntegration::(create|updateOrCreate|firstOrNew|firstOrCreate|insert|upsert)\s*\(/',
+                    '/OtpIntegration::where\s*\([^;]*->\s*(update|delete|upsert|increment|decrement)\s*\(/s',
+                    '/DB::table\(\s*[\'"]otp_integrations[\'"]\s*\)[^;]*->\s*(insert|update|updateOrInsert|upsert|delete)\s*\(/s',
+                ];
+
+                foreach ($writePatterns as $pattern) {
+                    if (preg_match($pattern, $contents)) {
+                        $writers[] = $relative;
+                        break;
+                    }
+                }
+            }
+        }
+
+        $this->assertSame([], $writers,
+            'A file other than OtpIntegrationController writes the OTP integration row. It is '
+            . 'outside the gate added for owner Decision 2: ' . implode(', ', $writers));
+    }
+
+    /**
+     * NOT A SECURITY ASSERTION -- a correctness one, pinned because it was measured and would
+     * otherwise be a sentence in a document that nothing checks.
+     *
+     * `OtpIntegrationController::index()` returns `view('otp.integration')`, and that view does
+     * not exist: `view()->exists('otp.integration')` is FALSE and
+     * `find . -name integration.blade.php` finds only a LynomiaChat superadmin view. So the
+     * registered `GET /otp-integration` route (routes/web.php:349) throws on arrival. The live
+     * settings UI is `SettingController`'s `otp_setting` tab rendering
+     * `resources/views/setting/otp_setting.blade.php`, which is also where `save()` redirects back
+     * to (`'setting_tab' => 'otp_setting'`).
+     *
+     * It is asserted in the FALSE direction on purpose. Changing it to EXISTS is the fix -- either
+     * point `index()` at the real tab or drop the route and the method -- and whoever does that
+     * will be told by this test to come and delete it, which is how a known-broken route stops
+     * being folklore.
+     */
+    public function test_the_index_route_is_still_the_known_broken_one(): void
+    {
+        $this->assertFalse(
+            view()->exists('otp.integration'),
+            'view("otp.integration") now EXISTS. OtpIntegrationController::index() was measured '
+            . 'broken on 2026-11-02 (the registered GET /otp-integration route threw), and this '
+            . 'test pins that so the finding cannot rot. If the view was added or index() was '
+            . 'repointed, that finding is CLOSED -- delete this test and the note in '
+            . 'docs/security/P1-SEC-55-OUTBOUND-SENDER-CENSUS.md.'
+        );
+    }
+
+    /** The same source with every comment and docblock removed, via PHP's own tokenizer. */
+    private function codeOnly(string $source): string
+    {
+        $out = '';
+
+        foreach (token_get_all($source) as $token) {
+            if (is_array($token)) {
+                if ($token[0] === T_COMMENT || $token[0] === T_DOC_COMMENT) {
+                    continue;
+                }
+
+                $out .= $token[1];
+
+                continue;
+            }
+
+            $out .= $token;
+        }
+
+        return $out;
+    }
+
+    /** The source of one method, from its signature to the start of the next `function`. */
+    private function methodBody(string $source, string $name): string
+    {
+        $start = strpos($source, "function {$name}(");
+
+        $this->assertNotFalse($start, "method {$name}() not found");
+
+        $next = preg_match(
+            '/\n\s*(?:public|private|protected)\s+function\s/',
+            $source,
+            $m,
+            PREG_OFFSET_CAPTURE,
+            $start + 1
+        ) === 1 ? $m[0][1] : strlen($source);
+
+        return substr($source, $start, $next - $start);
+    }
+
     public function test_the_store_administrator_may_still_manage_the_integration(): void
     {
         [$merchant, $store] = $this->makeTenant();
@@ -313,7 +699,7 @@ class OtpOutboundHardeningTest extends SecurityTestCase
         $this->integration($store->id);
 
         $staff = $this->makeStaff($merchant, ['current_store' => $store->id]);
-        $this->grantPermission($staff, 'Manage Store Setting');
+        $this->grantPermission($staff, 'Manage Setting');
 
         $this->actingAs($staff->fresh())->post('/otp-integration/test', ['phone' => '0100000000']);
 
@@ -323,6 +709,54 @@ class OtpOutboundHardeningTest extends SecurityTestCase
             'A STAFF MEMBER THE OWNER EXPLICITLY GRANTED THE PERMISSION WAS STILL REFUSED. The '
             . 'policy is "staff with an explicitly granted permission MAY", so this is the half of '
             . 'the gate that must not over-refuse.'
+        );
+    }
+
+    /**
+     * AND THE OTHER SCREEN'S PERMISSION IS NOT ENOUGH. This is the finding the reviewer caught in
+     * the first draft of the gate, pinned so it cannot come back.
+     *
+     * `Manage Store Setting` is the "Store Setting" entry's permission (route `app-setting.index`,
+     * CompanyMenuListener:88). The OTP tab lives on the Settings screen (`setting.index`,
+     * CompanyMenuListener:964), whose permission is `Manage Setting`. `StoreSettingsAccess` says
+     * so in its own docblock and refuses `Manage Store Setting` alone for any restricted name --
+     * and `api_secret` IS a restricted name under `GatewaySecretRedactor`'s `/secret|.../i`.
+     *
+     * So a role holding only the Store-Setting permission must not be able to read back the OTP
+     * secret by pointing the test endpoint at a host it controls.
+     */
+    public function test_the_other_screens_permission_is_not_enough(): void
+    {
+        [$merchant, $store] = $this->makeTenant();
+        $integration = $this->integration($store->id);
+
+        $staff = $this->makeStaff($merchant, ['current_store' => $store->id]);
+        $this->grantPermission($staff, 'Manage Store Setting');
+
+        $this->actingAs($staff->fresh())->post('/otp-integration/test', [
+            'phone' => '0100000000',
+            'base_url' => 'https://attacker.example.test',
+        ]);
+
+        $this->assertCount(
+            0,
+            $this->sent,
+            'A STAFF MEMBER HOLDING ONLY `Manage Store Setting` CAUSED THE STORED api_secret TO '
+            . 'BE SENT. That is the Store Setting screen\'s permission, not this screen\'s, and '
+            . 'StoreSettingsAccess refuses it for restricted names precisely so a role holding it '
+            . 'cannot be handed another screen\'s credential.'
+        );
+
+        $this->actingAs($staff->fresh())->post('/otp-integration', [
+            'base_url' => 'https://attacker.example.test',
+            'otp_channel' => 'sms',
+            'sms_mode' => 'credits',
+        ]);
+
+        $this->assertSame(
+            'https://sms.example.test',
+            $integration->fresh()->base_url,
+            'the same principal rewrote the OTP destination'
         );
     }
 
@@ -340,9 +774,11 @@ class OtpOutboundHardeningTest extends SecurityTestCase
         $operator = $this->makeMerchant(['type' => 'super admin', 'current_store' => $store->id]);
 
         $this->assertFalse(
-            $operator->isAbleTo('Manage Store Setting'),
+            $operator->isAbleTo('Manage Setting'),
             'premise: isAbleTo() must refuse the operator, or this test proves nothing about the '
-            . 'operator-first clause'
+            . 'operator-first clause. Named for the permission the gate ACTUALLY asks for -- an '
+            . 'earlier draft asserted this about `Manage Store Setting`, which the gate no longer '
+            . 'consults, so the premise would have been about nothing.'
         );
 
         $this->actingAs($operator->fresh())->post('/otp-integration/test', ['phone' => '0100000000']);

@@ -296,9 +296,9 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/StoredUpload.php:90` | a stored upload path names a platform default and was not touched |
 | `app/Services/StoredUpload.php:108` | a stored upload path names another tenant |
 | `app/Services/WebuzoDomainService.php:170` | New Webuzo domain added but old domain could not be deleted |
-| `app/Http/Controllers/OtpIntegrationController.php:392` | OTP test refused: the provider address is not a permitted outbound host. |
-| `app/Http/Controllers/OtpIntegrationController.php:483` | OTP test refused: the provider address is not a permitted outbound host. |
-| `app/Http/Controllers/OtpIntegrationController.php:532` | OTP test failed with an exception. |
+| `app/Http/Controllers/OtpIntegrationController.php:536` | OTP test refused: the provider address is not a permitted outbound host. |
+| `app/Http/Controllers/OtpIntegrationController.php:630` | OTP test refused: the provider address is not a permitted outbound host. |
+| `app/Http/Controllers/OtpIntegrationController.php:682` | OTP test failed with an exception. |
 | `app/Http/Controllers/Customer/Auth/CustomerLoginController.php:352` | Customer OTP send did not succeed. |
 | `app/Http/Controllers/Customer/Auth/CustomerLoginController.php:394` | Customer OTP send threw. |
 

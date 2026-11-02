@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\OtpIntegration;
 use App\Policies\UserPolicy;
 use App\Services\OtpTransport;
+use App\Services\StoreSettingsAccess;
 use Illuminate\Http\Request;
 
 class OtpIntegrationController extends Controller
@@ -22,46 +23,124 @@ class OtpIntegrationController extends Controller
      * controller exited 1: zero hits. The routes carried only
      * ['auth','xss','setlocate','verified'].
      *
-     * NO NEW PERMISSION NAME IS INVENTED, per the owner's instruction. `Manage Store Setting`
-     * already exists and is already seeded -- measured in this repository: id 19, held by the
-     * store-owner role, NOT held by the staff role -- so nothing is granted to ordinary staff by
-     * this change, and an owner can grant it to a specific staff member explicitly.
+     * ==========================================================================================
+     * THIS DELEGATES TO `StoreSettingsAccess::permits()`, AND MY FIRST DRAFT DID NOT. THAT WAS A
+     * DEFECT, FOUND BY THE `tenant-authz-reviewer` BEFORE THIS WAS COMMITTED.
+     * ==========================================================================================
+     * The first draft hand-wrote three clauses ending in `isAbleTo('Manage Store Setting')`. Two
+     * things were wrong with it, and the repository had already written both down:
      *
-     * THE ORDER OF THE THREE CLAUSES IS THE POINT, and CLAUDE.md §1 is why:
+     *   1. WRONG SCREEN'S PERMISSION. The OTP tab is rendered by `SettingController`'s
+     *      `otp_setting` branch (:2143) -- i.e. the `setting.index` screen, whose permission is
+     *      `Manage Setting` (`CompanyMenuListener:964`). `Manage Store Setting` belongs to the
+     *      SEPARATE "Store Setting" entry, route `app-setting.index` (`CompanyMenuListener:88`).
+     *      `StoreSettingsAccess`'s own docblock says so in as many words: *"NOT `Manage Store
+     *      Setting`: that belongs to the separate 'Store Setting' entry (route
+     *      app-setting.index), and a role holding only it must not be handed the SMTP password."*
+     *      And `api_secret` is a restricted name under that same service --
+     *      `GatewaySecretRedactor`'s pattern is `/secret|private|salt|.../i` -- so a staff member
+     *      holding only `Manage Store Setting` is refused the store's SMTP password by
+     *      `StoreSettingsAccess` and would have been handed its OTP secret by my draft.
      *
-     *   1. OPERATOR FIRST. `config/laratrust.php` sets `permissions_as_gates => false` and this
-     *      codebase has NO super-admin bypass, so `isAbleTo()` ALONE REFUSES THE PLATFORM
-     *      OPERATOR. Measured here: for `users.type = 'super admin'`,
-     *      `isAbleTo('Manage Store Setting')` is FALSE. `UserPolicy::isOperator()` is this
-     *      project's single definition of that test and rtrims SPACE only, to agree with MySQL's
-     *      PAD SPACE -- a trailing space is equal to the engine, a leading one is not.
-     *   2. THE STORE ADMINISTRATOR. `users.type === 'admin'` is the root of its own tenant
-     *      (`User::creatorId()` returns `$this->id` for that type), and the owner's policy admits
-     *      "authorized store administrators" by name. The same SPACE-only rtrim, so the two
-     *      clauses cannot disagree about a value MySQL considers equal.
-     *   3. EVERYONE ELSE needs the permission, explicitly granted.
+     *   2. A RE-IMPLEMENTED STRING COMPARISON FOR THE TENANT OWNER.
+     *      `strtolower(rtrim($type, ' ')) === 'admin'` admits `'Admin'` and `'admin '`, which
+     *      `User::creatorId()` (a `==` on the exact value) calls STAFF. The same docblock warns
+     *      against exactly this: *"deliberately the application's own definition of 'root of a
+     *      tenant' and not a re-implemented string comparison: a staff row whose type merely
+     *      NORMALISES to 'admin' ('Admin', ' admin') is a staff member for creatorId() and for
+     *      this gate."* Not tenant-reachable (`RolePolicy::isReservedName()` normalises the same
+     *      way and refuses those names at both writers of `users.type`), but it fails WIDE.
      *
-     * TENANT ISOLATION IS NOT THIS GATE'S JOB and is unchanged: `save()` and `test()` both resolve
-     * the row through `getCurrentStore()`, which derives from the caller's own store and takes no
-     * request input, so this gate decides WHETHER, never WHOSE.
+     * THE SAME MISTAKE IS RECORDED IN THIS REPOSITORY'S OWN QUEUE, one row up:
+     * `P01-SECURITY-WORK-QUEUE.md`'s F5 row reads *"fixed: `StoreSettingsAccess` (operator ->
+     * owner -> `Manage Setting`); 403, never 401. **First draft used the wrong permission
+     * (`Manage Store Setting` is the Store Setting screen)**"*. So this is the second time, and
+     * the answer is to stop hand-writing the gate and call the service that already encodes it.
+     *
+     * `StoreSettingsAccess::permits()` IS operator -> tenant owner (`creatorId() === id`) ->
+     * `isAbleTo('Manage Setting')`, in that order and for the reasons CLAUDE.md gives: there is
+     * NO super-admin bypass here (`permissions_as_gates => false`), so `isAbleTo()` alone refuses
+     * the platform operator and the operator limb must come first. It is already covered by
+     * `tests/Feature/Security/SettingsRestrictedWriteTest`, so this change REMOVES a gate that
+     * needed its own tests rather than adding one.
+     *
+     * NO PERMISSION NAME IS INVENTED, per the owner's instruction: `Manage Setting` is the
+     * Settings menu's own permission, is what `StoreSettingsAccess` has shipped with since the F5
+     * fix, and is not held by the staff role -- so nothing is granted to ordinary staff.
+     *
+     * ------------------------------------------------------------------------------------------
+     * AND ONE THING THE GATE CANNOT DECIDE: `getCurrentStore()` DEFAULTS THE OPERATOR TO STORE 1.
+     * ------------------------------------------------------------------------------------------
+     * An earlier version of this docblock said `getCurrentStore()` "derives from the caller's own
+     * store and takes no request input, so this gate decides WHETHER, never WHOSE". The second
+     * half was false for one of the three principals. `app/Helper/helper.php:774-775` returns the
+     * LITERAL `1` for `users.type == 'super admin'` with an empty `current_store`, so an operator
+     * in that state would read and overwrite STORE 1's `base_url` and `api_secret` and transmit
+     * store 1's secret -- wrong-tenant exposure, not escalation, since the operator is entitled to
+     * everything. `CouponController:171-177`, `StoreFinanceController:332-335` (F157),
+     * `TaxMethodController:107-108` and `FlashSaleController:66-69` all refuse exactly this and
+     * say why; `assertStoreResolved()` below is the same pattern.
+     *
+     * The request-input half of that claim IS true, and was checked: `getCurrentStore()` has one
+     * definition repo-wide and reads `users.current_store`, never a query string, header or
+     * caller-set session value.
      */
     private function mayManageOtpIntegration(): bool
     {
+        return StoreSettingsAccess::permits(auth()->user());
+    }
+
+    /**
+     * THE OPERATOR MUST NOT INHERIT STORE 1 BY DEFAULT. See the note above.
+     *
+     * Returns the resolved store id, or null when the caller is the platform operator with no
+     * `current_store` -- in which case `getCurrentStore()` would answer the hardcoded `1` and
+     * every write here would land on whichever tenant holds that id. Each caller turns a null
+     * into its own refusal shape, because `save()` redirects and `test()` answers JSON.
+     *
+     * A tenant principal is unaffected: `current_store` is set for them, and the two writers of
+     * that column are both constrained to their own tenant, so this returns their own store id
+     * exactly as before.
+     */
+    /**
+     * A provider address reduced to what is safe to log: scheme and host, nothing else.
+     *
+     * F4. `$baseUrl` is caller-supplied (`$request->base_url ?: $integration->base_url`), and one
+     * of the shapes `SafeRemoteFetch::check` REFUSES is credentials in the URL -- the suite drives
+     * `https://user:pass@sms.example.test`. So the exact input that reaches the refusal log is the
+     * one that would write a credential into `storage/logs/`. Given the still-open incident #120,
+     * that is not a trade worth making for a diagnostic.
+     *
+     * Userinfo, path, query and fragment are all dropped. An unparseable value yields
+     * `'(unparseable)'` rather than being echoed back.
+     */
+    private static function loggableHost(string $url): string
+    {
+        $parts = parse_url($url);
+
+        if ($parts === false || empty($parts['host'])) {
+            return '(unparseable)';
+        }
+
+        $scheme = isset($parts['scheme']) ? $parts['scheme'] . '://' : '';
+        $port = isset($parts['port']) ? ':' . (int) $parts['port'] : '';
+
+        return $scheme . $parts['host'] . $port;
+    }
+
+    private function resolvedStoreId(): ?int
+    {
         $user = auth()->user();
 
-        if ($user === null) {
-            return false;
+        if ($user !== null
+            && UserPolicy::isOperator($user)
+            && empty($user->current_store)) {
+            return null;
         }
 
-        if (UserPolicy::isOperator($user)) {
-            return true;
-        }
+        $storeId = getCurrentStore();
 
-        if (strtolower(rtrim((string) ($user->type ?? ''), ' ')) === 'admin') {
-            return true;
-        }
-
-        return $user->isAbleTo('Manage Store Setting');
+        return $storeId === null ? null : (int) $storeId;
     }
 
     public function index()
@@ -88,7 +167,16 @@ public function save(Request $request)
         );
     }
 
-    $storeId = getCurrentStore();
+    // F2: null means the platform operator has no `current_store`, and `getCurrentStore()` would
+    // answer the hardcoded 1. Refuse rather than write another tenant's credential.
+    $storeId = $this->resolvedStoreId();
+
+    if ($storeId === null) {
+        return redirect()->back()->with(
+            'error',
+            __('No store is selected. Choose a store before changing its OTP integration.')
+        );
+    }
 
     $request->validate([
         'base_url' => 'required|url',
@@ -136,9 +224,53 @@ public function save(Request $request)
 
 
 
+    /**
+     * A SECOND, COMPLETE WRITER OF THE OTP DESTINATION AND SECRET -- and it is UNROUTED.
+     *
+     * [2026-11-02, P1-SEC-55 follow-up] Found by finishing the writer census Decision 2 implies
+     * rather than only the ROUTE census. Measured:
+     *
+     *   - `grep -rn 'save1' app/ routes/ resources/ packages/ tests/` finds ONE hit: this
+     *     declaration. No route registers it, no view posts to it, nothing calls it.
+     *   - `routes/web.php` registers exactly three: `index` (:349), `save` (:352), `test` (:346).
+     *   - The settings form posts to `route('otp.integration.save')` and the test button hits
+     *     `route('otp.integration.test')` (resources/views/setting/otp_setting.blade.php:27, :388),
+     *     so the live UI never reaches here.
+     *   - It is otherwise a near-duplicate of `save()`: it writes `base_url`, keeps the stored
+     *     `api_secret` unless a new one is supplied, and saves the same row.
+     *
+     * SO WHY GATE DEAD CODE. Because the gate belongs to the ACTION, not to the route list, and
+     * `save` and `save1` differ by one character. A later route registration -- the easiest
+     * possible mistake here -- would hand an unauthorised staff member a full rewrite of the OTP
+     * destination, and `CLAUDE.md` records that a later `Route::` declaration silently replaces an
+     * earlier one for the same method+URI, dropping its middleware with it. Gating costs nothing
+     * (nothing can reach this today) and removes that whole class of regression.
+     *
+     * DELETING IT WOULD BE BETTER STILL, and that is deliberately NOT done here: removing a
+     * method is a scope decision for the owner, and this change is meant to be the authorization
+     * one. `OtpIntegrationController::index()` is in the same condition for a different reason --
+     * it renders `view('otp.integration')`, and `view()->exists('otp.integration')` is FALSE, so
+     * the registered `GET /otp-integration` route throws. Both are recorded in
+     * docs/security/P1-SEC-55-OUTBOUND-SENDER-CENSUS.md rather than quietly tidied.
+     */
     public function save1(Request $request)
     {
-        $storeId = getCurrentStore();
+        if (! $this->mayManageOtpIntegration()) {
+            return redirect()->back()->with(
+                'error',
+                __('You do not have permission to manage OTP integration settings.')
+            );
+        }
+
+        // F2, same as save(). See resolvedStoreId().
+        $storeId = $this->resolvedStoreId();
+
+        if ($storeId === null) {
+            return redirect()->back()->with(
+                'error',
+                __('No store is selected. Choose a store before changing its OTP integration.')
+            );
+        }
 
      $request->validate([
     'base_url' => 'required|url',
@@ -198,7 +330,19 @@ public function test(Request $request)
         ]);
     }
 
-    $storeId = getCurrentStore();
+    /*
+     * F2: refuse before the row is read, so an operator with no `current_store` cannot cause
+     * STORE 1's `api_secret` to be transmitted. Same HTTP 200 + success:false shape as every
+     * other refusal in this method, so the settings page's JavaScript contract is unchanged.
+     */
+    $storeId = $this->resolvedStoreId();
+
+    if ($storeId === null) {
+        return response()->json([
+            'success' => false,
+            'message' => __('No store is selected. Choose a store before testing its OTP integration.'),
+        ]);
+    }
 
     $request->validate([
         'phone' => ['required', 'string'],
@@ -391,7 +535,10 @@ $phone = $this->normalizePhone($request->phone);
             if ($sent['outcome'] === OtpTransport::REFUSED) {
                 \Log::warning('OTP test refused: the provider address is not a permitted outbound host.', [
                     'store_id' => $storeId,
-                    'base_url' => $baseUrl,
+                    // F4: scheme+host only. One of the shapes SafeRemoteFetch REFUSES is
+                    // userinfo-in-URL (`https://user:pass@host`), so logging $baseUrl whole would
+                    // put a credential in storage/logs on exactly the input that reaches here.
+                    'base_url' => self::loggableHost($baseUrl),
                     'came_from_request' => $request->filled('base_url'),
                 ]);
 
@@ -482,7 +629,10 @@ $phone = $this->normalizePhone($request->phone);
             if ($sent['outcome'] === OtpTransport::REFUSED) {
                 \Log::warning('OTP test refused: the provider address is not a permitted outbound host.', [
                     'store_id' => $storeId,
-                    'base_url' => $baseUrl,
+                    // F4: scheme+host only. One of the shapes SafeRemoteFetch REFUSES is
+                    // userinfo-in-URL (`https://user:pass@host`), so logging $baseUrl whole would
+                    // put a credential in storage/logs on exactly the input that reaches here.
+                    'base_url' => self::loggableHost($baseUrl),
                     'came_from_request' => $request->filled('base_url'),
                     'channel' => 'whatsapp',
                 ]);
