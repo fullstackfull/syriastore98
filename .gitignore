@@ -85,3 +85,8 @@ CLAUDE.local.md
 # P2: the local dev database the screenshot harness seeds (database/seed-p2dev.php builds it).
 # Never committed: it is a database, and the repository has a standing rule against those.
 database/p2dev.sqlite
+
+# Python bytecode from docs/design-system/tools (a mutation test imported the
+# checker as a module and left a .pyc, which got committed once -- 50529d6b).
+__pycache__/
+*.pyc
