@@ -70,23 +70,25 @@ use PHPUnit\Framework\TestCase;
 class GateFCoverageLedgerTest extends TestCase
 {
     /**
-     * GATE F money tables for which the suite reports a SKIP naming the table. Measured
-     * from --display-skipped, not assumed.
+     * THE SIX GATE F MONEY TABLES.
+     *
+     * THIS USED TO BE TWO LISTS -- `SKIP_REPORTED` (three tables whose absence the suite reported
+     * as a skip) and `NO_REPORTED_SKIP` (three whose absence was invisible) -- and this class was a
+     * ratchet on that COVERAGE GAP. GATE F closed on 2026-11-02 and the gap closed with it: all six
+     * are declared by migrations whose structure was measured against a restored copy of
+     * production, so no table is absent and none can report a skip.
+     *
+     * The partition is therefore gone and the class is INVERTED, not deleted -- the same treatment
+     * GateFSchemaContainmentTest got, for the same reason. What it ratchets now is the property
+     * that replaced the gap, below.
      */
-    private const SKIP_REPORTED = [
-        'store_wallets',
-        'store_wallet_transactions',
-        'store_withdrawals',
-    ];
-
-    /**
-     * GATE F money tables with NO reported skip. This is the coverage gap. A table leaves
-     * this list only when it gains a test that actually reports its absence.
-     */
-    private const NO_REPORTED_SKIP = [
-        'store_order_financials',
+    private const MONEY_TABLES = [
         'currency_rates',
         'delivery_earnings',
+        'store_order_financials',
+        'store_wallet_transactions',
+        'store_wallets',
+        'store_withdrawals',
     ];
 
     private function basePath(): string
@@ -149,9 +151,6 @@ class GateFCoverageLedgerTest extends TestCase
 
     public function test_the_ledger_covers_exactly_the_six_gate_f_money_tables(): void
     {
-        $all = array_merge(self::SKIP_REPORTED, self::NO_REPORTED_SKIP);
-
-        sort($all);
         $expected = [
             'currency_rates',
             'delivery_earnings',
@@ -161,40 +160,182 @@ class GateFCoverageLedgerTest extends TestCase
             'store_withdrawals',
         ];
 
-        $this->assertSame(
-            $expected,
-            $all,
-            'The ledger no longer partitions exactly the six GATE F money tables. It must '
-            . 'stay in step with GateFSchemaContainmentTest::GATE_F_TABLES -- do not drop a '
-            . 'table from the ledger to make the gap look smaller.'
-        );
+        $actual = self::MONEY_TABLES;
+        sort($actual);
 
-        $this->assertSame(
-            [],
-            array_intersect(self::SKIP_REPORTED, self::NO_REPORTED_SKIP),
-            'A table is recorded as both skip-reported and not-skip-reported.'
-        );
+        $this->assertSame($expected, $actual, 'The ledger no longer names exactly the six GATE F '
+            . 'money tables.');
+
+        // AND IT MUST AGREE WITH THE MEASURED SCHEMA, not merely with itself. Two hand-maintained
+        // lists that drift apart are how this project has been bitten before.
+        $measured = \App\Support\Database\GateFProductionSchema::MONEY_TABLES;
+        sort($measured);
+
+        $this->assertSame($expected, $measured, 'App\\Support\\Database\\GateFProductionSchema'
+            . '::MONEY_TABLES and this ledger disagree about which tables are money tables. The '
+            . 'measured schema is authoritative; fix the ledger, not the measurement.');
     }
 
     /**
-     * THE GAP ITSELF, ratcheted. Three of the six money tables have no reported skip. If
-     * that number grows, coverage of GATE F has quietly fallen.
+     * THE INVERTED RATCHET, AND THE ONE THAT FOUND SOMETHING.
+     *
+     * No test may BRANCH on whether a GATE F money table exists, and none may CREATE one. It may
+     * assert that the table is there -- `assertTrue(Schema::hasTable(...))` -- and that is the only
+     * permitted shape.
+     *
+     * WHY THIS IS THE PROPERTY. While the tables were absent, eleven test files carried
+     * `if (! Schema::hasTable('<money table>')) { Schema::create(...); }` so they could run at all.
+     * Those blocks declared COLUMNS ONLY -- none of production's unique keys, none of its foreign
+     * keys. GATE F made every one of them dead (the migration runs first), which is benign today
+     * and a loaded gun tomorrow: remove or rename one migration and the suite goes GREEN against a
+     * fabricated money schema. GateFSchemaContainmentTest cannot see them, because a
+     * `Schema::create()` inside a test is not a discoverable migration -- so this is the only place
+     * the property can live.
+     *
+     * Measured on 2026-11-02: 15 such sites across 11 files, 12 of them inside a fallback that
+     * built the table. All removed in the same change that inverted this test.
+     *
+     * Comments are stripped before the scan, because several of those files now EXPLAIN in prose
+     * what they no longer do -- the third time a ratchet in this repository has had to learn that.
      */
-    public function test_the_uncovered_set_has_not_grown(): void
+    public function test_no_test_creates_or_branches_on_a_gate_f_money_table(): void
     {
-        $this->assertLessThanOrEqual(
+        $offenders = [];
+
+        foreach ($this->testFiles() as $file) {
+            $code = $this->codeOnly($file);
+            $rel = str_replace($this->basePath() . '/', '', $file);
+
+            if (str_ends_with($rel, 'tests/Unit/Database/GateFCoverageLedgerTest.php')) {
+                continue; // this file names the tables in order to forbid them
+            }
+
+            foreach (self::MONEY_TABLES as $table) {
+                $quoted = preg_quote($table, '/');
+
+                if (preg_match_all('/Schema::create\(\s*[\'"]' . $quoted . '[\'"]/', $code, $m, PREG_OFFSET_CAPTURE)) {
+                    foreach ($m[0] as $hit) {
+                        $offenders[] = $rel . ':' . $this->lineOf($code, $hit[1]) . ' CREATES ' . $table;
+                    }
+                }
+
+                if (! preg_match_all('/Schema::hasTable\(\s*[\'"]' . $quoted . '[\'"]\s*\)/', $code, $m, PREG_OFFSET_CAPTURE)) {
+                    continue;
+                }
+
+                foreach ($m[0] as $hit) {
+                    // THE STATEMENT, NOT THE LINE. The permitted shape is a multi-line
+                    // assertTrue(...) whose `assert` sits on an earlier line than the hasTable()
+                    // call, so a line-local test reports every correct call as an offender -- which
+                    // is exactly what the first version of this scan did, on all fifteen sites.
+                    $statement = $this->statementBefore($code, $hit[1]);
+
+                    if (preg_match('/\bassert[A-Za-z]*\s*\(/', $statement)) {
+                        continue;
+                    }
+
+                    $offenders[] = $rel . ':' . $this->lineOf($code, $hit[1]) . ' BRANCHES ON ' . $table;
+                }
+            }
+        }
+
+        sort($offenders);
+
+        $this->assertSame([], $offenders, 'A test creates a GATE F money table, or branches on '
+            . 'whether one exists. Neither is allowed since GATE F closed on 2026-11-02. A '
+            . 'Schema::create() in a test is NOT a discoverable migration: it carries none of '
+            . 'production\'s unique keys or foreign keys, so it would make this suite green '
+            . 'against a fabricated money schema if the real migration were ever reverted. And a '
+            . 'branch on absence is dead code whose condition can no longer be false, which reads '
+            . 'as coverage being deliberately skipped. Assert presence instead: '
+            . 'assertTrue(Schema::hasTable(...)) with a message naming the migration.');
+    }
+
+    /**
+     * NON-VACUITY for the scan above, because an empty file list would satisfy it silently.
+     */
+    public function test_the_money_table_scan_reads_the_suite(): void
+    {
+        $files = $this->testFiles();
+
+        $this->assertGreaterThan(400, count($files), 'the scanner found almost no test files');
+
+        $hits = 0;
+
+        foreach ($files as $file) {
+            if (str_contains($this->codeOnly($file), 'delivery_earnings')) {
+                $hits++;
+            }
+        }
+
+        $this->assertGreaterThan(
             3,
-            count(self::NO_REPORTED_SKIP),
-            'More GATE F money tables now have no reported skip than when this gap was '
-            . 'measured. Coverage of the gate has fallen.'
+            $hits,
+            'the scanner reads no test file mentioning delivery_earnings, so the assertion above '
+            . 'is passing over an empty set'
+        );
+    }
+
+    private function lineOf(string $code, int $offset): int
+    {
+        return substr_count(substr($code, 0, $offset), "\n") + 1;
+    }
+
+    /**
+     * The text from the end of the previous statement or block to $offset -- i.e. the statement the
+     * match sits inside. `assert` anywhere in it means the call is an assertion about presence;
+     * otherwise it is a branch.
+     */
+    private function statementBefore(string $code, int $offset): string
+    {
+        $start = 0;
+
+        foreach ([';', '{', '}'] as $boundary) {
+            $found = strrpos(substr($code, 0, $offset), $boundary);
+
+            if ($found !== false && $found > $start) {
+                $start = $found;
+            }
+        }
+
+        return substr($code, $start, $offset - $start);
+    }
+
+    /** @return list<string> */
+    private function testFiles(): array
+    {
+        $files = [];
+        $it = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($this->basePath() . '/tests', \FilesystemIterator::SKIP_DOTS)
         );
 
-        $this->assertCount(
-            3,
-            self::SKIP_REPORTED,
-            'A GATE F money table stopped reporting its skip. Check it was not made to '
-            . 'pass by inventing a schema -- see GateFSchemaContainmentTest.'
-        );
+        foreach ($it as $f) {
+            if ($f->isFile() && $f->getExtension() === 'php') {
+                $files[] = $f->getPathname();
+            }
+        }
+
+        sort($files);
+
+        return $files;
+    }
+
+    /** PHP source with every comment blanked, so prose about a pattern is not the pattern. */
+    private function codeOnly(string $file): string
+    {
+        $out = '';
+
+        foreach (token_get_all((string) file_get_contents($file)) as $token) {
+            if (is_array($token)) {
+                $out .= in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true)
+                    ? str_repeat("\n", substr_count($token[1], "\n"))
+                    : $token[1];
+            } else {
+                $out .= $token;
+            }
+        }
+
+        return $out;
     }
 
     /**
@@ -204,7 +345,7 @@ class GateFCoverageLedgerTest extends TestCase
      */
     public function test_every_gate_f_table_is_reachable_from_live_application_code(): void
     {
-        foreach (array_merge(self::SKIP_REPORTED, self::NO_REPORTED_SKIP) as $table) {
+        foreach (self::MONEY_TABLES as $table) {
             $sites = $this->liveCallSites($table);
 
             $this->assertNotEmpty(
@@ -239,44 +380,65 @@ class GateFCoverageLedgerTest extends TestCase
     }
 
     /**
-     * Pins the one case that is invisible rather than absent: OrderMutationTest guards its
-     * delivery_earnings assertion with Schema::hasTable() and reports no skip, so the
-     * assertion silently does not run. That is a deliberate, argued trade-off -- see the
-     * comment at OrderMutationTest.php:147 -- and this test does NOT ask for it to change.
+     * THE INVERSE OF WHAT THIS TEST USED TO ASSERT, and it is the reason the previous commit's Unit
+     * suite went red.
      *
-     * It asserts only that the pattern is still there. When GATE F opens and the guard
-     * becomes unnecessary, this test fails, and whoever removes it must move
-     * delivery_earnings out of NO_REPORTED_SKIP in the same commit.
+     * It used to pin that `OrderMutationTest` STILL hid its `delivery_earnings` assertion behind
+     * `Schema::hasTable()`, and its own docblock set the exit condition: *"When GATE F opens and the
+     * guard becomes unnecessary, this test fails, and whoever removes it must move
+     * delivery_earnings out of NO_REPORTED_SKIP in the same commit."* GATE F opened, the guard was
+     * removed, and this test failed exactly as designed -- which is the whole value of having
+     * written the exit condition down.
+     *
+     * So it now asserts the opposite: the guard is GONE and the financial assertion runs for every
+     * caller. The sibling in `OrderAssignPermissionTest` is checked too, because it cited this one
+     * as its precedent and carried the same wrapper.
      */
-    public function test_the_hidden_delivery_earnings_assertion_is_still_recorded_as_hidden(): void
+    public function test_the_delivery_earnings_assertions_are_no_longer_hidden(): void
     {
-        $path = $this->basePath() . '/tests/Feature/Security/OrderMutationTest.php';
+        foreach ([
+            'tests/Feature/Security/OrderMutationTest.php',
+            'tests/Feature/Security/OrderAssignPermissionTest.php',
+        ] as $rel) {
+            $path = $this->basePath() . '/' . $rel;
 
-        if (! is_file($path)) {
-            $this->markTestSkipped(
-                'tests/Feature/Security/OrderMutationTest.php is absent from this worktree, '
-                . 'so the conditional delivery_earnings assertion cannot be checked. That '
-                . 'file is owned by another agent.'
+            $this->assertFileExists($path);
+
+            $code = $this->codeOnly($path);
+
+            $this->assertDoesNotMatchRegularExpression(
+                '/if\s*\([^)]*Schema::hasTable\(\s*[\'"]delivery_earnings[\'"]/',
+                $code,
+                $rel . ' guards an assertion on whether `delivery_earnings` exists again. GATE F '
+                . 'declared it on 2026-11-02, so that condition can no longer be false and the '
+                . 'wrapper reads as coverage being skipped.'
             );
+
+            $this->assertStringNotContainsString(
+                'if ($hasEarnings)',
+                $code,
+                $rel . ' hides its delivery_earnings assertion behind $hasEarnings again.'
+            );
+
+            // ONLY OrderMutationTest asserted on the earnings ROWS. OrderAssignPermissionTest's
+            // hidden assertion was about `orders.deliveryboy_id`, so requiring a DeliveryEarning
+            // reference there would be asserting something that was never true -- which the first
+            // version of this test did, and which its own failure caught.
+            if (str_ends_with($rel, 'OrderMutationTest.php')) {
+                $this->assertStringContainsString(
+                    'DeliveryEarning',
+                    $code,
+                    $rel . ' no longer references DeliveryEarning at all, so the assertion this '
+                    . 'test exists to protect has been deleted rather than made unconditional.'
+                );
+            } else {
+                $this->assertStringContainsString(
+                    'deliveryboy_id',
+                    $code,
+                    $rel . ' no longer asserts the assignment completed, so the assertion that was '
+                    . 'hidden behind the hasTable() guard has been deleted rather than freed.'
+                );
+            }
         }
-
-        $src = (string) file_get_contents($path);
-
-        $this->assertMatchesRegularExpression(
-            '/Schema::hasTable\(\s*[\'"]delivery_earnings[\'"]\s*\)/',
-            $src,
-            'OrderMutationTest no longer guards delivery_earnings with Schema::hasTable(). '
-            . 'If the table now exists, confirm its schema was not invented '
-            . '(GateFSchemaContainmentTest) and move delivery_earnings out of '
-            . 'self::NO_REPORTED_SKIP here.'
-        );
-
-        $this->assertStringContainsString(
-            'if ($hasEarnings)',
-            $src,
-            'The conditional that hides the delivery_earnings financial assertion has '
-            . 'changed shape. Re-measure which GATE F tables report a skip and update the '
-            . 'ledger in this file.'
-        );
     }
 }

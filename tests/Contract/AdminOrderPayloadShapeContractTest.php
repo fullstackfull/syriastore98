@@ -46,48 +46,18 @@ class AdminOrderPayloadShapeContractTest extends SecurityTestCase
 {
     use RefreshDatabase;
 
-    /**
-     * `currency_rates` IS A GATE F TABLE, AND THIS IS WHY ITS ABSENCE STOPS THIS TEST.
+    /*
+     * THE LOCAL COPY OF assertCurrencyRatesIsMigrated() IS GONE, and this note is why rather than
+     * a silent deletion. It was `installGateFCurrencyRates()`, a private method that BUILT
+     * `currency_rates` behind `if (Schema::hasTable(...)) { return; }` because no migration
+     * declared the table. GATE F closed on 2026-11-02, the fallback was replaced by an assertion,
+     * and that assertion was then byte-identical to the one SecurityTestCase already provides --
+     * which this class extends. Keeping both made the names collide on visibility (`private` here,
+     * `protected` there) and PHP refused to load the class at all.
      *
-     * `GET api/admin/orderlist` reads it, and no migration in this repository creates it: it is
-     * one of the fifteen tables GATE F found living in production **unmanaged**, applied out of
-     * band. So a fresh environment — CI, staging, this suite — does not have it, and the endpoint
-     * answers a 500 (`no such table: currency_rates`) rather than a payload.
-     *
-     * The structure below is **copied from `docs/GATE-F-VERIFIED-SCHEMA.md` §2**, which was
-     * generated from `information_schema` on a restored copy of production, not invented here.
-     * That distinction is the whole point of that document: inferring these tables from the
-     * repository is what produced a two-month-old claim that the financial subsystem was dead when
-     * all fifteen tables existed with live data.
-     *
-     * Only this one table is created, and only the columns the read needs. The FK to `stores` and
-     * the DECIMAL(20,8) precision are deliberately omitted — SQLite enforces neither, and
-     * pretending otherwise would be the affinity trap CLAUDE.md records. Anything that depends on
-     * those belongs in a MariaDB script, not here.
-     *
-     * **This is a test-local workaround and NOT a fix for GATE F.** The drafts are parked in
-     * `database/migrations/_gate_f_pending/` awaiting the owner, and running them is a persistent
-     * migration this authorisation does not cover.
+     * So the inherited one is used. One shape in the suite rather than two, which is the same
+     * reason SecurityTestCase grew the helper in the first place.
      */
-    private function installGateFCurrencyRates(): void
-    {
-        if (Schema::hasTable('currency_rates')) {
-            return;
-        }
-
-        Schema::create('currency_rates', function ($table) {
-            $table->bigIncrements('id');
-            $table->unsignedBigInteger('store_id');
-            $table->string('currency_code', 10);
-            $table->string('currency_name', 100);
-            $table->string('symbol', 20)->nullable();
-            $table->decimal('rate_per_usd', 20, 8)->default(1);
-            $table->boolean('is_active')->default(1);
-            $table->unsignedBigInteger('created_by')->nullable();
-            $table->timestamps();
-            $table->unique(['store_id', 'currency_code'], 'uq_currency_rates_store_code');
-        });
-    }
 
     private function orderIn($store): Order
     {
@@ -160,7 +130,7 @@ class AdminOrderPayloadShapeContractTest extends SecurityTestCase
     {
         [$merchant, $store] = $this->makeTenant();
         $this->grantPermission(\App\Models\User::find($merchant->id), 'Manage Order');
-        $this->installGateFCurrencyRates();
+        $this->assertCurrencyRatesIsMigrated();
         $this->orderIn($store);
 
         $this->assertTrue(

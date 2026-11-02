@@ -58,7 +58,7 @@ class AdminApiListPermissionTest extends SecurityTestCase
         // 500, so the three "still serves the owner" assertions were satisfied by a missing-table
         // crash rather than by the gate letting the merchant through. Measured, not supposed --
         // a probe reported 500 for orderlist and Top_orders and 200 for the rest.
-        $this->requireCurrencyRatesStandIn();
+        $this->assertCurrencyRatesIsMigrated();
     }
 
     private function tokenFor(User $user): string

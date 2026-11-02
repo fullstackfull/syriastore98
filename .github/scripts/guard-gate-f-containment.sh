@@ -62,6 +62,19 @@
 #      SUPERSEDED -- so nobody promotes a provisional money-table definition over a measured
 #      one.
 #
+#   6. NO TEST CREATES A MONEY TABLE. Added 2026-11-02, and it is the property this guard was
+#      missing: eleven test files carried
+#          if (! Schema::hasTable('<money table>')) { Schema::create(...); }
+#      as a workaround while the tables were undeclared. Those blocks built the table from
+#      COLUMNS ONLY -- none of production's 3 unique keys, none of its 12 foreign keys -- so
+#      removing or renaming one migration would have left the suite GREEN against a fabricated
+#      money schema. Property 1 cannot see them, because a Schema::create() inside a test is
+#      not a discoverable migration.
+#
+#      tests/Unit/Database/GateFCoverageLedgerTest asserts the same thing and more (it also
+#      forbids BRANCHING on absence), but it runs only in the `tests` job -- see the paragraph
+#      above on why that job is gated. This is the copy that runs everywhere.
+#
 # COMMENTS ARE STRIPPED before properties 2 and 3 are evaluated, with `php -r` and
 # token_get_all. Every one of these migrations EXPLAINS in prose what its down() deliberately
 # does not do, so a raw grep for `dropIfExists` matches the explanation. Three ratchets in this
@@ -281,7 +294,55 @@ if [ ! -f "$pending/README.md" ] || ! grep -q 'SUPERSEDED' "$pending/README.md";
   exit 1
 fi
 
+# ---------------------------------------------------------------------------------------
+# 6. No test may CREATE a GATE F money table. See the header for what this closes.
+#
+# Comments are stripped first, for the reason property 2 and 3 strip them: several of those
+# files now EXPLAIN in prose what they no longer do, and a raw grep matches the explanation.
+# ---------------------------------------------------------------------------------------
+if [ -d "$ROOT/tests" ]; then
+  test_offenders=""
+
+  while IFS= read -r tf; do
+    [ -n "$tf" ] || continue
+
+    # Skip the ledger test itself: it names the tables in order to forbid them.
+    case "$tf" in
+      */tests/Unit/Database/GateFCoverageLedgerTest.php) continue ;;
+    esac
+
+    code="$(php -r '
+      $s = file_get_contents($argv[1]); $out = "";
+      foreach (token_get_all($s) as $t) {
+        if (is_array($t)) {
+          $out .= in_array($t[0], [T_COMMENT, T_DOC_COMMENT], true)
+            ? str_repeat("\n", substr_count($t[1], "\n")) : $t[1];
+        } else { $out .= $t; }
+      }
+      echo $out;' "$tf" 2>/dev/null || true)"
+
+    for t in "${GATE_F_TABLES[@]}"; do
+      if printf '%s' "$code" | grep -Eq "Schema::create\\(\\s*['\"]${t}['\"]"; then
+        test_offenders="${test_offenders}${tf} creates ${t}"$'\n'
+      fi
+    done
+  done <<< "$(find "$ROOT/tests" -name '*.php' -type f 2>/dev/null || true)"
+
+  if [ -n "$test_offenders" ]; then
+    echo "::error::A TEST CREATES A GATE F MONEY TABLE. That is forbidden since GATE F closed on"
+    echo "::error::2026-11-02: a Schema::create() inside a test is not a discoverable migration, it"
+    echo "::error::carries none of production's unique keys or foreign keys, and property 1 above"
+    echo "::error::cannot see it -- so it would make the suite green against a fabricated money"
+    echo "::error::schema if the real migration were ever reverted. Assert the migration is present"
+    echo "::error::instead: assertTrue(Schema::hasTable(...))."
+    printf '%s' "$test_offenders" | while IFS= read -r line; do
+      [ -n "$line" ] && echo "::error::    $line"
+    done
+    exit 1
+  fi
+fi
+
 echo "GATE F intact: each of the 6 money tables is created by exactly one discoverable"
 echo "migration; every migration that creates one of the 15 verifies structure and drops"
-echo "nothing on rollback; cod_collection_events is created by nothing; and $drafts superseded"
-echo "drafts are still parked and non-runnable."
+echo "nothing on rollback; cod_collection_events is created by nothing; no test creates a money"
+echo "table; and $drafts superseded drafts are still parked and non-runnable."

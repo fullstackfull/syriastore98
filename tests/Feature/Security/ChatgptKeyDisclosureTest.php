@@ -45,19 +45,15 @@ class ChatgptKeyDisclosureTest extends SecurityTestCase
     {
         parent::setUp();
 
-        if (! Schema::hasTable('currency_rates')) {
-            Schema::create('currency_rates', function ($t) {
-                $t->id();
-                $t->unsignedBigInteger('store_id')->nullable();
-                $t->string('currency_code');
-                $t->string('currency_name')->nullable();
-                $t->string('symbol')->nullable();
-                $t->decimal('rate_per_usd', 20, 8)->default(1);
-                $t->boolean('is_active')->default(1);
-                $t->unsignedBigInteger('created_by')->nullable();
-                $t->timestamps();
-            });
-        }
+        $this->assertTrue(
+            \Illuminate\Support\Facades\Schema::hasTable('currency_rates'),
+            '`currency_rates` is missing from a database built by this repository\'s migrations. '
+            . 'GATE F declared it on 2026-11-02 with a structure measured against a restored '
+            . 'copy of production, so this means the migration has been reverted or renamed. '
+            . 'Do NOT answer this by creating the table here: a Schema::create() in a test is '
+            . 'not a discoverable migration, carries none of production\'s unique keys or '
+            . 'foreign keys, and would make this suite green against a fabricated money schema.'
+        );
     }
 
     private function operatorWithKey(): User

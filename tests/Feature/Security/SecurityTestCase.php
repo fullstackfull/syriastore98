@@ -280,33 +280,33 @@ abstract class SecurityTestCase extends TestCase
      * skipped rather than deleted so the dependency stays visible.
      */
     /**
-     * `currency_rates` HAS NO MIGRATION (GATE F), and `productlist` / `orderlist` / `Top_orders`
-     * all read it — so without this the endpoint 500s on a from-zero SQLite schema and every
-     * assertion below would be measuring a missing table rather than the gate.
+     * ASSERT THAT GATE F'S MIGRATION IS PRESENT. It does not create anything, and the name says so
+     * since 2026-11-02 (it was `requireCurrencyRatesStandIn`).
      *
-     * THIS IS NOT INVENTING THE PRODUCTION SCHEMA, which `GateFSchemaContainmentTest` forbids and
-     * which is why the parked draft keeps its columns commented out. It is a test-local minimum,
-     * copied verbatim from the two tests that already do it — `WebSettingsSecretsTest::setUp()`
-     * and `ChatgptKeyDisclosureTest` — so there is one shape in the suite rather than three.
-     * `docs/GATE-F-VERIFIED-SCHEMA.md` holds the measured production columns.
+     * WHAT USED TO BE HERE, AND WHY ITS REMOVAL IS THE POINT. This method built the table itself,
+     * behind `if (! Schema::hasTable(...))`, because the table was declared by no migration. That
+     * fallback is DELETED rather than left dead. It was a loaded gun: it declared COLUMNS ONLY,
+     * with none of production's unique keys or foreign keys, so if the real migration were ever
+     * reverted or renamed this suite would have gone GREEN against a fabricated money schema --
+     * the exact failure GATE F exists to prevent. And `GateFSchemaContainmentTest` could not see
+     * it, because a `Schema::create()` inside a test is not a discoverable migration.
+     *
+     * The structure now comes from the migration, measured against a restored copy of production
+     * and recorded in `docs/GATE-F-VERIFIED-SCHEMA.md` section 2. A missing table is reported as a
+     * missing table.
      */
-    protected function requireCurrencyRatesStandIn(): void
+    protected function assertCurrencyRatesIsMigrated(): void
     {
-        if (\Illuminate\Support\Facades\Schema::hasTable('currency_rates')) {
-            return;
-        }
+        $this->assertTrue(
+            \Illuminate\Support\Facades\Schema::hasTable('currency_rates'),
+            '`currency_rates` is missing from a database built by this repository\'s migrations. '
+            . 'GATE F declared it on 2026-11-02 with a structure measured against a restored '
+            . 'copy of production, so this means the migration has been reverted or renamed. '
+            . 'Do NOT answer this by creating the table here: a Schema::create() in a test is '
+            . 'not a discoverable migration, carries none of production\'s unique keys or '
+            . 'foreign keys, and would make this suite green against a fabricated money schema.'
+        );
 
-        \Illuminate\Support\Facades\Schema::create('currency_rates', function ($t) {
-            $t->id();
-            $t->unsignedBigInteger('store_id')->nullable();
-            $t->string('currency_code');
-            $t->string('currency_name')->nullable();
-            $t->string('symbol')->nullable();
-            $t->decimal('rate_per_usd', 20, 8)->default(1);
-            $t->boolean('is_active')->default(1);
-            $t->unsignedBigInteger('created_by')->nullable();
-            $t->timestamps();
-        });
     }
 
     protected function requireTable(string $table): void

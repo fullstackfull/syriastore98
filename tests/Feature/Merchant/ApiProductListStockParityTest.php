@@ -37,7 +37,7 @@ class ApiProductListStockParityTest extends SecurityTestCase
         parent::setUp();
 
         // `productlist` reads `currency_rates`, which GATE F leaves unmanaged.
-        $this->requireCurrencyRatesStandIn();
+        $this->assertCurrencyRatesIsMigrated();
     }
 
     /** @return array{0: User, 1: Store} */

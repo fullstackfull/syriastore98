@@ -58,37 +58,46 @@ class GateFReconciliationReportTest extends SecurityTestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->createGateFFixtureTables();
+        $this->assertGateFFixtureTablesAreMigrated();
     }
 
     /**
-     * The columns the reconciliation reads, and nothing more. Money is `decimal(15,2)` because that
-     * is what production measured; a wider fixture column would let a rounding defect hide.
+     * ASSERT THAT GATE F'S MIGRATION IS PRESENT. It does not create anything, and the name says so
+     * since 2026-11-02 (it was `createGateFFixtureTables`).
+     *
+     * WHAT USED TO BE HERE, AND WHY ITS REMOVAL IS THE POINT. This method built the table itself,
+     * behind `if (! Schema::hasTable(...))`, because the table was declared by no migration. That
+     * fallback is DELETED rather than left dead. It was a loaded gun: it declared COLUMNS ONLY,
+     * with none of production's unique keys or foreign keys, so if the real migration were ever
+     * reverted or renamed this suite would have gone GREEN against a fabricated money schema --
+     * the exact failure GATE F exists to prevent. And `GateFSchemaContainmentTest` could not see
+     * it, because a `Schema::create()` inside a test is not a discoverable migration.
+     *
+     * The structure now comes from the migration, measured against a restored copy of production
+     * and recorded in `docs/GATE-F-VERIFIED-SCHEMA.md` section 2. A missing table is reported as a
+     * missing table.
      */
-    private function createGateFFixtureTables(): void
+    private function assertGateFFixtureTablesAreMigrated(): void
     {
-        if (! Schema::hasTable('store_wallets')) {
-            Schema::create('store_wallets', function (Blueprint $table) {
-                $table->id();
-                $table->unsignedBigInteger('store_id');
-                $table->string('currency_code', 10)->nullable();
-                $table->decimal('available_balance', 15, 2)->default(0);
-            });
-        }
+        $this->assertTrue(
+            \Illuminate\Support\Facades\Schema::hasTable('store_wallets'),
+            '`store_wallets` is missing from a database built by this repository\'s migrations. '
+            . 'GATE F declared it on 2026-11-02 with a structure measured against a restored '
+            . 'copy of production, so this means the migration has been reverted or renamed. '
+            . 'Do NOT answer this by creating the table here: a Schema::create() in a test is '
+            . 'not a discoverable migration, carries none of production\'s unique keys or '
+            . 'foreign keys, and would make this suite green against a fabricated money schema.'
+        );
 
-        if (! Schema::hasTable('store_wallet_transactions')) {
-            Schema::create('store_wallet_transactions', function (Blueprint $table) {
-                $table->id();
-                $table->unsignedBigInteger('store_id');
-                $table->unsignedBigInteger('wallet_id');
-                $table->string('currency_code', 10)->nullable();
-                $table->string('type', 50);
-                $table->string('direction', 10);
-                $table->decimal('amount', 15, 2)->default(0);
-                $table->decimal('balance_before', 15, 2)->default(0);
-                $table->decimal('balance_after', 15, 2)->default(0);
-            });
-        }
+        $this->assertTrue(
+            \Illuminate\Support\Facades\Schema::hasTable('store_wallet_transactions'),
+            '`store_wallet_transactions` is missing from a database built by this repository\'s migrations. '
+            . 'GATE F declared it on 2026-11-02 with a structure measured against a restored '
+            . 'copy of production, so this means the migration has been reverted or renamed. '
+            . 'Do NOT answer this by creating the table here: a Schema::create() in a test is '
+            . 'not a discoverable migration, carries none of production\'s unique keys or '
+            . 'foreign keys, and would make this suite green against a fabricated money schema.'
+        );
 
         /*
          * `products.cost_price` NOW HAS A MIGRATION, and this comment used to say the opposite.
@@ -115,15 +124,15 @@ class GateFReconciliationReportTest extends SecurityTestCase
             });
         }
 
-        if (! Schema::hasTable('store_order_financials')) {
-            Schema::create('store_order_financials', function (Blueprint $table) {
-                $table->id();
-                $table->unsignedBigInteger('store_id');
-                $table->unsignedBigInteger('order_id');
-                $table->decimal('product_cost', 15, 2)->default(0);
-                $table->decimal('gross_profit', 15, 2)->default(0);
-            });
-        }
+        $this->assertTrue(
+            \Illuminate\Support\Facades\Schema::hasTable('store_order_financials'),
+            '`store_order_financials` is missing from a database built by this repository\'s migrations. '
+            . 'GATE F declared it on 2026-11-02 with a structure measured against a restored '
+            . 'copy of production, so this means the migration has been reverted or renamed. '
+            . 'Do NOT answer this by creating the table here: a Schema::create() in a test is '
+            . 'not a discoverable migration, carries none of production\'s unique keys or '
+            . 'foreign keys, and would make this suite green against a fabricated money schema.'
+        );
     }
 
     /**
