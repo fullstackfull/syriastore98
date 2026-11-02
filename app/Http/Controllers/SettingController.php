@@ -1966,11 +1966,39 @@ if ($newCurrency !== 'USD' && (float) $currencyRate->rate_per_usd <= 1) {
 
 $storeId = getCurrentStore();
 
-$currencyRates = CurrencyRate::where('store_id', $storeId)
-    ->orderBy('currency_code')
-    ->get();
+/*
+ * THE SEED BELOW MUST NOT BE ABLE TO TAKE DOWN EVERY SETTINGS TAB, and before GATE F closed it
+ * could not be seen doing so. Found 2026-11-02 by the Known-Outcome Feature Gate.
+ *
+ * WHAT GOES WRONG WITHOUT THIS GUARD. `getCurrentStore()` returns the HARDCODED literal 1 for a
+ * `super admin` whose `current_store` is empty (app/Helper/helper.php:773). The seed then inserts
+ * fourteen default currency rows for store 1 -- and `currency_rates.store_id` carries a FOREIGN KEY
+ * to `stores(id)` ON DELETE CASCADE, which production has and which
+ * 2026_11_02_000700_create_currency_rates_table.php reproduces. If store 1 does not exist, every
+ * insert violates that key, the exception reaches this method's own `catch (\Exception $e)` at the
+ * bottom, and `settingForm` answers `{"is_success": false, "msg": "Something went wrong!"}` -- for
+ * EVERY TAB, because this block runs before the tab is dispatched. An operator who has never used
+ * the store switcher could not open the email, storage, PWA or ChatGPT settings either.
+ *
+ * It was invisible until now because `currency_rates` was declared by no migration, so this block
+ * never reached a real table in any environment built from this repository. The table arriving is
+ * what made a latent defect live, which is precisely the class of change GATE F's own documentation
+ * warns about: code guarded by the absence of a table changes behaviour when the table appears.
+ *
+ * THE FIX IS DELIBERATELY NARROW. It does not change which rows are seeded, their values, or the
+ * variable the view receives when a store does resolve. It only declines to seed against a store
+ * that does not exist -- which is the one case where the insert cannot succeed anyway -- and leaves
+ * `$currencyRates` an empty collection, exactly what the view already handles for a store with no
+ * rates yet.
+ */
+$storeExists = $storeId !== null
+    && \App\Models\Store::withoutGlobalScopes()->whereKey($storeId)->exists();
 
-if ($currencyRates->isEmpty()) {
+$currencyRates = $storeExists
+    ? CurrencyRate::where('store_id', $storeId)->orderBy('currency_code')->get()
+    : collect();
+
+if ($storeExists && $currencyRates->isEmpty()) {
 
     $defaultCurrencies = [
         ['USD', 'US Dollar', '$'],
@@ -2008,9 +2036,12 @@ if ($currencyRates->isEmpty()) {
         ->get();
 }
 
-$currencyRates = CurrencyRate::where('store_id', getCurrentStore())
-    ->orderBy('currency_code')
-    ->get();
+// Re-read through the same guard. This line used to call getCurrentStore() again and overwrite
+// whatever the block above produced, so without the guard it reintroduced the failure the block
+// had just been taught to avoid.
+$currencyRates = $storeExists
+    ? CurrencyRate::where('store_id', $storeId)->orderBy('currency_code')->get()
+    : collect();
 
             if ($tabType == 'email_setting') {
                 $email_setting = EmailTemplate::$email_settings;
