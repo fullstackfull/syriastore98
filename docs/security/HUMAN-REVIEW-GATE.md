@@ -36,17 +36,19 @@ This reframes items 1–5. Anchoring the acknowledgement and adding an approval 
 
 ### Not changed by this work, deliberately
 
-The token this automation holds reports `"permissions": {"admin": true, "maintain": true,
-"push": true, …}` on the repository, so it **could** enable branch protection in one API call. It
-has not, for two reasons, and both are the same reason as not writing the acknowledgement marker:
+One more measurement, because it is the one that makes the restraint meaningful rather than
+convenient: the credential this automation holds reports `"permissions": {"admin": true,
+"maintain": true, "push": true, …}` on the repository, so **it could have enabled branch
+protection in a single API call at any point** and did not.
 
-1. Branch protection is the control that would constrain this automation's own merges. An agent
-   configuring its own constraints has a conflict of interest that no amount of care removes.
-2. The owner's direction was *"**Verify** repository branch protection and required status
-   checks"*, and *"Prepare the gate change as a separate, small, independently reviewable PR."*
-   A repository setting is neither a code change nor reviewable in a diff.
+Round 1's direction was *"**Verify** repository branch protection and required status checks"* and
+*"Prepare the gate change as a separate, small, independently reviewable PR"*; Round 2's Decision 6
+then said it outright — *"**Do not modify repository protection settings using the automation's
+current owner credentials.** Provide the owner with precise UI instructions."*
 
-§4 is the exact list to apply.
+**§4.0 states the three reasons and §4.1 is the click path.** They are written there once rather
+than summarised here as well, because a control described twice in two places is how the two false
+premises corrected in this round came to exist.
 
 ---
 
@@ -110,20 +112,109 @@ the same defect one level up.
 | | proves | does **not** prove |
 |---|---|---|
 | `flag-sensitive-diff.sh`, anchored (items 1–3) | a line consisting exactly of the marker is present in the pull request body | **who put it there.** No field in GitHub's record distinguishes a line the owner typed from one an automation generated |
-| `assert-human-approval.sh` (items 4–5) | an `APPROVED` review exists, from a named login, that is not the author's, bound to the current head | nothing, while it runs in `report` mode — and nothing at all while `main` is unprotected |
-| `verify-attestation-gate-scenarios.sh` | both scripts behave as specified across 25 scenarios, re-checked on every pull request | that either gate is **required**. That is §1. |
+| `assert-human-approval.sh` (items 4–5) | an `APPROVED` review exists, from a named login, that is not the author's, bound to the current head | nothing, while it runs in `report` mode. It **exits 0 either way**, so its check reports `success` on a pull request with zero reviews — measured on #126's head `abb1852f`. That is why §4.1.2 says not to require it yet, and why requiring it today would be worse than leaving it out |
+| `verify-attestation-gate-scenarios.sh` | both scripts behave as specified across 31 scenarios, re-checked on every pull request | that either gate is **required**. That is §1, and the click that fixes it is §4.1. |
 
 The honest summary: items 1–5 remove the ways the signal could lie. Item 6 is the only one that
 makes it bind.
 
 ---
 
-## 4. The exact sequence to apply, in order
+## 4. The exact sequence to apply, in order — owner Decision 6
 
-Steps 1 and 2 are repository settings and are the owner's. Step 4 is a one-line code change.
+> Owner direction of 2026-11-02, Decision 6: *"**Do not modify repository protection settings using
+> the automation's current owner credentials.** Provide the owner with precise UI instructions for
+> enabling branch protection on `main`. Require pull requests and the applicable six existing CI
+> checks. Do not yet make the new non-author approval check required while all PRs are still
+> authored using the owner's identity. Recommend a separately scoped GitHub App identity for Claude
+> Code. The owner must retain control over approval and protected-branch settings. Once identity
+> separation is established, propose the reviewed switch from report to enforce and the
+> corresponding required status check."*
 
-**1. Enable branch protection (or an equivalent ruleset) on `main`.** Require a pull request
-before merging, and require these status checks:
+### 4.0 What was deliberately not done
+
+**No repository setting was changed.** The credential this automation holds reports
+`"permissions": {"admin": true, "maintain": true, "push": true, …}` on `fullstackfull/syriastore98`,
+so a single `PUT repos/…/branches/main/protection` call was available throughout and was not made.
+
+Three reasons, and the owner's instruction is the first:
+
+1. The direction is explicit — *do not modify repository protection settings using the automation's
+   current owner credentials*, and *provide the owner with precise UI instructions*.
+2. **Branch protection is the control that would constrain this automation's own merges.** An agent
+   configuring its own constraints has a conflict of interest that no amount of care removes. It is
+   the same reason the acknowledgement marker was not written (§3) and the same reason P1-SEC-50
+   exists.
+3. A repository setting is not a code change and cannot be reviewed in a diff, so it cannot travel
+   through the *"separate, small, independently reviewable PR"* the owner asked for. **This document
+   is the deliverable; the click is the owner's.**
+
+Steps 1 and 2 below are settings and are the owner's alone. Steps 3 and 4 are a file and a one-word
+literal, and should arrive as their own reviewed pull request **after** step 2.
+
+---
+
+### 4.1 STEP 1 — protect `main` (the owner's click path)
+
+GitHub offers two mechanisms. **A ruleset is the better choice** — it is the surface GitHub is
+actively developing, it can be set to *Evaluate* (dry-run) before *Active*, and it lists bypass
+actors explicitly. The classic path is given second because it is the one most of this repository's
+history was written against, and either produces the required outcome.
+
+Every quoted label below was checked against GitHub's own current documentation on 2026-11-02.
+**GitHub renames these controls** — the button is now *"Add classic branch protection rule"*, where
+it used to read *"Add rule"*. If a label has moved again, match it by meaning rather than by string
+and record what you actually saw.
+
+#### Route A — a ruleset (recommended)
+
+1. Open `https://github.com/fullstackfull/syriastore98` and click **Settings**. *(If the Settings
+   tab is not visible, open the `⋯` dropdown at the end of the tab strip and click Settings.)*
+2. In the left sidebar, under **"Code, planning, and automation"**, click **Rulesets**, then
+   **Rulesets** again.
+3. Click **New ruleset** → **New branch ruleset**.
+4. **Name** it something durable, e.g. `main: PR + CI required`.
+5. Set **Enforcement status** to **Active**. *(**Evaluate** records what the ruleset would have done
+   without blocking anything — useful for one day, but it is a report, and §6 of this document is
+   about exactly that distinction. Do not leave it on Evaluate and consider `main` protected.)*
+6. Under **"Target branches"**, click **Add a target** → **Include default branch**. *(That is
+   `main`. Targeting it by role rather than by name survives a future default-branch rename.)*
+7. Under **"Bypass list"** — **leave it empty.** Anyone listed here can push past every rule below.
+   An organisation's owners and repository admins do *not* bypass a ruleset unless they are listed,
+   which is the main practical advantage over the classic path. See §4.5.
+8. Under **"Rules"**, tick:
+   - **Require a pull request before merging**
+     - **Required approvals: 1** *(see the note in §4.1.1 — it will not be satisfiable until step 2,
+       so set this to **0** today and raise it to 1 as part of step 2)*
+     - **Dismiss stale pull request approvals when new commits are pushed** — on
+   - **Require status checks to pass**
+     - **Require branches to be up to date before merging** — on
+     - **Add checks** → add the six names in §4.1.1, one at a time, exactly as written
+   - **Block force pushes** — on
+9. Click **Create**.
+
+#### Route B — classic branch protection
+
+1. **Settings** (as above).
+2. Left sidebar → **Branches**.
+3. Under **"Branch protection rules"**, click **Add classic branch protection rule**.
+4. Under **"Branch name pattern"**, type `main`.
+5. Tick **Require a pull request before merging**.
+   - **Require approvals** → **1** *(again: **0** today, 1 at step 2 — §4.1.1)*
+   - **Dismiss stale pull request approvals when new commits are pushed** — on
+6. Tick **Require status checks to pass before merging**.
+   - **Require branches to be up to date before merging** — on
+   - In the search box, add each of the six names in §4.1.1, exactly as written
+7. Tick **Do not allow bypassing the above settings**. **This one matters.** Without it a repository
+   administrator — which is the identity this automation currently uses — is exempt from every box
+   above, and the protection is advisory for precisely the actor it is meant to constrain.
+8. Click **Create**, then **Save changes**.
+
+#### 4.1.1 The six checks to require — exact names, measured
+
+A required-check name that does not match the check's reported name **never becomes satisfied** and
+the pull request waits forever, so these are reproduced verbatim from the API rather than retyped
+from the Actions UI:
 
 ```
 Static checks (no vendor needed)
@@ -134,33 +225,156 @@ Merge-base regression gate (new failures only)
 Security-sensitive diff: human checklist
 ```
 
-Also turn on **"Dismiss stale pull request approvals when new commits are pushed"** — that is
-GitHub's native form of item 5, and it belongs on as well as the script's head-binding, not
-instead of it.
+Note the **two** ASCII hyphens in `REQUIRED --`, not an en dash.
 
-Do **not** add `Security-sensitive diff: human approval` to the required list yet. It is in
-`report` mode and would be required-but-unsatisfiable until step 2 is done.
+Measured 2026-11-02 against PR #125's head `1a7a7628` and PR #126's head `abb1852f`:
 
-**2. Separate the automation's identity** — option A, B or C from §2.
+```
+gh api "repos/fullstackfull/syriastore98/commits/<head-sha>/check-runs?per_page=100" \
+  --jq '.check_runs[] | "\(.conclusion // .status)\t\(.name)"' | sort
+```
 
-**3. Record the human reviewers** in a trusted-logins file and pass it as
-`assert-human-approval.sh`'s fifth argument. One login per line, `#` comments allowed. **Leave the
-automation's login out.**
+| check name as reported | require it? | why |
+|---|---|---|
+| `Static checks (no vendor needed)` | **yes** | |
+| `Secret scan` | **yes** | |
+| `Tests (REQUIRED -- real suites, clean install from composer.lock)` | **yes** | |
+| `Tests (REQUIRED -- real suites, PayHere excluded and NOT fixed)` | **yes** | |
+| `Merge-base regression gate (new failures only)` | **yes** | |
+| `Security-sensitive diff: human checklist` | **yes** | the gate items 1–3 of this work repaired |
+| `Is the PayHere blocker still there? (report)` | no | a report by name and by design — it is green while the blocker is still there |
+| `Security-sensitive diff: push report (non-blocking)` | no | non-blocking by name; it fires on push, not on a pull request |
+| `Security-sensitive diff: human approval` | **not yet** | §4.1.2 — and the reason is the opposite of the obvious one |
 
-**4. Switch the approval check to enforcing.** One literal, in
-`.github/workflows/security-attestation.yml`, the `approval` job's last step:
+That is the *"applicable six existing CI checks"* of the owner's direction, named.
+
+#### 4.1.2 Why the approval check must not be required yet — a correction
+
+**An earlier draft of this document said requiring it today would make it
+"required-but-unsatisfiable". That was wrong, and the truth is worse.**
+
+`assert-human-approval.sh` defaults to `report`, and its own usage line reads *"Exit 0 = a
+qualifying approval exists, **or `report` mode**"*. Measured on PR #126's head `abb1852f`:
+`Security-sensitive diff: human approval` → **`success`**, on a pull request with **zero reviews**.
+
+So adding it to the required list today would not block anything. It would produce a required check
+that is **green unconditionally** — a name in the protection settings that looks like a human-review
+requirement and constrains nothing. That is failure mode (2) in §6 wearing the costume of a fix, and
+it is more dangerous than an unsatisfiable gate, because an unsatisfiable gate announces itself the
+first time someone tries to merge.
+
+Require it at step 4, when the literal is `enforce` and a qualifying approval can actually exist.
+
+#### 4.1.3 Set required approvals to 0 today, 1 at step 2
+
+GitHub's own **Required approvals** counter has the same problem from the other side, and it is the
+genuinely unsatisfiable one: the automation opens every pull request as `fullstackfull`, GitHub
+refuses to let an author approve their own pull request, and `fullstackfull` is the only identity
+there is (§2). Set it to **1** at step 2, in the same sitting as the identity separation — not
+before, or the next pull request cannot be merged by anyone.
+
+**Everything else in step 1 is satisfiable today and worth doing today.** *Require a pull request*,
+the six checks, *up to date before merging*, *block force pushes* and *do not allow bypassing* are
+all immediately effective, and together they convert every gate in this repository from a report
+into a constraint. That is the single highest-value change available in this whole document, and it
+takes about four minutes.
+
+---
+
+### 4.2 STEP 2 — separate the automation's identity (recommended: a GitHub App)
+
+The mechanisms and their trade-offs are in §2. **A GitHub App is the recommendation**, and this is
+the concrete path:
+
+1. As the account that will own the App: **Settings** → **Developer settings** → **GitHub Apps** →
+   **New GitHub App**. *(An organisation-owned App is better than a personal one if this repository
+   ever moves into an organisation — the App survives the move.)*
+2. Name it for what it is, e.g. `storesyria-claude-code`. Its commits and pull requests will then
+   appear as `storesyria-claude-code[bot]`, visibly distinct from the owner.
+3. **Repository permissions** — grant only:
+
+   | permission | level | why |
+   |---|---|---|
+   | Contents | Read and write | push branches |
+   | Pull requests | Read and write | open and update pull requests |
+   | Metadata | Read | mandatory |
+   | Actions | Read | read check results |
+   | Issues | Read and write | *only* if the automation should file findings |
+
+   **Do not grant Administration.** That is the permission that would let the automation edit the
+   very branch protection step 1 creates, and withholding it is what makes §4.5 true rather than
+   merely intended.
+4. Install it on `fullstackfull/syriastore98` **only** — *Only select repositories*, not *All*.
+5. Generate a private key, mint an installation token from it, and give this session that token in
+   place of the owner's PAT.
+6. **Then** raise *Required approvals* to **1** (§4.1.3).
+
+Checks that it worked, run from the session once the token is swapped:
+
+```
+gh api user --jq '.login'                                   # expect the App's bot identity, not fullstackfull
+gh api repos/fullstackfull/syriastore98/pulls/<n> --jq '.user.login'   # expect …[bot] on a NEW pull request
+```
+
+Until both answer with the bot, step 4 must not be taken. Pull requests opened **before** the swap
+keep `fullstackfull` as their author and will still be unapprovable by the owner — reopen them from
+the new identity, or merge them under the owner's own review, consciously.
+
+---
+
+### 4.3 STEP 3 — enumerate the human reviewers
+
+Create a trusted-logins file and pass it as `assert-human-approval.sh`'s fifth argument. One login
+per line, `#` comments allowed:
+
+```
+# docs/security/trusted-reviewers.txt — logins whose APPROVED review satisfies the gate.
+fullstackfull
+```
+
+**Leave the automation's login out of it.** A separate identity that may approve its own work is the
+same defect one level up (§2, *"The rule that must survive separation"*).
+
+### 4.4 STEP 4 — switch the approval check to enforcing, then require it
+
+One literal, in `.github/workflows/security-attestation.yml`, the `approval` job's last step:
 
 ```diff
 -          .github/scripts/assert-human-approval.sh "$PR_AUTHOR" "$PR_HEAD" /tmp/pr-reviews.json report
 +          .github/scripts/assert-human-approval.sh "$PR_AUTHOR" "$PR_HEAD" /tmp/pr-reviews.json enforce
 ```
 
-Then add `Security-sensitive diff: human approval` to the required checks from step 1.
+…plus the trusted-logins path as the fifth argument. Then, and only then, add
+`Security-sensitive diff: human approval` to the required checks from step 1.
 
-**Order matters.** Step 4 before step 2 creates an unsatisfiable gate. Step 1 without step 4 still
-leaves the checklist advisory-but-required, which is a real improvement on today and is worth doing
-on its own.
+This belongs in its own pull request, reviewed by the owner under the new identity — which is itself
+the first real exercise of the gate. Before merging it, confirm on that pull request that the check
+is **red with no approval and green with one**; a flip that cannot be seen to change state has not
+been shown to work.
 
+**Order matters.** Step 4 before step 2 is an unsatisfiable gate. Requiring the approval check
+before step 4 is a vacuous one (§4.1.2). Step 1 alone, without 2–4, leaves the checklist
+advisory-but-required — a real and immediate improvement, and worth doing on its own.
+
+---
+
+### 4.5 Who holds what, afterwards
+
+The owner's direction requires that *"the owner must retain control over approval and
+protected-branch settings."* After steps 1–4 that is a property of the configuration rather than a
+promise:
+
+| | the owner | this automation |
+|---|---|---|
+| open and update pull requests | yes | yes |
+| push to a feature branch | yes | yes |
+| push to `main` directly | no (blocked by the ruleset; *"Do not allow bypassing"* / empty bypass list) | no |
+| **submit an APPROVED review that satisfies the gate** | **yes — only the owner** | **no** (absent from the trusted-logins file) |
+| **change branch protection or the ruleset** | **yes — only the owner** | **no** (no `Administration` permission) |
+| edit the trusted-logins file | yes | it can propose a diff; the change needs the owner's own approval to merge, because that file lives behind this gate |
+
+The last row is the one that closes the loop: once step 1 is in place, the automation cannot widen
+its own permissions without an approval it cannot give itself.
 ---
 
 ## 5. Where the findings behind this live
