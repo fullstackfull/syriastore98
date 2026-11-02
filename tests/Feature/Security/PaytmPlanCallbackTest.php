@@ -9,6 +9,7 @@ use App\Services\PlanPurchaseIntent;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Schema;
 
 /**
  * F241 — THE FOUR PROOFS THE OWNER REQUIRED BEFORE A CALLBACK IS EXPOSED.
@@ -167,7 +168,7 @@ class PaytmPlanCallbackTest extends SecurityTestCase
             'MID' => self::MID,
             'ORDERID' => 'set-by-caller',
             'TXNID' => 'TXN' . uniqid(),
-            'TXNAMOUNT' => '100.00',
+            'TXNAMOUNT' => '1000.00',
             'STATUS' => 'TXN_SUCCESS',
             'CURRENCY' => '',
             'RESPCODE' => '01',
@@ -322,6 +323,141 @@ class PaytmPlanCallbackTest extends SecurityTestCase
 
         $this->assertNull($this->purchaser->fresh()->plan_id,
             'a payment of 1.00 activated a plan whose intent expected 100.00');
+    }
+
+    /**
+     * THE OTHER HALF OF "WRONG AMOUNT", added 2026-11-02 for Directive E §6. An OVERPAYMENT
+     * activates nothing either.
+     *
+     * The short-payment case above is the one with an obvious attack behind it -- pay for the
+     * cheapest plan, name an expensive one. An overpayment has no attacker motive, which is exactly
+     * why it is easy to leave untested and easy to get wrong: a comparison written as
+     * "reported >= expected" passes every short-payment test and silently accepts a provider
+     * response that does not match the intent at all.
+     *
+     * `PlanPurchaseIntent::verifyAndConsume()` compares scaled-integer STRINGS with `===` -- not
+     * floats, which requirement 3 forbids, and not `bccomp`, because bcmath is not installed here.
+     * An exact comparison refuses both directions, and this is the half that was unasserted.
+     */
+    public function test_an_overpayment_activates_nothing_either(): void
+    {
+        $reference = $this->intent();
+        Http::fake(['*getTxnStatus*' => Http::response(
+            $this->paytmSays(['ORDERID' => $reference, 'TXNAMOUNT' => '1000.00']), 200
+        )]);
+
+        $this->deliverCallback($reference)->assertStatus(200);
+
+        $this->assertNull(
+            $this->purchaser->fresh()->plan_id,
+            'a payment of 1000.00 activated a plan whose intent expected 100.00. The amount '
+            . 'comparison is not exact, so it would also accept a response that matches no intent.'
+        );
+        $this->assertNotSame(PlanPurchaseIntent::CONSUMED, $this->statusRow($reference)->status);
+    }
+
+    /**
+     * MORE PRECISION THAN THE SCALE IS A MISMATCH, not a rounding. Added for the same reason.
+     *
+     * 100.004 rounds to 100.00 at scale 2, so a comparison that rounds before comparing would
+     * accept it. The class header states this is deliberately NOT how it works, and that claim is
+     * now asserted rather than described.
+     */
+    public function test_a_sub_scale_difference_is_a_mismatch_rather_than_a_rounding(): void
+    {
+        $reference = $this->intent();
+        Http::fake(['*getTxnStatus*' => Http::response(
+            $this->paytmSays(['ORDERID' => $reference, 'TXNAMOUNT' => '100.004']), 200
+        )]);
+
+        $this->deliverCallback($reference)->assertStatus(200);
+
+        $this->assertNull(
+            $this->purchaser->fresh()->plan_id,
+            'an amount carrying more precision than the scale was rounded into a match. The class '
+            . 'header says this must be a mismatch, because rounding a provider amount into '
+            . 'agreement is how a cent-level discrepancy becomes invisible.'
+        );
+    }
+
+    /**
+     * A CANCELLED payment activates nothing. Directive E §6 names it separately from a failure, so
+     * it is asserted separately.
+     *
+     * Paytm reports a user cancellation as `TXN_FAILURE` with `RESPCODE` 141, and a payment still
+     * in flight as `PENDING`. Both are driven, because the dangerous shape is a handler that
+     * treats "not an explicit failure" as a yes: a `PENDING` transaction can still fail, and
+     * activating on it gives away a subscription for an abandoned checkout.
+     */
+    public function test_a_cancelled_or_pending_payment_activates_nothing(): void
+    {
+        foreach ([
+            'a user cancellation' => ['STATUS' => 'TXN_FAILURE', 'RESPCODE' => '141', 'RESPMSG' => 'Transaction cancelled by user'],
+            'a payment still in flight' => ['STATUS' => 'PENDING', 'RESPCODE' => '400', 'RESPMSG' => 'Transaction pending'],
+        ] as $label => $overrides) {
+            $reference = $this->intent();
+
+            Http::fake(['*getTxnStatus*' => Http::response(
+                $this->paytmSays(array_merge(['ORDERID' => $reference], $overrides)), 200
+            )]);
+
+            $this->deliverCallback($reference);
+
+            $this->assertNull(
+                $this->purchaser->fresh()->plan_id,
+                "{$label} activated a plan. Anything other than an explicit provider YES must "
+                . 'activate nothing -- a pending transaction can still fail.'
+            );
+            $this->assertNotSame(
+                PlanPurchaseIntent::CONSUMED,
+                $this->statusRow($reference)->status,
+                "{$label} consumed the intent, so a later authentic success could no longer be honoured."
+            );
+        }
+    }
+
+    /**
+     * NO WALLET OR ORDER-FINANCIAL ENTRY IS WRITTEN BY THIS PATH -- not one, let alone a duplicate.
+     *
+     * Directive E §6 requires proof of "no duplicate wallet or order-financial entries". For the
+     * PLAN callback the honest form of that proof is stronger and simpler than counting
+     * duplicates: this path assigns a subscription plan to a `User`, and it has no business
+     * touching a merchant's wallet or an order's P&L at all. So the assertion is ZERO rows, before
+     * and after, across a success AND a replay.
+     *
+     * THIS BECAME ASSERTABLE ONLY ON 2026-11-02. Until GATE F closed, `store_wallets`,
+     * `store_wallet_transactions` and `store_order_financials` had no migration, so a count
+     * against them raised "no such table" and the property could not be checked at all -- which is
+     * precisely the gap the GATE F skips recorded.
+     */
+    public function test_the_plan_callback_writes_no_wallet_or_order_financial_entry(): void
+    {
+        foreach (['store_wallets', 'store_wallet_transactions', 'store_order_financials'] as $table) {
+            $this->assertTrue(
+                Schema::hasTable($table),
+                "`{$table}` is missing, so this assertion would pass vacuously. GATE F closed on "
+                . '2026-11-02; check that its migration has not been reverted.'
+            );
+            $this->assertSame(0, DB::table($table)->count(), "premise: `{$table}` starts empty");
+        }
+
+        $reference = $this->intent();
+        Http::fake(['*getTxnStatus*' => Http::response($this->paytmSays(['ORDERID' => $reference]), 200)]);
+
+        $this->assertSame('activated', $this->deliverCallback($reference)->json('status'), 'premise');
+
+        // And again, because a duplicate is what a provider retry would produce.
+        $this->deliverCallback($reference);
+
+        foreach (['store_wallets', 'store_wallet_transactions', 'store_order_financials'] as $table) {
+            $this->assertSame(
+                0,
+                DB::table($table)->count(),
+                "The plan callback wrote a `{$table}` row. A plan activation assigns a "
+                . "subscription to a User; it must not touch a merchant's wallet or an order's "
+                . 'profit and loss, and a provider retry must not make that worse.'
+            );
+        }
     }
 
     /** A reference with no intent behind it tells the caller nothing and activates nothing. */
