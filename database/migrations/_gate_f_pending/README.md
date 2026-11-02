@@ -1,3 +1,38 @@
+# GATE F — SUPERSEDED provisional drafts. KEPT AS A RECORD. NOT ACTIVE.
+
+> ## SUPERSEDED ON 2026-11-02 — GATE F IS CLOSED. DO NOT PROMOTE ANYTHING FROM THIS DIRECTORY.
+>
+> All 15 SCHEMA-01 tables and all three columns now have **real migrations** in
+> `database/migrations/`, numbered `2026_11_02_000100`…`2026_11_02_001500` plus
+> `2026_10_26_000100` (`products.cost_price`) and the corrected
+> `2026_10_12_000105_create_audit_logs_table.php`. Their structure is **not** derived from the
+> drafts below. It comes from `App\Support\Database\GateFProductionSchema`, a verbatim copy of
+> `docs/GATE-F-VERIFIED-SCHEMA.md` section 2, which was generated from `information_schema` on a
+> restored copy of the production dump.
+>
+> **Why these files are still here, and must stay.** They are the record of what the definitions
+> looked like **before** they were measured, and that record is the reason the promoted migrations
+> are generated from a measurement rather than written by hand. Against production the drafts had
+> **22 money-scale contradictions** (every money column declared `decimal(18,4)` where production
+> uses `(15,2)`, `(10,2)`, `(5,2)` and `(20,8)`), **four enums turned into `varchar(255)`** —
+> including `store_wallet_transactions.direction`, the ledger's credit/debit discriminator, made
+> nullable free text — and **none** of production's 3 unique keys or 12 foreign keys. Two of their
+> `down()` methods were measured destroying production data.
+>
+> Two tests also depend on this directory existing and holding `*.php.draft` files:
+> `MigrationHygieneTest::test_gate_f_provisional_drafts_are_not_discoverable_as_migrations` and
+> `GateFSchemaContainmentTest::test_every_gate_f_table_still_has_a_parked_draft`, the second of
+> which asserts this README says **SUPERSEDED**.
+>
+> **If you are looking for the authoritative definition of one of these tables, it is in
+> `database/migrations/`, and the structure it must match is in
+> `docs/GATE-F-VERIFIED-SCHEMA.md`.** Verified on a real server by
+> `tests/Support/Security/bin/verify-gate-f-migrations-on-mysql.php` (29 checks, 0 failed).
+
+---
+
+## The original header, kept verbatim for the record
+
 # GATE F — PROVISIONAL schema drafts. NOT ACTIVE. NOT REVIEWED AGAINST PRODUCTION.
 
 > **ONE DRAFT HAS BEEN PROMOTED AND IS NO LONGER HERE.**

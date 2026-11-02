@@ -2,8 +2,16 @@
 
 namespace Tests\Feature\Commerce;
 
+use App\Models\CurrencyRate;
+use App\Models\Order;
+use App\Models\Store;
+use App\Models\StoreWallet;
+use App\Models\StoreWalletTransaction;
+use App\Models\User;
 use App\Services\OrderFinancialService;
 use App\Services\StoreCurrencyConversionService;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
@@ -86,6 +94,14 @@ use Tests\TestCase;
  */
 class FinancialSurfaceCoverageTest extends TestCase
 {
+    // ADDED 2026-11-02 WITH GATE F. This class deliberately had NO RefreshDatabase, because its
+    // whole point was that the six tables did not exist -- and without a migrated database
+    // `Schema::hasTable()` was false for every table, which made its absence assertions pass
+    // against a schema that had nothing in it at all. That is a test passing for the wrong reason,
+    // and it was the reason the inverse assertion below could not simply be flipped: the class had
+    // to gain a real database first.
+    use RefreshDatabase;
+
     /** The six tables GATE F holds. */
     public const GATE_F_TABLES = [
         'store_wallets',
@@ -111,7 +127,7 @@ class FinancialSurfaceCoverageTest extends TestCase
      */
     public function test_a_same_currency_conversion_is_exact_and_needs_no_rate_table(): void
     {
-        $this->assertGateFTablesAreAbsent();
+        $this->assertGateFTablesArePresent();
 
         $service = new StoreCurrencyConversionService();
 
@@ -127,7 +143,7 @@ class FinancialSurfaceCoverageTest extends TestCase
     /** The short-circuit is case- and whitespace-insensitive. */
     public function test_the_same_currency_short_circuit_normalises_the_code(): void
     {
-        $this->assertGateFTablesAreAbsent();
+        $this->assertGateFTablesArePresent();
 
         $service = new StoreCurrencyConversionService();
 
@@ -148,7 +164,7 @@ class FinancialSurfaceCoverageTest extends TestCase
      */
     public function test_a_same_currency_conversion_rounds_to_two_places(): void
     {
-        $this->assertGateFTablesAreAbsent();
+        $this->assertGateFTablesArePresent();
 
         $service = new StoreCurrencyConversionService();
 
@@ -159,7 +175,7 @@ class FinancialSurfaceCoverageTest extends TestCase
     /** getRate('USD') is 1.0 and returns before the currency_rates query. */
     public function test_the_usd_rate_is_one_without_consulting_the_rate_table(): void
     {
-        $this->assertGateFTablesAreAbsent();
+        $this->assertGateFTablesArePresent();
 
         $service = new StoreCurrencyConversionService();
 
@@ -184,7 +200,7 @@ class FinancialSurfaceCoverageTest extends TestCase
      */
     public function test_a_non_usd_rate_cannot_resolve_and_never_defaults_to_par(): void
     {
-        $this->assertGateFTablesAreAbsent();
+        $this->assertGateFTablesArePresent();
 
         $service = new StoreCurrencyConversionService();
 
@@ -199,139 +215,383 @@ class FinancialSurfaceCoverageTest extends TestCase
     |--------------------------------------------------------------------------
     */
 
+    /*
+    |--------------------------------------------------------------------------
+    | WAS BLOCKED, NOW VERIFIED -- GATE F closed on 2026-11-02
+    |--------------------------------------------------------------------------
+    |
+    | Seven tests in this section were unconditional `markTestSkipped()` calls, each naming the
+    | table that blocked it. Every one of those tables now has a migration whose structure was
+    | MEASURED against a restored copy of production rather than inferred from `$fillable` --
+    | docs/GATE-F-VERIFIED-SCHEMA.md section 2, reproduced by
+    | App\Support\Database\GateFProductionSchema and verified on a real MariaDB by
+    | tests/Support/Security/bin/verify-gate-f-migrations-on-mysql.php.
+    |
+    | So the skips are DELETED and the bodies are written. This is the opposite of rebaselining:
+    | .github/known-test-outcomes.json asserts its declared set in BOTH directions, so a listed
+    | skip that stops skipping FAILS CI until the entry is removed. Leaving them would have been
+    | the silent lie that file forbids.
+    |
+    | WHAT THESE TESTS STILL CANNOT SEE. They run on SQLite, where type affinity means a
+    | `decimal(15,2)` column accepts and returns whatever it likes -- so the SCALES are not
+    | verified here and are not claimed to be. That is the MySQL script's job, and it is why these
+    | tests assert BEHAVIOUR (a balance moved by the right amount, a ledger row with the right
+    | direction) rather than column metadata.
+    */
+
     /**
-     * Every GATE F table really is absent from the test schema.
+     * The inverse of what this test used to assert, in the same place, deliberately.
      *
-     * This is what keeps the skips below honest: if a migration for one of these
-     * ever lands, this test fails and the skips must be revisited rather than
-     * quietly persisting as permanent holes.
+     * It used to be `test_the_gate_f_tables_are_still_undeclared`, asserting
+     * `assertFalse(Schema::hasTable(...))` for all six, with the message *"<table> now exists. GATE
+     * F may have been answered -- revisit every skip in this suite"*. That is what happened. The
+     * file is not left with a vacuous assertion: the property is inverted, so the class still
+     * fails loudly if one of these migrations is ever reverted or renamed, which is the ratchet
+     * the original was protecting.
      */
-    public function test_the_gate_f_tables_are_still_undeclared(): void
+    public function test_the_gate_f_tables_are_declared_by_a_migration(): void
     {
         foreach (self::GATE_F_TABLES as $table) {
-            $this->assertFalse(
+            $this->assertTrue(
                 Schema::hasTable($table),
-                $table . ' now exists. GATE F may have been answered -- revisit every '
-                    . 'skip in this suite and in tests/Feature/Tenancy and '
-                    . 'tests/Feature/Security rather than leaving them skipped.'
+                $table . ' is missing from a database built by this repository\'s migrations. '
+                    . 'GATE F closed on 2026-11-02; if a migration has been reverted, the seven '
+                    . 'tests below cannot run and the declared-skip set in '
+                    . '.github/known-test-outcomes.json no longer matches reality.'
             );
         }
     }
 
-    /** A cross-currency conversion cannot be verified: currency_rates. */
-    public function test_a_cross_currency_conversion_is_blocked(): void
-    {
-        $this->markTestSkipped(
-            'BLOCKED -- EXTERNAL DEPENDENCY (GATE F): `currency_rates` is declared by no '
-            . 'migration, so no rate can exist and StoreCurrencyConversionService::getRate() '
-            . '(:57) cannot be exercised. Every cross-currency amount in '
-            . 'OrderFinancialService (:135, :329, :473, :495) is therefore unverified. The '
-            . 'decimal precision of `rate_per_usd` is exactly what must not be guessed.'
-        );
-    }
-
-    /** Crediting a merchant's wallet for an order cannot be verified. */
-    public function test_creating_an_order_financial_record_is_blocked(): void
-    {
-        $this->markTestSkipped(
-            'BLOCKED -- EXTERNAL DEPENDENCY (GATE F): OrderFinancialService::createForOrder() '
-            . '(:17) writes `store_order_financials` (:90), reads `store_wallets` (:21) and '
-            . 'writes `store_wallet_transactions` (:156). None is declared by any migration. '
-            . 'This is the function that CREDITS A MERCHANT WALLET for an order, so it is the '
-            . 'single most consequential unverified function in the financial surface.'
-        );
-    }
-
-    /** The paid transition on a financial record cannot be verified. */
-    public function test_marking_a_financial_record_paid_is_blocked(): void
-    {
-        $this->markTestSkipped(
-            'BLOCKED -- EXTERNAL DEPENDENCY (GATE F): '
-            . 'OrderFinancialService::markFinancialAsPaid() (:284) updates '
-            . '`store_order_financials` (:350), reads `store_wallets` (:303) and writes '
-            . '`store_wallet_transactions` (:364). None is declared by any migration.'
-        );
-    }
-
     /**
-     * The REVERSAL path cannot be verified, and it is the one a cancelled COD
-     * order runs -- so this skip is load-bearing for the COD work in this phase.
-     */
-    public function test_marking_a_financial_record_unpaid_is_blocked(): void
-    {
-        $this->markTestSkipped(
-            'BLOCKED -- EXTERNAL DEPENDENCY (GATE F): '
-            . 'OrderFinancialService::markFinancialAsUnpaid() (:397) updates '
-            . '`store_order_financials` (:519), reads `store_wallets` (:416), reads '
-            . '`store_wallet_transactions` (:427) and writes one (:537). This is the path a '
-            . 'CANCELLED order runs -- Order::order_status_change() writes payment_status = '
-            . '"Unpaid" (app/Models/Order.php:550) and an Observer reaches this service -- so '
-            . 'the reversal behaviour behind the COD state machine added in this phase is '
-            . 'unverified. That is one more reason the COD policy ships OFF by default.'
-        );
-    }
-
-    /** Converting a store's stored values on a currency change is blocked. */
-    public function test_converting_a_stores_current_values_is_blocked(): void
-    {
-        $this->markTestSkipped(
-            'BLOCKED -- EXTERNAL DEPENDENCY (GATE F): '
-            . 'StoreCurrencyConversionService::convertStoreCurrentValues() (:86) reads '
-            . '`store_wallets` under lockForUpdate (:126) and `currency_rates` (:147). '
-            . 'Neither is declared by any migration. Reached from '
-            . 'SettingController.php:1416 when a merchant changes their store currency, so a '
-            . 'merchant-facing action rewrites wallet balances through code that cannot be '
-            . 'tested here.'
-        );
-    }
-
-    /** Wallet and withdrawal authorization is not in this agent's files. */
-    public function test_wallet_and_withdrawal_authorization_is_blocked_and_not_owned_here(): void
-    {
-        $this->markTestSkipped(
-            'BLOCKED -- EXTERNAL DEPENDENCY (GATE F) and NOT OWNED by this agent: wallet and '
-            . 'withdrawal authorization lives in StoreFinanceController, which belongs to '
-            . 'another agent this phase. `store_wallets`, `store_wallet_transactions` and '
-            . '`store_withdrawals` are all undeclared. The route- and controller-level '
-            . 'denials are covered by tests/Feature/Security/WithdrawalAuthorizationTest and '
-            . 'FinancePermissionTest, whose GATE-F cases are already skipped with '
-            . '`store_wallets` named. Nothing about them is claimed here.'
-        );
-    }
-
-    /**
-     * `delivery_earnings` is written from OrderController but is undeclared.
+     * A cross-currency conversion now resolves a real stored rate. WAS BLOCKED on `currency_rates`.
      *
-     * THE CITATIONS ARE DERIVED, NOT TYPED. A hardcoded line number in a skip
-     * reason silently rots: these two were :1074 and :1094 when the survey was
-     * written and are :1268 and :1288 after this phase inserted a restock
-     * helper and a transaction boundary earlier in the same file. A stale
-     * citation in a BLOCKED message is a false statement about the codebase, so
-     * the lines are located in the source each run.
-     *
-     * This also makes the skip self-checking: if the DeliveryEarning writes are
-     * ever removed or renamed, the reason says so instead of naming lines that
-     * no longer hold them.
+     * Three properties, because the first alone would pass against a broken rate lookup:
+     * the rate is read back as stored, the conversion applies it in the right DIRECTION, and a
+     * round trip returns the original amount. The direction matters -- `convertAmount` divides by
+     * the from-rate and multiplies by the to-rate, so a transposed implementation would still
+     * produce a plausible-looking number for a single conversion.
      */
-    public function test_delivery_earnings_writes_are_blocked(): void
+    public function test_a_cross_currency_conversion_uses_the_stored_rate(): void
     {
-        $this->markTestSkipped(
-            'BLOCKED -- EXTERNAL DEPENDENCY (GATE F): `delivery_earnings` is declared by no '
-            . 'migration, yet OrderController::order_assign() writes it at '
-            . $this->deliveryEarningWriteSites() . '. A delivery boy\'s earnings are '
-            . 'therefore written by code whose table has no schema of record.'
+        $store = $this->seedStore();
+
+        CurrencyRate::create([
+            'store_id'      => $store->id,
+            'currency_code' => 'SYP',
+            'currency_name' => 'Syrian Pound',
+            'symbol'        => 'SYP',
+            'rate_per_usd'  => 13000.00000000,
+            'is_active'     => 1,
+        ]);
+
+        $service = new StoreCurrencyConversionService();
+
+        $this->assertSame(13000.0, $service->getRate('SYP', (int) $store->id));
+        $this->assertSame(1300000.0, $service->convertAmount(100.0, 'USD', 'SYP', (int) $store->id));
+        $this->assertSame(100.0, $service->convertAmount(1300000.0, 'SYP', 'USD', (int) $store->id));
+    }
+
+    /**
+     * An INACTIVE rate must not resolve, and must not silently fall back to par.
+     *
+     * This is the dangerous direction: a fallback of 1.0 would convert money at par, so a merchant
+     * who deactivated a currency would have every amount in it treated as dollars.
+     */
+    public function test_a_deactivated_rate_does_not_resolve_and_never_falls_back_to_par(): void
+    {
+        $store = $this->seedStore();
+
+        CurrencyRate::create([
+            'store_id'      => $store->id,
+            'currency_code' => 'SYP',
+            'currency_name' => 'Syrian Pound',
+            'rate_per_usd'  => 13000.00000000,
+            'is_active'     => 0,
+        ]);
+
+        $this->expectException(\Throwable::class);
+
+        (new StoreCurrencyConversionService())->getRate('SYP', (int) $store->id);
+    }
+
+    /**
+     * Crediting a merchant's wallet for an order. WAS BLOCKED on all three wallet tables.
+     *
+     * This is the function the old skip called "the single most consequential unverified function
+     * in the financial surface", because it is what moves an order's money into a merchant's
+     * balance. Four things are asserted: the P&L row exists with the right arithmetic, the wallet
+     * balance moved by exactly the order total, a ledger row records the movement as a CREDIT with
+     * matching before/after balances, and a second call is a no-op.
+     *
+     * The no-op case is the one that matters most in production: `createForOrder` guards on an
+     * existing row for the same order, and `uq_store_order_financial_order` now enforces the same
+     * thing at the database. Without both, a retried webhook credits a wallet twice.
+     */
+    public function test_creating_an_order_financial_record_credits_the_wallet_once(): void
+    {
+        $store  = $this->seedStore();
+        $wallet = $this->seedWallet($store);
+        $order  = $this->seedOrder($store, [
+            'product_price' => 120,
+            'coupon_price'  => 20,
+            'tax_price'     => 5,
+            'delivery_price' => 10,
+            'final_price'   => 115,
+            'payment_status' => 'Paid',
+        ]);
+
+        app(OrderFinancialService::class)->createForOrder($order);
+
+        $financial = DB::table('store_order_financials')->where('order_id', $order->id)->first();
+
+        $this->assertNotNull($financial, 'No store_order_financials row was written for the order.');
+        $this->assertEqualsWithDelta(120.0, (float) $financial->product_amount, 0.001);
+        $this->assertEqualsWithDelta(20.0, (float) $financial->discount_amount, 0.001);
+        $this->assertEqualsWithDelta(115.0, (float) $financial->customer_total, 0.001);
+        $this->assertSame('paid', $financial->payment_status);
+        $this->assertEqualsWithDelta(115.0, (float) $financial->paid_amount, 0.001);
+        $this->assertEqualsWithDelta(0.0, (float) $financial->remaining_amount, 0.001);
+
+        // gross_profit = (product_amount - discount_amount) - product_cost, and the order has no
+        // priced line items, so product_cost is 0.
+        $this->assertEqualsWithDelta(100.0, (float) $financial->gross_profit, 0.001);
+
+        $wallet->refresh();
+        $this->assertEqualsWithDelta(
+            115.0,
+            (float) $wallet->available_balance,
+            0.001,
+            'A paid order must move its total into the merchant balance.'
+        );
+        $this->assertEqualsWithDelta(115.0, (float) $wallet->total_income, 0.001);
+
+        $ledger = StoreWalletTransaction::where('wallet_id', $wallet->id)->get();
+        $this->assertCount(1, $ledger, 'Exactly one ledger row should record the credit.');
+        $this->assertSame('credit', $ledger[0]->direction);
+        $this->assertSame('order_paid', $ledger[0]->type);
+        $this->assertEqualsWithDelta(0.0, (float) $ledger[0]->balance_before, 0.001);
+        $this->assertEqualsWithDelta(115.0, (float) $ledger[0]->balance_after, 0.001);
+
+        // And again: a second call must change nothing.
+        app(OrderFinancialService::class)->createForOrder($order->fresh());
+
+        $this->assertSame(
+            1,
+            DB::table('store_order_financials')->where('order_id', $order->id)->count(),
+            'A second createForOrder() wrote a SECOND financial row for one order. '
+            . 'uq_store_order_financial_order exists to make that impossible.'
+        );
+        $this->assertEqualsWithDelta(
+            115.0,
+            (float) $wallet->fresh()->available_balance,
+            0.001,
+            'A second createForOrder() credited the wallet twice.'
         );
     }
 
     /**
-     * Where OrderController touches DeliveryEarning, as `:line (kind)` pairs
-     * read out of the file now.
+     * The paid transition. WAS BLOCKED on `store_order_financials` / `store_wallets`.
+     *
+     * An UNPAID order creates a financial row without moving money; marking it paid is what moves
+     * it. So this asserts the wallet was untouched first -- otherwise a test that only checked the
+     * end state would pass even if the credit had happened at creation time.
+     */
+    public function test_marking_a_financial_record_paid_moves_the_money(): void
+    {
+        $store  = $this->seedStore();
+        $wallet = $this->seedWallet($store);
+        $order  = $this->seedOrder($store, ['final_price' => 250, 'payment_status' => 'Unpaid']);
+
+        app(OrderFinancialService::class)->createForOrder($order);
+
+        $financial = DB::table('store_order_financials')->where('order_id', $order->id)->first();
+        $this->assertSame('unpaid', $financial->payment_status);
+        $this->assertEqualsWithDelta(
+            0.0,
+            (float) $wallet->fresh()->available_balance,
+            0.001,
+            'An UNPAID order must not credit the wallet at creation time.'
+        );
+
+        app(OrderFinancialService::class)->markFinancialAsPaid((int) $financial->id);
+
+        $after = DB::table('store_order_financials')->where('id', $financial->id)->first();
+        $this->assertSame('paid', $after->payment_status);
+        $this->assertNotNull($after->paid_at);
+        $this->assertEqualsWithDelta(250.0, (float) $after->paid_amount, 0.001);
+        $this->assertEqualsWithDelta(0.0, (float) $after->remaining_amount, 0.001);
+
+        $this->assertEqualsWithDelta(250.0, (float) $wallet->fresh()->available_balance, 0.001);
+
+        $credits = StoreWalletTransaction::where('wallet_id', $wallet->id)
+            ->where('direction', 'credit')->get();
+        $this->assertCount(1, $credits, 'Marking a record paid must write exactly one credit.');
+
+        // Idempotence: the service returns early when the record is already paid.
+        app(OrderFinancialService::class)->markFinancialAsPaid((int) $financial->id);
+
+        $this->assertEqualsWithDelta(
+            250.0,
+            (float) $wallet->fresh()->available_balance,
+            0.001,
+            'markFinancialAsPaid() credited the wallet a second time for one record.'
+        );
+    }
+
+    /**
+     * The REVERSAL path. WAS BLOCKED, and the old skip called it "load-bearing for the COD work in
+     * this phase" because a cancelled order runs it.
+     *
+     * The property that matters is that the reversal returns the balance to where it started -- not
+     * merely that it debits something. So the opening balance is recorded and compared at the end.
+     */
+    public function test_marking_a_financial_record_unpaid_reverses_the_credit(): void
+    {
+        $store  = $this->seedStore();
+        $wallet = $this->seedWallet($store);
+        $order  = $this->seedOrder($store, ['final_price' => 400, 'payment_status' => 'Paid']);
+
+        $opening = (float) $wallet->available_balance;
+
+        app(OrderFinancialService::class)->createForOrder($order);
+
+        $financial = DB::table('store_order_financials')->where('order_id', $order->id)->first();
+        $this->assertSame('paid', $financial->payment_status);
+        $this->assertEqualsWithDelta($opening + 400.0, (float) $wallet->fresh()->available_balance, 0.001);
+
+        app(OrderFinancialService::class)->markFinancialAsUnpaid((int) $financial->id);
+
+        $after = DB::table('store_order_financials')->where('id', $financial->id)->first();
+        $this->assertNotSame('paid', $after->payment_status, 'The record is still marked paid.');
+
+        $this->assertEqualsWithDelta(
+            $opening,
+            (float) $wallet->fresh()->available_balance,
+            0.001,
+            'A reversal must return the balance to exactly where it started. Anything else means '
+            . 'a cancelled order leaves money behind in, or takes money out of, the merchant balance.'
+        );
+
+        $debits = StoreWalletTransaction::where('wallet_id', $wallet->id)
+            ->where('direction', 'debit')->get();
+        $this->assertCount(1, $debits, 'The reversal must write exactly one debit row.');
+        $this->assertEqualsWithDelta(400.0, (float) $debits[0]->amount, 0.001);
+    }
+
+    /**
+     * A merchant changing store currency. WAS BLOCKED on `store_wallets` and `currency_rates`.
+     *
+     * Reached from SettingController when a merchant changes their store currency, so this is a
+     * merchant-facing action that rewrites wallet balances.
+     */
+    public function test_converting_a_stores_current_values_rewrites_the_wallet(): void
+    {
+        $store  = $this->seedStore();
+        $wallet = $this->seedWallet($store, ['available_balance' => 100, 'total_income' => 100]);
+
+        CurrencyRate::create([
+            'store_id'      => $store->id,
+            'currency_code' => 'SYP',
+            'currency_name' => 'Syrian Pound',
+            'rate_per_usd'  => 13000.00000000,
+            'is_active'     => 1,
+        ]);
+
+        app(StoreCurrencyConversionService::class)
+            ->convertStoreCurrentValues((int) $store->id, 'USD', 'SYP');
+
+        $this->assertEqualsWithDelta(
+            1300000.0,
+            (float) $wallet->fresh()->available_balance,
+            0.01,
+            'A store currency change must convert the stored wallet balance, not leave the old '
+            . 'number under a new currency label.'
+        );
+    }
+
+    /**
+     * A same-currency change must be a no-op, which is the guard at the top of the method.
+     *
+     * Without this, the test above would also pass if the method converted unconditionally.
+     */
+    public function test_converting_a_store_to_its_own_currency_changes_nothing(): void
+    {
+        $store  = $this->seedStore();
+        $wallet = $this->seedWallet($store, ['available_balance' => 100, 'total_income' => 100]);
+
+        app(StoreCurrencyConversionService::class)
+            ->convertStoreCurrentValues((int) $store->id, 'USD', 'usd');
+
+        $this->assertEqualsWithDelta(100.0, (float) $wallet->fresh()->available_balance, 0.001);
+    }
+
+    /**
+     * `delivery_earnings` is written from OrderController, and the table now exists.
+     *
+     * TWO HALVES, and both are needed. The first writes a row through the model and reads it back,
+     * which is what the old skip could not do at all. The second keeps the ORIGINAL value of that
+     * skip: it derives the OrderController write sites from the source at run time and asserts
+     * there still are some, so removing or renaming the writes fails here rather than going
+     * unnoticed.
+     *
+     * The citations were never typed into this file and still are not: they were :1074 and :1094
+     * when first surveyed and :1268 and :1288 after a restock helper and a transaction boundary
+     * were inserted earlier in the same file. A hardcoded line number in a test message is a claim
+     * about the codebase that rots.
+     */
+    public function test_delivery_earnings_rows_persist_and_the_controller_still_writes_them(): void
+    {
+        $store = $this->seedStore();
+        $order = $this->seedOrder($store);
+
+        $boy = \App\Models\DeliveryBoy::create([
+            'name'       => 'Driver ' . uniqid(),
+            'email'      => 'driver' . uniqid() . '@example.test',
+            'password'   => bcrypt('secret-not-used'),
+            'store_id'   => $store->id,
+            'created_by' => $store->created_by,
+        ]);
+
+        $earning = \App\Models\DeliveryEarning::create([
+            'delivery_boy_id'       => $boy->id,
+            'order_id'              => $order->id,
+            'shipping_cost'         => 30.00,
+            'commission_percentage' => 12.50,
+            'commission_amount'     => 3.75,
+            'status'                => 'pending',
+        ]);
+
+        $row = DB::table('delivery_earnings')->where('id', $earning->id)->first();
+
+        $this->assertNotNull($row, 'No delivery_earnings row was persisted.');
+        $this->assertEqualsWithDelta(30.0, (float) $row->shipping_cost, 0.001);
+        $this->assertEqualsWithDelta(12.5, (float) $row->commission_percentage, 0.001);
+        $this->assertEqualsWithDelta(3.75, (float) $row->commission_amount, 0.001);
+        $this->assertSame('pending', $row->status);
+
+        $this->assertStringNotContainsString(
+            'NO DeliveryEarning write found',
+            $this->deliveryEarningWriteSites(),
+            'OrderController no longer writes DeliveryEarning anywhere. Either the feature was '
+            . 'removed -- in which case this table and its migration should go too -- or a rename '
+            . 'has made this assertion blind.'
+        );
+    }
+
+    /**
+     * Where OrderController touches DeliveryEarning, as `:line (kind)` pairs read out of the file
+     * now.
+     *
+     * DERIVED, NOT TYPED, and that was true before GATE F closed too. These two sites were :1074
+     * and :1094 when the financial surface was first surveyed and :1268 and :1288 after a restock
+     * helper and a transaction boundary were inserted earlier in the same file. A hardcoded line
+     * number in a test message is a claim about the codebase that rots silently.
      */
     private function deliveryEarningWriteSites(): string
     {
         $path = app_path('Http/Controllers/OrderController.php');
 
-        if (!is_file($path)) {
+        if (! is_file($path)) {
             return 'OrderController.php (NOT FOUND -- the survey needs re-deriving)';
         }
 
@@ -343,7 +603,7 @@ class FinancialSurfaceCoverageTest extends TestCase
                 continue;
             }
 
-            if (!str_contains($line, 'DeliveryEarning::')) {
+            if (! str_contains($line, 'DeliveryEarning::')) {
                 continue;
             }
 
@@ -363,25 +623,100 @@ class FinancialSurfaceCoverageTest extends TestCase
 
     /*
     |--------------------------------------------------------------------------
-    | Helper
+    | Premise and fixtures
     |--------------------------------------------------------------------------
     */
 
     /**
-     * No GATE F table may exist when a "verified" assertion runs.
+     * Every GATE F table must now EXIST when a short-circuit assertion runs.
      *
-     * Without this, a later fixture that creates one of these tables with
-     * guessed columns would make the verified tests above pass for the wrong
-     * reason.
+     * INVERTED 2026-11-02, and the inversion is the point. This was
+     * `assertGateFTablesAreAbsent()`, guarding the five short-circuit tests above so that a
+     * fixture which created one of these tables with GUESSED columns could not make them pass for
+     * the wrong reason. That hazard is gone: the tables are created by migrations whose structure
+     * was measured against production, so the property worth guarding is now the opposite -- that
+     * the short-circuits are exercised against a REAL schema rather than an empty database.
+     *
+     * The old version had a quieter problem too. This class had no `RefreshDatabase`, so
+     * `Schema::hasTable()` was false for EVERY table, not just these six: it asserted the absence
+     * of six tables in a schema that contained none.
      */
-    private function assertGateFTablesAreAbsent(): void
+    private function assertGateFTablesArePresent(): void
     {
         foreach (self::GATE_F_TABLES as $table) {
-            $this->assertFalse(
+            $this->assertTrue(
                 Schema::hasTable($table),
-                'this assertion is only meaningful while ' . $table . ' is undeclared'
+                $table . ' is missing, so this assertion is running against a schema that is not '
+                    . 'the one the application uses'
             );
         }
+    }
+
+    /*
+    | Fixtures are local rather than inherited: this class extends Tests\TestCase, while the richer
+    | helpers live on Tests\Feature\Security\SecurityTestCase. Only what these tests need is here.
+    */
+
+    private function seedStore(): Store
+    {
+        $owner = User::factory()->create([
+            'type'              => 'admin',
+            'created_by'        => 1,
+            'is_active'         => 1,
+            'email_verified_at' => now(),
+        ]);
+
+        return Store::create([
+            'name'       => 'Finance Store ' . uniqid(),
+            'email'      => 'finance' . uniqid() . '@example.test',
+            'theme_id'   => 'stylique',
+            'slug'       => 'finance-' . uniqid(),
+            'created_by' => $owner->id,
+            'is_active'  => 1,
+        ]);
+    }
+
+    /** @param array<string,mixed> $attributes */
+    private function seedWallet(Store $store, array $attributes = []): StoreWallet
+    {
+        return StoreWallet::create(array_merge([
+            'store_id'                   => $store->id,
+            'currency_code'              => 'USD',
+            'available_balance'          => 0,
+            'pending_balance'            => 0,
+            'withdrawal_pending_balance' => 0,
+            'total_income'               => 0,
+            'total_withdrawn'            => 0,
+        ], $attributes));
+    }
+
+    /** @param array<string,mixed> $attributes */
+    private function seedOrder(Store $store, array $attributes = []): Order
+    {
+        // App\Models\Order's `creating` hook writes orders.currency_code and
+        // orders.currency_symbol. Both are declared now; asserted rather than assumed, because a
+        // missing one surfaces as "table orders has no column named currency_code" from inside an
+        // unrelated financial assertion.
+        foreach (['currency_code', 'currency_symbol'] as $column) {
+            $this->assertTrue(
+                Schema::hasColumn('orders', $column),
+                "orders.{$column} is written by App\\Models\\Order's creating hook but is not "
+                . 'declared, so no Order row can be inserted.'
+            );
+        }
+
+        return Order::create(array_merge([
+            'product_order_id' => 'ORD-' . uniqid(),
+            'order_date'       => now(),
+            'customer_id'      => 0,
+            'is_guest'         => 1,
+            'product_json'     => '[]',
+            'final_price'      => 100,
+            'payment_type'     => 'cod',
+            'payment_status'   => 'Unpaid',
+            'delivered_status' => 0,
+            'store_id'         => $store->id,
+        ], $attributes));
     }
 
     /** Referenced so a reader can see the service under discussion is real. */

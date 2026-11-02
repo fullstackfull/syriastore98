@@ -329,17 +329,16 @@ class WithdrawalAuthorizationTest extends SecurityTestCase
      */
     public function test_a_view_only_user_cannot_change_a_withdrawals_state_end_to_end(): void
     {
+        // GATE F closed on 2026-11-02, so these three tables have measured migrations and this
+        // test is live. The former `markTestSkipped` guard is replaced with an ASSERTION rather
+        // than deleted: a dormant skip would silently reopen a declared hole if a migration were
+        // ever reverted, where this names the cause and fails.
         foreach (['store_wallets', 'store_withdrawals', 'store_wallet_transactions'] as $table) {
-            if (!Schema::hasTable($table)) {
-                $this->markTestSkipped(
-                    "BLOCKED: `{$table}` is declared by no migration, though the model "
-                    . 'exists and StoreFinanceController queries it (GATE F -- the six '
-                    . 'money tables). The route-level denial is covered by '
-                    . 'test_a_view_only_user_cannot_approve_reject_or_pay; this test '
-                    . 'covers the controller-level guard and becomes live the moment the '
-                    . 'schema lands.'
-                );
-            }
+            $this->assertTrue(
+                Schema::hasTable($table),
+                "`{$table}` is missing. StoreFinanceController queries it, so this test cannot "
+                . 'run -- check that its GATE F migration has not been reverted or renamed.'
+            );
         }
 
         [$merchant, $store] = $this->makeTenant();
@@ -429,59 +428,112 @@ class WithdrawalAuthorizationTest extends SecurityTestCase
      * copy as the only thing standing, and the denial is asserted over real HTTP.
      * Nothing about the production stack changes; both layers remain.
      *
-     * GATE F IS THE WITNESS. store_withdrawals is declared by no migration, so if
-     * the controller guard did NOT refuse, the request would reach
-     * StoreWithdrawal::where(...) inside the transaction and come back with the
-     * SQL error in the session (the catch does back()->with('error',
-     * $e->getMessage())). An exact-match assertion on 'Permission denied.'
-     * therefore distinguishes "refused by the guard" from "got through and died on
-     * the missing table" -- which is the distinction an HTTP "not 200" assertion
-     * would have blurred.
+     * ================================================================================================
+     *  REWRITTEN 2026-11-02, WHEN GATE F CLOSED -- EXACTLY AS THE PREVIOUS VERSION INSTRUCTED.
+     * ================================================================================================
+     *
+     * This test used to assert `assertFalse(Schema::hasTable('store_withdrawals'))` first, with the
+     * message *"store_withdrawals now exists, so the witness this test relies on is gone: rewrite
+     * it to assert the row is unchanged instead."* That assertion has now fired, which is the
+     * instruction being followed here rather than a regression.
+     *
+     * WHY THE MISSING TABLE WAS THE WITNESS. With the route middleware removed, the controller copy
+     * of the guard was the only thing standing. If it had NOT refused, the request would reach
+     * `StoreWithdrawal::where(...)` inside the transaction and come back with a SQL error in the
+     * session, because the catch does `back()->with('error', $e->getMessage())`. An exact-match
+     * assertion on 'Permission denied.' therefore distinguished "refused by the guard" from "got
+     * through and died on the missing table" -- a distinction an HTTP "not 200" assertion blurs.
+     *
+     * WHAT REPLACES IT, and why it is stronger. A real pending withdrawal is seeded, so the write
+     * the guard is supposed to prevent is now genuinely reachable. Two things are then asserted per
+     * route: the exact refusal message, AND that the row is UNCHANGED afterwards. The second is the
+     * assertion the missing table used to stand in for, and it is the better one -- it would catch a
+     * guard that refuses in the session while the write happens anyway.
      */
     public function test_the_controller_guard_refuses_on_its_own_with_the_route_guard_removed(): void
     {
-        [$merchant] = $this->makeTenant();
+        [$merchant, $store] = $this->makeTenant();
         $staff = $this->makeStaff($merchant);
         $this->grantPermission($staff, self::VIEW_PERMISSION);
         $staff = $staff->fresh();
 
-        $this->assertFalse(
-            Schema::hasTable('store_withdrawals'),
-            'store_withdrawals now exists, so the witness this test relies on is gone: '
-            . 'rewrite it to assert the row is unchanged instead.'
-        );
+        $wallet = \App\Models\StoreWallet::create([
+            'store_id' => $store->id,
+            'currency_code' => 'USD',
+            'available_balance' => 0,
+            'pending_balance' => 0,
+            'withdrawal_pending_balance' => 100,
+            'total_income' => 100,
+            'total_withdrawn' => 0,
+        ]);
+
+        $withdrawal = \App\Models\StoreWithdrawal::create([
+            'store_id' => $store->id,
+            'wallet_id' => $wallet->id,
+            'amount' => 100,
+            'status' => 'pending',
+        ]);
 
         $this->withoutMiddleware(FinancePermission::class);
 
-        foreach ([
-            '/finance/withdrawals/1/approve',
-            '/finance/withdrawals/1/reject',
-            '/finance/withdrawals/1/pay',
-        ] as $uri) {
-            $this->actingAs($staff)->post($uri);
+        foreach (['approve', 'reject', 'pay'] as $action) {
+            $uri = '/finance/withdrawals/' . $withdrawal->id . '/' . $action;
 
-            $error = (string) session('error');
+            $this->actingAs($staff)->post($uri);
 
             $this->assertSame(
                 'Permission denied.',
-                $error,
+                (string) session('error'),
                 "{$uri} did not refuse at the controller. With the route middleware "
                 . 'removed this is the only guard left, and anything other than this '
-                . 'exact message means the request got past it -- a SQL error here '
-                . 'would mean it reached the store_withdrawals write.'
+                . 'exact message means the request got past it.'
+            );
+
+            $this->assertSame(
+                'pending',
+                $withdrawal->fresh()->status,
+                "{$uri} refused in the session but the row CHANGED anyway. A refusal that does "
+                . 'not prevent the write is not a refusal.'
             );
         }
+
+        // And the wallet the payout would have moved money out of is untouched.
+        //
+        // Compared as a NUMBER, not as a string: SQLite's type affinity returns `100` where MySQL
+        // returns `100.00` for the same decimal(15,2) column, so a string comparison here asserts
+        // the driver's formatting rather than the balance. The scale itself is verified where it
+        // can be -- on a real MariaDB, by
+        // tests/Support/Security/bin/verify-gate-f-migrations-on-mysql.php.
+        $this->assertEqualsWithDelta(
+            100.00,
+            (float) $wallet->fresh()->withdrawal_pending_balance,
+            0.0001,
+            'A refused payout moved money in the wallet.'
+        );
     }
 
     /**
-     * THE POSITIVE DIRECTION of that same second layer: a delegated user holding
-     * BOTH permissions must get PAST the controller guard. Otherwise the test above
-     * would also pass if canFinanceAll() returned false for everybody.
+     * THE POSITIVE DIRECTION of that same second layer: a delegated user holding BOTH permissions
+     * must get PAST the controller guard. Otherwise the test above would also pass if
+     * canFinanceAll() returned false for everybody.
      *
-     * Evidenced by the SQL error that GATE F guarantees: reaching
-     * `no such table: store_withdrawals` proves the guard admitted the caller and
-     * execution entered the transaction. The money-moving behaviour beyond that
-     * point stays BLOCKED -- EXTERNAL DEPENDENCY and nothing here claims otherwise.
+     * ================================================================================================
+     *  REWRITTEN 2026-11-02, WHEN GATE F CLOSED. It now asserts the OUTCOME instead of an error
+     *  message, and it is a stronger test for it.
+     * ================================================================================================
+     *
+     * What it used to do: post to a withdrawal id that did not exist, and assert the session error
+     * CONTAINED the string `store_withdrawals` -- because at the time the only way to prove the
+     * guard had admitted the caller was to watch execution reach `no such table:
+     * store_withdrawals`. That made the schema gap the measuring instrument, which was honest about
+     * what it could see but had two problems: it proved only that execution got PAST the guard, not
+     * that the approval worked, and it would have started failing the moment the table arrived --
+     * reporting a schema improvement as an authorization regression.
+     *
+     * What it does now: seeds a real wallet and a real pending withdrawal, posts the approval, and
+     * asserts the withdrawal is actually `approved`. The guard is still the thing under test -- a
+     * guard that refused this caller would leave the status `pending` and fail -- but the assertion
+     * is now the behaviour the owner cares about rather than the text of a SQL error.
      */
     public function test_a_holder_of_both_permissions_passes_the_controller_guard(): void
     {
@@ -492,25 +544,39 @@ class WithdrawalAuthorizationTest extends SecurityTestCase
         $staff->current_store = $store->id;
         $staff->save();
 
+        $wallet = \App\Models\StoreWallet::create([
+            'store_id' => $store->id,
+            'currency_code' => 'USD',
+            'available_balance' => 0,
+            'pending_balance' => 0,
+            'withdrawal_pending_balance' => 100,
+            'total_income' => 100,
+            'total_withdrawn' => 0,
+        ]);
+
+        $withdrawal = \App\Models\StoreWithdrawal::create([
+            'store_id' => $store->id,
+            'wallet_id' => $wallet->id,
+            'amount' => 100,
+            'status' => 'pending',
+        ]);
+
         $this->withoutMiddleware(FinancePermission::class);
 
-        $this->actingAs($staff->fresh())->post('/finance/withdrawals/1/approve');
-
-        $error = (string) session('error');
+        $this->actingAs($staff->fresh())->post('/finance/withdrawals/' . $withdrawal->id . '/approve');
 
         $this->assertNotSame(
             'Permission denied.',
-            $error,
+            (string) session('error'),
             'A delegated user holding BOTH permissions was refused by the controller '
             . 'guard, so withdrawal review is broken for every non-super-admin.'
         );
 
-        $this->assertStringContainsString(
-            'store_withdrawals',
-            $error,
-            'Expected the caller to be admitted and to stop at the undeclared '
-            . 'store_withdrawals table (GATE F). Another error means this test is no '
-            . 'longer measuring the guard.'
+        $this->assertSame(
+            'approved',
+            $withdrawal->fresh()->status,
+            'The caller holds both permissions, so the approval must actually take effect. A '
+            . 'status still `pending` means the controller guard refused a caller it should admit.'
         );
     }
 }

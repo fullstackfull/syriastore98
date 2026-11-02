@@ -78,14 +78,44 @@ class MigrationHygieneTest extends TestCase
     }
 
     /**
+     * Blank out comments, preserving offsets, so a scanner reads CODE and not prose.
+     */
+    private function codeOnly(string $source): string
+    {
+        $out = '';
+
+        foreach (token_get_all($source) as $token) {
+            if (is_array($token)) {
+                $out .= in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true)
+                    ? str_repeat(' ', strlen($token[1]))
+                    : $token[1];
+
+                continue;
+            }
+
+            $out .= $token;
+        }
+
+        return $out;
+    }
+
+    /**
      * THE RECURRENCE TEST. Any migration issuing MySQL-only SQL must guard on the driver.
+     *
+     * COMMENTS ARE BLANKED FIRST, added 2026-11-02. A migration that EXPLAINS where its definition
+     * came from -- "generated from `information_schema` on a restored copy of production" -- was
+     * reported as issuing MySQL-only SQL, in fourteen files at once, purely because the phrase
+     * appears in a docblock. This is the third ratchet in this repository to match its own prose;
+     * the other two were an upload-accept census and an HTML-in-heredoc check. A guard that cannot
+     * tell code from a comment cries wolf once and then gets suppressed forever, so the lexer does
+     * the separating rather than a regex over the raw text.
      */
     public function test_no_migration_contains_unguarded_mysql_only_sql(): void
     {
         $offenders = [];
 
         foreach ($this->allMigrationFiles() as $file) {
-            $contents = file_get_contents($file);
+            $contents = $this->codeOnly((string) file_get_contents($file));
 
             $found = array_values(array_filter(
                 self::MYSQL_ONLY_TOKENS,

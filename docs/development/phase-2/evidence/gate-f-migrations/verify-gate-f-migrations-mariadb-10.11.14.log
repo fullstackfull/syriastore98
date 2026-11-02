@@ -1,0 +1,43 @@
+GATE F -- MIGRATION VERIFICATION ON A REAL SERVER
+server:   10.11.14-MariaDB-0ubuntu0.24.04.1
+measured: MariaDB 11.4.9, docs/GATE-F-VERIFIED-SCHEMA.md section 2 (restored copy, 2026-10-24)
+tables:   15 (6 money-bearing)
+
+A. FRESH DATABASE -- migrate from zero, then compare every table to production
+  PASS  migrate from zero exited 0
+  PASS  A: `store_wallets` [money] matches the measured production structure
+  PASS  A: `store_wallet_transactions` [money] matches the measured production structure
+  PASS  A: `store_withdrawals` [money] matches the measured production structure
+  PASS  A: `store_order_financials` [money] matches the measured production structure
+  PASS  A: `delivery_earnings` [money] matches the measured production structure
+  PASS  A: `currency_rates` [money] matches the measured production structure
+  PASS  A: `audit_logs` matches the measured production structure
+  PASS  A: `otp_integrations` matches the measured production structure
+  PASS  A: `chatwoot_integrations` matches the measured production structure
+  PASS  A: `chatwoot_notification_templates` matches the measured production structure
+  PASS  A: `delivery_boy_devices` matches the measured production structure
+  PASS  A: `delivery_boy_notifications` matches the measured production structure
+  PASS  A: `zid_stores` matches the measured production structure
+  PASS  A: `zid_orders` matches the measured production structure
+  PASS  A: `zid_events` matches the measured production structure
+  PASS  A: `delivery_boys`.`commission_percentage` matches production (decimal(5,2))
+  PASS  A: `delivery_boys`.`is_commission_enabled` matches production (tinyint)
+  PASS  A: `products`.`cost_price` matches production (decimal(15,2))
+
+B. PRODUCTION-SHAPED DATABASE -- the 15 tables already exist, with rows, as production has them
+  PASS  B: un-recorded 16 GATE F migrations so they re-run against the production shape
+  PASS  B1: migrate against the production shape exited 0; every guard passed
+  PASS  B2: not one of the 15 structures changed -- the migrations are the intended no-op
+  PASS  B3: every money row survived byte-for-byte, decimals included (balance 1234.56, rate 13021.12345678)
+  PASS  B4: migrate:rollback dropped none of the 15 tables; every down() is a documented no-op
+
+C. THE GUARD BITES -- five corruptions this project has actually produced, each must be REFUSED
+  PASS  C1: refused -- a money column widened to the superseded decimal(18,4) standing decision (1 named difference(s): column `product_amount` type: production has `decimal(15,2)`, the live table has `decimal(18,4)`)
+  PASS  C2: refused -- the unique key that makes "one financial row per order" true (1 named difference(s): UNIQUE KEY `uq_store_order_financial_order` (order_id) is MISSING from the live table -- a unique key is an INTEGRITY GUARANTEE, not an optimisation)
+  PASS  C3: refused -- the foreign key that stops a deleted wallet leaving ledger rows behind (1 named difference(s): FOREIGN KEY `fk_wallet_transactions_wallet` (wallet_id) -> store_wallets(id) is MISSING from the live table -- the ON DELETE rule is what stops a deleted parent leaving orphan rows behind)
+  PASS  C4: refused -- the ledger's credit/debit enum turned into nullable free text (3 named difference(s): column `direction` type: production has `enum('credit','debit')`, the live table has `varchar(255)`)
+  PASS  C5: refused -- an FX multiplier defaulting to zero, which prices every conversion at nothing (1 named difference(s): column `rate_per_usd` default: production has `1`, the live table has `0`)
+
+--------------------------------------------------------------------------------------------
+29 checks, 0 failed
+GATE F VERIFIED on 10.11.14-MariaDB-0ubuntu0.24.04.1: the 15 migrations reproduce production exactly on a fresh database, are a structural and data no-op against a production shape, roll back without dropping anything, and the structural guard refuses all five corruptions.

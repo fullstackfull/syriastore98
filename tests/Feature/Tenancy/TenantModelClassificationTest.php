@@ -217,18 +217,50 @@ class TenantModelClassificationTest extends TestCase
         // the rule did not -- the rows are tenant-owned AND employee-owned, which is why the
         // model is in `doNotScopeDespiteHavingTheColumn()` rather than in the enforcement
         // allowlist.
+        //
+        // 65, UP FROM 58 -- GATE F CLOSED ON 2026-11-02. Seven models' tables now exist and carry
+        // `store_id`, so they move out of the withoutTable partition and into this one:
+        // StoreWallet, StoreWalletTransaction, StoreWithdrawal, CurrencyRate, OtpIntegration,
+        // ZidStore and ZidEvent. The classification RULE did not change: this partition is "the
+        // table carries a store_id column", and it now can be answered for them.
+        //
+        // TWO OF THE SEVEN CARRY A COLUMN THAT IS NOT THIS PLATFORM'S TENANT DISCRIMINATOR, and
+        // recording it is the review this assertion exists to force. `zid_stores.store_id` is
+        // varchar(255) and `zid_orders.store_id` is varchar(191), both holding ZID'S OWN merchant
+        // identifier rather than `stores.id` -- measured, docs/GATE-F-VERIFIED-SCHEMA.md section 2,
+        // and the reason neither table has a foreign key to `stores`.
+        //
+        // So `ZidStore` and `ZidEvent` land in this partition because the census asks "does the
+        // table have a column called store_id", and for them the honest answer to "is it the
+        // tenant discriminator" is NO. They are NOT in `doNotScopeDespiteHavingTheColumn()`,
+        // because that list is for BelongsToStore CARRIERS and neither carries the trait (checked:
+        // `grep BelongsToStore app/Models/ZidStore.php` and `ZidEvent.php` are both empty). The
+        // hazard is recorded HERE instead, where the count that includes them is asserted:
+        // allowlisting either would compare a Zid merchant string against an integer tenant id --
+        // a predicate that matches nothing, or matches by coincidence, while looking like
+        // isolation. `StoreScope::isActiveFor()` would also short-circuit for them anyway, since
+        // they are not in config/tenancy.php's `scoped_models`.
         $this->assertCount(
-            58,
+            65,
             $this->tenantDiscriminated,
             "The set of models whose table carries a `store_id` column changed.\nMeasured now:\n  "
             . implode("\n  ", $this->tenantDiscriminated)
         );
     }
 
-    public function test_platform_global_models_are_the_measured_twenty_five(): void
+    public function test_platform_global_models_are_the_measured_twenty_eight(): void
     {
+        // 28, UP FROM 25 -- GATE F CLOSED ON 2026-11-02. Three models' tables now exist and have
+        // NO `store_id` column, which is a finding rather than a bookkeeping change:
+        // DeliveryBoyDevice, DeliveryBoyNotification and DeliveryEarning are reached through
+        // `delivery_boy_id` and `order_id` only, so a driver's devices, notifications and
+        // earnings are NOT tenant-discriminated at the row level. Their isolation rests entirely
+        // on the DeliveryBoy they hang off -- which IS enforced (config/tenancy.php) -- and on the
+        // handler filtering by that driver. Measured, docs/GATE-F-VERIFIED-SCHEMA.md section 2:
+        // all three foreign-key to `delivery_boys` (and `orders`) with ON DELETE CASCADE and
+        // none to `stores`.
         $this->assertCount(
-            25,
+            28,
             $this->platformGlobal,
             "The set of models whose table has NO `store_id` column changed.\nMeasured now:\n  "
             . implode("\n  ", $this->platformGlobal)
@@ -497,15 +529,26 @@ class TenantModelClassificationTest extends TestCase
     // -------------------------------------------------------------------------------------
 
     /**
-     * R4-06 / GATE F. These models are read and written by live code but their tables are created
-     * by NO migration, and the draft DDL in database/migrations/_gate_f_pending/*.php.draft is
-     * verified not to run. Inventing their schema is forbidden, so their isolation cannot be
-     * tested and this reports the gap instead of pretending otherwise.
+     * R4-06 / GATE F, INVERTED ON 2026-11-02 BECAUSE GATE F CLOSED.
      *
-     * This test asserts the tables are ABSENT. If one appears, a migration was added and these
-     * models must be classified and audited for real -- at which point this test fails and says so.
+     * This was `test_gate_f_money_models_still_have_no_table`, asserting the tables were ABSENT,
+     * with the message *"GATE F table `<table>` now EXISTS. <class> must be classified and audited
+     * before it is enforced, and the GATE F skips elsewhere in this suite must be revisited rather
+     * than left skipped."* That assertion fired, and this is the audit it demanded.
+     *
+     * The direction is reversed rather than the test deleted, so the file keeps a live property: a
+     * reverted migration fails here. And the second half of the old test is KEPT UNCHANGED and is
+     * the important half -- none of these models may be allowlisted for enforcement on the strength
+     * of its table merely existing. A table is not an audit.
+     *
+     * WHY NONE IS ALLOWLISTED. `StoreScope` adds a `store_id` predicate, and enforcing it on a
+     * money model changes which rows a merchant and the operator can see. That is the class of
+     * change this codebase has been bitten by twice, and it needs its own evidence package: a
+     * full-suite run with the model allowlisted, plus a count of legacy rows whose `store_id` is
+     * NULL -- which `null_tenant => 'open'` would leave visible to everybody anyway. The tables
+     * arriving does not supply that evidence; it only makes collecting it possible.
      */
-    public function test_gate_f_money_models_still_have_no_table(): void
+    public function test_the_gate_f_money_tables_exist_and_none_is_allowlisted_on_that_basis(): void
     {
         $gateF = [
             \App\Models\StoreWallet::class => 'store_wallets',
@@ -516,29 +559,45 @@ class TenantModelClassificationTest extends TestCase
         ];
 
         foreach ($gateF as $class => $table) {
-            $this->assertFalse(
+            $this->assertTrue(
                 Schema::hasTable($table),
-                "GATE F table `{$table}` now EXISTS. {$class} must be classified and audited "
-                . 'before it is enforced, and the GATE F skips elsewhere in this suite must be '
-                . 'revisited rather than left skipped.'
+                "GATE F table `{$table}` is MISSING from a database built by this repository's "
+                . 'migrations. GATE F closed on 2026-11-02; check that the migration has not been '
+                . 'reverted or renamed, because a fresh environment then lacks a money table that '
+                . 'production has.'
             );
 
             $this->assertFalse(
                 StoreScope::isAllowlisted($class),
-                $class . ' is allowlisted but has no table. Enforcement cannot be proven, so it '
-                . 'must not be claimed.'
+                $class . ' has been allowlisted for tenant enforcement. The table existing is NOT '
+                . 'the audit that justifies that: enforcing StoreScope changes which rows a '
+                . 'merchant and the operator can see on a MONEY model, which needs a full-suite '
+                . 'run with the model allowlisted and a count of legacy NULL-store_id rows first.'
             );
         }
 
-        // The sixth GATE F table has no model at all, so it is asserted directly.
-        $this->assertFalse(
+        // The sixth GATE F money table has no model at all, so it is asserted directly.
+        $this->assertTrue(
             Schema::hasTable('store_order_financials'),
-            'store_order_financials now exists; GATE F has moved and this suite needs revisiting.'
+            'store_order_financials is missing. OrderFinancialService::createForOrder() writes it '
+            . 'through DB::table(), so without it every order financial write fails.'
         );
     }
 
-    public function test_models_without_a_table_are_the_measured_twelve(): void
+    public function test_models_without_a_table_are_the_measured_two(): void
     {
+        // 2, DOWN FROM 12 -- GATE F CLOSED ON 2026-11-02. Ten of the twelve gained a table: seven
+        // moved into the tenant-discriminated partition (StoreWallet, StoreWalletTransaction,
+        // StoreWithdrawal, CurrencyRate, OtpIntegration, ZidStore, ZidEvent) and three into
+        // platform-global (DeliveryBoyDevice, DeliveryBoyNotification, DeliveryEarning).
+        //
+        // THAT IS THE WHOLE POINT OF THIS PARTITION SHRINKING. This suite describes the
+        // withoutTable category as one where "enforcement cannot be proven, so it must not be
+        // claimed" -- ten models have just left it, which means ten classifications that were
+        // unprovable are now answerable. None of them is allowlisted on that basis; see
+        // test_the_gate_f_money_tables_exist_and_none_is_allowlisted_on_that_basis.
+        //
+        // The historical note below is kept because it records a different movement.
         // 12, DOWN FROM 14, and the two that left are exactly the two models 1bd56358 deleted:
         // App\Models\ChatwootIntegration and App\Models\ChatwootNotificationTemplate. The set
         // was dumped at the merge base and is identical to this one plus those two.
@@ -548,7 +607,7 @@ class TenantModelClassificationTest extends TestCase
         // the database here -- only the two PHP classes went, and in this environment they had
         // no table to be scoped against in the first place.
         $this->assertCount(
-            12,
+            2,
             $this->withoutTable,
             "The set of models with no table changed.\nMeasured now:\n  "
             . implode("\n  ", $this->withoutTable)

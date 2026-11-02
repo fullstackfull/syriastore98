@@ -1,193 +1,155 @@
 {
-  "_README": [
-    "THE ACCEPTED-OUTCOME RECORD FOR THE FEATURE SUITE. Read by",
-    ".github/scripts/assert-known-test-outcomes.php, which is a BLOCKING step of the required",
-    "`tests` job. The gate asserts this SET in both directions: a failure or skip that is not",
-    "listed here fails CI, and a listed entry that starts passing ALSO fails CI, because the",
-    "record has become a lie and the entry must be deleted.",
-    "",
-    "WHAT THIS FILE IS NOT. It is not a list of things currently broken, and it is not a place",
-    "to park a red test. Every entry names a root cause with a file:line and the workstream that",
-    "owns the fix. Adding an entry to make CI green is the one use of this file that is",
-    "forbidden; if a new failure appears, it is a regression until someone proves otherwise.",
-    "",
-    "RE-MEASURED for the Phase 7 prerequisites, in the development container",
-    "(PHPUnit 11.4.4, PHP 8.3.6, sqlite :memory:), on the Lynomia integration branch:",
-    "  vendor/bin/phpunit --testsuite Unit     ->  181 tests, 1035 assertions, 0 failures",
-    "  vendor/bin/phpunit --testsuite Feature  ->  2025 tests, 0 errors, 8 failures, 17 skipped",
-    "The SET below is unchanged by that growth: the same eight failures and the same seventeen",
-    "skips, verified by set-differencing the JUnit names against this file rather than by",
-    "comparing counts. The earlier figures recorded here (107 Unit / 1126 Feature, measured on",
-    "p1f/agent5-ci) were stale prose, not a gate defect -- `minimum_testcases` is a floor of 1000",
-    "and both measurements satisfy it.",
-    "",
-    "ALSO CORRECTED: this block used to say the required `tests` job 'cannot pass until the dead",
-    "lahirulhr/laravel-payhere package is resolved'. That is no longer true. PayHere is absent",
-    "from composer.lock and the strict install from the lock succeeds, which makes the",
-    "`tests-degraded` and `lockfile-reproducibility` jobs that exist to work around it dead",
-    "weight. Recorded here; removing them is a separate housekeeping change.",
-    "",
-    "There is deliberately NO section for errors. The suite's zero-errors property is enforced",
-    "unconditionally: an error means a test could not run at all.",
-    "",
-    "=========================================================================================",
-    " 2026-10-17 -- SIX ENTRIES DELETED BECAUSE THEY NOW PASS, WHICH THIS GATE REQUIRES.",
-    "=========================================================================================",
-    "NEW-ADDON-SCHEMA-02 is FIXED, so the six guest-screen entries that named it have been",
-    "removed from expected_failures. Deleting them is not rebaselining and not suppression --",
-    "it is the opposite, and it is mandatory: this gate asserts the set in BOTH directions, so",
-    "a listed entry that starts passing fails CI until the entry is deleted. Leaving them would",
-    "have been the silent lie the block above forbids.",
-    "",
-    "THE FIX. app/Providers/PackageServiceProvider.php now registers each addon's real on-disk",
-    "`src/database/migrations` directory from the loader, so a module whose own provider asks",
-    "for a path that does not exist can no longer strand its schema in silence. The six",
-    "LandingPage migrations run, `owner_menu_settings` exists, and",
-    "resources/views/layouts/guest.blade.php:96 renders. The fix is in app/ and NOT in",
-    "packages/workdo/, so guard-no-workdo-changes.sh is satisfied and no vendored commercial",
-    "file was edited -- which is what the deleted entries recorded as the blocker.",
-    "",
-    "The six deleted names, each measured passing:",
-    "  Auth\\AuthenticationTest::test_login_screen_can_be_rendered",
-    "  Auth\\EmailVerificationTest::test_email_verification_screen_can_be_rendered",
-    "  Auth\\PasswordConfirmationTest::test_confirm_password_screen_can_be_rendered",
-    "  Auth\\PasswordResetTest::test_reset_password_link_screen_can_be_rendered",
-    "  Auth\\PasswordResetTest::test_reset_password_screen_can_be_rendered",
-    "  Auth\\RegistrationTest::test_registration_screen_can_be_rendered",
-    "",
-    "THE TWO THAT REMAIN ARE NOT THIS BUG AND STILL FAIL, which is the evidence the fix was",
-    "targeted rather than broad: RegistrationTest::test_new_users_can_register (a seeder fixture",
-    "gap exposing silent role-assignment tolerance) and ProfileTest::test_profile_page_is_displayed",
-    "(a real null-store defect at app/Http/Controllers/HomeController.php:367). Both keep their",
-    "entries verbatim. tests/Feature/Platform/AddonMigrationStrandingTest::",
-    "test_the_profile_page_failure_is_not_this_bug exists to prove the second one is independent,",
-    "and it still passes.",
-    "",
-    "ONE OTHER TEST MOVED, AND IT IS NOT A FAILURE ENTRY: making the three owner_menu* tables",
-    "exist moved them out of RawQueryTenancyInventoryTest's undeclared-schema list and into its",
-    "'present, no store_id' list. That tripwire asked a reader to re-read the classification when",
-    "this happened; it was re-read, recorded in that file, and is not a tenancy finding -- the",
-    "tables are the platform owner's landing-page menus, their only raw statements are seeder",
-    "inserts, and the live read is owner-pinned Eloquent.",
-    "",
-    "MEASURED AFTER THE FIX, same container (PHPUnit 11.4.4, PHP 8.3.6, sqlite :memory:):",
-    "  vendor/bin/phpunit --testsuite Feature  ->  2053 tests, 0 errors, 2 failures, 17 skipped",
-    "The test count is up from 2025 because of the L1 recovery-window suite; the failure count is",
-    "  vendor/bin/phpunit --testsuite Unit     ->   175 tests, 981 assertions, 0 failures",
-    "",
-    "THE UNIT FIGURE IS A CORRECTION, NOT A LOSS. The block above records 181 Unit tests; the",
-    "re-measured number is 175. Nothing was removed: tests/Unit holds 147 test methods both at",
-    "HEAD and in this change (the executed count is higher because of data providers), verified",
-    "by counting method declarations in both trees. The 181 is stale prose of the same kind this",
-    "file already flags for the earlier '107 Unit / 1126 Feature' figures, and `minimum_testcases`",
-    "is a floor of 1000 that only the Feature log is judged against.",
-    "down from 8 to 2 and the skip SET is unchanged."
-  ],
-  "require_reason_log": true,
-  "_require_reason_log_note": [
-    "Fail the gate if no --log-teamcity log is supplied. The skip REASONS cannot be read from",
-    "JUnit at all -- PHPUnit 11.5.57 writes a bare <skipped/> with no message -- so the reason",
-    "half of the gate depends on a second log. Making its absence a FAILURE is what stops one",
-    "dropped CI flag from disabling a control in silence."
-  ],
-  "minimum_testcases": 1000,
-  "_minimum_testcases_note": [
-    "A floor, not the count. Its only job is to stop the gate passing on a log from a run that",
-    "died early -- every set comparison in the checker is trivially satisfied by an empty log.",
-    "The real count at the time of writing is 1126 Feature testcases. Lower this ONLY when tests",
-    "are removed on purpose, and record why here."
-  ],
-  "expected_failures": {
-    "Tests\\Feature\\Auth\\RegistrationTest::test_new_users_can_register": {
-      "cause": "A FIXTURE GAP THAT EXPOSES A LATENT ROBUSTNESS DEFECT -- not the casing bug, and not what an earlier version of this entry claimed. CORRECTED AFTER MEASUREMENT: there is no addRole call at RegisteredUserController.php:249 (that line is a comment), the two real call sites are :179 and :310, and BOTH are null-guarded by `if ($role_r)`. Nothing dies: POST /register returns 302 and the request completes. Measured on a fresh test database, `roles` holds 0 rows and Role::where('name','admin')->first() is NULL, because RefreshDatabase runs migrations and not seeders. So the guard works exactly as written and the role assignment is SILENTLY SKIPPED: the user, the store and the login are committed and the merchant ends up with no role and no error. The test asserts the role, which is the property that matters. In production the admin role IS seeded, so this is latent rather than live -- but the silent tolerance is the real finding: a missing admin role provisions a merchant with no role and reports success.",
-      "owner": "app/ -- NOT owned by the CI workstream. Needs a null guard plus a decision about what to do when the role is absent (the half-provisioned row should not survive).",
-      "proof_it_is_not_the_casing_bug": "tests/Feature/Platform/AddonMigrationStrandingTest.php shows POST /register still fails to assign the role with every stranded table present.",
-      "classification": "OPEN -- ACTIONABLE DEFECT"
+    "_README": [
+        "THE ACCEPTED-OUTCOME RECORD FOR THE FEATURE SUITE. Read by",
+        ".github/scripts/assert-known-test-outcomes.php, which is a BLOCKING step of the required",
+        "`tests` job. The gate asserts this SET in both directions: a failure or skip that is not",
+        "listed here fails CI, and a listed entry that starts passing ALSO fails CI, because the",
+        "record has become a lie and the entry must be deleted.",
+        "",
+        "WHAT THIS FILE IS NOT. It is not a list of things currently broken, and it is not a place",
+        "to park a red test. Every entry names a root cause with a file:line and the workstream that",
+        "owns the fix. Adding an entry to make CI green is the one use of this file that is",
+        "forbidden; if a new failure appears, it is a regression until someone proves otherwise.",
+        "",
+        "RE-MEASURED for the Phase 7 prerequisites, in the development container",
+        "(PHPUnit 11.4.4, PHP 8.3.6, sqlite :memory:), on the Lynomia integration branch:",
+        "  vendor/bin/phpunit --testsuite Unit     ->  181 tests, 1035 assertions, 0 failures",
+        "  vendor/bin/phpunit --testsuite Feature  ->  2025 tests, 0 errors, 8 failures, 17 skipped",
+        "The SET below is unchanged by that growth: the same eight failures and the same seventeen",
+        "skips, verified by set-differencing the JUnit names against this file rather than by",
+        "comparing counts. The earlier figures recorded here (107 Unit / 1126 Feature, measured on",
+        "p1f/agent5-ci) were stale prose, not a gate defect -- `minimum_testcases` is a floor of 1000",
+        "and both measurements satisfy it.",
+        "",
+        "ALSO CORRECTED: this block used to say the required `tests` job 'cannot pass until the dead",
+        "lahirulhr/laravel-payhere package is resolved'. That is no longer true. PayHere is absent",
+        "from composer.lock and the strict install from the lock succeeds, which makes the",
+        "`tests-degraded` and `lockfile-reproducibility` jobs that exist to work around it dead",
+        "weight. Recorded here; removing them is a separate housekeeping change.",
+        "",
+        "There is deliberately NO section for errors. The suite's zero-errors property is enforced",
+        "unconditionally: an error means a test could not run at all.",
+        "",
+        "=========================================================================================",
+        " 2026-10-17 -- SIX ENTRIES DELETED BECAUSE THEY NOW PASS, WHICH THIS GATE REQUIRES.",
+        "=========================================================================================",
+        "NEW-ADDON-SCHEMA-02 is FIXED, so the six guest-screen entries that named it have been",
+        "removed from expected_failures. Deleting them is not rebaselining and not suppression --",
+        "it is the opposite, and it is mandatory: this gate asserts the set in BOTH directions, so",
+        "a listed entry that starts passing fails CI until the entry is deleted. Leaving them would",
+        "have been the silent lie the block above forbids.",
+        "",
+        "THE FIX. app/Providers/PackageServiceProvider.php now registers each addon's real on-disk",
+        "`src/database/migrations` directory from the loader, so a module whose own provider asks",
+        "for a path that does not exist can no longer strand its schema in silence. The six",
+        "LandingPage migrations run, `owner_menu_settings` exists, and",
+        "resources/views/layouts/guest.blade.php:96 renders. The fix is in app/ and NOT in",
+        "packages/workdo/, so guard-no-workdo-changes.sh is satisfied and no vendored commercial",
+        "file was edited -- which is what the deleted entries recorded as the blocker.",
+        "",
+        "The six deleted names, each measured passing:",
+        "  Auth\\AuthenticationTest::test_login_screen_can_be_rendered",
+        "  Auth\\EmailVerificationTest::test_email_verification_screen_can_be_rendered",
+        "  Auth\\PasswordConfirmationTest::test_confirm_password_screen_can_be_rendered",
+        "  Auth\\PasswordResetTest::test_reset_password_link_screen_can_be_rendered",
+        "  Auth\\PasswordResetTest::test_reset_password_screen_can_be_rendered",
+        "  Auth\\RegistrationTest::test_registration_screen_can_be_rendered",
+        "",
+        "THE TWO THAT REMAIN ARE NOT THIS BUG AND STILL FAIL, which is the evidence the fix was",
+        "targeted rather than broad: RegistrationTest::test_new_users_can_register (a seeder fixture",
+        "gap exposing silent role-assignment tolerance) and ProfileTest::test_profile_page_is_displayed",
+        "(a real null-store defect at app/Http/Controllers/HomeController.php:367). Both keep their",
+        "entries verbatim. tests/Feature/Platform/AddonMigrationStrandingTest::",
+        "test_the_profile_page_failure_is_not_this_bug exists to prove the second one is independent,",
+        "and it still passes.",
+        "",
+        "ONE OTHER TEST MOVED, AND IT IS NOT A FAILURE ENTRY: making the three owner_menu* tables",
+        "exist moved them out of RawQueryTenancyInventoryTest's undeclared-schema list and into its",
+        "'present, no store_id' list. That tripwire asked a reader to re-read the classification when",
+        "this happened; it was re-read, recorded in that file, and is not a tenancy finding -- the",
+        "tables are the platform owner's landing-page menus, their only raw statements are seeder",
+        "inserts, and the live read is owner-pinned Eloquent.",
+        "",
+        "MEASURED AFTER THE FIX, same container (PHPUnit 11.4.4, PHP 8.3.6, sqlite :memory:):",
+        "  vendor/bin/phpunit --testsuite Feature  ->  2053 tests, 0 errors, 2 failures, 17 skipped",
+        "The test count is up from 2025 because of the L1 recovery-window suite; the failure count is",
+        "  vendor/bin/phpunit --testsuite Unit     ->   175 tests, 981 assertions, 0 failures",
+        "",
+        "THE UNIT FIGURE IS A CORRECTION, NOT A LOSS. The block above records 181 Unit tests; the",
+        "re-measured number is 175. Nothing was removed: tests/Unit holds 147 test methods both at",
+        "HEAD and in this change (the executed count is higher because of data providers), verified",
+        "by counting method declarations in both trees. The 181 is stale prose of the same kind this",
+        "file already flags for the earlier '107 Unit / 1126 Feature' figures, and `minimum_testcases`",
+        "is a floor of 1000 that only the Feature log is judged against.",
+        "down from 8 to 2 and the skip SET is unchanged."
+    ],
+    "require_reason_log": true,
+    "_require_reason_log_note": [
+        "Fail the gate if no --log-teamcity log is supplied. The skip REASONS cannot be read from",
+        "JUnit at all -- PHPUnit 11.5.57 writes a bare <skipped/> with no message -- so the reason",
+        "half of the gate depends on a second log. Making its absence a FAILURE is what stops one",
+        "dropped CI flag from disabling a control in silence."
+    ],
+    "minimum_testcases": 1000,
+    "_minimum_testcases_note": [
+        "A floor, not the count. Its only job is to stop the gate passing on a log from a run that",
+        "died early -- every set comparison in the checker is trivially satisfied by an empty log.",
+        "The real count at the time of writing is 1126 Feature testcases. Lower this ONLY when tests",
+        "are removed on purpose, and record why here."
+    ],
+    "expected_failures": {
+        "Tests\\Feature\\Auth\\RegistrationTest::test_new_users_can_register": {
+            "cause": "A FIXTURE GAP THAT EXPOSES A LATENT ROBUSTNESS DEFECT -- not the casing bug, and not what an earlier version of this entry claimed. CORRECTED AFTER MEASUREMENT: there is no addRole call at RegisteredUserController.php:249 (that line is a comment), the two real call sites are :179 and :310, and BOTH are null-guarded by `if ($role_r)`. Nothing dies: POST /register returns 302 and the request completes. Measured on a fresh test database, `roles` holds 0 rows and Role::where('name','admin')->first() is NULL, because RefreshDatabase runs migrations and not seeders. So the guard works exactly as written and the role assignment is SILENTLY SKIPPED: the user, the store and the login are committed and the merchant ends up with no role and no error. The test asserts the role, which is the property that matters. In production the admin role IS seeded, so this is latent rather than live -- but the silent tolerance is the real finding: a missing admin role provisions a merchant with no role and reports success.",
+            "owner": "app/ -- NOT owned by the CI workstream. Needs a null guard plus a decision about what to do when the role is absent (the half-provisioned row should not survive).",
+            "proof_it_is_not_the_casing_bug": "tests/Feature/Platform/AddonMigrationStrandingTest.php shows POST /register still fails to assign the role with every stranded table present.",
+            "classification": "OPEN -- ACTIONABLE DEFECT"
+        },
+        "Tests\\Feature\\ProfileTest::test_profile_page_is_displayed": {
+            "cause": "A REAL APPLICATION DEFECT, and a DIFFERENT one from the other seven. GET /profile answers 500 with ErrorException: Attempt to read property \"slug\" on null at app/Http/Controllers/HomeController.php:367 (`route('landing_page', $store->slug)`). /profile is served by UserController@profile, not by Breeze's ProfileController@edit, so this test exercises the real merchant profile page.",
+            "owner": "app/ -- NOT owned by the CI workstream. Needs a null-store guard at HomeController.php:367 (and :369, the same expression in the sibling branch).",
+            "proof_it_is_not_the_casing_bug": "tests/Feature/Platform/AddonMigrationStrandingTest::test_the_profile_page_failure_is_not_this_bug asserts the 500 persists with every stranded table present, and reddens if it is ever fixed.",
+            "classification": "OPEN -- ACTIONABLE DEFECT"
+        }
     },
-    "Tests\\Feature\\ProfileTest::test_profile_page_is_displayed": {
-      "cause": "A REAL APPLICATION DEFECT, and a DIFFERENT one from the other seven. GET /profile answers 500 with ErrorException: Attempt to read property \"slug\" on null at app/Http/Controllers/HomeController.php:367 (`route('landing_page', $store->slug)`). /profile is served by UserController@profile, not by Breeze's ProfileController@edit, so this test exercises the real merchant profile page.",
-      "owner": "app/ -- NOT owned by the CI workstream. Needs a null-store guard at HomeController.php:367 (and :369, the same expression in the sibling branch).",
-      "proof_it_is_not_the_casing_bug": "tests/Feature/Platform/AddonMigrationStrandingTest::test_the_profile_page_failure_is_not_this_bug asserts the 500 persists with every stranded table present, and reddens if it is ever fixed.",
-      "classification": "OPEN -- ACTIONABLE DEFECT"
-    }
-  },
-  "expected_skips": {
-    "Tests\\Feature\\Commerce\\FinancialSurfaceCoverageTest::test_a_cross_currency_conversion_is_blocked": {
-      "blocked_on": "currency_rates",
-      "note": "GATE F. StoreCurrencyConversionService::getRate():57 cannot be exercised. The DECIMAL precision of rate_per_usd is exactly what must not be guessed."
+    "expected_skips": {
+        "Tests\\Feature\\Security\\CustomerAccountBoundaryTest::test_an_anonymous_visitor_is_not_gated_out_of_newsletter_signup": {
+            "blocked_on": "newsletters.user_id",
+            "note": "SCHEMA-01, and the LAST of this family -- NOT one of the 15 GATE F tables, which all gained measured migrations on 2026-11-02. This one is an undeclared COLUMN, not a table: AccountProfileController::add_newsletter writes newsletters.user_id, which no migration declares, so the insert always fails. It STAYS SKIPPED deliberately. Its type was never measured -- docs/GATE-F-VERIFIED-SCHEMA.md section 2 covers the 15 tables and 3 columns and not this one -- so declaring it would be exactly the guess GATE F exists to forbid. The authorization assertions in the same test ran and passed before the skip. To close it: measure the column on a restored copy, add it to that document, then migrate."
+        }
     },
-    "Tests\\Feature\\Commerce\\FinancialSurfaceCoverageTest::test_creating_an_order_financial_record_is_blocked": {
-      "blocked_on": "store_order_financials",
-      "note": "GATE F. OrderFinancialService::createForOrder():17 is the function that CREDITS A MERCHANT WALLET for an order."
-    },
-    "Tests\\Feature\\Commerce\\FinancialSurfaceCoverageTest::test_marking_a_financial_record_paid_is_blocked": {
-      "blocked_on": "store_order_financials",
-      "note": "GATE F. OrderFinancialService::markFinancialAsPaid():284."
-    },
-    "Tests\\Feature\\Commerce\\FinancialSurfaceCoverageTest::test_marking_a_financial_record_unpaid_is_blocked": {
-      "blocked_on": "store_order_financials",
-      "note": "GATE F. OrderFinancialService::markFinancialAsUnpaid():397 -- the path a CANCELLED order runs."
-    },
-    "Tests\\Feature\\Commerce\\FinancialSurfaceCoverageTest::test_converting_a_stores_current_values_is_blocked": {
-      "blocked_on": "store_wallets",
-      "note": "GATE F. StoreCurrencyConversionService::convertStoreCurrentValues():86, reached from SettingController.php:1416 when a merchant changes store currency."
-    },
-    "Tests\\Feature\\Commerce\\FinancialSurfaceCoverageTest::test_wallet_and_withdrawal_authorization_is_blocked_and_not_owned_here": {
-      "blocked_on": "store_wallets",
-      "note": "GATE F, and explicitly not claimed by this suite -- the denials are covered by WithdrawalAuthorizationTest and FinancePermissionTest."
-    },
-    "Tests\\Feature\\Commerce\\FinancialSurfaceCoverageTest::test_delivery_earnings_writes_are_blocked": {
-      "blocked_on": "delivery_earnings",
-      "note": "GATE F. OrderController::order_assign() writes it at :1268 and :1288."
-    },
-    "Tests\\Feature\\Security\\CustomerAccountBoundaryTest::test_an_anonymous_visitor_is_not_gated_out_of_newsletter_signup": {
-      "blocked_on": "newsletters.user_id",
-      "note": "SCHEMA-01, NOT one of the six GATE F money tables. AccountProfileController::add_newsletter writes newsletters.user_id, which no migration declares, so the insert always fails. The authorization assertions in the same test ran and passed before the skip."
-    },
-    "Tests\\Feature\\Security\\DeliverySyriaWebhookTest::test_a_valid_token_cannot_move_another_stores_order": {
-      "blocked_on": "zid_orders",
-      "note": "SCHEMA-01, NOT one of the six GATE F money tables. zid_orders and zid_stores are declared by no migration."
-    },
-    "Tests\\Feature\\Security\\FinancePermissionTest::test_a_super_admin_can_approve_a_pending_withdrawal_on_a_fresh_database": {
-      "blocked_on": "store_wallets",
-      "note": "GATE F. The model exists and StoreFinanceController queries it."
-    },
-    "Tests\\Feature\\Security\\WithdrawalAuthorizationTest::test_a_view_only_user_cannot_change_a_withdrawals_state_end_to_end": {
-      "blocked_on": "store_wallets",
-      "note": "GATE F. The ROUTE-level denial is covered by test_a_view_only_user_cannot_approve_reject_or_pay, which is NOT skipped; this one covers the controller-level guard."
-    },
-    "Tests\\Feature\\Tenancy\\CrossTenantModelIsolationTest::test_ownership_check_denies_the_other_tenant with data set \"finance: wallets\"": {
-      "blocked_on": "store_wallets",
-      "note": "GATE F."
-    },
-    "Tests\\Feature\\Tenancy\\CrossTenantModelIsolationTest::test_ownership_check_denies_the_other_tenant with data set \"finance: wallet ledger\"": {
-      "blocked_on": "store_wallet_transactions",
-      "note": "GATE F."
-    },
-    "Tests\\Feature\\Tenancy\\CrossTenantModelIsolationTest::test_ownership_check_denies_the_other_tenant with data set \"finance: withdrawals\"": {
-      "blocked_on": "store_withdrawals",
-      "note": "GATE F."
-    },
-    "Tests\\Feature\\Tenancy\\ModelInitializationTest::test_query_actually_executes with data set \"StoreWallet\"": {
-      "blocked_on": "store_wallets",
-      "note": "GATE F. The class instantiates and its scope is registered; only query EXECUTION is unverified."
-    },
-    "Tests\\Feature\\Tenancy\\ModelInitializationTest::test_query_actually_executes with data set \"StoreWalletTransaction\"": {
-      "blocked_on": "store_wallet_transactions",
-      "note": "GATE F."
-    },
-    "Tests\\Feature\\Tenancy\\ModelInitializationTest::test_query_actually_executes with data set \"StoreWithdrawal\"": {
-      "blocked_on": "store_withdrawals",
-      "note": "GATE F."
-    }
-  },
-  "_gate_f_coverage_gap": [
-    "SEVENTEEN SKIPS DO NOT MEAN THE SIX MONEY TABLES ARE WELL COVERED, and the record should not",
-    "be read that way. Of the six, store_wallets, store_wallet_transactions, store_withdrawals,",
-    "store_order_financials, currency_rates and delivery_earnings now ALL appear above -- the",
-    "FinancialSurfaceCoverageTest entries closed the three that previously had no skip at all.",
-    "tests/Unit/Database/GateFCoverageLedgerTest.php holds the authoritative per-table ledger and",
-    "ratchets it. Two of the seventeen (newsletters.user_id, zid_orders) are SCHEMA-01 undeclared",
-    "tables OUTSIDE the six, and are recorded as such above rather than folded into GATE F."
-  ]
+    "_gate_f_coverage_gap": [
+        "GATE F CLOSED ON 2026-11-02. This block used to explain that seventeen skips did not mean the",
+        "six money tables were well covered. It now records the opposite, and what replaced the skips.",
+        "",
+        "SIXTEEN OF THE SEVENTEEN SKIPS WERE DELETED, which this gate REQUIRES rather than permits: it",
+        "asserts the declared set in BOTH directions, so a listed entry that starts passing fails CI",
+        "until the entry is removed. Leaving them would have been the silent lie the README above",
+        "forbids. Deleting them is not rebaselining -- it is the opposite.",
+        "",
+        "WHAT CLOSED THEM. All 15 SCHEMA-01 tables and all 3 columns now have migrations in",
+        "database/migrations/ whose structure was MEASURED from information_schema on a restored copy",
+        "of the production dump (2026-10-24, MariaDB 11.4.9), recorded verbatim in",
+        "docs/GATE-F-VERIFIED-SCHEMA.md section 2 and copied into",
+        "App\\Support\\Database\\GateFProductionSchema. Nothing was guessed.",
+        "",
+        "THE SEVEN FINANCIAL SKIPS BECAME NINE REAL TESTS, not nine empty ones:",
+        "FinancialSurfaceCoverageTest now runs with RefreshDatabase and asserts that createForOrder()",
+        "credits a wallet exactly once and is idempotent on a second call, that markFinancialAsPaid()",
+        "moves the money and markFinancialAsUnpaid() returns the balance to exactly where it started,",
+        "that a cross-currency conversion applies the stored rate in the right DIRECTION, that a",
+        "deactivated rate refuses rather than falling back to par, and that delivery_earnings rows",
+        "persist. 22 tests, 120 assertions, 0 skips.",
+        "",
+        "ONE SKIP REMAINS, and it is not GATE F: newsletters.user_id, an undeclared COLUMN whose type",
+        "was never measured. Its entry says what measuring it would take.",
+        "",
+        "WHAT THESE TESTS STILL DO NOT PROVE. They run on SQLite, where type affinity means a",
+        "decimal(15,2) column accepts and returns whatever it likes, so the SCALES are not verified by",
+        "the suite and are not claimed to be. That is done on a real server by",
+        "tests/Support/Security/bin/verify-gate-f-migrations-on-mysql.php, which checks the 15",
+        "structures against the measurement on a fresh database, proves the migrations are a structural",
+        "AND data no-op against a production shape, proves migrate:rollback drops nothing, and proves",
+        "the structural guard REFUSES five corruptions this project has actually produced. Measured",
+        "2026-11-02 on MariaDB 10.11.14: 29 checks, 0 failed."
+    ]
 }

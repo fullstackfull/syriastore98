@@ -1,5 +1,49 @@
 # GATE F — the verified production schema
 
+> ## STATUS: GATE F IS CLOSED (2026-11-02). THIS DOCUMENT IS THE AUTHORITY IT CLOSED AGAINST.
+>
+> All 15 tables and all 3 columns measured in §2 now have migrations in `database/migrations/`:
+> `2026_11_02_000100`…`001500`, plus `2026_11_02_000500` (the `delivery_boys` commission columns),
+> `2026_10_26_000100` (`products.cost_price`, promoted earlier under D-01) and the **corrected**
+> `2026_10_12_000105_create_audit_logs_table.php`.
+>
+> **§2 remains the single source of truth, and it is enforced as one.**
+> `App\Support\Database\GateFProductionSchema` carries every `CREATE TABLE` below **verbatim**,
+> and `tests/Unit/Database/GateFProductionSchemaFidelityTest` asserts in both directions that the
+> two are byte-identical — no table missing, none invented, no string altered. If production's
+> structure genuinely changes, it is re-measured on a **restored copy** and recorded *here* first;
+> the class and the migrations follow. Never the other way round.
+>
+> **What promotion did, and did not do.** It is a **no-op against production by design** — the
+> tables are already there with live data. It brings a fresh environment (CI, staging, a new tenant
+> database) into line and puts the schema under version control. It does **not** reconcile
+> production to this repository, and §4 below explains why a green `migrate` run is not evidence
+> that it did.
+>
+> **`Schema::hasTable()` is not the guard.** Every GATE F migration calls
+> `App\Support\Database\GateFSchemaGuard::assertCompatible()` when the table already exists,
+> which compares the live structure against §2 and **throws**, naming each disagreement field by
+> field. A name check proves a `CREATE` would fail, not that skipping it is safe.
+>
+> **Every `down()` is a documented no-op**, for the reason §3 measured: two drafts dropped a column
+> *because* it existed, and `migrate:rollback` against a copy of production destroyed all 45
+> `products.cost_price` values and both `delivery_boys` commission columns with their data.
+>
+> **Verified on a real server, 2026-11-02, MariaDB 10.11.14 — 29 checks, 0 failed**
+> (`tests/Support/Security/bin/verify-gate-f-migrations-on-mysql.php`, log in
+> `docs/development/phase-2/evidence/gate-f-migrations/`): fresh-database parity for all 15 tables
+> and 3 columns; a structural **and data** no-op against a production-shaped database, with money
+> rows surviving byte-for-byte; `migrate:rollback` dropping nothing; and the guard **refusing** five
+> corruptions this project's own drafts produced.
+>
+> **Sixteen of the seventeen declared Feature skips were resolved and deleted** from
+> `.github/known-test-outcomes.json`, which the gate requires rather than permits. The one that
+> remains is `newsletters.user_id` — an undeclared **column** whose type was never measured, so it
+> is not in §2 and declaring it would be the guess GATE F exists to forbid.
+>
+> **No migration was applied to production.** Nothing below authorises that.
+
+
 **This file replaces inference with measurement.** Until 2026-10-24 every structural claim about the
 15 SCHEMA-01 tables came from reading `$fillable` and `$casts`, because no backup had been restored.
 On 2026-10-24 the production dump was restored into an isolated local MySQL and read. Several

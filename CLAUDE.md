@@ -24,8 +24,8 @@ Each of these has produced a real defect. Do not assume the framework default.
   $isOperator = strtolower(trim((string) $user->type)) === 'super admin';
   if (! $user || (! $isOperator && ! $user->isAbleTo('Manage Order'))) { /* refuse */ }
   ```
-- `User::creatorId()` returns `$this->id` for type `admin`/`super admin`, else `created_by`. A
-  user whose type is `admin` is the root of their own tenant.
+- `User::creatorId()` returns `$this->id` for type `admin`/`super admin`, else `created_by`; a user
+  whose type is `admin` is the root of their own tenant.
 
 **Tenancy**
 
@@ -79,10 +79,10 @@ Each of these has produced a real defect. Do not assume the framework default.
 
 **Tests and modules**
 
-- **No WorkDo module loads in any test run** unless the test inserts an `add_on_managers` row. The
-  whole suite is therefore structurally blind to module routes and module code: a test that
-  "passes" against a module surface may never have reached it. Enable the module through the
-  production loader and add a premise test that asserts it really is active.
+- **No WorkDo module loads in any test run** unless the test inserts an `add_on_managers` row, so
+  the suite is structurally blind to module routes and module code: a test that "passes" against a
+  module surface may never have reached it. Enable the module through the production loader and add
+  a premise test asserting it really is active.
 
 **Model caching**
 
@@ -91,9 +91,9 @@ Each of these has produced a real defect. Do not assume the framework default.
   `OtpIntegration`, `Permission`, `Role`, `SavedView`, `Store{Device,Notification,Wallet,
   WalletTransaction,Withdrawal}`, `Zid{Event,Store}`. A raw write (`DB::table('products')->update()`)
   leaves Eloquent reads, **route-model binding included**, serving the pre-write row, and under
-  `CACHE_STORE=array` it lives for the rest of the test: **three measured false readings**, the last
-  a test that passed against a live bite. Write through Eloquent (it flushes) or
-  `(new User)->flushCache()`; `$model->timestamps = false` keeps an explicit past `updated_at`.- Several handlers read the platform admin via `Cache::remember('admin_details', 3600, ...)`, so
+  `CACHE_STORE=array` it lives for the rest of the test: **three measured false readings**. Write
+  through Eloquent (it flushes) or `(new User)->flushCache()`; `$model->timestamps = false` keeps
+  an explicit past `updated_at`.- Several handlers read the platform admin via `Cache::remember('admin_details', 3600, ...)`, so
   `Cache::forget('admin_details')` between a fixture and a request or it sees the pre-fixture `User`.
 
 **Scoped models — check before asserting absence**
@@ -110,9 +110,8 @@ Each of these has produced a real defect. Do not assume the framework default.
 `StoreScope::isActiveFor()` short-circuits for a model that is not in `config/tenancy.php`'s
 `scoped_models`, so **`Product` adds no predicate for any principal** — not a customer, not a
 merchant, not the operator, not an admin-context request. `Product::find($id)` reaches every
-tenant's catalogue, and the open-tenant rule does not even come into it. That produced a live
-cross-tenant stock drain (S19) that the `customer_id` sweep missed entirely, because it was looking
-at the wrong identifier.
+tenant's catalogue, which produced a live cross-tenant stock drain (S19) that the `customer_id`
+sweep missed because it was looking at the wrong identifier.
 
 The two that *do* filter matter for **assertions**: a plain `Customer::find()` or `Cart::find()` in
 a test answers against whichever tenant happens to be resolved, not against the table, so an "it is
@@ -122,15 +121,18 @@ reported a store-B row deleted while the raw table still held it. Assert through
 
 **Schema**
 
-- **A `$fillable` column may be missing — but the migrations are not the schema.** This file said
-  `delivery_boys` lacks both commission columns so two handlers 500 for everyone; the restored
-  production dump refutes it. Check `Schema::hasColumn()`, and a dump before the migrations.
+- **The migrations are not the schema.** This file claimed `delivery_boys` lacks both commission
+  columns; the restored dump refuted it. Check `Schema::hasColumn()`, and a dump first.
 - `customers.password_otp` is `INTEGER` but the web reset writes a 60-char bcrypt hash (P01-SEC-13,
-  migration prepared and **not applied**).
-- **GATE F:** 15 tables live code reads and writes have **no migration**, 6 money-bearing; drafts
-  parked in `database/migrations/_gate_f_pending/`. **All 15 exist in production with live data** —
-  *unmanaged*, not absent. Read `docs/GATE-F-VERIFIED-SCHEMA.md` first.
-
+  migration prepared, **not applied**).
+- **GATE F is CLOSED (2026-11-02).** All 15 tables and 3 columns have migrations whose structure is
+  **measured, not inferred** (`App\Support\Database\GateFProductionSchema` carries
+  `docs/GATE-F-VERIFIED-SCHEMA.md` §2 verbatim). Promotion is a **no-op against production by
+  design**: it aligns *fresh* environments and reconciles nothing live. Each migration calls
+  `GateFSchemaGuard::assertCompatible()` rather than trusting `hasTable()` and **throws** naming
+  every disagreement; every `down()` is a documented no-op — two drafts dropped a column *because*
+  it existed and a rollback destroyed 45 `cost_price` values. Proved on a real server by
+  `verify-gate-f-migrations-on-mysql.php` (29 checks, 0 failed).
 ---
 
 ## 2. Phase 02 — streamlined working rules (owner instruction, 2026-10-25)
@@ -160,8 +162,9 @@ php artisan test --testsuite=Contract    # 26 tests — the Flutter API contract
 /tenant-check                            # tenancy + security suites (see .claude/commands)
 ```
 
-**The Feature suite is not green and is not meant to be.** It has **2 accepted failures and 17
-accepted skips**, declared by name in `.github/known-test-outcomes.json`. The gate asserts the
+**The Feature suite is not green and is not meant to be.** It has **2 accepted failures and 1
+accepted skip** (17 until GATE F closed), declared by name in `.github/known-test-outcomes.json`,
+which *requires* a resolved entry to be deleted. The gate asserts the
 outcome *set* in both directions — an undeclared failure *and* an unexpectedly-passing declared
 failure both fail it:
 
@@ -181,8 +184,7 @@ P01-SEC-13 survived. For anything schema-sensitive, use a real MySQL:
 drops its own throwaway database).
 
 Evidence that cannot live in the suite goes in `tests/Support/Security/bin/` as an executable
-script that states its own preconditions — a conditionally-skipped test would break the gate's
-declared skip set.
+script stating its own preconditions — a conditionally-skipped test would break the declared set.
 
 ---
 
@@ -258,9 +260,8 @@ work everywhere too** — pinned by content hash with every modification disclos
   you executed" below, and worth having twice.
 
 Twelve of upstream's fifteen skills were read and rejected, most for introducing a second plan tree
-or progress ledger beside the Phase 01 ledger, two for running `git merge`/`git push`. **There is
-no vendored planning skill and that is deliberate** — upstream's planning skills are inseparable
-from their own ledger. Use the ledger and the Issues.
+beside the Phase 01 ledger, two for running `git merge`/`git push`. **There is no vendored planning
+skill and that is deliberate.** Use the ledger and the Issues.
 
 **Design skills, committed on the owner's instruction (Phase 02), so these work everywhere too:**
 `frontend-design` (hash-pinned in `skills-lock.json`), `ui-ux-pro-max`, `design`, `design-system`,
@@ -274,10 +275,9 @@ font and API hosts, one of them an AI image API behind a credential. The host se
 host fails CI so somebody reads it. Phase 02 has called none of them.
 
 **Still absent, so do not write against them:** `laravel-best-practices`,
-`claude-automation-recommender`. This section has now been wrong in both directions — #66 found it
-instructing three skills that did not exist, and the fix then went stale by calling `ui-ux-pro-max`
-and `frontend-design` absent after they were committed. It is a claim about the filesystem, so a
-test asserts it rather than prose being trusted.
+`claude-automation-recommender`. This section has been wrong in both directions — #66 found it
+instructing three skills that did not exist, then the fix went stale by calling two absent after
+they were committed. It is a claim about the filesystem, so a test asserts it.
 
 The full evaluation of candidate additions — twelve tools, each read from its real upstream for
 license, install mechanics, hooks, egress and credentials — is in `docs/tooling/SKILLS-MANIFEST.md`,

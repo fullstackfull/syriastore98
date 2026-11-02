@@ -233,13 +233,18 @@ class ModelInitializationTest extends TestCase
     {
         $model = new $modelClass();
 
-        if (! Schema::hasTable($model->getTable())) {
-            $this->markTestSkipped(
-                'Table `' . $model->getTable() . '` has no migration (GATE F / SCHEMA-01), so the '
-                . 'query cannot be executed. The class instantiates and its scope is registered; '
-                . 'only execution is unverified.'
-            );
-        }
+        // GATE F closed on 2026-11-02, so every table reached here has a migration whose structure
+        // was measured against production. This was a `markTestSkipped`, which was right while
+        // three of these tables did not exist -- the class instantiated and its scope registered,
+        // but only EXECUTION was unverified, and a silent pass would have hidden that.
+        //
+        // An assertion rather than a dormant skip: a reverted migration must name itself here
+        // instead of quietly returning the data set to a skipped state that is no longer declared.
+        $this->assertTrue(
+            Schema::hasTable($model->getTable()),
+            'Table `' . $model->getTable() . '` is missing, so the query cannot be executed. '
+            . 'GATE F closed on 2026-11-02 -- check that its migration has not been reverted.'
+        );
 
         // count() forces compilation AND execution through every global scope on the model.
         $this->assertIsInt($modelClass::count());
