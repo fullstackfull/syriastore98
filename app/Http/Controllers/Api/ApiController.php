@@ -6072,7 +6072,31 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         if (!empty($shipping_method)) {
             foreach ($cart as $key => $Product) {
                 $productId = $Product->product_id;
-                $product_data = Product::find($productId);
+
+                /*
+                 * F283 — THE EARLIEST BOUNDARY IN THIS HANDLER, and the line that actually leaked.
+                 *
+                 * This was `Product::find($productId)` followed immediately by
+                 * `$product_data->sale_price`, and that `sale_price` is what reached the response:
+                 * driven with two tenants, a store-A cart row naming store B's product answered
+                 * `{"original_price":"99.00", … ,"final_price":"106.00"}` — store B's catalogue
+                 * price, to a store-A shopper.
+                 *
+                 * The cart itself is already store-scoped (`Cart::where('store_id', $store->id)`
+                 * above, from the ROUTE SLUG), so a line that names a product belonging to another
+                 * store is a row that should not exist. It is SKIPPED rather than 500ed: the
+                 * remaining lines still get a quote, which is the behaviour a shopper with one bad
+                 * row should see, and the refusal is logged by the resolver.
+                 *
+                 * `productOfCartLineStore()` is shared with `calculateFlaterate()` so the two
+                 * cannot drift — the lesson of F263's two mutually-redundant predicates.
+                 */
+                $product_data = $this->productOfCartLineStore($Product);
+
+                if ($product_data === null) {
+                    continue;
+                }
+
                 $price = $product_data->sale_price;
 
                 if ($product_data->variant_product == 0) {
@@ -6130,15 +6154,132 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         }
     }
 
+    /**
+     * F283 — THE ONE PLACE A CART LINE'S PRODUCT AND SHIPPING CLASS ARE RESOLVED.
+     *
+     * ═════════════════════════════════════════════════════════════════════════════════════════
+     * WHY THIS EXISTS, MEASURED THROUGH A REAL REQUEST
+     * ═════════════════════════════════════════════════════════════════════════════════════════
+     *
+     * `calculateFlaterate()` read `Product::find($cartRow->product_id)` and
+     * `Shipping::find($product->shipping_id)` with no predicate on either. `Product` carries
+     * `StoreScope` but is ABSENT from `config/tenancy.php`'s `scoped_models`, so
+     * `StoreScope::isActiveFor()` short-circuits and adds nothing for ANY principal; `Shipping` is
+     * excluded outright. So the only thing protecting those reads was whether a store-A cart row
+     * can name a store-B product.
+     *
+     * Driven with two tenants through `POST api/{slug}/delivery-charge`
+     * (`ForeignProductShippingQuoteTest`), with a store-A cart row naming store B's product:
+     *
+     *     {"status":1,"data":{"original_price":"99.00","charge_price":"7.00","final_price":"106.00"}}
+     *
+     * **99.00 is store B's catalogue price, returned to a store-A shopper** — a cross-tenant read.
+     * And `charge_price` is 7.00 where this store's own classified product costs 10.00, because
+     * store B's class matches no key in store A's `product_cost` table so the per-class sum stayed
+     * zero: **naming a foreign product bought a 3.00 discount on store A's own shipping.**
+     *
+     * ═════════════════════════════════════════════════════════════════════════════════════════
+     * WHAT IS AND IS NOT CLAIMED ABOUT REACHABILITY
+     * ═════════════════════════════════════════════════════════════════════════════════════════
+     *
+     * Every cart writer refuses a foreign product TODAY — `addtocart` with a hard store match
+     * (P01-COMMERCE-SEC-03), `CartController::product_cart` with a provable-mismatch refusal, and
+     * the two WorkDo module routes through `ModuleCartWriteGuard`. So this is **defence in depth**,
+     * not a live exploit through a current door, and the test says so. It is taken because the row
+     * can exist three other ways: it predates those guards in a live database, a future writer
+     * arrives without one, or a module route appears that the middleware does not cover. The
+     * owner's instruction is explicit — *do not dismiss it merely because a different cart-entry
+     * defect is required.*
+     *
+     * ═════════════════════════════════════════════════════════════════════════════════════════
+     * THE PREDICATE IS THE CART ROW'S OWN STORE, and the NULL rule is the writers' rule
+     * ═════════════════════════════════════════════════════════════════════════════════════════
+     *
+     * `$cartRow->store_id` is server-derived: `delivery_charge` loaded the cart with
+     * `->where('store_id', $store->id)` from the ROUTE SLUG, never from a body field. So the cart
+     * row is the tenant fact, and no caller input reaches this predicate.
+     *
+     * A product whose own `store_id` is NULL is ACCEPTED, which is exactly what both cart writers
+     * do (`!empty($product->store_id) && … !== …`): the column is nullable, legacy rows may not
+     * carry it, and refusing those would break a storefront rather than fix one. **Only a provable
+     * mismatch is refused.** Introducing a stricter NULL policy here than the writers use would be
+     * a new rule, and this change introduces none.
+     *
+     * @return \App\Models\Product|null  null means the line does not belong to this cart's store.
+     */
+    private function productOfCartLineStore($cartRow)
+    {
+        $productId = $cartRow->product_id ?? null;
+        $storeId = $cartRow->store_id ?? null;
+
+        if (empty($productId)) {
+            return null;
+        }
+
+        $product = Product::find($productId);
+
+        if ($product === null) {
+            return null;
+        }
+
+        if (! empty($product->store_id) && ! empty($storeId)
+            && (int) $product->store_id !== (int) $storeId) {
+            Log::warning('shipping quote refused a cart line naming another store\'s product', [
+                'cart_store_id' => $storeId,
+                'product_store_id' => $product->store_id,
+                'product_id' => $productId,
+            ]);
+
+            return null;
+        }
+
+        return $product;
+    }
+
+    /**
+     * A shipping class, resolved only within the cart line's own store.
+     *
+     * Same NULL allowance as `CartController::get_shipping_method()`'s P01-COMMERCE-SEC-01
+     * predicate and F263's two quote paths: `shippings.store_id` is nullable and legacy rows may
+     * not carry it, so a NULL is accepted and only a different store is refused.
+     *
+     * Returning null is NOT an error here — `calculateFlaterate` already has a meaningful
+     * `$shippingClass == null` branch (the `product_no_cost` bucket), which is the supported case
+     * of a merchant who has not classified a product.
+     */
+    private function shippingClassOfStore($shippingId, $storeId)
+    {
+        if (empty($shippingId) || empty($storeId)) {
+            return null;
+        }
+
+        return Shipping::where('id', $shippingId)
+            ->where(function ($q) use ($storeId) {
+                $q->where('store_id', $storeId)->orWhereNull('store_id');
+            })
+            ->first();
+    }
+
     public  function calculateFlaterate($shippingMethods, $shippingCost, $Product)
     {
         $cost_totle =  $shippingCost;
         $price = 0;
         $productId = $Product->product_id;
-        $product_data = Product::find($productId);
+        $product_data = $this->productOfCartLineStore($Product);
+
+        /*
+         * F283: A LINE THAT IS NOT THIS STORE'S CONTRIBUTES NOTHING AND READS NOTHING.
+         *
+         * Returning the method's own cost unchanged is the conservative answer: it neither prices
+         * a foreign product nor hands the caller a cheaper bucket than their own classified
+         * products would take. The refusal is logged at the resolver.
+         */
+        if ($product_data === null) {
+            return $cost_totle;
+        }
         if ($product_data->variant_product == 0) {
             if ($shippingMethods['product_cost'] != null) {
-                $shippingClass = Shipping::find($product_data->shipping_id);
+                $shippingClass = $this->shippingClassOfStore($product_data->shipping_id, $Product->store_id ?? null);
                 $value = $shippingMethods['product_cost'];
                 $product_cost = json_decode($value, true);
                 if ($shippingClass == null) {
@@ -6179,10 +6320,10 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                     $product_cost = json_decode($value, true);
 
                     foreach ($product_stock as $stock) {
-                        $shippingClass = Shipping::find($stock->shipping);
+                        $shippingClass = $this->shippingClassOfStore($stock->shipping, $Product->store_id ?? null);
                         $product_price = $stock->price;
                         if ($stock->shipping == 'same_as_parent') {
-                            $shipping = Shipping::find($product_data->shipping_id);
+                            $shipping = $this->shippingClassOfStore($product_data->shipping_id, $Product->store_id ?? null);
                             if ($shipping == null) {
                                 $price  += $product_cost['product_no_cost'];
                             }
