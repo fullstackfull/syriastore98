@@ -29,6 +29,16 @@ The two headings below carry their own row counts. They are **not** asserted by 
 compares the table against `app/` row by row -- so the `warning` count had drifted to 111 against 116
 actual rows before this was noticed at closure. Corrected to 117; if you add a row, fix the heading.
 
+**THE CENSUS READS `app/` AND NOTHING ELSE, and one load-bearing warning therefore lives outside
+it.** `routes/web.php`'s `zid/events` closure logs a warning when `application.uninstall` appears in
+a webhook body but NOT in the resolved event name. That line is the entire reason P1-SEC-41 could be
+fixed fail-safe rather than escalated untouched: not unlinking a merchant is visible and reversible
+*because of it*. It is named here rather than added as a row, because a row would put the documented
+count one above the source count the ratchet measures and fail the test for the opposite reason. It
+is not unasserted, though -- `ZidWebhookSecretTest` pins it through the logger's own `MessageLogged`
+event. If a second security warning is ever added under `routes/`, widening the scan is a better
+answer than a second paragraph here.
+
 Only `critical` and `warning` are enumerated. They are the levels Phase 01 used for *a control
 fired* or *something happened that a human should look at*. `error` (95 call sites) is almost
 entirely pre-existing third-party-integration failure reporting, `info` (22) and `debug` (1) are
@@ -55,6 +65,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:954` | Gateway return gave up after the capture was classified: |
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:1004` | Gateway return refused: the basket names a product or variant row that no longer exists. |
 | `app/Http/Controllers/KhaltiPaymnetController.php:1358` | Khalti order written for RECONCILIATION: the gateway could not be asked whether money moved |
+| `app/Http/Controllers/OtpIntegrationController.php:178` | OTP test refused: the base URL is not a permitted outbound host. |
 | `app/Http/Controllers/PaymentController.php:3662` | Order write failed before the transaction opened; stock decrements were given back |
 | `app/Http/Controllers/PaymentController.php:5102` | Order write failed before the transaction opened; stock decrements were given back |
 | `app/Http/Controllers/PaymentController.php:1753` | Paymera write threw and a committed order cannot be ruled out; the claim is kept so no replay can write a second order |
@@ -67,6 +78,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/PaymentController.php:968` | Paymera callback REJECTED: captured amount not verified |
 | `app/Http/Controllers/PaymentController.php:3861` | Order write failed and was rolled back; stock decrements were given back |
 | `app/Http/Controllers/PaymentController.php:5292` | Order write failed and was rolled back; stock decrements were given back |
+| `app/Services/OrderFinancialService.php:245` | OrderFinancialService: an order line names a product that is not |
 | `app/Services/PaymentService.php:231` | Insufficient stock on an order path that cannot refuse; order kept, stock oversold |
 | `app/Services/PaymentService.php:3099` | Order write failed and was rolled back; stock decrements were given back |
 | `app/Services/ProductStockService.php:139` | Stock decremented below zero on an order path that cannot refuse |
@@ -79,7 +91,14 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/GatewayReference.php:198` | gateway capture replayed: the reference is already recorded |
 | `app/Services/GatewayReference.php:213` | gateway capture replayed (23000): the reference is already recorded |
 
-### `warning` — 181 lines
+### `warning` — 183 lines
+
+> **[2026-11-02] 181 -> 183.** Two lines added by the GATE F wave-5 security fixes, both below
+> with their own destination. `SecurityLogInventoryTest` is what required this edit rather than
+> permitting it: it failed on the two undocumented lines, and
+> `resync-observability-inventory.py` **refused** to add them -- by design, because it re-points
+> rows that MOVED and will not invent a destination for a row that is NEW. That is the right
+> division: the tool can follow code, only a person can say who reads a line.
 
 | line | message |
 |---|---|
