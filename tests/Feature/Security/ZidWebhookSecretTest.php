@@ -2,7 +2,6 @@
 
 namespace Tests\Feature\Security;
 
-use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -27,13 +26,40 @@ use Tests\TestCase;
  * which is what SEC-CFG-02 asks for. That is the whole point: the fail-open was waiting
  * for the remediation of another finding.
  *
- * WHAT RUNS HERE. `zid_events` is declared by no migration -- it is in the same
- * undeclared-schema family as `zid_orders`/`zid_stores`, parked under
- * database/migrations/_gate_f_pending/. So the ACCEPTED direction cannot be asserted on
- * the response; it is asserted on the QueryException from the insert, which proves the
- * request got through the credential gate and all the way to the write. The DENIED
- * direction is asserted on the real HTTP response, because the refusal happens before any
- * database access.
+ * WHAT RUNS HERE -- REWRITTEN ON 2026-11-02, AND THE OLD TEXT IS KEPT BECAUSE IT RECORDS A
+ * PROOF TECHNIQUE THIS PROJECT SHOULD NOT USE AGAIN. It read:
+ *
+ *     `zid_events` is declared by no migration ... So the ACCEPTED direction cannot be
+ *     asserted on the response; it is asserted on the QueryException from the insert, which
+ *     proves the request got through the credential gate and all the way to the write.
+ *
+ * That was true and it was the honest best available, but it made a MISSING TABLE the proof
+ * that a security gate had been passed. GATE F closed on 2026-11-02, `zid_events` exists, the
+ * insert succeeds, and both positive tests failed on their own `$this->fail()`.
+ *
+ * WHAT IS ASSERTED NOW, in both directions and on the real thing:
+ *
+ *   ACCEPTED -- the HTTP response (200, `{"ok":true}`) AND the `zid_events` row the handler
+ *   wrote, read back by store and event. A status alone would not distinguish "accepted" from
+ *   "accepted and then silently failed to record anything".
+ *
+ *   DENIED -- the 401 AND the absence of any `zid_events` row. The refusal happens before any
+ *   database access, so the row count is the direct observation that nothing happened; before
+ *   GATE F it could not be made at all.
+ *
+ *   AND THE DESTRUCTIVE WRITE, BOTH WAYS. The finding above says the fail-open exposed a
+ *   caller-chosen DELETE on `zid_stores`. Until GATE F that claim was unverifiable here: the
+ *   anonymous-uninstall test asserted a 401 and nothing else, so it would have passed just as
+ *   happily against a handler that no longer deleted anything -- and the severity of the
+ *   finding rests entirely on that delete existing. There are now two tests: the authenticated
+ *   uninstall DOES remove the named `zid_stores` row, and the anonymous one does NOT, with the
+ *   row read back in both cases.
+ *
+ * ONE THING THE POSITIVE TESTS DO NOT PROVE, stated rather than implied: `zid_events.store_id`
+ * and `zid_stores.store_id` are varchar columns holding **Zid's own merchant id**, written from
+ * Zid's API (ZidOAuthController.php:80-83), not `stores.id`. So "the caller-named store" below
+ * means a Zid merchant, and none of this is a Store Syria tenancy assertion. See the
+ * foreign-namespace bucket in tests/Feature/Tenancy/RawQueryTenancyInventoryTest.
  */
 class ZidWebhookSecretTest extends TestCase
 {
@@ -46,6 +72,49 @@ class ZidWebhookSecretTest extends TestCase
 
     private const HOOK_USER = 'zid-hook-user-for-tests-only';
 
+    /**
+     * A ZID MERCHANT ID, not a `stores.id`.
+     *
+     * `zid_events.store_id` is varchar(255) and `zid_stores.store_id` is varchar(255) with a
+     * UNIQUE key, and both hold the id Zid's own API reports (ZidOAuthController.php:80-83
+     * reads `user.store.id` from api.zid.sa). A deliberately non-numeric value is used here so
+     * that nothing in this file can quietly pass by comparing it to a Store Syria store id --
+     * on MySQL a varchar compared to an integer binding is coerced to DOUBLE, which makes
+     * `'2abc' = 2` TRUE, and SQLite cannot show that.
+     */
+    private const ZID_MERCHANT = 'zid-merchant-9f3a';
+
+    /** @return \Illuminate\Database\Query\Builder */
+    private function events()
+    {
+        return \Illuminate\Support\Facades\DB::table('zid_events');
+    }
+
+    /**
+     * A linked Zid merchant, shaped from the measured production structure: `store_id`,
+     * `authorization` and `access_token` are NOT NULL, `refresh_token` and `ds_secret` are
+     * nullable text, and `store_id` carries a UNIQUE key.
+     */
+    private function linkZidMerchant(string $zidMerchantId): void
+    {
+        \Illuminate\Support\Facades\DB::table('zid_stores')->insert([
+            'store_id' => $zidMerchantId,
+            'authorization' => 'fixture-authorization',
+            'access_token' => 'fixture-access-token',
+            'refresh_token' => 'fixture-refresh-token',
+            'expires_at' => now()->addDay(),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+    }
+
+    private function zidMerchantIsLinked(string $zidMerchantId): bool
+    {
+        return \Illuminate\Support\Facades\DB::table('zid_stores')
+            ->where('store_id', $zidMerchantId)
+            ->exists();
+    }
+
     private function configure(?string $secret, ?string $user = self::HOOK_USER): void
     {
         config([
@@ -55,27 +124,31 @@ class ZidWebhookSecretTest extends TestCase
     }
 
     /**
-     * POSITIVE DIRECTION, header arm: Zid's own call still works.
+     * POSITIVE DIRECTION, header arm: Zid's own call still works, and is RECORDED.
      */
     public function test_the_configured_secret_in_the_header_is_accepted(): void
     {
         $this->configure(self::SECRET);
         $this->withoutExceptionHandling();
 
-        try {
-            $this->postJson(
-                self::URI,
-                ['store_id' => 1, 'event' => 'order.create'],
-                ['X-Hook-Secret' => self::SECRET]
-            );
+        $this->assertSame(0, $this->events()->count(), 'premise: no event recorded yet');
 
-            $this->fail(
-                'The request should have passed the credential gate and failed on the '
-                . 'undeclared `zid_events` table instead.'
-            );
-        } catch (QueryException $e) {
-            $this->assertStringContainsString('zid_events', $e->getMessage());
-        }
+        $response = $this->postJson(
+            self::URI,
+            ['store_id' => self::ZID_MERCHANT, 'event' => 'order.create'],
+            ['X-Hook-Secret' => self::SECRET]
+        );
+
+        $response->assertOk();
+        $this->assertTrue((bool) $response->json('ok'), 'the handler did not answer ok');
+
+        $this->assertSame(
+            1,
+            $this->events()->where('store_id', self::ZID_MERCHANT)->where('event', 'order.create')->count(),
+            'the request passed the credential gate but no `zid_events` row was written, so the '
+            . 'handler accepted it and recorded nothing. Until GATE F closed on 2026-11-02 this '
+            . 'was asserted on a QueryException from a table no migration created.'
+        );
     }
 
     /**
@@ -86,28 +159,34 @@ class ZidWebhookSecretTest extends TestCase
         $this->configure(self::SECRET);
         $this->withoutExceptionHandling();
 
-        try {
-            $this->postJson(
-                self::URI,
-                ['store_id' => 1, 'event' => 'order.create'],
-                ['Authorization' => 'Basic ' . base64_encode(self::HOOK_USER . ':' . self::SECRET)]
-            );
+        $response = $this->postJson(
+            self::URI,
+            ['store_id' => self::ZID_MERCHANT, 'event' => 'order.create'],
+            ['Authorization' => 'Basic ' . base64_encode(self::HOOK_USER . ':' . self::SECRET)]
+        );
 
-            $this->fail(
-                'The basic-auth arm should have passed the credential gate and failed on '
-                . 'the undeclared `zid_events` table instead.'
-            );
-        } catch (QueryException $e) {
-            $this->assertStringContainsString('zid_events', $e->getMessage());
-        }
+        $response->assertOk();
+        $this->assertTrue((bool) $response->json('ok'), 'the handler did not answer ok');
+
+        $this->assertSame(
+            1,
+            $this->events()->where('store_id', self::ZID_MERCHANT)->where('event', 'order.create')->count(),
+            'the basic-auth arm passed the credential gate but wrote no `zid_events` row'
+        );
     }
 
+    /**
+     * The 401 AND the absence of a row. Before GATE F the second half could not be observed at
+     * all, so a refusal test could not distinguish "refused" from "admitted and then crashed".
+     */
     public function test_a_wrong_header_secret_is_refused(): void
     {
         $this->configure(self::SECRET);
 
-        $this->postJson(self::URI, ['store_id' => 1], ['X-Hook-Secret' => 'wrong'])
+        $this->postJson(self::URI, ['store_id' => self::ZID_MERCHANT], ['X-Hook-Secret' => 'wrong'])
             ->assertStatus(401);
+
+        $this->assertSame(0, $this->events()->count(), 'a refused request still recorded an event');
     }
 
     public function test_wrong_basic_auth_credentials_are_refused(): void
@@ -116,9 +195,11 @@ class ZidWebhookSecretTest extends TestCase
 
         $this->postJson(
             self::URI,
-            ['store_id' => 1],
+            ['store_id' => self::ZID_MERCHANT],
             ['Authorization' => 'Basic ' . base64_encode(self::HOOK_USER . ':wrong')]
         )->assertStatus(401);
+
+        $this->assertSame(0, $this->events()->count(), 'a refused request still recorded an event');
     }
 
     /**
@@ -150,16 +231,85 @@ class ZidWebhookSecretTest extends TestCase
     }
 
     /**
-     * And the destructive payload specifically, since that is what the fail-open exposed:
-     * an `application.uninstall` event deletes a `zid_stores` row chosen by the caller.
+     * THE DESTRUCTIVE PAYLOAD, which is what gives the fail-open its severity:
+     * an `application.uninstall` event DELETEs a `zid_stores` row chosen by the caller.
+     *
+     * STRENGTHENED ON 2026-11-02. This used to assert the 401 and nothing else. That is a
+     * refusal test whose subject could disappear without it noticing: if the DELETE at
+     * routes/web.php:1683 were removed, this test would stay green while the finding it records
+     * -- "the handler ... DELETEs the caller-named store's `zid_stores` row -- a destructive
+     * cross-tenant write" -- quietly became unverified. `zid_stores` was declared by no
+     * migration, so the row could not be seeded and the claim could not be checked here at all.
+     *
+     * It now reads the row back, and the sibling test below drives the SAME payload with a valid
+     * secret and proves the DELETE really happens. The pair is the point: either test alone can
+     * pass for the wrong reason.
      */
     public function test_the_uninstall_payload_cannot_be_sent_anonymously_when_no_secret_is_configured(): void
     {
+        $this->linkZidMerchant(self::ZID_MERCHANT);
+        $this->assertTrue($this->zidMerchantIsLinked(self::ZID_MERCHANT), 'premise: the merchant is linked');
+
         $this->configure(null, null);
 
         $this->postJson(self::URI, [
-            'store_id' => 1,
+            'store_id' => self::ZID_MERCHANT,
             'event' => 'application.uninstall',
         ])->assertStatus(401);
+
+        $this->assertTrue(
+            $this->zidMerchantIsLinked(self::ZID_MERCHANT),
+            'AN ANONYMOUS CALLER UNLINKED A ZID MERCHANT. The uninstall payload reached the '
+            . 'DELETE at routes/web.php:1683 although no secret is configured, which is '
+            . 'NEW-ZID-HOOK-FAILOPEN-01 itself.'
+        );
+
+        $this->assertSame(0, $this->events()->count(), 'a refused request still recorded an event');
+    }
+
+    /**
+     * THE POSITIVE HALF OF THE SAME PAIR, and it is only possible because GATE F declared
+     * `zid_stores` on 2026-11-02.
+     *
+     * Its job is NOT to approve the behaviour -- a caller-chosen DELETE on an anonymous endpoint
+     * is exactly the surface the finding is about. Its job is to make the refusal above provable:
+     * a 401 only matters if the thing being refused would otherwise happen.
+     *
+     * NOTE WHAT IS AND IS NOT ASSERTED. The handler matches `application.uninstall` against the
+     * whole serialised payload (`str_contains($raw . ' ' . $event, 'application.uninstall')`), so
+     * a merchant id is enough to name the victim; that breadth is recorded here, not endorsed.
+     * And the id is a ZID merchant id, so this is not a Store Syria tenancy boundary.
+     */
+    public function test_an_authenticated_uninstall_does_remove_the_named_zid_merchant(): void
+    {
+        $this->linkZidMerchant(self::ZID_MERCHANT);
+        $this->linkZidMerchant('zid-merchant-bystander');
+
+        $this->configure(self::SECRET);
+        $this->withoutExceptionHandling();
+
+        $this->postJson(
+            self::URI,
+            ['store_id' => self::ZID_MERCHANT, 'event' => 'application.uninstall'],
+            ['X-Hook-Secret' => self::SECRET]
+        )->assertOk();
+
+        $this->assertFalse(
+            $this->zidMerchantIsLinked(self::ZID_MERCHANT),
+            'The authenticated uninstall did NOT delete the named `zid_stores` row. If that is '
+            . 'now the intended behaviour the sibling refusal test above is no longer proving '
+            . 'anything and must be rewritten with it -- do not leave one of the pair standing.'
+        );
+
+        $this->assertTrue(
+            $this->zidMerchantIsLinked('zid-merchant-bystander'),
+            'the uninstall removed a merchant the payload did not name'
+        );
+
+        $this->assertSame(
+            1,
+            $this->events()->where('event', 'application.uninstall')->count(),
+            'the uninstall was not recorded in `zid_events`'
+        );
     }
 }

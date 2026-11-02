@@ -49,6 +49,16 @@ class CrossTenantModelIsolationTest extends TestCase
     private const STORE_A = 101;
     private const STORE_B = 202;
 
+    /**
+     * A BACKSTOP AGAINST RUNAWAY RECURSION, NOT THE CONTROL. See existingOrNewParentId(): the
+     * control is the cycle check. The longest required-foreign-key chain this schema actually has
+     * is 3 -- store_wallet_transactions -> store_wallets -> stores -> users -- measured when GATE
+     * F closed on 2026-11-02. This is set above it on purpose: a value that merely cleared the
+     * measured chain would turn every future one-link-longer chain into a skip again, which is
+     * the exact defect this replaced.
+     */
+    private const MAX_PARENT_CHAIN = 6;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -110,7 +120,25 @@ class CrossTenantModelIsolationTest extends TestCase
 
             // Column-name collisions with a stub for a column the table does not have would
             // throw, so the stub set is already restricted to real columns.
-            $ids[$storeId] = \DB::table($table)->insertGetId($row);
+            //
+            // A CONSTRAINT the stub generator cannot see -- an enum rendered as a CHECK, a unique
+            // key, a NOT NULL with no default on a column whose type gives no hint -- surfaces
+            // here as a bare QueryException five frames inside a tenancy assertion, which is where
+            // it reads as a tenancy result. GATE F produced three of those in one week. So the
+            // failure now names the table, the row and the remedy; it does not swallow anything.
+            try {
+                $ids[$storeId] = \DB::table($table)->insertGetId($row);
+            } catch (\Illuminate\Database\QueryException $e) {
+                $this->fail(
+                    "FIXTURE, NOT A TENANCY RESULT. Seeding `{$table}` for store {$storeId} was "
+                    . 'refused by the database: ' . $e->getMessage() . ' -- the generated row was '
+                    . json_encode($row) . '. requiredColumnStubs() guesses a value from the column '
+                    . 'TYPE, so it cannot see an enum rendered as a CHECK, a unique key, or any '
+                    . 'other constraint. Supply the column explicitly in tenantOwnedDomains()\'s '
+                    . 'third element for this data set, the way `finance: wallet ledger` supplies '
+                    . '`direction`.'
+                );
+            }
         }
 
         return $ids;
@@ -167,7 +195,7 @@ class CrossTenantModelIsolationTest extends TestCase
      *
      * @return array<string, mixed>
      */
-    private function requiredColumnStubs(string $table, int $depth = 0): array
+    private function requiredColumnStubs(string $table, int $depth = 0, array $chain = []): array
     {
         $stubs = [];
 
@@ -210,7 +238,12 @@ class CrossTenantModelIsolationTest extends TestCase
 
             if (isset($foreignKeys[$name])) {
                 [$foreignTable, $foreignColumn] = $foreignKeys[$name];
-                $stubs[$name] = $this->existingOrNewParentId($foreignTable, $foreignColumn, $depth);
+                $stubs[$name] = $this->existingOrNewParentId(
+                    $foreignTable,
+                    $foreignColumn,
+                    $depth,
+                    [...$chain, $table]
+                );
 
                 continue;
             }
@@ -241,11 +274,41 @@ class CrossTenantModelIsolationTest extends TestCase
      * fixtures create their merchant users first. The insert path exists so that a new FK on a
      * tenant-owned table does not silently turn into a fixture error later.
      *
-     * $depth caps the recursion: a parent whose own required FKs are unsatisfiable is reported
-     * as a skip rather than as a confusing constraint error inside an unrelated tenancy
-     * assertion.
+     * WHAT BOUNDS THE RECURSION, AND WHY IT IS NOT A DEPTH OF 2 ANY MORE.
+     *
+     * This used to skip at `$depth >= 2`, and the docblock said the cap was there so that "a
+     * parent whose own required FKs are unsatisfiable is reported as a skip". Measured on
+     * 2026-11-02, that is not what the cap actually caught. When GATE F gave
+     * `store_wallet_transactions` and `store_withdrawals` real tables, two data sets skipped with
+     *
+     *     Could not satisfy a required foreign key into `users` within two levels.
+     *
+     * and the chain it gave up on was entirely satisfiable:
+     *
+     *     store_wallet_transactions.wallet_id -> store_wallets
+     *     store_wallets.store_id             -> stores
+     *     stores.created_by                  -> users        <-- depth 2, refused HERE
+     *
+     * `users` is the ROOT of that chain. The cap fired one level short of a leaf, so the skip was
+     * an artefact of the bound rather than a statement about the schema -- and an undeclared skip
+     * fails the known-outcome gate, which is how it surfaced at all.
+     *
+     * So the bound now measures the thing that genuinely makes a chain unsatisfiable: a CYCLE.
+     * `$chain` carries the tables already being built, and a parent that reappears in it is
+     * reported as a cycle, naming the loop. The depth bound is kept as a backstop and set well
+     * above the longest chain this schema actually has (3), so it stops runaway recursion without
+     * standing in for the cycle check.
+     *
+     * This is strictly stronger than the old cap, not weaker: a cycle used to be reported as
+     * "two levels", which told a reader nothing about the loop, and a legitimate three-link chain
+     * used to be reported as if it were a cycle.
      */
-    private function existingOrNewParentId(string $foreignTable, string $foreignColumn, int $depth)
+    private function existingOrNewParentId(
+        string $foreignTable,
+        string $foreignColumn,
+        int $depth,
+        array $chain = []
+    )
     {
         $existing = \DB::table($foreignTable)->value($foreignColumn);
 
@@ -253,15 +316,27 @@ class CrossTenantModelIsolationTest extends TestCase
             return $existing;
         }
 
-        if ($depth >= 2) {
+        if (in_array($foreignTable, $chain, true)) {
             $this->markTestSkipped(
-                "Could not satisfy a required foreign key into `{$foreignTable}` within two levels. "
-                . 'This is a fixture limitation, not a tenancy result, and is reported rather than '
-                . 'worked around.'
+                "A required foreign key into `{$foreignTable}` is CYCLIC: the chain "
+                . implode(' -> ', [...$chain, $foreignTable]) . ' returns to a table already '
+                . 'being built, so no insertion order satisfies it. This is a fixture limitation, '
+                . 'not a tenancy result, and is reported rather than worked around.'
             );
         }
 
-        $parent = $this->requiredColumnStubs($foreignTable, $depth + 1);
+        if ($depth >= self::MAX_PARENT_CHAIN) {
+            $this->markTestSkipped(
+                "A required foreign key into `{$foreignTable}` is more than "
+                . self::MAX_PARENT_CHAIN . ' levels deep: '
+                . implode(' -> ', [...$chain, $foreignTable]) . '. The longest chain this schema '
+                . 'has is 3 (store_wallet_transactions -> store_wallets -> stores -> users), so a '
+                . 'longer one means the schema changed and this backstop needs re-reading rather '
+                . 'than raising. This is a fixture limitation, not a tenancy result.'
+            );
+        }
+
+        $parent = $this->requiredColumnStubs($foreignTable, $depth + 1, $chain);
         $parent['created_at'] = now();
         $parent['updated_at'] = now();
 
@@ -357,7 +432,26 @@ class CrossTenantModelIsolationTest extends TestCase
             // "cross-tenant isolation on the wallet is tested" into an evidence note on the
             // strength of these three rows. Pointed out by independent review.
             'finance: wallets' => [StoreWallet::class, 'store_wallets', []],
-            'finance: wallet ledger' => [StoreWalletTransaction::class, 'store_wallet_transactions', []],
+            // `direction` AND `type` ARE SUPPLIED HERE RATHER THAN STUBBED, and the reason is the
+            // one GATE F exists for. Production declares
+            //     `direction` enum('credit','debit') NOT NULL
+            // with NO default, so it is in requiredColumnStubs()' set, and the generic stub for an
+            // unrecognised text column is `<name>-<uniqid()>`. On SQLite Laravel renders that enum
+            // as a varchar plus `CHECK (direction IN ('credit','debit'))`, so the stub was refused:
+            //     CHECK constraint failed: direction
+            // reported from inside a tenancy assertion, where it reads as a tenancy result.
+            //
+            // This is the third column-level stub guess GATE F has falsified (after `zid_orders.raw`
+            // NOT NULL and `zid_orders.zid_order_id`'s global unique key), which is why the insert
+            // below now names the table and points here instead of surfacing a raw QueryException.
+            // `type` is not constrained -- varchar(50) -- but a ledger row whose type reads
+            // `type-6ae878696d09c` is not legible evidence, so it carries the value the application
+            // really writes (OrderFinancialService.php:162).
+            'finance: wallet ledger' => [
+                StoreWalletTransaction::class,
+                'store_wallet_transactions',
+                ['direction' => 'credit', 'type' => 'order_paid'],
+            ],
             'finance: withdrawals' => [StoreWithdrawal::class, 'store_withdrawals', []],
             'staff: delivery boys' => [DeliveryBoy::class, 'delivery_boys', ['email' => 'd-']],
             'shipping' => [Shipping::class, 'shippings', []],

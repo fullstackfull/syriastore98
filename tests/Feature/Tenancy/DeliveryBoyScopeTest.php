@@ -40,8 +40,13 @@ class DeliveryBoyScopeTest extends SecurityTestCase
     /** The guard's own message, so a crash and a refusal cannot be confused with each other. */
     private const REFUSAL = "That delivery boy is not one of your stores' drivers.";
 
-    private function makeDriver(Store $store, string $name, string $email, string $password = 'driver-password-fixture'): DeliveryBoy
-    {
+    private function makeDriver(
+        Store $store,
+        string $name,
+        string $email,
+        string $password = 'driver-password-fixture',
+        array $extra = []
+    ): DeliveryBoy {
         $driver = new DeliveryBoy();
         $driver->forceFill([
             'name' => $name,
@@ -52,11 +57,20 @@ class DeliveryBoyScopeTest extends SecurityTestCase
             'type' => 'deliveryboy',
             'store_id' => $store->id,
             'created_by' => $store->created_by,
-        ])->save();
-        // `delivery_boys` has eleven columns and `is_active`, `commission_percentage` and
-        // `is_commission_enabled` are NOT among them, though all three are fillable (CLAUDE.md records
-        // the two handlers that 500 for everyone because of it). Asserted rather than assumed, so this
-        // fixture cannot drift back into writing a column that does not exist.
+        ] + $extra)->save();
+
+        // THIS COMMENT USED TO SAY the opposite, and GATE F refuted it. It read: "`delivery_boys`
+        // has eleven columns and `is_active`, `commission_percentage` and `is_commission_enabled`
+        // are NOT among them". Two of those three now exist --
+        // 2026_11_02_000500_add_commission_columns_to_delivery_boys_table.php declares
+        // `commission_percentage` decimal(5,2) and `is_commission_enabled` tinyint(1), measured
+        // against the restored production dump, which HAD them. CLAUDE.md records the same
+        // correction in its own words: "This file claimed `delivery_boys` lacks both commission
+        // columns; the restored dump refuted it."
+        //
+        // `is_active` is still absent and is NOT part of GATE F -- it was never measured, so
+        // declaring it would be the guess GATE F exists to forbid. $extra is therefore for the two
+        // columns that do exist; passing `is_active` would still fail, correctly.
 
         return $driver;
     }
@@ -183,32 +197,81 @@ class DeliveryBoyScopeTest extends SecurityTestCase
     }
 
     /**
-     * THE REFUSAL IS THE GUARD'S, NOT A CRASH -- and this test exists because the route DOES crash for
-     * a reason that has nothing to do with tenancy.
+     * THE REFUSAL IS THE GUARD'S -- AND THE FIRST-ASSIGNMENT PATH NOW COMPLETES INSTEAD OF CRASHING.
      *
-     * `delivery_earnings` is one of GATE F's six money-bearing tables that live code reads and writes
-     * and NO migration creates (database/migrations/_gate_f_pending/0005_draft...). `order_assign` runs
-     * `DeliveryEarning::where('order_id', ...)->delete()` on every change of driver, so on any
-     * environment without that table -- the test suite included -- the route answers 500 to EVERY
-     * caller. A row assertion alone would therefore have passed whether or not the guard existed, which
-     * is this project's first recorded way for a test to pass for the wrong reason.
+     * REWRITTEN ON 2026-11-02 WHEN GATE F CLOSED, BY THIS TEST'S OWN INSTRUCTION. It used to be
+     * called `test_the_refusal_names_the_guard_and_not_the_missing_earnings_table` (search for that
+     * name if you arrived from an older note), it opened with
      *
-     * So the separation is asserted directly: the foreign driver gets the guard's own message, the
-     * merchant's OWN driver does not. The table is not created here, because its column types are an
-     * inference until the owner reconciles them against the live database (GATE F) and
-     * guard-gate-f-containment.sh asserts no discoverable migration creates it.
+     *     $this->assertFalse(Schema::hasTable('delivery_earnings'), 'Premise: ... If it ever
+     *         exists, this test and the positive control below should be rewritten to drive the
+     *         first-assignment path directly.');
+     *
+     * and it closed by asserting the own-driver path answers **500**. Both are now false, and the
+     * instruction in that premise is what this body does.
+     *
+     * WHY IT WAS SHAPED THAT WAY, kept because it is the reason the test exists at all.
+     * `delivery_earnings` was one of GATE F's six money-bearing tables that live code reads and
+     * writes and no migration created. `order_assign` runs
+     * `DeliveryEarning::where('order_id', ...)->delete()` (OrderController.php:2371) on every
+     * change of driver, so on any environment without that table -- the suite included -- the
+     * route answered 500 to EVERY caller. A row assertion alone would therefore have passed
+     * whether or not the guard existed, which is this project's first recorded way for a test to
+     * pass for the wrong reason. So the old test asserted the SEPARATION: foreign driver 403,
+     * own driver 500-but-not-403.
+     *
+     * WHAT IT ASSERTS NOW, which is strictly more. The separation is still asserted -- a foreign
+     * driver gets the guard's own message and its own status -- but the own-driver limb is a
+     * genuine FIRST assignment, with `orders.deliveryboy_id` null, so it runs the very statement
+     * that used to crash and must now reach the save. That is the property GATE F bought, and
+     * nothing else in the suite drives it: the sibling positive control below deliberately
+     * re-confirms an existing driver precisely to AVOID this statement.
+     *
+     * THE MUTATION THAT MUST REDDEN IT: delete
+     * database/migrations/2026_11_02_000600_create_delivery_earnings_table.php and the own-driver
+     * limb goes back to 500.
      */
-    public function test_the_refusal_names_the_guard_and_not_the_missing_earnings_table(): void
+    public function test_the_refusal_is_the_guards_and_a_first_assignment_now_completes(): void
     {
-        $this->assertFalse(\Illuminate\Support\Facades\Schema::hasTable('delivery_earnings'),
-            'Premise: delivery_earnings is absent here (GATE F). If it ever exists, this test and the '
-            . 'positive control below should be rewritten to drive the first-assignment path directly.');
+        $this->assertTrue(\Illuminate\Support\Facades\Schema::hasTable('delivery_earnings'),
+            'Premise: GATE F closed on 2026-11-02 and `delivery_earnings` has a migration whose '
+            . 'structure was measured against a restored copy of production. If this is false the '
+            . 'migration has been reverted or renamed, and the own-driver limb below will report '
+            . 'the crash rather than the guard.');
 
         [$merchantA, $storeA] = $this->makeTenant();
+        [, $storeB] = $this->makeTenant();
         $this->grantPermission($merchantA, 'Manage Order');
 
+        // ---- limb 1: the foreign driver is refused BY THE GUARD, named on its own message ----
+        $foreignOrder = $this->makeOrder($storeA);
+        $theirs = $this->makeDriver($storeB, 'DRIVER-SEP-FOREIGN', 'sep-foreign@example.test');
+
+        $refused = $this->actingAs($merchantA->fresh())->post('/order-assign', [
+            'order_id' => $foreignOrder->id,
+            'delivery_boy' => $theirs->id,
+        ]);
+
+        $this->assertSame(403, $refused->getStatusCode(),
+            'the guard did not refuse a foreign driver');
+        $this->assertSame(self::REFUSAL, $refused->json('message'),
+            'the 403 is not the tenancy guard\'s own refusal');
+        $this->assertNull(
+            DB::table('orders')->where('id', $foreignOrder->id)->value('deliveryboy_id'),
+            'the order was stamped with another store\'s driver id'
+        );
+
+        // ---- limb 2: the merchant's OWN driver, on a FIRST assignment, now completes ----
         $order = $this->makeOrder($storeA);
         $mine = $this->makeDriver($storeA, 'DRIVER-SEP-FIXTURE', 'sep-fixture@example.test');
+
+        $this->assertNull(
+            DB::table('orders')->where('id', $order->id)->value('deliveryboy_id'),
+            'Premise: this limb must be a FIRST assignment, because the statement that used to '
+            . 'crash runs only when the driver CHANGES '
+            . '(`if ($order->deliveryboy_id != $request->delivery_boy)`). An order that already '
+            . 'carried this driver would skip it and prove nothing.'
+        );
 
         $response = $this->actingAs($merchantA->fresh())->post('/order-assign', [
             'order_id' => $order->id,
@@ -217,9 +280,16 @@ class DeliveryBoyScopeTest extends SecurityTestCase
 
         $this->assertNotSame(403, $response->getStatusCode(),
             "the merchant's OWN driver was refused by the tenancy guard -- the refusal is too broad");
-        $this->assertSame(500, $response->getStatusCode(),
-            'and the failure that remains is the missing delivery_earnings table, not the guard -- if this '
-            . 'ever stops being a 500, GATE F has moved and both this test and the one below want rewriting');
+        $this->assertSame(200, $response->getStatusCode(),
+            'a FIRST assignment did not complete. Until GATE F closed this answered 500, because '
+            . 'the DeliveryEarning delete at OrderController.php:2371 reached a table no migration '
+            . 'created. If it is 500 again, read the response: ' . $response->getContent());
+        $this->assertSame('success', $response->json('status'));
+        $this->assertSame(
+            (int) $mine->id,
+            (int) DB::table('orders')->where('id', $order->id)->value('deliveryboy_id'),
+            'the order was not stamped with the merchant\'s own driver'
+        );
     }
 
     /**

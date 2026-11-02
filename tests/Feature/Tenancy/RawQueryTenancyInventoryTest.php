@@ -726,8 +726,10 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
     public function test_only_these_tables_are_both_tenant_discriminated_and_rawly_unscoped(): void
     {
         $discriminated = [];
+        $foreignNamespace = [];
         $notDiscriminated = [];
         $noSuchTable = [];
+        $measuredTypes = [];
 
         foreach ($this->literalTableSites() as $table => $info) {
             if ($info['unscoped'] === []) {
@@ -736,28 +738,98 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
 
             if (! Schema::hasTable($table)) {
                 // ABSENT IS NOT THE SAME AS "no store_id", and must not be reported as either
-                // safe or exposed. These are the undeclared-schema families: GATE F's six money
-                // tables and the Zid tables.
+                // safe or exposed. This was the undeclared-schema family: GATE F's tables and the
+                // Zid tables.
                 //
                 // The LandingPage module's owner_menu* tables were in this set until
                 // NEW-ADDON-SCHEMA-02 was fixed in app/Providers/PackageServiceProvider.php.
                 // They are now declared and classified below, which is exactly the transition
-                // this branch's assertion message asked a reader to make.
+                // this branch's assertion message asked a reader to make. GATE F closing on
+                // 2026-11-02 made the SAME transition for `store_order_financials` and the three
+                // `zid_*` tables -- and it is the one that found the defect below.
                 $noSuchTable[] = $table;
 
                 continue;
             }
 
-            if (Schema::hasColumn($table, 'store_id')) {
-                $discriminated[$table] = count($info['unscoped']);
-            } else {
+            if (! Schema::hasColumn($table, 'store_id')) {
                 $notDiscriminated[] = $table;
+
+                continue;
+            }
+
+            // A COLUMN CALLED `store_id` IS NOT NECESSARILY A STORE SYRIA TENANT DISCRIMINATOR,
+            // AND THIS BRANCH EXISTS BECAUSE THIS CENSUS WAS ABOUT TO SAY OTHERWISE.
+            //
+            // Until 2026-11-02 there were two buckets and the test was `hasColumn('store_id')`.
+            // GATE F then declared the three Zid tables, each of which HAS a `store_id` column --
+            // so all thirteen of their unscoped statements were about to be reported under a
+            // message that calls each one "an unconstrained cross-tenant query that NO global
+            // scope can reach". That would have been FALSE, and loudly: the value in those
+            // columns is not a Store Syria store id at all.
+            //
+            // MEASURED, not inferred. app/Http/Controllers/ZidOAuthController.php:80-83 writes it:
+            //     $profile = Http::...->get('https://api.zid.sa/v1/managers/account/profile')->json();
+            //     $storeId = data_get($profile, 'user.store.id');
+            //     DB::table('zid_stores')->updateOrInsert(['store_id' => $storeId], [...]);
+            // It is **Zid's own merchant id**, read from Zid's API. app/Services/Zid.php:23 names
+            // the column in Arabic as "the numbers of all linked stores". That is also why
+            // neither Zid table carries a foreign key to `stores`, while every real discriminator
+            // either does or holds a bigint that could.
+            //
+            // HOW THE TWO ARE SEPARATED, structurally rather than by a name list. A tenant
+            // discriminator must be able to hold `stores.id`, which is a bigint. Measured on this
+            // suite's own engine: `customers`, `settings`, `products`, `order_refunds`,
+            // `store_devices` and `store_order_financials` all report `integer`; `zid_events`,
+            // `zid_orders` and `zid_stores` all report `varchar` (production: varchar(255),
+            // varchar(191), varchar(255)). The premise assertion below pins that, so a table that
+            // ever changes type is re-read rather than silently re-bucketed.
+            //
+            // AND THE BOUNDARY BITES IN THE DANGEROUS DIRECTION. If somebody "repairs" the Zid
+            // reach by writing `stores.id` into one of those varchars, the type stays varchar and
+            // the table stays here -- while the PR that found this recorded the reason that repair
+            // is forbidden: MySQL coerces a varchar to DOUBLE for an integer comparison, so
+            // `'2abc' = 2` is TRUE, and SQLite cannot show it. If instead the column is retyped to
+            // a bigint, the table moves into the discriminated list and THIS TEST FAILS, which is
+            // the correct outcome: that is a tenancy change and it must be read, not absorbed.
+            $type = strtolower((string) Schema::getColumnType($table, 'store_id'));
+            $measuredTypes[$table] = $type;
+
+            $isTextual = str_contains($type, 'char')
+                || str_contains($type, 'text')
+                || str_contains($type, 'string')
+                || str_contains($type, 'clob');
+
+            if ($isTextual) {
+                $foreignNamespace[$table] = count($info['unscoped']);
+            } else {
+                $discriminated[$table] = count($info['unscoped']);
             }
         }
 
         ksort($discriminated);
+        ksort($foreignNamespace);
+        ksort($measuredTypes);
         sort($notDiscriminated);
         sort($noSuchTable);
+
+        // THE PREMISE OF THE SPLIT, asserted rather than assumed. If this ever fails, the
+        // classification below is answering a different question than it claims to and must be
+        // re-read before any entry in it is trusted.
+        $this->assertSame([
+            'customers' => 'integer',
+            'order_refunds' => 'integer',
+            'products' => 'integer',
+            'settings' => 'integer',
+            'store_devices' => 'integer',
+            'store_order_financials' => 'integer',
+            'zid_events' => 'varchar',
+            'zid_orders' => 'varchar',
+            'zid_stores' => 'varchar',
+        ], $measuredTypes, 'The measured type of a `store_id` column changed. A tenant '
+            . 'discriminator must be able to hold `stores.id` (a bigint); a textual one holds '
+            . 'something else, and in all three measured cases that something else is Zid\'s own '
+            . 'merchant id. Re-read the classification before trusting any entry in it.');
 
         $this->assertSame([
             // TENANT-DISCRIMINATED TABLES REACHED BY RAW SQL WITH NO store_id IN THE STATEMENT,
@@ -852,10 +924,92 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // `store_devices` -- app/Services/StoreNotificationService.php:195. Push-notification
             // device tokens, read with no store predicate. One statement, genuinely unscoped.
             'store_devices' => 1,
+            // `store_order_financials` => 3 IS NEW WITH GATE F (2026-11-02), it is the only one of
+            // the four newly-declared tables that belongs in THIS list, and it is a MONEY table --
+            // so the three statements are named individually and the reading is given rather than
+            // left to a reader.
+            //
+            // All three are in app/Services/OrderFinancialService.php, and all three are the same
+            // shape -- an UPDATE keyed on the primary key:
+            //     :272  ->where('id', $financial->id)->update(['payment_status' => $orderStatus, ...])
+            //     :350  ->where('id', $financial->id)->update(['payment_status' => 'paid', ...])
+            //     :519  ->where('id', $financial->id)->update(['payment_status' => 'unpaid', ...])
+            //
+            // THIS IS NOT A NEW FINDING AND MUST NOT BE REPORTED AS ONE. It is the SAME latent
+            // defect the GATE F integration already recorded from independent review:
+            // markFinancialAsPaid()/markFinancialAsUnpaid() resolve a financial row by `id` alone,
+            // with no store predicate, and are safe only because their single web caller
+            // (StoreFinanceController) scopes first -- a caller-dependent invariant that nothing
+            // enforces. The one-line hardening is named in the test that drives the unscoped form
+            // directly. What GATE F changed is only that the census can now SEE it.
+            //
+            // WHAT BOUNDS IT, and why it is latent rather than live. These return no rows to any
+            // caller -- they are writes, and their only output is an affected-row count. And
+            // `uq_store_order_financial_order` makes `order_id` UNIQUE, so one order has at most
+            // one financial row and an id-keyed update cannot fan out: the blast radius is exactly
+            // one row, the one whose id the caller supplied. A predicate here would not change
+            // which row is written in any correct call; it would refuse the incorrect one.
+            'store_order_financials' => 3,
         ], $discriminated, 'The set of tenant-discriminated tables reached by raw SQL without a '
             . '`store_id` predicate changed. Each statement here is an unconstrained cross-tenant '
             . 'query that NO global scope can reach; the remedy is an explicit predicate at the '
             . 'call site, in files this workstream does not own.');
+
+        $this->assertSame([
+            // TABLES WITH A `store_id` COLUMN THAT IS NOT A STORE SYRIA TENANT DISCRIMINATOR.
+            //
+            // Read the branch above for why this bucket exists. In one line: these columns hold
+            // **Zid's own merchant id**, written from Zid's API at ZidOAuthController.php:80-83,
+            // which is why none of the three carries a foreign key to `stores`. A `store_id`
+            // predicate on any statement here would not be a tenant predicate; it would compare a
+            // vendor's identifier to a vendor's identifier.
+            //
+            // THESE STATEMENTS ARE COUNTED, NOT EXCUSED. All thirteen are named below, and the
+            // reason each is not a Store Syria cross-tenant exposure is the same reason the
+            // `customers` affiliate-code backfill in the list above is not one: the caller is not
+            // a tenant. Every one of the thirteen is inside a SCHEDULED CONSOLE COMMAND, reached
+            // by no HTTP route and by no authenticated principal.
+            //
+            // `zid_events` => 2 -- app/Console/Commands/ZidProcessEvents.php
+            //     :47  ->whereNull('processed_at')->orderBy('id')->limit(200)->get()
+            //     :57  ->where('id', $e->id)->update(['processed_at' => now()])
+            //   The queue drain. :47 claims up to 200 unprocessed webhook events across every
+            //   linked Zid merchant -- which is the command's purpose -- and :57 marks one
+            //   processed by primary key. The ingest that WRITES this table
+            //   (routes/web.php:1674) does carry `store_id` in the statement and is counted as
+            //   aware, so the write side is not in this list at all.
+            'zid_events' => 2,
+            // `zid_orders` => 9 -- all in app/Console/Commands/ZidProcessEvents.php
+            //     :90   ->where('zid_order_id', $o['id'])->exists()
+            //     :94   ->where('zid_order_id', $o['id'])->update($data)
+            //     :96   ->insert($data + ['zid_order_id' => $o['id'], ...])
+            //     :107  ->where('parcel_status','pending')->where('attempts','<',5)->limit(50)->get()
+            //     :165, :174, :186, :203, :231  ->where('id', $order->id)->update([...])
+            //   :90/:94/:96 are keyed on `zid_order_id`, which carries a GLOBAL unique key
+            //   (`zid_orders_zid_order_id_unique`), so it names exactly one row platform-wide --
+            //   the table itself refuses a collision, which is a stronger guarantee than a
+            //   predicate. :107 is the dispatch queue, deliberately platform-wide. The five
+            //   remaining are status and error updates keyed on the primary key of a row :107 just
+            //   returned.
+            //   AND THE ONE THING THAT IS NOT IN THIS LIST: the two live HTTP sites,
+            //   DeliverySyriaStatusController.php:128 and :240, DO carry `store_id` and are
+            //   counted as aware above. They are also the already-recorded finding that the
+            //   endpoint compares `stores.id` integers to this varchar and therefore FAILS CLOSED
+            //   -- recorded in that controller's test, not reopened here.
+            'zid_orders' => 9,
+            // `zid_stores` => 2 -- app/Console/Commands/ZidRefreshTokens.php
+            //     :14  $query = DB::table('zid_stores');            (every linked merchant)
+            //     :36  ->where('id', $s->id)->update([... tokens ...])
+            //   The scheduled OAuth-token refresh. It MUST see every linked merchant or tokens
+            //   expire, and :36 writes one row by primary key. The two live reads --
+            //   Zid::store() at app/Services/Zid.php:11 and ZidOAuthController's updateOrInsert --
+            //   both carry `store_id` and are counted as aware.
+            'zid_stores' => 2,
+        ], $foreignNamespace, 'The set of tables whose `store_id` is NOT a Store Syria tenant '
+            . 'discriminator changed. Do not resolve a failure here by adding a `store_id` '
+            . 'predicate: in every measured case the column holds a foreign vendor\'s identifier, '
+            . 'so such a predicate would be a correct-looking filter on the wrong namespace. '
+            . 'Read the classification branch above first.');
 
         $this->assertSame([
             // MEASURED, not assumed from the name. `currency` has a migration in
@@ -980,10 +1134,15 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // LandingPage migrations run and these three tables are declared. They are
             // reclassified, not dropped -- see the owner_menu* note in the list above for the
             // re-read classification and why it is not a tenancy finding.
-            'store_order_financials',  // GATE F
-            'zid_events',
-            'zid_orders',
-            'zid_stores',
+            // `store_order_financials` AND THE THREE `zid_*` TABLES WERE LISTED HERE UNTIL GATE F
+            // CLOSED ON 2026-11-02, and they are reclassified rather than dropped -- which is the
+            // transition this assertion's own message asks a reader to make. All four now exist,
+            // so their unscoped statements had to move into a classified list:
+            // `store_order_financials` into the discriminated list above (with the three
+            // OrderFinancialService sites named), and the three Zid tables into the
+            // foreign-namespace list, because their `store_id` holds Zid's merchant id and not
+            // `stores.id`. Making that move is what exposed the two-bucket defect in this very
+            // test, so the transition did its job.
         ], $noSuchTable, 'A table appeared or disappeared from the undeclared-schema set. If one '
             . 'now EXISTS, re-run this suite: its unscoped statements must move into one of the '
             . 'two classified lists above and may be a newly visible tenancy finding.');
