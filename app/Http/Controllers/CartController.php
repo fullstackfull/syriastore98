@@ -628,11 +628,11 @@ foreach ($response->data->product_list as $item) {
 }
             elseif ($shipp_name == 'Flat Rate') {
                 if ($shippingMethods->calculation_type == 1) {
-                    $cost_totle = Cart::calculateFlatRateShippingAmount($shippingMethods, $shippingMethods->cost, $response->data->product_list);
+                    $cost_totle = Cart::calculateFlatRateShippingAmount($shippingMethods, $shippingMethods->cost, $response->data->product_list, $store->id ?? null);
                     $shipping_final_price =  $cost_totle;
                     $total_shipping_price = $cost_totle;
                 } else {
-                    $cost_totle = Cart::calculateFlatRateShippingAmount($shippingMethods, $shippingMethods->cost, $response->data->product_list);
+                    $cost_totle = Cart::calculateFlatRateShippingAmount($shippingMethods, $shippingMethods->cost, $response->data->product_list, $store->id ?? null);
                     $shipping_final_price =  $cost_totle;
                     $total_shipping_price = $cost_totle;
                 }

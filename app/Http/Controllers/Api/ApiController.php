@@ -6094,8 +6094,12 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                 $product_data = $this->productOfCartLineStore($Product);
 
                 if ($product_data === null) {
+                    $ssRefusedEveryLine = $ssRefusedEveryLine ?? true;
+
                     continue;
                 }
+
+                $ssRefusedEveryLine = false;
 
                 $price = $product_data->sale_price;
 
@@ -6140,6 +6144,27 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
 
                     $total_shipping_price = $cost_totle;
                 }
+            }
+
+            /*
+             * F283 FOLLOW-UP — IF EVERY LINE WAS REFUSED, CHARGE THE METHOD'S OWN COST, NOT ZERO.
+             *
+             * Found by the mandated review of the F283 change, and it was an inconsistency I
+             * introduced: the `continue` above fires BEFORE `$total_shipping_price` is ever
+             * assigned, so a cart whose every line is refused fell through to the `?? 0` fallbacks
+             * and was quoted **free shipping** — while `calculateFlaterate()`'s own refusal
+             * deliberately returns the method's base cost. Two refusal policies in one change,
+             * pointing opposite ways, and the docblock on the other one claimed it "hands the
+             * caller no cheaper bucket".
+             *
+             * The method's `cost` is this store's own figure and is already store-scoped, so
+             * charging it invents nothing. A zero would have been the cheapest possible answer
+             * derived from rows this store does not own.
+             */
+            if (($ssRefusedEveryLine ?? false) === true) {
+                $total_shipping_price = $shipping_method->cost;
+                $price = $total_shipping_price;
+                $product_price = 0;
             }
 
             $price += $total_shipping_price ?? 0;
@@ -6249,15 +6274,74 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
      */
     private function shippingClassOfStore($shippingId, $storeId)
     {
-        if (empty($shippingId) || empty($storeId)) {
-            return null;
+        /*
+         * THREE OUTCOMES, BECAUSE THREE DIFFERENT FACTS REACH HERE AND THE CALLER CHARGES
+         * DIFFERENTLY FOR EACH. Collapsing any two of them changes a figure.
+         *
+         *   null   "this product has no shipping class"        -> caller charges product_no_cost
+         *   false  "the class is not this store's"             -> caller charges NOTHING (+0)
+         *   model  the class, which this store owns            -> caller charges its bucket
+         *
+         * ═════════════════════════════════════════════════════════════════════════════════════
+         * WHY `false` EXISTS AT ALL — A REGRESSION THE MANDATED REVIEW FOUND IN MY OWN FIX
+         * ═════════════════════════════════════════════════════════════════════════════════════
+         *
+         * The first version returned null for a foreign class, and the caller reads null as "no
+         * class" and adds `product_cost['product_no_cost']`. Measured on a store-A product
+         * pointing at a store-B class id: `charge_price` came back **102.00** (method 7.00 +
+         * no-cost 95.00) where before F283 it was **7.00**.
+         *
+         * Before F283, `Shipping::find()` returned the foreign row, so `$shippingClass` was
+         * non-null, the `else` branch ran, and `$key == $shippingClass->id` matched no key in this
+         * store's table — `shippings.id` is a global auto-increment, so a foreign id can never
+         * equal one of this store's. The contribution was therefore **always +0**.
+         *
+         * So my fix turned F283's under-charge into a deterministic OVER-charge, and it needed no
+         * cart-write defect at all: nothing validates that a product's `shipping_id` belongs to
+         * its own store (`ProductController:816` assigns the request value; the admin API
+         * validates it only as `nullable`), so a merchant's own product can be in that state, and
+         * legacy rows already are.
+         *
+         * `false` preserves the pre-F283 arithmetic exactly while still never READING the foreign
+         * row's columns, which is the whole point of the predicate.
+         *
+         * ═════════════════════════════════════════════════════════════════════════════════════
+         * AND A MISSING CLASS STILL MEANS `product_no_cost`, which is why there is an existence
+         * probe rather than a bare `false`.
+         * ═════════════════════════════════════════════════════════════════════════════════════
+         *
+         * Before F283 a `shipping_id` pointing at a row that does not exist ANYWHERE also returned
+         * null from `find()` and took the no-cost bucket. Answering `false` for that case would be
+         * a second behaviour change, in the opposite direction. The probe is `exists()` on the id
+         * alone: it reads no columns and discloses nothing a bare `find()` did not already, and it
+         * runs only when the scoped lookup has already failed.
+         */
+        if (empty($shippingId)) {
+            return null;                       // genuinely unclassified
         }
 
-        return Shipping::where('id', $shippingId)
-            ->where(function ($q) use ($storeId) {
-                $q->where('store_id', $storeId)->orWhereNull('store_id');
-            })
-            ->first();
+        if (! empty($storeId)) {
+            $class = Shipping::where('id', $shippingId)
+                ->where(function ($q) use ($storeId) {
+                    /*
+                     * The NULL allowance is the CLASS's own `store_id`, mirroring
+                     * `CartController::get_shipping_method()`'s P01-COMMERCE-SEC-01 predicate:
+                     * `shippings.store_id` is nullable and legacy rows may not carry it.
+                     */
+                    $q->where('store_id', $storeId)->orWhereNull('store_id');
+                })
+                ->first();
+
+            if ($class !== null) {
+                return $class;
+            }
+        }
+
+        /*
+         * Not resolvable within this store. Distinguish "exists elsewhere" (refuse the bucket,
+         * `+0`, as before F283) from "does not exist at all" (the no-cost bucket, as before F283).
+         */
+        return Shipping::where('id', $shippingId)->exists() ? false : null;
     }
 
     public  function calculateFlaterate($shippingMethods, $shippingCost, $Product)
@@ -6282,8 +6366,16 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                 $shippingClass = $this->shippingClassOfStore($product_data->shipping_id, $Product->store_id ?? null);
                 $value = $shippingMethods['product_cost'];
                 $product_cost = json_decode($value, true);
-                if ($shippingClass == null) {
-                    $price  += $product_cost['product_no_cost'];
+                /*
+                 * `=== null` and not `== null`: `false` means "the class is not this store's" and
+                 * must contribute NOTHING, while `null` means "no class" and takes the no-cost
+                 * bucket. A loose comparison treats both as null and over-charges the first --
+                 * which is exactly the regression this three-way return exists to prevent.
+                 */
+                if ($shippingClass === null) {
+                    $price  += $product_cost['product_no_cost'] ?? 0;
+                } elseif ($shippingClass === false) {
+                    $price  += 0;   // foreign class: the pre-F283 arithmetic, stated explicitly
                 } else {
                     foreach ($product_cost['product_cost'] as $key => $value) {
                         if ($key == $shippingClass->id) {
@@ -6324,8 +6416,8 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                         $product_price = $stock->price;
                         if ($stock->shipping == 'same_as_parent') {
                             $shipping = $this->shippingClassOfStore($product_data->shipping_id, $Product->store_id ?? null);
-                            if ($shipping == null) {
-                                $price  += $product_cost['product_no_cost'];
+                            if ($shipping === null) {
+                                $price  += $product_cost['product_no_cost'] ?? 0;
                             }
                             foreach ($product_cost['product_cost'] as $key => $value) {
                                 if ($shipping) {

@@ -357,10 +357,38 @@ class ForeignProductShippingQuoteTest extends SecurityTestCase
          *
          * So "refused" has to mean the line contributes nothing AND takes no cheaper bucket.
          */
-        $this->assertStringNotContainsString('"charge_price":"7.00"', $body,
-            'the foreign line still selected a cheaper bucket of THIS store\'s cost table: '
-            . 'store B\'s class matches no key here, so the per-class sum stayed 0 and the '
-            . 'shopper was quoted the bare method cost instead of the classified one');
+        /*
+         * AND THE FIGURE IS THE METHOD'S OWN COST — 7.00 — WHICH MEANS SOMETHING DIFFERENT NOW
+         * THAN IT DID BEFORE THE FOLLOW-UP, so the assertion is re-stated rather than kept.
+         *
+         * BEFORE: 7.00 was the DEFECT. The foreign line was priced, its class matched no key in
+         * this store's table, the per-class sum stayed 0, and the shopper was quoted 7.00 where
+         * this store's own classified product costs 10.00 — a 3.00 discount bought by naming a
+         * foreign product. The first version of this case therefore asserted 7.00 must NOT appear.
+         *
+         * AFTER: the line is REFUSED, and a cart whose every line is refused is deliberately
+         * charged the method's own cost. 7.00 is now the conservative answer, not the cheap one —
+         * the alternative was the `?? 0` fallthrough, which quoted FREE shipping and which the
+         * mandated review caught.
+         *
+         * So what must be asserted is the policy, not the number's absence: not zero (the cheapest
+         * answer, derived from rows this store does not own) and not the no-cost bucket (the
+         * over-charge the three-way helper exists to prevent).
+         */
+        $this->assertStringContainsString('"charge_price":"7.00"', $body,
+            'a cart whose every line is refused is no longer charged the method\'s own cost');
+        $this->assertStringNotContainsString('"charge_price":"0.00"', $body,
+            'an all-refused cart was quoted FREE shipping. The `continue` fires before '
+            . '$total_shipping_price is assigned, so without the explicit fallback the response '
+            . 'falls through to `?? 0` — the cheapest possible answer, and indistinguishable from '
+            . 'an empty cart.');
+        $this->assertStringNotContainsString('"charge_price":"102.00"', $body,
+            'the refused line took the product_no_cost bucket (7.00 + 95.00)');
+
+        /* AND THE RESPONSE MUST NOT PRICE THE FOREIGN PRODUCT AT ALL. */
+        $this->assertStringContainsString('"original_price":"0.00"', $body,
+            "the refused line still reported a product price; it must report none, because the "
+            . 'only product in this cart belongs to another store');
 
         /* NOTHING OF STORE B'S IS MODIFIED, which is the harder half of the guarantee. */
         (new Shipping)->flushCache();
@@ -408,6 +436,188 @@ class ForeignProductShippingQuoteTest extends SecurityTestCase
     }
 
     /**
+     * A PRODUCT OF THIS STORE WHOSE `shipping_id` NAMES ANOTHER STORE'S CLASS MUST BE CHARGED
+     * EXACTLY AS BEFORE — this is a regression the mandated review found in my own F283 fix.
+     *
+     * Nothing validates product ownership of a shipping class on the write path:
+     * `ProductController:816` assigns `$request->shipping_id` directly, and the admin API
+     * validates it only as `nullable`. So a merchant can point their own product at another
+     * store's class id, and legacy rows can already be in that state. **No cart-write defect is
+     * needed** — this is a merchant's own product in their own cart.
+     *
+     * BEFORE F283: `Shipping::find()` returned the foreign row, `$shippingClass` was non-null, the
+     * `else` branch ran, and `$key == $shippingClass->id` matched no key in this store's table —
+     * because `shippings.id` is a global auto-increment, so a foreign id can never equal one of
+     * this store's. The contribution was therefore **always +0**.
+     *
+     * AFTER my first fix: the helper returned null, which the caller reads as "this product has no
+     * class", and charged the **`product_no_cost` bucket** — 95.00 in this fixture. A deterministic
+     * OVER-charge, and the mirror image of the under-charge F283 was about.
+     *
+     * So the correct behaviour is the pre-change one: contribute nothing. "The class belongs to
+     * someone else" and "this product has no class" are different facts and must not collapse into
+     * one null.
+     */
+    public function test_an_own_product_pointing_at_a_foreign_class_is_charged_as_before(): void
+    {
+        $classA = $this->shippingClassIn($this->storeA, 'A class');
+        $methodA = $this->flatRateIn($this->storeA, [(string) $classA->id => '3.00'], '95.00');
+
+        $classB = $this->shippingClassIn($this->storeB, 'B class');
+
+        /* Store A's OWN product, pointing at store B's class. */
+        $own = $this->productIn($this->storeA, 'a-foreign-class', (int) $classB->id, '10.00');
+
+        $customer = $this->customerIn($this->storeA);
+        $this->rawCartRow($this->storeA, $customer, (int) $own->id);
+
+        $response = $this->quote($this->storeA, $customer, $methodA);
+
+        $this->assertNotSame(500, $response->getStatusCode(),
+            'the quote 500ed on a product pointing at a foreign class — '
+            . substr((string) $response->getContent(), 0, 300));
+
+        $body = (string) $response->getContent();
+
+        /* The method's own cost and nothing else: 7.00 + 0. */
+        $this->assertStringContainsString('"charge_price":"7.00"', $body,
+            'a product of this store whose shipping_id names another store\'s class is no longer '
+            . 'charged the way it was before F283 (method cost + 0)');
+
+        /* AND SPECIFICALLY NOT THE NO-COST BUCKET, which is the regression. */
+        $this->assertStringNotContainsString('"charge_price":"102.00"', $body,
+            'the foreign class collapsed into "this product has no class" and bought the '
+            . 'product_no_cost bucket (7.00 + 95.00). That is a deterministic OVER-charge '
+            . 'introduced by conflating two different facts into one null.');
+    }
+
+    /**
+     * The end of the method starting at `$start`: the next METHOD declaration, not the next
+     * `function` keyword.
+     *
+     * A plain `strpos($code, 'function ', $start + 10)` finds the first CLOSURE inside the method
+     * — `delivery_charge` has `function ($q) use ($store)` in its ShippingMethod predicate — and
+     * cut the window after a few hundred characters. The first bounded draft did exactly that and
+     * the ratchet went red, which is the good failure: a window that ends early makes
+     * `assertStringNotContainsString` pass silently, so it has to end in the right place.
+     *
+     * A method declaration is `function <name>(`; a closure is `function (` or `function(`.
+     */
+    private function methodEnd(string $code, int $start): int
+    {
+        if (preg_match('/\bfunction\s+[A-Za-z_]\w*\s*\(/', $code, $m, PREG_OFFSET_CAPTURE, $start + 10)) {
+            return (int) $m[0][1];
+        }
+
+        return strlen($code);
+    }
+
+    // =======================================================================================
+    //  THE PAYABLE TWIN — Cart::calculateFlatRateShippingAmount()
+    // =======================================================================================
+
+    /**
+     * THE TWIN THAT CHARGES MONEY REFUSES A FOREIGN LINE TOO.
+     *
+     * F283's first fix scoped `Api\ApiController::calculateFlaterate()` — the QUOTE path. **The
+     * order writers do not call it.** They call `Cart::calculateFlatRateShippingAmount()` through
+     * `CartController::get_shipping_method()`, and its result becomes
+     * `$order_array['delivery_charge']` and from there `orders.delivery_price` and
+     * `orders.final_price`. Found by the mandated review, which said it plainly: the first fix's
+     * reachability argument read as though `delivery_charge` were the surface, and it is not the
+     * surface that charges money.
+     *
+     * Driven directly on the method rather than through a full checkout, because what is being
+     * established is the arithmetic it returns for a foreign line — and the three figures are
+     * unambiguous: method 7.00 + class 3.00 = 10.00 for an owned classified product, and the
+     * method cost alone for a refused one.
+     */
+    public function test_the_payable_flat_rate_twin_refuses_a_foreign_line(): void
+    {
+        $classA = $this->shippingClassIn($this->storeA, 'A class');
+        $methodA = $this->flatRateIn($this->storeA, [(string) $classA->id => '3.00'], '95.00');
+
+        $classB = $this->shippingClassIn($this->storeB, 'B class');
+        $foreign = $this->productIn($this->storeB, 'b-product', (int) $classB->id, '99.00');
+        $own = $this->productIn($this->storeA, 'a-product', (int) $classA->id, '10.00');
+
+        $line = fn ($id) => (object) ['product_id' => $id, 'variant_id' => 0, 'qty' => 1];
+
+        /* The store's own product: method cost + its class bucket. */
+        $ownTotal = Cart::calculateFlatRateShippingAmount(
+            $methodA, $methodA->cost, [$line($own->id)], $this->storeA->id
+        );
+        $this->assertSame('10.00', number_format((float) $ownTotal, 2, '.', ''),
+            'the payable twin no longer charges this store\'s own classified product correctly '
+            . '(method 7.00 + class 3.00)');
+
+        /* Store B's product: refused, so the method cost alone. */
+        $foreignTotal = Cart::calculateFlatRateShippingAmount(
+            $methodA, $methodA->cost, [$line($foreign->id)], $this->storeA->id
+        );
+        $this->assertSame('7.00', number_format((float) $foreignTotal, 2, '.', ''),
+            'the payable twin priced a foreign line. Its result becomes orders.delivery_price and '
+            . 'orders.final_price, so a wrong figure here is PERSISTED, not merely displayed.');
+
+        /* AND NOTHING OF STORE B'S IS TOUCHED. */
+        (new \App\Models\Shipping)->flushCache();
+        $this->assertSame('B class',
+            \App\Models\Shipping::withoutGlobalScopes()->findOrFail($classB->id)->name,
+            "store B's shipping class was modified by a shipping calculation");
+    }
+
+    /**
+     * AN OWN PRODUCT POINTING AT A FOREIGN CLASS IS CHARGED AS BEFORE HERE TOO.
+     *
+     * The same regression the review found in the quote twin's first fix would be worse on this
+     * path, because the over-charge would be persisted on the order rather than shown in a quote.
+     */
+    public function test_the_payable_twin_does_not_overcharge_an_own_product_with_a_foreign_class(): void
+    {
+        $classA = $this->shippingClassIn($this->storeA, 'A class');
+        $methodA = $this->flatRateIn($this->storeA, [(string) $classA->id => '3.00'], '95.00');
+
+        $classB = $this->shippingClassIn($this->storeB, 'B class');
+        $own = $this->productIn($this->storeA, 'a-foreign-class', (int) $classB->id, '10.00');
+
+        $total = Cart::calculateFlatRateShippingAmount(
+            $methodA,
+            $methodA->cost,
+            [(object) ['product_id' => $own->id, 'variant_id' => 0, 'qty' => 1]],
+            $this->storeA->id
+        );
+
+        $this->assertSame('7.00', number_format((float) $total, 2, '.', ''),
+            'a product of this store whose shipping_id names another store\'s class was charged '
+            . 'the product_no_cost bucket (7.00 + 95.00 = 102.00) instead of the method cost. On '
+            . 'this path that over-charge is PERSISTED on the order.');
+    }
+
+    /**
+     * AND BOTH CALL SITES REALLY PASS THE STORE — a ratchet, because the parameter is OPTIONAL.
+     *
+     * It is optional so that no caller breaks and an un-updated one keeps its legacy behaviour
+     * rather than refusing every line on a payable path. That choice is only safe if the real
+     * callers pass it, which is a source fact and is pinned here.
+     */
+    public function test_both_shipping_callers_pass_the_resolved_store(): void
+    {
+        $code = $this->withoutComments(
+            (string) file_get_contents(app_path('Http/Controllers/CartController.php'))
+        );
+
+        $this->assertSame(0, substr_count($code, 'calculateFlatRateShippingAmount($shippingMethods, $shippingMethods->cost, $response->data->product_list)'),
+            'a call site of calculateFlatRateShippingAmount() omits the store argument, so that '
+            . 'path silently keeps the unscoped legacy behaviour on a payable calculation');
+
+        $this->assertSame(2, substr_count($code, 'calculateFlatRateShippingAmount('),
+            'the number of call sites changed; re-derive whether each one passes a '
+            . 'slug-resolved store');
+        $this->assertSame(2, substr_count($code, '$response->data->product_list, $store->id ?? null'),
+            'both call sites no longer pass the slug-resolved store id');
+    }
+
+    /**
      * THE DOWNSTREAM READS ARE SCOPED TOO, AND THIS IS A SOURCE RATCHET BECAUSE NOTHING
      * BEHAVIOURAL CAN ISOLATE THEM. Measured, not assumed.
      *
@@ -441,7 +651,28 @@ class ForeignProductShippingQuoteTest extends SecurityTestCase
 
         $start = strpos($code, 'function calculateFlaterate(');
         $this->assertNotFalse($start, 'premise: calculateFlaterate no longer exists');
-        $body = substr($code, (int) $start, 4000);
+
+        /*
+         * BOUNDED AT THE METHOD'S REAL END, NOT A MAGIC LENGTH — the mandated review flagged this
+         * and asked me to measure rather than trust its count, which was the right instruction.
+         *
+         * MEASURED: the comment-stripped body of `calculateFlaterate` is **4,231 characters**, and
+         * the first draft of this ratchet read a **4,000**-character window. It already ended 231
+         * characters short of the method. All four call sites happen to fall inside today, so the
+         * ratchet was not broken — but its load-bearing assertions are
+         * `assertStringNotContainsString`, which a window that falls short satisfies **silently**.
+         * A few added lines and it would have been guarding less than the method while still
+         * printing PASS.
+         *
+         * So the window ends where the method does: at the next `function ` declaration.
+         */
+        $next = $this->methodEnd($code, (int) $start);
+        $body = substr($code, (int) $start, $next - (int) $start);
+
+        $this->assertGreaterThan(4000, strlen($body),
+            'premise: the stripped method is shorter than the 4,000-character window the first '
+            . 'draft used, so the hazard this bound exists for is no longer present and this '
+            . 'assertion should be re-derived rather than relaxed');
 
         $this->assertStringNotContainsString('Product::find(', $body,
             'calculateFlaterate resolves a product with a bare find() again. Product is absent '
@@ -459,7 +690,9 @@ class ForeignProductShippingQuoteTest extends SecurityTestCase
         /* AND THE BOUNDARY ITSELF, which is the control that actually bites. */
         $dc = strpos($code, 'function delivery_charge(');
         $this->assertNotFalse($dc, 'premise: delivery_charge no longer exists');
-        $dcBody = substr($code, (int) $dc, 3000);
+
+        /* Same bound, same reason. */
+        $dcBody = substr($code, (int) $dc, $this->methodEnd($code, (int) $dc) - (int) $dc);
 
         $this->assertStringContainsString('productOfCartLineStore(', $dcBody,
             "delivery_charge resolves its cart line's product without the store-scoped resolver. "
