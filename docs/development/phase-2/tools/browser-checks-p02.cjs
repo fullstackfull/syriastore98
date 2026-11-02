@@ -154,12 +154,41 @@ const VARIANTS = [
      the direction that matters: if the digest ever became VISIBLE for a principal with no
      readable notifications, its link would be counted again and this check would fail. The
      assertion is still zero. */
+  /* [2026-11-02 / F251] AND THE PAGE-HEADER BREADCRUMB IS EXCLUDED, which it did not need to be
+     until the preview harness started rendering the real component.
+
+     The harness used to emit the host theme's `<ul class="breadcrumb">` for the page header, so
+     its Home link sat OUTSIDE `.ss-scope` and this selector never saw it. Fixing F251 made the
+     harness mirror `layouts/app.blade.php`'s `<x-ss.breadcrumb>`, whose `<ol>` carries `ss-scope`
+     — and this check immediately reported `#dashboard` as a link an ungated principal is offered.
+
+     IT IS NOT ONE. `/dashboard` carries `['auth','xss','setlocate','verified']` and NO permission
+     middleware (routes/web.php; `MerchantDashboardAbilities`'s docblock records it as the reason
+     the overview must gate itself region by region), so every authenticated merchant principal
+     reaches it — including a staff member whose role grants only Manage Blog. A breadcrumb to a
+     page everybody can open is navigation chrome, not an offer the controller would refuse, and
+     this check's own subject is the dashboard's REGION links.
+
+     Excluded STRUCTURALLY, by region, not by matching the string `#dashboard` — and the exclusion
+     is itself asserted below, so it cannot quietly grow to cover a real offer. */
   const npLinks = await page.$$eval('.ss-scope a[href]', els =>
     els.filter(e => e.offsetParent !== null)
+       .filter(e => !e.closest('.ss-breadcrumb'))
        .map(e => e.getAttribute('href'))
        .filter(h => h && h !== '#'));
   check('ungated staff are OFFERED no link the controller would refuse',
         npLinks.length === 0, npLinks.join(', ') || 'no links');
+
+  /* THE EXCLUSION IS EXACTLY ONE LINK, AND IT GOES TO THE DASHBOARD. Without this, "exclude the
+     breadcrumb" could hide any number of offers by someone moving a region inside it. */
+  /* `.ss-breadcrumb`, NOT `.ss-scope .ss-breadcrumb`: the component puts both classes on the SAME
+     `<ol>`, so a descendant selector matches nothing. My first draft used the descendant form and
+     this assertion reported "none" — it caught my own selector bug, which is what it is for. */
+  const npCrumbs = await page.$$eval('.ss-breadcrumb a[href]', els =>
+    els.filter(e => e.offsetParent !== null).map(e => e.getAttribute('href')));
+  check('the only link excluded from the check above is the breadcrumb Home crumb',
+        npCrumbs.length === 1 && /dashboard/.test(npCrumbs[0]),
+        npCrumbs.join(', ') || 'none');
 
   const npChips = await page.$$eval('.ss-chip', els =>
     els.map(e => ({ tag: e.tagName.toLowerCase(), pressed: e.getAttribute('aria-pressed') })));

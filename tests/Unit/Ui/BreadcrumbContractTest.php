@@ -212,6 +212,97 @@ class BreadcrumbContractTest extends TestCase
             'the layout still emits a legacy breadcrumb item of its own');
     }
 
+    /**
+     * THE PREVIEW HARNESS MUST RENDER THE DESIGN SYSTEM'S BREADCRUMB, NOT THE HOST THEME'S.
+     *
+     * ══════════════════════════════════════════════════════════════════════════════════════════
+     * THIS IS F251's SECOND FAILURE, AND NOTHING COULD HAVE CAUGHT IT
+     * ══════════════════════════════════════════════════════════════════════════════════════════
+     *
+     * `docs/design-system/tools/render-preview.php` builds the page chrome for every fixture the
+     * two real-browser suites measure. Its header emitted Bootstrap's `<ul class="breadcrumb">`
+     * with a BARE `<a href="#dashboard">Home</a>` — no `ss-` class — while
+     * `layouts/app.blade.php` has rendered `<x-ss.breadcrumb>` since P2-01-14, which puts
+     * `ss-breadcrumb__link` on the Home crumb like every other crumb. The harness's own comment
+     * even cited a line range of the layout that no longer held the markup.
+     *
+     * So the fixture was a hybrid that exists nowhere in the product, and
+     * `docs/design-system/tools/browser-checks.cjs` reported the consequence as a DESIGN-SYSTEM
+     * DEFECT: its focus-indicator probe (`a[href], button`) found 13 controls, 12 ringed at
+     * 3.74:1 and one — that Home link — ringed at 1.00:1, printed as *"12 of 13"*. Measured: every
+     * `ss-*` control was already correct. The accessibility gap was in the measuring instrument.
+     *
+     * **A BROWSER CHECK CANNOT CATCH THIS, WHICH IS WHY THE ASSERTION LIVES HERE.** The harness is
+     * what the browser suite measures, so a stale harness is invisible to it by construction — it
+     * faithfully reports whatever the harness renders. The agreement between the harness and the
+     * component is a source-level fact, and this is the only place it can be pinned.
+     *
+     * Asserted in BOTH directions, because either alone is escapable: the harness must emit the
+     * component's classes, and it must NOT emit the host theme's.
+     */
+    public function test_the_preview_harness_renders_the_design_system_breadcrumb(): void
+    {
+        /* `dirname(__DIR__, 3)` like every other reader in this file: this is a UNIT test, so no
+           application container is booted and `base_path()` is unavailable. */
+        $harness = (string) file_get_contents(
+            dirname(__DIR__, 3) . '/docs/design-system/tools/render-preview.php'
+        );
+
+        $this->assertNotSame('', $harness, 'premise: the preview harness could not be read');
+
+        /* The harness has to emit the component's own classes, Home crumb included. */
+        foreach (['ss-breadcrumb', 'ss-breadcrumb__item', 'ss-breadcrumb__link'] as $class) {
+            $this->assertStringContainsString($class, $harness,
+                "the preview harness does not emit `{$class}`, so every fixture the real-browser "
+                . 'suites measure carries chrome the product no longer renders — and the suites '
+                . 'will report that difference as a design-system defect, which is exactly what '
+                . 'F251 was');
+        }
+
+        /*
+         * AND IT MUST NOT HAVE GONE BACK TO THE HOST THEME'S LIST — asserted over the harness with
+         * its HTML COMMENTS STRIPPED, and the first draft of this very case is why.
+         *
+         * The harness's explanatory comment QUOTES the markup it replaced, so a raw
+         * `assertStringNotContainsString('<ul class="breadcrumb', ...)` failed against the
+         * documentation rather than the code. That is the "ratchet matching a comment that quotes
+         * the defect it scans for" failure this repository records, met here one layer out: the
+         * quote sits inside an `<!-- … -->` block inside a PHP heredoc, so PHP tokenisation does
+         * not reach it and only stripping HTML comments does.
+         */
+        $code = (string) preg_replace('/<!--.*?-->/s', '', $harness);
+
+        $this->assertNotSame('', $code, 'premise: stripping comments emptied the harness');
+        $this->assertStringContainsString('ss-breadcrumb__link', $code,
+            'premise: the design-system classes live only in a comment, so the assertions below '
+            . 'are reading prose rather than markup');
+
+        $this->assertStringNotContainsString('<ul class="breadcrumb', $code,
+            "the preview harness renders Bootstrap's breadcrumb list again");
+        $this->assertStringNotContainsString('class="breadcrumb-item', $code,
+            'the preview harness emits a legacy breadcrumb item again');
+
+        /*
+         * THE HOME CRUMB SPECIFICALLY, because it is the one that was wrong and the one the
+         * focus-indicator probe tripped over. A harness that classed the trail but not Home would
+         * satisfy every assertion above.
+         */
+        $this->assertMatchesRegularExpression(
+            '/<li class="ss-breadcrumb__item"><a class="ss-breadcrumb__link"[^>]*>Home<\/a><\/li>/',
+            $code,
+            "the preview harness's HOME crumb is not a design-system link. That single element is "
+            . 'what made the browser suite read 12 of 13 controls as ringed.'
+        );
+
+        /* AND THE LANDMARK STRUCTURE, mirroring what the component is asserted to be above. */
+        $this->assertStringContainsString('<nav aria-label="Breadcrumb">', $code,
+            'the preview harness does not wrap the trail in a labelled navigation landmark, so the '
+            . 'fixture and the component disagree about the ARIA pattern');
+        $this->assertStringContainsString('<ol class="ss-scope ss-breadcrumb', $code,
+            'the preview harness does not use an ORDERED list inside ss-scope, so either the '
+            . 'sequence semantics or the opt-in stylesheet scope differs from the component');
+    }
+
     public function test_the_component_is_a_labelled_navigation_landmark_around_an_ordered_list(): void
     {
         $component = (string) file_get_contents(

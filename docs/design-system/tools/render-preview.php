@@ -966,17 +966,44 @@ $html = <<<HTML
 </style>
 </head>
 <body class="theme-3">
-<!-- Real chrome structure from layouts/app.blade.php:188-214 -->
+<!--
+  Real chrome structure from layouts/app.blade.php.
+
+  [2026-11-02 / F251] THE BREADCRUMB HERE WAS TWO VERSIONS BEHIND THE PRODUCT, and that is what
+  made one of F251's two failures. This block emitted Bootstrap's `<ul class="breadcrumb">` with a
+  BARE `<a href="#dashboard">Home</a>` -- no `ss-` class -- while `layouts/app.blade.php:505` has
+  rendered `<x-ss.breadcrumb>` since P2-01-14, which puts `ss-breadcrumb__link` on the Home crumb
+  exactly like every other crumb.
+
+  So the fixture produced a HYBRID that exists nowhere in the product: a Bootstrap wrapper with an
+  unclassed Home link, spliced with the screen's own real `ss-breadcrumb__item` entries. The
+  focus-indicator probe (`a[href], button`) therefore found 13 controls of which 12 carried the
+  design system's 2px ring at 3.74:1 and ONE -- that Home link -- carried none, and the suite
+  reported it as "12 of 13", i.e. as a missing focus indicator in the design system.
+
+  IT WAS A MEASUREMENT ARTEFACT, NOT AN ACCESSIBILITY DEFECT. Measured before changing anything:
+  every `ss-*` control reaches 3.74:1, and the only unringed stop was markup the product had
+  already stopped emitting. The old comment above even cited `layouts/app.blade.php:188-214` for
+  the structure, a line range that no longer contains it -- a stale pointer of exactly the kind
+  this project keeps paying for.
+
+  Now mirrored from the component itself (`resources/views/components/ss/breadcrumb.blade.php`):
+  a labelled `<nav>` around an ORDERED list, because a trail is a sequence, and `ss-scope` so the
+  opt-in stylesheet applies. `BreadcrumbContractTest` is what keeps the component honest; this
+  keeps the HARNESS honest about the component.
+-->
 <div class="dash-container">
   <div class="dash-content">
     <div class="page-header mb-md-4 mb-3">
       <div class="page-block d-flex align-items-center justify-content-between gap-3 flex-wrap">
         <div class="page-header-wrp">
           <div class="page-header-title"><h2 class="h3 mb-0">{$title}</h2></div>
-          <ul class="breadcrumb mt-2">
-            <li class="breadcrumb-item"><a href="#dashboard">Home</a></li>
-            {$breadcrumb}
-          </ul>
+          <nav aria-label="Breadcrumb">
+            <ol class="ss-scope ss-breadcrumb mt-2">
+              <li class="ss-breadcrumb__item"><a class="ss-breadcrumb__link" href="#dashboard">Home</a></li>
+              {$breadcrumb}
+            </ol>
+          </nav>
         </div>
         <div class="page-header-icon d-flex flex-wrap gap-2">{$actions}</div>
       </div>
