@@ -166,15 +166,162 @@ final class SensitiveDiffGateTest extends TestCase
         );
     }
 
-    public function test_report_mode_still_honours_an_acknowledgement(): void
+    /**
+     * INVERTED ON 2026-11-02 BY OWNER DIRECTION (Decision 3, item 3). It used to be
+     * `test_report_mode_still_honours_an_acknowledgement`, and it asserted the opposite of what
+     * this now asserts. The old contract was not a mistake when written -- it was a mistake in
+     * what it trusted.
+     *
+     * `report` is the PUSH mode, and the acknowledgement file on a push is
+     * `git log --format=%B base..HEAD` -- THE COMMIT MESSAGES. A commit message is not a review:
+     * it is written by whoever wrote the code, before anyone reviewed it, and a reviewer cannot
+     * amend it without rewriting history.
+     *
+     * AND IT WAS EXPLOITED, BY ACCIDENT, WHICH IS WHY THE OWNER CHANGED THE CONTRACT. The commit
+     * that RECORDED the substring defect (P1-SEC-53) quoted the acknowledgement marker in its own
+     * message while explaining it. Measured against the real commit range: with that line present
+     * the script printed "Checklist acknowledged" and the `::warning` was SUPPRESSED; with the one
+     * line stripped, the warning fired as designed. A control that goes quiet because somebody
+     * documented it is the exact failure mode this file exists to prevent.
+     *
+     * So report mode now ignores the acknowledgement file ENTIRELY and always reports. The owner's
+     * words: "Stop treating pushed commit messages as proof of human review. In push/report mode,
+     * report the finding without falsely declaring acknowledgement."
+     *
+     * @see docs/security/HUMAN-REVIEW-GATE.md
+     */
+    public function test_report_mode_ignores_the_acknowledgement_file_entirely(): void
     {
         $this->commitFile('app/Policies/SomePolicy.php');
 
+        // A PERFECTLY VALID acknowledgement, on its own line. In enforce mode this would pass.
         [$code, $out] = $this->runGate('HEAD~1', "SECURITY-DIFF-REVIEW: completed\n", 'report');
 
-        $this->assertSame(0, $code, $out);
-        $this->assertStringContainsString('acknowledged', $out);
-        $this->assertStringNotContainsString('::warning::', $out);
+        $this->assertSame(0, $code, "report mode must still not block.\n{$out}");
+        $this->assertStringContainsString(
+            '::warning::',
+            $out,
+            'report mode must warn even when the ack file would have satisfied enforce mode: a '
+            . 'push has nothing a reviewer could have written.'
+        );
+        $this->assertStringNotContainsString(
+            'acknowledged',
+            $out,
+            'report mode must NOT declare an acknowledgement. The commit that recorded '
+            . 'P1-SEC-53 quoted the marker in its message and silenced this warning.'
+        );
+        $this->assertStringContainsString('REPORTED IS NOT SATISFIED', $out);
+    }
+
+    /**
+     * THE DEFECT THAT PROMPTED ALL OF THIS, as a test. The match was `grep -qF` -- a fixed-string
+     * SUBSTRING search over the whole body -- so an agent writing a warning that the checklist was
+     * NOT acknowledged, and quoting the marker inside that warning, SATISFIED THE GATE.
+     *
+     * Three check runs on one commit (acfa806b), with prose the only variable:
+     *     18:43:10Z  the push, body had no marker       failure
+     *     18:44:15Z  the description edit              SUCCESS, mergeable_state "clean"
+     *     19:30:03Z  the string removed                failure
+     *
+     * Owner direction, Decision 3, item 2: "Ensure quotation, negation and ordinary documentation
+     * do not satisfy the PR acknowledgement."
+     *
+     * @dataProvider nonAcknowledgements
+     */
+    public function test_the_marker_must_BE_a_line_not_appear_in_one(string $label, string $body): void
+    {
+        $this->commitFile('config/services.php');
+
+        [$code, $out] = $this->runGate('HEAD~1', $body, 'enforce');
+
+        $this->assertSame(1, $code, "{$label} must NOT acknowledge the checklist.\n{$out}");
+        $this->assertStringNotContainsString('acknowledged', $out, $label);
+    }
+
+    /** @return array<string, array{0:string,1:string}> */
+    public static function nonAcknowledgements(): array
+    {
+        $m = 'SECURITY-DIFF-REVIEW: completed';
+
+        return [
+            // The real one. A backticked mention inside a sentence.
+            'a backticked mention inside prose' => [
+                'a backticked mention inside prose',
+                "the acknowledgement line `{$m}` is absent, and I did not add it\n",
+            ],
+            // A sentence that DENIES the acknowledgement grants it, under a substring match.
+            'a sentence denying it' => [
+                'a sentence denying it',
+                "I have NOT written {$m} anywhere in this body\n",
+            ],
+            'a markdown blockquote' => [
+                'a markdown blockquote',
+                "> {$m}\n",
+            ],
+            'words after the marker' => [
+                'words after the marker',
+                "{$m} -- but only once a human has actually done it\n",
+            ],
+            'words before the marker' => [
+                'words before the marker',
+                "do not merge until someone writes {$m}\n",
+            ],
+            // FOUND BY THIS TEST, not by reading the script: anchoring alone still accepted a
+            // fenced block, because inside a fence the marker IS its own line -- and a fenced
+            // block is how anyone would DOCUMENT the marker. A pull request explaining this gate
+            // would have acknowledged itself.
+            'the marker inside a fenced block' => [
+                'the marker inside a fenced block',
+                "```\n{$m}\n```\n",
+            ],
+            'the marker inside a tilde fence' => [
+                'the marker inside a tilde fence',
+                "~~~\n{$m}\n~~~\n",
+            ],
+            'the marker inside a fence with an info string' => [
+                'the marker inside a fence with an info string',
+                "```text\n{$m}\n```\n",
+            ],
+            // Safe direction: an unterminated fence swallows the rest, so the gate stays red.
+            'the marker after an unterminated fence' => [
+                'the marker after an unterminated fence',
+                "```\nsome example\n\n{$m}\n",
+            ],
+        ];
+    }
+
+    /**
+     * THE POSITIVE CONTROL FOR THE ABOVE. Anchoring must not have made the gate unsatisfiable --
+     * a reviewer's standalone line still acknowledges it, indented or with CRLF endings, because
+     * GitHub pull-request bodies arrive with CRLF and a reviewer may indent.
+     *
+     * Without this, every assertion in test_the_marker_must_BE_a_line_not_appear_in_one would
+     * also pass against a gate that simply never acknowledges anything.
+     *
+     * @dataProvider realAcknowledgements
+     */
+    public function test_a_standalone_marker_line_still_acknowledges(string $label, string $body): void
+    {
+        $this->commitFile('config/services.php');
+
+        [$code, $out] = $this->runGate('HEAD~1', $body, 'enforce');
+
+        $this->assertSame(0, $code, "{$label} must acknowledge the checklist.\n{$out}");
+        $this->assertStringContainsString('acknowledged on its own line', $out, $label);
+    }
+
+    /** @return array<string, array{0:string,1:string}> */
+    public static function realAcknowledgements(): array
+    {
+        $m = 'SECURITY-DIFF-REVIEW: completed';
+
+        return [
+            'on its own line'            => ['on its own line', "answers above\n\n{$m}\n"],
+            'indented'                   => ['indented', "answers above\n\n    {$m}\n"],
+            'with CRLF line endings'     => ['with CRLF line endings', "answers above\r\n{$m}\r\n"],
+            'with trailing whitespace'   => ['with trailing whitespace', "{$m}   \n"],
+            'as the only line in a body' => ['as the only line in a body', "{$m}"],
+        ];
     }
 
     /**

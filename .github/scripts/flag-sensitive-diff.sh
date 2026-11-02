@@ -73,14 +73,80 @@ git diff --numstat "${BASE_REF}...HEAD" -- $(echo "$SENSITIVE" | tr '\n' ' ') 2>
 echo
 echo "Checklist: .github/SECURITY-DIFF-REVIEW.md"
 
-# The acknowledgement is a literal marker in a human-authored text: a pull request body on a
-# pull request, or the pushed commit messages on a push. Deliberately a human action either way.
+# ==========================================================================================
+# THE ACKNOWLEDGEMENT. Owner direction of 2026-11-02, items 1-3. Read this before changing it.
+# ==========================================================================================
+#
+# [1] THE MATCH IS ANCHORED TO A WHOLE LINE. It was `grep -qF`, a fixed-string SUBSTRING search
+#     over the entire text, and that is not a near-miss -- it was exploited by accident. Writing
+#     PR #125's description, an agent added a prominent warning that the checklist was NOT
+#     acknowledged and QUOTED the marker inside that warning. The quote satisfied the gate.
+#     Three check runs on one commit (acfa806b), with prose the only variable:
+#
+#         18:43:10Z  the push, body had no marker          failure
+#         18:44:15Z  the description edit                  SUCCESS, mergeable_state "clean"
+#         19:30:03Z  the string removed from the body      failure
+#
+#     A substring match measures THE PRESENCE OF TEXT, not the occurrence of the act that text
+#     describes. Recorded as P1-SEC-53 in docs/security/P01-SECURITY-WORK-QUEUE.md S55.
+#
+# [2] SO QUOTATION, NEGATION AND DOCUMENTATION MUST NOT SATISFY IT. The body is normalised --
+#     CR stripped, each line trimmed -- and then matched with `grep -qxF`, which requires the
+#     WHOLE line to be the marker and nothing else. That rejects, by construction:
+#         `SECURITY-DIFF-REVIEW: completed`   (backticks: the accidental case above)
+#         > SECURITY-DIFF-REVIEW: completed   (a markdown blockquote, i.e. a quotation)
+#         the line SECURITY-DIFF-REVIEW: completed is absent   (prose, including a denial)
+#     and accepts a reviewer's standalone line, indented or not. The six scenarios are
+#     executed by tests/Support/Security/bin/verify-attestation-gate-scenarios.sh, which CI
+#     runs, so this property is ratcheted rather than asserted.
+#
+# [3] A PUSH CANNOT BE ACKNOWLEDGED AT ALL, and `report` mode no longer pretends otherwise.
+#     The acknowledgement source on a push was `git log --format=%B base..HEAD` -- the COMMIT
+#     MESSAGES. A commit message is not a review: it is written by whoever wrote the code,
+#     before anyone reviewed it, and it cannot be amended by a reviewer without rewriting
+#     history. It was also exploited by the same accident: the commit that RECORDED the
+#     substring defect quoted the marker in its message, and the `::warning` was suppressed.
+#     So in `report` mode the acknowledgement file is IGNORED ENTIRELY and the finding is
+#     always reported. Only `enforce` mode -- a pull request, whose body a reviewer can edit
+#     without touching history -- consults it.
+#
+# WHAT THIS STILL DOES NOT ESTABLISH, stated here because the header is where it will be read:
+# a line in a pull request body is still a line in a pull request body. GitHub records no
+# distinction between a line the owner typed and a line an automation generated, and in this
+# repository both act as the same login. The acknowledgement that CAN carry that meaning is a
+# GitHub review approval from a different identity, which is what
+# .github/scripts/assert-human-approval.sh checks -- see docs/security/HUMAN-REVIEW-GATE.md.
 ACK_MARKER='SECURITY-DIFF-REVIEW: completed'
 
-if [[ -n "$BODY_FILE" && -f "$BODY_FILE" ]] && grep -qF "$ACK_MARKER" "$BODY_FILE"; then
-  echo
-  echo "Checklist acknowledged in ${BODY_FILE}."
-  exit 0
+# `report` mode (a push) has no reviewable body, so it has no acknowledgement. Do not look.
+if [[ "$MODE" == "enforce" && -n "$BODY_FILE" && -f "$BODY_FILE" ]]; then
+  # Normalise, then require the marker to BE a line rather than appear in one.
+  #
+  # FENCED CODE BLOCKS ARE STRIPPED FIRST, and that is not fussiness -- it was found by the
+  # test that was written for the anchoring itself. Inside a ``` fence the marker IS on its own
+  # line, so anchoring alone still accepted it, and a fenced block is the single most natural
+  # way to DOCUMENT the marker in a pull request description. The owner's item 2 is explicit:
+  # "quotation, negation and ordinary documentation do not satisfy the PR acknowledgement."
+  # A pull request that explains this very gate would otherwise acknowledge itself.
+  #
+  # An UNTERMINATED fence swallows the rest of the body, so a marker after one is ignored and
+  # the gate stays red. That is the safe direction, and it is asserted.
+  if awk '
+      BEGIN { fence = 0 }
+      {
+        line = $0
+        sub(/\r$/, "", line)
+        trimmed = line
+        gsub(/^[[:space:]]+|[[:space:]]+$/, "", trimmed)
+        if (trimmed ~ /^(```|~~~)/) { fence = 1 - fence; next }
+        if (fence) { next }
+        print trimmed
+      }
+    ' "$BODY_FILE" | grep -qxF "$ACK_MARKER"; then
+    echo
+    echo "Checklist acknowledged on its own line in ${BODY_FILE}."
+    exit 0
+  fi
 fi
 
 # Record it where it outlives the log. A bypass that is only in a collapsed log section is the
@@ -103,11 +169,12 @@ fi
 
 if [[ "$MODE" == "report" ]]; then
   echo
-  echo "::warning::This change touches security-sensitive paths and the review checklist was"
-  echo "::warning::NOT acknowledged. On a direct push there is no pull request body to"
-  echo "::warning::acknowledge in, so this is REPORTED and not enforced -- which is not the"
-  echo "::warning::same as satisfied. Work through .github/SECURITY-DIFF-REVIEW.md, or route"
-  echo "::warning::the change through a pull request where this gate blocks."
+  echo "::warning::This change touches security-sensitive paths. This is REPORTED, NOT ENFORCED,"
+  echo "::warning::and REPORTED IS NOT SATISFIED. It is also NOT an acknowledgement: a push has no"
+  echo "::warning::reviewable body, and commit messages are deliberately NOT accepted as proof of"
+  echo "::warning::review -- they are written by whoever wrote the code, before anyone reviewed it,"
+  echo "::warning::and a reviewer cannot amend them without rewriting history. Route the change"
+  echo "::warning::through a pull request, where the checklist blocks and an approval can be required."
   exit 0
 fi
 

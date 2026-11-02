@@ -528,6 +528,16 @@ jobs:
       - name: Guard - no live .env in the checkout or the index
         run: .github/scripts/guard-no-env-files.sh .
 
+      - name: Guard - the attestation gate behaves as specified
+        # THE GATE'S OWN BEHAVIOUR IS RATCHETED, which is the lesson of P1-SEC-48 through
+        # -53: four controls in a row reported success without measuring anything, and the
+        # checklist gate was satisfied BY A SENTENCE SAYING IT WAS NOT. A property defended
+        # only by a comment is a property that will drift, so the twenty-five scenarios --
+        # positive, negative, quoted marker, denied marker, stale review, author
+        # self-approval, and every error path -- run here on every pull request. Offline,
+        # no network, about one second.
+        run: tests/Support/Security/bin/verify-attestation-gate-scenarios.sh .
+
       - name: Guard - GATE F money tables are still created by nothing
         # BLOCKING, and deliberately duplicated from
         # tests/Unit/Database/GateFSchemaContainmentTest.php, which asserts the same
