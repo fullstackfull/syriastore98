@@ -197,12 +197,76 @@ class RouteShadowingTest extends TestCase
         $lost = [];
 
         foreach ($declared as $name => $sites) {
+            if (array_key_exists($name, self::GATED_ROUTES)) {
+                continue;   // asserted below, against its gate's ACTUAL state
+            }
+
             if (!Route::has($name)) {
                 $lost[$name] = implode(', ', $sites);
             }
         }
 
         $this->assertSame([], $lost, "Declared route names missing from the registry: " . print_r($lost, true));
+    }
+
+    /**
+     * ROUTES DECLARED INSIDE A CONFIG GATE, each mapped to the gate that controls it.
+     *
+     * A name wrapped in `if (config(...))` is legitimately absent from the registry while the gate
+     * is shut, which is exactly the thing the scan above would otherwise report as a LOST route.
+     * The entry is not an exemption: `test_every_gated_route_follows_its_gate()` asserts the name
+     * against the gate's real state in BOTH directions, so a gated route that disappears when its
+     * gate is OPEN still fails, and one that appears when its gate is SHUT fails too.
+     *
+     * Keep this map tiny. A route belongs here only when a config key decides whether it exists at
+     * all, and the reason has to be written down beside it.
+     *
+     * - `payment.callback.paytm.plan` (F241, `routes/api.php`): the provider-authenticated Paytm
+     *   plan callback. It ships CLOSED because no LIVE Paytm transaction has been verified from
+     *   this container — there are no Paytm credentials here and no network path to
+     *   `securegw.paytm.in` — and the owner's condition is that no callback is exposed until
+     *   authenticity, intent binding, replay resistance and concurrency safety are all proven. See
+     *   `config/payments.php`.
+     */
+    private const GATED_ROUTES = [
+        'payment.callback.paytm.plan' => 'payments.paytm_callback_enabled',
+    ];
+
+    /**
+     * A GATED ROUTE EXISTS EXACTLY WHEN ITS GATE SAYS SO — the other half of the exemption above.
+     *
+     * This is what stops `GATED_ROUTES` from becoming a place to park a route that really did get
+     * lost. The route file is read at BOOT, so the gate cannot be flipped and re-measured inside
+     * one test; what is measured is agreement between the registry and the gate as this process
+     * loaded them, plus the fact that the declaration really is wrapped in that gate.
+     */
+    public function test_every_gated_route_follows_its_gate(): void
+    {
+        $this->assertNotEmpty(self::GATED_ROUTES, 'premise: the map is empty, so this is vacuous');
+
+        foreach (self::GATED_ROUTES as $name => $configKey) {
+            $open = (bool) config($configKey);
+
+            $this->assertSame($open, Route::has($name),
+                $open
+                    ? "config('{$configKey}') is TRUE but route '{$name}' is not registered, so the "
+                      . 'gate is open and the route is genuinely lost'
+                    : "config('{$configKey}') is FALSE but route '{$name}' IS registered, so the "
+                      . 'gate is not actually gating anything');
+
+            /*
+             * AND THE DECLARATION IS REALLY INSIDE THAT GATE. Without this, an entry here would
+             * excuse an ungated route whose name happened to be missing for some other reason.
+             */
+            $sources = '';
+
+            foreach (glob(base_path('routes') . '/*.php') ?: [] as $path) {
+                $sources .= (string) file_get_contents($path);
+            }
+
+            $this->assertStringContainsString("config('{$configKey}')", $sources,
+                "'{$name}' is listed as gated by {$configKey}, but no route file consults that key");
+        }
     }
 
     /**

@@ -136,13 +136,30 @@ class SecurityLogInventoryTest extends SecurityTestCase
             . implode("\n  ", array_map(
                 fn ($k, $v) => $k . '  ' . $v,
                 array_keys($undocumented), $undocumented
-            )));
+            ))
+            /* THE REPAIR COMMAND BELONGS IN THE FAILURE, not only in the document's header.
+               A row drifts whenever code ABOVE a log line is edited, which is routine, and the
+               fix is mechanical when the line only MOVED. This failure has been met twice in
+               Phase 02 -- once after F46/F29 shifted twelve rows, once after F81 shifted two --
+               and on the first occasion a hand-written replacement for the tool was attempted and
+               was WEAKER than it: matching by (file, message) and then diffing by key, it refused
+               on a pair where one line number existed in both the source and the document while
+               carrying different messages. The tool re-points every row in a group by order and
+               handles that case. Naming it here is what stops the next reader rediscovering all
+               of it. */
+            . "\n\nIf these lines only MOVED, this is mechanical:\n"
+            . "    python3 docs/development/phase-1/tools/resync-observability-inventory.py --write\n"
+            . "It re-points rows by (file, message) and REFUSES to write when a line was added or\n"
+            . "deleted rather than moved -- that is a real inventory change, and a new row needs a\n"
+            . "stated destination and reader, which only a person can give it.");
 
         $stale = array_diff_key($document, $source);
         $this->assertSame([], $stale,
             "These rows are in " . self::DOC . " and no longer exist in app/. An inventory that "
             . "lists lines that were deleted is not an inventory:\n  "
-            . implode("\n  ", array_keys($stale)));
+            . implode("\n  ", array_keys($stale))
+            . "\n\nSame repair as above when the lines only moved:\n"
+            . "    python3 docs/development/phase-1/tools/resync-observability-inventory.py --write");
     }
 
     /**

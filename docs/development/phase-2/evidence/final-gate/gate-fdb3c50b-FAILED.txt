@@ -1,0 +1,41 @@
+FROZEN HEAD: fdb3c50b  (Fri Oct 30 23:16:47 UTC 2026)
+=== FEATURE ===
+    137▕                 fn ($k, $v) => $k . '  ' . $v,
+
+  1   tests/Feature/Security/SecurityLogInventoryTest.php:133
+
+
+  Tests:    3 failed, 17 skipped, 6955 passed (34703 assertions)
+  Duration: 1536.29s
+
+=== KNOWN-OUTCOME ASSERTER ===
+KNOWN-OUTCOME GATE
+------------------------------------------------------------------------------
+junit log            : storage/logs/feature-junit.xml
+manifest             : .github/known-test-outcomes.json
+testcases observed   : 6975  (manifest floor 1000)
+failures observed    : 3  (manifest declares 2)
+errors observed      : 0  (always expected: 0)
+skips observed       : 17  (manifest declares 17)
+
+::error::NEW FAILURE, not in the manifest: Tests\Feature\Security\SecurityLogInventoryTest::test_the_observability_inventory_matches_the_source
+::error::  Tests\Feature\Security\SecurityLogInventoryTest::test_the_observability_inventory_matches_the_source These security log lines exist in app/ and are NOT in docs/security/P01-OBSERVABILITY-INVENTORY.md. A line with no entry in the inventory is a line with no stated destination: app/Helper/helper.php:429 paid download url not issued app/Http/Controllers/PaidDownloadController.php:329 paid download refused: resolved path escapes the uploads root app/Http/Controllers/PaidDownloadController.php:349 paid download refused If these lines only MOVED, this is mechanical: python3 docs/development/phase-1/
+::error::
+::error::This is a regression unless you can show otherwise. Do NOT add it to
+::error::.github/known-test-outcomes.json to get green -- that file records failures the owner
+::error::has accepted with a named root cause, not a list of things currently broken.
+skip reasons parsed  : 17 from feature-teamcity.txt
+
+
+::error::
+::error::KNOWN-OUTCOME GATE FAILED. The observed outcome set does not match the manifest.
+=== UNIT ===
+  Tests:    657 passed (4093 assertions)
+  Duration: 34.10s
+
+=== CONTRACT ===
+  Tests:    26 passed (83 assertions)
+  Duration: 4.28s
+
+=== TREE STILL CLEAN? ===
+(empty above = the run measured this commit)

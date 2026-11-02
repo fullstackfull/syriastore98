@@ -4254,3 +4254,467 @@ body.custom-color .nex-prev-btn-wrp .btn {
     max-width: fit-content;
     margin: 24px auto 0 ;
 }
+
+/* ==========================================================================
+   P2-01: sidebar navigation legibility below 1025px
+   ==========================================================================
+
+   `partision/sidebar.blade.php` puts `transprent-bg` on the nav whenever
+   `cust_theme_bg` is 'on', which is the DEFAULT (Utility.php:44,
+   helper.php:1106 and :1181, DefaultSetting.php:32, app.blade.php:17). But the
+   rule that acts on it --
+
+       @media (min-width: 1025px) {
+         .dash-sidebar.light-sidebar.transprent-bg { background: transparent }
+       }                                            -- assets/css/style.css
+
+   -- is gated at 1025px. Below that the nav falls back to
+   `.dash-sidebar { background: #1c232f }` while this file's own
+   `.dash-sidebar .dash-link { color: #333333 }` stays where it is. Measured in
+   Chromium at 360/390/768/1024px, en and ar, on default settings:
+
+       label  #333333 on #1c232f   1.25:1
+       icon   #060606 on #1c232f   ~1.07:1
+       search #293240 on #1c232f   ~1.30:1
+
+   So on a phone or tablet a merchant could not read the navigation, the icons,
+   or what they typed into the sidebar search. At 1440px the same page measures
+   12.01:1 -- which is why desktop screenshots and a desktop contrast probe both
+   reported it clean. It took a 390px screenshot to see it.
+
+   The fix follows the background that is actually there rather than changing
+   it: below 1025px the sidebar IS dark, by the host's own design, so the text
+   is made light. Nothing above 1025px is touched.
+
+   Specificity is deliberate, not incidental. `.dash-sidebar .dash-navbar
+   .dash-link` is (0,3,0): it beats this file's (0,2,0) base rule and LOSES to
+   `.dash-sidebar .dash-item.active>.dash-link` and the `:hover`/`:focus`
+   variants at (0,4,0), so the active and hover states keep their own `#fff`.
+   No `!important` is used, which also leaves `style-dark.css`'s
+   `color: #808191 !important` to win in dark mode -- dark mode is unchanged
+   here and its own AA shortfall is tracked separately (ledger F8).
+
+   Note #808191, the host's own dark-sidebar grey, is NOT reused: on #1c232f it
+   reaches only 4.11:1, under the 4.5:1 that `.dash-link`'s 15px/500 requires.
+   ========================================================================== */
+@media (max-width: 1024px) {
+    .dash-sidebar .dash-navbar .dash-link,
+    .dash-sidebar .dash-navbar .dash-link .dash-mtext {
+        color: #c7ccd4;
+    }
+
+    .dash-sidebar.light-sidebar .dash-navbar .dash-link i,
+    .dash-sidebar .dash-navbar .dash-link .dash-arrow {
+        color: #c7ccd4;
+    }
+
+    .dash-sidebar .sidebar-input .form-control {
+        color: #e9ecf1;
+    }
+
+    .dash-sidebar .sidebar-input .form-control::placeholder {
+        color: #a7adba;
+        opacity: 1;
+    }
+
+    .dash-sidebar .sidebar-input i {
+        color: #c7ccd4;
+    }
+}
+
+/* ==========================================================================
+   P2-01-11: sidebar navigation zone headings
+   ==========================================================================
+
+   A zone heading is emitted by partision/menu-zones.blade.php as a SIBLING
+   `<li class="dash-item ss-nav-zone">`, never a wrapper -- wrapping an item
+   would take it out of `.dash-navbar > .dash-item` and break the sidebar
+   search with no error (layouts/app.blade.php:426).
+
+   Carrying `dash-item` is what makes the heading hide and reappear with the
+   search for free, but it also brings the host's item styling, which has to be
+   neutralised: an item is interactive, a heading is not.
+
+   Typography and colour are NOT here: the heading uses .ss-navgroup, the
+   design system's own nav-group component. What is here is only the part the
+   design system must not know about -- cancelling the host's `.dash-item`
+   styling, which the heading inherits because it carries that class.
+   ========================================================================== */
+.dash-sidebar .dash-navbar > .dash-item.ss-nav-zone {
+    /* Not a control: no hover, no pointer, no focus target. */
+    pointer-events: none;
+    background: none;
+    cursor: default;
+    margin: 18px 0 2px;
+    padding: 0;
+}
+
+.dash-sidebar .dash-navbar > .dash-item.ss-nav-zone:first-child {
+    margin-block-start: 4px;
+}
+
+.dash-sidebar .dash-navbar > .dash-item.ss-nav-zone::before,
+.dash-sidebar .dash-navbar > .dash-item.ss-nav-zone::after {
+    /* The host draws a bullet marker on submenu items; a heading gets none. */
+    content: none;
+}
+
+
+/* The search row has to make room for the rail toggle.
+
+   `.sidebar-input .form-control` is `width: 100%` from the host, so in a flex
+   row it claimed the whole width and pushed the 30px toggle PAST the sidebar's
+   edge -- rendered, visible to a probe, and clipped out of sight. Measured
+   before this rule: row x=36 w=279 (ends 315), toggle x=285 w=30, sidebar 280.
+
+   Scoped to `.dash-sidebar` so the many other `.sidebar-input` users across the
+   70 modules are untouched. `min-width: 0` is the part that actually does the
+   work: a flex item will not shrink below its content width without it. */
+.dash-sidebar .sidebar-input {
+    gap: 6px;
+}
+
+.dash-sidebar .sidebar-input .form-control {
+    flex: 1 1 auto;
+    min-width: 0;
+    width: auto;
+}
+
+/* ==========================================================================
+   P2-01-11: the sidebar carries the DARK token set below 1025px
+   ==========================================================================
+
+   The chip and the zone headings are design-system components, so they read
+   --ss-surface / --ss-fg / --ss-fg-subtle. Those resolve to the LIGHT palette
+   unless :root carries data-ss-theme="dark".
+
+   But the sidebar is dark below 1025px even in light mode: style.css only
+   applies `transprent-bg` inside @media (min-width: 1025px), so under that
+   width `.dash-sidebar { background: #1c232f }` wins. Light tokens on that
+   surface is how the nav labels reached 1.25:1 before the fix above, and the
+   chip would have repeated it exactly.
+
+   So the sidebar subtree is given the dark values of the six colour tokens it
+   actually uses. Copied verbatim from the [data-ss-theme="dark"] block in
+   store-syria-ds.css so the two cannot drift into different darks; the
+   remaining 29 tokens are spacing, radii and type, which do not change with
+   theme.
+
+   Above 1025px nothing here applies and the light tokens stand, which is
+   correct: there the sidebar really is light. */
+@media (max-width: 1024px) {
+    .dash-sidebar {
+        --ss-surface:        #263331;
+        --ss-surface-hover:  #2d3b39;
+        --ss-surface-sunken: #1f2a28;
+        --ss-fg:             #e8eded;
+        --ss-fg-muted:       #a7b2b1;
+        --ss-fg-subtle:      #95a09e;
+        --ss-border:         #364442;
+        --ss-border-strong:  #7d8a88;
+    }
+}
+
+/* Placement of the chip INSIDE the host's sidebar. The component itself
+   (.ss-workspace, store-syria-ds.css) is `width: 100%` with no margin, which is
+   right for a component: where it sits is the host's business, not the design
+   system's. Without this the chip ran edge-to-edge while the search box below
+   it was inset, which read as a rendering fault rather than a design. */
+.dash-sidebar .ss-workspace-wrap {
+    margin: 12px 10px 4px;
+}
+/* The host positions the search magnifier with a DESCENDANT selector --
+   `.sidebar-input i { position: absolute; top: 20px; left: 10px }` (custom.css)
+   -- so it also captured the <i> inside the rail-toggle button, pinning it on
+   top of the magnifier while the button itself sat 240px away at the end of the
+   row. Measured: both icons at x=46, button at x=285. The screenshot showed one
+   odd doubled glyph and an apparently empty button.
+
+   Putting the icon back in normal flow is enough; the button is already a grid
+   that centres it. */
+.dash-sidebar .sidebar-input .ss-rail-toggle i {
+    position: static;
+    transform: none;
+    font-size: 18px;
+}
+/* =============================================================================================
+   P2-A-02 / ledger F8 — DARK MODE CONTRAST, the half that was still open.
+   =============================================================================================
+
+   MEASURED IN THE RUNNING APPLICATION, not in a preview: `#808191` on the dark surfaces gives
+   3.71:1 for the sidebar label, the sidebar search field and every table cell, and 4.03:1 for a
+   breadcrumb link. AA wants 4.5:1 for text this size. P2-01-13 fixed the LIGHT sidebar below
+   1025px and recorded dark mode as still open, for a reason that no longer holds: the fix needs
+   regression evidence and the Feature suite could not run while Composer was blocked. It runs
+   now.
+
+   `#9DA3B4` IS THE SAME HUE, LIFTED. Measured on the two real backgrounds: 5.66:1 on #292A33
+   (sidebar, cards, tables) and 6.14:1 on #22242C (the breadcrumb bar), against 3.71 and 4.03.
+   The design system's own dark `--ss-fg-muted` (#a7b2b1) would also pass at 6.55:1, but it is a
+   GREEN-grey chosen for the design system's own surfaces and would read as a different palette
+   beside the host's blue-greys. Keeping the hue is what makes this a legibility fix rather than
+   a restyle.
+
+   WHY HERE AND NOT IN style-dark.css. The value there is `#808191 !important` on a selector list
+   shared with `p` and `.dataTable-info`, and that file is a host theme asset: an in-place edit is
+   reverted by the next theme update and leaves no record. custom.css is first-party and survives.
+   That is also why these rules carry `!important` and an extra `body` — they have to beat an
+   `!important` at (0,2,0), and (0,3,1) does.
+
+   SCOPED TO DARK ONLY. custom.css is loaded in BOTH light and dark, so without a hook these
+   rules would wash out the light admin. `data-ss-theme` is published by the head script in
+   layouts/app.blade.php, which reads the host's own #main-style-link swap. */
+
+html[data-ss-theme="dark"] body .dash-sidebar .dash-link,
+html[data-ss-theme="dark"] body .dash-sidebar .dash-link .dash-mtext,
+html[data-ss-theme="dark"] body .dash-sidebar.light-sidebar .dash-link i,
+html[data-ss-theme="dark"] body .sidebar-input i,
+/* The search FIELD's own text, not just its icon. The first pass styled `.sidebar-input i` and
+   left the input at 3.71:1 -- measured, which is the only reason it was noticed. */
+html[data-ss-theme="dark"] body #sidebar-search,
+html[data-ss-theme="dark"] body .dash-sidebar input[type="text"],
+html[data-ss-theme="dark"] body .dash-sidebar input[type="search"],
+html[data-ss-theme="dark"] body .dash-sidebar .form-control,
+html[data-ss-theme="dark"] body .dataTable-info,
+html[data-ss-theme="dark"] body .dataTable-dropdown label,
+html[data-ss-theme="dark"] body div.dataTables_wrapper div.dataTables_info,
+html[data-ss-theme="dark"] body .breadcrumb a,
+html[data-ss-theme="dark"] body label {
+    color: #9DA3B4 !important;
+}
+
+/* --------------------------------------------------------------------------
+   P2-05-4 — A LIGHT-SCOPED SUBTREE KEEPS ITS OWN FOREGROUND.
+   --------------------------------------------------------------------------
+   The rule above ends in a BARE ELEMENT SELECTOR -- `html[data-ss-theme="dark"]
+   body label` -- so it paints EVERY label in the admin `#9DA3B4` whenever dark
+   mode is on. That is right for the sidebar and the DataTables chrome it was
+   written for, and wrong everywhere the surface under the label is not dark.
+
+   The host's Bootstrap modal is exactly that: `#commanModel .modal-content`
+   stays WHITE in dark mode -- measured `rgb(255, 255, 255)` with
+   `data-ss-theme="dark"` on <html> -- so `#9DA3B4` on it measures **2.52:1**
+   against the 4.5:1 body text needs.
+
+   THIS PREDATES THE DESIGN-SYSTEM CONVERSION and is not caused by it. The
+   previous markup used `<label class="form-label">`, which is still a `label`
+   and was matched by the same rule: six of them on the create-category form
+   alone, all at 2.52:1. The conversion did not introduce the defect, it
+   measured it.
+
+   WHAT IS FIXED HERE IS ONLY THE SCOPED CASE. A container carrying
+   `data-ss-theme="light"` has declared which surface it is on, so its labels
+   take the design system's foreground for that surface. Specificity 0,3,2
+   beats the 0,2,1 above; both are `!important`, so specificity decides.
+
+   WHAT IS NOT FIXED, and is recorded as a ledger finding rather than widened
+   into this slice: every OTHER modal in the admin -- roughly sixty forms
+   across the host and seventy vendored modules -- still renders its labels at
+   2.52:1 in dark mode. Fixing that means either narrowing the rule above to
+   the chrome it was written for and re-measuring the sidebar and tables it
+   was added to fix, or marking every modal's surface. Both need their own
+   measurement pass.
+   -------------------------------------------------------------------------- */
+html[data-ss-theme="dark"] body [data-ss-theme="light"] label,
+html[data-ss-theme="dark"] body [data-ss-theme="light"] .ss-label {
+    color: var(--ss-fg) !important;
+}
+
+
+/* The table body is the other 3.71:1 surface. Bootstrap drives it through a custom property
+   rather than a colour declaration, so the property is what has to move. */
+html[data-ss-theme="dark"] body .table {
+    --bs-table-color: #9DA3B4;
+    --bs-table-striped-color: #9DA3B4;
+    --bs-table-active-color: #9DA3B4;
+    --bs-table-hover-color: #9DA3B4;
+}
+
+/* The ACTIVE item keeps its own white-on-brand treatment, which F9 below handles. Excluded here
+   so this rule cannot quietly take over that decision. */
+html[data-ss-theme="dark"] body .dash-sidebar .dash-navbar > .dash-item.active > .dash-link,
+html[data-ss-theme="dark"] body .dash-sidebar .dash-navbar > .dash-item.active > .dash-link .dash-mtext {
+    color: var(--ss-onbrand, #fff) !important;
+}
+
+/* =============================================================================================
+   P2-A-03 / ledger F9 — THE SELECTED NAVIGATION ITEM, at every width and in both themes.
+   =============================================================================================
+
+   `#fff` on `var(--theme-color)` measures 2.59:1 on the default theme-3, so the merchant's
+   current location was the least legible label on the screen. F9 was recorded as an owner
+   decision because `--theme-color` is the merchant's own brand — ten presets plus a picker — and
+   there is no single safe label colour.
+
+   THIS CHANGES NO BRAND COLOUR. The background stays exactly what the merchant chose; only the
+   label flips to whichever of white or near-black is readable on it, computed from the brand's
+   own WCAG luminance by the first-in-body script in layouts/app.blade.php. Measured across all
+   ten presets: white wins on six, near-black on four, and every one of the ten reaches AA — the
+   worst case becomes 4.90:1 where six were previously below 4.5:1. A custom picker colour goes
+   through the same arithmetic, so it cannot be a theme nobody checked.
+
+   The fallback is `#fff`, which is today's value: if the script is blocked or throws, the screen
+   is exactly what it is now rather than something worse. */
+
+body .dash-sidebar .dash-navbar > .dash-item.active > .dash-link,
+body .dash-sidebar .dash-navbar > .dash-item:hover > .dash-link,
+body .dash-sidebar .dash-navbar > .dash-item:focus > .dash-link,
+body .dash-sidebar.light-sidebar .dash-navbar > .dash-item.active > .dash-link,
+body .dash-sidebar.light-sidebar .dash-navbar > .dash-item:hover > .dash-link,
+body .dash-sidebar.light-sidebar .dash-navbar > .dash-item:focus > .dash-link {
+    color: var(--ss-onbrand, #fff) !important;
+}
+
+body .dash-sidebar .dash-navbar > .dash-item.active > .dash-link i,
+body .dash-sidebar .dash-navbar > .dash-item.active > .dash-link .dash-mtext,
+body .dash-sidebar .dash-navbar > .dash-item:hover > .dash-link i,
+body .dash-sidebar .dash-navbar > .dash-item:hover > .dash-link .dash-mtext,
+body .dash-sidebar .dash-navbar > .dash-item:focus > .dash-link i,
+body .dash-sidebar .dash-navbar > .dash-item:focus > .dash-link .dash-mtext,
+body .dash-sidebar.light-sidebar .dash-navbar > .dash-item.active > .dash-link i,
+body .dash-sidebar.light-sidebar .dash-navbar > .dash-item:hover > .dash-link i,
+body .dash-sidebar.light-sidebar .dash-navbar > .dash-item:focus > .dash-link i {
+    color: var(--ss-onbrand, #fff) !important;
+}
+
+
+/* P2-A-03 (b). THE BRAND AS LINK TEXT ON A LIGHT SURFACE.
+   `.breadcrumb a` is `var(--theme-color)` on the page background -- 2.48:1 on the default
+   theme-3, measured in the running application. `--ss-brand-ontext` is the merchant's own colour
+   darkened only until it reaches AA, computed in layouts/app.blade.php; six of the ten presets
+   are already above the threshold and come out unchanged. The fallback is the brand colour
+   itself, i.e. exactly today's appearance if the script is blocked. */
+body .breadcrumb a,
+body .breadcrumb .breadcrumb-item a {
+    color: var(--ss-brand-ontext, var(--theme-color)) !important;
+}
+
+/* P2-A-05. THE BRAND AS A BUTTON FILL, which is P2-A-03's defect a third time.
+   `.btn-primary` is `#fff` on `var(--theme-color)`. On the default theme-3 (`#10B77F`) that is
+   2.59:1 -- the SAME figure F9 recorded for the selected sidebar item, because it is the same
+   pair of colours. Measured in the running application on the order list, where it is the
+   order-reference pill in every row: 2.59:1 in all four of LTR/RTL x light/dark.
+
+   `--ss-onbrand` is the F9 mechanism, not a new one: white or near-black, whichever the
+   merchant's own colour actually contrasts with, chosen by measured WCAG ratio in
+   layouts/app.blade.php. NO BRAND COLOUR CHANGES -- the fill stays exactly what the merchant
+   picked, and only the text on top of it moves. On a dark brand the token returns `#ffffff`,
+   so those merchants see no change at all. The fallback is `#fff`, i.e. today's appearance if
+   the script is blocked.
+
+   The border is left alone deliberately: it is the brand colour against the page, not against
+   the fill, and changing it would alter the button's shape on the page. */
+body .btn-primary,
+body .btn-primary:hover,
+body .btn-primary:focus,
+body .btn-primary:active {
+    color: var(--ss-onbrand, #fff);
+}
+
+/* ============================================================================
+   P2-04-6. THE ORDER DETAIL PAGE IN DARK MODE.
+
+   MEASURED IN THE RUNNING APPLICATION, with WCAG alpha compositing, after the
+   fixture was fixed so the blocks held content at all (they never had):
+
+     customer-note        1.24:1      status button   1.09:1
+     order-create-note    1.77:1      grand total     1.10:1   <- the MONEY figure
+     admin-private-note   1.86:1
+     stock-mange-note     2.95:1
+     order-status-note   12.21:1      <- the only tint written as an opaque hex,
+                                         and the only one of the five that passed
+
+   The four failures are `rgba()` fills over the host's dark page, so they
+   composite to mid-greys while the text stays `#293240`. The fifth passes by
+   accident of being opaque.
+
+   LIGHT MODE IS UNTOUCHED, deliberately: all five measure 8.53-12.21:1 there,
+   so there is nothing to fix and changing them would alter an appearance
+   merchants already have. Everything below is inside the `data-ss-theme="dark"`
+   hook the layout publishes on every page (the same mechanism F8 used), and in
+   THIS file rather than `assets/css/style-dark.css`, which is a host theme asset
+   an update would revert.
+
+   The fills are the design system's own dark tone tokens, which are measured at
+   AA on both surfaces, rather than five new colours nobody has checked.
+   ============================================================================ */
+
+html[data-ss-theme="dark"] body .card-body .card-header.stock-mange-note {
+    background: var(--ss-neutral-bg, #212c2a);
+}
+html[data-ss-theme="dark"] body .card-body .card-header.order-create-note {
+    background: var(--ss-info-bg, #10233a);
+}
+html[data-ss-theme="dark"] body .card-body .card-header.order-status-note {
+    background: var(--ss-success-bg, #102a1b);
+}
+html[data-ss-theme="dark"] body .card-body .card-header.admin-private-note {
+    background: var(--ss-danger-bg, #2c1413);
+}
+html[data-ss-theme="dark"] body .card-body .card-header.customer-note {
+    background: var(--ss-warning-bg, #2c2109);
+}
+
+/* The note text and its timestamp. Both measured `#293240` -- a dark ink the host
+   sets for a light surface -- so the fill alone would not have been enough. */
+html[data-ss-theme="dark"] body .card-body .card-header.note-bg-color,
+html[data-ss-theme="dark"] body .card-body .card-header.note-bg-color .tl-btn,
+html[data-ss-theme="dark"] body .card-body .card-header.note-bg-color .time {
+    color: var(--ss-fg, #e6eceb);
+}
+
+/* The status control and the totals list. `.order_status_btn` carries one of the
+   vendored `btn-{info,danger,success,warning,secondary,dark}` classes -- the same
+   family P2-04-4 removed from the order list, still here -- and the totals are the
+   page's money figures. Both are dark ink on the dark page. */
+html[data-ss-theme="dark"] body .order_status_btn,
+html[data-ss-theme="dark"] body .sub-total-footer,
+html[data-ss-theme="dark"] body .sub-total-footer b,
+html[data-ss-theme="dark"] body .sub-total-footer span {
+    color: var(--ss-fg, #e6eceb);
+}
+html[data-ss-theme="dark"] body .order_status_btn {
+    background: var(--ss-surface-sunken, #1f2a28);
+    border-color: var(--ss-border, #364442);
+}
+
+/* THE TWO ADDRESS CARDS. Every label and value measured 1.1:1 in dark mode -- the whole
+   shipping and billing block was effectively invisible, and the first version of this run
+   missed it because it COUNTED the non-empty values and measured none of them. A card can
+   report "has values" while none of them can be read. The labels take the muted token and
+   the values the full one, which is the same relationship they have in light mode. */
+html[data-ss-theme="dark"] body .card-body dl.row dt {
+    color: var(--ss-fg-muted, #a7b2b1);
+}
+html[data-ss-theme="dark"] body .card-body dl.row dd {
+    color: var(--ss-fg, #e6eceb);
+}
+
+
+/* F158 (header). THE BRAND AS TEXT IN THE SHARED HEADER -- P2-A-03's defect a fourth time.
+   MEASURED at 2.59:1 on white, 14px, in both ar/rtl and en/ltr light mode: the store switcher's
+   "Create New Store" action and the CURRENTLY SELECTED language in the language list. Both are
+   `.text-primary`, i.e. `var(--theme-color) !important`, inside the header's dropdowns -- which is
+   why they were missed until the measurement opened the dropdowns rather than reading only the
+   visible bar.
+   SAME MECHANISM AS P2-A-03 (b) ABOVE, deliberately, and not a colour of my own: `--ss-brand-ontext`
+   is the MERCHANT'S colour darkened only until it reaches AA, computed once in
+   layouts/app.blade.php from whatever that merchant chose. So no brand colour changes -- the
+   owner's F158 condition on brand colours is honoured rather than argued around -- and a custom
+   picker value is handled by the same arithmetic as the ten presets. The fallback is the brand
+   colour itself, i.e. exactly today's appearance if the script is blocked.
+   LIGHT MODE ONLY, AND THAT IS A MEASURED CORRECTION RATHER THAN CAUTION. `--ss-brand-ontext` is
+   darkened against the LIGHT page (`PAGE = [249,250,251]` in layouts/app.blade.php), so on a dark
+   surface it is the wrong direction entirely: applying it unconditionally took the header's dark
+   mode from 0 failures to 2, at 2.72:1. The BRIGHT brand colour is already compliant there --
+   rgb(16,183,127) on rgb(38,47,63) measures 5.34:1 -- so dark mode needs no change and must not
+   get one. `data-ss-theme` is set server-side on <html> (layouts/app.blade.php:69), which is the
+   project's own theme indicator and what the design system already keys off.
+   (The P2-A-03 (b) breadcrumb rule above has the same shape and has not been measured on a dark
+   surface; it is left alone here because F158 says to fix the sites that actually failed, and the
+   breadcrumb is not one this measurement covered.)
+   `!important` because `.text-primary` carries it; confined to `.dash-header`, which appears in
+   three first-party views and no WorkDo Blade view. */
+html:not([data-ss-theme="dark"]) body .dash-header .text-primary {
+    color: var(--ss-brand-ontext, var(--theme-color)) !important;
+}

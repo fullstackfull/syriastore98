@@ -48,7 +48,7 @@ in a helper, and the design system cannot reach it.
 **Today.** One flat-ish sidebar built from the registry, plus a header with a store switcher, a
 language dropdown, a quick-add dropdown and notification icons. There is no grouping beyond
 submenu nesting, no pinning, no recents, and no indication of which store you are in beyond the
-switcher's own label. An inline script at `app.blade.php:358-398` implements sidebar search by
+switcher's own label. An inline script at `app.blade.php:421-461` implements sidebar search by
 selecting `.dash-navbar > .dash-item` with direct-child combinators and setting inline `display`.
 
 **Proposed.** Keep one sidebar; add structure inside it.

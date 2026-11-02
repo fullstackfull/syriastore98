@@ -27,13 +27,13 @@ use Tests\TestCase;
  * platform-global model onto the allowlist fails here, loudly, with the reason attached.
  *
  * MEASURED PARTITION, 2026-10-12, against `migrate:fresh` on sqlite :memory:
- *   56 models  -- table exists AND has a `store_id` column          -> TENANT-DISCRIMINATED
+ *   57 models  -- table exists AND has a `store_id` column          -> TENANT-DISCRIMINATED
  *   25 models  -- table exists and has NO `store_id` column         -> PLATFORM-GLOBAL
  *   14 models  -- NO table at all                                   -> see GATE F below
  *   --
  *   93 total, and the partition is asserted to be exhaustive.
  *
- * TENANT-DISCRIMINATED IS NOT THE SAME AS SCOPABLE. 56 models carry the column; only 6 are
+ * TENANT-DISCRIMINATED IS NOT THE SAME AS SCOPABLE. 57 models carry the column; only 6 are
  * enforced. `config/tenancy.php` holds the allowlist and the audit behind each entry, and
  * `doNotScopeDespiteHavingTheColumn()` below records the models that have `store_id` and must
  * STILL never be scoped, each with its own reason.
@@ -145,6 +145,28 @@ class TenantModelClassificationTest extends TestCase
             // carry NULL, and `store_id = ?` matches no NULL row, so scoping Role would hide
             // every platform role and break Laratrust permission resolution outright.
             \App\Models\Role::class => 'roles.store_id is nullable; platform roles are NULL and a predicate would hide them.',
+
+            // P2-06-7. Every read and write in App\Services\FavouritePages carries its own
+            // `where('store_id', ...)` AND `where('user_id', ...)`, derived from `auth()` and
+            // `getCurrentStore()` -- never from request input. It is left out of `scoped_models`
+            // deliberately rather than by omission: `null_tenant => 'open'` means the scope adds
+            // NO predicate when no tenant resolves, so a second implicit predicate could mask a
+            // missing explicit one, and these rows are read by a principal whose tenant is
+            // already the thing being filtered on. The explicit pair is the control of record,
+            // and reverting either one fails a dedicated test.
+            \App\Models\MerchantFavouritePage::class => 'FavouritePages filters on store_id AND user_id explicitly; the scope would be a second, maskable predicate.',
+            // P2-04-9, and the SAME reasoning as MerchantFavouritePage above, which is why it sits
+            // beside it. `SavedView::forCurrentPrincipal()` filters on store_id AND created_by
+            // explicitly, and the global scope would add only the FIRST of those -- so a saved
+            // view scoped by the framework alone would still be visible to every colleague in the
+            // store. It would also be WEAKER where it matters most: `null_tenant => 'open'` means
+            // the scope adds no predicate at all when no tenant resolves, whereas this model fails
+            // CLOSED with `whereRaw('1 = 0')` (F149's lesson). An implicit predicate that is
+            // narrower than the explicit one, and absent exactly when the explicit one matters, is
+            // not defence in depth -- it is something for a future reader to mistake for the
+            // control. The explicit pair is the control of record and reverting either one fails
+            // a dedicated test in SavedViewIsolationTest.
+            \App\Models\SavedView::class => 'SavedView filters on store_id AND created_by explicitly, and fails closed with no tenant; the scope would add only store_id.',
         ];
     }
 
@@ -173,14 +195,30 @@ class TenantModelClassificationTest extends TestCase
         // describes as one where "enforcement cannot be proven, so it must not be claimed".
         // Removing a model that had no table removes nothing enforceable; it shrinks the set of
         // classes carrying an unprovable classification.
-        $this->assertSame(93, $total, 'The model count changed. Re-run the classification and '
+        // 94, UP FROM 93. P2-06-7 added App\Models\MerchantFavouritePage -- per-employee
+        // favourite navigation pages. It is classified in
+        // `doNotScopeDespiteHavingTheColumn()` above with its reason, which is the review this
+        // assertion exists to force; it is NOT allowlisted for enforcement.
+        // 95, UP FROM 94. P2-04-9 added App\Models\SavedView -- per-employee named filter sets.
+        // Same category and same reason as MerchantFavouritePage: its table carries `store_id`,
+        // its reads carry `store_id` AND `created_by`, and it is NOT allowlisted for enforcement
+        // because the scope would supply only the weaker half of that pair. This assertion
+        // existing is what forced the classification to be written rather than assumed.
+        $this->assertSame(95, $total, 'The model count changed. Re-run the classification and '
             . 'review the new model before anything is allowlisted: ' . implode(', ', $this->eloquentModels()));
     }
 
-    public function test_tenant_discriminated_models_are_the_measured_fifty_six(): void
+    public function test_tenant_discriminated_models_are_the_measured_fifty_eight(): void
     {
+        // 57, UP FROM 56: `merchant_favourite_pages` carries `store_id` (P2-06-7). The column is
+        // real and the rows are tenant-owned; what changed is the count, not the classification
+        // rule.
+        // 58, UP FROM 57: `saved_views` carries `store_id` (P2-04-9). Again the count changed and
+        // the rule did not -- the rows are tenant-owned AND employee-owned, which is why the
+        // model is in `doNotScopeDespiteHavingTheColumn()` rather than in the enforcement
+        // allowlist.
         $this->assertCount(
-            56,
+            58,
             $this->tenantDiscriminated,
             "The set of models whose table carries a `store_id` column changed.\nMeasured now:\n  "
             . implode("\n  ", $this->tenantDiscriminated)

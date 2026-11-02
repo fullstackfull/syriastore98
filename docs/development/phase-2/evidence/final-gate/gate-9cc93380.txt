@@ -1,0 +1,37 @@
+HEAD_AT_LAUNCH=9cc933809177721af3dda8bede6ad7cc1e1b9871
+DIRTY_AT_LAUNCH=0
+STARTED=2026-11-01T00:31:34+00:00
+SUITE_EXIT=1
+ASSERT_EXIT=0
+HEAD_AT_FINISH=9cc933809177721af3dda8bede6ad7cc1e1b9871
+DIRTY_AT_FINISH=0
+FINISHED=2026-11-01T00:55:11+00:00
+
+--- php artisan test --testsuite=Feature (tail) ---
+     79▕ 
+     80▕     public function test_profile_information_can_be_updated(): void
+     81▕     {
+
+
+  Tests:    2 failed, 17 skipped, 7229 passed (35812 assertions)
+  Duration: 1416.41s
+
+
+--- assert-known-test-outcomes.php ---
+KNOWN-OUTCOME GATE
+------------------------------------------------------------------------------
+junit log            : storage/logs/feature-junit.xml
+manifest             : .github/known-test-outcomes.json
+testcases observed   : 7248  (manifest floor 1000)
+failures observed    : 2  (manifest declares 2)
+errors observed      : 0  (always expected: 0)
+skips observed       : 17  (manifest declares 17)
+
+skip reasons parsed  : 17 from feature-teamcity.txt
+
+
+OK: the observed outcome set matches the manifest exactly -- 2 declared failures, 17 declared skips, 0 errors, and nothing undeclared.
+
+This is NOT a statement that the suite is green. It is a statement that the suite is
+failing and skipping exactly the tests the project has recorded, for the reasons it has
+recorded. Read .github/known-test-outcomes.json for what is still owed and to whom.

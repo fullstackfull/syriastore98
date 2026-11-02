@@ -100,7 +100,7 @@
                                     <tr>
                                         <td>
                                             <div class="detail-bottom">
-                                                <a href="{{ get_file($download_prod->downloadable_product) }}"
+                                                <a href="{{ paid_download_url($order, $download_prod->downloadable_product) }}"
                                                     data-value="{{ asset($download_prod->downloadable_product) }}"
                                                     data-id="{{ $order['id'] }}"
                                                     class="btn-primary p-2 h-10 w-10 flex items-center justify-center btn cart-btn downloadable_prodcut" download>{{ __('Download') }}

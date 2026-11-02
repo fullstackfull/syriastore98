@@ -1,0 +1,15 @@
+
+DESIGN-SYSTEM paragraphs : 14 measured, 7 below 4.5:1
+   FAIL 3.85:1  /order-kanban  ss-board__none  "Nothing here"  rgb(128, 129, 145)
+   FAIL 3.85:1  /order-kanban  ss-board__none  "Nothing here"  rgb(128, 129, 145)
+   FAIL 3.42:1  /dashboard  ss-section__note  "Recorded in the same field, bu"  rgb(128, 129, 145)
+   FAIL 3.85:1  /dashboard  ss-stat__period  "These add up to 7 of 7 orders."  rgb(128, 129, 145)
+   FAIL 3.85:1  /dashboard  ss-stat__period  "Orders placed each day, last 7"  rgb(128, 129, 145)
+   FAIL 3.85:1  /dashboard  ss-stat__period  "Gross order value, not cash co"  rgb(128, 129, 145)
+   FAIL 3.85:1  /dashboard  ss-stat__period  "Ranked by how many orders incl"  rgb(128, 129, 145)
+
+OTHER paragraphs         : 3 measured, 3 below 4.5:1
+   (the set the fix must NOT move -- full list below for a before/after diff)
+   /dashboard | (no class) | rgb(128, 129, 145) | 3.71
+   /dashboard | m-0 | rgb(128, 129, 145) | 3.71
+   /dashboard | m-0 | rgb(128, 129, 145) | 3.71

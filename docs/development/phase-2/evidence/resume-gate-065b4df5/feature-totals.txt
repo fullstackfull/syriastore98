@@ -1,0 +1,14 @@
+  Tests:    3 failed, 17 skipped, 7010 passed (34876 assertions)
+  Duration: 1713.25s
+FEATURE_PHPUNIT_EXIT=1
+--- run 1 failures ---
+  ⨯ new users can register                                               0.18s  
+  ⨯ profile page is displayed                                            1.02s  
+  ⨯ the old public path is still reachable and that is why f217 is not…  0.18s  
+
+  Tests:    2 failed, 17 skipped, 7011 passed (34876 assertions)
+  Duration: 1640.76s
+FEATURE_EXIT=1
+--- run 2 failures ---
+  ⨯ new users can register                                               0.19s  
+  ⨯ profile page is displayed                                            0.94s  

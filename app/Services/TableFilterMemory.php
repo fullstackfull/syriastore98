@@ -1,0 +1,432 @@
+<?php
+
+namespace App\Services;
+
+use Illuminate\Http\Request;
+
+/**
+ * P2-06-5 — a merchant's list filters, remembered for the length of their working session.
+ * =================================================================================================
+ *
+ * THE STORE IS THE LARAVEL SERVER SESSION, and every other option was ruled out by something
+ * measurable rather than by taste:
+ *
+ *   - `settings` CANNOT hold a per-employee value. `SettingOwnership` rewrites `created_by` to
+ *     `$user->creatorId()` on create and restores it on update, so two employees of one merchant
+ *     collapse onto one row — the opposite of the acceptance.
+ *   - localStorage cannot be per-employee without putting a user id in the DOM, and P2-06-4's
+ *     disclosure argument (`public/js/store-syria-ds.js:733-736`) rests on the stored material
+ *     carrying "no identifiers". Adding one would mean re-arguing that note, not re-quoting it.
+ *   - A COOKIE cannot: a cookie name is a browser-global slot, so the second employee at a shared
+ *     terminal overwrites the first. That is the defect, not the feature.
+ *   - A new column or table could, and is a persistent migration, which CLAUDE.md reserves to the
+ *     owner. The ledger already holds that decision open for P2-04-9 (saved views) and P2-06-7
+ *     (favourites); spending it on the cheapest of the four requirements would be the wrong call.
+ *
+ * AND THE SESSION'S SHORT LIFE IS THE POINT, not a compromise. P2-06-4 saves page length, sort and
+ * column visibility and DELIBERATELY STRIPS the search term, because "a merchant who searched
+ * 'refund' last Thursday comes back to a table showing four rows out of nine hundred, and concludes
+ * their orders are gone". That defect is TIME-SHAPED: restoring this morning's filter is help,
+ * restoring last Thursday's is a support ticket. A session expires with the working day and dies at
+ * logout, so the same mechanism that makes it unsuitable for a device preference makes it right for
+ * a working context. `SESSION_LIFETIME=120` means two hours idle — stated plainly rather than
+ * dressed up as permanence.
+ *
+ * IT ALSO KEEPS TENANT DATA OFF THE DEVICE. `ss_category` is a store-owned row id whose option list
+ * is deliberately store-filtered against cross-tenant name disclosure
+ * (`ProductController::index()`). On the server it is never readable by the next person at that
+ * terminal, and never readable from JavaScript.
+ *
+ * "OFF THE DEVICE" IS THE CLAIM, NOT "ENCRYPTED". Verified rather than assumed: `.env` sets
+ * `SESSION_DRIVER=database`, so the bag rests in `sessions.payload` — and `SESSION_ENCRYPT=false`,
+ * so it rests there in plaintext. A store id and a category id are negligible beside what that
+ * table already holds, but the two claims are different and only the first is being made. If the
+ * driver were ever `cookie` the whole argument for this store would collapse, which is why the
+ * value is named here instead of left to be looked up.
+ *
+ * ONE THING A FUTURE READER SHOULD NOT BE SURPRISED BY: `config/session.php` leaves `same_site`
+ * null, so browsers apply Lax and a top-level cross-site GET carries the session cookie. A link
+ * a merchant clicks can therefore write a filter into their own session with no CSRF token —
+ * `…/order?ss_apply=1&ss_status=2`. Nothing foreign is read and no business state is written, so
+ * the blast radius is one filter on one screen, and the receipt above the bar is what makes it
+ * visible rather than silent. It is recorded because it is the honest answer, not because it is
+ * being treated as a hole; widening `same_site` is an application-wide change and not this
+ * slice's to make.
+ *
+ * THIS CLASS DOES NOT DECIDE WHAT A FILTER MEANS. It knows the key names and three value guards;
+ * what each value does to a query stays in `ProductDataTable::applyFilters()` and
+ * `OrderDataTable::applyFilters()`, which already validate every value they read. A restored
+ * request is byte-identical to a typed one, so it inherits that validation rather than duplicating
+ * it — including the invariant that a filter may only ever NARROW.
+ */
+final class TableFilterMemory
+{
+    /**
+     * The one session key. FLAT, with `:` inside the composite rather than `.`, because Laravel's
+     * session helper treats a dot as nesting — `session(['a.b' => 1])` writes `['a' => ['b' => 1]]`
+     * — and a key built from ids would then create a tree nobody can assert against in one call.
+     */
+    private const SESSION_KEY = 'ss_table_filters';
+
+    /**
+     * The filter vocabulary per screen, which is ALSO the allowlist: a parameter not named here is
+     * never remembered and never restored. Keeping it explicit is what stops a future
+     * `?redirect=…` or `?page=…` from becoming part of a merchant's remembered filters.
+     */
+    private const VOCABULARY = [
+        'product' => ['ss_status', 'ss_stock', 'ss_category', 'ss_variant'],
+        /* `ss_return` added by P2-04-13. IT HAS TO BE HERE, not only in the DataTable: this
+           class's own docblock records what happens to a filter the vocabulary does not know —
+           `describe()` returns `[]`, the Clear button's render condition is `describe(…) !== []`,
+           so the merchant gets a sticky filter, no receipt and no way out. That is the
+           "my orders are gone" screen the restore is only safe if it prevents. */
+        /* `ss_source` added by P2-04-11, for the same reason `ss_return` is here: a filter the
+           DataTable reads but the memory does not know about is remembered by neither leg, so
+           the bar forgets it on the next visit and the receipt never mentions it. */
+        'order' => ['ss_status', 'ss_payment', 'ss_return', 'ss_source', 'ss_from', 'ss_to'],
+    ];
+
+    /**
+     * The filter keys a screen recognises — THE SAME ALLOWLIST the session memory uses, exposed
+     * so `SavedView` validates against one list rather than a second copy of it.
+     *
+     * P2-04-9 needs this because a saved view that could store an arbitrary key would be a way to
+     * smuggle a parameter past the vocabulary: the whole reason `VOCABULARY` is explicit is to
+     * stop a `?redirect=` or `?page=` becoming part of a merchant's filters, and a saved view is
+     * just a filter set that outlives the session.
+     *
+     * @return list<string> empty for a screen with no vocabulary, which callers must treat as
+     *                      "nothing may be saved for this screen" rather than "anything may"
+     */
+    public static function vocabularyFor(string $screen): array
+    {
+        return self::VOCABULARY[$screen] ?? [];
+    }
+
+    /** Every screen that has a filter vocabulary at all. */
+    public static function screens(): array
+    {
+        return array_keys(self::VOCABULARY);
+    }
+
+    /** The submit button's name. Its PRESENCE is the only thing that writes the memory. */
+    public const APPLY = 'ss_apply';
+
+    /** The explicit forget signal, so "Clear filters" cannot be re-decorated by a restore. */
+    public const CLEAR = 'ss_clear';
+
+    /**
+     * RESTORE ONLY ON A COMPLETELY EMPTY QUERY STRING, and the bluntness is the design.
+     *
+     * One condition absorbs five cases that would otherwise each need their own exception, and
+     * would then have to be kept in agreement with each other for ever:
+     *
+     *   1. the DataTables AJAX leg always carries `draw`, `columns`, `start` and `length`, so a
+     *      302 can never be served to a request that is expecting JSON and would blank the table;
+     *   2. `/product?id=1` is the post-create redirect — a merchant who has just created a product
+     *      must never land on a list that hides it;
+     *   3. "Apply with every select on Any" arrives as `?ss_status=&ss_stock=&…`, because a GET
+     *      form submits every control. That is present-and-empty, and it is an explicit
+     *      instruction to show everything;
+     *   4. the clear signal;
+     *   5. every parameter anybody adds later, without this method being edited.
+     */
+    public static function shouldRestore(Request $request): bool
+    {
+        return $request->query() === [];
+    }
+
+    /**
+     * Store the filters the merchant just applied, or forget them when they applied none.
+     *
+     * WRITES ONLY ON `ss_apply`. Without that, any url carrying an `ss_` parameter — a bookmark, a
+     * link in an email, a url pasted between colleagues — would silently become the merchant's new
+     * default for that screen.
+     *
+     * An apply with every control on "Any" FORGETS rather than being ignored. Treating it as
+     * "nothing to remember" would leave the previous narrowing in place, so the one gesture that
+     * means "show me everything" would be the one gesture that changed nothing.
+     */
+    public static function remember(Request $request, string $screen): void
+    {
+        if (! $request->has(self::APPLY) || ! isset(self::VOCABULARY[$screen])) {
+            return;
+        }
+
+        $values = self::recognised($request->query(), $screen);
+
+        if ($values === []) {
+            self::forget($screen);
+
+            return;
+        }
+
+        $all = self::bag();
+        $all[self::key($screen)] = $values;
+        session([self::SESSION_KEY => $all]);
+    }
+
+    /**
+     * What to restore, after revalidation.
+     *
+     * REVALIDATED ON THE WAY OUT, not only on the way in, because the world moves between the two:
+     * a remembered `ss_category` whose row has since been deleted, or which belongs to a store the
+     * merchant has since switched away from, would narrow the list to zero rows. That is exactly
+     * the "my products are gone" screen this feature exists to avoid, so a category id that no
+     * longer resolves against the CALLER'S OWN categories is dropped and the rest is still
+     * restored.
+     */
+    public static function recall(string $screen): array
+    {
+        $values = self::bag()[self::key($screen)] ?? [];
+
+        if (! is_array($values) || $values === []) {
+            return [];
+        }
+
+        $values = self::recognised($values, $screen);
+
+        if (isset($values['ss_category']) && ! self::categoryIsOwned($values['ss_category'])) {
+            unset($values['ss_category']);
+        }
+
+        return $values;
+    }
+
+    public static function forget(string $screen): void
+    {
+        $all = self::bag();
+        unset($all[self::key($screen)]);
+        session([self::SESSION_KEY => $all]);
+    }
+
+    /**
+     * The composite key: the acting user, their current store, and the screen.
+     *
+     * THE USER AXIS IS NOT REDUNDANT even though a session is already per-employee. Impersonation
+     * makes `auth()->id()` the impersonated merchant (`StoreController`), so without it an
+     * operator's own filters would bleed into the merchant persona and survive leaving it. Keyed
+     * rather than branched on the impersonation flag, so there is no second rule to keep in step.
+     *
+     * THE STORE AXIS stops a filter applied in store A being replayed in store B after a store
+     * switch — where a category id means something different, or nothing.
+     */
+    private static function key(string $screen): string
+    {
+        return (int) auth()->id() . ':' . (int) getCurrentStore() . ':' . $screen;
+    }
+
+    private static function bag(): array
+    {
+        $bag = session(self::SESSION_KEY, []);
+
+        return is_array($bag) ? $bag : [];
+    }
+
+    /**
+     * The recognised, non-empty subset.
+     *
+     * NON-EMPTY, NOT MERELY PRESENT, and that distinction has already produced a defect on these
+     * screens: a GET form submits every control, so "Apply" with nothing chosen yields
+     * `?ss_status=&ss_stock=&ss_category=&ss_variant=`, where `query('ss_status')` is `''` — which
+     * is `!== null`, which is what the filter bars' own "Clear filters" visibility test used, so
+     * an unfiltered list showed a Clear button.
+     *
+     * `is_string` on every value: `?ss_stock[]=out` makes it an array, and an array reaching a
+     * comparison downstream is an "Array to string conversion" and a 500 from a query string.
+     */
+    private static function recognised(array $input, string $screen): array
+    {
+        $out = [];
+
+        foreach (self::VOCABULARY[$screen] ?? [] as $name) {
+            $value = $input[$name] ?? null;
+
+            if (! is_string($value)) {
+                continue;
+            }
+
+            $value = trim($value);
+
+            // 64 is longer than any value these bars produce (a date, an id, a short enum) and
+            // short enough that a session bag cannot be inflated through the query string.
+            if ($value === '' || strlen($value) > 64) {
+                continue;
+            }
+
+            $out[$name] = $value;
+        }
+
+        return $out;
+    }
+
+    /**
+     * The filters currently in force, as readable labels, for the summary above the bar.
+     *
+     * READ FROM THE REQUEST, not from the memory: after a restore the two agree, and on a typed
+     * or bookmarked url only the request is true. One source means the receipt cannot disagree
+     * with the list it describes.
+     */
+    public static function describe(Request $request, string $screen, array $categories = []): array
+    {
+        $values = self::recognised($request->query(), $screen);
+        $out = [];
+
+        foreach ($values as $name => $value) {
+            $label = self::label($name, $value, $screen, $categories);
+
+            if ($label !== null) {
+                $out[] = $label;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * One filter in words.
+     *
+     * THE VOCABULARY IS PER SCREEN, and the first version of this method forgot that — which
+     * independent review caught and no test did, because the whole order half of this slice was
+     * untested. It applied the PRODUCT status map (`1 => Active`, `0 => Inactive`) to the order
+     * screen, where `orders.delivered_status` is 0=Pending, 1=Delivered, 2=Cancel, 3=Return,
+     * 4=Confirmed, 5=Picked Up, 6=Shipped, 7=Partially Paid, 8=Pre Order. Two consequences, the
+     * second worse than the first:
+     *
+     *   (a) THE RECEIPT LIED. `/order?ss_status=1` lists DELIVERED orders under the words
+     *       "Status: Active".
+     *   (b) FOR SEVEN OF THE NINE STATUSES THE RECEIPT AND THE CLEAR BUTTON BOTH VANISHED. An
+     *       unmapped value returns null here, `describe()` then returns `[]`, and this slice
+     *       changed the Clear button's render condition to `describe(…) !== []`. So a merchant
+     *       who filtered to Shipped got a sticky filter, no receipt, and no way out — exactly
+     *       the "my orders are gone" screen the restore is only safe if it prevents. And it was
+     *       a REGRESSION: before this slice Clear rendered on "any parameter present".
+     *
+     * The order labels now come from `HomeController::ORDER_STATUS_*`, the same constants the
+     * bar builds its options from, so the two cannot drift.
+     *
+     * A VALUE THIS METHOD DOES NOT RECOGNISE STILL PRODUCES NOTHING, deliberately. `recognised()`
+     * only checks shape — a string, non-empty, short — while the real vocabulary of each filter
+     * lives in `applyFilters()`, which ignores anything outside it. So `?ss_stock=banana` narrows
+     * nothing, and a summary announcing "Stock: banana" would describe a filter that is not in
+     * force. What changed is that the order statuses are now IN the vocabulary, so the silence is
+     * reserved for values that really do nothing.
+     */
+    private static function label(string $name, string $value, string $screen, array $categories): ?string
+    {
+        $heading = [
+            'ss_status' => 'Status', 'ss_variant' => 'Variants', 'ss_stock' => 'Stock',
+            'ss_category' => 'Category', 'ss_payment' => 'Payment', 'ss_from' => 'From',
+            'ss_to' => 'To', 'ss_return' => 'Returns', 'ss_source' => 'Source',
+        ];
+
+        if (! isset($heading[$name])) {
+            return null;
+        }
+
+        $map = self::valueLabels($screen);
+
+        if (isset($map[$name])) {
+            return isset($map[$name][$value])
+                ? __($heading[$name]) . ': ' . $map[$name][$value]
+                : null;
+        }
+
+        if ($name === 'ss_category') {
+            $id = filter_var($value, FILTER_VALIDATE_INT);
+
+            return ($id !== false && isset($categories[$id]))
+                ? __('Category') . ': ' . $categories[$id]
+                : null;
+        }
+
+        /* `ss_from` and `ss_to` are dates, which have no vocabulary. Echoing the merchant's own
+           input back is safe — Blade escapes it — and it is already visible in the field beside
+           it. `parseDate()` is what decides whether it narrows anything; a value it rejects is
+           still shown here, which is correct: the merchant typed it and should see what they
+           typed. */
+        return __($heading[$name]) . ': ' . $value;
+    }
+
+    /**
+     * The value-to-label map per screen, built from the SAME source the bar builds its options
+     * from so the receipt and the control beside it cannot say different things.
+     *
+     * TRANSLATED HERE, not only the heading. An earlier version translated the heading and
+     * echoed the raw value, so an Arabic page read "الدفع: Paid" beside a select showing
+     * "مقبوض" — two renderings of one fact, in two languages, side by side.
+     */
+    private static function valueLabels(string $screen): array
+    {
+        if ($screen === 'order') {
+            $statuses = [];
+
+            foreach ((new \ReflectionClass(\App\Http\Controllers\HomeController::class))->getConstants() as $name => $value) {
+                if (! str_starts_with($name, 'ORDER_STATUS_')) {
+                    continue;
+                }
+
+                // ORDER_STATUS_PICKED_UP -> "Picked Up", which is the key the bar translates.
+                $statuses[(string) $value] = __(ucwords(strtolower(str_replace(
+                    '_', ' ', substr($name, strlen('ORDER_STATUS_'))
+                ))));
+            }
+
+            return [
+                'ss_status' => $statuses,
+                /* ONE value, because one is all `applyFilters()` accepts. `orders.return_status`
+                   holds `0 none, 1 request, 2 approve, 3 cancel`, and the operational queue is
+                   the undecided one. A map entry for 0/2/3 would let the receipt announce a
+                   filter that narrows nothing — which is the silence this class reserves for
+                   values that really do nothing. */
+                'ss_return' => ['1' => __('Awaiting a decision')],
+                /* READ FROM `Order::SOURCES`, not written out again, so the receipt cannot name
+                   a value the filter refuses or miss one it accepts. No entry for NULL: an
+                   unrecorded source is not a filterable value, so there is nothing for the
+                   receipt to announce. */
+                'ss_source' => array_combine(
+                    \App\Models\Order::SOURCES,
+                    array_map(
+                        static fn (string $v): string => (string) \App\Models\Order::orderSourceLabel($v),
+                        \App\Models\Order::SOURCES
+                    ),
+                ),
+                'ss_payment' => array_combine(
+                    \App\DataTables\OrderDataTable::PAYMENT_STATUSES,
+                    array_map(static fn (string $s): string => __($s),
+                        \App\DataTables\OrderDataTable::PAYMENT_STATUSES),
+                ),
+            ];
+        }
+
+        return [
+            'ss_status' => ['1' => __('Active'), '0' => __('Inactive')],
+            /* The words the select itself uses (`product/partials/filters.blade.php`), not a
+               second phrasing of the same thing. */
+            'ss_variant' => ['1' => __('Has variants'), '0' => __('No variants')],
+            'ss_stock' => ['in' => __('In stock'), 'low' => __('Low stock'), 'out' => __('Out of stock')],
+        ];
+    }
+
+    /**
+     * Whether a remembered category id is one of the caller's own.
+     *
+     * `Category` is NOT in `config/tenancy.php`'s `scoped_models`, so it adds no predicate for any
+     * principal and the `store_id` here is the only thing confining it. This is not standing in for
+     * a tenant check on the LIST — `applyFilters()` narrows a set already confined to the caller's
+     * store, so a foreign id returns zero rows rather than somebody else's. It is here to stop
+     * that zero-row screen from being served silently.
+     */
+    private static function categoryIsOwned(string $id): bool
+    {
+        $categoryId = filter_var($id, FILTER_VALIDATE_INT);
+
+        if ($categoryId === false || $categoryId <= 0) {
+            return false;
+        }
+
+        return \App\Models\Category::where('id', $categoryId)
+            ->where('store_id', getCurrentStore())
+            ->exists();
+    }
+}

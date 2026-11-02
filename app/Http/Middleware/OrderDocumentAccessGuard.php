@@ -232,6 +232,17 @@ class OrderDocumentAccessGuard
         'order-receipt/{id}' => ['table' => 'orders', 'param' => 'id'],
 
         // ---------------------------------------------------------------------------------
+        // P2-04-5. THE QUICK-PREVIEW FRAGMENT, added here in the same change that adds the
+        // route. This map is keyed on the URI, so a new order-document surface is NOT guarded
+        // by implication however closely it resembles one that is -- which is the reason the
+        // `order/{order}` entry below exists on an already-guarded handler. Registering the uri
+        // as the route is written is the only way that property stays true.
+        //
+        // The id arrives RAW rather than encrypted, which `resolveOrderId()` already accepts
+        // (its docblock records that `order-refund/{id}` forced that), so no new mechanism.
+        'order-preview/{id}' => ['table' => 'orders', 'param' => 'id'],
+
+        // ---------------------------------------------------------------------------------
         // SHOPPER-FACING ORDER DOCUMENTS. Both are in routes/customer.php's
         // EnsureCustomerAuthenticated group, so a signed-in shopper is required -- and that is
         // ALL that was required: neither handler compares the order to the caller or to the

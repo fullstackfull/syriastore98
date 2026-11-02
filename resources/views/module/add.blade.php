@@ -16,8 +16,8 @@
 @endpush
 
 @section('breadcrumb')
-    <li class="breadcrumb-item"><a href="{{ route('module.index') }}">{{ __('Add-on Manager') }}</a></li>    
-    <li class="breadcrumb-item">{{ __('Add New Addon') }}</li>
+    <li class="ss-breadcrumb__item"><a class="ss-breadcrumb__link" href="{{ route('module.index') }}">{{ __('Add-on Manager') }}</a></li>    
+    <li aria-current="page" class="ss-breadcrumb__item">{{ __('Add New Addon') }}</li>
 @endsection
 
 @section('content')

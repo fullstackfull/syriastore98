@@ -125,7 +125,25 @@ try {
     $a = DB::connection('fresh_a');
     $b = DB::connection('fresh_b');
 
-    $server = $a->select('SELECT VERSION() AS v, @@default_storage_engine AS e, @@transaction_isolation AS i')[0];
+    /* PORTABLE ACROSS MySQL AND MariaDB, and this line is why these scripts had never run here.
+       `@@transaction_isolation` is MySQL 5.7+; MariaDB 10.11 does not have it and answers
+       "Unknown system variable 'transaction_isolation'" (errno 1193), which aborted the whole
+       script before a single assertion. `@@tx_isolation` is the MariaDB spelling and MySQL 8.0
+       REMOVED it, so neither name works on both engines and the variable has to be asked for by
+       trial. MEASURED on MariaDB 10.11.14: the first SELECT raises 1193 and the second answers
+       READ-COMMITTED. The engine and version are printed either way, because the assertions below
+       depend on InnoDB rather than on the isolation level -- that figure is reported for the
+       record, so it must not be able to fail the run. */
+    $server = $a->select('SELECT VERSION() AS v, @@default_storage_engine AS e')[0];
+    $server->i = 'unknown';
+    foreach (['transaction_isolation', 'tx_isolation'] as $isolationVariable) {
+        try {
+            $server->i = $a->select('SELECT @@' . $isolationVariable . ' AS i')[0]->i;
+            break;
+        } catch (\Throwable $e) {
+            // Try the other spelling; 'unknown' stands if neither exists.
+        }
+    }
     echo "server: {$server->v}  engine: {$server->e}  isolation: {$server->i}\n\n";
 
     // ---------------------------------------------------------------------------------------

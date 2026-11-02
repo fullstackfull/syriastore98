@@ -1,0 +1,94 @@
+ok    desktop-en-light  premise: the manual order form rendered  -- {"dir":"ltr","theme":"light","form":true,"customer":true}
+ok    desktop-en-light  premise: direction and theme are the ones asked for  -- dir="ltr" theme="light" wanted "ltr"/"light" | store=1 cust_darklayout=off SITE_RTL=off users.language=en (merchant@example.test)
+ok    desktop-en-light  a form nobody submitted shows no summary and no failed field  -- {"summaries":0,"marked":0}
+ok    desktop-en-light  the refused submit renders a summary with real height  -- {"present":true,"height":290,"display":"block","links":11,"resolved":11}
+ok    desktop-en-light  every summary link resolves to a control that exists  -- {"present":true,"height":290,"display":"block","links":11,"resolved":11}
+ok    desktop-en-light  at least one inline message is on the page to be measured  -- 10 .invalid-feedback nodes, 10 with text
+ok    desktop-en-light  every inline message under a failed field has real height  -- 10 visible
+ok    desktop-en-light  the message colour meets 4.5:1 against what is painted behind it  -- 10 measured; []
+ok    desktop-en-light  the control that failed is marked, which is what reveals its message  -- {"count":10,"customer":true}
+ok    desktop-en-light  no horizontal page scroll  -- {"scrollWidth":1440,"clientWidth":1440}
+ok    desktop-en-light  no uncaught page errors
+ok    desktop-en-dark  premise: the manual order form rendered  -- {"dir":"ltr","theme":"dark","form":true,"customer":true}
+ok    desktop-en-dark  premise: direction and theme are the ones asked for  -- dir="ltr" theme="dark" wanted "ltr"/"dark" | store=1 cust_darklayout=on SITE_RTL=off users.language=en (merchant@example.test)
+ok    desktop-en-dark  a form nobody submitted shows no summary and no failed field  -- {"summaries":0,"marked":0}
+ok    desktop-en-dark  the refused submit renders a summary with real height  -- {"present":true,"height":290,"display":"block","links":11,"resolved":11}
+ok    desktop-en-dark  every summary link resolves to a control that exists  -- {"present":true,"height":290,"display":"block","links":11,"resolved":11}
+ok    desktop-en-dark  at least one inline message is on the page to be measured  -- 10 .invalid-feedback nodes, 10 with text
+ok    desktop-en-dark  every inline message under a failed field has real height  -- 10 visible
+ok    desktop-en-dark  the message colour meets 4.5:1 against what is painted behind it  -- 10 measured; []
+ok    desktop-en-dark  the control that failed is marked, which is what reveals its message  -- {"count":10,"customer":true}
+ok    desktop-en-dark  no horizontal page scroll  -- {"scrollWidth":1440,"clientWidth":1440}
+ok    desktop-en-dark  no uncaught page errors
+ok    desktop-ar-light  premise: the manual order form rendered  -- {"dir":"rtl","theme":"light","form":true,"customer":true}
+ok    desktop-ar-light  premise: direction and theme are the ones asked for  -- dir="rtl" theme="light" wanted "rtl"/"light" | store=1 cust_darklayout=off SITE_RTL=on users.language=ar (merchant@example.test)
+ok    desktop-ar-light  a form nobody submitted shows no summary and no failed field  -- {"summaries":0,"marked":0}
+ok    desktop-ar-light  the refused submit renders a summary with real height  -- {"present":true,"height":321,"display":"block","links":11,"resolved":11}
+ok    desktop-ar-light  every summary link resolves to a control that exists  -- {"present":true,"height":321,"display":"block","links":11,"resolved":11}
+ok    desktop-ar-light  at least one inline message is on the page to be measured  -- 10 .invalid-feedback nodes, 10 with text
+ok    desktop-ar-light  every inline message under a failed field has real height  -- 10 visible
+ok    desktop-ar-light  the message colour meets 4.5:1 against what is painted behind it  -- 10 measured; []
+ok    desktop-ar-light  the control that failed is marked, which is what reveals its message  -- {"count":10,"customer":true}
+ok    desktop-ar-light  no horizontal page scroll  -- {"scrollWidth":1440,"clientWidth":1440}
+ok    desktop-ar-light  no uncaught page errors
+ok    desktop-ar-dark  premise: the manual order form rendered  -- {"dir":"rtl","theme":"dark","form":true,"customer":true}
+ok    desktop-ar-dark  premise: direction and theme are the ones asked for  -- dir="rtl" theme="dark" wanted "rtl"/"dark" | store=1 cust_darklayout=on SITE_RTL=on users.language=ar (merchant@example.test)
+ok    desktop-ar-dark  a form nobody submitted shows no summary and no failed field  -- {"summaries":0,"marked":0}
+ok    desktop-ar-dark  the refused submit renders a summary with real height  -- {"present":true,"height":321,"display":"block","links":11,"resolved":11}
+ok    desktop-ar-dark  every summary link resolves to a control that exists  -- {"present":true,"height":321,"display":"block","links":11,"resolved":11}
+ok    desktop-ar-dark  at least one inline message is on the page to be measured  -- 10 .invalid-feedback nodes, 10 with text
+ok    desktop-ar-dark  every inline message under a failed field has real height  -- 10 visible
+ok    desktop-ar-dark  the message colour meets 4.5:1 against what is painted behind it  -- 10 measured; []
+ok    desktop-ar-dark  the control that failed is marked, which is what reveals its message  -- {"count":10,"customer":true}
+ok    desktop-ar-dark  no horizontal page scroll  -- {"scrollWidth":1440,"clientWidth":1440}
+ok    desktop-ar-dark  no uncaught page errors
+ok    mobile-en-light  premise: the manual order form rendered  -- {"dir":"ltr","theme":"light","form":true,"customer":true}
+ok    mobile-en-light  premise: direction and theme are the ones asked for  -- dir="ltr" theme="light" wanted "ltr"/"light" | store=1 cust_darklayout=off SITE_RTL=off users.language=en (merchant@example.test)
+ok    mobile-en-light  a form nobody submitted shows no summary and no failed field  -- {"summaries":0,"marked":0}
+ok    mobile-en-light  the refused submit renders a summary with real height  -- {"present":true,"height":290,"display":"block","links":11,"resolved":11}
+ok    mobile-en-light  every summary link resolves to a control that exists  -- {"present":true,"height":290,"display":"block","links":11,"resolved":11}
+ok    mobile-en-light  at least one inline message is on the page to be measured  -- 10 .invalid-feedback nodes, 10 with text
+ok    mobile-en-light  every inline message under a failed field has real height  -- 10 visible
+ok    mobile-en-light  the message colour meets 4.5:1 against what is painted behind it  -- 10 measured; []
+ok    mobile-en-light  the control that failed is marked, which is what reveals its message  -- {"count":10,"customer":true}
+ok    mobile-en-light  no horizontal page scroll  -- {"scrollWidth":390,"clientWidth":390}
+ok    mobile-en-light  no uncaught page errors
+ok    mobile-en-dark  premise: the manual order form rendered  -- {"dir":"ltr","theme":"dark","form":true,"customer":true}
+ok    mobile-en-dark  premise: direction and theme are the ones asked for  -- dir="ltr" theme="dark" wanted "ltr"/"dark" | store=1 cust_darklayout=on SITE_RTL=off users.language=en (merchant@example.test)
+ok    mobile-en-dark  a form nobody submitted shows no summary and no failed field  -- {"summaries":0,"marked":0}
+ok    mobile-en-dark  the refused submit renders a summary with real height  -- {"present":true,"height":290,"display":"block","links":11,"resolved":11}
+ok    mobile-en-dark  every summary link resolves to a control that exists  -- {"present":true,"height":290,"display":"block","links":11,"resolved":11}
+ok    mobile-en-dark  at least one inline message is on the page to be measured  -- 10 .invalid-feedback nodes, 10 with text
+ok    mobile-en-dark  every inline message under a failed field has real height  -- 10 visible
+ok    mobile-en-dark  the message colour meets 4.5:1 against what is painted behind it  -- 10 measured; []
+ok    mobile-en-dark  the control that failed is marked, which is what reveals its message  -- {"count":10,"customer":true}
+ok    mobile-en-dark  no horizontal page scroll  -- {"scrollWidth":390,"clientWidth":390}
+ok    mobile-en-dark  no uncaught page errors
+ok    mobile-ar-light  premise: the manual order form rendered  -- {"dir":"rtl","theme":"light","form":true,"customer":true}
+ok    mobile-ar-light  premise: direction and theme are the ones asked for  -- dir="rtl" theme="light" wanted "rtl"/"light" | store=1 cust_darklayout=off SITE_RTL=on users.language=ar (merchant@example.test)
+ok    mobile-ar-light  a form nobody submitted shows no summary and no failed field  -- {"summaries":0,"marked":0}
+ok    mobile-ar-light  the refused submit renders a summary with real height  -- {"present":true,"height":321,"display":"block","links":11,"resolved":11}
+ok    mobile-ar-light  every summary link resolves to a control that exists  -- {"present":true,"height":321,"display":"block","links":11,"resolved":11}
+ok    mobile-ar-light  at least one inline message is on the page to be measured  -- 10 .invalid-feedback nodes, 10 with text
+ok    mobile-ar-light  every inline message under a failed field has real height  -- 10 visible
+ok    mobile-ar-light  the message colour meets 4.5:1 against what is painted behind it  -- 10 measured; []
+ok    mobile-ar-light  the control that failed is marked, which is what reveals its message  -- {"count":10,"customer":true}
+ok    mobile-ar-light  no horizontal page scroll  -- {"scrollWidth":390,"clientWidth":390}
+ok    mobile-ar-light  no uncaught page errors
+ok    mobile-ar-dark  premise: the manual order form rendered  -- {"dir":"rtl","theme":"dark","form":true,"customer":true}
+ok    mobile-ar-dark  premise: direction and theme are the ones asked for  -- dir="rtl" theme="dark" wanted "rtl"/"dark" | store=1 cust_darklayout=on SITE_RTL=on users.language=ar (merchant@example.test)
+ok    mobile-ar-dark  a form nobody submitted shows no summary and no failed field  -- {"summaries":0,"marked":0}
+ok    mobile-ar-dark  the refused submit renders a summary with real height  -- {"present":true,"height":321,"display":"block","links":11,"resolved":11}
+ok    mobile-ar-dark  every summary link resolves to a control that exists  -- {"present":true,"height":321,"display":"block","links":11,"resolved":11}
+ok    mobile-ar-dark  at least one inline message is on the page to be measured  -- 10 .invalid-feedback nodes, 10 with text
+ok    mobile-ar-dark  every inline message under a failed field has real height  -- 10 visible
+ok    mobile-ar-dark  the message colour meets 4.5:1 against what is painted behind it  -- 10 measured; []
+ok    mobile-ar-dark  the control that failed is marked, which is what reveals its message  -- {"count":10,"customer":true}
+ok    mobile-ar-dark  no horizontal page scroll  -- {"scrollWidth":390,"clientWidth":390}
+ok    mobile-ar-dark  no uncaught page errors
+
+88 checks, 0 failures  (label: after, screenshots in docs/development/phase-2/screenshots/p2-wsf-validation)
+
+recorded 2026-11-01T09:31:14Z; the BEFORE run (fix reverted via git checkout of the two
+views) reported 88 checks, 32 failures. Screenshots for both labels are in
+docs/development/phase-2/screenshots/p2-wsf-validation/.

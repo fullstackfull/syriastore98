@@ -145,6 +145,49 @@ class UnguardedOrderWriterTrustBoundaryTest extends SecurityTestCase
         ]);
     }
 
+    /**
+     * A product that really IS a variant product, plus one variant row.
+     *
+     * `productIn()` hardcodes `variant_product => 0`, and that is what made the fourth
+     * post-charge crash below invisible: the OrderNote loop branches on
+     * `$product_data->variant_product == 0` (NMIPayController:1315), so with every fixture
+     * product non-variant the `else` arm was never entered by ANY test in this file. The
+     * existing 'variant line whose variant row is gone' case sets the LINE's `variant_id` but
+     * leaves the product non-variant, and it is refused before the OrderNote loop is reached --
+     * so it does not cover this either.
+     *
+     * `manage_stock` is in `variation_option` so the stock loop's variant branch really moves
+     * stock (NMIPayController:757-773); without it the line succeeds but moves nothing, which
+     * would make the stock assertion vacuous.
+     *
+     * @return array{0:Product,1:int} the product and its variant row id
+     */
+    private function variantProductIn($store, float $price = 100.00, int $stock = 50): array
+    {
+        $product = Product::forceCreate([
+            'name' => 'uow-var-' . uniqid(), 'slug' => 'uow-var-' . uniqid(),
+            'product_stock' => 0, 'track_stock' => 1, 'variant_product' => 1,
+            'price' => $price, 'sale_price' => $price,
+            'store_id' => $store->id, 'created_by' => $store->created_by,
+        ]);
+
+        $variantId = (int) DB::table('product_variants')->insertGetId([
+            'product_id' => $product->id,
+            'variant' => 'S-Red',
+            'variation_price' => $price,
+            'price' => $price,
+            'stock' => $stock,
+            'low_stock_threshold' => 0,
+            'variation_option' => 'manage_stock',
+            'sku' => 'UOW-' . uniqid(),
+            'store_id' => $store->id,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        return [$product, $variantId];
+    }
+
     /** A guest cart row plus the cookie value that reaches it. */
     private function guestCart($store, Product $product, $qty = 1, float $price = 100.00): string
     {
@@ -828,11 +871,58 @@ class UnguardedOrderWriterTrustBoundaryTest extends SecurityTestCase
     public function test_a_charged_card_does_not_end_in_a_crash(string $case): void
     {
         [$merchant, $store] = $this->tenant();
-        $product = $this->productIn($store, 100.00, 50);
+
+        /*
+         * F89. This case needs a product whose `variant_product` is NOT 0, because the branch it
+         * reaches is selected on that column and nothing else in this file has one.
+         */
+        $variantCase = in_array($case, [
+            'successful order for a real variant product',
+            'variant order that trips the low-stock notification',
+        ], true);
+        $variantId = 0;
+
+        if ($variantCase) {
+            [$product, $variantId] = $this->variantProductIn($store, 100.00, 50);
+        } else {
+            $product = $this->productIn($store, 100.00, 50);
+        }
+
         $sid = $this->guestCart($store, $product);
         $gateway = $this->fakeNmi();
 
         $state = $this->nmiCheckoutState($store, $product);
+
+        if ($variantCase) {
+            $state['cartlist']['product_list'][0]['variant_id'] = $variantId;
+        }
+
+        if ($case === 'variant order that trips the low-stock notification') {
+            /*
+             * F99. The four sites at NMIPayController:781, :792, :817 and :828 pass the ARRAY cart
+             * line into `Utility::variant_low_stock_threshold()` / `variant_out_of_stock()`, whose
+             * FIRST statement -- outside their own try/catch -- is
+             * `Product::find($product->product_id)`. Object syntax on an array again, same
+             * migration miss as F89, but these land BEFORE `new Order()`: the card is captured
+             * (:327), the stock is decremented (:773), and then the request dies with no order row
+             * and the checkout claim already consumed, so the retry is refused too.
+             *
+             * Three merchant settings have to line up, which is exactly why no existing case here
+             * reached it: stock management on (the shared fixture already sets it),
+             * `enable_low_stock` in `notification`, and `twilio_setting_enabled` on. Plus a
+             * threshold the decrement actually trips -- 50 units going to 49 against a threshold
+             * of 100.
+             */
+            DB::table('settings')->where('store_id', $store->id)
+                ->where('name', 'notification')->update(['value' => '["enable_low_stock"]']);
+            DB::table('settings')->insert([
+                'name' => 'twilio_setting_enabled', 'value' => 'on',
+                'created_by' => $merchant->id, 'store_id' => $store->id,
+                'created_at' => now(), 'updated_at' => now(),
+            ]);
+            DB::table('product_variants')->where('id', $variantId)
+                ->update(['low_stock_threshold' => 100]);
+        }
 
         if ($case === 'state carries no tax_id') {
             /*
@@ -897,6 +987,32 @@ class UnguardedOrderWriterTrustBoundaryTest extends SecurityTestCase
 
         $this->assertSame($before + 1, self::orderCount(),
             'A legitimate charge wrote no order. Case: ' . $case);
+
+        if ($variantCase) {
+            /*
+             * F89. A VARIANT product keeps its quantity on `product_variants.stock`, not on
+             * `products.product_stock` -- which this fixture sets to 0 -- so the shared
+             * assertion below would be vacuous here. The variant row is the one that must move.
+             */
+            $this->assertSame(49, (int) DB::table('product_variants')->where('id', $variantId)->value('stock'),
+                'The variant order completed but the variant stock did not move.');
+
+            /*
+             * AND THE NOTE THE FIX PRESERVES IS REALLY WRITTEN. Without this, deleting the whole
+             * `else` arm -- or any future change that made `$variant_data` always null -- would
+             * still pass every assertion above, because they only prove the request did not
+             * crash. Raised by the independent review of the F89 fix, which is the sort of gap
+             * that review exists to find.
+             */
+            $orderId = (int) DB::table('orders')->orderByDesc('id')->value('id');
+            $this->assertDatabaseHas('order_notes', [
+                'order_id' => $orderId,
+                'status' => 'Stock Manage',
+            ]);
+
+            return;
+        }
+
         $this->assertSame(49, self::stockOf($product),
             'The order completed but its stock did not move. Case: ' . $case);
     }
@@ -907,6 +1023,14 @@ class UnguardedOrderWriterTrustBoundaryTest extends SecurityTestCase
             'no tax_id' => ['state carries no tax_id'],
             'missing variant row' => ['variant line whose variant row is gone'],
             'no plan' => ['platform has no plan to read shipping from'],
+            // F89. The fourth, and the one the other three could not reach -- see
+            // variantProductIn() for why every fixture here was blind to it.
+            'variant product order' => ['successful order for a real variant product'],
+            // F99. The fifth. Same array-vs-object migration as F89, four more call sites, and
+            // they land BEFORE the order row exists -- so the card is charged, the stock is gone,
+            // and there is no order at all. Reachable only with the merchant's notification
+            // settings on, which is why no case here had reached it.
+            'low stock notification' => ['variant order that trips the low-stock notification'],
         ];
     }
 

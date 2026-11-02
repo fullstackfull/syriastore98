@@ -3,8 +3,8 @@
 @section('page-title', __('Customer Timeline'))
 
 @section('breadcrumb')
-    <li class="breadcrumb-item"><a href="{{ route('customer.index') }}">{{ __('Customer') }}</a></li>
-    <li class="breadcrumb-item"> {{ $customer_data->first_name }} </li>
+    <li class="ss-breadcrumb__item"><a class="ss-breadcrumb__link" href="{{ route('customer.index') }}">{{ __('Customer') }}</a></li>
+    <li aria-current="page" class="ss-breadcrumb__item"> {{ $customer_data->first_name }} </li>
 @endsection
 
 @section('content')

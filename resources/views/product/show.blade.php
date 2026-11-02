@@ -9,8 +9,8 @@
 @endphp
 
 @section('breadcrumb')
-    <li class="breadcrumb-item" aria-current="page"><a href="{{ route('product.index') }}">{{ __('Product') }}</a></li>
-    <li class="breadcrumb-item" aria-current="page">{{ __('Detail') }}</li>
+    <li class="ss-breadcrumb__item"><a class="ss-breadcrumb__link" href="{{ route('product.index') }}">{{ __('Product') }}</a></li>
+    <li aria-current="page" class="ss-breadcrumb__item">{{ __('Detail') }}</li>
 @endsection
 @section('action-button')
     <div class=" text-end d-flex gap-2 all-button-box justify-content-md-end justify-content-center">
@@ -624,6 +624,20 @@
             </div>
         </div>
     </div>
+
+    {{--
+        F184 / D-28c. THIS SCREEN HAS LIVE TRASH BUTTONS, which is easy to miss on a page whose
+        whole purpose is to look rather than to change.
+
+        `.attribute_combination` above is filled with the SAME `attribute_combinations_data`
+        partial the editor uses, and that partial's per-variant trash button is fully functional
+        here: the `$('input').attr('readonly', true)` sweep in this file's script runs before the
+        async injection and never touches an `<a>` anyway. So without this include the read-only
+        screen would keep the bare one-click delete the editor just lost, and the owner's condition
+        -- a visible explicit confirmation before EVERY permitted delete -- would hold on one
+        screen and not the other.
+    --}}
+    @include('product._variant-delete-dialog')
 @endsection
 
 @push('custom-script')

@@ -86,15 +86,15 @@ Each of these has produced a real defect. Do not assume the framework default.
 
 **Model caching**
 
-- **`User` is `Cachable`** (`GeneaLabs\LaravelModelCaching\Traits\Cachable`, `app/Models/User.php:16`).
-  A raw-query write — `DB::table('users')->update(...)` — leaves Eloquent reads serving the
-  **pre-write** row, and with `CACHE_STORE=array` that stale entry lives for the rest of the test.
-  This has produced two measured false readings: a fixture that looked like it had not applied, and
-  a security test that passed against unfixed code because the handler's own `User::find()` also
-  read stale. Write through Eloquent (which flushes), or call `(new User)->flushCache()`.
-- Several handlers read the platform admin via `Cache::remember('admin_details', 3600, ...)`.
-  `Cache::forget('admin_details')` between a fixture and a request, or the request sees a `User`
-  captured before the fixture existed.
+- **79 of the 95 models in `app/Models/` are `Cachable`** — assume cached; the 16 exceptions are
+  `AuditLog`, `CurrencyRate`, `DeliveryBoy{Device,Notification}`, `DeliveryEarning`,
+  `OtpIntegration`, `Permission`, `Role`, `SavedView`, `Store{Device,Notification,Wallet,
+  WalletTransaction,Withdrawal}`, `Zid{Event,Store}`. A raw write (`DB::table('products')->update()`)
+  leaves Eloquent reads, **route-model binding included**, serving the pre-write row, and under
+  `CACHE_STORE=array` it lives for the rest of the test: **three measured false readings**, the last
+  a test that passed against a live bite. Write through Eloquent (it flushes) or
+  `(new User)->flushCache()`; `$model->timestamps = false` keeps an explicit past `updated_at`.- Several handlers read the platform admin via `Cache::remember('admin_details', 3600, ...)`, so
+  `Cache::forget('admin_details')` between a fixture and a request or it sees the pre-fixture `User`.
 
 **Scoped models — check before asserting absence**
 
@@ -192,12 +192,18 @@ declared skip set.
 |---|---|---|
 | 01 Foundation | security, CI, regression gates, design-system foundation | engineering complete (2026-10-24), **NOT release-ready or accepted** |
 | 02 Merchant Experience | merchant dashboard, product/order UX, preferences, search, notifications, onboarding, web and Flutter parity | **owner authorised isolated engineering (2026-10-25); not authorised to merge/release** |
-| 03 Storefront | themes, visual editor, shopper experience, checkout UX, SEO | not started |
+| 02.5 Premium Merchant UI/UX | a separately approved FUTURE polish stage over Phase 02's surfaces | **not started — must not be merged into Phase 02** |
+| 03 Storefront | themes, visual editor, shopper experience, checkout UX, SEO, **plus a separately scoped Official Website and a bilingual Documentation Center** | not started |
 | 04 Commerce | products, multi-warehouse stock, pricing, fulfilment, COD, returns, channels | not started |
 | 05 Marketing & Analytics | campaigns, loyalty, reports and trustworthy analytics | not started |
-| 06 SaaS & Super Admin | SaaS subscriptions, support, controls, operations, platform admin | not started |
+| 06 SaaS & Super Admin | SaaS subscriptions, support, controls, operations, platform admin, **plus premium Super Admin UX** | not started |
 
-Phase 02 engineering may proceed on its own branch; this does **not** waive Phase 01 acceptance criteria or authorise release to production. Preserve and separately track the outstanding release gates in `docs/development/phase-1/PHASE-01-CLOSURE-EXECUTION.md` and the security incident #120.
+Phase 02 engineering may proceed on its own branch; this does **not** waive Phase 01 acceptance criteria or authorise release to production.
+
+**Phase 02 keeps its original Merchant Experience scope.** Phase 2.5, 03 and 06 are separate and
+must not be started during it, nor absorbed into it — see *Scope boundaries* in the ledger. Phase 02
+is not complete until every master-prompt requirement has a verified status or an authorised
+exception; `PHASE-02-COVERAGE-AUDIT-2026-10-25.md` traces which do and which do not. Preserve and separately track the outstanding release gates in `docs/development/phase-1/PHASE-01-CLOSURE-EXECUTION.md` and the security incident #120.
 
 ---
 
@@ -212,6 +218,10 @@ Phase 02 engineering may proceed on its own branch; this does **not** waive Phas
 | design system | `docs/design-system/README.md` |
 | schema gaps | **`docs/GATE-F-VERIFIED-SCHEMA.md`** (measured), `docs/GATE-F-SCHEMA-EXPORT.md`, `_gate_f_pending/README.md` |
 | phase plan and evidence | `docs/development/phase-1/` |
+| **what Phase 02 was actually asked for** | **`docs/development/phase-2/PHASE-02-MASTER-EXECUTION-PROMPT.md`** — the owner's master execution prompt, verbatim and not to be edited. Workstreams A–K, slices P2-00…P2-08, and the completion criteria. Later clarifications are appended to it in their own dated section; status lives in `PHASE-02-TASK-LEDGER.md`, never there. |
+| **which master-prompt requirements are tracked** | **`docs/development/phase-2/PHASE-02-COVERAGE-AUDIT-2026-10-25.md`** — the A–K requirement-to-row trace. 50 tracked, 23 partial, **31 missing**; the missing ones became ledger rows in the same change |
+| Phase 02 status, evidence, parity, handoff | `docs/development/phase-2/` |
+| the Phase 02 acceptance report | `docs/development/phase-2/PHASE-02-ACCEPTANCE-REPORT-AR.md` (Arabic, for the owner) |
 | the Phase 0 audit | `docs/discovery/` |
 
 ---
@@ -252,21 +262,22 @@ or progress ledger beside the Phase 01 ledger, two for running `git merge`/`git 
 no vendored planning skill and that is deliberate** — upstream's planning skills are inseparable
 from their own ledger. Use the ledger and the Issues.
 
-**Account-level, so it may be absent:**
+**Design skills, committed on the owner's instruction (Phase 02), so these work everywhere too:**
+`frontend-design` (hash-pinned in `skills-lock.json`), `ui-ux-pro-max`, `design`, `design-system`,
+`ui-styling`, `brand`, `banner-design`, `slides`. `frontend-design` for aesthetic direction,
+`ui-ux-pro-max` for patterns, typography and accessibility. They **advise** the Store Syria Design
+System (`public/css/store-syria-ds.css`, `docs/design-system/`), which stays authoritative.
 
-- **`frontend-design`** — aesthetic direction for UI work. Present in some environments, not all.
+**Unlike the vendored subset they are not egress-free** — they reference external documentation,
+font and API hosts, one of them an AI image API behind a credential. The host set is ratcheted by
+`ClaudeConfigurationTest::test_the_design_skills_declare_every_external_host_they_reference`: a new
+host fails CI so somebody reads it. Phase 02 has called none of them.
 
-### What this section used to claim, and why it was wrong
-
-It named `laravel-best-practices`, `ui-ux-pro-max` and `claude-automation-recommender` and said to
-use them "without being asked". **None of the three exists in this environment.** They were
-account-level installs on another machine; the only capabilities that survived the move were the
-ones committed to `.claude/`. A missing skill is not an error — it is simply never offered — so a
-session proceeds silently without it.
-
-So: do not write code or reviews as if those three were available. If you need what they covered,
-the project-local skill above holds what is specific to this codebase, and `vendor/` holds the
-framework's own truth for the version actually installed.
+**Still absent, so do not write against them:** `laravel-best-practices`,
+`claude-automation-recommender`. This section has now been wrong in both directions — #66 found it
+instructing three skills that did not exist, and the fix then went stale by calling `ui-ux-pro-max`
+and `frontend-design` absent after they were committed. It is a claim about the filesystem, so a
+test asserts it rather than prose being trusted.
 
 The full evaluation of candidate additions — twelve tools, each read from its real upstream for
 license, install mechanics, hooks, egress and credentials — is in `docs/tooling/SKILLS-MANIFEST.md`,
@@ -280,7 +291,7 @@ public framework documentation only** — a query may name a package and version
 repository's code, schema, config or customer data; and **`gstack`, `claude-mem` and `strix` must
 not be installed**, by owner decision.
 
-The storefront and admin are **Blade + Tailwind**, bilingual **Arabic (RTL) and English (LTR)**.
+The storefront and admin are **Blade + the vendored Bootstrap 5 WorkDo theme + `public/css/store-syria-ds.css`** — **not Tailwind**, which this file used to claim. Measured: `@vite` appears in **zero** views, `resources/css/app.css` is referenced nowhere, and there is no `public/build`, so the Tailwind toolchain is installed and never loaded. One live consequence: `resources/views/profile/edit.blade.php` is Breeze Tailwind markup on a registered route (`routes/web.php:449`) and renders unstyled. Bilingual **Arabic (RTL) and English (LTR)**.
 Any UI change must be checked in both directions, and contrast-checked — Claude B's verification
 found option names rendering at 1.00:1 white-on-white in dark mode.
 

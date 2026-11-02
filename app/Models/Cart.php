@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Cookie;
 use Session;
 use App\Http\Controllers\CartController;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use App\Traits\ApiResponser;
 use App\Models\Concerns\BelongsToStore;
 
@@ -1172,23 +1173,156 @@ class Cart extends Model
         return max(0, $coupon_price);
     }
 
-    public static function calculateFlatRateShippingAmount($shippingMethods, $shippingCost, $productList)
+    /**
+     * This store's product, or null — the payable-path twin of
+     * `Api\ApiController::productOfCartLineStore()`.
+     *
+     * The NULL rule is the cart writers' rule, not a new one: a product whose own `store_id` is
+     * NULL (or 0, which `config/tenancy.php` records as a real legacy value) is ACCEPTED, and only
+     * a PROVABLE mismatch is refused. Refusing legacy rows would stop pricing a merchant's own
+     * catalogue on the checkout path, which is worse than the defect being closed.
+     *
+     * `$storeId` null means the caller has not been updated; behaviour is then exactly as before.
+     */
+    private static function productOfStoreForShipping($productId, $storeId)
+    {
+        if (empty($productId)) {
+            return null;
+        }
+
+        $product = Product::find($productId);
+
+        if ($product === null || empty($storeId)) {
+            return $product;
+        }
+
+        if (! empty($product->store_id) && (int) $product->store_id !== (int) $storeId) {
+            Log::warning('flat-rate shipping refused a cart line naming another store\'s product', [
+                'store_id' => $storeId,
+                'product_store_id' => $product->store_id,
+                'product_id' => $productId,
+            ]);
+
+            return null;
+        }
+
+        return $product;
+    }
+
+    /**
+     * A shipping class within this store. THREE OUTCOMES, for the reason the quote twin records:
+     *
+     *   null   no class set, or no such class anywhere -> caller charges `product_no_cost`
+     *   false  the class exists but is not this store's -> caller charges NOTHING (+0)
+     *   model  the class, which this store owns        -> caller charges its bucket
+     *
+     * Collapsing `false` into `null` turns a cross-tenant under-charge into a deterministic
+     * OVER-charge, which is the regression the review caught in the quote twin's first fix. The
+     * existence probe reads no columns.
+     */
+    private static function shippingClassOfStoreForShipping($shippingId, $storeId)
+    {
+        if (empty($shippingId)) {
+            return null;
+        }
+
+        if (empty($storeId)) {
+            return Shipping::find($shippingId);   // caller not updated: legacy behaviour
+        }
+
+        $class = Shipping::where('id', $shippingId)
+            ->where(function ($q) use ($storeId) {
+                $q->where('store_id', $storeId)->orWhereNull('store_id');
+            })
+            ->first();
+
+        if ($class !== null) {
+            return $class;
+        }
+
+        return Shipping::where('id', $shippingId)->exists() ? false : null;
+    }
+
+    /**
+     * F283 FOLLOW-UP — THIS IS THE TWIN THAT CHARGES MONEY, AND IT WAS LEFT UNSCOPED.
+     *
+     * ═════════════════════════════════════════════════════════════════════════════════════════
+     * WHY THIS CHANGED, AND WHY IT MATTERS MORE THAN THE ONE F283 ORIGINALLY FIXED
+     * ═════════════════════════════════════════════════════════════════════════════════════════
+     *
+     * F283 scoped `Api\ApiController::calculateFlaterate()` — the QUOTE path behind
+     * `POST api/{slug}/delivery-charge`. **The order writers do not call that method.** They call
+     * this one, through `CartController::get_shipping_method()` (`:631`, `:635`), and its result
+     * becomes `$order_array['delivery_charge']` and from there **`orders.delivery_price` and
+     * `orders.final_price`** — a persisted payable, not a displayed quote.
+     *
+     * Found by the mandated independent review of the F283 change, which put it plainly: the
+     * diff's own reachability argument read as though `delivery_charge` were the surface, and it
+     * is not the surface that charges money.
+     *
+     * Four unscoped reads, the same shape as the quote twin: `Product::find($productId)` with no
+     * null check at all, and three `Shipping::find()`. `Product` carries `StoreScope` but is
+     * ABSENT from `config/tenancy.php`'s `scoped_models`, so no predicate is added for any
+     * principal; `Shipping` is excluded outright.
+     *
+     * ═════════════════════════════════════════════════════════════════════════════════════════
+     * WHAT IT LEAKS, STATED EXACTLY — IT IS NOT THE SAME AS THE QUOTE
+     * ═════════════════════════════════════════════════════════════════════════════════════════
+     *
+     * This method never reads `sale_price`, so **no catalogue price crosses the boundary here**.
+     * What it reproduces is the OTHER half of F283's measurement: the shipping mis-bucketing. A
+     * foreign product's class matches no key in this store's `product_cost` table, so the
+     * per-class sum stays zero and the line is charged nothing — and here that wrong figure is
+     * PERSISTED on the order rather than returned as a quote.
+     *
+     * ═════════════════════════════════════════════════════════════════════════════════════════
+     * THE STORE ARRIVES AS A PARAMETER, because `$productList` cannot supply it
+     * ═════════════════════════════════════════════════════════════════════════════════════════
+     *
+     * `$productList` is `$response->data->product_list` from `ApiController::cart_list` — a
+     * decoded payload of per-line display fields, not `Cart` models, and it carries no
+     * `store_id`. So the tenant is threaded in from the caller, where it is already
+     * slug-resolved (`getStore($slug)`), never taken from a request field.
+     *
+     * The parameter is OPTIONAL so no caller breaks. When it is absent the behaviour is exactly
+     * what it was before this change — unscoped — and that is deliberate rather than an oversight:
+     * silently refusing every line for a caller that has not been updated would turn a tenancy
+     * hardening into an outage on a payable path. Both first-party callers pass it, and
+     * `ForeignProductShippingQuoteTest` pins that they do.
+     *
+     * @param  int|string|null  $storeId  the slug-resolved store, or null to preserve legacy behaviour
+     */
+    public static function calculateFlatRateShippingAmount($shippingMethods, $shippingCost, $productList, $storeId = null)
     {
         $cost_totle =  $shippingCost;
         $price = 0;
         foreach ($productList as $key => $Product) {
             $productId = $Product->product_id;
-            $product_data = Product::find($productId);
+            $product_data = self::productOfStoreForShipping($productId, $storeId);
+
+            /*
+             * A LINE THAT IS NOT THIS STORE'S CONTRIBUTES NOTHING. Note this also fixes a
+             * pre-existing crash: the old code did `Product::find($productId)` and dereferenced
+             * `$product_data->variant_product` with NO null check, so a cart line naming a DELETED
+             * product was a 500 on the checkout path.
+             */
+            if ($product_data === null) {
+                continue;
+            }
+
             if ($product_data->variant_product == 0) {
                 if ($shippingMethods['product_cost'] != null) {
-                    $shippingClass = Shipping::find($product_data->shipping_id);
+                    $shippingClass = self::shippingClassOfStoreForShipping($product_data->shipping_id, $storeId);
                     $value = $shippingMethods['product_cost'];
                     $product_cost = json_decode($value, true);
                     $most_expensive_shipping_price = max($product_cost['product_cost']);
                     $most_expensive_shipping_price_id = array_search($most_expensive_shipping_price, $product_cost['product_cost']);
                     
-                    if ($shippingClass == null) {
-                        $price  += $product_cost['product_no_cost'];
+                    /* `=== null` is "no class"; `false` is "not this store's" and adds nothing. */
+                    if ($shippingClass === null) {
+                        $price  += $product_cost['product_no_cost'] ?? 0;
+                    } elseif ($shippingClass === false) {
+                        $price  += 0;
                     } else {
                         if ($shippingMethods->calculation_type == 2) {
                             foreach ($product_cost['product_cost'] as $key => $value) {
@@ -1238,12 +1372,12 @@ class Cart extends Model
                     $most_expensive_shipping_price_id = array_search($most_expensive_shipping_price, $product_cost['product_cost']);
 
                     foreach ($product_stock as $stock) {
-                        $shippingClass = Shipping::find($stock->shipping);
+                        $shippingClass = self::shippingClassOfStoreForShipping($stock->shipping, $storeId);
 
                         if ($stock->shipping == 'same_as_parent') {
-                            $shipping = Shipping::find($product_data->shipping_id);
-                            if ($shipping == null) {
-                                $price  += $product_cost['product_no_cost'];
+                            $shipping = self::shippingClassOfStoreForShipping($product_data->shipping_id, $storeId);
+                            if ($shipping === null) {
+                                $price  += $product_cost['product_no_cost'] ?? 0;
                             }
                             if ($shippingMethods->calculation_type == 2) {
                                 foreach ($product_cost['product_cost'] as $key => $value) {

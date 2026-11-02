@@ -172,6 +172,64 @@ class User extends Authenticatable implements LaratrustUser, MustVerifyEmail, \L
     {
         return Store::where('created_by', '=', $this->creatorId())->count();
     }
+
+    /**
+     * The stores this user may switch INTO — P2-01-11's workspace chip.
+     *
+     * SCOPED BY `created_by = creatorId()` FOR EVERYONE, INCLUDING THE
+     * OPERATOR — and the absence of a `type` branch here is the decision, not
+     * an oversight.
+     *
+     * StoreController::changeStore():699 does branch, on the literal
+     * `$user->type !== 'super admin'`. Two earlier attempts at this method
+     * both went wrong:
+     *
+     *   1. Using UserPolicy::isOperator() here. The helper lowercases and
+     *      rtrims, so for a row whose type reads 'Super Admin' it answers TRUE
+     *      while changeStore()'s literal answers "apply the predicate". The
+     *      chip would have listed EVERY STORE ON THE PLATFORM — other tenants'
+     *      store names — to a principal the handler then 403s. A disclosure,
+     *      even though no switch succeeds.
+     *
+     *   2. Copying the literal instead. That matched, exactly, the census
+     *      pattern /type\s*[!=]==\s*'super admin'/ in
+     *      OperatorCheckCensusTest, whose CEILING is an upper bound that may
+     *      only FALL. Adding a site raises the count the project's own ratchet
+     *      exists to drive down — and the comparison cannot be reworded to
+     *      dodge the regex, because dodging it is the thing the ratchet is for.
+     *
+     * So the type question is not asked at all. For `admin` and `super admin`
+     * creatorId() returns `$this->id` (creatorId(), above), so the operator's
+     * chip lists the stores the OPERATOR created. That is strictly NARROWER
+     * than changeStore() accepts, which is the direction the `is_active`
+     * narrowing already established, and it cannot be broader for any shape of
+     * `users.type` — null, a role name, 'admin', ' super admin', 'Super Admin'
+     * — because every one of them now takes the same single branch.
+     *
+     * It also bounds the query. The operator branch was
+     * `Store::where('is_active', 1)->get()` with no limit: every store on the
+     * platform hydrated into models on EVERY admin page render, with one
+     * <a> and one route() call each. The operator keeps cross-tenant switching
+     * through stores.index, which is where a list of every store belongs.
+     *
+     * `is_active` is the second deliberate narrowing. changeStore() looks the
+     * store up first and only then refuses an inactive one with "Store is
+     * locked", so an inactive store is reachable by its query but never
+     * switchable. Offering it would be offering a guaranteed failure.
+     *
+     * Note `$this->stores()` is NOT used: that relation is
+     * hasMany(Store, 'created_by', 'id') and keys on $this->id, so it returns
+     * nothing at all for a staff member, whose stores belong to their admin.
+     *
+     * @return \Illuminate\Database\Eloquent\Collection<int, Store>
+     */
+    public function switchableStores()
+    {
+        return Store::where('is_active', 1)
+            ->where('created_by', $this->creatorId())
+            ->orderBy('name')
+            ->get();
+    }
     public function assignPlan($planID)
     {
         $user = \Auth::user();

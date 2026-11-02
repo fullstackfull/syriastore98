@@ -7,12 +7,16 @@ use App\Models\Setting;
 use App\Models\Utility;
 use App\Payments\RetiredGateways;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\File;
 
 class PaymentSettingController extends Controller
 {
     protected $store_id;
     protected $post = [];
+
+    /** Gateways the caller asked to enable that were left off for want of a required field. */
+    protected $incomplete = [];
 
     /**
      * Process payment settings form submission
@@ -39,6 +43,25 @@ class PaymentSettingController extends Controller
 
         // Save all settings at once
         $this->saveSettings();
+
+        /*
+         * F142. A gateway the merchant asked to enable but which could not be enabled is
+         * reported BY NAME, with the fields it is waiting for. A silent "saved successfully"
+         * over a gateway that is still off would be worse than the old behaviour of enabling it
+         * broken — at least that failed visibly, at checkout.
+         */
+        if ($this->incomplete !== []) {
+            $names = array_map(function (array $row): string {
+                return __($row['gateway']) . ' (' . implode(', ', array_map(
+                    fn (string $f): string => __($this->secretLabel($f) ?? $f), $row['fields']
+                )) . ')';
+            }, $this->incomplete);
+
+            return redirect()->back()->with('error', __(
+                'Saved, but these gateways were left switched off because a required value is missing: :list',
+                ['list' => implode(' · ', $names)]
+            ));
+        }
 
         return redirect()->back()->with('success', __('Setting successfully updated.'));
     }
@@ -92,16 +115,100 @@ class PaymentSettingController extends Controller
                 $this->handleImageUpload($request->$imageKey, $imageKey);
             }
             
-            // Validate required fields if specified
-            if (!empty($gateway['required_fields'])) {
-                $this->validateGatewayFields($request, $gateway);
+            /*
+             * F142 — THE VALIDATION BITES ON THE TRANSITION, NOT ON THE EXISTING STATE.
+             *
+             * It had never run: `validateGatewayFields()`'s return was discarded and its only
+             * failure path was a `redirect()` nobody sends, so every `required_fields` entry
+             * across 52 gateways was decorative. Switching it on wholesale is what the owner's
+             * decision forbids, for a concrete reason: this screen is ONE form and ONE save
+             * covering all 52 gateways, so a single gateway enabled today with a field it never
+             * filled would make the merchant unable to save ANYTHING here, with no way to tell
+             * which gateway was at fault.
+             *
+             * So the rule applies only when a gateway is being TURNED ON — `$wasEnabled` reads
+             * the STORED row, not the request. A gateway already on keeps saving exactly as it
+             * does today; one being enabled must be complete. That is "do not accept an
+             * incomplete configuration as valid" without breaking a single existing gateway.
+             *
+             * IMPACT MEASURED, NOT ASSUMED: all 118 `required_fields` entries across the 52
+             * gateways have a rendered control (counting the mode radios, which come from
+             * `mode_options` rather than from `fields`), so the rule can never demand something
+             * the merchant has no way to supply.
+             *
+             * AND A FAILURE DOES NOT LOSE THE SAVE. The gateway is left OFF and named in the
+             * message; everything the merchant typed is still written, and every other gateway
+             * still saves. Aborting the whole form would punish 51 gateways for one.
+             */
+            $wasEnabled = ($this->storedValue($enableKey) ?? 'off') === 'on';
+            $missing = $wasEnabled ? [] : $this->missingRequiredFields($request, $gateway);
+
+            if ($missing !== []) {
+                $this->incomplete[] = ['gateway' => $gateway['id'], 'fields' => $missing];
+
+                // An incomplete gateway is not a valid one. The typed values below are still
+                // stored, so the merchant's progress survives.
+                $this->post[$enableKey] = 'off';
+            } else {
+                $this->post[$enableKey] = 'on';
             }
             
-            // Set gateway as enabled
-            $this->post[$enableKey] = 'on';
-            
-            // Store gateway fields
+            // Store gateway fields.
+            //
+            // F117. This was `!empty($request->$field) ? $request->$field : ''` -- a field that
+            // posts nothing wrote the EMPTY STRING over whatever was stored. That was harmless
+            // only while every field rendered its value back, so "nothing posted" could not
+            // happen for a configured gateway. The settings screen now MASKS the 58 secret
+            // fields, so a save of anything else on this screen posts them empty, and this line
+            // would have wiped every gateway credential the merchant had.
+            //
+            // `SecretSetting::resolve()` keeps the stored value when nothing was typed. It is
+            // applied to the secret fields only: a public field (a merchant id, a mode, a
+            // description) is still rendered with its value, so an empty post there really does
+            // mean the merchant cleared it.
+            $secretFields = $this->secretFieldsFor();
+
             foreach ($gateway['fields'] as $field) {
+                /*
+                 * THE ENABLE KEY IS IN THIS LIST, and it is decided ABOVE, not here. Every
+                 * gateway's `fields` begins with its own `is_<id>_enabled`, so without this the
+                 * loop writes `$request->is_stripe_enabled` straight over the value the F142
+                 * branch just set — which is exactly how the first version of that fix reported
+                 * "left switched off" in the message while storing 'on'. Measured, not
+                 * reasoned: the probe showed `is_stripe_enabled = 'on'` beside an error naming
+                 * both missing fields.
+                 */
+                if ($field === $enableKey) {
+                    continue;
+                }
+
+                if (in_array($field, $secretFields, true)) {
+                    $this->post[$field] = \App\Support\SecretSetting::resolve(
+                        $request->$field,
+                        $this->storedValue($field),
+                    );
+
+                    continue;
+                }
+
+                /*
+                 * F143 — A FIELD THAT IS NOT IN THE REQUEST IS LEFT ALONE, rather than written
+                 * as ''. The old line could not tell "the merchant cleared this box" from "this
+                 * control was never on the page", and the difference is a real one:
+                 * `paiementpro_mode` is in that gateway's save list while the display array
+                 * gives it no `mode_options`, so no radio is ever rendered, nothing posts it,
+                 * and every save that enabled the gateway wrote '' over the stored mode.
+                 *
+                 * `has()` is the distinction the old code lacked: PRESENT-and-empty still
+                 * clears (a GET form submits every control, so that is how a text field is
+                 * emptied), ABSENT keeps. No mode options were invented and no collection logic
+                 * touched — what PaiementPro's modes are is a question about that provider's
+                 * contract. Owner decision F143.
+                 */
+                if (! $request->has($field)) {
+                    continue;
+                }
+
                 $this->post[$field] = !empty($request->$field) ? $request->$field : '';
             }
             
@@ -134,21 +241,293 @@ class PaymentSettingController extends Controller
     }
 
     /**
-     * Validate required fields for a gateway
+     * The required fields this gateway is missing.
+     *
+     * A PREDICATE THAT RETURNS, which is the whole repair. The method this replaces built a
+     * validator and then did `return redirect()->back()->with('error', …)` from a private method
+     * whose caller discarded the value — so a failure constructed a response object nobody sent
+     * and the save carried on. MEASURED before the fix: a POST enabling Stripe with both its
+     * required keys empty and nothing stored wrote `is_stripe_enabled = 'on'`.
+     *
+     * A SECRET THAT IS ALREADY STORED COUNTS AS SUPPLIED. Its box is masked and posts empty when
+     * the merchant leaves it alone, so demanding a value would mean retyping a Stripe secret key
+     * in order to change a gateway's description.
      */
-    private function validateGatewayFields(Request $request, $gateway)
+    private function missingRequiredFields(Request $request, array $gateway): array
     {
-        $rules = array_merge(
-            ['is_' . $gateway['id'] . '_enabled' => 'required'],
-            array_fill_keys($gateway['required_fields'], 'required')
-        );
-        
-        $validator = Validator::make($request->all(), $rules);
-        
-        if ($validator->fails()) {
-            $messages = $validator->getMessageBag();
-            return redirect()->back()->with('error', $messages->first());
+        $secrets = $this->secretFieldsFor();
+        $missing = [];
+
+        foreach ($gateway['required_fields'] ?? [] as $field) {
+            // The enable flag appears in some gateways' required list; it is the thing being
+            // set, not a field the merchant fills.
+            if (str_starts_with($field, 'is_')) {
+                continue;
+            }
+
+            if (filled($request->input($field))) {
+                continue;
+            }
+
+            if (in_array($field, $secrets, true)
+                && \App\Support\SecretSetting::isSet($this->storedValue($field))) {
+                continue;
+            }
+
+            $missing[] = $field;
         }
+
+        return $missing;
+    }
+
+    /**
+     * F141 — step one of removing a stored gateway secret: ask, on the server.
+     *
+     * TWO POSTS, AND THE SECOND ONE IS NOT A FORMALITY. The owner's decision requires an
+     * explicit action, an appropriate permission and a CLEAR CONFIRMATION, and a confirmation
+     * that lives in JavaScript is not one for an action that destroys a credential:
+     *
+     *   - the house helper `show_confirm` (`public/js/custom.js:107`) resolves its form with
+     *     `closest("form")`, and the payment screen is ONE form wrapping all 52 gateways, so a
+     *     button inside a gateway card would submit the whole settings form instead;
+     *   - and it FAILS OPEN. With JavaScript broken or blocked the button still submits, and the
+     *     secret is gone with no question asked. A destructive action has to fail CLOSED.
+     *
+     * So the confirmation is a server round trip: this action renders a page naming the gateway,
+     * naming the field, and saying what removal does and does not do. Nothing is written here.
+     *
+     * NOT A GET, deliberately. P2-05-1 removed four state-changing GETs from this codebase —
+     * two of them unauthorised cross-tenant writes — and `StateChangingGetInventoryTest`
+     * ratchets the set so a fifth cannot appear quietly.
+     */
+    public function confirmSecretRemoval(Request $request)
+    {
+        if (! \App\Services\StoreSettingsAccess::permits(auth()->user())) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
+        $this->store_id = !empty(getCurrentStore()) ? getCurrentStore() : '1';
+
+        $field = (string) $request->input('field', '');
+        $gateway = $this->gatewayOwningSecret($field);
+
+        if ($gateway === null) {
+            return redirect()->back()->with('error', __('Unknown payment credential.'));
+        }
+
+        if (! \App\Support\SecretSetting::isSet($this->storedValue($field))) {
+            return redirect()->back()->with('error', __('There is no saved value to remove.'));
+        }
+
+        return view('setting.payment_partials.confirm_secret_removal', [
+            'field' => $field,
+            'label' => $this->secretLabel($field) ?? $field,
+            'gateway' => $gateway,
+            'blocked' => $this->removalBlockedBecauseEnabled($gateway, $field),
+        ]);
+    }
+
+    /**
+     * F141 — step two: remove ONE stored credential, for ONE gateway, in ONE store.
+     *
+     * WHAT THIS DELIBERATELY DOES NOT CHANGE, because the owner's decision says so explicitly
+     * and because both behaviours are load-bearing elsewhere:
+     *
+     *   - switching a gateway OFF still leaves its credentials alone (`processGateway()` writes
+     *     nothing when the gateway is not enabled), so a merchant can disable and re-enable
+     *     without retyping;
+     *   - an EMPTY BOX on a normal save still means "keep", which is the contract
+     *     `SecretSetting::resolve()` and every masked field on this screen depend on.
+     *
+     * Removal is therefore the only way a credential leaves, and it is never a side effect.
+     *
+     * A REQUIRED SECRET CANNOT BE REMOVED FROM AN ENABLED GATEWAY. Doing so would leave the
+     * gateway switched on and unable to authenticate — a checkout that fails at the payment
+     * step, which is the worst place to discover a configuration change. The merchant is told to
+     * disable the gateway first; that is a deliberate, visible act with its own consequence,
+     * rather than this action silently taking a gateway offline on their behalf.
+     */
+    public function removeSecret(Request $request)
+    {
+        if (! \App\Services\StoreSettingsAccess::permits(auth()->user())) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
+        $this->store_id = !empty(getCurrentStore()) ? getCurrentStore() : '1';
+
+        $field = (string) $request->input('field', '');
+        $gateway = $this->gatewayOwningSecret($field);
+
+        if ($gateway === null) {
+            return redirect()->back()->with('error', __('Unknown payment credential.'));
+        }
+
+        /* The confirmation is re-checked on the WRITE, not only on the page that offered it. A
+           page can be skipped; a request cannot skip the handler that acts on it. */
+        if ($request->input('confirm') !== 'remove') {
+            return redirect()->back()->with('error', __('The removal was not confirmed.'));
+        }
+
+        if ($this->removalBlockedBecauseEnabled($gateway, $field)) {
+            return redirect()->back()->with('error', __(
+                'Turn :gateway off before removing this credential, so it cannot be left switched on without one.',
+                ['gateway' => __($gateway['name'])]
+            ));
+        }
+
+        /* ONE ROW, IN THIS STORE. Not `where('name', $field)` alone -- `Setting` is in no
+           `scoped_models` entry, so it adds no predicate of its own and this `store_id` is the
+           only thing confining the delete. The same predicate the write uses. */
+        Setting::where('name', $field)->where('store_id', $this->store_id)->delete();
+
+        /* `Setting` is `Cachable`, and the delete above goes through Eloquent so the model cache
+           is flushed with it -- but `getAdminAllSetting()` is read through `Cache::remember`
+           elsewhere on this screen, so the admin bag is dropped too or the field would still
+           report "a value is saved" on the next render. */
+        Cache::forget('admin_details');
+
+        return redirect()->route('setting.index')->with('success', __(
+            'The saved :field for :gateway has been removed from Store Syria. This does NOT revoke the credential with the payment provider — do that in their dashboard as well.',
+            ['field' => __($this->secretLabel($field) ?? $field), 'gateway' => __($gateway['name'])]
+        ));
+    }
+
+    /**
+     * The gateway whose field this is, or null when the name is not a SECRET field of any
+     * gateway. An allowlist by construction: a name that is not in `paymentSettingArray()` with
+     * `'secret' => true` can never reach the delete, so the parameter cannot be pointed at
+     * `site_currency`, a public key, or another tenant's row name.
+     */
+    private function gatewayOwningSecret(string $field): ?array
+    {
+        if ($field === '') {
+            return null;
+        }
+
+        $method = new \ReflectionMethod(SettingController::class, 'paymentSettingArray');
+        $method->setAccessible(true);
+
+        foreach ($method->invoke(app(SettingController::class)) as $definition) {
+            foreach ($definition['fields'] ?? [] as $candidate) {
+                if ($candidate['key'] === $field && ($candidate['secret'] ?? true)) {
+                    return $definition;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * The field's own label, for a message a merchant can act on.
+     *
+     * Across ALL display fields, not only the secret ones: F142 reports missing REQUIRED fields
+     * and most of those are public (a merchant id, a site code). Resolving only secrets would
+     * have printed raw column names like `paytm_merchant_id` at a merchant.
+     */
+    private function secretLabel(string $field): ?string
+    {
+        $method = new \ReflectionMethod(SettingController::class, 'paymentSettingArray');
+        $method->setAccessible(true);
+
+        foreach ($method->invoke(app(SettingController::class)) as $definition) {
+            foreach ($definition['fields'] ?? [] as $candidate) {
+                if ($candidate['key'] === $field) {
+                    return $candidate['label'];
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Whether this removal would leave an ENABLED gateway without a credential it needs.
+     *
+     * `required_fields` lives on the SAVE-side definition, which uses different ids for the same
+     * gateway (`cod` there, `COD` in the display array), so it is matched by FIELD NAME -- the
+     * same reason `secretFieldsFor()` does. Field names are globally unique across the 52
+     * gateways because they are `settings` rows.
+     */
+    private function removalBlockedBecauseEnabled(array $gateway, string $field): bool
+    {
+        if (($this->storedValue($gateway['enable_key']) ?? 'off') !== 'on') {
+            return false;
+        }
+
+        foreach ($this->getPaymentGateways() as $definition) {
+            if (in_array($field, $definition['required_fields'] ?? [], true)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * The field names this gateway treats as secrets, taken from the ONE place that decides:
+     * `SettingController::paymentSettingArray()`, whose `'secret'` flag the settings screen also
+     * renders from. Reading it here rather than keeping a second list is the point -- this
+     * controller already carries its own copy of each gateway's field names, and the two lists
+     * use different ids for the same gateway (`cod` here, `COD` there), which is exactly how a
+     * second copy of the secret flags would drift.
+     *
+     * Matched on the FIELD NAME, not the gateway id, for that reason -- which is why this takes
+     * no gateway argument at all. Field names are globally unique across the 52 gateways (they
+     * are `settings` rows, so they have to be), so a name match needs no id match and cannot be
+     * defeated by the casing difference.
+     *
+     * A field this controller knows and that array does not is treated as NOT secret, which is
+     * the pre-existing behaviour for it; `PaymentGatewayFieldContractTest` asserts the two lists
+     * agree, so that case is a test failure rather than a silent exposure.
+     */
+    private function secretFieldsFor(): array
+    {
+        static $cache = null;
+
+        if ($cache === null) {
+            $cache = [];
+            $method = new \ReflectionMethod(SettingController::class, 'paymentSettingArray');
+            $method->setAccessible(true);
+
+            foreach ($method->invoke(app(SettingController::class)) as $definition) {
+                foreach ($definition['fields'] ?? [] as $field) {
+                    // Absent means secret, matching the view's `?? true`: a field added without
+                    // the flag is protected rather than exposed.
+                    if ($field['secret'] ?? true) {
+                        $cache[] = $field['key'];
+                    }
+                }
+            }
+        }
+
+        return $cache;
+    }
+
+    /**
+     * The value currently stored for a setting in THIS store.
+     *
+     * READ WITH THE SAME PREDICATE THE WRITE USES, which is the whole point.
+     * `saveSettings()` does `updateOrCreate(['name' => $key, 'store_id' => $this->store_id])`,
+     * so this is `where('name')->where('store_id', $this->store_id)` and nothing else: the row
+     * read is provably the row written, and no value can cross a store boundary.
+     *
+     * NOT `getAdminAllSetting()`, which also filters on `created_by = <tenant root>` and
+     * resolves its own store from `$user->current_store`. Where those two disagree -- a staff
+     * member whose `current_store` has drifted from their employer's -- the screen would show
+     * one store's settings while the save wrote another's, and a "keep what is stored" read
+     * taken from the screen's copy would write store B's secret into store A's row.
+     *
+     * (An earlier version of this comment justified the direct query as avoiding the model
+     * cache. That was wrong and is corrected rather than left standing: `Setting` is `Cachable`,
+     * so `Setting::where(...)->first()` goes through the cached builder exactly like any other
+     * Eloquent read. The reason is the predicate, not the cache.)
+     */
+    private function storedValue(string $name): ?string
+    {
+        $row = Setting::where('name', $name)->where('store_id', $this->store_id)->first();
+
+        return $row?->value;
     }
 
     /**

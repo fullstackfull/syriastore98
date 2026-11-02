@@ -128,6 +128,41 @@ class PaymentService
      *                     the caller must abandon the order. Any decrements
      *                     already applied in this cart are given back first.
      */
+    /**
+     * E13-C residual / F237 F4 — this service's own correlation token.
+     *
+     * `PaymentService` does NOT use `AppliesCartStockChanges`; it carries a private copy of that
+     * trait's decrement-and-compensate pair. The copy passed **no evidence context**, so
+     * `ProductStockService::recordMovement()` returned without writing and **nothing this service
+     * did to stock was recorded at all** -- which is why the stock_movements migration's claim
+     * that "absent now means absent" had to be withdrawn. Routing every write through one service
+     * is necessary and not sufficient: the service only records when its caller supplies a context.
+     *
+     * Minted lazily and once per request, exactly as the trait does, so every line of one basket
+     * shares a token.
+     */
+    private function paymentStockEvidenceToken(): string
+    {
+        if (empty($this->ssPaymentStockToken)) {
+            $this->ssPaymentStockToken = \App\Services\StockMovement::newToken();
+        }
+
+        return $this->ssPaymentStockToken;
+    }
+
+    /** @var string|null Set by {@see paymentStockEvidenceToken()}; one token per request. */
+    private $ssPaymentStockToken = null;
+
+    /** The evidence context for a stock call made by this service. */
+    private function paymentStockEvidence($model, string $reason): array
+    {
+        return [
+            'store_id' => is_object($model) ? ($model->store_id ?? null) : null,
+            'correlation_token' => $this->paymentStockEvidenceToken(),
+            'reason' => $reason,
+        ];
+    }
+
     private function decrementStockOrFail(
         array &$applied,
         string $kind,
@@ -135,14 +170,20 @@ class PaymentService
         $qty,
         bool $rejectOnShortfall = true
     ): ?array {
+        $evidence = $this->paymentStockEvidence($model, \App\Services\StockMovement::REASON_ORDER_PLACE);
+
         $result = $kind === 'variant'
-            ? $this->stockService()->decrementVariantStock($model, $qty)
-            : $this->stockService()->decrementProductStock($model, $qty);
+            ? $this->stockService()->decrementVariantStock($model, $qty, false, false, $evidence)
+            : $this->stockService()->decrementProductStock($model, $qty, false, false, $evidence);
 
         if ($result['applied']) {
             $applied[] = [
                 'kind' => $kind,
                 'id' => $model->id,
+                /* Carried so the compensation below can name its tenant, exactly as the trait's
+                   copy does. The model is the row just decremented, so this is its own store and
+                   not a caller's claim. */
+                'store_id' => $model->store_id ?? null,
                 'quantity' => $result['quantity'],
             ];
 
@@ -172,14 +213,17 @@ class PaymentService
         // strictly better than losing the order. The shortfall is a merchant
         // operations problem, not a reason to discard a paid basket.
         if (!$rejectOnShortfall) {
+            $forcedEvidence = $this->paymentStockEvidence($model, \App\Services\StockMovement::REASON_ORDER_PLACE);
+
             $forced = $kind === 'variant'
-                ? $this->stockService()->decrementVariantStock($model, $qty, true)
-                : $this->stockService()->decrementProductStock($model, $qty, true);
+                ? $this->stockService()->decrementVariantStock($model, $qty, true, false, $forcedEvidence)
+                : $this->stockService()->decrementProductStock($model, $qty, true, false, $forcedEvidence);
 
             if ($forced['applied']) {
                 $applied[] = [
                     'kind' => $kind,
                     'id' => $model->id,
+                    'store_id' => $model->store_id ?? null,
                     'quantity' => $forced['quantity'],
                 ];
             }
@@ -203,10 +247,21 @@ class PaymentService
     private function restoreStockDecrements(array $applied): void
     {
         foreach ($applied as $change) {
+            /* RECORDED, not merely performed. `movedOutFor()` nets applied outs against applied
+               ins for the same line, so a decrement given back here must leave the line
+               NOT_MOVED on balance -- otherwise a later cancellation would read MOVED and give
+               the same units back a second time. Same token, so it joins this request's other
+               movements. Mirrors `AppliesCartStockChanges::restoreStockDecrements()`. */
+            $restoreEvidence = [
+                'store_id' => $change['store_id'] ?? null,
+                'correlation_token' => $this->paymentStockEvidenceToken(),
+                'reason' => \App\Services\StockMovement::REASON_ORDER_CANCEL,
+            ];
+
             if (($change['kind'] ?? null) === 'variant') {
-                $this->stockService()->restoreVariantStock($change['id'], $change['quantity']);
+                $this->stockService()->restoreVariantStock($change['id'], $change['quantity'], $restoreEvidence);
             } else {
-                $this->stockService()->restoreProductStock($change['id'], $change['quantity']);
+                $this->stockService()->restoreProductStock($change['id'], $change['quantity'], $restoreEvidence);
             }
         }
     }
@@ -503,7 +558,30 @@ $requestData['slug'] = $slug;
 $requestData['store_id'] = $store->id;
                 Session::put('request_data', $requestData);
 
+                /*
+                 * F10 (found reviewing F186) -- THE RECORD'S DEADLINE IS ABSOLUTE, NOT ROLLING.
+                 *
+                 * Every `Cache::put('paymera_pending_<ref>', ...)` in PaymentController re-sets the
+                 * TTL to two hours from now. That was harmless while the first pass stamped
+                 * `processed` and every later one short-circuited: the put ran once. F186 made a
+                 * failed pass leave `processed` false, so an unprocessed record reaches a put once
+                 * per 60 minutes (the `paymera_claim_` lifetime) and ONE anonymous GET an hour kept
+                 * it alive indefinitely. That falsifies the invariant F186's own reasoning rests
+                 * on -- that the writer's 48-hour gateway-return claim outlives the record's two
+                 * hours -- because at T+48h the claim lapses while the record is still there, and
+                 * the next pass enters the writer for real and writes an order two days after the
+                 * capture, for the signed-in branch against the LIVE cart rather than the basket
+                 * that was paid for.
+                 *
+                 * Stored once, here, and honoured by `paymeraRecordDeadline()`. A record written
+                 * before this change carries no deadline and keeps the old rolling two hours, so
+                 * nothing in flight at deploy breaks; the renewal therefore persists for those
+                 * until they lapse, which is stated rather than hidden.
+                 */
+                $ssPaymeraDeadline = now()->addHours(2);
+
                 Cache::put('paymera_pending_' . $orderId, [
+                    'ss_expires_at' => $ssPaymeraDeadline->toIso8601String(),
                     'payment_id' => $responseData['Data']['paymentId'] ?? null,
                     'slug'       => $slug,
                     'request_data' => $requestData,
@@ -524,7 +602,7 @@ $requestData['store_id'] = $store->id;
                         str_replace($CURRENCY, '', (string) $cartlist_final_price)
                     ),
                     'amount_sent' => $totalprice,
-                ], now()->addHours(2));
+                ], $ssPaymeraDeadline);
 
                 return $responseData['Data']['url'];
             }
@@ -2683,17 +2761,40 @@ $products_weight_array[] = [
 
         $product_reward_point = 1;
 
+        /*
+         * F46. THE AUTHENTICATED CUSTOMER'S OWN ID, NEVER `$request->customer_id`.
+         *
+         * Both the reference and the ledger's `customer_id` were built from request input for a
+         * caller `auth('customers')->check()` had ALREADY authenticated -- so a signed-in shopper
+         * could attribute their order to anyone by posting another id, and because
+         * `orders.product_order_id` is a STRING column the posted value was carried whole into
+         * the reference that the merchant's order list renders. `config/database.php:55` sets
+         * `'strict' => false`, so the `unsignedBigInteger` `customer_id` coerced to 0 rather than
+         * rejecting a non-numeric value, which is why the obvious objection -- "the insert would
+         * refuse it" -- does not hold. The rendering half was fixed and pinned earlier
+         * (OrderListCellEscapingTest); this is the input half.
+         *
+         * THE GUEST PATH IS UNCHANGED, deliberately. For a guest there is no authenticated
+         * customer, and `$request->customer_id` there is the id of the Customer the handler found
+         * or created from the billing info -- which is legitimate and is what the P1-SEC-23/24
+         * comment above records. So the id is taken from the session ONLY on the branch where a
+         * session exists, and the guest branch keeps the value and the `'0'` reference prefix it
+         * had before. No payment behaviour, price or status changes.
+         */
+        $orderCustomerId = ! empty($request->customer_id) ? $request->customer_id : 0;
         $product_order_id = '0' . date('YmdHis');
         $is_guest = 1;
         if (auth('customers')->check()) {
-            $product_order_id = $request->customer_id . date('YmdHis');
+            $orderCustomerId = auth('customers')->id();
+            $product_order_id = $orderCustomerId . date('YmdHis');
             $is_guest = 0;
         }
         // add in  Order table  start
         $order = new Order();
+        $order->order_source = Order::SOURCE_STOREFRONT;
         $order->product_order_id = $product_order_id;
         $order->order_date = date('Y-m-d H:i:s');
-        $order->customer_id = !empty($request->customer_id) ? $request->customer_id : 0;
+        $order->customer_id = $orderCustomerId;   // F46: the session's id when there is one
         $order->is_guest = $is_guest;
         $order->product_id = $prodduct_id_array;
         $order->product_json = json_encode($products);

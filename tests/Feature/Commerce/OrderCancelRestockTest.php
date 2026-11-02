@@ -94,6 +94,7 @@ class OrderCancelRestockTest extends TestCase
         Cache::flush();
 
         foreach ([
+            'stock_movements',
             'order_coupon_details',
             'order_tax_details',
             'order_billing_details',
@@ -390,6 +391,413 @@ class OrderCancelRestockTest extends TestCase
     |--------------------------------------------------------------------------
     */
 
+    /*
+    |--------------------------------------------------------------------------
+    | E13 slice 3 — the restore must consult the evidence, not the order's status
+    |--------------------------------------------------------------------------
+    |
+    | D-15, restated by D-30: *"Do not infer stock movement from order status, payment status, a
+    | guessed flag or the existence of an order."* Until this slice the restore loop inferred
+    | exactly that: it gave stock back for every line of every successfully cancelled order, on
+    | the assumption that placing the order had taken it. That assumption is wrong whenever the
+    | original never reached a decrement — a refused shortfall, an untracked product, a rolled-back
+    | transaction — and then the cancellation INFLATES inventory rather than restoring it.
+    |
+    | The three states of `StockMovement::movedOutFor()` map onto three behaviours:
+    |
+    |   MOVED      restore, and record the restore so the next reader sees a net of zero
+    |   NOT_MOVED  SKIP — there is nothing out to give back; restoring would invent stock
+    |   UNKNOWN    restore, and log that it was done without evidence
+    |
+    | UNKNOWN RESTORES ON PURPOSE, AND THAT IS THE WHOLE COMPATIBILITY STORY. The movements table
+    | is development-and-test-only, so in production `available()` is false and every line is
+    | UNKNOWN — identical behaviour to before this slice, with a log line. The protection switches
+    | on when, and only when, the record exists. A guard that refused on UNKNOWN would stop
+    | restoring stock for every real order on the platform.
+    */
+
+    /** @param array<string,mixed> $overrides */
+    private function recordMovement(Order $order, array $overrides = []): void
+    {
+        DB::table('stock_movements')->insert(array_merge([
+            'store_id' => self::STORE_A,
+            'order_id' => $order->id,
+            'product_id' => null,
+            'variant_id' => null,
+            'direction' => 'out',
+            'quantity' => 1,
+            'applied' => true,
+            'outcome' => 'applied',
+            'reason' => 'order_place',
+            'correlation_token' => null,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ], $overrides));
+    }
+
+    /**
+     * NOT_MOVED — the order was observed and this line never took stock out. Do not give any back.
+     *
+     * The record holds a movement for this order against a DIFFERENT product, so the order is
+     * observed (which is what separates NOT_MOVED from UNKNOWN) while this line is not.
+     */
+    public function test_a_line_that_never_took_stock_out_is_not_restored(): void
+    {
+        $product = $this->makeProduct(self::STORE_A, ['product_stock' => 7]);
+        $other = $this->makeProduct(self::STORE_A, ['product_stock' => 7]);
+        $order = $this->makeOrder([
+            ['product_id' => $product->id, 'variant_id' => 0, 'qty' => 3],
+        ]);
+
+        // Observed, but on another line.
+        $this->recordMovement($order, ['product_id' => $other->id]);
+
+        $response = $this->cancel($order);
+
+        $this->assertSame(
+            7,
+            $this->stockOf($product),
+            'A cancellation gave stock back for a line the record says never took any out. That '
+            . 'INVENTS inventory: the arithmetic is right and the premise is false.'
+        );
+
+        $this->assertSame('success', $this->payload($response)['status'] ?? null,
+            'and the cancellation itself must still succeed — skipping a restore is not a refusal');
+    }
+
+    /** MOVED — the record says this line took stock out, so give it back. */
+    public function test_a_line_the_record_says_took_stock_out_is_restored(): void
+    {
+        $product = $this->makeProduct(self::STORE_A, ['product_stock' => 7]);
+        $order = $this->makeOrder([
+            ['product_id' => $product->id, 'variant_id' => 0, 'qty' => 3],
+        ]);
+
+        $this->recordMovement($order, ['product_id' => $product->id, 'quantity' => 3]);
+
+        $this->cancel($order);
+
+        $this->assertSame(
+            10,
+            $this->stockOf($product),
+            'A line the record says took 3 out was not given back. The consult must not refuse '
+            . 'the case it exists to permit.'
+        );
+    }
+
+    /** The same, for a variant line — the record keys on the variant, not its product. */
+    public function test_a_variant_line_the_record_says_took_stock_out_is_restored(): void
+    {
+        $product = $this->makeProduct(self::STORE_A, ['product_stock' => 7]);
+        $variant = $this->makeVariant($product->id, self::STORE_A, 4);
+        $order = $this->makeOrder([
+            ['product_id' => $product->id, 'variant_id' => $variant->id, 'qty' => 2],
+        ]);
+
+        $this->recordMovement($order, [
+            'product_id' => $product->id, 'variant_id' => $variant->id, 'quantity' => 2,
+        ]);
+
+        $this->cancel($order);
+
+        $this->assertSame(6, $this->variantStockOf($variant),
+            'a variant line with recorded evidence was not restored');
+    }
+
+    /** And a variant line the record does not know about is skipped. */
+    public function test_a_variant_line_that_never_took_stock_out_is_not_restored(): void
+    {
+        $product = $this->makeProduct(self::STORE_A, ['product_stock' => 7]);
+        $variant = $this->makeVariant($product->id, self::STORE_A, 4);
+        $order = $this->makeOrder([
+            ['product_id' => $product->id, 'variant_id' => $variant->id, 'qty' => 2],
+        ]);
+
+        // Observed against the product line, not the variant.
+        $this->recordMovement($order, ['product_id' => $product->id]);
+
+        $this->cancel($order);
+
+        $this->assertSame(4, $this->variantStockOf($variant),
+            'a variant line the record says never moved was credited anyway');
+    }
+
+    /**
+     * UNKNOWN — no rows for this order at all, which is every order placed before the record
+     * existed. Restore, because refusing would strand real inventory.
+     */
+    public function test_a_line_with_no_evidence_at_all_is_still_restored(): void
+    {
+        $product = $this->makeProduct(self::STORE_A, ['product_stock' => 7]);
+        $order = $this->makeOrder([
+            ['product_id' => $product->id, 'variant_id' => 0, 'qty' => 3],
+        ]);
+
+        // Deliberately no movement rows.
+        $this->cancel($order);
+
+        $this->assertSame(
+            10,
+            $this->stockOf($product),
+            'An order the record cannot speak for was not restored. UNKNOWN must behave exactly as '
+            . 'this path did before the consult existed — every order on a live platform is '
+            . 'UNKNOWN until the movements table is authorised.'
+        );
+    }
+
+    /**
+     * AND THE PRODUCTION SHAPE: no table at all. Identical behaviour, no throw.
+     *
+     * `database/migrations/2026_10_31_000100_create_stock_movements_table.php` is development and
+     * test only, so this is what every live installation does today.
+     */
+    public function test_the_cancel_path_still_restores_when_the_movement_record_is_absent(): void
+    {
+        Schema::dropIfExists('stock_movements');
+
+        $product = $this->makeProduct(self::STORE_A, ['product_stock' => 7]);
+        $order = $this->makeOrder([
+            ['product_id' => $product->id, 'variant_id' => 0, 'qty' => 3],
+        ]);
+
+        $response = $this->cancel($order);
+
+        $this->assertSame(10, $this->stockOf($product),
+            'with no movements table the cancellation must restore exactly as it always did');
+        $this->assertSame('success', $this->payload($response)['status'] ?? null);
+    }
+
+    /**
+     * THE RESTORE IS ITSELF RECORDED, which is what makes restore-twice impossible once the
+     * record exists.
+     *
+     * `movedOutFor()` nets applied outs against applied ins for the line, so after a cancellation
+     * the same line reads NOT_MOVED — and the first case above proves NOT_MOVED skips. The two
+     * compose into the protection; neither states it alone.
+     */
+    public function test_the_restore_is_recorded_so_the_line_reads_as_no_longer_out(): void
+    {
+        $product = $this->makeProduct(self::STORE_A, ['product_stock' => 7]);
+        $order = $this->makeOrder([
+            ['product_id' => $product->id, 'variant_id' => 0, 'qty' => 3],
+        ]);
+
+        $this->recordMovement($order, ['product_id' => $product->id, 'quantity' => 3]);
+
+        $this->assertSame(
+            \App\Services\StockMovement::MOVED,
+            \App\Services\StockMovement::movedOutFor(self::STORE_A, $order->id, $product->id),
+            'premise: the line reads MOVED before the cancellation'
+        );
+
+        $this->cancel($order);
+
+        $this->assertSame(
+            \App\Services\StockMovement::NOT_MOVED,
+            \App\Services\StockMovement::movedOutFor(self::STORE_A, $order->id, $product->id),
+            'The restore was not recorded, so a second restore would read MOVED and give the same '
+            . 'stock back twice. The consult is only a protection if the restore feeds it.'
+        );
+
+        $this->assertSame(
+            1,
+            (int) DB::table('stock_movements')
+                ->where('order_id', $order->id)
+                ->where('direction', 'in')
+                ->where('reason', 'order_cancel')
+                ->count(),
+            'the restore must be recorded as one IN movement with the cancellation reason'
+        );
+    }
+
+    /**
+     * THE RESTORE LOOP MUST NOT RUN FOR ANY STATUS BUT CANCELLATION.
+     *
+     * FOUND BY INDEPENDENT REVIEW OF THE EVIDENCE-CONSULT CHANGE, as a live defect in the same
+     * handler that the change narrowly mitigated rather than closed.
+     *
+     * `status_cancel` passes `$request->order_status` to `Order::order_status_change()` with NO
+     * validation, and gates the restore loop on `$responce['status'] == 'success'`. Only the
+     * `cancel` arm of that method carries an idempotency guard (`delivered_status != 0`,
+     * app/Models/Order.php:637-641). The `confirmed`, `pickedup` and `shipped` arms each set a
+     * date, save, and return `success` UNCONDITIONALLY — so a customer posting
+     * `order_status=confirmed` to a route named `status-cancel` ran the restore loop every time,
+     * for as long as they cared to.
+     *
+     * That is the SAME unbounded inventory-inflation primitive this handler's own docblock records
+     * as fixed. Moving the loop inside the success branch closed it for `cancel` and left it open
+     * for the four arms that always succeed — which no test saw, because `cancel()` above only
+     * ever posts `'cancel'`.
+     *
+     * @dataProvider nonCancellationStatuses
+     */
+    public function test_only_a_cancellation_runs_the_restore_loop(string $status): void
+    {
+        $product = $this->makeProduct(self::STORE_A, ['product_stock' => 5]);
+        $order = $this->makeOrder([
+            ['product_id' => $product->id, 'variant_id' => 0, 'qty' => 2],
+        ]);
+
+        $response = $this->changeStatus($order, $status);
+
+        $this->assertSame(
+            5,
+            $this->stockOf($product),
+            'Posting order_status=' . $status . ' to status-cancel restored stock. Three arms of '
+            . 'order_status_change() return success with no idempotency guard, so this is an '
+            . 'unbounded inventory-inflation primitive on an authenticated customer\'s own order.'
+        );
+
+        $this->assertNotSame(
+            'success',
+            $this->payload($response)['status'] ?? null,
+            'and the endpoint must refuse the status outright rather than performing it quietly'
+        );
+    }
+
+    /** The three arms with no idempotency guard, plus two that would change the order's lifecycle. */
+    public static function nonCancellationStatuses(): array
+    {
+        return [
+            'confirmed' => ['confirmed'],
+            'pickedup' => ['pickedup'],
+            'shipped' => ['shipped'],
+            'delivered' => ['delivered'],
+            'return' => ['return'],
+        ];
+    }
+
+    /** HELD DOWN: the unguarded arms must not accumulate stock across repeated requests either. */
+    public function test_repeating_a_non_cancellation_status_cannot_accumulate_stock(): void
+    {
+        $product = $this->makeProduct(self::STORE_A, ['product_stock' => 5]);
+        $order = $this->makeOrder([
+            ['product_id' => $product->id, 'variant_id' => 0, 'qty' => 2],
+        ]);
+
+        for ($i = 0; $i < 5; $i++) {
+            $this->changeStatus($order, 'confirmed');
+        }
+
+        $this->assertSame(
+            5,
+            $this->stockOf($product),
+            'Five requests added ' . ($this->stockOf($product) - 5) . ' units of stock that nobody '
+            . 'returned. The restore loop ran once per request because `confirmed` returns success '
+            . 'every time.'
+        );
+    }
+
+    /** And a cancellation still works, so the refusal above is not simply refusing everything. */
+    public function test_the_cancellation_status_itself_is_still_accepted(): void
+    {
+        $product = $this->makeProduct(self::STORE_A, ['product_stock' => 5]);
+        $order = $this->makeOrder([
+            ['product_id' => $product->id, 'variant_id' => 0, 'qty' => 2],
+        ]);
+
+        $response = $this->cancel($order);
+
+        $this->assertSame('success', $this->payload($response)['status'] ?? null,
+            'the legitimate cancellation must still succeed');
+        $this->assertSame(7, $this->stockOf($product), 'and still restore');
+    }
+
+    /**
+     * A CANCELLED LINE MUST CARRY THE SAME "ALREADY BACK IN" MARKER THE RETURN PATH WRITES.
+     *
+     * FOUND BY INDEPENDENT REVIEW. `Order::product_return()` stamps
+     * `Order::LINE_STOCK_RESTORED` on each line it credits (app/Models/Order.php:1063, :1094) and
+     * the merchant return loop reads it before crediting (`OrderController:1353-1360`). The
+     * cancellation loop did neither — so a cancellation credited the goods and left no mark, and
+     * a merchant who then approved a return on the same order credited them a SECOND time.
+     *
+     * `movedOutFor()` does not catch that one: the return path threads no evidence, so its restore
+     * is invisible to the record, and on production the record does not exist at all. The marker
+     * is the control that already spans both doors, so the cancellation writes it.
+     */
+    public function test_a_cancelled_line_is_marked_as_already_restored(): void
+    {
+        $product = $this->makeProduct(self::STORE_A, ['product_stock' => 5]);
+        $variantProduct = $this->makeProduct(self::STORE_A, ['product_stock' => 5]);
+        $variant = $this->makeVariant($variantProduct->id, self::STORE_A, 4);
+        $order = $this->makeOrder([
+            ['product_id' => $product->id, 'variant_id' => 0, 'qty' => 2],
+            ['product_id' => $variantProduct->id, 'variant_id' => $variant->id, 'qty' => 1],
+        ]);
+
+        $this->cancel($order);
+
+        $lines = json_decode(
+            (string) DB::table('orders')->where('id', $order->id)->value('product_json'),
+            true
+        ) ?: [];
+
+        $this->assertCount(2, $lines, 'premise: both lines survive the cancellation');
+
+        foreach ($lines as $index => $line) {
+            $this->assertTrue(
+                Order::lineStockAlreadyRestored($line),
+                'Line ' . $index . ' had its stock restored by the cancellation and carries no '
+                . 'LINE_STOCK_RESTORED marker, so a merchant approving a return on this order '
+                . 'would credit the same goods twice.'
+            );
+        }
+    }
+
+    /** AND A LINE THAT WAS SKIPPED MUST NOT BE MARKED — the marker means "already given back". */
+    public function test_a_line_the_record_says_never_moved_is_not_marked_as_restored(): void
+    {
+        /*
+         * TWO LINES, ONE RESTORED AND ONE SKIPPED — and the second line is load-bearing. With a
+         * single skipped line nothing is restored at all, so the stamping helper is never called
+         * and the test passes however the filter is written. A bite proved exactly that: removing
+         * the `$wanted` check failed nothing. Found by biting my own test.
+         */
+        $skipped = $this->makeProduct(self::STORE_A, ['product_stock' => 5]);
+        $restored = $this->makeProduct(self::STORE_A, ['product_stock' => 5]);
+        $order = $this->makeOrder([
+            ['product_id' => $skipped->id, 'variant_id' => 0, 'qty' => 2],
+            ['product_id' => $restored->id, 'variant_id' => 0, 'qty' => 3],
+        ]);
+
+        // Observed for the order; the FIRST line has no movement of its own, so it reads
+        // NOT_MOVED and is skipped. The second has one, so it is restored.
+        $this->recordMovement($order, ['product_id' => $restored->id, 'quantity' => 3]);
+
+        $this->cancel($order);
+
+        $lines = json_decode(
+            (string) DB::table('orders')->where('id', $order->id)->value('product_json'),
+            true
+        ) ?: [];
+
+        $this->assertSame(5, $this->stockOf($skipped), 'premise: the first line really was skipped');
+        $this->assertSame(8, $this->stockOf($restored), 'premise: the second line really was restored');
+
+        $this->assertFalse(
+            Order::lineStockAlreadyRestored($lines[0] ?? []),
+            'A line whose restore was SKIPPED was marked as already restored. The marker would '
+            . 'then stop a legitimate return credit for goods that never came back.'
+        );
+
+        $this->assertTrue(
+            Order::lineStockAlreadyRestored($lines[1] ?? []),
+            'and the line that WAS restored must carry the marker'
+        );
+    }
+
+    private function changeStatus(Order $order, string $status)
+    {
+        $request = Request::create('/' . self::SLUG_A . '/status-cancel', 'POST', [
+            'order_id' => $order->id,
+            'order_status' => $status,
+        ]);
+        $request->setLaravelSession(app('session.store'));
+
+        return (new OrderController())->status_cancel($request, self::SLUG_A);
+    }
+
     private function cancel(Order $order)
     {
         $request = Request::create('/' . self::SLUG_A . '/status-cancel', 'POST', [
@@ -525,6 +933,7 @@ class OrderCancelRestockTest extends TestCase
     private function createCancelSchema(): void
     {
         foreach ([
+            'stock_movements',
             'order_coupon_details',
             'order_tax_details',
             'order_billing_details',
@@ -540,6 +949,28 @@ class OrderCancelRestockTest extends TestCase
         ] as $table) {
             Schema::dropIfExists($table);
         }
+
+        /*
+         * E13 slice 3. The cancellation path now CONSULTS the stock-movement record before giving
+         * stock back, so this suite has to be able to put the record into each of its three
+         * states. Mirrors database/migrations/2026_10_31_000100_create_stock_movements_table.php,
+         * which is DEVELOPMENT AND TEST ONLY -- see test_the_cancel_path_still_restores_when_the
+         * _movement_record_is_absent for the production shape, where the table does not exist.
+         */
+        Schema::create('stock_movements', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('store_id')->index();
+            $table->unsignedBigInteger('order_id')->nullable()->index();
+            $table->unsignedBigInteger('product_id')->nullable();
+            $table->unsignedBigInteger('variant_id')->nullable();
+            $table->string('direction', 3);
+            $table->integer('quantity')->default(0);
+            $table->boolean('applied')->default(false);
+            $table->string('outcome', 24)->nullable();
+            $table->string('reason', 32)->nullable();
+            $table->string('correlation_token', 64)->nullable()->index();
+            $table->timestamps();
+        });
 
         Schema::create('users', function (Blueprint $table) {
             $table->id();

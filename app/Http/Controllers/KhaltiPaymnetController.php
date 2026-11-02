@@ -47,6 +47,16 @@ use App\Http\Controllers\Concerns\GuardsGatewayReturn;
 class KhaltiPaymnetController extends Controller
 {
     use ApiResponser;
+
+    /*
+     * D-13 / S32. The three raw read-modify-write stock decrements in `getProductStatus()` now go
+     * through this trait's `decrementStockOrFail()`, which RECORDS each decrement so
+     * `restoreStockDecrements()` can give it back when a later cart line makes the handler return
+     * early. It does NOT close the unverified decrement -- see
+     * `docs/development/phase-2/E13-STOCK-EVIDENCE-ANALYSIS.md` for why a decrement deferred to
+     * payment confirmation would simply never be taken.
+     */
+    use \App\Http\Controllers\Concerns\AppliesCartStockChanges;
     use GuardsGatewayReturn;
     //
     public function planPayWithKhalti(Request $request)
@@ -68,7 +78,11 @@ class KhaltiPaymnetController extends Controller
 
         if ($plan) {
             $price     = $plan->price;
-            try {
+            /* Declared with the try so the catch can always read it: the compensation is gated
+           on whether the ORDER was written, not on whether anything threw. */
+        $ssOrderWritten = false;
+
+        try {
                 if (!empty($request->coupon_code))
                 {
 
@@ -254,6 +268,38 @@ class KhaltiPaymnetController extends Controller
     public function getOrderPaymentStatus(Request $request,$slug)
     {
         /*
+         * D-13. THE STOCK LOOP RUNS INSIDE THIS METHOD, and until this wrapper nothing gave the
+         * inventory back if the ORDER WRITE threw. Between the last decrement and the end of the order write
+         * the handler creates the order, its billing detail, its tax rows, its notes and its coupon usage,
+         * with NO transaction and NO catch -- measured across all seven first-party gateway writers; the only
+         * `catch` blocks in that region are the narrow SMTP ones around mail. MEASURED by injecting a failure
+         * at `Order::creating`: `product_stock` stayed down and no order was written.
+         *
+         * `OrderWriteTransactionTest` pins exactly this property -- "a rolled-back order write must give back
+         * the stock it consumed" -- for PaymentController::getProductStatus, PaymentService::getProductStatus
+         * and PaymentController::whatsapp. The four gateway RETURN handlers were not in its data provider.
+         *
+         * THE EXCEPTION IS RETHROWN, so the response the caller sees is unchanged. This adds compensation and
+         * changes nothing about whether a payment is accepted, which is what keeps it inside D-13's condition
+         * of not altering unapproved collection rules.
+         *
+         * `?? []` because `$appliedStockChanges` is initialised deep inside the body: a failure before the
+         * loop has nothing to give back, and an undefined variable must not become a second error inside the
+         * handler for the first one.
+         *
+         * THE WHOLE BODY IS WRAPPED rather than the order-write region, and the reason is NOT that a
+         * narrower wrap is impossible -- the independent review corrected that claim. Wrapping from
+         * `$order = new Order()` to the method's closing brace is brace-balanced but not
+         * STATEMENT-balanced (the order write sits inside an `if` whose `else` comes later, so the
+         * inserted `}` closed the `if` and all four files stopped parsing), but a narrower
+         * statement-balanced run of statements DOES exist. It would not have helped: the order is
+         * COMMITTED inside any such region, so narrowing moves the problem rather than solving it.
+         * The gate on `$ssOrderWritten` is what solves it, and with the gate in place the width of
+         * the try no longer matters. A method body is balanced by definition, so that is what it
+         * wraps.
+         */
+        try {
+        /*
          * P01-COMMERCE-SEC-01. THE CHECKOUT STATE IS THE SERVER'S, OR THERE IS NO ORDER.
          *
          * This block used to fall back to `$request->all()` when the session held nothing, which
@@ -348,6 +394,143 @@ class KhaltiPaymnetController extends Controller
             ]);
         }
 
+        /*
+         * D-13 AND D-22. THE PAYMENT IS VERIFIED BEFORE THE BASKET IS READ, AND SO BEFORE ANY
+         * STOCK MOVES. It used to be verified ~400 lines BELOW both.
+         *
+         * This whole block used to sit ~250 lines BELOW, after the loop had already decremented
+         * every line of the basket. Two of its exits take stock and never give it back:
+         *
+         *   - a capture Khalti was asked about and REJECTED. That outcome is broader than "the
+         *     payment does not cover this basket": verifyKhaltiCapture() classifies ANY non-200,
+         *     non-zero HTTP status as REJECTED, a 502 included, so it means "Khalti was reached and
+         *     did not confirm". No order is written, and the stock was gone.
+         *   - a stored state with no server-computed payable, which is refused without Khalti
+         *     being asked at all. Same outcome.
+         *
+         * MEASURED, not inferred: with the loop first, a rejected capture took `product_stock`
+         * from 50 to 49 and `product_variants.stock` from 50 to 49, with zero order rows written.
+         * The route is anonymous and a checkout can be re-initiated, so it is repeatable --
+         * denial of inventory for any catalogue line that can be put in a cart
+         * (tests/Feature/Security/GatewayStockBeforeVerificationTest.php).
+         *
+         * WHY THIS IS A HOIST AND NOT A DEFERRAL. D-18 recorded that the decrement "cannot be
+         * made to wait" because no column records that an order has consumed its stock. That is
+         * true of deferring a decrement to a LATER request -- a webhook or a confirmation
+         * callback would need durable evidence not to double-take. It does not apply here: the
+         * decrement and the verification are in the SAME request, so closing the gap is an
+         * ORDERING of two statements and needs no schema and no marker. Nothing below reads
+         * anything the loop produces -- `$request->payload`, `$store` and the stored checkout
+         * state are all resolved long before it -- which is what makes the move safe.
+         *
+         * D-22 PUT IT ABOVE THE CART READ RATHER THAN MERELY ABOVE THE LOOP. The read is where
+         * F121's crash is, and a refusal fired there needs to know whether money was collected
+         * before it decides how loudly to log. The block needs nothing from the cart -- only
+         * `$request->payload`, `$store` and the stored checkout state -- so this is the earliest
+         * position it can occupy, which is also the right one.
+         *
+         * ONE MESSAGE MOVES WITH IT, stated rather than discovered later: "Cart is empty." is now
+         * reached only after the capture has been classified, so a REJECTED return with an empty
+         * basket says "Transaction has been failed" where it used to say "Cart is empty." For a
+         * verified capture the order is unchanged, and the new sentence is the more accurate of
+         * the two for a payment the gateway refused.
+         *
+         * WHAT DOES NOT CHANGE. A verified capture decrements and writes its order exactly as
+         * before. UNVERIFIABLE -- the verify call itself could not be completed -- still proceeds
+         * to the loop and still writes its Pending order for reconciliation: this server cannot
+         * say whether money moved, and refusing here would strand a charged customer, which is
+         * the one outcome worse than the drain. Only REJECTED and the unpriceable state change,
+         * and they change from "stock taken, no order" to "nothing taken, no order".
+         */
+        $payload = $request->payload;
+        $secret = Utility::GetValueByName('khalti_secret_key', $store->id);
+        $token = is_array($payload) ? ($payload['token'] ?? null) : null;
+
+        $serverPayable = $this->serverPayableAmount($requests_data);
+
+        if ($serverPayable === null) {
+            \Illuminate\Support\Facades\Log::warning('Khalti verification refused: no server-computed payable in the stored state.', [
+                'store_id' => $store->id ?? null,
+                'customer_id' => $customer_id ?: null,
+            ]);
+
+            return $this->gatewayReturnRefusal();
+        }
+
+        $expectedPaisa = (int) round($serverPayable * 100);
+
+        // Container-resolved for the reason recorded on planGetKhaltiStatus(): it is what makes
+        // this path drivable in a test without an outbound request.
+        $khalti = app(Khalti::class);
+
+        /*
+         * `$khaltiResponse`, NOT `$response`, AND THAT NAME IS THE WHOLE POINT OF THIS COMMENT.
+         *
+         * The verify result lived in `$response` for as long as the verification sat below the
+         * cart read. Moving it ABOVE that read put it in front of
+         *
+         *     $response = Cart::cart_list_cookie($requests_data, $store->id);
+         *     $response = json_decode(json_encode($response));      // a stdClass
+         *
+         * on the GUEST arm, which overwrote it -- and the thank-you payload 800 lines later reads
+         * `$response['status_code']`. MEASURED on PHP 8.3.6: `$stdClass['k'] ?? 0` does not fall
+         * back to 0, it throws `Error: Cannot use object of type stdClass as array`. So a guest
+         * whose Khalti capture was CONFIRMED would have got an unhandled error AFTER the order row
+         * committed Paid and the stock was decremented -- the same shape as F89, a charged card
+         * ending in a 500. Found by the project's own reviewer, not by a test: every Khalti test in
+         * this repository drives `actingAs($customer, 'customers')`, and the guest arm is the one
+         * that reads `$response`. A guest case now exists for exactly that reason.
+         */
+        $khaltiResponse = $khalti->verifyPayment($secret, $token, $expectedPaisa);
+        $khaltiResponse = is_array($khaltiResponse) ? $khaltiResponse : [];
+
+        $khaltiVerification = $this->gatewayReturnVerifier()->verifyKhaltiCapture($khaltiResponse, $expectedPaisa);
+
+        $khaltiUnverifiable = $khaltiVerification->outcome === \App\Services\PaymentVerificationResult::UNVERIFIABLE;
+
+        /*
+         * REJECTED, so refuse before the first stock row moves. The shopper-visible result is
+         * byte-for-byte the response the old post-loop `else` returned -- the same redirect with
+         * the same message -- because the only thing being changed here is WHEN it is returned.
+         */
+        if (! $khaltiVerification->isVerified() && ! $khaltiUnverifiable) {
+            \Illuminate\Support\Facades\Log::warning('Khalti order refused before any stock moved: the gateway rejected the capture', [
+                'site' => __METHOD__,
+                'store_id' => $store->id ?? null,
+                'expected_total' => (string) $serverPayable,
+                'outcome' => $khaltiVerification->outcome,
+                'reason' => $khaltiVerification->reason,
+            ]);
+
+            return redirect()->back()->with('error', __('Transaction has been failed'));
+        }
+
+
+        /*
+         * D-22 / F121. A BASKET LINE WHOSE PRODUCT OR VARIANT ROW IS GONE.
+         *
+         * Asked HERE -- after the capture has been classified, before the cart is read -- because
+         * the cart read is what crashes on such a line, and because the refusal's log is only
+         * useful if it can say whether the money was collected.
+         *
+         * MEASURED before this guard existed: a deleted product made this return answer with
+         * `ErrorException: Attempt to read property "id" on null`, and a deleted variant with the
+         * same on "discount_price" -- zero orders, and no decrement, since the read precedes the
+         * loop (tests/Feature/Security/GatewayReturnMissingProductTest.php).
+         *
+         * THIS IS THE HALF THE OWNER AUTHORISED: "before proof of collection -> structured refusal
+         * without HTTP 500 and no illegitimate deduction". The other half -- "after proof, do not
+         * lose the paid order" -- is NOT closed here and is not claimed to be. A paid customer
+         * still gets no order; they now get a structured refusal and a `critical` log naming the
+         * confirmed capture and its amount instead of an unhandled exception and silence. Writing
+         * the order would mean deciding what an order line for a deleted product contains, which
+         * the merchant UI, the invoices and the Flutter app all read, and the owner forbade
+         * inventing a substitute product or variant. That decision is in the register.
+         */
+        if ($this->basketHasMissingProductRow($store)) {
+            return $this->gatewayReturnMissingProductRefusal($request, 'khalti', $khaltiVerification, $serverPayable, $store);
+        }
+
         $cartlist_final_price = 0;
         $final_price = 0;
         $tax_price = 0;
@@ -358,6 +541,8 @@ class KhaltiPaymnetController extends Controller
             $response = json_decode(json_encode($response));
             $cartlist = (array)$response->data;
             if (empty($cartlist['product_list'])) {
+                $this->logGatewayExitAfterCapture('khalti', 'the basket was empty on the guest arm', $khaltiVerification, $serverPayable);
+
                 return Utility::error(['message' => 'Cart is empty.']);
             }
             $cartlist_final_price = !empty($cartlist['final_price']) ? $cartlist['final_price'] : 0;
@@ -375,6 +560,8 @@ class KhaltiPaymnetController extends Controller
             $cartlist = (array)$cartlist_response->getData()->data;
 
             if (empty($cartlist['product_list'])) {
+                $this->logGatewayExitAfterCapture('khalti', 'the basket was empty on the authenticated arm', $khaltiVerification, $serverPayable);
+
                 return Utility::error(['message' => 'Cart is empty.']);
             }
 
@@ -465,8 +652,13 @@ class KhaltiPaymnetController extends Controller
          * behind. It is the same position assertCartAvailable() occupies in
          * PaymentController::processOrder, and the same reasoning.
          *
-         * The decrement below is `$remain_stock = $Product->product_stock - $qtyy`, so a negative
-         * quantity ADDS stock while the same line reduces every total it is summed into. See
+         * The decrement below subtracts $qtyy. D-13 routed it through
+         * `decrementStockOrFail()`; it was `$remain_stock = $Product->product_stock - $qtyy`,
+         * and THAT is the form a negative quantity could ADD stock through. It no longer can:
+         * `ProductStockService::normaliseQuantity()` returns null for a non-positive quantity,
+         * so the decrement is SKIPPED rather than inverted. The guard is still needed, because
+         * the pricing half is untouched -- a negative line still reduces every total it is
+         * summed into. See
          * App\Http\Controllers\Concerns\GuardsGatewayReturn::basketHasUnusableQuantity() for why
          * the initiation-time guard is not enough on its own: the cart stays mutable across the
          * gateway round trip, and two vendored module routes can still write such a row.
@@ -497,6 +689,13 @@ class KhaltiPaymnetController extends Controller
         }
         $prodduct_id_array = [];
         if (!empty($products)) {
+            /*
+             * D-13. Decrements applied by the loop below, so they can be GIVEN BACK when a
+             * later line makes this handler return early. Before this, each of the three
+             * in-loop `return $this->error(...)` exits left every line already processed
+             * decremented, with Khalti's money captured and no order row to show for it.
+             */
+            $appliedStockChanges = [];
             foreach ($products as $key => $product) {
                 $prodduct_id_array[] = $product->product_id;
 
@@ -515,9 +714,13 @@ class KhaltiPaymnetController extends Controller
                         if (!empty($ProductStock)) {
                             if($option == true)
                             {
-                                $remain_stock = $ProductStock->stock - $qtyy;
-                                $ProductStock->stock = $remain_stock;
-                                $ProductStock->save();
+                                /*
+                                 * `false` is $rejectOnShortfall: on a shortfall the trait re-runs the decrement
+                                 * with overselling allowed, which is what the raw `stock - qty` did, and logs it at
+                                 * critical. Refusing is not available -- Khalti has already captured the money by the
+                                 * time this runs.
+                                 */
+                                $this->decrementStockOrFail($appliedStockChanges, 'variant', $ProductStock, $qtyy, false);
 
                                 if($ProductStock->stock <= $ProductStock->low_stock_threshold)
                                 {
@@ -543,9 +746,9 @@ class KhaltiPaymnetController extends Controller
                             }
                             else
                             {
-                                $remain_stock = $datas->product_stock - $qtyy;
-                                $datas->product_stock = $remain_stock;
-                                $datas->save();
+                                // The variant row exists but is not stock-managed, so the PARENT product is
+                                // decremented through `$datas`.
+                                $this->decrementStockOrFail($appliedStockChanges, 'product', $datas, $qtyy, false);
                                 if($datas->product_stock <= $datas->low_stock_threshold)
                                 {
                                     if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_low_stock",json_decode($settings['notification'] ?? '[]')))
@@ -603,14 +806,15 @@ class KhaltiPaymnetController extends Controller
                                 }
                             }
                         } else {
+                            $this->restoreStockDecrements($appliedStockChanges);
+
                             return $this->error(['message' => __('Product not found .')]);
                         }
                     } elseif (!empty($product_id) && $product_id != 0) {
 
                         if (!empty($Product)) {
-                            $remain_stock = $Product->product_stock - $qtyy;
-                            $Product->product_stock = $remain_stock;
-                            $Product->save();
+                            // The no-variant leg.
+                            $this->decrementStockOrFail($appliedStockChanges, 'product', $Product, $qtyy, false);
                             if($Product->product_stock <= $Product->low_stock_threshold)
                             {
                                 if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_low_stock",json_decode($settings['notification'] ?? '[]')))
@@ -669,9 +873,13 @@ class KhaltiPaymnetController extends Controller
                             }
 
                         } else {
+                            $this->restoreStockDecrements($appliedStockChanges);
+
                             return $this->error(['message' => __('Product not found .')]);
                         }
                     } else {
+                        $this->restoreStockDecrements($appliedStockChanges);
+
                         return $this->error(['message' => __('Please fill proper product json field .')]);
                     }
                 }
@@ -701,75 +909,44 @@ class KhaltiPaymnetController extends Controller
 
         $product_order_id  = '0' . date('YmdHis');
         $is_guest = 1;
+        // F46. The AUTHENTICATED customer's id, never $request->customer_id. This is one of NINE byte-for-
+        // byte copies of the same checkout block; see app/Services/PaymentService.php for the full
+        // reasoning. The guest branch is untouched, and PosController is deliberately NOT changed -- it
+        // uses the MERCHANT guard and the merchant legitimately picks the customer.
+        $orderCustomerId = ! empty($request->customer_id) ? $request->customer_id : 0;
         if (auth('customers')->check()) {
-            $product_order_id  = $request->customer_id . date('YmdHis');
+            $orderCustomerId = auth('customers')->id();
+            $product_order_id  = $orderCustomerId . date('YmdHis');
             $is_guest = 0;
         }
 
-        $payload = $request->payload;
         $theme_name = !empty(APP_THEME()) ? APP_THEME() : env('DATA_INSERT_APP_THEME');
-        $secret = Utility::GetValueByName('khalti_secret_key', $store->id);
-        $token = is_array($payload) ? ($payload['token'] ?? null) : null;
 
         /*
-         * P1-PAY-03. THE AMOUNT KHALTI IS ASKED ABOUT IS THE SERVER'S, NOT THE SHOPPER'S.
+         * D-13. THE VERIFICATION USED TO BE PERFORMED HERE and is now performed ABOVE the stock
+         * loop; see the block that starts "THE PAYMENT IS VERIFIED BEFORE THE STOCK MOVES" for
+         * why, and P1-PAY-03 there for why the amount Khalti is asked about is the SERVER's
+         * (`cartlist_final_price` from the stored state) rather than `$payload['amount']`.
          *
-         * This was `$amount = $payload['amount'];` -- the caller's own field -- handed straight to
-         * `payment/verify/`. Khalti's verify endpoint confirms the token AND amount as a PAIR, so
-         * posting the caller's figure asks the gateway the caller's question: a buyer who paid one
-         * unit could present that token with a matching one-unit amount, collect a 200, and have
-         * this handler write the order at the SERVER's full basket price. The verification was
-         * real; it was just a verification of the wrong number.
+         * `$khaltiVerification`, `$khaltiUnverifiable`, `$response`, `$token`, `$serverPayable`
+         * and `$expectedPaisa` all come from that one call. Khalti is asked EXACTLY ONCE per
+         * return -- asserted, because a hoist that left the old call in place would double every
+         * verify request and is the obvious way to get this wrong.
          *
-         * `cartlist_final_price` in the stored checkout state is the full payable -- products plus
-         * the SERVER's delivery price plus the SERVER's tax, assembled by
-         * PaymentController::prepareFinalRequestData(). It is also exactly what the Khalti widget
-         * was initiated with: resources/views/payment/khalti.blade.php:16 reads
-         * `var amount = {{$data['cartlist_final_price']}} * 100`, so this asks about the same
-         * figure the shopper was charged, in the same unit (paisa).
-         *
-         * Owner decision D2: "a return URL, redirect or client flag proves nothing; require
-         * provider-side verification of ownership, reference, amount, currency and status".
+         * THE CONDITION BELOW IS NOW ALWAYS TRUE at this point: REJECTED returned above, so only
+         * VERIFIED and UNVERIFIABLE reach here. It is deliberately left standing rather than
+         * unwrapped -- unwrapping it would re-indent ~350 lines of order, billing, coupon, tax and
+         * notification writing and make the diff unreviewable, for no behavioural gain. Its
+         * trailing `else` is unreachable and kept for the same reason.
          */
-        $serverPayable = $this->serverPayableAmount($requests_data);
-
-        if ($serverPayable === null) {
-            \Illuminate\Support\Facades\Log::warning('Khalti verification refused: no server-computed payable in the stored state.', [
-                'store_id' => $store->id ?? null,
-                'customer_id' => $customer_id ?: null,
-            ]);
-
-            return $this->gatewayReturnRefusal();
-        }
-
-        $expectedPaisa = (int) round($serverPayable * 100);
-
-        // Container-resolved for the reason recorded on planGetKhaltiStatus(): it is what makes
-        // this path drivable in a test without an outbound request.
-        $khalti = app(Khalti::class);
-        $response = $khalti->verifyPayment($secret, $token, $expectedPaisa);
-        $response = is_array($response) ? $response : [];
-
-        $khaltiVerification = $this->gatewayReturnVerifier()->verifyKhaltiCapture($response, $expectedPaisa);
-
-        /*
-         * UNVERIFIABLE STILL WRITES THE ORDER. A failed curl leaves this server unable to say
-         * whether money moved, and the old `else` returned "Transaction has been failed" with no
-         * order row at all -- so a Khalti payment that completed while the verify call did not
-         * left a charged customer with nothing to reconcile against. The order is written
-         * (Pending, because no verification was recorded) and the SHOPPER IS STILL TOLD IT
-         * FAILED -- see the refusal below, just before the thank-you payload. A rejection, where
-         * Khalti was reached and said no, is refused exactly as before.
-         */
-        $khaltiUnverifiable = $khaltiVerification->outcome === \App\Services\PaymentVerificationResult::UNVERIFIABLE;
-
         if($khaltiVerification->isVerified() || $khaltiUnverifiable)
         {
         // add in  Order table  start
         $order = new Order();
+        $order->order_source = Order::SOURCE_STOREFRONT;
         $order->product_order_id = $product_order_id;
         $order->order_date = date('Y-m-d H:i:s');
-        $order->customer_id = !empty($request->customer_id) ? $request->customer_id : 0;
+        $order->customer_id = $orderCustomerId;   // F46
         $order->is_guest = $is_guest;
         $order->product_id = $prodduct_id_array;
         $order->product_json = json_encode($products);
@@ -809,13 +986,27 @@ class KhaltiPaymnetController extends Controller
          * and PaymentService (:2594) already use. This was the literal `'Paid'`, with nothing
          * between the shopper's browser and this line having asked a gateway whether money moved.
          *
-         * NO BEHAVIOUR CHANGES TODAY: this payment type is not in
-         * PaymentVerificationService::ENFORCED_PAYMENT_TYPES, so the call returns exactly the 'Paid'
-         * the literal did. What it buys is that the unverified write is LOGGED -- the exposure
-         * becomes measurable -- and that enforcing this gateway later is a one-line change in that
-         * service instead of another edit here. Flipping the posture is the owner's call, because
-         * recording every gateway order as Pending stops merchant wallets being credited; see the
-         * blocker in docs/security/P01-SECURITY-WORK-QUEUE.md.
+         * THIS PARAGRAPH USED TO SAY THE OPPOSITE OF WHAT THE CODE DOES, and the correction matters
+         * because it is the paragraph a reviewer reads to decide whether this path is safe. It said:
+         * "NO BEHAVIOUR CHANGES TODAY: this payment type is not in ENFORCED_PAYMENT_TYPES, so the call
+         * returns exactly the 'Paid' the literal did", and that flipping the posture was still the
+         * owner's to choose.
+         *
+         * Both were true when written and are now false. The owner CHOSE it -- the Phase 01 final
+         * execution directive, "any unverified gateway payment must remain Pending, never Paid" -- and
+         * resolveOrderPaymentStatus() now returns STATUS_PENDING on its no-record branch. That service's
+         * own docblock quotes the superseded sentence and says so.
+         *
+         * WHAT ACTUALLY HAPPENS HERE, and it is the opposite of the sentence above in BOTH of its
+         * clauses: khalti IS in ENFORCED_PAYMENT_TYPES, and this handler DOES record a verification (see
+         * the paragraph below). So an order here is Paid only when a verification exists for this
+         * checkout AND the captured amount reconciles against the order total -- the enforced-type
+         * comparison in PaymentVerificationService. Without a record it is PENDING. This gateway is the
+         * best-guarded of its family on amount, which is why the stale claim that nothing changes here
+         * was the most misleading of the seven copies.
+         * Pinned by tests/Feature/Commerce/PaymentStatusDerivationTest.php and
+         * tests/Feature/Commerce/UnverifiedGatewayStaysPendingTest.php, so the claim above is checkable
+         * rather than another comment to trust.
          */
         /*
          * RECORDING IS WHAT MAKES A VERIFIED KHALTI ORDER PAID AGAIN. Until this line Khalti
@@ -868,6 +1059,19 @@ class KhaltiPaymnetController extends Controller
         $order->additional_note = $request->additional_note;
         $order->store_id = $store->id;
         $order->save();
+        /* F237: phase two of the two-phase attribution -- point this request's
+           movements at the order that now exists.
+           NO TRANSACTION ON THIS PATH, stated because the first version of this comment
+           claimed one and independent review found it false: this handler opens none, so
+           the order is already committed when this runs. A crash in between therefore
+           leaves the row unattributed, which reads UNKNOWN and makes the cancellation
+           restore -- the safe direction, and the behaviour that held before F237. Adding
+           a transaction here is a separate change, not part of F237. */
+        $this->attributeStockEvidenceTo($order);
+        /* THE ORDER NOW EXISTS. From here a failure must NOT give the stock back: an order
+           that exists claims its goods, and returning them puts the shopper's items on the
+           shelf for someone else while their order stands. */
+        $ssOrderWritten = true;
         // add in  Order table end
         if (module_is_active('CheckoutAttachment')) {
             \Workdo\CheckoutAttachment\app\Models\CheckoutAttachment::CheckoutAttachmentOrderStore($order, $slug , $request);
@@ -1164,7 +1368,7 @@ class KhaltiPaymnetController extends Controller
 
             $arr = [
                 'data' => $order->product_order_id,
-                'status_code' => $response['status_code'] ?? 0,
+                'status_code' => $khaltiResponse['status_code'] ?? 0,
                 'store_complete'=>route('order.complete',$slug),
             ];
             \Session::put('khalti_order_id', $order->product_order_id);
@@ -1184,5 +1388,32 @@ class KhaltiPaymnetController extends Controller
     } else {
         return redirect()->back()->with('error', __('Transaction has been failed'));
     }
+        } catch (\Throwable $ssStockGuardError) {
+            /*
+             * D-13 — GIVE THE STOCK BACK ONLY IF NO ORDER ROW CLAIMS IT.
+             *
+             * TWO QUESTIONS, NOT ONE, AND THE SECOND WAS MISSING. The flag is set by the
+             * statement AFTER `$order->save()`, so it is still false while the `created` model
+             * event runs -- and `OrderObserver::created()` catches `\Exception` but NOT
+             * `\Throwable`, so a `TypeError` inside `OrderFinancialService::createForOrder()`
+             * escapes it, propagates out of `save()`, and reaches here with the row ALREADY
+             * COMMITTED. On the flag alone that restored the stock behind an order that exists,
+             * which oversells the same units to the next shopper while this order stands -- the
+             * mirror image of the defect D-13 was opened for, introduced by its own fix.
+             *
+             * `$order->exists` is the authoritative answer and closes that window:
+             * `Model::performInsert()` sets it at line 1341 and fires `created` at 1345, so by
+             * the time any `created` listener can throw, `exists` is already true. Measured in
+             * `ApiOrderWriterStockCompensationTest`, which fails on the flag alone.
+             */
+            $ssOrderClaimsIt = ($ssOrderWritten ?? false)
+                || (isset($order) && $order instanceof \App\Models\Order && $order->exists);
+
+            if (! $ssOrderClaimsIt) {
+                $this->restoreStockDecrements($appliedStockChanges ?? []);
+            }
+
+            throw $ssStockGuardError;
+        }
     }
 }

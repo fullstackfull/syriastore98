@@ -1,0 +1,10 @@
+  ok    jQuery loaded from the app
+  ok    SweetAlert2 loaded from the app
+  ok    the real trigger markup is on the page
+  ok    the trigger really is type="submit", which is the whole defect
+  ok    the click did NOT submit the form before the dialog was answered -- submits=0
+  ok    the confirmation dialog is open -- "Are You Sure?"
+  ok    Cancel sent nothing -- submits=0
+  ok    Confirm submitted the form exactly once -- submits=["POST"]
+
+failures: 0

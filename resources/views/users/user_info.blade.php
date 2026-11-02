@@ -1,3 +1,28 @@
+{{--
+    P2-05-5 — the operator's "Admin Info" modal, on the design system.
+
+    THREE LABELLING DEFECTS, ALL OF THE SAME FAMILY this slice has now met four times, and the
+    two switch ones are the serious half because the switches change who can sign in.
+
+    1. THE STORE SWITCH used `id="store_disable"` INSIDE A LOOP, so every store tab emitted the
+       same id — duplicate ids in one document, which makes `for` resolution undefined — and its
+       `<label class="form-check-label">` was EMPTY, so the control had no accessible name from
+       any source. Now `store-disable-{id}` with a label naming the STORE.
+
+    2. THE USER SWITCH was worse: the input carried `name="user_disable"` and NO id at all, while
+       its label said `for="user_disable"`. The `for` pointed at nothing, the label was empty, and
+       both repeated per user. This is the control that enables or disables a staff member's
+       login — the same capability F130 was about. Now `user-disable-{id}` with a label naming
+       the USER.
+
+    3. THE NAME was rendered as `<label for="user" class="form-label">{{ $user->name }}</label>`:
+       a label for an element that does not exist, repeated once per user. It is not a label for
+       anything — it is the person's name — so it is a `<span>`.
+
+    The `is_active` class, the `data-id` / `data-owner` / `data-name` attributes and the
+    `#user_section_{id}` / `.store` hooks are untouched: `UserUnable` and the page's own script
+    key on them.
+--}}
 @php
     $profile = get_file('storage/uploads/profile/');
 @endphp
@@ -73,12 +98,12 @@
                                 <div class="col-lg-1 col-md-2 col-sm-2 text-end">
                                     <div class="text-end">
                                         <div class="form-check form-switch custom-switch-v1 mt-3">
-                                            <input type="checkbox" name="store_disable" id="store_disable"
+                                            <input type="checkbox" name="store_disable" id="store-disable-{{ $store->id }}"
                                                 class="form-check-input input-primary is_active" value="1"
                                                 data-id="{{ $user_data['store_id'] }}" data-owner="{{ $id }}"
                                                 data-name="{{ __('store') }}"
                                                 {{ $store->is_active == 1 ? 'checked' : '' }}>
-                                            <label class="form-check-label" for="store_disable"></label>
+                                            <label class="form-check-label ss-visually-hidden" for="store-disable-{{ $store->id }}">{{ __('Enable store :name', ['name' => $store->name]) }}</label>
                                         </div>
                                     </div>
                                 </div>
@@ -116,18 +141,17 @@
                                                         <img src="{{ !empty($user->avatar) ? $profile . '/' . $user->avatar : $profile . '/avatar.png' }}"
                                                             class=" rounded-circle mx-2" alt="image"
                                                             height="30">
-                                                        <label for="user"
-                                                            class="form-label">{{ $user->name }}</label>
+                                                        <span class="ss-ident">{{ $user->name }}</span>
                                                     </h6>
                                                 </div>
                                                 <div class="text-end ">
                                                     <div class="form-check form-switch custom-switch-v1 mb-2">
-                                                        <input type="checkbox" name="user_disable"
+                                                        <input type="checkbox" name="user_disable" id="user-disable-{{ $user->id }}"
                                                             class="form-check-input input-primary is_active"
                                                             value="1" data-id='{{ $user->id }}' data-owner="{{ $id }}"
                                                             data-name="{{ __('user') }}"
                                                             {{ $user->is_enable_login == 1 ? 'checked' : '' }} {{ $store->is_active == 1 ? '' : 'disabled' }}>
-                                                        <label class="form-check-label" for="user_disable"></label>
+                                                        <label class="form-check-label ss-visually-hidden" for="user-disable-{{ $user->id }}">{{ __('Enable login for :name', ['name' => $user->name]) }}</label>
                                                     </div>
                                                 </div>
                                             </div>

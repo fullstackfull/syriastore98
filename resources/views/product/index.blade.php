@@ -8,7 +8,7 @@
     $admin = getAdminAllSetting();
 @endphp
 @section('breadcrumb')
-    <li class="breadcrumb-item" aria-current="page">{{ __('Product') }}</li>
+    <li aria-current="page" class="ss-breadcrumb__item">{{ __('Product') }}</li>
 @endsection
 
 @section('action-button')
@@ -45,7 +45,19 @@
 @section('content')
     <div class="row">
         <div class="col-xl-12">
+            {{-- P2-03-2. ABOVE the table, because it changes what the table shows: a control
+                 that alters a list belongs where the eye arrives before the rows, not below
+                 them. It is a plain GET form — see the partial for why that needs no script. --}}
+            @include('product.partials.filters')
+
             <x-datatable :dataTable="$dataTable" />
+
+            {{-- P2-03-6: ONE panel for the whole list, filled per row — the same arrangement
+                 the orders list uses, so the focus-return bookkeeping has one id to key on. --}}
+            <x-ss.panel id="ss-product-preview-panel"
+                        :title="__('Product preview')"
+                        :loading-text="__('Loading product…')"
+                        :error-text="__('This product could not be loaded.')" />
         </div>
     </div>
 @endsection

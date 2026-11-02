@@ -280,7 +280,28 @@ class DigitalProductOwnershipTest extends SecurityTestCase
         $this->assertSame(403, $response->status(), 'Another tenant\'s product was rendered into the edit form for a caller who does not own it.');
     }
 
-    public function test_a_merchant_can_still_delete_their_own_product_through_the_digital_resource(): void
+    /**
+     * CHANGED BY F207 / OWNER DECISION D-29.2, and the change is a correction to this case rather
+     * than an accommodation of the guard.
+     *
+     * This case used to create a product with NO `product_type` and assert the merchant could
+     * delete it through `/digitalproduct/{id}`. That journey is exactly what F207 closes, and
+     * `product_type` is what decides it — read off the controllers rather than assumed:
+     *
+     *   `ProductController:506`   ordinary products are `Product::where('product_type', null)`
+     *   `DigitalProductController:35`  its own list is `where('product_type', 'digital')`
+     *   `AuctionProductController:47`  likewise `'auction'`, and :375/:623 SET it on write
+     *
+     * So **a null `product_type` means an ORDINARY product**, and the old fixture was an ordinary
+     * product being deleted by a holder of `Delete Digital Product`. The digital DELETE door
+     * resolves the HOST `products` table with no type predicate of its own, so that permission
+     * reached the whole catalogue: a staff member trusted with digital goods could delete every
+     * physical product in the store. The guard now requires the row to really be digital.
+     *
+     * Hence two cases where there was one — the legitimate journey with the type the module itself
+     * writes, and the ordinary product that must now be refused.
+     */
+    public function test_a_merchant_can_still_delete_their_own_digital_product(): void
     {
         $this->enableModule();
         [$merchant, $store] = $this->makeTenant();
@@ -288,8 +309,61 @@ class DigitalProductOwnershipTest extends SecurityTestCase
         $this->entitle($merchant);
         $product = $this->product($store->id, $merchant->id);
 
+        // What DigitalProductController's own list requires, and what its create writes.
+        DB::table('products')->where('id', $product)->update(['product_type' => 'digital']);
+        (new \App\Models\Product())->flushCache();
+
         $this->actingAs($merchant->fresh())->delete('/digitalproduct/' . $product);
 
-        $this->assertNull(DB::table('products')->where('id', $product)->first(), 'Premise: the owner can delete their own product.');
+        $this->assertNull(
+            DB::table('products')->where('id', $product)->first(),
+            'Premise: the owner can still delete their own DIGITAL product. If this fails the F207 '
+            . 'confinement has gone from narrowing a privilege to removing a function.'
+        );
+    }
+
+    public function test_an_ordinary_product_cannot_be_deleted_through_the_digital_resource(): void
+    {
+        $this->enableModule();
+        [$merchant, $store] = $this->makeTenant();
+        $this->grantPermission($merchant, 'Delete Digital Product');
+        $this->entitle($merchant);
+
+        // No `product_type`, which is what `ProductController:506` means by an ordinary product.
+        $product = $this->product($store->id, $merchant->id);
+
+        $response = $this->actingAs($merchant->fresh())->delete('/digitalproduct/' . $product);
+
+        $this->assertNotNull(
+            DB::table('products')->where('id', $product)->first(),
+            'F207 / D-29.2: a holder of `Delete Digital Product` must not be able to delete an '
+            . 'ORDINARY product. The module\'s DELETE door resolves the host `products` table with '
+            . 'no type predicate of its own, so without the guard this permission reaches the '
+            . 'whole catalogue — every physical product in the store.'
+        );
+
+        $this->assertSame(403, $response->status(), 'and it is refused rather than silently ignored');
+    }
+
+    public function test_an_auction_product_cannot_be_deleted_through_the_digital_resource(): void
+    {
+        // The cross-module half of the same confinement: the two doors must not be interchangeable.
+        $this->enableModule();
+        [$merchant, $store] = $this->makeTenant();
+        $this->grantPermission($merchant, 'Delete Digital Product');
+        $this->entitle($merchant);
+        $product = $this->product($store->id, $merchant->id);
+
+        DB::table('products')->where('id', $product)->update(['product_type' => 'auction']);
+        (new \App\Models\Product())->flushCache();
+
+        $response = $this->actingAs($merchant->fresh())->delete('/digitalproduct/' . $product);
+
+        $this->assertNotNull(
+            DB::table('products')->where('id', $product)->first(),
+            'a digital permission must not delete an auction product either'
+        );
+
+        $this->assertSame(403, $response->status());
     }
 }

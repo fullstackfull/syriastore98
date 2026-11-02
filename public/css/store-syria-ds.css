@@ -3,21 +3,41 @@
    ==========================================================================
 
    WHAT THIS IS
-   A single, additive, opt-in stylesheet. It defines the Store Syria design
-   tokens and a small set of reusable components for the merchant and Super
-   Admin administration.
+   A single, additive stylesheet. It defines the Store Syria design tokens and
+   a set of reusable components for the merchant and Super Admin
+   administration.
 
-   HOW IT IS LOADED
-   Nothing loads it globally. A page opts in from its own Blade view:
+   HOW IT IS LOADED  —  CHANGED IN P2-01-11, AND THIS SECTION USED TO SAY THE
+   OPPOSITE. It is now loaded GLOBALLY, from two places:
+
+       layouts/app.blade.php        every admin page
+       partision/head.blade.php     layouts/main.blade.php's pages
+
+   It had to move because the SIDEBAR became a design-system consumer: the
+   workspace chip (.ss-workspace) and the nav-group headings (.ss-navgroup) are
+   components in this file, and the sidebar is rendered by the layout on every
+   page. Opting in per screen would have left them unstyled almost everywhere —
+   and `.ss-visually-hidden` undefined, which turns screen-reader-only labels
+   into ordinary visible text rather than failing quietly.
+
+   The per-screen opt-in still works and is still used:
 
        @push('css')
            <link rel="stylesheet" href="{{ asset('css/store-syria-ds.css') }}">
        @endpush
 
-   `layouts/app.blade.php:176` already renders @stack('css'), so no shared
-   layout file has to be edited and no screen that does not opt in is affected
-   in any way. That is deliberate: this is a production multi-tenant system and
-   a foundation sprint must not be able to regress a screen it never touched.
+   WHY GLOBAL LOADING DOES NOT REGRESS A SCREEN THIS FILE NEVER TOUCHED — which
+   was the whole reason for the original opt-in, and still matters: no selector
+   here can match an element outside the design system. Every subject is an
+   `.ss-` class, except `:root`, the two `[data-ss-theme=...]` blocks (custom
+   properties only), the keyframes, and `.ss-sort-list .ui-sortable-placeholder`
+   at :833 — whose subject is jQuery UI's class but which is descendant-scoped
+   under `.ss-sort-list` and so cannot fire outside a DS sort list. Nothing in
+   the application uses an `.ss-` class. The enumeration is spelled out in the
+   comment at layouts/app.blade.php where the link lives.
+
+   KEEP IT TRUE. The standing rule — never style a bare element selector — is
+   what makes global loading safe. It is no longer a style preference.
 
    NAMING
    Every custom property is `--ss-*` and every class is `.ss-*`. Nothing here
@@ -103,7 +123,29 @@
    these and you have changed the design system's contract.
    -------------------------------------------------------------------------- */
 
-:root {
+/*
+ * `:root` AND `[data-ss-theme="light"]`, declared together so the light palette exists in one
+ * place and can also be scoped to a container.
+ *
+ * WHY THE SECOND SELECTOR EXISTS (P2-05-4). The dark block below has always been documented as
+ * working "on <html> or on any container", and it does -- but only in ONE DIRECTION. The light
+ * palette lived on `:root` alone, which matches `<html>` and nothing else, so a subtree inside a
+ * dark page could never be returned to light.
+ *
+ * That is not hypothetical. The host's Bootstrap modal (`#commanModel`) keeps a WHITE
+ * `.modal-content` in dark mode -- measured `rgb(255, 255, 255)` with `data-ss-theme="dark"` on
+ * <html> -- so every design-system component placed inside one resolved its DARK tokens onto a
+ * white surface. The category form's hint text measured **2.18:1** that way, in both en and ar.
+ * The same class of defect as F8 and as the pinned data-table cell: a design-system token is
+ * correct only against the surface it was solved for, and the host does not always paint the
+ * surface the global theme implies.
+ *
+ * A container that carries `data-ss-theme="light"` now re-declares these on itself, and custom
+ * properties inherit from the nearest declaring ancestor, so the subtree goes back to light
+ * regardless of what <html> says.
+ */
+:root,
+[data-ss-theme="light"] {
     /* Surfaces */
     --ss-bg:            var(--ss-grey-50);
     --ss-surface:       var(--ss-grey-0);
@@ -121,9 +163,26 @@
     --ss-brand-hover:  var(--ss-teal-900);
     --ss-brand-active: var(--ss-teal-950);
     --ss-brand-subtle: var(--ss-teal-50);
-    --ss-brand-accent: var(--ss-teal-600);
+    /* teal-700, not teal-600. This token existed from Sprint 01 but no
+       component consumed it, so its value had never been through the contrast
+       checker. Phase 02's workspace chip draws a 3px accent bar with it, which
+       makes it a UI component under WCAG 1.4.11 and puts it on the 3:1
+       non-text threshold: teal-600 measures 2.70:1 on the white card surface
+       and fails; teal-700 measures 3.91:1. A per-store override of this token
+       is the one thing on the chip a merchant can change, and an override is
+       NOT verified, so the default has to be the safe one. */
+    --ss-brand-accent: var(--ss-teal-700);
     --ss-on-brand:     #ffffff;
     --ss-link:         var(--ss-teal-800);
+
+    /* Chart series. Series 1 points at --ss-brand rather than copying it, so it
+       re-themes with the brand and a brand change cannot leave a chart behind.
+       Series 2 is the gold side of a teal/gold pair, chosen because it differs in
+       HUE and in LIGHTNESS: a reader with deuteranopia or protanopia separates
+       blue-green from orange-gold, which a second green would not give them.
+       Dark mode redefines series 2 only; series 1 follows the brand. */
+    --ss-chart-series-1: var(--ss-brand);
+    --ss-chart-series-2: var(--ss-amber-800);
 
     /* Borders */
     --ss-border:        var(--ss-grey-200);
@@ -269,6 +328,10 @@
     --ss-danger:     #f3a9a4;
     --ss-on-danger:  #3b0d0a;
 
+    /* Teal-500 is bright in dark mode, so series 2 lightens to match: the dark
+       amber-800 would sink into the card. Same hue pair, re-solved. */
+    --ss-chart-series-2: #f0c674;
+
     --ss-focus-ring: var(--ss-teal-400);
 
     --ss-shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.45);
@@ -304,6 +367,7 @@
         --ss-neutral-bg: #212c2a; --ss-neutral-fg: #c3cccb;
         --ss-danger: #f3a9a4;
         --ss-on-danger: #3b0d0a;
+        --ss-chart-series-2: #f0c674;
         --ss-focus-ring: var(--ss-teal-400);
         --ss-shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.45);
         --ss-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.35);
@@ -328,6 +392,12 @@
 .ss-table__sort:focus-visible,
 .ss-breadcrumb__link:focus-visible,
 .ss-dialog__close:focus-visible,
+/* WS C: `.ss-link` joins the list. Found by BITING the hidden-region rule rather than by
+   reading: rendering the notification digest visible for an ungated staff member failed
+   "every design-system control shows a focus ring" on its "View all notifications" link.
+   A region that ships hidden still gets focused the moment it is revealed, which for this
+   one is whenever the merchant has anything unread -- i.e. the normal case. */
+.ss-link:focus-visible,
 .ss-checkbox:focus-visible {
     outline: var(--ss-focus-width) solid var(--ss-focus-ring);
     outline-offset: var(--ss-focus-offset);
@@ -380,6 +450,32 @@
     color: var(--ss-fg);
     letter-spacing: -0.01em;
 }
+
+/* A LINK INSIDE THE DESIGN SYSTEM takes the design system's link colour. Without this it keeps
+   whatever the admin theme gives an `<a>`, which on the reCAPTCHA panel's help link measured
+   2.59:1 against the card in LIGHT mode -- under AA, and not something the panel's own markup
+   could fix. `--ss-link` is already defined for all three themes; it just was not being used
+   outside the breadcrumb. Underlined, because colour alone is not an accessible distinction
+   (1.4.1), and `:where()` so a component that sets its own link colour still wins. */
+:where(.ss-card, .ss-panel, .ss-page-header, .ss-field__hint, .ss-help) a:not([class]) {
+    color: var(--ss-link);
+    text-decoration: underline;
+}
+
+/* WS C. `.ss-link` AS A REAL CLASS, because the rule above cannot reach a link that has one.
+   `a:not([class])` is deliberate -- it leaves a component's own link styling alone -- but it
+   also means that writing `class="ss-link"`, which reads like the obvious way to ask for the
+   design system's link colour, SILENTLY OPTS OUT of it. Measured in the dark theme: the
+   dashboard's notification-digest link fell back to the host chrome's `<a>` colour at
+   **1.68:1**, well under AA, while reading in the source as though it had been given the DS
+   colour. The same spelling is used by the dashboard's storefront link, which sits outside any
+   `.ss-card` and so was never covered by the rule above at all. */
+.ss-link {
+    color: var(--ss-link);
+    text-decoration: underline;
+}
+.ss-link:hover,
+.ss-link:focus-visible { color: var(--ss-link); text-decoration: underline; }
 
 .ss-page-header__subtitle {
     margin: var(--ss-space-1) 0 0;
@@ -625,12 +721,36 @@
 
 .ss-card {
     background: var(--ss-surface);
+    /* F140 — A SURFACE THAT OWNS ITS BACKGROUND MUST OWN ITS FOREGROUND.
+       Without this, anything inside a card that carries no `.ss-` class of its own inherits from
+       `body`, and the vendored admin theme's `--bs-body-color: #293240` is BYTE-IDENTICAL in all
+       four of its stylesheets, the dark one included (verified: style.css:71, style-dark.css:71,
+       style-rtl.css:71, rtl-style-dark.css:71). So the host's dark theme flips backgrounds and
+       never flips body text. MEASURED on the running application: every currency row's header
+       and cells, and all 52 payment gateway names, at 1.02:1 in dark mode -- text the same
+       colour as what it sits on.
+       The vendored sheets are not ours to edit, so the fix belongs here. Measured again after:
+       24 failures to 0 on the currency tab, 52 to 0 on payment, and 0 to 0 in LIGHT, where
+       nothing was wrong and nothing changed. */
+    color: var(--ss-fg);
     border: 1px solid var(--ss-border);
     border-radius: var(--ss-radius-lg);
     box-shadow: var(--ss-shadow-xs);
     /* Clips square-cornered children (table headers, list rows) to the card's
        radius; without it their backgrounds paint over the rounded corner. */
     overflow: hidden;
+
+    /* A COLUMN, SO THE FOOTER SITS ON THE CARD'S BOTTOM EDGE.
+       `.ss-row` is a flex container and stretches its cards to the tallest
+       one's height. A card is otherwise a plain block, so a SHORTER card's
+       footer stayed where its content ended and the card painted empty
+       surface BELOW it -- a sunken band floating mid-card with 40px of nothing
+       under it. Measured on the dashboard the moment its two lists held
+       different numbers of rows (4 orders beside 5 products); invisible for as
+       long as both cards happened to be the same height, which is why it
+       survived into the screenshots. */
+    display: flex;
+    flex-direction: column;
 }
 
 /* Escape hatch for a card that must let a child escape its bounds — a
@@ -654,7 +774,10 @@
     color: var(--ss-fg);
 }
 
-.ss-card__body { padding: var(--ss-space-5); }
+/* `1 1 auto`, not `1`: `flex: 1` would reset the basis to 0 and re-distribute
+   every card body's height from scratch. This grows into leftover space and
+   otherwise leaves intrinsic height exactly as it was. */
+.ss-card__body { padding: var(--ss-space-5); flex: 1 1 auto; }
 .ss-card__body--flush { padding: 0; }
 .ss-card__footer {
     padding: var(--ss-space-4) var(--ss-space-5);
@@ -662,6 +785,267 @@
     background: var(--ss-surface-sunken);
     border-end-end-radius: var(--ss-radius-lg);
     border-end-start-radius: var(--ss-radius-lg);
+}
+/* A footer whose job is one action, pushed to the trailing edge. `flex-end` on a flex row
+   follows `direction`, so this mirrors in RTL with no per-direction rule — the same reason the
+   rest of this file uses logical properties. Added for the settings panels (P2-05-7), where
+   every one of ~31 ends in a single Save button. */
+.ss-card__footer--end {
+    display: flex;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: var(--ss-space-3);
+}
+/* A footer with one action at each edge — a secondary action and the save. */
+.ss-card__footer--between {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--ss-space-3);
+}
+
+/* A colour input sized like a control rather than a full-width text box: a 100%-wide swatch
+   reads as a banner, not a picker. Added for the PWA panel (P2-05-7). */
+.ss-input--color {
+    inline-size: 4rem;
+    block-size: 2.5rem;
+    padding: 0.125rem;
+    cursor: pointer;
+}
+
+/* A reference list of template tokens: term on one side, the token on the other. A `<dl>`
+   rather than paragraphs, so assistive technology can move through it as pairs. The grid
+   mirrors in RTL because the columns follow `direction`. Added for the WhatsApp message panel
+   (P2-05-7). */
+.ss-vars {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: var(--ss-space-1) var(--ss-space-3);
+    margin: 0 0 var(--ss-space-4);
+    font-size: var(--ss-text-sm);
+}
+.ss-vars__term { color: var(--ss-fg-muted); }
+.ss-vars__def { margin: 0; text-align: end; }
+.ss-vars__def code {
+    font-size: var(--ss-text-xs);
+    color: var(--ss-brand);
+    background: var(--ss-brand-subtle);
+    padding-inline: var(--ss-space-1);
+    border-radius: var(--ss-radius-sm);
+    unicode-bidi: isolate;
+}
+
+/* ---- Choice: a radio or checkbox with its label ----
+   The control and its label, side by side, with the label clickable because it carries `for`.
+   A GROUP of these belongs in a `<fieldset>` with a `<legend>`: a `<label>` can name one
+   control, not a choice between two, which is what the tax panel's price-type pair was using
+   one for. Added for the settings panels (P2-05-7).
+
+   `accent-color` so the native control takes the brand without a custom sprite, which keeps
+   the keyboard focus ring and the forced-colors behaviour the browser already gets right. */
+.ss-choice {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--ss-space-2);
+    margin-block-end: var(--ss-space-2);
+}
+.ss-choice__input {
+    inline-size: 1rem;
+    block-size: 1rem;
+    margin-block-start: 0.2rem;
+    flex: none;
+    accent-color: var(--ss-brand);
+}
+.ss-choice__input:focus-visible {
+    outline: var(--ss-focus-width) solid var(--ss-focus-ring);
+    outline-offset: var(--ss-focus-offset);
+}
+.ss-choice__label {
+    font-size: var(--ss-text-sm);
+    color: var(--ss-fg);
+    cursor: pointer;
+}
+
+/* ---- Swatches: a colour chosen from a fixed set ----
+   REAL RADIOS, hidden visually but NOT from the accessibility tree. `display: none` — what the
+   brand panel used — removes an element from the tab order and from the tree entirely, which is
+   how ten theme colours ended up reachable only through ten empty anchors. `appearance: none`
+   with `position: absolute` keeps the control focusable, arrow-key navigable and announced,
+   while the label carries the colour.
+
+   The focus ring is drawn on the LABEL via `:focus-visible` on the input, because the input
+   itself has no box to draw one on. Added for P2-05-7. */
+.ss-swatches {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--ss-space-2);
+}
+.ss-swatch { position: relative; }
+.ss-swatch__input {
+    position: absolute;
+    inset-block-start: 0;
+    inset-inline-start: 0;
+    inline-size: 100%;
+    block-size: 100%;
+    margin: 0;
+    opacity: 0;
+    cursor: pointer;
+}
+.ss-swatch__label {
+    display: block;
+    inline-size: 1.75rem;
+    block-size: 1.75rem;
+    border-radius: var(--ss-radius-sm);
+    border: 2px solid var(--ss-border);
+    cursor: pointer;
+}
+.ss-swatch__input:checked + .ss-swatch__label {
+    border-color: var(--ss-fg);
+    box-shadow: 0 0 0 2px var(--ss-surface), 0 0 0 4px var(--ss-fg);
+}
+.ss-swatch__input:focus-visible + .ss-swatch__label {
+    outline: var(--ss-focus-width) solid var(--ss-focus-ring);
+    outline-offset: var(--ss-focus-offset);
+}
+/* THE TEN THEME COLOURS, COPIED FROM THE HOST'S OWN DEFINITIONS and not invented.
+   `public/assets/css/customizer.css` is where each `theme-N` actually gets its colour, under
+   `.theme-color.themes-color > a[data-value="theme-N"]`. A first draft of this block made the
+   values up, which would have shown the merchant ten swatches and applied ten different
+   colours — the same class of silent lie this slice has been removing from these panels.
+   Declared here rather than inherited so a swatch cannot render as an empty grey box, and kept
+   in step with that file by hand; if the host's palette changes, these change with it. */
+.ss-swatch--theme-1  { background: #51459d; }
+.ss-swatch--theme-2  { background: #75c251; }
+.ss-swatch--theme-3  { background: #10B77F; }
+.ss-swatch--theme-4  { background: #145388; }
+.ss-swatch--theme-5  { background: #b9406b; }
+.ss-swatch--theme-6  { background: #008ecc; }
+.ss-swatch--theme-7  { background: #922c88; }
+.ss-swatch--theme-8  { background: #c0a145; }
+.ss-swatch--theme-9  { background: #48494b; }
+.ss-swatch--theme-10 { background: #0c7785; }
+
+/* ---- Input group: a field with a fixed affix ----
+   The Shopify and WooCommerce panels append `.myshopify.com` to a shop NAME. The affix is a
+   picture of a rule, not a value the merchant can change, so it is `aria-hidden` in the markup
+   and the field's hint says the same thing in words.
+
+   Logical properties throughout, so the affix lands on the trailing edge in both directions
+   without a per-direction rule. */
+/* ---- Bootstrap's accordion, inside a design-system card ----
+   INHERITANCE IS NOT ENOUGH HERE, which is why this rule exists beside the `.ss-card` colour
+   above rather than being covered by it: `.accordion-button` sets its OWN `color` from
+   `--bs-accordion-btn-color`, and an element with its own colour ignores the one it would have
+   inherited. Measured: adding `color` to `.ss-card` took the currency tab from 24 contrast
+   failures to 0 and left the payment tab at 52, all of them accordion headers. Only after this
+   rule did payment reach 0.
+
+   The payment screen is 52 of these and is the only place the admin's accordion meets a design
+   system card, so the rule is scoped to that meeting rather than applied globally. The collapsed
+   state keeps a transparent background so the card's own surface shows through; the open state
+   takes the sunken surface, which is what the rest of the system uses to mark an opened region.
+   `box-shadow: none` removes Bootstrap's own focus-coloured inset, which is drawn in a brand
+   colour the design system does not control. */
+.ss-card .accordion-button {
+    color: var(--ss-fg);
+    background-color: transparent;
+}
+.ss-card .accordion-button:not(.collapsed) {
+    color: var(--ss-fg);
+    background-color: var(--ss-surface-sunken);
+    box-shadow: none;
+}
+
+/* ---- The "filters are on" receipt above a filter bar (P2-06-5) ----
+   An ATTENTION surface rather than a neutral one: its whole job is to be noticed, because a
+   restored filter that goes unnoticed is the "my orders are gone" ticket the feature was designed
+   around. Tokens on both axes so it flips with the theme, and logical properties so it mirrors. */
+.ss-filterbar__summary {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--ss-space-2);
+    inline-size: 100%;
+    padding: var(--ss-space-2) var(--ss-space-3);
+    margin-block-end: var(--ss-space-3);
+    border: 1px solid var(--ss-border);
+    border-radius: var(--ss-radius-md);
+    /* The REAL warning tokens -- `--ss-warning-bg` / `--ss-warning-fg`, which exist in all three
+       theme blocks. An earlier draft wrote `--ss-warning-subtle` and `--ss-warning-border` with
+       fallbacks; neither token exists, so the rule read as if it used the warning palette while
+       silently painting the neutral one in every theme. A fallback chain that always falls back
+       is a comment pretending to be code. */
+    background: var(--ss-warning-bg);
+    color: var(--ss-warning-fg);
+}
+.ss-filterbar__summary-text {
+    margin: 0;
+    font-size: var(--ss-text-sm);
+}
+.ss-filterbar__summary-list {
+    font-weight: var(--ss-weight-medium);
+}
+
+/* ---- A payment gateway's logo, with the picker over it ----
+   Replaces `style="top:5px; right:5px;"` on the upload button, which pinned it to the RIGHT edge
+   in both directions -- so in Arabic it sat over the image instead of in the corner. Logical
+   properties put it on the trailing edge either way. */
+.ss-gateway-image {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--ss-space-3);
+    border: 1px solid var(--ss-border);
+    border-radius: var(--ss-radius-md);
+    background: var(--ss-surface-sunken);
+    min-block-size: 7rem;
+}
+.ss-gateway-image__pick {
+    position: absolute;
+    inset-block-start: var(--ss-space-2);
+    inset-inline-end: var(--ss-space-2);
+}
+.ss-gateway-image__img {
+    max-block-size: 100px;
+    max-inline-size: 100%;
+    inline-size: auto;
+}
+
+/* ---- The settings screen's tab filter ----
+   Replaces `style="max-width: 300px; background: transparent;"` on `#tab-search`. The inline
+   `background: transparent` was the actual problem: it let the page behind show through the box,
+   so in dark mode the input had no surface of its own and its border was the only thing marking
+   it. `.ss-input` already supplies a themed surface; only the width needed saying. */
+.ss-setting-search {
+    max-inline-size: 300px;
+}
+
+.ss-input-group {
+    display: flex;
+    align-items: stretch;
+    min-inline-size: 0;
+}
+.ss-input-group > .ss-input {
+    flex: 1 1 auto;
+    min-inline-size: 0;
+    border-start-end-radius: 0;
+    border-end-end-radius: 0;
+}
+.ss-input-group__suffix {
+    display: inline-flex;
+    align-items: center;
+    padding-inline: var(--ss-space-3);
+    border: 1px solid var(--ss-border);
+    border-inline-start: 0;
+    border-start-end-radius: var(--ss-radius-md);
+    border-end-end-radius: var(--ss-radius-md);
+    background: var(--ss-surface-sunken);
+    color: var(--ss-fg-muted);
+    font-size: var(--ss-text-sm);
+    white-space: nowrap;
 }
 
 /* ---- Badges ---- */
@@ -715,6 +1099,17 @@
     padding-inline: var(--ss-space-4);
     text-align: start;             /* flips with dir, no RTL override needed */
     vertical-align: middle;
+}
+
+/* A ROW HEADER IN THE BODY had no colour of its own, so it inherited the admin theme's `th`
+   rule -- a hard-coded light-theme navy that does not flip. MEASURED on the currency table,
+   whose first cell of every row is `<th scope="row">`: 1.02:1 in dark mode, dark text on the
+   dark card. `thead th` was styled and `tbody th` was not, which is why it went unnoticed: the
+   column headers looked right. A row header is a HEADER in meaning and BODY TEXT in appearance,
+   so it takes the body foreground with the heavier weight a header earns. */
+.ss-table tbody th {
+    color: var(--ss-fg);
+    font-weight: var(--ss-weight-medium);
 }
 
 .ss-table thead th {
@@ -1008,6 +1403,32 @@
 }
 .ss-dialog__close:hover { background: var(--ss-surface-sunken); color: var(--ss-fg); }
 
+/* F184 -- the content of a destructive confirmation.
+
+   `__message` is the sentence, `__list` names the records that would go, `__note` is the
+   irreversibility warning. The list is a list and not a sentence because the merchant has to be
+   able to check it item by item: the save path can refuse ten variants at once, and ten names run
+   together in a paragraph is not something anyone reads before clicking a red button.
+
+   `__note` is the strongest text in the dialog, so it takes `--ss-fg` rather than the body's
+   muted tone -- it is the one line that must not be skimmed. Both it and `__message` restate
+   their colour with `!important` for the reason the host-override block below records: they are
+   <p> elements, and the host's dark stylesheets force every paragraph to #808191 with
+   `!important`, which on this surface is 3.42:1 and below the 4.5:1 body text needs. Inheriting
+   from `.ss-dialog__body` does not save them -- the host's rule targets the element directly. */
+.ss-dialog__message { margin: 0 0 var(--ss-space-3); }
+.ss-dialog__list {
+    margin: 0 0 var(--ss-space-3);
+    padding-inline-start: var(--ss-space-5);
+    display: grid;
+    gap: var(--ss-space-1);
+}
+.ss-dialog__list li { color: var(--ss-fg); }
+.ss-dialog__note {
+    margin: 0;
+    font-weight: var(--ss-weight-semibold);
+}
+
 /* ---- Host override defence ----
    The host's dark stylesheets force every paragraph grey with !important:
        .dataTable-info, p { color: #808191 !important; }
@@ -1019,10 +1440,27 @@
 .ss-page-header__subtitle,
 .ss-field__hint,
 .ss-empty__body,
-.ss-dialog__body       { color: var(--ss-fg-muted) !important; }
+.ss-feed__message,
+.ss-advanced__hint,
+.ss-upload-hint,
+.ss-dialog__body,
+.ss-dialog__message    { color: var(--ss-fg-muted) !important; }
+/* F184. The irreversibility line is the one sentence in a destructive dialog that must not be
+   skimmed, so it is full-strength foreground rather than muted -- and it needs its own
+   `!important` for the same reason as the list above, because it is a <p>. */
+.ss-dialog__note       { color: var(--ss-fg) !important; }
+/* `.ss-feed__when` is the quietest text on the feed and still has to clear 4.5:1.
+   `--ss-fg-muted`, NOT `--ss-fg-subtle`: the timestamp appears on TWO surfaces -- the plain one
+   on a read row and `--ss-surface-sunken` on an unread one -- and subtle measured 4.69:1 on the
+   first and **4.13:1 on the second**. Muted clears both (5.94 and 5.23). The first contrast run
+   missed it by luck: the fixture's newest row happened to be the READ one, so the probe sampled
+   the lighter surface. The probe now measures both, and the fixture was corrected. Same lesson
+   as F8 and as the feed's title and message: AA on one surface is not AA on another. */
+.ss-feed__when         { color: var(--ss-fg-muted) !important; }
 .ss-page-header__title,
 .ss-card__title,
 .ss-empty__title,
+.ss-feed__title,
 .ss-label              { color: var(--ss-fg) !important; }
 .ss-field__error       { color: var(--ss-danger) !important; }
 .ss-alert__title,
@@ -1062,6 +1500,1210 @@
 .ss-grow   { flex: 1 1 auto; min-width: 0; }
 .ss-truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* ==========================================================================
+   LAYER 3 (continued) — PHASE 02 COMPONENTS
+   ==========================================================================
+
+   Added for Phase 02 (Merchant Experience). Same rules as everything above:
+   `--ss-*` / `.ss-*` only, no bare element selectors, logical properties
+   only, state from ARIA rather than from classes. These consume the layer-2
+   semantic tokens and introduce no new colour, so the 40 verified contrast
+   pairs still describe every foreground/background combination in use.
+
+   The surfaces, and when to use which — written here because the codebase
+   has been choosing ad hoc:
+
+     .ss-panel    inspect a record, or edit 1-5 fields, without losing the
+                  list behind it.                   480px / full-width <768px
+     .ss-dialog   confirmations and single-purpose forms (above).      520px
+     full page    tabs, media, or more than ~8 fields.
+
+   A panel never opens a second panel. It opens a dialog, or it navigates.
+
+   ========================================================================== */
+
+/* ---- Tabular figures ----
+   Columns of numbers must not shift width as digits change. This is the
+   requirement behind the usual "use a monospace font for data" advice,
+   satisfied without downloading a second family — which matters here because
+   --ss-font-sans deliberately inherits the host's own family and declares the
+   Arabic faces ahead of any Latin fallback. Works for Arabic-Indic digits too. */
+/* An IDENTIFIER, not a figure: an order reference, SKU or invoice number.
+   Distinct from .ss-num because isolation alone is not enough for these.
+   `unicode-bidi: isolate` keeps a run from reordering against its neighbours,
+   but the run's own direction is still inherited -- so inside an Arabic table
+   `#SY-10427` put the neutral `#` at the visual end and rendered `SY-10427#`,
+   which is not the reference the merchant reads back to a customer.
+   `direction: ltr` is what pins the prefix to the start. */
+.ss-ident {
+    direction: ltr;
+    unicode-bidi: isolate;
+    font-variant-numeric: tabular-nums;
+}
+
+.ss-num {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+    /* The CSS equivalent of wrapping the run in <bdi>. A figure is a
+       left-to-right run, and inside an Arabic line the bidi algorithm will
+       otherwise reorder it against an adjacent currency symbol or bracket --
+       "1,284 ل.س" is not guaranteed to stay in that order without it. */
+    unicode-bidi: isolate;
+}
+
+/* ---- Stat grid ----
+   Measures get no card. A number does not need a box, and if every region on
+   the dashboard is a card then nothing on it has emphasis. Cells are divided
+   by hairlines instead, which also means the grid costs one element per cell.
+
+   Every cell states its own period (.ss-stat__period). A count with no period
+   is the commonest way a dashboard misleads, so the period is part of the
+   component rather than something a page remembers to add. */
+.ss-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+    gap: 0;
+    margin-block: var(--ss-space-5);
+    border-block-start: 1px solid var(--ss-border);
+}
+.ss-stat {
+    padding: var(--ss-space-4) var(--ss-space-5);
+    border-block-end: 1px solid var(--ss-border);
+    border-inline-end: 1px solid var(--ss-border);
+    min-width: 0;
+}
+/* The inline-end hairline would double up against the page edge; logical
+   properties mean this one rule is correct in both directions. */
+.ss-stat:last-child { border-inline-end: 0; }
+
+.ss-stat__label {
+    display: block;
+    font-size: var(--ss-text-sm);
+    font-weight: var(--ss-weight-medium);
+    color: var(--ss-fg-muted);
+    margin: 0 0 var(--ss-space-1);
+}
+.ss-stat__value {
+    display: block;
+    font-size: var(--ss-text-2xl);
+    font-weight: var(--ss-weight-semibold);
+    line-height: var(--ss-leading-tight);
+    color: var(--ss-fg);
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+    /* See .ss-num: a money figure is a currency symbol beside a Latin-digit
+       run, and in Arabic the two reorder without isolation. */
+    unicode-bidi: isolate;
+    /* break-word, NOT anywhere. `anywhere` allowed "1,284,500.00" to split
+       across three lines on a 390px screen -- measured, in the Arabic
+       preview. break-word keeps a figure whole and only breaks a value that
+       genuinely cannot fit any other way. */
+    overflow-wrap: break-word;
+}
+/* Period / qualifier. Never omitted, and never styled as decoration.
+
+   --ss-fg-muted, NOT --ss-fg-subtle, and that is a measurement rather than a
+   preference: the stat grid sits on --ss-bg (#f6f8f8), not on the white card
+   surface, and fg-subtle is the lightest neutral clearing 4.5:1 *on white*.
+   On this background it measures 4.40:1 and fails. The hierarchy between the
+   label and the period is carried by size and weight instead of by colour,
+   which is the better way round anyway. */
+.ss-stat__period {
+    display: block;
+    font-size: var(--ss-text-xs);
+    color: var(--ss-fg-muted);
+    margin-block-start: var(--ss-space-1);
+}
+/* A measure the system genuinely cannot produce. An honest absence, and it
+   must not look like a zero. */
+.ss-stat--unavailable .ss-stat__value {
+    font-size: var(--ss-text-base);
+    font-weight: var(--ss-weight-normal);
+    color: var(--ss-fg-subtle);
+}
+
+/* ---- Attention block ----
+   The one region with real emphasis, and the only place on a dashboard that
+   earns an accent bar. It renders only the rows that apply and is absent
+   entirely when none do: a permanent "0 items need attention" panel teaches
+   merchants to stop looking at this part of the screen. */
+.ss-attention {
+    border: 1px solid var(--ss-border);
+    border-inline-start: 3px solid var(--ss-brand);
+    border-radius: var(--ss-radius-lg);
+    background: var(--ss-surface);
+    box-shadow: var(--ss-shadow-sm);
+    padding: var(--ss-space-4) var(--ss-space-5);
+}
+.ss-attention--warning { border-inline-start-color: var(--ss-warning-fg); }
+.ss-attention--danger  { border-inline-start-color: var(--ss-danger-fg); }
+
+.ss-attention__title {
+    font-size: var(--ss-text-base);
+    font-weight: var(--ss-weight-semibold);
+    color: var(--ss-fg);
+    margin: 0 0 var(--ss-space-3);
+}
+.ss-attention__list { list-style: none; margin: 0; padding: 0; }
+.ss-attention__item {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--ss-space-2) var(--ss-space-3);
+    padding-block: var(--ss-space-2);
+    border-block-start: 1px solid var(--ss-border);
+}
+.ss-attention__item:first-child { border-block-start: 0; }
+.ss-attention__count {
+    font-size: var(--ss-text-lg);
+    font-weight: var(--ss-weight-semibold);
+    color: var(--ss-fg);
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+    unicode-bidi: isolate;
+}
+.ss-attention__text { color: var(--ss-fg-muted); flex: 1 1 auto; min-width: 0; }
+
+/* WS C. THE NOTIFICATION DIGEST'S OWN CLASSES, and the reason is not styling.
+   Its first version reused `.ss-attention__item` / `.ss-attention__text`, which made every
+   selector keyed on those classes read BOTH regions -- the dashboard's Arabic grammar check
+   immediately reported three English notification titles as attention rows with unrecognised
+   phrases. That is the same failure `data-ss-list` exists to prevent one card over, where a
+   caption-based check read the latest-orders table and reported it as the best-selling one. Two
+   regions, two names. The visual result is deliberately the same: same tokens, same rhythm. */
+.ss-digest__list { list-style: none; margin: 0 0 var(--ss-space-3); padding: 0; }
+.ss-digest__item {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--ss-space-2) var(--ss-space-3);
+    padding-block: var(--ss-space-2);
+    border-block-start: 1px solid var(--ss-border);
+}
+.ss-digest__item:first-child { border-block-start: 0; }
+.ss-digest__text {
+    color: var(--ss-fg);
+    flex: 1 1 auto;
+    min-width: 0;
+    /* Pairs with `dir="auto"` on the element: the direction is detected per row, and isolation
+       stops one row's direction leaking into the next. `.ss-attention__count` already does this
+       for the same reason. */
+    unicode-bidi: isolate;
+}
+
+/* ---- Side panel (sheet) ----
+   Enters from the inline-end edge, so it comes from the right in English and
+   from the left in Arabic without a second rule. [hidden] keeps it out of the
+   accessibility tree when closed; `inert` on the page behind is applied by
+   the script, not from here. */
+.ss-panel-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: var(--ss-z-backdrop);
+    background: rgba(11, 20, 19, 0.55);
+}
+.ss-panel {
+    position: fixed;
+    inset-block: 0;
+    inset-inline-end: 0;
+    z-index: var(--ss-z-dialog);
+    display: flex;
+    flex-direction: column;
+    width: min(480px, 100%);
+    background: var(--ss-surface);
+    border-inline-start: 1px solid var(--ss-border);
+    box-shadow: var(--ss-shadow-lg);
+    transform: translateX(0);
+    transition: transform var(--ss-duration-base) var(--ss-ease);
+}
+/* Closed position. `translateX(100%)` is physical, so it is stated once per
+   direction — the one place in this file where that is unavoidable, because a
+   transform has no logical form. */
+.ss-panel[data-ss-state="closed"]           { transform: translateX(100%); }
+[dir="rtl"] .ss-panel[data-ss-state="closed"] { transform: translateX(-100%); }
+
+.ss-panel__header {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--ss-space-3);
+    padding: var(--ss-space-4) var(--ss-space-5);
+    border-block-end: 1px solid var(--ss-border);
+}
+.ss-panel__title {
+    flex: 1 1 auto;
+    min-width: 0;
+    margin: 0;
+    font-size: var(--ss-text-lg);
+    font-weight: var(--ss-weight-semibold);
+    color: var(--ss-fg);
+    line-height: var(--ss-leading-tight);
+}
+.ss-panel__close {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    /* 2.25rem = 36px, comfortably over the 24x24 CSS px the web target-size
+       rule asks for, and it does not need to be the 44pt mobile figure. */
+    width: 2.25rem; height: 2.25rem;
+    padding: 0;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--ss-radius-md);
+    color: var(--ss-fg-muted);
+    cursor: pointer;
+}
+.ss-panel__close:hover { background: var(--ss-surface-hover); color: var(--ss-fg); }
+.ss-panel__body {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    padding: var(--ss-space-5);
+    /* A focused control at the very bottom of a scrolling panel must not be
+       pinned under the footer. */
+    scroll-padding-block-end: var(--ss-space-10);
+}
+.ss-panel__footer {
+    flex: 0 0 auto;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--ss-space-3);
+    padding: var(--ss-space-4) var(--ss-space-5);
+    border-block-start: 1px solid var(--ss-border);
+    background: var(--ss-surface);
+}
+
+/* ---- Panel remote content: loading and failure ----
+   P2-04-5. A panel that fetches its body has two states static markup never
+   needed. Both are text, not a spinner glyph: a spinner says "something is
+   happening" and nothing else, while `role="status"` on real text is what a
+   screen reader can actually announce. The error carries `role="alert"`
+   because focus is already inside the panel when it arrives. */
+.ss-panel__loading,
+.ss-panel__error {
+    margin: 0;
+    padding: var(--ss-space-6) 0;
+    color: var(--ss-fg-muted);
+    font-size: var(--ss-text-base);
+    text-align: center;
+}
+.ss-panel__error { color: var(--ss-danger-fg); }
+
+/* ---- Order quick preview (P2-04-5) ----
+   Logical properties throughout: this panel renders in Arabic RTL and English
+   LTR from the same rules, so `inline-start` rather than `left`. */
+.ss-order-preview > * + * { margin-block-start: var(--ss-space-6); }
+
+.ss-order-preview__h {
+    display: flex;
+    align-items: center;
+    gap: var(--ss-space-2);
+    margin: 0 0 var(--ss-space-3);
+    font-size: var(--ss-text-sm);
+    font-weight: var(--ss-weight-semibold);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--ss-fg-subtle);
+}
+
+.ss-order-preview__count {
+    padding: 0 var(--ss-space-2);
+    border-radius: var(--ss-radius-pill);
+    background: var(--ss-surface-sunken);
+    color: var(--ss-fg-muted);
+    font-size: var(--ss-text-xs);
+    font-weight: var(--ss-weight-medium);
+    letter-spacing: 0;
+}
+
+/* The three <dl> grids share a shape: a label above its value, wrapping into
+   as many columns as fit. `dt`/`dd` rather than a table because these are
+   name/value pairs, not tabular data -- the items list below IS a table. */
+.ss-order-preview__meta,
+.ss-order-preview__statusgrid,
+.ss-order-preview__totalgrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+    gap: var(--ss-space-4);
+    margin: 0;
+}
+
+.ss-order-preview dt {
+    margin: 0 0 var(--ss-space-1);
+    color: var(--ss-fg-subtle);
+    font-size: var(--ss-text-xs);
+    font-weight: var(--ss-weight-medium);
+}
+
+.ss-order-preview dd {
+    margin: 0;
+    color: var(--ss-fg);
+    font-size: var(--ss-text-base);
+}
+
+.ss-order-preview__totalgrid {
+    padding: var(--ss-space-4);
+    border: 1px solid var(--ss-border);
+    border-radius: var(--ss-radius-md);
+    background: var(--ss-surface-sunken);
+}
+
+/* The order value spans the grid and is the one emphasised figure. */
+.ss-order-preview__total {
+    grid-column: 1 / -1;
+    padding-block-start: var(--ss-space-3);
+    border-block-start: 1px solid var(--ss-border);
+}
+.ss-order-preview__total dt { font-size: var(--ss-text-sm); }
+.ss-order-preview__total dd {
+    font-size: var(--ss-text-lg);
+    font-weight: var(--ss-weight-semibold);
+}
+
+.ss-order-preview__table { width: 100%; }
+.ss-order-preview__table th[scope="row"] { font-weight: var(--ss-weight-medium); }
+
+.ss-order-preview__variant {
+    display: block;
+    color: var(--ss-fg-subtle);
+    font-size: var(--ss-text-xs);
+    font-weight: var(--ss-weight-normal);
+}
+
+.ss-order-preview__actions {
+    display: flex;
+    gap: var(--ss-space-3);
+}
+.ss-order-preview__actions .ss-btn { flex: 1 1 auto; }
+
+/* A definition list is the right element for "field: value" inspection, and
+   it gives screen readers the pairing for free. */
+.ss-deflist { margin: 0; display: grid; grid-template-columns: minmax(6rem, 10rem) 1fr; gap: var(--ss-space-2) var(--ss-space-4); }
+.ss-deflist__key { color: var(--ss-fg-muted); font-size: var(--ss-text-sm); }
+.ss-deflist__val { color: var(--ss-fg); margin: 0; min-width: 0; overflow-wrap: anywhere; }
+
+/* ---- Sticky action bar ----
+   A sticky bar is an accessibility hazard before it is a convenience: it
+   violates WCAG 2.2 "Focus Not Obscured (Minimum)" the moment it covers a
+   focused field. The offset that prevents that ships WITH the component —
+   .ss-has-actionbar goes on the scrolling ancestor — rather than as a note in
+   a document that the next screen will not read. */
+.ss-actionbar {
+    position: sticky;
+    inset-block-end: 0;
+    z-index: var(--ss-z-sticky);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--ss-space-3);
+    padding: var(--ss-space-3) var(--ss-space-5);
+    background: var(--ss-surface);
+    border-block-start: 1px solid var(--ss-border);
+    box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.06);
+}
+[data-ss-theme="dark"] .ss-actionbar { box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.45); }
+.ss-actionbar__status { flex: 1 1 auto; min-width: 0; color: var(--ss-fg-muted); font-size: var(--ss-text-sm); }
+.ss-actionbar__actions { display: flex; flex-wrap: wrap; gap: var(--ss-space-3); }
+.ss-has-actionbar { scroll-padding-block-end: 5rem; }
+.ss-has-stickyheader { scroll-padding-block-start: 4rem; }
+
+/* Unsaved-changes marker. Armed on first real input, not on focus — a guard
+   that cries wolf is a guard merchants click through. */
+.ss-dirty-marker {
+    display: none;
+    align-items: center;
+    gap: var(--ss-space-2);
+    color: var(--ss-warning-fg);
+    font-size: var(--ss-text-sm);
+    font-weight: var(--ss-weight-medium);
+}
+[data-ss-dirty="true"] .ss-dirty-marker { display: inline-flex; }
+
+/* ---- Validation summary ----
+   Complements the inline field errors; it never replaces them. Focus is moved
+   here after a failed submit, and each item links to its own field. */
+.ss-errorsummary {
+    border: 1px solid var(--ss-danger-fg);
+    border-inline-start: 3px solid var(--ss-danger-fg);
+    border-radius: var(--ss-radius-md);
+    background: var(--ss-danger-bg);
+    padding: var(--ss-space-4) var(--ss-space-5);
+    margin-block-end: var(--ss-space-5);
+}
+.ss-errorsummary:focus-visible {
+    outline: var(--ss-focus-width) solid var(--ss-focus-ring);
+    outline-offset: var(--ss-focus-offset);
+}
+.ss-errorsummary__title {
+    margin: 0 0 var(--ss-space-2);
+    font-size: var(--ss-text-base);
+    font-weight: var(--ss-weight-semibold);
+    color: var(--ss-danger-fg);
+}
+.ss-errorsummary__list { margin: 0; padding-inline-start: var(--ss-space-5); color: var(--ss-danger-fg); }
+.ss-errorsummary__link { color: var(--ss-danger-fg); text-decoration: underline; }
+
+/* ---- Filter chips ----
+   The collection wraps before any label shrinks: a truncated filter value is
+   a filter the merchant cannot read, which is worse than a second row. */
+.ss-chips { display: flex; flex-wrap: wrap; gap: var(--ss-space-2); align-items: center; }
+.ss-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--ss-space-2);
+    min-height: 1.75rem;
+    padding: var(--ss-space-1) var(--ss-space-3);
+    background: var(--ss-neutral-bg);
+    color: var(--ss-neutral-fg);
+    border: 1px solid var(--ss-border);
+    border-radius: var(--ss-radius-pill);
+    font-size: var(--ss-text-sm);
+    font-weight: var(--ss-weight-medium);
+    cursor: pointer;
+    transition: background var(--ss-duration-fast) var(--ss-ease);
+}
+.ss-chip:hover { background: var(--ss-surface-hover); }
+/* A chip the viewer cannot act on: no pointer, no hover, no affordance that
+   promises something it will not do. */
+.ss-chip--static { cursor: default; }
+.ss-chip--static:hover { background: var(--ss-neutral-bg); }
+/* Selection comes from aria-pressed, so the visual state and the announced
+   state cannot drift apart. */
+.ss-chip[aria-pressed="true"] {
+    background: var(--ss-brand-subtle);
+    color: var(--ss-brand);
+    border-color: var(--ss-border-brand);
+}
+.ss-chip__remove {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 1.25rem; height: 1.25rem;
+    padding: 0; background: transparent; border: 0; border-radius: var(--ss-radius-pill);
+    color: inherit; cursor: pointer;
+}
+.ss-chip__remove:hover { background: var(--ss-surface); }
+.ss-chip:focus-visible, .ss-chip__remove:focus-visible {
+    outline: var(--ss-focus-width) solid var(--ss-focus-ring);
+    outline-offset: var(--ss-focus-offset);
+}
+
+/* ---- Switch ----
+   A real checkbox underneath; this only draws it. State therefore comes from
+   :checked and the control keeps every native keyboard and form behaviour. */
+.ss-switch { display: inline-flex; align-items: center; gap: var(--ss-space-3); cursor: pointer; }
+.ss-switch__input {
+    /* Not display:none — that would take it out of the tab order. */
+    position: absolute; opacity: 0; width: 2.5rem; height: 1.5rem; margin: 0; cursor: pointer;
+}
+.ss-switch__track {
+    position: relative;
+    flex: 0 0 auto;
+    width: 2.5rem; height: 1.5rem;
+    background: var(--ss-grey-400);
+    border-radius: var(--ss-radius-pill);
+    transition: background var(--ss-duration-fast) var(--ss-ease);
+}
+.ss-switch__track::after {
+    content: "";
+    position: absolute;
+    inset-block-start: 0.1875rem;
+    inset-inline-start: 0.1875rem;
+    width: 1.125rem; height: 1.125rem;
+    background: var(--ss-grey-0);
+    border-radius: var(--ss-radius-pill);
+    transition: inset-inline-start var(--ss-duration-fast) var(--ss-ease);
+}
+.ss-switch__input:checked + .ss-switch__track { background: var(--ss-brand); }
+.ss-switch__input:checked + .ss-switch__track::after { inset-inline-start: 1.1875rem; }
+.ss-switch__input:focus-visible + .ss-switch__track {
+    outline: var(--ss-focus-width) solid var(--ss-focus-ring);
+    outline-offset: var(--ss-focus-offset);
+}
+.ss-switch__input:disabled + .ss-switch__track { opacity: 0.45; cursor: not-allowed; }
+.ss-switch__label { color: var(--ss-fg); font-size: var(--ss-text-base); }
+
+/* ---- Menu (dropdown) ---- */
+.ss-menu {
+    position: absolute;
+    z-index: var(--ss-z-dropdown);
+    min-width: 12rem;
+    padding: var(--ss-space-2);
+    margin: 0;
+    list-style: none;
+    background: var(--ss-surface);
+    border: 1px solid var(--ss-border);
+    border-radius: var(--ss-radius-md);
+    box-shadow: var(--ss-shadow-md);
+}
+.ss-menu__item {
+    display: flex;
+    align-items: center;
+    gap: var(--ss-space-3);
+    width: 100%;
+    padding: var(--ss-space-2) var(--ss-space-3);
+    background: transparent;
+    border: 0;
+    border-radius: var(--ss-radius-sm);
+    color: var(--ss-fg);
+    font-size: var(--ss-text-base);
+    text-align: start;
+    text-decoration: none;
+    cursor: pointer;
+}
+.ss-menu__item:hover { background: var(--ss-surface-hover); }
+.ss-menu__item:focus-visible {
+    outline: var(--ss-focus-width) solid var(--ss-focus-ring);
+    outline-offset: -1px;
+}
+.ss-menu__item[aria-current="true"] { background: var(--ss-brand-subtle); color: var(--ss-brand); }
+/* P2-SEC-F12. The workspace switcher posts, so each option is a form wrapping the control.
+   `.ss-menu__item` was already authored for a <button> (transparent background, zero border,
+   full width), so the only thing the interposed form must not do is add box spacing. */
+.ss-workspace__form { margin: 0; padding: 0; border: 0; }
+/* P2-04-6. A destructive item in a menu. The order detail page's "Cancel Order" used
+   Bootstrap's `.text-danger`, which measured 4.00:1 in LIGHT mode and 3.28:1 in dark -- below AA
+   in both, on the one irreversible action in that menu. The DS had `--danger` tones for badges,
+   buttons, alerts and progress but not for a menu item, so this is the missing one rather than a
+   local override. */
+/* P2-04-6. The emphasised text of a row -- a product name in an order's item list, measured at
+   3.71:1 in dark mode where `.h6 .text-sm` leaves it. It is a VALUE, not a heading, so it takes
+   the DS foreground and the DS weight rather than a heading utility. */
+.ss-text-strong { color: var(--ss-fg); font-weight: var(--ss-weight-medium); }
+
+/* ==========================================================================================
+   P2-04-7 -- THE ORDER BOARD (Kanban).
+
+   A horizontally scrolling row of status columns. Logical properties throughout, so it mirrors in
+   RTL without a second rule, and the scroll container is the ROW rather than the page so the
+   layout's own chrome stays put.
+
+   ON A PHONE the columns narrow to most of the viewport and the row scrolls -- a board is a
+   horizontal object and pretending otherwise (stacking the columns) would turn seven stages into
+   one long list, which is the list view the merchant already has.
+   ========================================================================================== */
+.ss-board {
+    display: flex;
+    gap: var(--ss-space-3);
+    overflow-x: auto;
+    padding: var(--ss-space-4);
+    /* Momentum scrolling that stops on a column rather than between two. */
+    scroll-snap-type: inline proximity;
+    /* `min-width: 0` AND `max-width: 100%` ARE BOTH LOAD-BEARING, and measuring found it: without
+       them the flex row's INTRINSIC width (nine columns of 17rem) widened its ancestors instead
+       of scrolling inside them, and the whole PAGE scrolled horizontally -- document width 2022px
+       against a 1400px viewport, and 2066px on a 390px phone. The order detail page, measured the
+       same way, does not overflow at all, which is how this was attributed to the board rather
+       than assumed pre-existing. */
+    min-width: 0;
+    max-width: 100%;
+}
+
+/* The scroll container's ancestors must be allowed to be narrower than their content, or the
+   constraint above has nothing to resolve against. */
+.ss-board-wrap { min-width: 0; max-width: 100%; overflow: hidden; }
+
+.ss-board__col {
+    display: flex;
+    flex-direction: column;
+    gap: var(--ss-space-2);
+    flex: 0 0 17rem;
+    min-width: 0;
+    scroll-snap-align: start;
+    padding: var(--ss-space-3);
+    border: 1px solid var(--ss-border);
+    border-radius: var(--ss-radius-lg);
+    background: var(--ss-surface-sunken);
+}
+
+@media (max-width: 36rem) {
+    /* 82vw, not 100%: the sliver of the next column is what tells a merchant the row scrolls. */
+    .ss-board__col { flex-basis: 82vw; }
+    .ss-board { padding: var(--ss-space-3); }
+}
+
+.ss-board__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--ss-space-2);
+}
+
+.ss-board__count {
+    font-size: var(--ss-text-sm);
+    color: var(--ss-fg-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.ss-board__cards { display: flex; flex-direction: column; gap: var(--ss-space-2); }
+
+.ss-board__none {
+    margin: 0;
+    font-size: var(--ss-text-sm);
+    color: var(--ss-fg-muted);
+}
+
+.ss-board__card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--ss-space-1);
+    padding: var(--ss-space-3);
+    border: 1px solid var(--ss-border);
+    border-radius: var(--ss-radius-md);
+    background: var(--ss-surface);
+}
+
+.ss-board__card-id { font-weight: var(--ss-weight-medium); color: var(--ss-brand); text-decoration: none; }
+.ss-board__card-id:hover { text-decoration: underline; }
+
+/* `.ss-board__card .ss-board__card-meta`, NOT the single class, and specificity is the reason:
+   the host's dark stylesheet sets `#808191` on this paragraph and WON over a one-class selector --
+   measured, after changing the token here appeared to do nothing. Both selectors are `.ss-`
+   confined, so the design system's own scoping rule still holds. */
+.ss-board__card .ss-board__card-meta,
+.ss-board__card-meta {
+    margin: 0;
+    font-size: var(--ss-text-sm);
+    /* `--ss-fg`, NOT `--ss-fg-muted`: measured at 3.42:1 in dark mode on the card's surface,
+       below AA. The buyer's name and the order's total are the card's PRIMARY information -- the
+       two things a merchant scans a board for -- so treating them as hint text was wrong on
+       legibility and on meaning at once. */
+    color: var(--ss-fg);
+    display: flex;
+    align-items: center;
+    gap: var(--ss-space-2);
+    flex-wrap: wrap;
+}
+
+.ss-board__card-move {
+    display: flex;
+    gap: var(--ss-space-2);
+    align-items: center;
+    margin-block-start: var(--ss-space-1);
+}
+
+.ss-board__card-move .ss-select { flex: 1 1 auto; min-width: 0; }
+
+/* A smaller select for a dense card. */
+.ss-select--sm { padding-block: 2px; font-size: var(--ss-text-sm); }
+
+/* NO `.ss-sr-only` HERE: `.ss-visually-hidden` already exists in this file and does exactly
+   this. A second name for one component is how two of them drift apart. The board's move control
+   uses the existing class. */
+
+/* WS C. THE MUTED FOREGROUND, AS A CLASS.
+   `--ss-fg-muted` has existed since the first token pass and is redefined per theme, but every
+   consumer so far reached it through a component class (`.ss-page-header__subtitle`,
+   `.ss-stat__period`). The dashboard's notification digest builds its rows in JavaScript, which
+   has no component class to borrow -- and a class that does not exist renders at full weight, so
+   a "secondary" line ends up competing with the title beside it. One token, one utility, both
+   themes. */
+.ss-muted { color: var(--ss-fg-muted); }
+
+.ss-menu__item--danger { color: var(--ss-danger-fg); }
+.ss-menu__item--danger:hover,
+.ss-menu__item--danger:focus-visible { background: var(--ss-danger-bg); color: var(--ss-danger-fg); }
+
+.ss-menu__sep { height: 1px; margin: var(--ss-space-2) 0; background: var(--ss-border); border: 0; }
+.ss-menu__group {
+    padding: var(--ss-space-2) var(--ss-space-3) var(--ss-space-1);
+    font-size: var(--ss-text-xs);
+    font-weight: var(--ss-weight-semibold);
+    color: var(--ss-fg-subtle);
+}
+
+/* ---- Avatar / initial ---- */
+.ss-avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 2rem; height: 2rem;
+    background: var(--ss-brand-subtle);
+    color: var(--ss-brand);
+    border-radius: var(--ss-radius-md);
+    font-size: var(--ss-text-sm);
+    font-weight: var(--ss-weight-semibold);
+    overflow: hidden;
+}
+.ss-avatar--lg { width: 2.5rem; height: 2.5rem; font-size: var(--ss-text-base); }
+.ss-avatar > img { width: 100%; height: 100%; object-fit: cover; }
+
+/* ---- Progress ----
+   Paired with a text value: colour alone must not carry the measurement. */
+.ss-progress {
+    display: block;
+    width: 100%;
+    height: 0.5rem;
+    background: var(--ss-surface-sunken);
+    border: 1px solid var(--ss-border);
+    border-radius: var(--ss-radius-pill);
+    overflow: hidden;
+}
+.ss-progress__fill { display: block; height: 100%; background: var(--ss-brand); border-radius: var(--ss-radius-pill); }
+.ss-progress--warning .ss-progress__fill { background: var(--ss-warning-fg); }
+.ss-progress--danger  .ss-progress__fill { background: var(--ss-danger-fg); }
+
+/* ---- Spinner ---- */
+.ss-spinner {
+    display: inline-block;
+    width: 1rem; height: 1rem;
+    border: 2px solid var(--ss-border-strong);
+    border-block-start-color: var(--ss-brand);
+    border-radius: var(--ss-radius-pill);
+    animation: ss-spin 0.7s linear infinite;
+}
+@keyframes ss-spin { to { transform: rotate(360deg); } }
+
+/* ---- Workspace chip (sidebar) ----
+   The per-store accent is set on THIS wrapper only, via --ss-brand-accent.
+   It must never override --ss-brand: the contrast guarantees are solved
+   against --ss-brand, and a merchant's chosen accent is not verified. */
+.ss-workspace {
+    display: flex;
+    align-items: center;
+    gap: var(--ss-space-3);
+    width: 100%;
+    padding: var(--ss-space-3);
+    background: var(--ss-surface);
+    border: 1px solid var(--ss-border);
+    border-inline-start: 3px solid var(--ss-brand-accent);
+    border-radius: var(--ss-radius-md);
+    color: var(--ss-fg);
+    text-align: start;
+    text-decoration: none;
+    cursor: pointer;
+}
+.ss-workspace:hover { background: var(--ss-surface-hover); }
+.ss-workspace:focus-visible {
+    outline: var(--ss-focus-width) solid var(--ss-focus-ring);
+    outline-offset: var(--ss-focus-offset);
+}
+.ss-workspace__text { flex: 1 1 auto; min-width: 0; }
+.ss-workspace__name {
+    display: block;
+    font-size: var(--ss-text-base);
+    font-weight: var(--ss-weight-semibold);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ss-workspace__meta { display: block; font-size: var(--ss-text-xs); color: var(--ss-fg-subtle); }
+
+/* The chip's own extras, added in P2-01-11 when the component was first
+   actually rendered. The base above was built in P2-01-1 against the design,
+   before anything consumed it.
+
+   --static: one store means the switcher would open a list of one, so the
+   chip renders as text. It must not look pressable. */
+.ss-workspace--static { cursor: default; }
+.ss-workspace--static:hover { background: var(--ss-surface); }
+
+.ss-workspace__caret {
+    flex: 0 0 auto;
+    margin-inline-start: auto;
+    color: var(--ss-fg-subtle);
+}
+.ss-workspace__tick { margin-inline-start: auto; }
+
+/* The switcher popup. Positioning only -- the surface, border and shadow are
+   .ss-menu's, so the chip's dropdown and every other menu stay one thing. */
+.ss-workspace-wrap { position: relative; }
+.ss-workspace__list {
+    position: absolute;
+    z-index: var(--ss-z-dropdown);
+    inset-inline: 0;
+    margin-block-start: var(--ss-space-1);
+    max-height: 17.5rem;
+    overflow-y: auto;
+}
+
+/* ---- Collapsed-rail toggle ----
+   Sits in the sidebar's search row. The collapse behaviour itself is the
+   host's (body.minimenu, assets/js/dash.js:71); this is only its trigger. */
+.ss-rail-toggle {
+    flex: 0 0 auto;
+    /* NO `display` HERE, AND NO `place-items`. The host hard-codes
+       `#vertical-nav-toggle { display: block !important }` in
+       assets/css/style.css -- at top level AND again inside
+       @media (min-width: 1025px) -- which is an ID selector carrying
+       !important, so no class rule the design system can write will ever beat
+       it. A first version set `display: grid; place-items: center` and both
+       were inert: the box computed `block` at every width and the icon
+       happened to look centred for an unrelated reason.
+       So the button is centred as the block box it is forced to be. */
+    width: 1.875rem;
+    height: 1.875rem;
+    line-height: 1.875rem;
+    text-align: center;
+    margin-inline-start: auto;
+    border: 0;
+    border-radius: var(--ss-radius-sm);
+    background: transparent;
+    color: var(--ss-fg-subtle);
+    cursor: pointer;
+}
+.ss-rail-toggle:hover { background: var(--ss-surface-hover); color: var(--ss-fg); }
+.ss-rail-toggle:focus-visible {
+    outline: var(--ss-focus-width) solid var(--ss-focus-ring);
+    outline-offset: var(--ss-focus-offset);
+}
+
+/* A 70px rail fits no store name, and a truncated one is worse than none, so
+   the chip goes.
+
+   THE TOGGLE STAYS, and that is a correctness fix rather than a preference.
+   The first version hid it too. It is the ONLY `#vertical-nav-toggle` in the
+   repository, no `.minimenu` rule in any theme reveals another expand
+   affordance, and layouts/app.blade.php restores `body.minimenu` from
+   localStorage on every page load — so one click collapsed the sidebar,
+   removed the control that undoes it, and made that permanent for that
+   browser until the merchant cleared site data. The feature had been
+   unreachable since it shipped, so nobody could reach the state; rendering
+   the trigger is what opened the door, and hiding it was removing the
+   handle. */
+.minimenu .ss-workspace-wrap { display: none; }
+
+/* In the rail the toggle is all that is left in the search row, so it centres
+   rather than sitting at the end of a row that no longer exists.
+   Note this CAN apply where `display` could not: the host's !important rule
+   constrains only `display`, not margin. */
+.minimenu .ss-rail-toggle { margin-inline: auto; }
+
+/* Worth recording, because an independent review raised it as a trap and the
+   measurement says otherwise: hiding this button in the rail would strand a
+   merchant with a collapsed sidebar and no way to expand it, since the state
+   is persisted to localStorage and re-applied on every page load. The design
+   system therefore does not hide it -- AND COULD NOT IF IT TRIED. The host's
+   `display: block !important` on the id wins over anything here, so the trap
+   was never reachable in the first place. Both facts are kept: the intent, and
+   the reason the intent cannot be undone from this file. */
+
+/* ---- Nav group heading ----
+   Sentence case, not tracked-out capitals: an ALL-CAPS eyebrow label is a
+   template tell, and capitals are also meaningless in Arabic. */
+.ss-navgroup {
+    padding: var(--ss-space-3) var(--ss-space-4) var(--ss-space-1);
+    margin: 0;
+    font-size: var(--ss-text-xs);
+    font-weight: var(--ss-weight-semibold);
+    /* --ss-fg-muted (grey-600), NOT --ss-fg-subtle (grey-500), and the
+       difference is measured rather than aesthetic. This component is the
+       first thing to render on a HOST surface instead of an .ss-* one: the
+       sidebar's page background is #f8f9fd, where grey-500 measures 4.46:1 --
+       under AA, by 0.04. On the design system's own --ss-surface (#ffffff) it
+       is 4.69:1 and passes, which is why the 58-pair contrast checker never
+       saw it; the checker verifies tokens against DS surfaces.
+       grey-600 measures 5.65:1 on #f8f9fd and 5.94:1 on white. */
+    color: var(--ss-fg-muted);
+}
+
+/* ---- Bar chart (P2-02-8) ----
+   CSS bars, not a charting library. Three reasons, in order of weight:
+   the owner's instruction is to add no analytics engine; a library would be a
+   third-party script on every dashboard load for seven numbers; and a canvas
+   chart cannot be read by a screen reader, restyled by the theme tokens, or
+   mirrored for RTL without per-library special-casing. These bars inherit the
+   tokens and mirror because the grid direction follows `dir`.
+
+   The chart is DECORATIVE MARKUP. The accessible representation is the <table>
+   that ships beside it -- see components/ss/bar-chart.blade.php. */
+.ss-chart {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: 1fr;
+    align-items: end;
+    gap: var(--ss-space-2);
+    /* Fixed height: bars are a proportion of it, so a day with 0 orders and a
+       day with 400 share one scale and the shape means something. */
+    block-size: 8rem;
+    padding-block-start: var(--ss-space-2);
+    border-block-end: 1px solid var(--ss-border);
+}
+.ss-chart__col {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    block-size: 100%;
+    min-inline-size: 0;
+}
+.ss-chart__bar {
+    inline-size: 100%;
+    min-block-size: 2px;          /* a zero day is still a visible baseline */
+    border-start-start-radius: var(--ss-radius-sm);
+    border-start-end-radius: var(--ss-radius-sm);
+    background: var(--ss-chart-series-1);
+}
+.ss-chart__bar--zero { background: var(--ss-border-strong); }
+/* The second series of a stacked chart. It sits ON TOP, so only the lower bar
+   keeps the rounded cap -- two rounded segments would read as two separate
+   bars floating apart rather than one column. The colour is the accent token,
+   not a new literal: a chart that invents its own palette drifts from the rest
+   of the product the first time a token changes. */
+.ss-chart__bar--b {
+    background: var(--ss-chart-series-2);
+    border-end-start-radius: 0;
+    border-end-end-radius: 0;
+}
+.ss-chart__col > .ss-chart__bar--b + .ss-chart__bar {
+    border-start-start-radius: 0;
+    border-start-end-radius: 0;
+}
+/* The legend. `aria-hidden` with the bars -- the table's column headers are
+   the accessible statement of which series is which. */
+.ss-chart__legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--ss-space-3);
+    margin: var(--ss-space-2) 0 0;
+    padding: 0;
+    list-style: none;
+}
+.ss-chart__legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--ss-space-2);
+    font-size: var(--ss-text-xs);
+    color: var(--ss-fg-muted);
+}
+.ss-chart__swatch {
+    inline-size: 0.75rem;
+    block-size: 0.75rem;
+    border-radius: var(--ss-radius-sm);
+    background: var(--ss-chart-series-1);
+}
+.ss-chart__swatch--b { background: var(--ss-chart-series-2); }
+.ss-chart__labels {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: 1fr;
+    gap: var(--ss-space-2);
+    margin-block-start: var(--ss-space-2);
+}
+.ss-chart__label {
+    font-size: var(--ss-text-xs);
+    color: var(--ss-fg-muted);
+    text-align: center;
+    /* Tabular figures so 1 Oct and 11 Oct do not shift the column rhythm, and
+       isolate so an Arabic-Indic numeral beside a Latin month does not flip. */
+    font-variant-numeric: tabular-nums;
+    unicode-bidi: isolate;
+}
+/* The disclosure that reveals the same numbers as a table. */
+.ss-chart-data > summary {
+    cursor: pointer;
+    padding-block: var(--ss-space-2);
+    font-size: var(--ss-text-sm);
+    color: var(--ss-fg-muted);
+}
+.ss-chart-data > summary:focus-visible {
+    outline: var(--ss-focus-width) solid var(--ss-focus-ring);
+    outline-offset: var(--ss-focus-offset);
+}
+
+/* ---- Setup checklist (P2-06) ----
+   Onboarding for a new store. It is a LIST OF LINKS with a state, not a
+   wizard: a merchant who already knows the product must be able to ignore it,
+   and nothing here blocks or sequences anything.
+
+   The step's state is carried by its icon AND by visually-hidden text, never
+   by colour alone -- a done step and a pending step are two shapes and two
+   words, so WCAG 1.4.1 holds and the list reads correctly aloud. */
+.ss-setup__list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: var(--ss-space-1);
+}
+.ss-setup__item {
+    display: flex;
+    align-items: center;
+    gap: var(--ss-space-3);
+    padding: var(--ss-space-2) var(--ss-space-2);
+    border-radius: var(--ss-radius-sm);
+    color: var(--ss-fg);
+    text-decoration: none;
+    font-size: var(--ss-text-sm);
+}
+a.ss-setup__item:hover { background: var(--ss-surface-hover); }
+a.ss-setup__item:focus-visible {
+    outline: var(--ss-focus-width) solid var(--ss-focus-ring);
+    outline-offset: var(--ss-focus-offset);
+}
+/* The mark is an inline SVG -- see the note in
+   components/ss/setup-checklist.blade.php for the two approaches that failed
+   under RTL before this one. Colour comes from `currentColor`, so state is a
+   single property here and the SVG needs no variant. */
+.ss-setup__mark {
+    flex: 0 0 auto;
+    inline-size: 1.125rem;
+    block-size: 1.125rem;
+    color: var(--ss-border-strong);
+}
+.ss-setup__item--done .ss-setup__mark { color: var(--ss-success-fg); }
+/* A completed step is still readable -- struck through would make the one
+   thing the merchant has achieved the hardest line to read. */
+.ss-setup__item--done .ss-setup__label { color: var(--ss-fg-muted); }
+.ss-setup__label { flex: 1 1 auto; min-width: 0; }
+.ss-setup__count {
+    font-size: var(--ss-text-xs);
+    color: var(--ss-fg-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+/* ---- Command palette ---- */
+.ss-command {
+    position: fixed;
+    inset-block-start: 10vh;
+    inset-inline: 0;
+    z-index: var(--ss-z-dialog);
+    width: min(40rem, calc(100% - 2 * var(--ss-space-4)));
+    margin-inline: auto;
+    background: var(--ss-surface);
+    border: 1px solid var(--ss-border);
+    border-radius: var(--ss-radius-lg);
+    box-shadow: var(--ss-shadow-lg);
+    overflow: hidden;
+}
+.ss-command__input {
+    width: 100%;
+    padding: var(--ss-space-4) var(--ss-space-5);
+    background: var(--ss-surface);
+    border: 0;
+    border-block-end: 1px solid var(--ss-border);
+    color: var(--ss-fg);
+    /* 16px, and it must stay there: anything smaller makes iOS Safari zoom
+       the viewport on focus. */
+    font-size: var(--ss-text-md);
+}
+.ss-command__input:focus-visible { outline: none; border-block-end-color: var(--ss-border-brand); }
+.ss-command__results { max-height: 24rem; overflow-y: auto; margin: 0; padding: var(--ss-space-2); list-style: none; }
+.ss-command__group {
+    padding: var(--ss-space-2) var(--ss-space-3) var(--ss-space-1);
+    font-size: var(--ss-text-xs);
+    font-weight: var(--ss-weight-semibold);
+    color: var(--ss-fg-subtle);
+}
+.ss-command__item {
+    display: flex;
+    align-items: center;
+    gap: var(--ss-space-3);
+    width: 100%;
+    padding: var(--ss-space-3);
+    background: transparent;
+    border: 0;
+    border-radius: var(--ss-radius-sm);
+    color: var(--ss-fg);
+    text-align: start;
+    text-decoration: none;
+    cursor: pointer;
+}
+/* Keyboard selection is aria-selected, the same contract .ss-tab uses. */
+.ss-command__item[aria-selected="true"] { background: var(--ss-brand-subtle); color: var(--ss-brand); }
+.ss-command__item:hover { background: var(--ss-surface-hover); }
+.ss-command__hint { margin-inline-start: auto; font-size: var(--ss-text-xs); color: var(--ss-fg-subtle); }
+
+/* ---- Notification inbox ----
+   Durable: something that happened TO the store. Distinct from a toast,
+   which is the result of something the merchant just did, and which keeps
+   using the host's show_toastr. The two have different lifetimes and are
+   deliberately not the same component. */
+.ss-notif { margin: 0; padding: 0; list-style: none; }
+.ss-notif__item {
+    display: flex;
+    gap: var(--ss-space-3);
+    padding: var(--ss-space-3) var(--ss-space-4);
+    border-block-end: 1px solid var(--ss-border);
+    text-decoration: none;
+    color: inherit;
+}
+.ss-notif__item:hover { background: var(--ss-surface-hover); }
+.ss-notif__item[data-ss-unread="true"] { background: var(--ss-brand-subtle); }
+.ss-notif__body { flex: 1 1 auto; min-width: 0; }
+.ss-notif__title { display: block; font-weight: var(--ss-weight-medium); color: var(--ss-fg); }
+.ss-notif__meta { display: block; font-size: var(--ss-text-xs); color: var(--ss-fg-subtle); }
+/* Unread count. Announced as a whole phrase by the live region in the markup,
+   not as a bare digit. */
+.ss-notif-count {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 1.25rem; height: 1.25rem;
+    padding-inline: 0.25rem;
+    background: var(--ss-danger-fg);
+    color: var(--ss-on-danger);
+    border-radius: var(--ss-radius-pill);
+    font-size: var(--ss-text-xs);
+    font-weight: var(--ss-weight-semibold);
+    font-variant-numeric: tabular-nums;
+}
+
+/* ---- Kanban ----
+   An alternative view of the order list, never a different subject. */
+.ss-kanban {
+    display: flex;
+    gap: var(--ss-space-4);
+    overflow-x: auto;
+    padding-block-end: var(--ss-space-3);
+}
+.ss-kanban__col {
+    flex: 0 0 17rem;
+    display: flex;
+    flex-direction: column;
+    background: var(--ss-surface-sunken);
+    border: 1px solid var(--ss-border);
+    border-radius: var(--ss-radius-md);
+}
+.ss-kanban__head {
+    display: flex; align-items: baseline; gap: var(--ss-space-2);
+    padding: var(--ss-space-3) var(--ss-space-4);
+    border-block-end: 1px solid var(--ss-border);
+    font-size: var(--ss-text-sm);
+    font-weight: var(--ss-weight-semibold);
+    color: var(--ss-fg);
+}
+.ss-kanban__count { color: var(--ss-fg-subtle); font-variant-numeric: tabular-nums; }
+.ss-kanban__body { flex: 1 1 auto; overflow-y: auto; max-height: 32rem; padding: var(--ss-space-3); display: flex; flex-direction: column; gap: var(--ss-space-3); }
+.ss-kanban__card {
+    display: block;
+    padding: var(--ss-space-3);
+    background: var(--ss-surface);
+    border: 1px solid var(--ss-border);
+    border-radius: var(--ss-radius-sm);
+    color: inherit;
+    text-decoration: none;
+}
+.ss-kanban__card:hover { border-color: var(--ss-border-brand); }
+.ss-kanban__card:focus-visible {
+    outline: var(--ss-focus-width) solid var(--ss-focus-ring);
+    outline-offset: var(--ss-focus-offset);
+}
+
+/* ---- Contextual help ---- */
+.ss-help {
+    border: 1px solid var(--ss-border);
+    border-inline-start: 3px solid var(--ss-info-fg);
+    border-radius: var(--ss-radius-md);
+    background: var(--ss-info-bg);
+    color: var(--ss-info-fg);
+    padding: var(--ss-space-3) var(--ss-space-4);
+    font-size: var(--ss-text-sm);
+}
+.ss-help__title { margin: 0 0 var(--ss-space-1); font-size: var(--ss-text-sm); font-weight: var(--ss-weight-semibold); }
+.ss-help__list { margin: 0; padding-inline-start: var(--ss-space-5); }
+
+/* ---- Section heading ---- */
+.ss-section__title {
+    margin: 0 0 var(--ss-space-3);
+    font-size: var(--ss-text-lg);
+    font-weight: var(--ss-weight-semibold);
+    color: var(--ss-fg);
+}
+.ss-section__note { margin: 0 0 var(--ss-space-3); font-size: var(--ss-text-sm); color: var(--ss-fg-muted); }
+
+/* ---- Two-column record layout ----
+   Primary fields in the main column, status/visibility metadata in a
+   narrower aside; one column below 992px. */
+.ss-record { display: grid; grid-template-columns: 1fr; gap: var(--ss-space-5); }
+@media (min-width: 992px) {
+    .ss-record { grid-template-columns: minmax(0, 2fr) minmax(16rem, 1fr); }
+}
+
 /* --------------------------------------------------------------------------
    RESPONSIVE
    Breakpoints match Bootstrap 5's so this system and the host chrome break at
@@ -1078,6 +2720,31 @@
     .ss-table th, .ss-table td { padding-inline: var(--ss-space-3); }
     .ss-dialog__footer { flex-direction: column-reverse; }
     .ss-dialog__footer .ss-btn { width: 100%; }
+
+    /* Phase 02 components on a phone.
+
+       ONE column, not two. At two columns a cell is about 160px, which is not
+       enough for a grouped currency figure -- the Arabic preview at 390px put
+       "1,284,500.00 ل.س" on three lines. One column gives the full width and
+       drops the vertical hairlines entirely, so the "which cell ends a row"
+       problem that needs an :nth-child rule does not arise either. */
+    .ss-stats { grid-template-columns: 1fr; }
+    .ss-stat { padding: var(--ss-space-3) 0; border-inline-end: 0; }
+
+    /* The row action goes on its own full-width line. Letting it wrap only
+       when the text happens to be long made some rows inline and others
+       stacked, which reads as a rendering fault rather than a layout. */
+    .ss-attention__item > .ss-btn { flex: 0 0 100%; justify-content: center; }
+    .ss-panel { width: 100%; border-inline-start: 0; }
+    .ss-panel__footer { flex-direction: column-reverse; }
+    .ss-panel__footer .ss-btn { width: 100%; }
+    .ss-actionbar { flex-direction: column; align-items: stretch; }
+    .ss-actionbar__actions { flex-direction: column-reverse; }
+    .ss-actionbar__actions .ss-btn { width: 100%; }
+    .ss-deflist { grid-template-columns: 1fr; gap: 0; }
+    .ss-deflist__key { margin-block-start: var(--ss-space-3); }
+    .ss-kanban__col { flex: 0 0 85%; }
+    .ss-command { inset-block-start: var(--ss-space-4); }
 }
 
 /* A table that cannot fit becomes a stacked list rather than a horizontal
@@ -1120,6 +2787,21 @@
     }
     .ss-skeleton { background: var(--ss-surface-sunken); }
     .ss-btn, .ss-input, .ss-select, .ss-textarea, .ss-skip-link { transition: none; }
+
+    /* Phase 02. The panel still has to ARRIVE, so the closed transform is
+       kept and only the animation between the two states is dropped -- a
+       panel that never moves is fine, a panel stuck off-screen is not. */
+    .ss-panel, .ss-chip, .ss-switch__track, .ss-switch__track::after { transition: none; }
+    .ss-spinner { animation: none; border-block-start-color: var(--ss-border-strong); }
+
+    /* P2-03-8. The disclosure chevron rotates on open. The rotation is kept --
+       the direction it points IS the state -- and only the animation between
+       the two is dropped, the same reasoning as the panel above. This list is
+       enumerated by name, so a new animated class has to be added to it; the
+       chevron was missed on its first pass, which made the file header's claim
+       that "everything is suppressed under prefers-reduced-motion below"
+       briefly untrue. */
+    .ss-advanced__chevron { transition: none; }
 }
 
 /* Windows High Contrast / forced colours: let the OS palette win, but keep
@@ -1129,9 +2811,994 @@
     .ss-btn:focus-visible, .ss-input:focus-visible,
     .ss-select:focus-visible, .ss-textarea:focus-visible { outline: 2px solid Highlight; }
     .ss-badge { border: 1px solid ButtonBorder; }
+    .ss-panel, .ss-actionbar, .ss-menu, .ss-command,
+    .ss-kanban__col, .ss-kanban__card, .ss-attention { border: 1px solid ButtonBorder; }
+    .ss-chip[aria-pressed="true"],
+    .ss-command__item[aria-selected="true"],
+    .ss-menu__item[aria-current="true"] { border: 1px solid Highlight; }
+    .ss-switch__input:checked + .ss-switch__track { background: Highlight; }
+    .ss-progress__fill { background: Highlight; }
 }
 
 @media print {
     .ss-page-header__actions, .ss-toolbar, .ss-table__actions { display: none !important; }
     .ss-card { border: 1px solid #999; box-shadow: none; }
+    /* Chrome, overlays and controls do not belong on a printed order or
+       invoice; the record itself does. */
+    .ss-panel, .ss-panel-backdrop, .ss-actionbar, .ss-menu, .ss-command,
+    .ss-workspace, .ss-chips, .ss-notif-count { display: none !important; }
+    .ss-attention, .ss-kanban__col, .ss-kanban__card { border: 1px solid #999; box-shadow: none; }
+    .ss-kanban { overflow: visible; display: block; }
+    .ss-stats { border-color: #999; }
+    .ss-stat { border-color: #999; }
+}
+
+
+/* ---- Command palette: backdrop and the states the results list can be in (P2-06-2) ----
+   The palette's own box already existed in this file and was never wired to anything; these are
+   the pieces a live, fetching palette needs that a static mock did not. */
+.ss-command-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: calc(var(--ss-z-dialog) - 1);
+    background: rgba(0, 0, 0, 0.45);
+}
+
+.ss-command__note {
+    margin: 0;
+    padding: var(--ss-space-6) var(--ss-space-5);
+    color: var(--ss-fg-muted);
+    font-size: var(--ss-text-sm);
+    text-align: center;
+}
+
+/* The row's secondary line. `--ss-fg-subtle` rather than a lighter grey: it is read, not
+   decoration, and it sits on the same surface as the title. */
+.ss-command__meta {
+    margin-inline-start: auto;
+    padding-inline-start: var(--ss-space-3);
+    color: var(--ss-fg-subtle);
+    font-size: var(--ss-text-xs);
+    white-space: nowrap;
+}
+
+.ss-command__item { text-decoration: none; }
+.ss-command__title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ==========================================================================
+   Notification feed (P2-06-3)
+   ==========================================================================
+
+   A SHORT REVERSE-CHRONOLOGICAL LIST, not a table. Notifications are scanned
+   and cleared, not sorted, filtered or exported, so they get a feed rather
+   than the DataTable chrome.
+
+   LOGICAL PROPERTIES THROUGHOUT -- `padding-inline`, `border-inline-start`,
+   `margin-inline-start`. The unread marker sits at the inline START, which is
+   the left in English and the right in Arabic, with no RTL stylesheet needed;
+   this file is loaded in both directions and a physical `border-left` here
+   would put the marker on the wrong side of every Arabic row.
+   ========================================================================== */
+
+.ss-feed {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    border: 1px solid var(--ss-border);
+    border-radius: var(--ss-radius-lg);
+    background: var(--ss-surface);
+    overflow: hidden;
+}
+
+.ss-feed__item {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: var(--ss-space-3);
+    padding: var(--ss-space-4) var(--ss-space-5);
+    border-block-start: 1px solid var(--ss-border);
+    /* The marker's channel, transparent on a read row, so marking one read
+       does not move the text sideways. */
+    border-inline-start: 3px solid transparent;
+}
+
+.ss-feed__item:first-child { border-block-start: 0; }
+
+.ss-feed__item--unread {
+    background: var(--ss-surface-sunken);
+    border-inline-start-color: var(--ss-brand);
+}
+
+.ss-feed__main { flex: 1 1 24ch; min-width: 0; }
+
+.ss-feed__title {
+    display: flex;
+    align-items: center;
+    gap: var(--ss-space-2);
+    margin: 0;
+    font-size: var(--ss-text-sm);
+    font-weight: var(--ss-weight-semibold);
+    color: var(--ss-fg);
+}
+
+/* The unread marker is `<x-ss.status-badge tone="brand">`, which this file already
+   styles for both themes -- no rule here. A one-off colour pair would have been a
+   tone nobody had contrast-checked in dark mode. */
+
+.ss-feed__message {
+    margin: var(--ss-space-1) 0 0;
+    font-size: var(--ss-text-sm);
+    color: var(--ss-fg-muted);
+    overflow-wrap: anywhere;
+}
+
+.ss-feed__when {
+    margin: var(--ss-space-1) 0 0;
+    font-size: var(--ss-text-xs);
+    color: var(--ss-fg-subtle);
+}
+
+.ss-feed__actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--ss-space-2);
+    margin-inline-start: auto;
+}
+
+/* The header bell's unread count (P2-06-3).
+
+   `--ss-danger-bg`/`--ss-danger-fg` rather than a hand-picked red: both are
+   defined for light AND dark in this file, so the badge is contrast-checked in
+   both by the same tokens every other tone uses. It sits at the inline END and
+   the block START, so RTL mirrors it with no second rule. */
+.ss-bell__count {
+    position: absolute;
+    inset-block-start: 6px;
+    inset-inline-end: 2px;
+    min-width: 16px;
+    padding-inline: 4px;
+    border-radius: var(--ss-radius-pill);
+    /* `--ss-danger` / `--ss-on-danger`, the pair `.ss-btn--danger` already uses. Both INVERT
+       between themes -- a solid red with white text in light, a light red with near-black text
+       in dark -- so the badge is legible in both.
+
+       The first version of this rule set `background: var(--ss-danger-fg)` with white text. In
+       light that happened to work; in dark `--ss-danger-fg` is #f3a9a4, a FOREGROUND token meant
+       for a dark surface, and white on it MEASURED 1.91:1. Found by the contrast tool, not by
+       looking at it -- which is the whole argument for extending that tool to a new surface
+       before claiming the surface is done. */
+    background: var(--ss-danger);
+    color: var(--ss-on-danger);
+    font-size: 10px;
+    font-weight: var(--ss-weight-semibold);
+    line-height: 16px;
+    text-align: center;
+}
+
+/* The anchor is the positioning context. Scoped to the bell so no other
+   `.dash-head-link` in the host header is affected. */
+[data-ss-notification-bell] { position: relative; }
+
+/* ==========================================================================
+   Filter bar (P2-03-2)
+   ==========================================================================
+
+   A row of selects above a list. It WRAPS rather than scrolling, because a
+   filter a merchant cannot see is a filter they will not clear — and a stale
+   hidden filter is how a list looks empty for no visible reason.
+
+   Logical properties throughout, so RTL mirrors with no second rule. */
+
+.ss-filterbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: var(--ss-space-3) var(--ss-space-4);
+    margin-block-end: var(--ss-space-4);
+    padding: var(--ss-space-4);
+    border: 1px solid var(--ss-border);
+    border-radius: var(--ss-radius-lg);
+    background: var(--ss-surface);
+}
+
+.ss-filterbar__field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--ss-space-1);
+    /* `min-width: 0` so a long category name shrinks the select instead of
+       pushing the row wider than its container. */
+    flex: 1 1 11rem;
+    min-width: 0;
+}
+
+/* P2-04-9 -- saved views. A SIBLING of the filter form, never inside it: the bar is a GET form
+   and a nested <form> is dropped by the browser, so the save button would submit the filters
+   instead. Laid out as its own row beneath the bar, wrapping on narrow screens. Logical
+   properties throughout, so it mirrors in RTL without a second rule. */
+.ss-filterbar__saved {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: var(--ss-space-3);
+    /* IT CARRIES THE SURFACE, and the first version did not -- which was a real dark-mode
+       failure, measured in the browser rather than guessed at. The block is a SIBLING of the
+       filter form (a nested <form> is dropped by browsers), so without a background of its own it
+       resolved up to the host's page wrapper -- which is LIGHT even in dark mode. A DS label
+       colour on the host's light wrapper measured 2.41:1 against the same label reading 5.21:1
+       inside the bar. `.ss-filterbar` sets `background: var(--ss-surface)` for exactly this
+       reason; so does this. */
+    padding: var(--ss-space-4);
+    border: 1px solid var(--ss-border);
+    border-radius: var(--ss-radius-lg);
+    background: var(--ss-surface);
+    /* Pulled up under the bar so the two read as one control, since the bar carries its own
+       margin-block-end. */
+    margin-block-start: calc(var(--ss-space-4) * -1 + var(--ss-space-2));
+    margin-block-end: var(--ss-space-4);
+}
+
+.ss-filterbar__save {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: var(--ss-space-2);
+}
+
+.ss-filterbar__actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--ss-space-2);
+    /* Pushed to the inline END on a wide row; on a wrapped one it simply
+       starts its own line. */
+    margin-inline-start: auto;
+}
+
+/* The bar's hint line. `flex-basis: 100%` makes it take a row of its own, so
+   every FIELD stays label-plus-control and the row aligns by `flex-end`
+   cleanly. Putting it inside a field instead -- tried twice -- either rendered
+   a callout two controls tall or pushed that field's select above its
+   neighbours'. `order: 1` keeps it after the fields and before the buttons
+   even though it is declared between them. */
+.ss-filterbar__hint {
+    flex: 1 0 100%;
+    order: 1;
+    margin: 0;
+}
+
+.ss-filterbar__actions { order: 2; }
+
+/* ==========================================================================
+   Merchant data table (P2-03-1)
+   ==========================================================================
+
+   THE VENDORED DATATABLES, not `.ss-table`. The 68 admin lists are yajra
+   DataTables rendering the theme's `.table.dataTable`, and this section does
+   exactly two things to them: it pins the row-actions column to the trailing
+   edge of the horizontal scroll, and it gives the column-visibility button
+   the same focus ring as every other control. Everything else about those
+   tables is left to the host, because restyling them is a different slice
+   with a different blast radius.
+
+   THE MEASUREMENT THAT PUT THIS HERE. The product list is 1168px wide at
+   1440, 1280, 992, 768 and 390 viewport widths alike -- eleven columns, no
+   collapse, `table-layout: auto` with long Arabic headers setting the floor.
+   `.table-responsive` keeps that off the document (measured: the document
+   does not overflow at any of the five widths), so the cost lands entirely on
+   reaching the end of a row: at 390px the wrapper shows 320 of those 1168
+   pixels, leaving 848px of sideways dragging between a merchant and the Edit
+   button. Pinning the actions is the smallest change that fixes it without
+   hiding a single field.
+
+   WHY THE PINNED CELL'S COLOUR IS A VARIABLE WITH TWO HARD-CODED VALUES,
+   which is the one ugly thing here and worth stating plainly.
+
+   A `position: sticky` cell needs an opaque background or the rest of the row
+   scrolls through it. Three candidates, measured in the running application:
+
+   1. `var(--ss-surface)` -- WRONG IN DARK MODE. The host paints this card
+      `#ffffff` in light, which the token matches, and `#292a33` in dark,
+      where the token is `#263331`. Different hues, so the token draws a
+      visibly off-colour band down every dark table: ledger F8 again.
+   2. `background-color: inherit`, chained down from the card -- TRIED, AND IT
+      DOES NOT REACH. `inherit` walks exactly one level, and DataTables
+      injects three divs of its own between `.ecom-data-table` and the table
+      (`.dataTables_wrapper` > `.dataTable-container` > `.col-sm-12`), each
+      painting nothing. Measured: with the chain written through wrapper,
+      table, tbody and tr, the pinned cell still computed
+      `rgba(0, 0, 0, 0)`. Enumerating those three would work until somebody
+      edits `buildDataTable`'s `dom` string, and it would fail silently.
+   3. A CUSTOM PROPERTY, which inherits through any depth of DOM whatever
+      DataTables injects. That is this.
+
+   So the two values below are a COPY OF A VENDORED COLOUR, and a copy goes
+   stale. It is ratcheted rather than trusted:
+   `docs/development/phase-2/tools/check-pinned-column-live.cjs` reads the
+   card's real painted background in both themes and fails if either stops
+   matching, so a theme update is caught by a check instead of by a merchant.
+
+   `thead th` IS DELIBERATELY NOT GIVEN THAT COLOUR. The host already paints
+   the header cells opaque and a shade off the card (`#f8f9fd` light,
+   `#22242c` dark), so they need no background from us -- and overriding
+   theirs would make the pinned header cell the one that does not match its
+   own row.
+   ========================================================================== */
+
+/* --------------------------------------------------------- row density (P2-03-10)
+
+   COMPACT IS THE ONLY RULE HERE, and that is deliberate. "Comfortable" is the
+   ABSENCE of the attribute, so a table nobody has touched -- and every page
+   where the behaviour script does not run -- renders byte-for-byte as before.
+   Writing a comfortable rule would mean hard-coding the vendored theme's own
+   11.2px into this file, which is what `--ss-dt-card-bg` already has to do and
+   is worth not doing twice.
+
+   4px, DERIVED NOT PICKED -- ON ROWS WHOSE TALLEST CONTENT IS THE ROW ACTIONS.
+   Measured on the running product and order lists, the tallest thing in such a
+   row is the 32px row-action control group (`span.d-flex` in the last cell).
+   So the row is `32 + 2 * padding`:
+
+       comfortable   32 + 2 * 11.2 + 1  = 55.4  ->  55px  (measured at all 5 widths)
+       compact       32 + 2 * 4    + 1  =          41px  (measured)
+
+   THE +1 IS THE CELL'S OWN BOTTOM BORDER, and it is in the sum because the `td`
+   is `content-box`: `border-bottom: 1px` sits outside the declared height. The
+   first version of this comment said 40px from `32 + 2 * 4` and the browser
+   check reported 41 -- the measurement was right and the arithmetic was short a
+   border.
+
+   The 32px control is deliberately left alone: the acceptance asks for a 24px
+   touch target at the compact height, and shrinking the control to win a few
+   more pixels would spend the requirement to buy rows.
+
+   THE 27% IS NOT UNIVERSAL, and review was right to flag the first version of
+   this comment for implying it is. Ten host tables render an `<img>` in a body
+   row, and `ProductDataTable.php:120` emits `<img width="100">` with NO height,
+   so a real store whose products have square photographs has rows nearer 122px
+   (100 + 22.4 + 1). Compact takes the same 14.4px off those -- about 12%, not
+   27% -- and nothing clips. The p2dev fixture's products carry no images, which
+   is why the headline figure came out of the best case. Constraining those
+   images at the compact height would buy the rest, but that is a design
+   decision about what a compact product list shows, not a correction, and it is
+   not taken here.
+
+   `padding-block`, so there is nothing to mirror in RTL -- the logical property
+   is the inline axis's business and this rule never touches it.
+
+   THE PINNED COLUMN IS INCLUDED ON PURPOSE. `td.ss-col-pinned` is `position:
+   sticky` with an opaque background copied from the host card; if its padding
+   stayed at 11.2px while its neighbours went to 4px, the sticky cell would be
+   taller than its own row and paint over the border beneath it. */
+[data-ss-density="compact"] table.dataTable > tbody > tr > td,
+[data-ss-density="compact"] table.dataTable > tbody > tr > th {
+    padding-block: 4px;
+}
+
+/* The toggle's own pressed state, drawn so it does not depend on colour alone:
+   an inset ring in the normal case, an OUTLINE under forced colours.
+
+   THE SECOND RULE IS NOT BELT AND BRACES. An earlier version of this block
+   claimed the ring "reads as pressed in a high-contrast or forced-colours
+   context too", and independent review measured that false: `box-shadow` is
+   forced to `none` by CSS Color Adjust in forced-colors mode, so the ring
+   vanished and the ONLY remaining difference between pressed and unpressed was
+   `background-color` -- colour, the one signal the comment said it avoided.
+   (The same comment also claimed a border change; the rule changes no border.)
+   `outline` survives forced colours, so the pressed state is carried there by
+   an outline instead. Measured, not reasoned, and the comment now says what the
+   rules do. */
+.ss-density[aria-pressed="true"] {
+    box-shadow: inset 0 0 0 2px currentColor;
+}
+
+@media (forced-colors: active) {
+    .ss-density[aria-pressed="true"] {
+        outline: 2px solid currentColor;
+        outline-offset: -4px;
+    }
+}
+
+/* THE DESIGN SYSTEM'S OWN FOCUS TOKENS, not a hand-rolled blue. This read
+   `var(--ss-focus, #2563eb)` -- and `--ss-focus` is not defined anywhere in this
+   file, so every focus ring on this control was the hard-coded fallback: the one
+   blue ring in a teal admin, and 2.77:1 against the dark card `#292a33`, under
+   WCAG 2.2 SC 1.4.11's 3:1 for a focus indicator. The real tokens are
+   `--ss-focus-ring` / `--ss-focus-width` / `--ss-focus-offset`, which switch to
+   teal-400 in dark mode (8.42:1) and are the trio every other focus rule in this
+   file already uses. Found by review; nothing catches a dangling `var(--ss-*)`. */
+.ss-density:focus-visible {
+    outline: var(--ss-focus-width) solid var(--ss-focus-ring);
+    outline-offset: var(--ss-focus-offset);
+}
+
+.ss-dt-card-body { --ss-dt-card-bg: #ffffff; }
+[data-ss-theme="dark"] .ss-dt-card-body { --ss-dt-card-bg: #292a33; }
+@media (prefers-color-scheme: dark) {
+    [data-ss-theme="auto"] .ss-dt-card-body { --ss-dt-card-bg: #292a33; }
+}
+
+.ss-dt-card-body table.dataTable > tbody > tr > td.ss-col-pinned {
+    position: sticky;
+    inset-inline-end: 0;
+    z-index: 2;
+    background-color: var(--ss-dt-card-bg);
+}
+
+/* The header cell pins too, or the actions column would be the one column
+   whose heading slides away from it. No background: the host's own is already
+   opaque. `z-index: 3` keeps it above the body cells it shares an edge with
+   while the table scrolls under both. */
+.ss-dt-card-body table.dataTable > thead > tr > th.ss-col-pinned {
+    position: sticky;
+    inset-inline-end: 0;
+    z-index: 3;
+}
+
+/* The pinned edge, so the column reads as held in place rather than as a
+   coincidence of scroll position. `box-shadow` rather than a border: a border
+   on a `border-collapse: separate` table shifts the cell's box and knocks the
+   column one pixel out of alignment with its heading, and this edge is
+   decoration -- the actions are already named and reachable without it. */
+.ss-dt-card-body table.dataTable > tbody > tr > td.ss-col-pinned,
+.ss-dt-card-body table.dataTable > thead > tr > th.ss-col-pinned {
+    box-shadow: inset 1px 0 0 var(--ss-border);
+}
+/* `inset 1px` is the inline START edge in LTR. In RTL the pinned column sits
+   on the left, so the edge the merchant scrolls content under is its RIGHT
+   one. `box-shadow` has no logical form, so this is the one place a direction
+   override is unavoidable. */
+[dir="rtl"] .ss-dt-card-body table.dataTable > tbody > tr > td.ss-col-pinned,
+[dir="rtl"] .ss-dt-card-body table.dataTable > thead > tr > th.ss-col-pinned {
+    box-shadow: inset -1px 0 0 var(--ss-border);
+}
+
+/* The column-visibility button (`buildDataTable`'s `colvis`). The host's
+   `.btn-light-primary` carries no visible focus ring, and this control is
+   keyboard-reachable and opens a menu, so it gets the system's ring. */
+.ss-dt-card-body .ss-colvis:focus-visible,
+.dt-buttons .ss-colvis:focus-visible {
+    outline: 2px solid var(--ss-focus-ring);
+    outline-offset: 2px;
+}
+
+/* THE COLUMN-VISIBILITY MENU'S ENTRIES (P2-03-1).
+   ------------------------------------------------------------------------
+   MEASURED IN THE RUNNING APPLICATION, these rendered at 2.59:1 on white --
+   below the 4.5:1 AA minimum -- and the cause is worth stating because it is
+   not a colour anybody chose for them.
+
+   DataTables Buttons builds each entry as a CLASS-LESS `<a>` (its
+   `collection.buttonLiner` is `{tag: "a", className: ""}`), so the host
+   theme's `a:not([class]) { color: var(--theme-color) }` catches it and
+   paints the entry in THE MERCHANT'S OWN BRAND COLOUR. That makes the
+   contrast of this menu a function of whichever brand colour a merchant
+   picked: this store's teal measured 2.59:1 in light and 5.19:1 in dark, and
+   a different brand would fail in the other direction instead. A surface
+   whose legibility depends on a tenant's colour choice is not one that can be
+   signed off per tenant.
+
+   The fix is the smallest one that removes the dependency rather than
+   adjusting it: these are MENU ITEMS, not links, so they take the system's
+   foreground colour. **No merchant's brand colour changes anywhere** -- the
+   brand still paints every link, button and accent it painted before; it just
+   stops leaking into a menu that never asked for it. That keeps this inside
+   "minimal, accessible, preserves merchant branding" and short of anything
+   needing a new global brand-colour policy.
+
+   `.ss-colvis-menu` is on the collection itself, from `buildDataTable`'s
+   `collectionLayout`. The collection is appended to `<body>`, outside the
+   table's card, so it cannot be reached from `.ss-dt-card-body` -- this hook
+   is the only one that scopes the rule to OUR menu and leaves every other
+   DataTables collection in the application alone. */
+.ss-colvis-menu .dt-button > a,
+.ss-colvis-menu .dt-button > a:hover,
+.ss-colvis-menu .dt-button > a:focus {
+    color: var(--ss-fg);
+    text-decoration: none;
+}
+
+/* SHOWN VERSUS HIDDEN, WITHOUT RELYING ON COLOUR (P2-03-1, WCAG 1.4.1).
+   Measured: a shown column and a hidden one rendered IDENTICALLY -- same
+   colour, same background, no marker, no `aria-pressed`, the only difference
+   an `active` class with no visual effect at all. So the menu could not tell
+   a merchant which columns they had hidden.
+
+   PRE-EXISTING, NOT CAUSED BY THE CONTRAST RULE ABOVE -- checked by removing
+   that rule and re-measuring, which gave `rgb(16,183,127)` for both. But this
+   menu is new, so the defect is new to a merchant, and it is fixed here.
+
+   A CHECK MARK, not a colour: a tick on the shown entries and a blank gutter
+   on the hidden ones, so the state survives greyscale and colour blindness.
+   The gutter is reserved on every entry so labels stay aligned and nothing
+   shifts as a column is toggled. */
+.ss-colvis-menu .dt-button > a::before {
+    content: "\2003";              /* em space: the reserved gutter */
+    margin-inline-end: var(--ss-space-2, 0.5rem);
+}
+.ss-colvis-menu .dt-button.active > a::before {
+    content: "\2713";              /* check mark */
+}
+
+/* ---- Advanced-fields disclosure (P2-03-8) ----
+
+   One control that collapses the fields a merchant sets once for the whole
+   catalogue, so the ones they set per product are not competing with them for
+   attention. The component is resources/views/components/ss/advanced-fields.blade.php
+   and it is a NATIVE <details>; the reasoning for that, and the rule against
+   putting a `required` control inside one, are written there.
+
+   NOTHING HERE HIDES A FIELD WITH `display: none` ON THE CONTROL ITSELF. The
+   browser's own details behaviour does the hiding, which is what keeps the
+   fields in the submitted form data. A rule that set `display: none` on a
+   descendant input would look identical and would still submit -- but it
+   would also survive the section being opened, so it is not a shortcut worth
+   taking. */
+.ss-advanced {
+    /* border-STRONG, not --ss-border. Measured: --ss-border is 1.30:1 against
+       the white card this sits in and 1.14:1 against its own sunken fill, so
+       the box would have been very nearly invisible in light mode and the
+       grouping it exists to express would not have read at all.
+       --ss-border-strong measures 3.03:1 light and 4.32:1 dark against the card this
+       actually sits in (rgb(249,250,251) / rgb(34,36,44)) -- above the 3:1 both ways,
+       but by 0.03 in light, so do not lighten it. The 3.16:1 figure first written here
+       was against --ss-surface, which is not the surface behind this box. */
+    border: 1px solid var(--ss-border-strong);
+    border-radius: var(--ss-radius-md);
+    background: var(--ss-surface-sunken);
+}
+
+/* The whole row is the hit target, not just the words. `list-style: none` plus
+   the ::-webkit-details-marker reset removes the UA triangle, because the
+   chevron below is the one that flips under RTL. */
+.ss-advanced__summary {
+    display: flex;
+    align-items: center;
+    gap: var(--ss-space-2);
+    padding: var(--ss-space-3);
+    cursor: pointer;
+    list-style: none;
+    font-size: var(--ss-text-sm);
+    font-weight: var(--ss-weight-medium);
+    color: var(--ss-fg-muted);
+    border-radius: var(--ss-radius-md);
+}
+.ss-advanced__summary::-webkit-details-marker { display: none; }
+
+.ss-advanced__summary:focus-visible {
+    outline: var(--ss-focus-width) solid var(--ss-focus-ring);
+    outline-offset: var(--ss-focus-offset);
+}
+
+/* Collapsed: pointing along the reading direction. Open: pointing down. The
+   base glyph is ti-chevron-right, so RTL needs the collapsed state mirrored --
+   there is no -rtl copy of this file, so it is done with a [dir] override as
+   everywhere else here. */
+.ss-advanced__chevron {
+    flex: 0 0 auto;
+    transition: transform var(--ss-duration-fast) var(--ss-ease);
+}
+[dir="rtl"] .ss-advanced__chevron { transform: rotate(180deg); }
+.ss-advanced[open] > .ss-advanced__summary > .ss-advanced__chevron,
+[dir="rtl"] .ss-advanced[open] > .ss-advanced__summary > .ss-advanced__chevron {
+    transform: rotate(90deg);
+}
+
+.ss-advanced__title { flex: 1 1 auto; }
+
+/* The error state is a WORD, not a colour: a merchant with no colour vision,
+   and a merchant who had already opened the section before submitting, both
+   need to be told in text that something in here failed. */
+.ss-advanced__badge {
+    flex: 0 0 auto;
+    padding: 0 var(--ss-space-2);
+    border-radius: var(--ss-radius-pill);
+    background: var(--ss-danger-bg);
+    color: var(--ss-danger-fg);
+    font-size: var(--ss-text-xs);
+    font-weight: var(--ss-weight-semibold);
+}
+.ss-advanced[data-ss-advanced-error="true"] { border-color: var(--ss-danger-fg); }
+
+/* The colour is NOT set here. `.ss-advanced__hint` is a <p>, and the host's dark
+   stylesheet does `.dataTable-info, p { color: #808191 !important; }` -- so a plain
+   declaration here loses. MEASURED before the fix: the hint computed to
+   rgb(128,129,145) on the dark card, 3.85:1 at 12px, below the 4.5:1 it needs, in both
+   dark configurations. It is now the sixth entry in the Host override defence list
+   above, which is the mechanism this file already had for exactly this. The slice's own
+   contrast check had missed it by sampling only the summary -- two text nodes, one
+   measured. */
+.ss-advanced__hint {
+    margin: 0;
+    padding: 0 var(--ss-space-3) var(--ss-space-2);
+    font-size: var(--ss-text-xs);
+}
+
+/* BLOCK-END padding only. The horizontal half of this used to be `var(--ss-space-3)` and did
+   nothing: both call sites put a Bootstrap `.row` directly inside, whose `margin-inline: -12px`
+   cancels exactly 12px -- measured bodyLeft 293 / rowLeft 293 / colLeft 293 against
+   detailsLeft 292. The visible inner gutter comes from the column's own padding. Declaring a
+   value that is always cancelled invites someone to "fix" the gutter by changing it. */
+.ss-advanced__body { padding-block-end: var(--ss-space-3); }
+
+/* Forced colours: the border and the badge are the only things carrying state
+   here, and both are repainted by the OS palette, so re-assert the border so
+   the box does not dissolve into the page. */
+@media (forced-colors: active) {
+    .ss-advanced { border: 1px solid CanvasText; }
+    .ss-advanced[data-ss-advanced-error="true"] { border: 2px solid CanvasText; }
+}
+
+
+/* ---- Upload hint (P2-03-4 / F75) ----
+   The rules the SERVER will actually apply, stated where the merchant chooses the file. It joins
+   the Host override defence list above for the same reason `.ss-advanced__hint` did (F68): a quiet
+   grey set without `!important` was overridden to 3.42:1 on the dark card. `--ss-fg-muted` is the
+   quietest token that still clears 4.5:1 on BOTH the plain and the sunken surface.
+   `display: block` because it sits between an <input> and an <img> inside the dropzone's own
+   flex column, where an inline span collapsed onto the prompt line. */
+.ss-upload-hint {
+    display: block;
+    margin-block-start: var(--ss-space-2, 0.5rem);
+    font-size: var(--ss-font-size-sm, 0.8125rem);
+    line-height: 1.5;
+}
+
+/* ---- ...and the one that sits on an ALWAYS-LIGHT surface ----
+   MEASURED, not assumed: `.dropzone` computes `background-color: rgb(255, 255, 255)` in BOTH
+   themes -- the host's dark stylesheet never themes that panel. So a hint inside it that uses the
+   theme-switching `--ss-fg-muted` becomes #a7b2b1 on white in dark mode, which the contrast probe
+   read as **2.18:1** in ltr/dark and rtl/dark alike while the cover hint, on the real card, read a
+   healthy 7.11:1. Same class, same token, two different surfaces -- the F8 lesson and the
+   feed-timestamp lesson for the third time.
+   `--ss-grey-600` is the fix because it is a PRIMITIVE: defined once at :root and never
+   redefined for dark, so it stays #5b6665 in every configuration, and that is 5.94:1 on white --
+   exactly what light mode already measured. A hardcoded hex would do the same thing while hiding
+   from the token audit; this does not.
+   The panel ignoring dark mode was recorded separately as F76 and is NOW FIXED below, on the
+   owner's instruction of 2026-10-29. The two are coupled and had to move together -- see F76. */
+.ss-upload-hint--on-light { color: var(--ss-grey-600) !important; }
+
+/* ---- F76: the upload panel finally follows the theme, and the hint follows it back ----
+   THE TWO ARE ONE FIX, which is why F76 waited. `--ss-grey-600` above is correct only while the
+   panel stays white; theming the panel without touching the hint would leave #5b6665 on #1f2a28,
+   MEASURED at **2.49:1** -- an AA failure introduced by fixing an appearance bug. That is the F8 /
+   F68 / tab-rail lesson a fourth time: the token is not wrong, the SURFACE under it moved.
+
+   So in dark mode the panel takes the sunken surface and the hint goes back to the
+   theme-switching `--ss-fg-muted`, measured **6.79:1** on it. Light mode is untouched: the panel
+   stays white and the hint stays `--ss-grey-600` at 5.94:1.
+
+   `!important` on the background because the host's own `.dropzone` rule sets white and this file
+   already keeps a documented Host-override defence list for exactly that reason. Scoped to
+   `[data-ss-theme=...]` so a page that has not opted in is unaffected -- the panel is shared by
+   every upload screen in the platform, and that breadth is why this needed the instruction. */
+[data-ss-theme="dark"] .dropzone,
+[data-ss-theme="dark"] .dropzone.dz-clickable {
+    background-color: var(--ss-surface-sunken) !important;
+    border-color: var(--ss-border) !important;
+    color: var(--ss-fg);
+}
+
+[data-ss-theme="dark"] .dropzone .ss-upload-hint--on-light,
+[data-ss-theme="dark"] .dropzone .dz-message,
+[data-ss-theme="dark"] .dropzone .dz-message * {
+    color: var(--ss-fg-muted) !important;
+}
+
+@media (prefers-color-scheme: dark) {
+    [data-ss-theme="auto"] .dropzone,
+    [data-ss-theme="auto"] .dropzone.dz-clickable {
+        background-color: var(--ss-surface-sunken) !important;
+        border-color: var(--ss-border) !important;
+        color: var(--ss-fg);
+    }
+
+    [data-ss-theme="auto"] .dropzone .ss-upload-hint--on-light,
+    [data-ss-theme="auto"] .dropzone .dz-message,
+    [data-ss-theme="auto"] .dropzone .dz-message * {
+        color: var(--ss-fg-muted) !important;
+    }
+}
+
+/* ---- Vertical tab rail: the active pill's text contrast ----
+   P2-05-3. MEASURED 2.59:1 in all four configurations -- white on the host's brand green
+   #10B77F -- against the 4.5:1 text minimum. The badge tones beside it measure 7.1 to 9.81, so
+   the rail was the one thing on that screen below AA, and it is the element that tells the
+   merchant which of the three stock tabs they are reading.
+
+   WHY SCOPED TO A CLASS RATHER THAN APPLIED TO THE SHARED SELECTOR. The rail markup
+   (`.addon-set-tab` with `#pills-tab`) is used by FOUR views -- reports/stock_report,
+   module/index, country/index and language/index -- and three of those belong to other slices.
+   The precedent in this file is F76's: a surface shared across slices is recorded rather than
+   changed from inside one of them. But F76 was a dark-mode cosmetic and this is an accessibility
+   failure the slice's own acceptance names, so the resolution is both: the fix lands here, scoped
+   to the one screen that owns it, and the other three are recorded as the same failure in F106
+   so they are not silently left behind.
+
+   `--ss-green-700` rather than a hand-picked hex: white on it measures 5.36:1, it is already a DS
+   primitive, and a hardcoded value would pass the eye while hiding from the token audit. The
+   brand green itself is untouched -- it is the host's, used in dozens of places, and darkening it
+   globally would be a visual change to the whole product for one pill's text. */
+.ss-tabrail .nav-link.active,
+.ss-tabrail .list-group-item-action.active {
+    background: var(--ss-green-700) !important;
+    border-color: var(--ss-green-700) !important;
+    color: #fff !important;
+}
+
+/* =================================================================================================
+   P2-06-7 — favourite pages and recent pages, in the command palette.
+
+   THE SHORTCUTS ARE THE PRE-SEARCH STATE, so they share the results list's surface and spacing
+   rather than introducing a second visual language inside one dialog. The group heading is
+   `--ss-fg-muted` (5.23:1 on `--ss-surface-sunken` light, 6.79:1 dark) and NOT `--ss-fg-subtle`,
+   which measures 4.13:1 on the sunken surface and fails AA at this size -- the same trap
+   `.ss-feed__when` and `.ss-order-preview dt` fell into, which is that a token solved against
+   `--ss-surface` is not solved against the surface a component repaints underneath it.
+
+   THE STAR SETS ITS OWN COLOUR. `--ss-fg` on every state, because a bare `button` inherits
+   nothing useful and the host's dark stylesheet forces unrelated elements to #808191; the "on"
+   state is `--ss-brand`, which is a hue change on a glyph that also changes shape (★ vs ☆), so
+   the state is never carried by colour alone.
+   ============================================================================================== */
+.ss-command__shortcuts {
+    padding: var(--ss-space-2) var(--ss-space-3) var(--ss-space-3);
+    border-top: 1px solid var(--ss-border);
+    background: var(--ss-surface-sunken);
+    color: var(--ss-fg);
+}
+
+.ss-command__group + .ss-command__group { margin-top: var(--ss-space-3); }
+
+/* `!important`, AND IT IS NOT DEFENSIVE PADDING -- it is the only thing that wins. The host's
+   dark stylesheet carries
+
+       .dash-sidebar .dash-link, .dash-sidebar.light-sidebar .dash-link i, .dataTable-info, p
+           { color: #808191 !important; }
+
+   (public/assets/css/style-dark.css) -- a BARE ELEMENT selector on `p`, with `!important`, which
+   beats a non-important class rule however specific it is. Measured live: this heading rendered
+   #808191 on `--ss-surface-sunken` dark = 3.85:1, failing AA at 12px, while the rule above said
+   `--ss-fg-muted`. A class plus `!important` outranks an element plus `!important`, which is the
+   same argument the "Host override defence" block makes for `.ss-field__hint`. */
+.ss-command__grouphead {
+    margin: 0 0 var(--ss-space-1);
+    color: var(--ss-fg-muted) !important;
+    font-size: var(--ss-text-xs);
+    font-weight: var(--ss-weight-medium);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.ss-command__shortlist { margin: 0; padding: 0; list-style: none; }
+
+.ss-command__shortlist > li {
+    display: flex;
+    align-items: center;
+    gap: var(--ss-space-2);
+}
+
+.ss-command__shortcut {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: var(--ss-space-2);
+    border-radius: var(--ss-radius-sm);
+    color: var(--ss-fg);
+    text-decoration: none;
+}
+
+.ss-command__shortcut:hover,
+.ss-command__shortcut:focus-visible { background: var(--ss-surface-hover); color: var(--ss-fg); }
+
+.ss-command__shortcuttitle { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.ss-command__star,
+.ss-command__addcurrent {
+    border: 1px solid transparent;
+    border-radius: var(--ss-radius-sm);
+    background: transparent;
+    color: var(--ss-fg);
+    cursor: pointer;
+}
+
+/* A 44px target: the toggle is one of the smallest controls in the admin and WCAG 2.5.5 is the
+   reason it is not glyph-sized. */
+.ss-command__star {
+    flex: 0 0 auto;
+    width: 2.75rem;
+    height: 2.75rem;
+    font-size: var(--ss-text-md);
+    line-height: 1;
+}
+
+.ss-command__star:hover { background: var(--ss-surface-hover); }
+.ss-command__star.is-on { color: var(--ss-brand); }
+.ss-command__star[disabled] { opacity: 0.6; cursor: progress; }
+
+.ss-command__addcurrent {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--ss-space-2);
+    margin-top: var(--ss-space-3);
+    padding: var(--ss-space-2) var(--ss-space-3);
+    border-color: var(--ss-border);
+    font-size: var(--ss-text-sm);
+}
+
+.ss-command__addcurrent:hover { background: var(--ss-surface-hover); }
+
+/* =================================================================================================
+   P2-06-8 — the action bar for the selected search result.
+
+   It shares the shortcuts block's sunken surface, because both are the palette's "below the
+   list" register, and its text sets `--ss-fg` explicitly: a bare `a` in this dialog would
+   otherwise take the host's link colour, and the host's dark stylesheet forces several bare
+   elements to #808191 (measured at 3.85:1 on this surface for the group heading above).
+   ============================================================================================== */
+/* `[hidden]` DEFENCE, AND IT IS DEFENSIVE RATHER THAN A FIX -- recorded that way because review
+   reported it as a live defect and measurement says it is not.
+
+   The cascade concern is real in the abstract: `[hidden] { display: none }` is an attribute
+   selector with no class, so an author rule setting `display` on a class outranks it, and a
+   synthetic page proves it (`display: flex` wins, the element stays visible with the attribute
+   set). It does NOT happen here, because `public/assets/css/style.css` carries
+   `[hidden] { display: none !important; }` -- an important author declaration that beats any
+   non-important class rule. Measured on the real admin page with this reset removed: computed
+   display `none`, height 0. So the bar was never visible while hidden.
+
+   The rule stays as cheap insurance against that host declaration changing, and is NOT presented
+   as a bug fixed. The live check reads `getComputedStyle` rather than `bar.hidden` either way,
+   which is a genuine improvement: the IDL property is true whenever the attribute is set and
+   could never have told the two apart. */
+.ss-command__actions[hidden] { display: none; }
+
+.ss-command__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--ss-space-2);
+    padding: var(--ss-space-2) var(--ss-space-3);
+    border-top: 1px solid var(--ss-border);
+    background: var(--ss-surface-sunken);
+}
+
+/* A real target, not a text link: WCAG 2.5.5, and this sits beside a list the keyboard drives. */
+.ss-command__action {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2.75rem;
+    padding: var(--ss-space-2) var(--ss-space-3);
+    border: 1px solid var(--ss-border);
+    border-radius: var(--ss-radius-sm);
+    background: var(--ss-surface);
+    color: var(--ss-fg) !important;
+    font-size: var(--ss-text-sm);
+    text-decoration: none;
+}
+
+.ss-command__action:hover {
+    background: var(--ss-surface-hover);
+    color: var(--ss-fg) !important;
+}
+
+/* A VISIBLE FOCUS RING, because the host kills the UA one. `custom.css` clears `outline` on
+   focused links admin-wide, so the only way to see which chip is focused was the hover
+   background -- which `:focus-visible` shared, making keyboard focus indistinguishable from the
+   mouse hover it sits under. These are the only keyboard-reachable controls in the dialog besides
+   the input, so an invisible ring makes the whole action bar unusable without a mouse (WCAG
+   2.4.7). Stated with the same tokens the rest of the design system's focus treatment uses. */
+.ss-command__action:focus-visible {
+    background: var(--ss-surface-hover);
+    color: var(--ss-fg) !important;
+    outline: var(--ss-focus-width, 2px) solid var(--ss-focus-ring, currentColor);
+    outline-offset: var(--ss-focus-offset, 2px);
+}
+
+/* =================================================================================================
+   P2-06-12 — a group of choices, named for assistive technology without changing how it looks.
+
+   `min-width: 0` IS DEFENSIVE, NOT LOAD-BEARING ON TODAY'S SCREENS -- stated that way because the
+   first version of this comment claimed otherwise. A `<fieldset>` does carry an implicit minimum
+   content size in every engine, which makes one refuse to shrink inside a flex or grid row; but
+   reverting this reset and re-running `check-choice-guidance-live.cjs` failed 0 of 82 cases,
+   because both choice groups sit in block-level Bootstrap columns. Kept as cheap insurance for a
+   future layout change, not presented as a measured fix.
+
+   The legend keeps the host's own field-label weight so the screens look unchanged: this row is
+   about what reaches the accessibility tree, not a restyle.
+   ============================================================================================== */
+.ss-choicegroup {
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+}
+
+.ss-choicegroup__legend {
+    float: none;              /* Bootstrap floats legends, which breaks the following flow. */
+    width: auto;
+    margin-bottom: var(--ss-space-1);
+    padding: 0;
+    color: var(--ss-fg);
+    font-size: var(--ss-text-sm);
+    font-weight: var(--ss-weight-semibold);
+    line-height: inherit;
+}
+
+/* The group's instruction sits between the legend and the options, where it is read before the
+   choices rather than after them. */
+.ss-choicegroup > .ss-field__hint { margin-bottom: var(--ss-space-2); }
+
+/* =============================================================================================
+   THE SHARED HEADER (D-25 Step 1)
+   =============================================================================================
+
+   OWNER-APPROVED as the first of three phased steps. Its conditions are to preserve every
+   element id, event handler, link and permission, not to delete WorkDo's elements, and to stop
+   expanding a modification the moment anything breaks -- so this step changes ONE declaration
+   and establishes the scope the next two extend.
+
+   WHAT IT FIXES, AND WHAT IT DELIBERATELY DOES NOT CLAIM TO FIX.
+
+   The header's own `color` is `rgb(82, 91, 105)` in BOTH themes -- measured on the running
+   application -- while its background is white in light mode and `rgb(41, 42, 51)` in dark. On
+   that dark surface the inherited colour is 2.07:1, far below AA.
+
+   But that is LATENT, not live: all 30 visible text nodes in the header measure 0 below AA in
+   all four configurations, because F158 patched each selector by hand. The failure only bites
+   text that has no rule of its own -- which is to say, the NEXT thing anybody adds to this
+   header. Driven directly: a bare <span> appended to the header inherits `rgb(82, 91, 105)` in
+   dark mode, and would be unreadable.
+
+   So this declaration does not repair a visible defect. It makes the header's inheritance
+   token-driven, so the next element added to it is AA-correct without a fifth hand-patch in a
+   fifth stylesheet. That is what a phased design-system migration is FOR, and it is worth
+   stating plainly rather than dressed up as a contrast fix.
+
+   `--ss-fg-muted` RATHER THAN `--ss-fg`, because the register is right: the header carries
+   secondary chrome -- icon links, a store name, a language code -- not body copy. The token is
+   `#5b6665` in light and `#a7b2b1` in dark, and it tracks the theme through `data-ss-theme`.
+
+   NO SURFACE, NO BORDER, NO SPACING IN THIS STEP. The theme paints the header's background and
+   the sidebar beside it; moving one of them to a DS surface token and not the other would leave
+   two greys that nearly match, which is worse than either. That belongs to a step that moves
+   both, with its own before/after.
+
+   SPECIFICITY AND LOAD ORDER, so this wins without `!important`: this stylesheet is linked at
+   `layouts/app.blade.php:225`, after the theme's (`:106`, `:140`/`:144`) and after
+   `custom.css` (`:141`). Every rule the theme sets on a DESCENDANT still wins over an inherited
+   value, which is exactly why no rendered pixel changes.
+   ============================================================================================= */
+.ss-appbar {
+    color: var(--ss-fg-muted);
+}
+
+/* =================================================================================================
+   F271 — the validation message a merchant can now see, in a colour they can READ.
+   =================================================================================================
+
+   Making the messages visible immediately exposed a second defect, and the live harness is what
+   found it. The host theme paints `.invalid-feedback` in `#ff3a6e`
+   (`public/assets/css/style.css:3302`), measured against what is actually behind it:
+
+       #ff3a6e on #ffffff (light card)  ->  3.45:1
+       #ff3a6e on #292a33 (dark card)   ->  4.13:1
+
+   Both fail WCAG AA's 4.5:1 for body text, and LIGHT mode is the worse of the two — so this was
+   never a dark-mode-only problem, it was simply invisible before because the text was
+   `display: none`. The DS's own `--ss-danger` token is already theme-aware and already measured:
+
+       #b3261e on #ffffff  ->  6.54:1      (--ss-red-700, light)
+       #f3a9a4 on #292a33  ->  7.48:1      (dark override)
+
+   Using the token rather than a literal is what keeps the two themes in step: the dark value is
+   redefined once, in the same block as every other token, instead of here.
+
+   SCOPED TO `color` ONLY. The theme's `display`, `width`, `margin-top` and `font-size` are left
+   alone — in particular its `display: none`, which is the mechanism that keeps a message hidden
+   until its field is marked `is-invalid`, and which `ValidationFeedbackVisibilityTest` measures.
+   Overriding that here would show every message on every form at all times. */
+.invalid-feedback,
+.invalid-tooltip {
+    color: var(--ss-danger);
 }

@@ -26,23 +26,47 @@ class CustomerDataTable extends DataTable
         $activitylog = ActivityLog::groupBy('customer_id')->where('store_id', getCurrentStore())->get();
         return (new EloquentDataTable($query))
             ->addIndexColumn()
-            ->editColumn('first_name', function (Customer $customer) use ($activitylog) {
-                $customer_info = null;
-                if ($customer) { // Check if $customer is not null
-
-                    $activityLogEntry = $activitylog->where('customer_id', $customer->id)->first();
-
-                    if ($activityLogEntry) {
-                        $customer_info = '<a class="text-primary" href="' . route('customer.timeline', $customer->id) . '">
-                        <span class="btn-inner--icon"></span>
-                        <span class="btn-inner--text text-capitalize">' . $customer->first_name . ' ' . $customer->last_name . '</span><br></a>' . $customer->mobile;
-                    } else {
-                        $customer_info = '<a class="text-primary" href="' . route('customer.timeline', $customer->id) . '">
-                        <span class="btn-inner--icon"></span>
-                        <span class="btn-inner--text text-capitalize">' . $customer->first_name . ' ' . $customer->last_name . '</span><br></a>' . $customer->mobile;
-                    }
+            ->editColumn('first_name', function (Customer $customer) {
+                /*
+                 * F98. ESCAPED. `first_name` is in this table's `rawColumns()` list, so yajra does
+                 * NOT escape it, and this cell is built by string concatenation -- so all three
+                 * values below used to reach the merchant's admin page as markup.
+                 *
+                 * ALL THREE ARE WRITTEN BY A SHOPPER. `CustomerLoginController::register`
+                 * validates `first_name` as exactly `['required','string','max:255']` and nothing
+                 * more, so a shopper of this merchant's own store chooses the string this cell
+                 * prints.
+                 *
+                 * THE XSS MIDDLEWARE DOES NOT COVER IT, and reading it is the point:
+                 * `app/Http/Middleware/XSS.php` runs `htmlspecialchars_decode()` and THEN strips
+                 * only the four strings `&lt;`, `&gt;`, `javascript`, `alert`. The decode turns an
+                 * encoded `&lt;` into a raw `<` before the strip looks for `&lt;`, and a raw `<`
+                 * was never a target -- so `<img src=x onerror=...>` passes through whole as long
+                 * as it avoids two words. A denylist of four strings is not an escaping layer and
+                 * nothing downstream supplies one.
+                 *
+                 * `e()` is applied to EACH VALUE, not to the finished string: escaping the whole
+                 * cell would double-escape this file's own `<a>` and `<br>` and render visible tag
+                 * soup. `CustomerListOutputEscapingTest` pins both halves.
+                 *
+                 * Identical in shape and remedy to `OrderDataTable:63-90`, which fixed the same
+                 * defect for the same two shopper-written fields. This was the surface that sweep
+                 * did not reach.
+                 *
+                 * THE `if ($activityLogEntry)` BRANCHES WERE BYTE-IDENTICAL and are collapsed.
+                 * `$activitylog` is no longer captured because nothing in here reads it. That is
+                 * not tidying for its own sake: two identical branches are where a later fix lands
+                 * in one copy and not the other, which is exactly how an escaping bug survives.
+                 */
+                if (! $customer) {
+                    return null;
                 }
-                return $customer_info;
+
+                return '<a class="text-primary" href="' . route('customer.timeline', $customer->id) . '">
+                        <span class="btn-inner--icon"></span>
+                        <span class="btn-inner--text text-capitalize">'
+                    . e((string) $customer->first_name) . ' ' . e((string) $customer->last_name)
+                    . '</span><br></a>' . e((string) $customer->mobile);
             })
             ->editColumn('last_active', function (Customer $customer) {
                 if ($customer && $customer->last_active) { // Ensure $customer is not null
@@ -91,7 +115,21 @@ class CustomerDataTable extends DataTable
             ->filterColumn('first_name', function ($query, $keyword) {
                 $query->whereRaw("CONCAT(first_name, ' ', last_name) like ?", ["%{$keyword}%"])->orWhere('mobile', 'Like', "%{$keyword}%");
             })
-            ->rawColumns(['first_name', 'email', 'last_active', 'regiester_date', 'orders', 'total_spend', 'aov', 'action', 'status']);
+            /*
+             * F98. `'email'` IS REMOVED from this list rather than escaped.
+             *
+             * It had no `editColumn` at all, so yajra emitted the model value verbatim -- a
+             * shopper-chosen string straight into the merchant's page. Nothing in that cell is
+             * ever markup, so the right answer is not to escape it here but to stop declaring it
+             * raw: off this list, yajra escapes it itself, and no closure is needed.
+             *
+             * The rest stay. `first_name`, `orders`, `action` and `status` are real markup this
+             * file or a view produces; `last_active`, `regiester_date`, `total_spend` and `aov`
+             * are server-computed dates and numbers whose closures cannot emit shopper text.
+             * `CustomerListOutputEscapingTest::test_every_raw_column_has_a_closure_that_decides_its_escaping`
+             * fails if a future entry is added here without a closure to own its escaping.
+             */
+            ->rawColumns(['first_name', 'last_active', 'regiester_date', 'orders', 'total_spend', 'aov', 'action', 'status']);
     }
 
     /**

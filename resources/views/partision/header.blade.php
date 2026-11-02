@@ -12,15 +12,40 @@ $store = getStoreById(getCurrentStore());
 $theme_url = App\Http\Controllers\HomeController::getThemeUrl($store);
 @endphp
 
+{{-- D-25 STEP 1 -- THE DESIGN-SYSTEM SCOPE, ADDED ALONGSIDE THE THEME'S CLASSES RATHER THAN
+     REPLACING THEM.
+
+     The owner approved a PHASED conversion whose conditions are to preserve every element id,
+     event handler, link and permission, and not to delete WorkDo's elements. `dash-header` is
+     load-bearing for exactly those: `public/assets/js/dash.js` and `side-dash.js` select
+     `#mobile-collapse` inside it, the theme carries ~210 `.dash-header` rules including the
+     header's whole layout and background, and `style.css` targets
+     `.dash-header .dash-head-link#mobile-collapse` by id. Replacing those names would risk the
+     chrome on every merchant screen across 70 vendored modules for no benefit the scope class
+     does not already deliver.
+
+     So `ss-appbar` is ADDITIVE. It changes no selector the theme or its JavaScript depends on,
+     and it gives the design system a confined anchor -- `DesignSystemStylesheetScopeTest`
+     requires every DS selector to be confined by an `.ss-` class or a `data-ss-` attribute -- for
+     this step and the two that follow. --}}
 @if (isset($setting['cust_theme_bg']) && $setting['cust_theme_bg'] == 'on')
-<header class="dash-header transprent-bg">
+<header class="dash-header ss-appbar transprent-bg">
     @else
-    <header class="dash-header">
+    <header class="dash-header ss-appbar">
         @endif
         <div class="header-wrapper">
                 <ul class="list-unstyled gap-2">
                     <li class="dash-h-item mob-hamburger">
-                        <a href="#!" class="dash-head-link" id="mobile-collapse">
+                        {{-- P2-01-17: this control had NO accessible name of any kind, and the
+                             header renders on every merchant screen, so a screen reader announced
+                             "link" and nothing else on all of them. It stays an <a> deliberately:
+                             public/assets/js/dash.js:99 and side-dash.js:96 select
+                             #mobile-collapse, and style.css:17131 styles
+                             `.dash-header .dash-head-link#mobile-collapse`, so swapping the
+                             element risks the host theme's layout everywhere for a benefit
+                             aria-label already delivers. --}}
+                        <a href="#!" class="dash-head-link" id="mobile-collapse"
+                           aria-label="{{ __('Toggle navigation') }}">
                             <div class="hamburger hamburger--arrowturn">
                                 <div class="hamburger-box">
                                     <div class="hamburger-inner"></div>
@@ -48,7 +73,23 @@ $theme_url = App\Http\Controllers\HomeController::getThemeUrl($store);
                                 <span>{{ __(' Profile') }}</span>
                             </a>
                             <form method="POST" action="{{ route('logout') }}" id="form_logout">
-                                <a href="route('logout')"
+                                {{-- F161. THE HREF WAS THE LITERAL STRING `route('logout')` --
+                                     the Blade braces were missing, so this rendered as a RELATIVE
+                                     URL. Middle-clicking or opening the Log Out item in a new tab
+                                     requested `<current-path>/route('logout')` and got a 404, on
+                                     every merchant screen. Found by a header capture that recorded
+                                     every link's href as data rather than reading the markup.
+
+                                     `#`, NOT `{{ route('logout') }}`: that route is POST-only, so a
+                                     real URL here would trade a 404 for a 405 and read as though
+                                     the link worked without JavaScript. It does not -- the onclick
+                                     submits the form -- and `#` says so. The element stays an <a>
+                                     with its class: a <button type="submit"> would work without
+                                     JavaScript, but D-25's conditions are to preserve the ids,
+                                     handlers and LINKS of this header, and the same anchor idiom
+                                     sits in four other copies of this menu. Changing one of five is
+                                     its own slice, not a side effect of a contrast fix. --}}
+                                <a href="#"
                                     onclick="event.preventDefault(); this.closest('form').submit();"
                                     class="dropdown-item">
                                     <i class="ti ti-power"></i>
@@ -86,9 +127,58 @@ $theme_url = App\Http\Controllers\HomeController::getThemeUrl($store);
                         </a>
                     </li>
                     @endif
+
+                    {{--
+                        P2-06-3 -- THE NOTIFICATION BELL.
+
+                        OUTSIDE THE `type == 'admin'` BLOCK BELOW, AND THAT IS THE POINT.
+                        It was first placed inside it, which meant the one principal the
+                        per-type authorisation was built to serve correctly -- a STAFF member
+                        holding `Manage Order` -- had no link to `/notifications` anywhere in
+                        the application, and neither did the operator. Staff `users.type` is
+                        their ROLE NAME (`UserController::store`: `$user->type = $role_r->name`),
+                        never the literal `'admin'`, so that conditional is owner-only. Found by
+                        the independent review.
+
+                        A LINK, NOT A DROPDOWN, and that is a decision rather than a shortcut.
+                        The feed endpoint exists and the badge is filled from it, but the bell
+                        navigates to the full list: a dropdown would be a second surface showing
+                        the same eight rows with its own focus trap, its own RTL placement and
+                        its own dark-mode contrast to verify, for a screen a merchant visits in
+                        order to clear it. One surface, checked once.
+
+                        NO PERMISSION CHECK HERE. Authorisation is by notification TYPE inside
+                        the handler, so a staff member who may read none of them gets a bell
+                        with no badge and a page that says, in words, that notifications exist
+                        which their role does not include -- which is honest, where an empty
+                        list would be a lie. The count the badge shows is already filtered to
+                        what the caller may read.
+
+                        `hidden` until the fetch answers: a badge that renders 0 and then
+                        becomes 3 flashes on every page load, and one that renders 0 forever is
+                        what a blocked script leaves behind.
+                    --}}
+                    <li class="dash-h-item">
+                        <a href="{{ route('merchant.notifications') }}"
+                           class="dash-head-link h-100"
+                           data-ss-notification-bell
+                           data-ss-feed-url="{{ route('merchant.notifications.feed') }}"
+                           data-bs-toggle="tooltip"
+                           title="{{ __('Notifications') }}">
+                            <i class="ti ti-bell" aria-hidden="true"></i>
+                            <span class="ss-bell__count" data-ss-notification-count hidden></span>
+                            <span class="visually-hidden" data-ss-notification-label>{{ __('Notifications') }}</span>
+                        </a>
+                    </li>
+
                     @if (auth()->user() && auth()->user()->type == 'admin')
                     <li class="web-browse-icon">
-                        <a href="{{ $theme_url ?? '#' }}" target="_blank" data-bs-toggle="tooltip"
+                        {{-- `rel="noopener noreferrer"`: this opens the merchant's own storefront
+                             in a new tab, and without it that tab gets a `window.opener` handle on
+                             the ADMIN page and can navigate it. It is the only `target="_blank"` in
+                             this layout, so every admin screen carried it. Found while auditing the
+                             order detail page's four. --}}
+                        <a href="{{ $theme_url ?? '#' }}" target="_blank" rel="noopener noreferrer" data-bs-toggle="tooltip"
                         title="{{ __('Store Link') }}" class="dash-head-link cust-btn">
                            <svg data-replit-metadata="client/src/components/icons/CustomIcons.tsx:36:4" data-component-name="svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#060606" stroke-width="2" class="w-4 h-4"><path data-replit-metadata="client/src/components/icons/CustomIcons.tsx:37:6" data-component-name="path" d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline data-replit-metadata="client/src/components/icons/CustomIcons.tsx:38:6" data-component-name="polyline" points="9,22 9,12 15,12 15,22"></polyline><path data-replit-metadata="client/src/components/icons/CustomIcons.tsx:39:6" data-component-name="path" d="m15 7 3 3-3 3M8 13l-3-3 3-3"></path></svg>
                         </a>
@@ -148,13 +238,22 @@ $theme_url = App\Http\Controllers\HomeController::getThemeUrl($store);
                                 @if (auth()->user()->type == 'admin')
                                 @foreach ($stores as $store)
                                 @if ($store->is_active)
-                                <a href="@if ($activeStore == $store->id) # @else {{ route('change.store', $store->id) }} @endif"
-                                    class="dropdown-item">
-                                    @if ($activeStore == $store->id)
+                                {{-- P2-SEC-F12: switching the tenant pointer is a POST with a CSRF
+                                     token, not a GET link. The current store stays a plain <a>
+                                     because it changes nothing. --}}
+                                @if ($activeStore == $store->id)
+                                <a href="#" class="dropdown-item">
                                     <i class="ti ti-checks text-primary"></i>
-                                    @endif
                                     {{ ucfirst($store->name) }}
                                 </a>
+                                @else
+                                <form method="POST" action="{{ route('change.store', $store->id) }}" class="m-0">
+                                    @csrf
+                                    <button type="submit" class="dropdown-item">
+                                        {{ ucfirst($store->name) }}
+                                    </button>
+                                </form>
+                                @endif
                                 @else
                                 <a href="#!" class="dropdown-item">
                                     <i class="ti ti-lock"></i>

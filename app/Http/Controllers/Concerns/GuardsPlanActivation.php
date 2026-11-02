@@ -94,6 +94,82 @@ trait GuardsPlanActivation
     }
 
     /**
+     * REFUSE BEFORE PERSISTING WHEN THE PROVIDER'S CREDENTIALS ARE NOT THERE — F234.
+     *
+     * **THE DEFECT THIS EXISTS FOR.** `CoingateController::coingatePaymentPrepare()` persisted a
+     * `PlanUserCoupon` row and could deactivate the coupon outright **fifty lines before** it
+     * read `$admin_payment_setting['coingate_mode']` — a bare array subscript on the result of
+     * `getSuperAdminAllSetting()`, which plucks only the setting rows that EXIST and supplies no
+     * defaults. On an installation that never saved its CoinGate settings that read raises, the
+     * method's own `catch` turns it into a flash redirect, and the coupon use is already committed
+     * to a request that could not possibly have produced a payment.
+     *
+     * Worse than one wasted use: `PlanCoupon::used_coupon()` counts EVERY user's rows, so the
+     * limit is platform-wide. One merchant retrying an unconfigured gateway drives the count to
+     * `limit` and deactivates the coupon **for everybody**. No transaction wraps any of it.
+     *
+     * **NO NEW DECISION WAS NEEDED.** D-28b settled it: F196 **Option A** — *the refusal must
+     * precede persistence and every side effect* — with Option B (persist, then paper over it)
+     * explicitly REJECTED by the owner because it leaves the data inconsistent.
+     *
+     * **403, NEVER 401, and never a returned redirect.** The 401 rule is the same one
+     * `assertPlanActivationEnabled()` documents above: Repo B's `lib/network/network.dart` maps any
+     * 401 into a forced logout. The reason this ABORTS rather than returning a redirect for the
+     * caller to pass on is narrower and specific to this repository's history: a guard whose
+     * refusal has to be `return`ed is a guard somebody can forget to return, and *"a guard that
+     * refuses after persisting is not a guard"* is the exact sentence the F196 row uses. `abort()`
+     * cannot be forgotten.
+     *
+     * **IT MUST BE CALLED OUTSIDE ANY `try`.** `HttpException` extends `\Exception`, so an
+     * `abort(403)` placed inside a handler that wraps its body in `try { } catch (\Exception $e)`
+     * — which CoinGate does — is **swallowed and silently downgraded into a flash redirect**. The
+     * refusal then stops being a refusal. `PlanCouponRefusalPersistsNothingTest` drives the status
+     * code specifically, because that is the only observable difference between the two placements.
+     *
+     * **AND IT MUST SIT ABOVE EVERY BRANCH THAT PERSISTS.** Moving a single config read is not
+     * sufficient and D-28b says so in terms: CoinGate's free-plan branch also writes before it can
+     * fail (`$authuser->plan = $plan->id` throws on a column no migration creates), so a refusal
+     * placed between the two branches would still leave the free path burning the coupon.
+     *
+     * The message names no setting, no key and no value — only that the method is unavailable.
+     *
+     * @param  string               $provider      canonical provider name, for the log only
+     * @param  array<string,mixed>  $settings      the `getSuperAdminAllSetting()` bag
+     * @param  array<int,string>    $requiredKeys  setting names that must be present and non-empty
+     */
+    protected function assertProviderCredentialsPresent(string $provider, array $settings, array $requiredKeys): void
+    {
+        $missing = [];
+
+        foreach ($requiredKeys as $key) {
+            /* is_scalar before the cast: `getSuperAdminAllSetting()` plucks strings so a non-scalar
+               is unreachable today, but casting an array to string warns rather than refusing, and
+               a guard that emits a warning instead of refusing is the wrong failure direction. */
+            if (! isset($settings[$key]) || ! is_scalar($settings[$key]) || trim((string) $settings[$key]) === '') {
+                $missing[] = $key;
+            }
+        }
+
+        if ($missing === []) {
+            return;
+        }
+
+        /* The NAMES of the missing settings are safe to log and are the only useful diagnostic;
+           their values are not logged, and none exists anyway. */
+        Log::warning('Plan purchase refused before any write: the provider has no usable credentials.', [
+            'provider' => $provider,
+            'missing_settings' => $missing,
+            'controller' => static::class,
+            /* No plan_id key: review pointed out that logging it as a literal null reads to an
+               operator as "no plan was involved", when a plan always is. The missing settings and
+               the controller are the diagnostic; the plan adds nothing to it. */
+            'user_id' => optional(\Auth::user())->id,
+        ]);
+
+        abort(403, __('This payment method is not available for subscription purchases.'));
+    }
+
+    /**
      * THE PRICE OF A PLAN PURCHASE, COMPUTED FROM THE PLAN. Never from the request.
      *
      * This is the whole of the pricing defect: every one of these handlers read the amount off
@@ -229,7 +305,15 @@ trait GuardsPlanActivation
      */
     protected function existingPlanOrderForProviderTxn(string $paymentType, $txnId)
     {
-        if ($txnId === null || $txnId === '') {
+        /*
+         * A NON-SCALAR REFERENCE IS "NOT FOUND", NOT A 500. `?tap_id[]=x` makes `(string) $txnId`
+         * raise "Array to string conversion", which Laravel's handler turns into an
+         * `ErrorException` -- and the Benefit and Cashfree guard calls sit OUTSIDE their `try`, so
+         * a malformed request that used to end in an error redirect would now 500. Found by
+         * independent review. An empty or unusable reference cannot be the key of a prior row, so
+         * returning null is both safe and the same direction as before.
+         */
+        if ($txnId === null || ! is_scalar($txnId) || (string) $txnId === '') {
             return null;
         }
 
@@ -237,5 +321,189 @@ trait GuardsPlanActivation
             ->where('payment_type', $paymentType)
             ->where('txn_id', (string) $txnId)
             ->first();
+    }
+
+    /**
+     * EVERY SHIPPED SPELLING OF A PROVIDER'S `payment_type`.
+     *
+     * The handlers record `__('Benefit')`, `__('Mollie')`, `__('Paystack')` and so on, so the
+     * stored value is whatever the BUYER'S locale translated it to. A replay lookup on the English
+     * spelling alone misses a row written by an Arabic-locale buyer, and the replay goes through —
+     * which is why Paystack built this list for itself under D-12/F87. It is generalised here
+     * rather than copied: three private copies of a locale sweep is how one of them goes stale.
+     *
+     * The canonical spelling is first, so the ordinary case costs one lookup.
+     *
+     * @return list<string>
+     */
+    protected function planProviderTypeSpellings(string $canonicalType): array
+    {
+        $spellings = [$canonicalType];
+
+        foreach ((array) glob(resource_path('lang/*.json')) as $file) {
+            $locale = basename((string) $file, '.json');
+
+            if ($locale === 'language') {
+                continue;
+            }
+
+            $spellings[] = (string) trans($canonicalType, [], $locale);
+        }
+
+        return array_values(array_filter(
+            array_unique($spellings),
+            static fn ($spelling) => trim((string) $spelling) !== ''
+        ));
+    }
+
+    /**
+     * The plan order already recorded against this provider reference, under ANY spelling.
+     *
+     * DELIBERATELY NOT SCOPED TO THE CALLER. Scoping the LOOKUP would let a second account present
+     * the same reference, find nothing, and have its own plan activated on a stranger's payment.
+     * One reference, one activation, whoever presents it — the caller's identity decides only the
+     * RESPONSE, below.
+     */
+    protected function existingPlanOrderForProviderReference(string $canonicalType, $reference)
+    {
+        foreach ($this->planProviderTypeSpellings($canonicalType) as $spelling) {
+            $found = $this->existingPlanOrderForProviderTxn($spelling, $reference);
+
+            if ($found !== null) {
+                return $found;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * ONE PROVIDER REFERENCE, ONE PLAN ACTIVATION. Returns a redirect to answer with, or null to
+     * carry on.
+     *
+     * CALL IT BEFORE THE OUTBOUND VERIFICATION, not after. Three reasons, in order of weight:
+     *
+     *   1. A known-spent reference should not cost an outbound call.
+     *   2. A refusal that runs before any network traffic is REACHABLE FROM A TEST. No payment
+     *      provider is reachable from this container — Benefit and Cashfree use a raw
+     *      `GuzzleHttp\Client` and Mollie its own SDK, none of which `Http::fake()` intercepts —
+     *      so a guard placed after the call could not be driven, and a test that tried would be
+     *      measuring the network failure instead. MEASURED: the first version of
+     *      `PlanActivationReplayGuardTest` passed 12 of 12 against the unguarded code for exactly
+     *      that reason.
+     *   3. Nothing in the reference's meaning depends on the verification. It is the value the
+     *      handler is about to ASK the provider about, read off the request or the session.
+     *
+     * WHAT IT DOES NOT DO: it does not re-run `assignPlan()`, write a row, or touch a coupon. A
+     * replay performs no work at all. The same buyer returning to the same plan is answered with
+     * the success they already earned; everyone else — a different plan named against the same
+     * payment, or another account presenting it — is refused.
+     *
+     * THE LOG LINE IS PART OF THE CONTRACT. It is the one signal a failed outbound call cannot
+     * produce, so it is what the tests assert the refusal by. Do not reword it without updating
+     * `PlanActivationReplayGuardTest::REFUSAL_LOG`.
+     */
+    protected function refusePlanActivationReplay(string $canonicalType, $reference, $plan = null, $user = null)
+    {
+        $existing = $this->existingPlanOrderForProviderReference($canonicalType, $reference);
+
+        if ($existing === null) {
+            return null;
+        }
+
+        $planId = is_object($plan) ? ($plan->id ?? null) : $plan;
+        $userId = is_object($user) ? ($user->id ?? null) : $user;
+
+        $samePlan = $planId !== null && (int) $existing->plan_id === (int) $planId;
+        $sameBuyer = $userId !== null && (int) $existing->user_id === (int) $userId;
+
+        $context = [
+            'provider' => $canonicalType,
+            'recorded_plan_id' => $existing->plan_id,
+            'requested_plan_id' => $planId,
+            'recorded_user_id' => $existing->user_id,
+            'requesting_user_id' => $userId,
+            'same_plan' => $samePlan,
+            'same_buyer' => $sameBuyer,
+            // The reference itself is NOT logged: it is a payment identifier, and the pair of ids
+            // above already says which row was matched.
+        ];
+
+        if ($samePlan && $sameBuyer) {
+            /*
+             * RE-RUN THE ACTIVATION RATHER THAN JUST CLAIMING IT HAPPENED.
+             *
+             * The first version of this method returned the success message and did nothing, and
+             * INDEPENDENT REVIEW CAUGHT THAT IT CONTRADICTED THIS TRAIT'S OWN PRECEDENT.
+             * `PaystackPaymentController:341-367` already decided the opposite, with the reason
+             * written out: *"The PlanOrder row is written BEFORE assignPlan(), so anything that
+             * kills the request between them leaves a row and no entitlement -- and a bare
+             * 'already recorded, report success' guard would then strand that buyer permanently:
+             * every retry, including a perfectly clean one, would be told the plan was activated
+             * while it never was."*
+             *
+             * All three handlers guarded here have the same ordering -- Benefit saves then
+             * assigns, Cashfree saves then assigns, Mollie saves then assigns -- so all three have
+             * the same window, and `User::assignPlan()` has at least one reachable throw inside it
+             * (it dereferences `$oldplan->custom_plan` for a user whose stored `plan_id` resolves
+             * to no row, which is precisely a merchant buying a new plan).
+             *
+             * `assignPlan()` is idempotent in the way that matters: it sets the plan and
+             * recomputes the expiry from NOW rather than accumulating, so re-running it for the
+             * same buyer and the same plan repairs that state and is a no-op otherwise. **No
+             * second PlanOrder row is written**, which is the property this guard exists for.
+             *
+             * AND IT IS LOGGED AT INFO, NOT WARNING. This is the ordinary case -- the buyer who
+             * paid and refreshed the confirmation page. Logging it at warning would put the
+             * success path into whatever anybody alerts on.
+             */
+            Log::info('Plan activation re-run for an already-recorded reference from the same buyer.', $context);
+
+            /*
+             * ═══════════════════════════════════════════════════════════════════════════════════
+             * AND IT ONLY RE-RUNS WHEN THE BUYER DOES NOT ALREADY HOLD THE PLAN. Found by
+             * independent review of 7341b4d0, on the Paytm path but true of every caller.
+             * ═══════════════════════════════════════════════════════════════════════════════════
+             *
+             * The comment above is right that `assignPlan()` writes no second `PlanOrder` and
+             * right that re-running it repairs a half-finished activation. What it does not say is
+             * that `User::assignPlan()` recomputes `plan_expire_date` from `Carbon::now()`
+             * (`User.php:250-257`) rather than from the paid-for period -- so re-running it for a
+             * buyer who ALREADY holds the plan does not repair anything, it **extends the expiry**.
+             *
+             * The provider body that reaches these handlers is signed by the provider and
+             * delivered through the buyer's own browser, so the buyer holds a replayable copy of
+             * it. Re-presenting it once a month kept a paid plan alive indefinitely on a single
+             * payment. Not a substitution -- the guard already pins the plan -- but a free
+             * renewal, which is the same loss by a slower route.
+             *
+             * `$user->plan_id !== $planId` separates the two cases exactly: a buyer whose
+             * entitlement did not land does not hold the plan, so the repair still happens, and a
+             * buyer who does hold it gets the success answer with no write. Nothing else in the
+             * guard changes.
+             *
+             * The Paytm handler also short-circuits above this on its own intent record, which is
+             * the stronger check where that table exists. This is the floor for every caller, and
+             * for installations where it does not.
+             */
+            if (is_object($user) && method_exists($user, 'assignPlan') && $planId !== null) {
+                $alreadyHoldsIt = isset($user->plan_id) && (int) $user->plan_id === (int) $planId;
+
+                if (! $alreadyHoldsIt) {
+                    $assignPlan = $user->assignPlan($planId);
+
+                    if (empty($assignPlan['is_success'])) {
+                        return redirect()->route('plan.index')
+                            ->with('error', $assignPlan['error'] ?? __('Transaction Unsuccesfull'));
+                    }
+                }
+            }
+
+            return redirect()->route('plan.index')->with('success', __('Plan activated Successfully.'));
+        }
+
+        Log::warning('Plan activation refused: this provider reference has already activated a plan.', $context);
+
+        return redirect()->route('plan.index')->with('error', __('Transaction Unsuccesfull'));
     }
 }

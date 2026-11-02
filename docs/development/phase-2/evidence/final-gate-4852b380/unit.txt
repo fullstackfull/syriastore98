@@ -1,0 +1,842 @@
+
+   WARN  Metadata found in doc-comment for method Tests\Unit\Ci\SecretScannerCoverageTest::test_the_artefact_is_untracked_and_ignored(). Metadata in doc-comments is deprecated and will no longer be supported in PHPUnit 12. Update your test code to use attributes instead.
+
+   WARN  Metadata found in doc-comment for method Tests\Unit\Merchant\ArabicValidationMessagesTest::test_arabic_translates_every_message_english_defines(). Metadata in doc-comments is deprecated and will no longer be supported in PHPUnit 12. Update your test code to use attributes instead.
+
+   WARN  Metadata found in doc-comment for method Tests\Unit\Merchant\ArabicValidationMessagesTest::test_arabic_defines_no_message_english_does_not(). Metadata in doc-comments is deprecated and will no longer be supported in PHPUnit 12. Update your test code to use attributes instead.
+
+   WARN  Metadata found in doc-comment for method Tests\Unit\Merchant\ArabicValidationMessagesTest::test_every_arabic_message_keeps_the_english_placeholders(). Metadata in doc-comments is deprecated and will no longer be supported in PHPUnit 12. Update your test code to use attributes instead.
+
+   WARN  Metadata found in doc-comment for method Tests\Unit\Merchant\UploadLimitsTest::test_an_ini_size_is_read_as_kilobytes(). Metadata in doc-comments is deprecated and will no longer be supported in PHPUnit 12. Update your test code to use attributes instead.
+
+   WARN  Metadata found in doc-comment for method Tests\Unit\Merchant\UploadLimitsTest::test_a_size_is_labelled_without_trailing_zeros(). Metadata in doc-comments is deprecated and will no longer be supported in PHPUnit 12. Update your test code to use attributes instead.
+
+   WARN  Metadata found in doc-comment for method Tests\Unit\Security\SecretSettingTest::test_resolve_keeps_the_stored_value_unless_something_was_typed(). Metadata in doc-comments is deprecated and will no longer be supported in PHPUnit 12. Update your test code to use attributes instead.
+
+   WARN  Metadata found in doc-comment for method Tests\Unit\Ui\OrderDetailShellContractTest::test_the_tone_method_reproduces_the_old_branch_chain(). Metadata in doc-comments is deprecated and will no longer be supported in PHPUnit 12. Update your test code to use attributes instead.
+
+   WARN  Metadata found in doc-comment for method Tests\Unit\Ui\SettingsPanelContractTest::test_the_panel_still_posts_to_the_same_route(). Metadata in doc-comments is deprecated and will no longer be supported in PHPUnit 12. Update your test code to use attributes instead.
+
+   WARN  Metadata found in doc-comment for method Tests\Unit\Ui\SettingsPanelContractTest::test_the_panel_still_posts_the_same_fields(). Metadata in doc-comments is deprecated and will no longer be supported in PHPUnit 12. Update your test code to use attributes instead.
+
+   WARN  Metadata found in doc-comment for method Tests\Unit\Ui\SettingsPanelContractTest::test_the_fragment_still_posts_the_same_fields(). Metadata in doc-comments is deprecated and will no longer be supported in PHPUnit 12. Update your test code to use attributes instead.
+
+   WARN  Metadata found in doc-comment for method Tests\Unit\Ui\SettingsPanelFreshStoreRenderTest::test_the_panel_renders_with_no_saved_settings(). Metadata in doc-comments is deprecated and will no longer be supported in PHPUnit 12. Update your test code to use attributes instead.
+
+   WARN  Metadata found in doc-comment for method Tests\Unit\Ui\VariantDeleteScopeTest::test_no_identifier_is_emitted_without_the_variant_suffix(). Metadata in doc-comments is deprecated and will no longer be supported in PHPUnit 12. Update your test code to use attributes instead.
+
+   PASS  Tests\Unit\ApiContract\FlutterEndpointManifestTest
+  ✓ the three endpoints the manifest had lost are present
+  ✓ the endpoint count is the measured one
+  ✓ the field to path map is pinned whole
+  ✓ every entry is shaped like an endpoint
+  ✓ the manifest still declares itself generated
+
+   PASS  Tests\Unit\Ci\ClaudeConfigurationTest
+  ✓ every configuration file is committed and present                    0.01s  
+  ✓ the settings file wires the hook as documented
+  ✓ the hook script is executable
+  ✓ personal configuration is not committed
+  ✓ a write to a vendored module is refused with data set " edit, absol… 0.04s  
+  ✓ a write to a vendored module is refused with data set " edit, relat… 0.04s  
+  ✓ a write to a vendored module is refused with data set " edit, ./ pr… 0.04s  
+  ✓ a write to a vendored module is refused with data set " write"       0.04s  
+  ✓ a write to a vendored module is refused with data set " notebook ed… 0.04s  
+  ✓ a write to a vendored module is refused with data set " multi edit,… 0.04s  
+  ✓ a write to a vendored module is refused with data set "a different…  0.04s  
+  ✓ a write to the first party module is allowed with data set "relativ… 0.05s  
+  ✓ a write to the first party module is allowed with data set "absolut… 0.03s  
+  ✓ a write to the first party module is allowed with data set "nested…  0.03s  
+  ✓ the exemption is an exact name and not a prefix                      0.05s  
+  ✓ the hook allowlist agrees with the ci guard
+  ✓ reading a vendored module is still allowed                           0.04s  
+  ✓ a secret file is refused for reads and writes with data set ".env"   0.14s  
+  ✓ a secret file is refused for reads and writes with data set ".env.t… 0.14s  
+  ✓ a secret file is refused for reads and writes with data set ".env.p… 0.14s  
+  ✓ a secret file is refused for reads and writes with data set "the ap… 0.12s  
+  ✓ a secret file is refused for reads and writes with data set "a priv… 0.14s  
+  ✓ a secret file is refused for reads and writes with data set "compos… 0.12s  
+  ✓ a secret file is refused for reads and writes with data set "an ssh… 0.13s  
+  ✓ the documented safe files stay readable with data set ".env.example… 0.05s  
+  ✓ the documented safe files stay readable with data set "config/auth.… 0.06s  
+  ✓ the documented safe files stay readable with data set "the laravel…  0.05s  
+  ✓ the documented safe files stay readable with data set "an ordinary…  0.04s  
+  ✓ a shell command reaching a protected path is refused with data set…  0.03s  
+  ✓ a shell command reaching a protected path is refused with data set…  0.05s  
+  ✓ a shell command reaching a protected path is refused with data set…  0.04s  
+  ✓ a shell command reaching a protected path is refused with data set…  0.04s  
+  ✓ a shell command reaching a protected path is refused with data set…  0.05s  
+  ✓ a shell command reaching a protected path is refused with data set…  0.05s  
+  ✓ a shell command reaching a protected path is refused with data set…  0.05s  
+  ✓ a shell command reaching a protected path is refused with data set…  0.03s  
+  ✓ legitimate shell commands are not refused with data set "grep the m… 0.05s  
+  ✓ legitimate shell commands are not refused with data set "list a mod… 0.05s  
+  ✓ legitimate shell commands are not refused with data set "cat a modu… 0.03s  
+  ✓ legitimate shell commands are not refused with data set "sed into l… 0.05s  
+  ✓ legitimate shell commands are not refused with data set "cat the en… 0.04s  
+  ✓ legitimate shell commands are not refused with data set "grep the e… 0.05s  
+  ✓ legitimate shell commands are not refused with data set "run the te… 0.03s  
+  ✓ legitimate shell commands are not refused with data set "read the l… 0.03s  
+  ✓ legitimate shell commands are not refused with data set "git status… 0.04s  
+  ✓ the hook fails open rather than erroring with data set "empty"       0.04s  
+  ✓ the hook fails open rather than erroring with data set "whitespace"  0.03s  
+  ✓ the hook fails open rather than erroring with data set "not json"    0.04s  
+  ✓ the hook fails open rather than erroring with data set "a json arra… 0.03s  
+  ✓ the hook fails open rather than erroring with data set "a json stri… 0.05s  
+  ✓ the hook fails open rather than erroring with data set "null"        0.04s  
+  ✓ the hook fails open rather than erroring with data set "no tool nam… 0.04s  
+  ✓ the hook fails open rather than erroring with data set "no tool inp… 0.03s  
+  ✓ the hook fails open rather than erroring with data set "null input"  0.03s  
+  ✓ the hook fails open rather than erroring with data set "input is a…  0.04s  
+  ✓ the hook fails open rather than erroring with data set "unknown too… 0.05s  
+  ✓ the hook fails open rather than erroring with data set "empty bash…  0.04s  
+  ✓ the hook fails open rather than erroring with data set "deeply nest… 0.03s  
+  ✓ the reviewer subagent is read only
+  ✓ the frontmatter satisfies the documented contract with data set "the subagent"
+  ✓ the frontmatter satisfies the documented contract with data set "the command"
+  ✓ the subagent name is valid and matches its filename
+  ✓ every tool the subagent declares is a real tool
+  ✓ the subagent model field is a permitted value
+  ✓ the reviewer covers every area the owner asked for
+  ✓ the tenant check command only orchestrates existing suites
+  ✓ claude md does not restate the large documents
+  ✓ the project local skill is discoverable
+  ✓ claude md does not depend on an uncommitted skill
+  ✓ the tooling manifest labels install required tools
+  ✓ every vendored skill is discoverable
+  ✓ no vendored skill points at something absent
+  ✓ the provenance record pins what was vendored
+  ✓ no vendored skill competes with the project protocol
+  ✓ the design skills declare every external host they reference
+  ✓ no credential is committed in the tooling configuration
+
+   PASS  Tests\Unit\Ci\KnownTestOutcomesCheckerTest
+  ✓ a log matching the manifest passes                                   0.29s  
+  ✓ adding hundreds of passing tests does not change the verdict         0.08s  
+  ✓ but one new failure or skip among them still reddens the gate        0.09s  
+  ✓ one undeclared failure fails the gate                                0.04s  
+  ✓ a fixed known failure swapped for a new one is caught although the…  0.04s  
+  ✓ a known failure that starts passing fails the gate on its own        0.04s  
+  ✓ an undeclared skip fails the gate                                    0.05s  
+  ✓ a declared skip that stops skipping fails the gate                   0.03s  
+  ✓ a skip whose reason no longer names the recorded blocker fails the…  0.04s  
+  ✓ a skip whose reason still names the recorded blocker passes          0.04s  
+  ✓ a manifest requiring the reason log fails when it is not supplied    0.05s  
+  ✓ a missing teamcity log file fails                                    0.05s  
+  ✓ an unparseable teamcity log fails rather than verifying nothing      0.03s  
+  ✓ an error fails the gate even when failures and skips match           0.04s  
+  ✓ a truncated log fails instead of passing vacuously                   0.03s  
+  ✓ a missing log fails                                                  0.04s  
+  ✓ an unparseable log fails                                             0.03s  
+  ✓ a missing manifest fails                                             0.05s  
+  ✓ two data sets of one method are judged separately                    0.04s  
+  ✓ nested testsuites are walked                                         0.04s  
+  ✓ the committed manifest is valid and declares the recorded counts
+  ✓ the committed manifest requires the reason log
+  ✓ the real script accepts a log built from the real manifest           0.05s  
+  ✓ the real manifest rejects a retargeted skip with data set " tests…  0.04s  
+  ✓ the real manifest rejects a retargeted skip with data set " tests…  0.04s  
+  ✓ the real manifest rejects a retargeted skip with data set " tests…  0.04s  
+  ✓ the real manifest rejects a retargeted skip with data set " tests…  0.05s  
+  ✓ the real manifest rejects a retargeted skip with data set " tests…  0.04s  
+  ✓ the real manifest rejects a retargeted skip with data set " tests…  0.04s  
+  ✓ the real manifest rejects a retargeted skip with data set " tests…  0.04s  
+  ✓ the real manifest rejects a retargeted skip with data set " tests…  0.05s  
+  ✓ the real manifest rejects a retargeted skip with data set " tests…  0.04s  
+  ✓ the real manifest rejects a retargeted skip with data set " tests…  0.04s  
+  ✓ the real manifest rejects a retargeted skip with data set " tests…  0.04s  
+  ✓ the real manifest rejects a retargeted skip with data set " tests…  0.04s  
+  ✓ the real manifest rejects a retargeted skip with data set " tests…  0.05s  
+  ✓ the real manifest rejects a retargeted skip with data set " tests…  0.04s  
+  ✓ the real manifest rejects a retargeted skip with data set " tests…  0.04s  
+  ✓ the real manifest rejects a retargeted skip with data set " tests…  0.04s  
+  ✓ the real manifest rejects a retargeted skip with data set " tests…  0.04s  
+  ✓ the real manifest rejects a log missing one declared failure with d… 0.05s  
+  ✓ the real manifest rejects a log missing one declared failure with d… 0.05s  
+
+   PASS  Tests\Unit\Ci\RegressionGateTest
+  ✓ a clean branch passes                                                0.24s  
+  ✓ an inherited failure does not fail the branch                        0.06s  
+  ✓ a new failure fails the branch                                       0.04s  
+  ✓ one fixed and one broken still fails                                 0.06s  
+  ✓ a manifest accepted failure is reported separately from drift        0.04s  
+  ✓ it reads the manifests real object keyed shape                       0.04s  
+  ✓ it reports the official gate as blocked and refuses to imply green   0.04s  
+  ✓ an empty or truncated run is refused rather than called clean        0.04s  
+
+   PASS  Tests\Unit\Ci\RequiredGateWiringTest
+  ✓ the workflow parses                                                  0.06s  
+  ✓ both required test jobs exist
+  ✓ the job is not conditional with data set "tests"
+  ✓ the job is not conditional with data set "tests-degraded"
+  ✓ the job is not continue on error with data set "tests"
+  ✓ the job is not continue on error with data set "tests-degraded"
+  ✓ only the feature phpunit step tolerates its own exit status with data set "tests"
+  ✓ only the feature phpunit step tolerates its own exit status with data set "tests-degraded"
+  ✓ the known outcome assertion step is blocking with data set "tests"
+  ✓ the known outcome assertion step is blocking with data set "tests-degraded"
+  ✓ the job asserts against the one committed manifest with data set "tests"
+  ✓ the job asserts against the one committed manifest with data set "tests-degraded"
+  ✓ the job runs both real suites unnarrowed with data set "tests"
+  ✓ the job runs both real suites unnarrowed with data set "tests-degraded"
+  ✓ the install is never swallowed with data set "tests"
+  ✓ the install is never swallowed with data set "tests-degraded"
+  ✓ the job guards the test database with data set "tests"
+  ✓ the job guards the test database with data set "tests-degraded"
+  ✓ the job pins sqlite in memory with data set "tests"
+  ✓ the job pins sqlite in memory with data set "tests-degraded"
+  ✓ no job or step condition depends on a repository variable
+  ✓ the degraded job screens the install failure
+  ✓ the degraded job proves it did not edit the committed manifests
+  ✓ the degraded job asserts the excluded package is absent
+  ✓ the degraded job measures the tree against the real lock
+  ✓ the strict job has no tolerance of any kind
+  ✓ the security sensitive diff checklist runs on every event            0.03s  
+  ✓ the gate is enforced in exactly one place and reported in the rest   0.02s  
+  ✓ no required gate was lost in the workflow merge
+  ✓ the workdo guard sees the whole pushed range
+  ✓ the job runs the cross repository contract suite with data set "tests"
+  ✓ the job runs the cross repository contract suite with data set "tests-degraded"
+  ✓ the regression gate job is still present and pull request scoped
+
+   PASS  Tests\Unit\Ci\SecretScannerCoverageTest
+  ✓ the script is valid bash                                             0.04s  
+  ✓ both copies of the pattern tolerate a quote before the operator
+  ✓ a planted php array secret fails the scanner                         0.16s  
+  ✓ the scanner does not fire on calls placeholders or mentions          0.11s  
+  ✓ the generic rule is not applied to the test tree                     0.11s  
+  ✓ a high confidence credential in the test tree still fails            0.09s  
+  ✓ the exclusion for this file is exactly one file wide                 0.10s  
+  ✓ the exclusion list names exactly the three self referential files
+  ✓ only the generic rule is narrowed away from the test tree
+  ✓ the artefact is untracked and ignored with data set "live-host erro… 0.04s  
+  ✓ the artefact is untracked and ignored with data set "shell-escaping… 0.04s  
+  ✓ the artefact is untracked and ignored with data set "composer phar"  0.04s  
+
+   PASS  Tests\Unit\Ci\SecurityAttestationWiringTest
+  ✓ a description edit triggers the check                                0.05s  
+  ✓ the job is not conditional or tolerant
+  ✓ it asks the script with the current body
+  ✓ the attestation is enforced in exactly one workflow
+  ✓ ci has no event action conditions
+  ✓ the pattern covers the surfaces the limiters live on
+
+   PASS  Tests\Unit\Ci\SensitiveDiffGateTest
+  ✓ a diff touching nothing sensitive passes                             0.25s  
+  ✓ enforce mode fails a sensitive diff with no acknowledgement          0.24s  
+  ✓ enforce mode passes when the checklist is acknowledged               0.29s  
+  ✓ the two argument call still enforces                                 0.26s  
+  ✓ report mode warns without failing                                    0.24s  
+  ✓ report mode still honours an acknowledgement                         0.23s  
+  ✓ an unknown mode is a usage error not a downgrade                     0.25s  
+  ✓ a missing base ref is a usage error                                  0.13s  
+  ✓ a bypass is recorded in the step summary                             0.25s  
+
+   PASS  Tests\Unit\ComposerClassLoaderGuardTest
+  ✓ premise a composer class loader is registered                        0.04s  
+  ✓ premise the workdo namespace is not in composer json
+  ✓ it drops workdo misses and keeps every other entry
+  ✓ it reports zero and touches nothing when there is nothing to drop
+  ✓ the base test case clears the cache in set up
+
+   PASS  Tests\Unit\Config\NoEnvCallsInFirstPartyBladeTest
+  ✓ the scan really reaches every view root                              0.01s  
+  ✓ the comment blanker removes comments and preserves line numbers
+  ✓ no first party blade view reads the environment                      0.02s  
+
+   PASS  Tests\Unit\Dashboard\DashboardPermissionNamesTest
+  ✓ every permission the merchant views gate on can actually be granted  0.26s  
+
+   PASS  Tests\Unit\Database\GateFCoverageLedgerTest
+  ✓ the ledger covers exactly the six gate f money tables
+  ✓ the uncovered set has not grown
+  ✓ every gate f table is reachable from live application code           0.09s  
+  ✓ the call site scanner is not vacuous                                 0.03s  
+  ✓ the hidden delivery earnings assertion is still recorded as hidden
+
+   PASS  Tests\Unit\Database\GateFSchemaContainmentTest
+  ✓ the migration scan is not vacuous                                    0.01s  
+  ✓ no discoverable migration creates a gate f money table               0.01s  
+  ✓ every gate f table still has a parked draft
+  ✓ the gate f skips still state their table and their reason
+
+   PASS  Tests\Unit\Database\MigrationHygieneTest
+  ✓ both migration trees are discoverable                                0.01s  
+  ✓ no migration contains unguarded mysql only sql                       0.01s  
+  ✓ the two known mysql only migrations are still guarded
+  ✓ no unexpected duplicate migration basenames
+  ✓ increment 2 catch up migrations are all guarded
+  ✓ tables created by two root migrations are guarded
+  ✓ plan id type drift remains the only root instance
+  ✓ gate f provisional drafts are not discoverable as migrations
+
+   PASS  Tests\Unit\Database\MigrationPortabilityTest
+  ✓ migrate fresh succeeds on sqlite                                     0.54s  
+  ✓ from zero schema has the five code derivable columns                 0.34s  
+  ✓ rerunning the catch up migrations is a no op                         0.37s  
+  ✓ customer can be created and soft delete semantics hold               0.37s  
+  ✓ order insert persists currency code and symbol                       0.44s  
+
+   PASS  Tests\Unit\Database\OrderSourceWriterCensusTest
+  ✓ the census is not vacuous                                            0.82s  
+  ✓ every order writer records its source                                0.84s  
+  ✓ every stamp uses the vocabulary                                      0.40s  
+  ✓ every writer stamps the constant its path warrants                   1.02s  
+  ✓ the vocabulary has no name for an absent source
+
+   PASS  Tests\Unit\Dependency\ComposerLockIntegrityGuardTest
+  ✓ the guard exists and is executable                                   0.01s  
+  ✓ an exact match passes                                                0.05s  
+  ✓ a single patch release of drift is detected                          0.05s  
+  ✓ a locked package that is not installed is detected                   0.05s  
+  ✓ an installed package absent from the lock is detected                0.05s  
+  ✓ a major version crossing is called out by name                       0.05s  
+  ✓ the comparison is the literal version string including any v prefix  0.04s  
+  ✓ report mode measures the drift but does not fail                     0.04s  
+  ✓ report mode still reports a clean tree as clean                      0.04s  
+  ✓ a missing installed json fails enforce mode                          0.01s  
+  ✓ a missing composer lock fails in both modes                          0.02s  
+  ✓ allow missing tolerates exactly the named absent package             0.05s  
+  ✓ a tolerated pass does not claim the tree matches the lock            0.05s  
+  ✓ allow missing does not tolerate a second absent package              0.06s  
+  ✓ allow missing does not tolerate a version difference on the named p… 0.06s  
+  ✓ allow missing does not tolerate a package absent from the lock       0.05s  
+  ✓ the default mode still fails on the very package the tolerance name… 0.09s  
+  ✓ allow missing does not tolerate a missing installed json             0.01s  
+  ✓ an empty allow list is refused rather than treated as enforce        0.01s  
+  ✓ an unrecognised mode is refused                                      0.01s  
+
+   PASS  Tests\Unit\Dependency\DegradedManifestBuilderTest
+  ✓ the builder exists and parses                                        0.07s  
+  ✓ the committed manifests are byte identical afterwards                0.05s  
+  ✓ an output basename of composer is refused                            0.05s  
+  ✓ a basename containing a path separator is refused                    0.12s  
+  ✓ exactly the named package is removed from the lock                   0.05s  
+  ✓ no surviving entry is altered in any way                             0.05s  
+  ✓ the root requirement is dropped and nothing else in the json change… 0.06s  
+  ✓ a package absent from the lock is refused                            0.04s  
+  ✓ a package another locked package requires is refused                 0.05s  
+  ✓ the excluded packages own requirements do not block its exclusion    0.05s  
+  ✓ an empty package list is refused                                     0.05s  
+  ✓ the output states plainly that this is not a fix                     0.05s  
+  ✓ the real committed pair no longer contains the dead package and a s… 0.08s  
+
+   PASS  Tests\Unit\Dependency\InstallFailureScreenTest
+  ✓ the screen exists and parses                                         0.06s  
+  ✓ the measured payhere failure is recognised and tolerated             0.05s  
+  ✓ a transport exception naming only a url is attributed through the l… 0.05s  
+  ✓ a second dead package is not absorbed into the tolerance             0.04s  
+  ✓ a second dead package is caught even when only its url appears       0.05s  
+  ✓ a dev dependency failure is not tolerated either                     0.04s  
+  ✓ a failure that names no locked package is refused with data set "a…  0.04s  
+  ✓ a failure that names no locked package is refused with data set "an… 0.04s  
+  ✓ a failure that names no locked package is refused with data set "a…  0.04s  
+  ✓ an empty log is refused                                              0.05s  
+  ✓ a missing log is refused                                             0.04s  
+  ✓ the tolerated package not failing is refused                         0.04s  
+  ✓ the tolerated package absent from the failure set is named as such   0.04s  
+  ✓ an empty tolerated set is refused                                    0.05s  
+  ✓ a missing lock is refused rather than degrading to name matching     0.05s  
+  ✓ progress lines are not read as failures                              0.04s  
+
+   PASS  Tests\Unit\ExampleTest
+  ✓ that true is true                                                    0.01s  
+
+   PASS  Tests\Unit\Layout\AdminLayoutAssetsTest
+  ✓ every stylesheet the admin layout declares exists on disk            0.12s  
+  ✓ all four layout stylesheet combinations resolve                      0.08s  
+
+   PASS  Tests\Unit\Localisation\TranslationFileIntegrityTest
+  ✓ the file is valid json with data set "ar"
+  ✓ the file is valid json with data set "en"
+  ✓ the file has no duplicate keys with data set "ar"
+  ✓ the file has no duplicate keys with data set "en"
+  ✓ arabic declares no key english has dropped
+
+   PASS  Tests\Unit\Merchant\ArabicUiCoverageTest
+  ✓ every surface is scanned and yields strings
+  ✓ every phase 02 surface string has an arabic translation
+  ✓ the exemption list is empty
+
+   PASS  Tests\Unit\Merchant\ArabicValidationMessagesTest
+  ✓ arabic translates every message english defines with data set "validation"
+  ✓ arabic translates every message english defines with data set "auth"
+  ✓ arabic translates every message english defines with data set "passwords"
+  ✓ arabic translates every message english defines with data set "pagination"
+  ✓ arabic defines no message english does not with data set "validation"
+  ✓ arabic defines no message english does not with data set "auth"
+  ✓ arabic defines no message english does not with data set "passwords"
+  ✓ arabic defines no message english does not with data set "pagination"
+  ✓ every arabic message keeps the english placeholders with data set "validation"
+  ✓ every arabic message keeps the english placeholders with data set "auth"
+  ✓ every arabic message keeps the english placeholders with data set "passwords"
+  ✓ every arabic message keeps the english placeholders with data set "pagination"
+  ✓ the attributes map is empty in both locales
+  ✓ the translator actually serves the arabic required message
+
+   PASS  Tests\Unit\Merchant\UploadLimitsTest
+  ✓ an ini size is read as kilobytes with data set "megabytes"
+  ✓ an ini size is read as kilobytes with data set "megabytes lower"
+  ✓ an ini size is read as kilobytes with data set "kilobytes"
+  ✓ an ini size is read as kilobytes with data set "gigabytes"
+  ✓ an ini size is read as kilobytes with data set "bare bytes"
+  ✓ an ini size is read as kilobytes with data set "unlimited"
+  ✓ an ini size is read as kilobytes with data set "empty"
+  ✓ an ini size is read as kilobytes with data set "zero"
+  ✓ a size is labelled without trailing zeros with data set #0
+  ✓ a size is labelled without trailing zeros with data set #1
+  ✓ a size is labelled without trailing zeros with data set #2
+  ✓ a size is labelled without trailing zeros with data set #3
+  ✓ a size is labelled without trailing zeros with data set #4
+  ✓ a size is labelled without trailing zeros with data set #5
+  ✓ a size is labelled without trailing zeros with data set #6
+  ✓ a size is labelled without trailing zeros with data set #7
+  ✓ the label never shows a bare decimal point or a trailing zero
+  ✓ the service exposes everything the views interpolate
+  ✓ the editor does not advertise dropzones default ceiling
+
+   PASS  Tests\Unit\Merchant\VariantKeySelectorSafetyTest
+  ✓ every sibling view still exists and still renders the key            0.01s  
+  ✓ no collapse identifier is built from the raw key
+  ✓ every class selector built from a key is escaped
+
+   PASS  Tests\Unit\Navigation\MenuTreeParityTest
+  ✓ menu tree orders by order not by array position                      0.09s  
+  ✓ an item without a route falls back to the hash bang                  0.09s  
+  ✓ only top level items are marked top                                  0.11s  
+  ✓ the rendered dom keeps every selector the sidebar search needs       0.15s  
+  ✓ zones add headings as siblings and never wrap an item                0.13s  
+  ✓ a menu title carrying markup is escaped                              0.13s  
+  ✓ a parent whose only child is excluded gets no arrow                  0.13s  
+  ✓ mobilescreensetting is excluded when not a mobile build              0.13s  
+
+   PASS  Tests\Unit\Packages\AddonMigrationRegistrationTest
+  ✓ the scan still sees every module registering migrations              0.30s  
+  ✓ exactly one addon module strands migrations it actually ships        0.24s  
+  ✓ the benign pathless modules still ship no migrations                 0.28s  
+  ✓ the landing page provider still declares the mis cased path
+  ✓ the six stranded tables are still the six recorded
+
+   PASS  Tests\Unit\Payments\OrderAttributionRatchetTest
+  ✓ the exempt files still exist and still match
+  ✓ no order reference is built from request input                       0.02s  
+  ✓ no order ledger row is attributed from request input                 0.02s  
+  ✓ every authenticated checkout branch reads the session                0.02s  
+
+   PASS  Tests\Unit\Payments\PaymentTypeLabelTest
+  ✓ every gateway registry id resolves to a label                        0.12s  
+  ✓ every storefront payment list name resolves to a label               0.10s  
+  ✓ the two literals live code stores resolve                            0.09s  
+  ✓ the lookup is case and whitespace insensitive                        0.09s  
+  ✓ an unknown value resolves to null rather than a guess                0.08s  
+  ✓ a translated historical value is not interpreted                     0.10s  
+  ✓ a brand name is never passed through the translator                  0.09s  
+  ✓ no label the order list already produced has changed                 0.09s  
+  ✓ every old map key still resolves                                     0.09s  
+  ✓ both spellings of the one ambiguous provider resolve                 0.12s  
+  ✓ the known set is folded and free of duplicates                       0.12s  
+
+   PASS  Tests\Unit\Payments\StripeMoneyTest
+  ✓ it converts with data set "dollars and cents"                        0.01s  
+  ✓ it converts with data set "numeric string from set number"
+  ✓ it converts with data set "a single cent"
+  ✓ it converts with data set "the classic float case"
+  ✓ it converts with data set "a value the truncating form gets wrong"
+  ✓ it converts with data set "another one"
+  ✓ it converts with data set "zero-decimal yen"
+  ✓ it converts with data set "zero-decimal rounds up"
+  ✓ it converts with data set "zero-decimal lowercase"
+  ✓ it converts with data set "zero is zero"
+  ✓ it converts with data set "negative is clamped"
+  ✓ it converts with data set "unknown currency is treated as minor-unit bearing"
+  ✓ it does not truncate where the existing conversion does
+  ✓ the zero decimal list matches the projects existing one
+
+   PASS  Tests\Unit\Repository\NoTrackedTestArtefactsTest
+  ✓ no generated upload or fixture is tracked                            0.14s  
+  ✓ the patterns catch this suites fixtures and spare real content       0.10s  
+
+   PASS  Tests\Unit\SanitisedVisitorTest
+  ✓ the value of a credential looking parameter is replaced with data set "token"
+  ✓ the value of a credential looking parameter is replaced with data set "password"
+  ✓ the value of a credential looking parameter is replaced with data set "passwd"
+  ✓ the value of a credential looking parameter is replaced with data set "pwd"
+  ✓ the value of a credential looking parameter is replaced with data set "otp"
+  ✓ the value of a credential looking parameter is replaced with data set "code"
+  ✓ the value of a credential looking parameter is replaced with data set "secret"
+  ✓ the value of a credential looking parameter is replaced with data set "signature"
+  ✓ the value of a credential looking parameter is replaced with data set "sig"
+  ✓ the value of a credential looking parameter is replaced with data set "api key"
+  ✓ the value of a credential looking parameter is replaced with data set "key"
+  ✓ the value of a credential looking parameter is replaced with data set "email"
+  ✓ the value of a credential looking parameter is replaced with data set "mail"
+  ✓ the value of a credential looking parameter is replaced with data set "auth"
+  ✓ the value of a credential looking parameter is replaced with data set "access auth"
+  ✓ the value of a credential looking parameter is replaced with data set "cookie"
+  ✓ the value of a credential looking parameter is replaced with data set "session"
+  ✓ the value of a credential looking parameter is replaced with data set "cvv"
+  ✓ the value of a credential looking parameter is replaced with data set "card"
+  ✓ the value of a credential looking parameter is replaced with data set "card number"
+  ✓ the value of a credential looking parameter is replaced with data set "pin"
+  ✓ the value of a credential looking parameter is replaced with data set "pw"
+  ✓ the value of a credential looking parameter is replaced with data set "cvc"
+  ✓ the value of a credential looking parameter is replaced with data set "hash"
+  ✓ the value of a credential looking parameter is replaced with data set "nonce"
+  ✓ the value of a credential looking parameter is replaced with data set "jwt"
+  ✓ the value of a credential looking parameter is replaced with data set "bearer"
+  ✓ the value of a credential looking parameter is replaced with data set "credential"
+  ✓ the value of a credential looking parameter is replaced with data set "ticket"
+  ✓ the value of a credential looking parameter is replaced with data set "sessid"
+  ✓ the value of a credential looking parameter is replaced with data set " p h p s e s s i d"
+  ✓ the value of a credential looking parameter is replaced with data set "iban"
+  ✓ the value of a credential looking parameter is replaced with data set "account number"
+  ✓ the value of a credential looking parameter is replaced with data set "sid"
+  ✓ the value of a credential looking parameter is replaced with data set "cc"
+  ✓ the name is matched case insensitively
+  ✓ a nested parameter is redacted where it sits
+  ✓ the path the fragment and a query free url survive untouched
+  ✓ a secret hidden in the fragment position of a query is still redacted
+  ✓ an encrypted payload in the path is redacted wherever the route puts it
+  ✓ an ordinary path segment is not mistaken for ciphertext
+  ✓ a json or oversized value is replaced whatever its name
+  ✓ a url valued parameter has its own query redacted
+  ✓ invalid utf8 is scrubbed so a later json encode or insert cannot fail
+  ✓ invalid utf8 in the path is scrubbed
+  ✓ a bad path byte does not become the query separator
+  ✓ a percent encoded capability link is redacted too
+  ✓ a ciphertext or jwt value is redacted whatever its length or name
+
+   PASS  Tests\Unit\Schema\ProductNotNullWriteRatchetTest
+  ✓ the migration still declares the columns this guards                 0.02s  
+  ✓ no bare request value is written into a not null column
+
+   PASS  Tests\Unit\Security\AuctionVariantDeleteReachabilityTest
+  ✓ the auction controller still cannot reach its variant deletes
+  ✓ both variant deletes still sit after the call that throws
+
+   PASS  Tests\Unit\Security\CategoryTreeEscapingTest
+  ✓ a name containing markup is escaped
+  ✓ the indent prefix is still rendered as markup
+  ✓ an ampersand in a name cannot forge the indent
+  ✓ quotes in a name are escaped
+
+   PASS  Tests\Unit\Security\ModelCacheIsolationConfigTest
+  ✓ the two store classes differ in taggability which is the whole mechanism
+  ✓ the model store names its own table
+  ✓ the isolation ships inert so merging changes nothing
+  ✓ the model cache table has a migration
+
+   PASS  Tests\Unit\Security\SecretSettingTest
+  ✓ resolve keeps the stored value unless something was typed with data… 0.24s  
+  ✓ resolve keeps the stored value unless something was typed with data… 0.10s  
+  ✓ resolve keeps the stored value unless something was typed with data… 0.10s  
+  ✓ resolve keeps the stored value unless something was typed with data… 0.10s  
+  ✓ resolve keeps the stored value unless something was typed with data… 0.13s  
+  ✓ resolve keeps the stored value unless something was typed with data… 0.15s  
+  ✓ resolve keeps the stored value unless something was typed with data… 0.15s  
+  ✓ resolve keeps the stored value unless something was typed with data… 0.15s  
+  ✓ a whitespace only submission does not overwrite                      0.15s  
+  ✓ display never returns the stored value                               0.15s  
+  ✓ is set reports existence only                                        0.12s  
+  ✓ a save that does not touch the box preserves the credential          0.11s  
+
+   PASS  Tests\Unit\Tenancy\StoreScopeContextStackTest
+  ✓ no context is open by default                                        0.01s  
+  ✓ a context is open inside its block and closed after
+  ✓ a throwing callback still closes its context
+  ✓ nesting restores the outer context rather than clearing it
+  ✓ a throwing inner block restores the outer context not none
+  ✓ an empty context is rejected instead of compiling to zero rows
+  ✓ the rejection does not leave a context open
+  ✓ a cross tenant block nested in an explicit context wins
+  ✓ the all models flip is off as a compiled in default
+  ✓ the context constants are all distinct
+
+   PASS  Tests\Unit\TestIsolationGuardTest
+  ✓ guard rejects non sqlite connection                                  0.01s  
+  ✓ guard rejects persistent sqlite file
+  ✓ guard rejects absent configuration
+  ✓ guard accepts sqlite in memory
+
+   PASS  Tests\Unit\TestIsolationWiringTest
+  ✓ phpunit xml forces sqlite and uses the bootstrap guard
+  ✓ the shared guard is still wired into both layers
+  ✓ env testing pins sqlite and carries a key
+
+   PASS  Tests\Unit\Ui\ActionPartialContractTest
+  ✓ every design system action control has an accessible name            0.11s  
+  ✓ no action control still carries a bootstrap button class             0.10s  
+  ✓ no action control carries a duplicate class attribute                0.10s  
+  ✓ every icon in an action cell is hidden from assistive technology     0.10s  
+  ✓ every delete control sits inside a form                              0.10s  
+  ✓ every design system variant used is defined in the stylesheet        0.11s  
+  ✓ every label these partials compose is translated in both languages   0.11s  
+  ✓ no accessible name is a bare verb                                    0.10s  
+
+   PASS  Tests\Unit\Ui\AjaxPopupContractRatchetTest
+  ✓ the plain ajax popup contract has not lost a caller                  0.01s  
+  ✓ the nested dialog surface has not grown                              0.01s  
+  ✓ the two mechanisms are still distinct in the script
+
+   PASS  Tests\Unit\Ui\BarChartComponentTest
+  ✓ the single series path is untouched                                  0.13s  
+  ✓ a second series adds a bar a column and a legend                     0.11s  
+  ✓ both series share one scale                                          0.10s  
+  ✓ a short second series narrows the chart                              0.22s  
+  ✓ no data renders the empty state                                      0.15s  
+
+   PASS  Tests\Unit\Ui\BladeViewsCompileTest
+  ✓ every first party blade view compiles to parseable php               0.96s  
+
+   PASS  Tests\Unit\Ui\BreadcrumbContractTest
+  ✓ the premise that there are many sections to check                    0.01s  
+  ✓ no merchant screen still uses the host themes breadcrumb item class  0.01s  
+  ✓ every breadcrumb marks exactly one item as the current page          0.01s  
+  ✓ the item marked as the current page is never a link                  0.01s  
+  ✓ every breadcrumb link carries the design system link class           0.01s  
+  ✓ no screen supplies its own home item                                 0.01s  
+  ✓ the layout renders the one breadcrumb component
+  ✓ the layout no longer hardcodes the host themes breadcrumb list
+  ✓ the component is a labelled navigation landmark around an ordered list
+  ✓ the separator is a pseudo element and is mirrored for rtl
+
+   PASS  Tests\Unit\Ui\ColumnReorderContractTest
+  ✓ the extension is vendored locally and not fetched from a cdn         0.18s  
+  ✓ the licence notice is kept                                           0.13s  
+  ✓ the extension version matches the installed datatables               0.10s  
+  ✓ every table gets the option with the action column held              0.12s  
+  ✓ the order is saved through the existing state mechanism              0.11s  
+  ✓ the keyboard move is marked final and saves the state                0.10s  
+  ✓ the sanitiser does not strip the column order                        0.11s  
+
+   PASS  Tests\Unit\Ui\CommandPaletteFocusTrapTest
+  ✓ the palette is not opened by a focus event                           0.15s  
+  ✓ the palette is still reachable without a keyboard shortcut           0.17s  
+  ✓ the keyboard shortcut survives                                       0.16s  
+  ✓ a deliberate open still focuses the input                            0.12s  
+
+   PASS  Tests\Unit\Ui\ConfirmationDialogContractTest
+  ✓ every confirmation trigger carries its own translated message        0.02s  
+  ✓ the scan sees the confirmation triggers at all                       0.01s  
+  ✓ no new raw browser dialog has appeared                               0.01s  
+  ✓ only one delegated confirmation handler is bound
+  ✓ the confirmation handler cancels the click it intercepts
+  ✓ the comment stripper removes comments and keeps code
+
+   PASS  Tests\Unit\Ui\DarkParagraphContrastRuleTest
+  ✓ neither dark stylesheet forces a colour on every paragraph           0.01s  
+  ✓ both dark stylesheets exempt design system paragraphs
+  ✓ the exemption matches a class token rather than a substring
+  ✓ the rules other selectors are untouched
+
+   PASS  Tests\Unit\Ui\DashboardOverviewOperatorGateTest
+  ✓ the orders gate tests the operator before asking laratrust           0.11s  
+  ✓ the comparison is normalised the way the rest of the codebase does…  0.09s  
+  ✓ the permission names are still the ones that exist                   0.11s  
+  ✓ neither dashboard blade re inlines its own permission check          0.14s  
+  ✓ both dashboard blades ask the one ability class                      0.11s  
+
+   PASS  Tests\Unit\Ui\DesignSystemStylesheetScopeTest
+  ✓ the physical property detector actually detects
+  ✓ the stylesheet uses logical properties only                          0.03s  
+  ✓ the stylesheet exists and was really parsed                          0.01s  
+  ✓ every selector is confined by a design system token                  0.01s  
+
+   PASS  Tests\Unit\Ui\FavouriteToggleStateContractTest
+  ✓ every favourite control carries both states copy
+  ✓ every favourite control has a swappable glyph and label target
+  ✓ the busy copy travels with the endpoint rather than in the script
+  ✓ the script announces the executing state through the shared region
+  ✓ the script moves every affordance on success
+  ✓ both new strings are translated in both languages                    0.01s  
+
+   PASS  Tests\Unit\Ui\FocusIndicatorRestorationTest
+  ✓ every theme still suppresses the focus outline
+  ✓ the restoration paints a visible outline
+  ✓ the restoration is keyboard only
+  ✓ the ring reuses the design system tokens with fallbacks
+  ✓ the layout loads it after every theme branch
+  ✓ the unconfined rule is not in the design system
+
+   PASS  Tests\Unit\Ui\HeaderAccessibleNamesTest
+  ✓ the scan finds the headers controls at all
+  ✓ no header control is left without an accessible name
+  ✓ the sidebar toggle specifically carries a translated name            0.01s  
+  ✓ the header has no paragraphs so f158 cannot reach it
+
+   PASS  Tests\Unit\Ui\HeaderContrastTokensTest
+  ✓ the token clears aa on the dark header bar
+  ✓ the token clears aa on the dark dropdown surface
+  ✓ the replaced colour really was below aa on both surfaces
+  ✓ both dark stylesheets carry the header bar token
+  ✓ both dark stylesheets carry the dropdown token confined to the header
+  ✓ the dropdown token is not applied application wide                   0.01s  
+  ✓ the brand as text rule reuses the existing derived property
+  ✓ the brand as text rule is scoped to light mode
+  ✓ the derived property is still computed in the layout
+
+   PASS  Tests\Unit\Ui\IconNamesExistTest
+  ✓ the scan reaches both the font and the markup                        0.02s  
+  ✓ every icon this application asks for exists in the bundled font      0.02s  
+
+   PASS  Tests\Unit\Ui\MerchantShellDesignSystemTest
+  ✓ every text bearing component carries the base layer
+  ✓ the document direction is never empty
+  ✓ the page heading is closed with its own tag
+  ✓ the skip link is rendered first and has a focusable target
+  ✓ the skip link string is translated in both languages                 0.01s  
+
+   PASS  Tests\Unit\Ui\NoBladeExpressionInsideCodeCommentTest
+  ✓ no first party view hides a blade expression in a code comment       0.61s  
+  ✓ the compiler really behaves the way this rule assumes                0.24s  
+  ✓ the detector catches a real offence and spares the measured exempti… 0.15s  
+
+   PASS  Tests\Unit\Ui\OrderDetailShellContractTest
+  ✓ the tone method reproduces the old branch chain with data set "stoc… 0.11s  
+  ✓ the tone method reproduces the old branch chain with data set "orde… 0.09s  
+  ✓ the tone method reproduces the old branch chain with data set "orde… 0.09s  
+  ✓ the tone method reproduces the old branch chain with data set "priv… 0.11s  
+  ✓ the tone method reproduces the old branch chain with data set "note… 0.10s  
+  ✓ the tone method reproduces the old branch chain with data set " ord… 0.11s  
+  ✓ the tone method reproduces the old branch chain with data set "admi… 0.10s  
+  ✓ the tone method reproduces the old branch chain with data set "admi… 0.10s  
+  ✓ the five note branches are now one block                             0.10s  
+  ✓ the note tone hook survives the card conversion                      0.11s  
+  ✓ the address lists are design system definition lists                 0.16s  
+  ✓ the page shell uses design system cards                              0.14s  
+  ✓ the page header actions are named and translated                     0.16s  
+
+   PASS  Tests\Unit\Ui\OrderPaymentColumnEscapingTest
+  ✓ the payment column is raw and its closure escapes                    0.12s  
+
+   PASS  Tests\Unit\Ui\PageActionRegionContractTest
+  ✓ every control in the region has an accessible name                   0.13s  
+  ✓ every icon in the region is hidden from assistive technology         0.16s  
+  ✓ the region carries no bootstrap button class                         0.19s  
+  ✓ the export control keeps its javascript handler contract             0.10s  
+  ✓ every control keeps its route and its tooltip                        0.10s  
+  ✓ the region uses only design system classes that exist                0.11s  
+  ✓ the region wrapper spaces its controls                               0.10s  
+
+   PASS  Tests\Unit\Ui\PanelStringContractTest
+  ✓ the census finds the panels it is supposed to check                  0.12s  
+  ✓ every panel declares its own loading and error text                  0.13s  
+  ✓ the panel strings go through the translator                          0.13s  
+  ✓ every panel string has an arabic value                               0.12s  
+
+   PASS  Tests\Unit\Ui\PaymentGatewayFieldContractTest
+  ✓ the scan reaches the gateways                                        0.12s  
+  ✓ every payment field declares whether it is a secret                  0.12s  
+  ✓ a field whose name says secret is flagged secret                     0.15s  
+  ✓ the save path and the display array know the same fields             0.15s  
+
+   PASS  Tests\Unit\Ui\ReportPeriodLabelTest
+  ✓ each window names itself                                             0.16s  
+  ✓ the five windows do not share a label                                0.12s  
+  ✓ a picked date names the date                                         0.13s  
+  ✓ a picked range names both ends                                       0.22s  
+  ✓ a one day range is not written twice                                 0.13s  
+  ✓ an absent date names today                                           0.14s  
+  ✓ the column header matches the buckets                                0.10s  
+
+   PASS  Tests\Unit\Ui\SettingsCredentialExposureTest
+  ✓ the scan reaches the settings views
+  ✓ the scanner sees through an arrow in a blade expression
+  ✓ no settings screen newly echoes a stored credential
+  ✓ the masked credential pattern exists and is the one to copy
+  ✓ the not a credential exemption matches whole names only
+  ✓ an input whose name is an expression renders no value
+  ✓ the payment partial branches on the secret flag
+
+   PASS  Tests\Unit\Ui\SettingsPanelContractTest
+  ✓ the panel still posts to the same route with data set "twilio setti… 0.10s  
+  ✓ the panel still posts to the same route with data set "shopify sett… 0.10s  
+  ✓ the panel still posts to the same route with data set "woocom setti… 0.11s  
+  ✓ the panel still posts to the same route with data set "chatgpt sett… 0.10s  
+  ✓ the panel still posts to the same route with data set "whatsapp not… 0.10s  
+  ✓ the panel still posts to the same route with data set "storage sett… 0.10s  
+  ✓ the panel still posts to the same route with data set "cookie setti… 0.10s  
+  ✓ the panel still posts to the same route with data set "stock settin… 0.12s  
+  ✓ the panel still posts to the same route with data set "refund setti… 0.10s  
+  ✓ the panel still posts to the same route with data set "tax opt sett… 0.16s  
+  ✓ the panel still posts to the same route with data set "loyality pro… 0.10s  
+  ✓ the panel still posts the same fields with data set "twilio setting… 0.10s  
+  ✓ the panel still posts the same fields with data set "shopify settin… 0.20s  
+  ✓ the panel still posts the same fields with data set "woocom setting… 0.14s  
+  ✓ the panel still posts the same fields with data set "chatgpt settin… 0.09s  
+  ✓ the panel still posts the same fields with data set "whatsapp notif… 0.09s  
+  ✓ the panel still posts the same fields with data set "storage settin… 0.09s  
+  ✓ the panel still posts the same fields with data set "cookie setting… 0.10s  
+  ✓ the panel still posts the same fields with data set "stock setting"  0.10s  
+  ✓ the panel still posts the same fields with data set "refund setting… 0.10s  
+  ✓ the panel still posts the same fields with data set "tax opt settin… 0.15s  
+  ✓ the panel still posts the same fields with data set "loyality pro s… 0.11s  
+  ✓ the fragment still posts the same fields with data set "recaptcha s… 0.14s  
+  ✓ the fragment still posts the same fields with data set "email field… 0.16s  
+  ✓ the scanner reaches the panels                                       0.16s  
+
+   PASS  Tests\Unit\Ui\SettingsPanelFreshStoreRenderTest
+  ✓ the panel renders with no saved settings with data set "brand"       0.60s  
+  ✓ the panel renders with no saved settings with data set "cache"       0.22s  
+  ✓ the panel renders with no saved settings with data set "chatgpt"     0.14s  
+  ✓ the panel renders with no saved settings with data set "cookie"      0.21s  
+  ✓ the panel renders with no saved settings with data set "email"       0.11s  
+  ✓ the panel renders with no saved settings with data set "email notif… 0.12s  
+  ✓ the panel renders with no saved settings with data set "loyality pr… 0.16s  
+  ✓ the panel renders with no saved settings with data set "otp"         0.16s  
+  ✓ the panel renders with no saved settings with data set "pixel field… 0.11s  
+  ✓ the panel renders with no saved settings with data set "recaptcha"   0.23s  
+  ✓ the panel renders with no saved settings with data set "refund"      0.17s  
+  ✓ the panel renders with no saved settings with data set "seo"         0.12s  
+  ✓ the panel renders with no saved settings with data set "shopify"     0.12s  
+  ✓ the panel renders with no saved settings with data set "stock"       0.15s  
+  ✓ the panel renders with no saved settings with data set "storage"     0.23s  
+  ✓ the panel renders with no saved settings with data set "style"       0.20s  
+  ✓ the panel renders with no saved settings with data set "system"      0.19s  
+  ✓ the panel renders with no saved settings with data set "twilio"      0.20s  
+  ✓ the panel renders with no saved settings with data set "webhook"     0.21s  
+  ✓ the panel renders with no saved settings with data set "whatsapp"    0.17s  
+  ✓ the panel renders with no saved settings with data set "whatsapp ms… 0.21s  
+  ✓ the panel renders with no saved settings with data set "whatsapp no… 0.21s  
+  ✓ the panel renders with no saved settings with data set "woocom"      0.20s  
+
+   PASS  Tests\Unit\Ui\SharedHeaderDesignSystemScopeTest
+  ✓ the header carries the scope class in every branch                   0.21s  
+  ✓ the themes load bearing names are preserved                          0.18s  
+  ✓ the scope takes its colour from a token                              0.20s  
+  ✓ step one does not touch the surface or the geometry                  0.18s  
+
+   PASS  Tests\Unit\Ui\TransientFeedbackContractTest
+  ✓ premise the notifier plugin announces nothing itself
+  ✓ the toast announces to assistive technology
+  ✓ the design system and the toast share one polite region
+  ✓ an error is announced assertively
+  ✓ the notification inbox is not a live region
+
+   PASS  Tests\Unit\Ui\UploadFieldAcceptContractTest
+  ✓ every named file field advertises the servers own list
+  ✓ no named field hardcodes a type list
+  ✓ the dark panel and its hint are themed together
+  ✓ the panel override is marked important
+
+   PASS  Tests\Unit\Ui\VariantDeleteScopeTest
+  ✓ no variant view removes form fields by substring name match
+  ✓ the delete handler is scoped to the clicked variants container
+  ✓ the old name based removal is gone
+  ✓ the css safe identifier is unique per rendered variant
+  ✓ every getelementbyid names an id the same view emits
+  ✓ the sanitiser really does collapse two distinct terms
+  ✓ no identifier is emitted without the variant suffix with data set " c o d"
+  ✓ no identifier is emitted without the variant suffix with data set "enable manage stock"
+  ✓ no identifier is emitted without the variant suffix with data set "download-product"
+  ✓ no identifier is emitted without the variant suffix with data set "downloadable product"
+  ✓ no identifier is emitted without the variant suffix with data set "down product"
+  ✓ no identifier is emitted without the variant suffix with data set "down products"
+  ✓ no identifier is emitted without the variant suffix with data set "payment-gateways"
+  ✓ the shipping select is associated with its label
+  ✓ the downloadable file label names its own variants input
+  ✓ each variant panel is labelled by its own header
+
+  Tests:    668 passed (4142 assertions)
+  Duration: 40.32s
+

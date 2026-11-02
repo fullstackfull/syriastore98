@@ -70,6 +70,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Log;
 
 use App\Models\StoreNotification;
+use App\Services\MerchantPermissions;
 
 
 
@@ -139,6 +140,21 @@ use App\Models\StoreNotification;
  */
 class DashboardController extends Controller
 {
+    /*
+     * D-21. The same private-helper shape `OrderController` uses (`:53-58`), rather than the
+     * `AppliesCartStockChanges` trait, and the difference is deliberate: that trait's
+     * `decrementStockOrFail()` is built for the post-capture paths, where a shortfall must
+     * oversell rather than refuse. THIS path already refuses a shortfall and already rolls back,
+     * and it must keep doing both — so what it needs is the service's `$requireAvailability`
+     * argument, which the trait does not expose.
+     */
+    private ?\App\Services\ProductStockService $stockService = null;
+
+    private function stockService(): \App\Services\ProductStockService
+    {
+        return $this->stockService ??= new \App\Services\ProductStockService();
+    }
+
     use ApiResponser;
 
 
@@ -227,6 +243,17 @@ public function AddOrderNote(Request $request)
      */
     $note->status = null;
     $note->store_id = $store->id;
+    /*
+     * P2-04-6. THE AUTHOR. The admin app's note endpoint is the second -- and last -- place a
+     * human types a note's text; the merchant is authenticated here by `custom.auth` and the
+     * store predicate above, so `\Auth::id()` is their own id and not request input.
+     *
+     * THE RESPONSE BELOW IS DELIBERATELY NOT WIDENED. It lists its keys explicitly, so adding
+     * `created_by` would change the order-note payload the shipped app parses. The data is
+     * recorded correctly either way, and letting the app DISPLAY it is a decision to take on
+     * purpose -- tracked as parity gap G9, not absorbed as a side effect of this slice.
+     */
+    $note->created_by = \Auth::id();
     $note->save();
 
     return $this->success([
@@ -334,7 +361,39 @@ public function DeleteOrderNote(Request $request)
             'delivered_status' => [
                 'nullable',
                 'integer',
-                'in:0,1,2,3,4,5,6',
+            /*
+             * P2-07-12. BUILT FROM THE COLUMN'S OWN CONSTANTS, not typed out.
+             *
+             * `orders.delivered_status` holds NINE values and two of them are not fulfilment
+             * states: 7 is Partially Paid (a payment state) and 8 is Pre Order (an order type),
+             * both sharing the column. This read `in:0,1,2,3,4,5,6`, so the only client that
+             * calls this endpoint could not ask for either -- while F29 had already taught
+             * `Order::getOrderData()` to RENDER them, so the app could show a partially-paid
+             * order and not request one.
+             *
+             * The web's own filter says why a hand-typed list is the wrong shape
+             * (`order/partials/filters.blade.php:12-14`): "Typing a list by hand is how a filter
+             * ends up offering 0-6 and quietly hiding those orders from the one screen a merchant
+             * uses to find them." Deriving the rule from the constants means a tenth status
+             * becomes filterable on its own.
+             *
+             * STILL VALIDATED: widening the set is not removing it. A value the column cannot
+             * hold is still refused -- `test_a_status_the_column_does_not_hold_is_still_refused`.
+             *
+             * NO BUSINESS RULE CHANGES. This decides nothing about what a status means or when it
+             * may change; it stops the endpoint refusing a value the column legitimately holds.
+             */
+                'in:' . implode(',', [
+                    \App\Http\Controllers\HomeController::ORDER_STATUS_PENDING,
+                    \App\Http\Controllers\HomeController::ORDER_STATUS_DELIVERED,
+                    \App\Http\Controllers\HomeController::ORDER_STATUS_CANCEL,
+                    \App\Http\Controllers\HomeController::ORDER_STATUS_RETURN,
+                    \App\Http\Controllers\HomeController::ORDER_STATUS_CONFIRMED,
+                    \App\Http\Controllers\HomeController::ORDER_STATUS_PICKED_UP,
+                    \App\Http\Controllers\HomeController::ORDER_STATUS_SHIPPED,
+                    \App\Http\Controllers\HomeController::ORDER_STATUS_PARTIALLY_PAID,
+                    \App\Http\Controllers\HomeController::ORDER_STATUS_PRE_ORDER,
+                ]),
                 'required_without:payment_status',
             ],
 
@@ -391,6 +450,38 @@ $storeId = getCurrentStore();
                 'success' => false,
                 'message' => 'Order not found.',
             ], 404);
+        }
+
+        /*
+         * P2-07-13 — THE WRITE SIDE, which had no permission check at all.
+         *
+         * The store above is resolved from `getCurrentStore()`, so the TENANT boundary was sound.
+         * Nothing asked whether this principal MAY change an order. A staff member with no order
+         * permission could therefore mark any order in their employer's store Delivered, or mark
+         * it PAID -- and that second one changes what the merchant believes they are owed.
+         *
+         * THE GATE IS THE WEB'S OWN ABILITY, NOT A COPIED PERMISSION NAME, and that is the whole
+         * point: `OrderPolicy::updateStatus` already requires `Manage Order`, already checks
+         * `isPlatformAdmin` FIRST (because `isAbleTo()` refuses the platform operator and would
+         * otherwise lock them out of their own endpoint), and already re-checks `sameStore`.
+         * `OrderController` calls `$this->authorize('updateStatus', $order)` at four sites. Using
+         * the same ability means the app and the panel cannot drift about who may change an
+         * order -- which is exactly the drift P2-04-4 found between two of the web's own screens.
+         *
+         * 403 AND NEVER 401: the shipped Flutter app force-clears its session on any 401 and
+         * treats 403 as "authorized but not permitted" with the session intact, so a 401 here
+         * would log a merchant out for pressing a button they were never allowed to press.
+         * `Gate::forUser(...)->allows()` rather than `authorize()` so the status is ours to choose
+         * instead of whatever the exception handler renders for this route.
+         */
+        $actor = \Auth::user();
+
+        if (! $actor instanceof \App\Models\User
+            || ! \Illuminate\Support\Facades\Gate::forUser($actor)->allows('updateStatus', $order)) {
+            return response()->json([
+                'success' => false,
+                'message' => __('You do not have permission to perform this action.'),
+            ], 403);
         }
 
         $oldDeliveredStatus = (int) $order->delivered_status;
@@ -602,24 +693,125 @@ $storeId = getCurrentStore();
 
 
 
+/**
+ * THE ADMIN APP'S NOTIFICATION LIST, NOW GATED ON THE SAME PERMISSION THE WEB BELL USES. (F181)
+ *
+ * WHAT WAS WRONG. This was `StoreNotification::where('store_id', $user->current_store)` with no
+ * type filter and no permission test, behind `['custom.auth','AdminApiLog']` -- and `AdminApiLog`
+ * only logs. So ANY `User` Sanctum token whose `current_store` is that store -- a staff member
+ * holding nothing but `Manage Products` -- read every notification's title and message, including
+ * `order_created` and `order_paid`, which carry `final_price`, `payment_type` and
+ * `payment_status`. The merchant WEB bell gates each type
+ * (`MerchantNotificationController::TYPE_PERMISSIONS`); the API did not, so the registry was not
+ * the only door and the API was the open one.
+ *
+ * THE FIX REUSES THAT REGISTRY RATHER THAN RESTATING IT. `TYPE_PERMISSIONS` is the single place a
+ * type's gate is declared, and `readableNotificationTypes()` below applies it with the operator
+ * tested FIRST -- `isAbleTo()` alone refuses the platform operator, which is this codebase's
+ * standing trap, so reversing those two limbs is a lockout rather than a tightening.
+ *
+ * WHY THIS DOES NOT BREAK THE FLUTTER BADGE, which is the owner's explicit condition and is
+ * measured rather than assumed, twice over:
+ *
+ *   1. THE REGISTRY IS COMPLETE. `StoreNotificationService` writes exactly three types --
+ *      `order_created` (:29), `order_paid` (:103), `payment_needs_attention` (:249) -- and all
+ *      three are in `TYPE_PERMISSIONS`. So `whereIn('type', ...)` hides nothing that exists, and a
+ *      caller holding `Manage Order` sees an IDENTICAL list and an IDENTICAL count to before. For
+ *      the ordinary merchant this change is a no-op. A fourth type added without a permission
+ *      entry would silently vanish from this endpoint, so a ratchet asserts the registry covers
+ *      every type the service writes.
+ *   2. A COUNT THAT DROPS IS HANDLED BY THE APP ITSELF. For a staff member who may read none of
+ *      the three, the count goes to 0. `notification_controller.dart`'s `_calculateUnreadCount()`
+ *      computes `currentCount - lastSavedCount` and shows it only when positive -- and when
+ *      `currentCount < lastCount` it RE-BASELINES: it overwrites the stored total, persists it and
+ *      shows 0. So a drop is a one-time re-baseline, not a stuck or negative badge. The counter is
+ *      not broken by this; it is given a correct set to count.
+ *
+ * `count` KEEPS ITS MEANING. It was "every notification in this store" and is now "every
+ * notification in this store this caller may read" -- the same arithmetic over the permitted set,
+ * which is what keeps the badge internally consistent. It is deliberately NOT narrowed to unread:
+ * the app diffs totals and never reads `is_read`, so counting unread here would change the
+ * arithmetic rather than the set.
+ *
+ * THE NULL GUARD IS NOT DEFENSIVE NOISE. `custom.auth` logs a token's owner into the guard matching
+ * the TOKENABLE CLASS, so a Customer or DeliveryBoy token passes the middleware while
+ * `Auth::user()` -- the `web` guard -- stays null. Today that is a 500 on `$user->current_store`.
+ * It becomes a structured refusal, the same shape `currency()` below already uses.
+ */
 public function noti(Request $request)
 {
-  $user = Auth::user();
+    $user = Auth::user();
+
+    if (! $user) {
+        return $this->error(['message' => __('User not found.')]);
+    }
+
     $storeId = $user->current_store;
+    $types = $this->readableNotificationTypes($user, $storeId);
 
-    $notifications = StoreNotification::where('store_id', $storeId)
-        ->latest()
-        ->paginate(20);
+    /* `whereIn('type', ...)` rather than filtering after the fetch, so the LIMIT applies to rows
+       the caller may actually see -- the web bell's own reasoning at
+       MerchantNotificationController::scope(). An empty $types yields no rows, which is the
+       intended answer for a caller who may read none of the three. */
+    $scope = fn () => StoreNotification::whereIn('type', $types)->where('store_id', $storeId);
 
-
-
-   $count= StoreNotification::where('store_id', $storeId)->count();
+    $notifications = $scope()->latest()->paginate(20);
+    $count = (int) $scope()->count();
 
     return response()->json([
         'status' => true,
         'data' => $notifications,
-        'count' => $count, 
+        'count' => $count,
     ]);
+}
+
+/**
+ * The notification types this caller may read IN THIS STORE, from the web bell's own registry.
+ *
+ * F181 RESIDUAL, 2026-10-30 — THE STORE PREDICATE WAS MISSING AND THIS WAS THE WRONG QUESTION.
+ * The first version of this method asked `$user->isAbleTo($permission)`, which is Laratrust's
+ * `allPermissions()` — a **union across every store the person holds a role in, with no store
+ * predicate at all**. One merchant with two stores, a staff member granted `Manage Order` in
+ * store A, `current_store` switched to store B: `isAbleTo()` answered yes for B, and the
+ * `order_paid` and `order_created` rows it then served carry `final_price`, `payment_type` and
+ * `payment_status`. The switch itself is legitimate — the staff member belongs to the tenant
+ * that owns both stores — so what the gate had to stop was gaining a permission by moving,
+ * which is precisely the defect `MerchantPermissions::names()` was written for and says so in
+ * its own docblock: *"an employee permitted in A would read B."*
+ *
+ * SO IT NOW ASKS THE STORE-SCOPED READER, and `$storeId` is a REQUIRED parameter rather than
+ * one defaulted from `current_store` inside here — `names()` makes that argument mandatory for
+ * the same reason, so that a future caller serving some OTHER store's rows cannot evaluate the
+ * wrong store's grants by omission.
+ *
+ * THE OPERATOR LIMB IS GONE AND THAT IS NOT A LOCKOUT. `names()` short-circuits to `['*']` for
+ * the platform operator and `held()` treats the wildcard as every permission, so the operator
+ * still reads all three types — now through the one wildcard this codebase already has, rather
+ * than a second string comparison on `users.type` that could drift from it. The operator case
+ * in `AdminApiNotificationScopeTest` is what holds that true.
+ *
+ * `names()` IS RESOLVED ONCE and asked three times through `held()`. Calling `allows()` per
+ * type would re-run two queries per type — the exact waste `held()`'s docblock records as a
+ * defect found in the dashboard gate.
+ *
+ * @param  int|string|null  $storeId  the store whose rows are about to be served
+ * @return array<int, string>
+ */
+private function readableNotificationTypes($user, $storeId): array
+{
+    $registry = \App\Http\Controllers\MerchantNotificationController::TYPE_PERMISSIONS;
+
+    $held = MerchantPermissions::names($user, $storeId);
+
+    $readable = [];
+
+    foreach ($registry as $type => $permission) {
+        if (MerchantPermissions::held($held, [$permission])) {
+            $readable[] = $type;
+        }
+    }
+
+    return $readable;
 }
 
 
@@ -685,6 +877,47 @@ public function noti(Request $request)
             $user = Auth::user();
 
             $user = User::find($user->id);
+
+            // ACCOUNT STATE, which this door did not check at all.
+            //
+            // The WEB login refuses both of these (AuthenticatedSessionController:68-74): an
+            // inactive account, and a login disabled either on the user or on the owner whose
+            // tenant they belong to. The API login validated the email, called Auth::attempt and
+            // issued a token -- so a merchant who disabled an employee in the web UI found that
+            // the employee could still sign into the Flutter app, with a token that never
+            // expires. This change makes that worse if left alone, because the employee would now
+            // also be handed a permission list.
+            //
+            // The refusal keeps `error()`'s DEFAULT shape -- HTTP 200 with `status: 0` -- rather
+            // than introducing a status code on a path every client calls. A 401 here would be
+            // actively wrong: the shipped app force-clears its session on any 401, and this is a
+            // login, so the only thing that would change is which message it shows.
+            // MIRRORED FROM THE WEB CHECK RATHER THAN REINVENTED, including the part that is easy
+            // to get wrong: the web EXEMPTS `super admin` from both switches
+            // (`&& $user->type != 'super admin'`). A first draft of this guard omitted that and
+            // would have locked the platform operator out of the API the moment either column read
+            // 0 on their row. The owner's switch has no such exemption in the web check and gets
+            // none here either -- disabling a merchant disables their staff with them.
+            //
+            // `== 0` not `=== 0`: `users.is_active` is a STRING column with default '1'
+            // (2014_10_12_000000_create_users_table.php:39), so a strict integer comparison would
+            // never match a de-activated account. `is_enable_login` is an integer
+            // (2024_03_15_055922, default 1). Matching the web's loose comparison is what makes
+            // the two doors agree.
+            $isOperator = \App\Policies\UserPolicy::isOperator($user);
+            $owner = $user->created_by ? User::find($user->created_by) : null;
+
+            $refused = (! $isOperator && $user->is_active == 0)
+                || (! $isOperator && $user->is_enable_login == 0)
+                || ($owner && $owner->is_enable_login == 0);
+
+            if ($refused) {
+                Auth::logout();
+
+                return $this->error([
+                    'message' => __('Your Account is disable,please contact your Administrator.'),
+                ]);
+            }
         } else {
             return $this->error(['message' => __('Invalid login details')]);
         }
@@ -698,8 +931,68 @@ public function noti(Request $request)
         $user_array['mobile'] = $user_data->mobile;
         $user_array['current_store'] = $user_data->current_store;
 
+        // P2-07-13 / WS K13. ADDITIVE, and that is a requirement rather than a preference: every
+        // field above is read by the shipped Flutter app and by Lynomia Chat, so none is removed,
+        // renamed or retyped here. A client that does not know these two keys ignores them.
+        //
+        // Before this, `adminlogin` told the app nothing about what the employee may do, which is
+        // the structural reason the app had no permission model at all and showed every screen to
+        // everyone. The list is resolved against the store the principal is actually in --
+        // see App\Services\MerchantPermissions for why `allPermissions()` could not be used as-is
+        // -- and the operator gets the wildcard, because isAbleTo() refuses them.
+        $user_array['user_type'] = $user_data->type;
+        $user_array['permissions'] = MerchantPermissions::names($user_data, $user_data->current_store);
+
         $user->tokens()->delete();
-        $token = $user->createToken('auth_token')->plainTextToken;
+
+        /*
+         * TOKEN SECURITY STAGE 3, and it is INERT as shipped — see config/tokens.php for the whole
+         * account. `merchant_token_lifetime_days` is null, so `$expiresAt` is null, so this is the
+         * same two-argument call it has always been and the token row's `expires_at` stays NULL.
+         *
+         * The third argument is the entire mechanism the proposal specifies. It is here rather than
+         * in `config/sanctum.php` because that file does not exist and creating it would expire
+         * CUSTOMER and DRIVER tokens too — and storefront customers have no login endpoint
+         * (`Api\AuthController::login` is unrouted), so expiring theirs would lock them out with
+         * nothing to log back in with.
+         *
+         * Only tokens minted AFTER a value is set are affected: `expiresAt` is written into the row
+         * at creation, so every existing token keeps `expires_at = NULL` and keeps working.
+         * `CustomAuth:66` refuses only a token whose `expires_at` is set AND past.
+         */
+        $lifetimeDays = config('tokens.merchant_token_lifetime_days');
+        $expiresAt = ($lifetimeDays !== null && (int) $lifetimeDays > 0)
+            ? now()->addDays((int) $lifetimeDays)
+            : null;
+
+        /*
+         * THE MySQL TIMESTAMP CEILING. `expires_at` is a TIMESTAMP column, whose range ends at
+         * 2038-01-19 03:14:07 UTC, and this repository's MariaDB runs STRICT_TRANS_TABLES -- so a
+         * later value is an ERROR, not a truncation. Measured by an independent review: a lifetime
+         * past that boundary turns EVERY MERCHANT LOGIN into a 500, and the shipped Flutter app
+         * meets a failed login with a forced logout. A configuration mistake would have been a
+         * total outage of the admin app.
+         *
+         * Refused here and minted WITHOUT an expiry, loudly. Failing to "no expiry" rather than
+         * "nobody can log in" is deliberate: an unenforced expiry is a security feature not yet in
+         * effect, while a failed login is the platform down.
+         */
+        if ($expiresAt !== null) {
+            $ceiling = \Illuminate\Support\Carbon::parse(
+                config('tokens.merchant_token_expiry_ceiling', '2038-01-01 00:00:00')
+            );
+
+            if ($expiresAt->greaterThanOrEqualTo($ceiling)) {
+                \Illuminate\Support\Facades\Log::error(
+                    'merchant token lifetime refused: beyond the TIMESTAMP ceiling, so the token is minted without an expiry',
+                    ['days' => (int) $lifetimeDays, 'would_expire' => $expiresAt->toDateTimeString(), 'ceiling' => $ceiling->toDateTimeString()]
+                );
+
+                $expiresAt = null;
+            }
+        }
+
+        $token = $user->createToken('auth_token', ['merchant'], $expiresAt)->plainTextToken;
         $user_array['token'] = $token;
         $user_array['token_type'] = 'Bearer';
         return $this->success($user_array);
@@ -775,7 +1068,36 @@ public function logouto(Request $request)
 
         $currentstore = $user->current_store;
 
+        // P2-07-13 / WS K13. Resolved ONCE, against the CURRENT store, and used for BOTH halves:
+        // what the app is told it may do, and what this handler actually serves. Reporting without
+        // enforcing would be a hidden button, not a control -- before this change `isAbleTo`
+        // appeared nowhere in this controller and `routes/api.php` declared no permission
+        // middleware on any of its 127 admin routes, so a staff token reached every figure here.
+        //
+        // Reported on the dashboard as well as at login BECAUSE PERMISSIONS ARE PER STORE: the app
+        // calls this endpoint after a store switch, and a list handed out once at login could not
+        // express the change.
+        // ONCE means once. An earlier version of these four lines called names() FOUR times --
+        // directly, and again inside each allows()/allowsAny() -- at two queries apiece, while
+        // this comment claimed otherwise. held() answers from the list already resolved.
+        $permissions = MerchantPermissions::names($user, $currentstore);
+        $mayReadOrders = MerchantPermissions::held($permissions, ['Manage Order', 'Show Order']);
+        $mayReadProducts = MerchantPermissions::held($permissions, ['Manage Products']);
+        // `Show Coupon` is a real granted name, so a "view coupons, do not edit" role keeps the
+        // dashboard's coupon block -- the same view-or-manage pair the order gate above uses.
+        $mayReadCoupons = MerchantPermissions::held($permissions, ['Manage Coupon', 'Show Coupon']);
+        // Store traffic is business data too. The web gates its dashboard on `Manage Dashboard`
+        // and carries a `Manage Store Analytics` permission; without this the endpoint that
+        // withholds everything else still handed a zero-permission staff token 15 days of
+        // pageviews and unique-visitor counts.
+        $mayReadAnalytics = MerchantPermissions::held(
+            $permissions,
+            ['Manage Store Analytics', 'Manage Dashboard']
+        );
+
         $DashboardData = [];
+        $DashboardData['permissions'] = $permissions;
+        $DashboardData['user_type'] = $user->type;
         //user info
         $users = [];
         $userdata = User::find($user->id);
@@ -814,27 +1136,45 @@ public function logouto(Request $request)
 
         $DashboardData['qr-code'] = $statics;
 
-        //product
-        $TotalProducts = Product::where('store_id', $store->id)->count();
-        $TotalSales = Order::where('store_id', $store->id)->where('delivered_status', 1)->count();
-        $TotalOrder = Order::where('store_id', $store->id)->count();
+        // The `if ($store)` guard above was added because a user whose current_store no longer
+        // exists produced a 500 -- but only the qr-code block was guarded, and every query below
+        // still dereferenced $store->id unconditionally, so the 500 simply moved four lines down.
+        // Measured: test_a_dashboard_for_a_missing_store_does_not_500.
+        if (! $store) {
+            return $this->error(
+                ['message' => __('Store not found!')],
+                __('fail'),
+                404
+            );
+        }
 
-        $DashboardData['products'] = $TotalProducts;
-        $DashboardData['sales'] = $TotalSales;
-        $DashboardData['order'] = $TotalOrder;
+        //product
+        // P2-07-13. A figure the principal may not see is OMITTED, not zeroed. A withheld count
+        // served as 0 is wrong information rather than withheld information, and the app renders
+        // `?? "0"`, so a zero here would have read as "this store has no orders". The companion
+        // Flutter change reads `permissions` and shows the tile as not-permitted instead.
+        if ($mayReadProducts) {
+            $DashboardData['products'] = Product::where('store_id', $store->id)->count();
+        }
+
+        if ($mayReadOrders) {
+            $DashboardData['sales'] = Order::where('store_id', $store->id)->where('delivered_status', 1)->count();
+            $DashboardData['order'] = Order::where('store_id', $store->id)->count();
+        }
 
         //top products
-        $topproducts = [];
-        $Products = Product::orderBy('created_at', 'Desc')->where('store_id', $store->id)->where('variant_product', 0)->limit('2')->get();
-        if (!empty($Products)) {
-            $DashboardData['product'] = $Products;
-        } else {
-            return $this->error(['message' => __('Product Data not found!')]);
+        // Withheld wholesale rather than field by field: these are full Product models, and they
+        // carry cost_price -- the store's margin, not just its catalogue.
+        if ($mayReadProducts) {
+            $DashboardData['product'] = Product::orderBy('created_at', 'Desc')->where('store_id', $store->id)->where('variant_product', 0)->limit('2')->get();
         }
         //recent order
+        // `final_price` is money. Withheld from a principal who may not read orders.
         $recentOrder = [];
-        $orders = Order::orderBy('id', 'DESC')->where('store_id', $store->id)->limit(4)->get();
-        if (!empty($orders)) {
+        $orders = $mayReadOrders
+            ? Order::orderBy('id', 'DESC')->where('store_id', $store->id)->limit(4)->get()
+            : collect();
+        if ($mayReadOrders) {
             foreach ($orders as $key => $value) {
                 $recentOrder[$key]['id'] = $value->id;
                 $recentOrder[$key]['product_order_id'] = $value->product_order_id;
@@ -845,14 +1185,15 @@ public function logouto(Request $request)
                 $recentOrder[$key]['currency'] = Utility::GetValByName('CURRENCY_NAME', $store->id);
             }
             $DashboardData['recent_order'] = $recentOrder;
-        } else {
-            return $this->error(['message' => __('Order Data not found!')]);
         }
 
         //coupons
+        // `discount_amount` is money. Withheld from a principal who may not read coupons.
         $recentcoupon = [];
-        $coupons = Coupon::orderBy('id', 'DESC')->where('store_id', $store->id)->limit(3)->get();
-        if (!empty($coupons)) {
+        $coupons = $mayReadCoupons
+            ? Coupon::orderBy('id', 'DESC')->where('store_id', $store->id)->limit(3)->get()
+            : collect();
+        if ($mayReadCoupons) {
             foreach ($coupons as $key => $value) {
 
                 $recentcoupon[$key]['id'] = $value->id;
@@ -883,7 +1224,9 @@ public function logouto(Request $request)
         $i = 0;
         $arrTask[$i]['date'] = [];
         $arrTask[$i]['order'] = [];
-        foreach ($arrDuration as $date => $label) {
+        // Not merely discarded below -- not RUN. Seven order COUNT queries for a principal who
+        // may not read orders is work done to throw away.
+        foreach ($mayReadOrders ? $arrDuration : [] as $date => $label) {
             $data = Order::select(\DB::raw('count(*) as total'))->where('store_id', $store->id)->whereDate('created_at', '=', $date)->first();
 
 
@@ -892,7 +1235,9 @@ public function logouto(Request $request)
             $i++;
         }
 
-        $DashboardData['orderchart'] = $arrTask;
+        if ($mayReadOrders) {
+            $DashboardData['orderchart'] = $arrTask;
+        }
 
         //visitor chart
         $visistorchart = [];
@@ -913,7 +1258,8 @@ public function logouto(Request $request)
         $arrTask[$i]['date'] = [];
         $arrTask[$i]['pageview']  = [];
 
-        foreach ($arrDuration as $date => $label) {
+        // Thirty queries over shetabit_visits, not run for a principal who may not read them.
+        foreach ($mayReadAnalytics ? $arrDuration : [] as $date => $label) {
             $data['visitor'] = \DB::table('shetabit_visits')->select(\DB::raw('count(*) as total'))->where('store_id', $store->id)->whereDate('created_at', '=', $date)->first();
             $uniq            = \DB::table('shetabit_visits')->select('ip')->distinct()->where('store_id', $store->id)->whereDate('created_at', '=', $date)->get();
 
@@ -924,7 +1270,9 @@ public function logouto(Request $request)
             $i++;
         }
 
-        $DashboardData['visitorchart'] = $arrTask;
+        if ($mayReadAnalytics) {
+            $DashboardData['visitorchart'] = $arrTask;
+        }
 
         return $this->success($DashboardData);
     }
@@ -952,6 +1300,12 @@ public function ProductList(Request $request)
         return $this->storeAccessDenied();
     }
 
+        // Serves `cost_price` explicitly below -- the store's margin, not just its catalogue.
+        if ($refusal = $this->refuseWithoutPermission(['Manage Products'], $store->id)) {
+            return $refusal;
+        }
+
+
     $Products = Product::where('store_id', $store->id)
         ->where('product_type', null)
         ->with('ProductData:id,name')
@@ -975,7 +1329,27 @@ public function ProductList(Request $request)
             return number_format((float) ($value ?? 0), 2, '.', '');
         };
 
-        $Products->getCollection()->transform(function ($product) use ($store, $formatNumber) {
+        // P2-07-10. ADDITIVE, and the app needs it to agree with the web about one word.
+    //
+    // THE WEB DOES NOT TRUST `products.stock_status` FOR A TRACKED PRODUCT. It reads that column
+    // only when `track_stock == 0`; otherwise it derives the badge from the live quantity --
+    // `$product->product_stock <= $settings['out_of_stock_threshold'] ? 'Out of stock' : 'In
+    // stock'` (resources/views/product/list.blade.php:115-129). That is not a style difference: a
+    // measured fact about this schema is that `products.stock_status` is written ONLY from
+    // merchant input at create and update (`ProductController:701`, `:1744`, and the API's own
+    // :2503/:2647) and is NEVER recomputed when stock drains through an order. So for a tracked
+    // product it goes stale with the first shipment -- a product created "in_stock" and sold down
+    // to zero still carries `in_stock` in the column.
+    //
+    // The app read that column unconditionally, so it told a merchant a sold-out product was In
+    // stock while the web told them it was Out of stock. The app can now apply the web's rule, and
+    // this is the one input it was missing: the threshold is a per-store SETTING, not a constant,
+    // so hardcoding 0 client-side would be right only for stores that never changed it.
+    $outOfStockThreshold = (int) (
+        getAdminAllSetting(null, $store->id)['out_of_stock_threshold'] ?? 0
+    );
+
+    $Products->getCollection()->transform(function ($product) use ($store, $formatNumber) {
             $product->category = $product->ProductData;
             unset($product->ProductData);
 
@@ -1011,6 +1385,9 @@ public function ProductList(Request $request)
                 'total' => $Products->total(),
                 'currency_code' => $currencyCode,      // ✅ إضافة مفيدة: إرجاع كود العملة أيضاً
                 'currency_symbol' => $currencySymbol,  // ✅ الرمز الصحيح والديناميكي
+                // P2-07-10, additive: the per-store threshold the WEB compares `product_stock`
+                // against for a tracked product. See the note above the transform.
+                'out_of_stock_threshold' => $outOfStockThreshold,
             ]
         ], 200);
 
@@ -1024,6 +1401,12 @@ public function VariantList(Request $request)
         if (empty($store)) {
         return $this->storeAccessDenied();
     }
+
+        // Variant rows carry their own prices and stock.
+        if ($refusal = $this->refuseWithoutPermission(['Manage Products'], $store->id)) {
+            return $refusal;
+        }
+
 
         $ProductVariant = ProductVariant::where('store_id', $store->id)->OrderBy('id', 'desc')->paginate(10);
 
@@ -1042,7 +1425,22 @@ public function OrderList(Request $request)
 {
     $request->validate([
         'store_id' => ['required', 'integer'],
-        'delivered_status' => ['nullable', 'integer', 'in:0,1,2,3,4,5,6'],
+        // P2-07-12: all nine values the column holds -- see updateStatus() for the measurement.
+        'delivered_status' => [
+            'nullable',
+            'integer',
+            'in:' . implode(',', [
+                \App\Http\Controllers\HomeController::ORDER_STATUS_PENDING,
+                \App\Http\Controllers\HomeController::ORDER_STATUS_DELIVERED,
+                \App\Http\Controllers\HomeController::ORDER_STATUS_CANCEL,
+                \App\Http\Controllers\HomeController::ORDER_STATUS_RETURN,
+                \App\Http\Controllers\HomeController::ORDER_STATUS_CONFIRMED,
+                \App\Http\Controllers\HomeController::ORDER_STATUS_PICKED_UP,
+                \App\Http\Controllers\HomeController::ORDER_STATUS_SHIPPED,
+                \App\Http\Controllers\HomeController::ORDER_STATUS_PARTIALLY_PAID,
+                \App\Http\Controllers\HomeController::ORDER_STATUS_PRE_ORDER,
+            ]),
+        ],
         'payment_status' => ['nullable', 'string'],
         'from_date' => ['nullable', 'date'],
         'to_date' => ['nullable', 'date', 'after_or_equal:from_date'],
@@ -1054,6 +1452,11 @@ public function OrderList(Request $request)
     if (!$store) {
         return $this->storeAccessDenied();
     }
+    // `final_price` is set on every row of the paginator below.
+    if ($refusal = $this->refuseWithoutPermission(['Manage Order', 'Show Order'], $store->id)) {
+        return $refusal;
+    }
+
 
     $query = Order::where('store_id', $store->id);
 
@@ -1155,6 +1558,12 @@ public function OrderList(Request $request)
         if (empty($store)) {
         return $this->storeAccessDenied();
     }
+
+        // Returns full Coupon models, `discount_amount` among them.
+        if ($refusal = $this->refuseWithoutPermission(['Manage Coupon', 'Show Coupon'], $store->id)) {
+            return $refusal;
+        }
+
 
         $coupons = Coupon::where('store_id', $store->id)->OrderBy('id', 'desc')->paginate(10);
 
@@ -1851,7 +2260,13 @@ public function UpdateCoupon(Request $request)
         $validator = \Validator::make(
             $request->all(),
             [
-                'productvariant_id' => 'required',
+                /* `integer`, for the same reason as `deletevariant`'s `variant_id`: `required`
+                   accepts an array, `whereKey([a, b])` compiles to `whereIn(...)`, and `->first()`
+                   then resolves the LOWEST id rather than refusing — the row renamed would be
+                   chosen by caller-supplied input. It matters more here than on the delete door,
+                   because `variant` is the key both rebuilds match their deletes on, so a rename
+                   landing on an unnamed row arms the owner's next save to hard-delete it. */
+                'productvariant_id' => 'required|integer',
             ]
         );
 
@@ -1862,20 +2277,55 @@ public function UpdateCoupon(Request $request)
             ]);
         }
 
-        $ProductVariant = ProductVariant::where('id', $request->productvariant_id)
-            ->where('store_id', $store->id)
+        /*
+         * F195 / D-28c (b) -- THE SAME PERMISSION AND OWNERSHIP QUESTIONS AS THE DELETE DOOR.
+         *
+         * WHY A RENAME ENDPOINT NEEDS THEM, which is not obvious: this method had **no permission
+         * check at all** -- not `Edit Products`, nothing -- and it resolved the row by
+         * `ProductVariant.store_id`, the column `product_attribute_delete`'s own comment records
+         * (S36) as *"not the authority on who owns it"*. And the field it writes is `variant`, which
+         * is **the key both variant rebuilds match their deletes on**
+         * (`whereNotIn('variant', $sku_array)` and `whereNotIn('variant', $com)`). So renaming a
+         * variant makes the owning merchant's NEXT ordinary product save hard-delete that row as
+         * uncovered: a write that looks cosmetic arms a destructive one in another request.
+         *
+         * THE DRIFTED ROW THAT MAKES IT CROSS-TENANT IS DOCUMENTED IN THIS REPOSITORY.
+         * `getCurrentStore()` returns the hardcoded literal 1 for a `super admin` with an empty
+         * `current_store` (`helper.php:636`), so an operator's ordinary save of a store-7 product
+         * stamped every one of its variants `store_id = 1` while `products.store_id` stayed 7
+         * (recorded in `ProductController::update()`'s attribute branch). Under the old predicate,
+         * store 1's merchant could pass `store_id=1` plus that variant id and rename store 7's
+         * variant -- and so arm the deletion of it.
+         *
+         * Latent rather than live, because it needs such a drifted row. Fixed here anyway: it is
+         * the same column this slice just stopped trusting on the delete door, and leaving the
+         * rename door gated on nothing while the delete door is gated on the product would be the
+         * odd one out. Found by the mandated review of the F195 completion.
+         */
+        $ProductVariant = ProductVariant::withoutGlobalScopes()
+            ->whereKey($request->productvariant_id)
             ->first();
 
-        // NULL GUARD, pre-existing and now load-bearing. This method wrote to
+        $ssProduct = \App\Services\VariantRemovalPolicy::parentProduct($ProductVariant);
+
+        // NULL GUARD, pre-existing and still load-bearing. This method wrote to
         // the resolved row with no existence check, so an id matching nothing
         // already raised "Attempt to read property on null" -- a 500 on bad
-        // input. Scoping the lookup to the caller's tenant makes a FOREIGN id
-        // resolve to null too, so the guard has to be here or a denial would
-        // surface as a 500 instead of a clean refusal. Same message as this
-        // file's other not-found branches, so a foreign id is indistinguishable
-        // from an absent one.
-        if (empty($ProductVariant)) {
+        // input. A row whose product is missing, or whose product is not in the
+        // named store, resolves to the same clean refusal, so a foreign id stays
+        // indistinguishable from an absent one.
+        if (
+            empty($ProductVariant)
+            || $ssProduct === null
+            || (int) $ssProduct->store_id !== (int) $store->id
+        ) {
             return $this->error(['message' => __('Product Variant data not found.')]);
+        }
+
+        $ssDenied = \App\Services\VariantRemovalPolicy::authorize(\Auth::user(), $ssProduct);
+
+        if ($ssDenied !== null) {
+            return $this->error(['message' => $ssDenied['msg']]);
         }
 
         if (!empty($request->name)) {
@@ -1912,8 +2362,16 @@ public function UpdateCoupon(Request $request)
             return $this->error(['message' => __('Store not found!')]);
         }
 
+        /* `integer`, NOT just `required`. `required` accepts an ARRAY, and
+           `ProductVariant::whereKey([a, b])` compiles to `whereIn(...)`, so `->first()` resolves
+           the LOWEST matching id rather than refusing: the row acted on was chosen by
+           caller-supplied input across the whole table, and the two outcomes are distinguishable
+           in the response, which makes it an existence oracle over `product_variants.id`
+           platform-wide. Measured both ways by review. A consent signal is worth nothing if the
+           identifier beside it can select a different row than the one confirmed.
+           `integer` still accepts the numeric strings every real client sends. */
         $rules = [
-            'variant_id' => 'required'
+            'variant_id' => 'required|integer'
         ];
 
         $validator = \Validator::make($request->all(), $rules);
@@ -1924,15 +2382,134 @@ public function UpdateCoupon(Request $request)
             ]);
         }
 
-        $ProductVariant = ProductVariant::where('id', $request->variant_id)
-            ->where('store_id', $store->id)
+        /*
+         * F195 (a) -- THIS HANDLER HAD NO PERMISSION CHECK AT ALL.
+         *
+         * Not `Edit Products`, not anything: `resolveOwnedStore()` answered the tenancy question
+         * and the delete followed. Its web sibling, `ProductController::product_attribute_delete`,
+         * requires `Edit Products` for a reason it states -- the row carries stock. So any
+         * principal holding a token for a store could destroy its variants and their stock
+         * regardless of what their role allowed.
+         *
+         * `MerchantPermissions::allowsAny()` rather than `isAbleTo()`: it resolves the permission
+         * against the store the principal is actually in and gives the platform operator the
+         * wildcard, because `isAbleTo()` alone REFUSES the operator in this codebase. An
+         * operator-last check here would be a lockout rather than a tightening.
+         *
+         * NOT A SHIPPED-CLIENT CHANGE, measured rather than assumed: nothing in the Flutter admin
+         * app at /home/user/StoreSyria_app98 calls `deletevariant` (a case-insensitive grep over
+         * `lib/` finds no occurrence), so no client loses an operation it was performing.
+         */
+        if (! \App\Services\MerchantPermissions::allowsAny(\Auth::user(), ['Edit Products'], $store->id)) {
+            return $this->error(['message' => __('Permission denied.')]);
+        }
+
+        /*
+         * F195 (b) / D-28c -- THE D-20 REFERENCE BLOCK NOW APPLIES HERE, THROUGH THE SHARED POLICY.
+         *
+         * WHAT THIS USED TO BE: the checks that refuse a delete when a cart line, a wishlist entry
+         * or an order references the variant lived in `ProductController::ssRefuseVariantRemoval()`,
+         * PRIVATE to a web controller, so this endpoint had none of them. The previous comment here
+         * recorded that gap and named the three ways out -- extract into a service both controllers
+         * call, duplicate the queries, or instantiate a web controller from an API one. The owner's
+         * D-28c chooses the first and forbids the other two by name. `App\Services\
+         * VariantRemovalPolicy` is that extraction, and `ProductController` now holds one-line
+         * delegates to it, so there is one implementation under all three doors.
+         *
+         * OWNERSHIP FOLLOWS THE PARENT PRODUCT, which is the other half of the owner's condition.
+         * This handler used to narrow on `ProductVariant.store_id` -- the column
+         * `product_attribute_delete`'s own comment records (S36) as *"not the authority on who owns
+         * it"*, because it is nullable and is written from `getCurrentStore()` by paths that predate
+         * tenancy. The product's store is the authority, and it must be the store the caller NAMED
+         * and owns (`resolveOwnedStore()` above), so this is no wider than it was: a variant whose
+         * product sits in another of the caller's stores is still refused here, and a variant with
+         * a NULL `store_id` is now reachable only if its PRODUCT is in the named store, which is a
+         * better question than the one the column could answer.
+         *
+         * F184 / D-28c -- THE CONSENT SIGNAL IS VERIFIABLE, which is the owner's condition for
+         * this door in particular: *"use a verifiable explicit-consent signal on the API path
+         * rather than permitting a plain API call."*
+         *
+         * This passed a hardcoded `true`, on D-20's reading that a dedicated per-variant endpoint
+         * is itself the deliberate act. The owner's F184 condition supersedes that. The caller
+         * must now echo the variant's own `variant` value in `confirm_variant`.
+         *
+         * WHY AN ECHO AND NOT A BOOLEAN. Anything that can send `confirm=1` can send it blind, so
+         * a boolean would record that a parameter was set, not that a client had seen what it was
+         * destroying. The name is a value a caller can only supply by having read the row. An
+         * unconfirmed call is answered with the refusal that NAMES the variant and its SKU, price
+         * and stock, so a client's second call is an informed one -- which is the whole shape the
+         * owner asked for, expressed in two round trips instead of a dialog.
+         *
+         * THIS IS A BREAKING CHANGE FOR ANY CLIENT THAT DELETED IN ONE CALL, and it is documented
+         * as one rather than assumed away. Measured: nothing in the Flutter admin app at
+         * /home/user/StoreSyria_app98 calls `deletevariant` (a case-insensitive grep over `lib/`
+         * finds no occurrence), and the Contract suite asserts nothing about it. The parity
+         * document records the new parameter for any other client.
+         *
+         * THE BLOCKS DO NOT DEPEND ON IT: `refuse()` applies every reference check before it looks
+         * at `$confirmed`, so a correct token still cannot carry a delete past a hard block.
+         *
+         * THE REFUSAL STAYS INSIDE THE ENVELOPE. `error()` answers HTTP 200 with `{status: 0, ...}`
+         * and the real text under `data.message`; a 401 is never used, because the shipped Flutter
+         * app forces a logout on any 401 and a new one on a path a client calls is a user-visible
+         * regression. Measured: nothing in the Flutter admin app at /home/user/StoreSyria_app98
+         * calls `deletevariant` (a case-insensitive grep over `lib/` finds no occurrence), so no
+         * client loses an operation it was performing -- but the envelope is kept regardless,
+         * because this endpoint is public API surface whether or not our own client uses it.
+         */
+        $ProductVariant = ProductVariant::withoutGlobalScopes()
+            ->whereKey($request->variant_id)
             ->first();
-        if (!empty($ProductVariant)) {
-            $ProductVariant->delete();
-            return $this->success(['message' => __('Product Variant deleted successfully!.')]);
-        } else {
+
+        $ssProduct = \App\Services\VariantRemovalPolicy::parentProduct($ProductVariant);
+
+        if (
+            empty($ProductVariant)
+            || $ssProduct === null
+            || (int) $ssProduct->store_id !== (int) $store->id
+        ) {
             return $this->error(['message' => __('Product Variant data not found.')]);
         }
+
+        $ssDenied = \App\Services\VariantRemovalPolicy::authorize(\Auth::user(), $ssProduct);
+
+        if ($ssDenied !== null) {
+            return $this->error(['message' => $ssDenied['msg']]);
+        }
+
+        $ssApiConsent = $request->input('confirm_variant');
+
+        /* The same comparison as the trash door, from the same place. */
+        $ssApiConfirmed = \App\Services\VariantRemovalPolicy::consentSatisfied($ssApiConsent, $ProductVariant);
+
+        $ssRefusal = \App\Services\VariantRemovalPolicy::refuse(
+            $ssProduct,
+            collect([$ProductVariant]),
+            $ssApiConfirmed,
+            ['key' => 'confirm_variant', 'value' => 'variant_name']
+        );
+
+        if ($ssRefusal !== null) {
+            \Illuminate\Support\Facades\Log::warning(
+                'api variant delete refused: the variant is still referenced',
+                [
+                    'variant_id' => $ProductVariant->id,
+                    'product_id' => $ProductVariant->product_id,
+                    'blocked' => $ssRefusal['ss_variant_removal']['blocked'] ?? null,
+                    'user_id' => optional(\Auth::user())->id,
+                ]
+            );
+
+            return $this->error([
+                'message' => $ssRefusal['msg'],
+                'ss_variant_removal' => $ssRefusal['ss_variant_removal'] ?? null,
+            ]);
+        }
+
+        $ProductVariant->delete();
+
+        return $this->success(['message' => __('Product Variant deleted successfully!.')]);
     }
 
     public function CreateProduct(Request $request)
@@ -2138,6 +2715,23 @@ private function deleteProductFile(?string $path): void
 
 public function DeleteProduct(Request $request)
 {
+    /*
+     * F206 [2026-10-30] -- THE PLATFORM OPERATOR DOES NOT WRITE A MERCHANT'S CATALOGUE.
+     *
+     * This door had **no permission check of any kind**. Its only control was
+     * `resolveOwnedStore()`, and that drops its `created_by` predicate for the operator -- so the
+     * operator reached it through the tenancy exemption rather than through any permission, and a
+     * fix scoped to `MerchantPermissions` call sites would have missed it entirely.
+     *
+     * `error()` is HTTP **200** with `status: 0`, which is this API's refusal convention. A new
+     * 401 here would force a logout in the shipped Flutter app, and a 403 is reserved for
+     * `refuseWithoutPermission()`'s permission refusals -- this is neither; it is a capability the
+     * owner has withdrawn from one principal.
+     */
+    if (\App\Services\OperatorCatalogueWrite::refuses(\Auth::user())) {
+        return $this->error(['message' => \App\Services\OperatorCatalogueWrite::message()]);
+    }
+
     $validator = Validator::make($request->all(), [
         'store_id'   => ['required', 'integer'],
         'product_id' => ['required', 'integer'],
@@ -2243,6 +2837,23 @@ public function DeleteProduct(Request $request)
 
 public function AddProduct(Request $request)
 {
+    /*
+     * F206 [2026-10-30] -- THE PLATFORM OPERATOR DOES NOT WRITE A MERCHANT'S CATALOGUE.
+     *
+     * This door had **no permission check of any kind**. Its only control was
+     * `resolveOwnedStore()`, and that drops its `created_by` predicate for the operator -- so the
+     * operator reached it through the tenancy exemption rather than through any permission, and a
+     * fix scoped to `MerchantPermissions` call sites would have missed it entirely.
+     *
+     * `error()` is HTTP **200** with `status: 0`, which is this API's refusal convention. A new
+     * 401 here would force a logout in the shipped Flutter app, and a 403 is reserved for
+     * `refuseWithoutPermission()`'s permission refusals -- this is neither; it is a capability the
+     * owner has withdrawn from one principal.
+     */
+    if (\App\Services\OperatorCatalogueWrite::refuses(\Auth::user())) {
+        return $this->error(['message' => \App\Services\OperatorCatalogueWrite::message()]);
+    }
+
     $store = $this->resolveOwnedStore($request->store_id);
     if (empty($store)) {
         return $this->error(['message' => __('Store not found!')]);
@@ -2386,6 +2997,23 @@ public function AddProduct(Request $request)
 
 public function UpdateProduct(Request $request)
 {
+    /*
+     * F206 [2026-10-30] -- THE PLATFORM OPERATOR DOES NOT WRITE A MERCHANT'S CATALOGUE.
+     *
+     * This door had **no permission check of any kind**. Its only control was
+     * `resolveOwnedStore()`, and that drops its `created_by` predicate for the operator -- so the
+     * operator reached it through the tenancy exemption rather than through any permission, and a
+     * fix scoped to `MerchantPermissions` call sites would have missed it entirely.
+     *
+     * `error()` is HTTP **200** with `status: 0`, which is this API's refusal convention. A new
+     * 401 here would force a logout in the shipped Flutter app, and a 403 is reserved for
+     * `refuseWithoutPermission()`'s permission refusals -- this is neither; it is a capability the
+     * owner has withdrawn from one principal.
+     */
+    if (\App\Services\OperatorCatalogueWrite::refuses(\Auth::user())) {
+        return $this->error(['message' => \App\Services\OperatorCatalogueWrite::message()]);
+    }
+
     $store = $this->resolveOwnedStore($request->store_id);
     if (empty($store)) {
         return $this->error(['message' => __('Store not found!')]);
@@ -3035,6 +3663,11 @@ public function DeleteReview($id)
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
         }
+        // The dashboard's analytics twin -- the full set, where `visitorchart` is a slice.
+        if ($refusal = $this->refuseWithoutPermission(['Manage Store Analytics', 'Manage Dashboard'], $store->id)) {
+            return $refusal;
+        }
+
 
         $DashboardData = [];
 
@@ -4124,6 +4757,37 @@ public function DeleteReview($id)
     /**
      * The 403 denial used for every tenancy failure in this controller.
      */
+    /**
+     * P2-07-13. The permission gate for a list endpoint, placed AFTER the store has resolved.
+     *
+     * WHY A HELPER AND NOT THE SAME TREATMENT THE DASHBOARD GOT. `/dashboard` is the app's HOME
+     * SCREEN: refusing it outright would blank the first thing a merchant sees, so it withholds
+     * fields and still answers 200. These are list endpoints backing one screen each, and the
+     * shipped app already maps 403 to "authorized but not permitted" with the session INTACT
+     * (`lib/network/network.dart`: "Deliberately NOT a forced logout") -- so refusing is both
+     * correct and already handled. 401 is never used: the app force-clears its session on any 401.
+     *
+     * THE STORE IS PASSED EXPLICITLY, and that is the whole point of the parameter being required.
+     * These handlers key their rows on `resolveOwnedStore($request->store_id)`, which admits any
+     * store in the caller's tenant by design -- so the grant must be evaluated against THAT store,
+     * not against `users.current_store`. Defaulting would let an employee permitted in store A
+     * read store B.
+     *
+     * @param  list<string>  $permissions  any one of which suffices
+     */
+    private function refuseWithoutPermission(array $permissions, $storeId)
+    {
+        if (MerchantPermissions::allowsAny(\Auth::user(), $permissions, $storeId)) {
+            return null;
+        }
+
+        return $this->error(
+            ['message' => __('You do not have permission to perform this action.')],
+            __('Forbidden.'),
+            403
+        );
+    }
+
     private function storeAccessDenied()
     {
         return $this->error(
@@ -4472,7 +5136,7 @@ public function DeleteStore(Request $request)
         $user_array['contact'] = $user_data->contact;
 
         $user->tokens()->delete();
-        $token = $user->createToken('auth_token')->plainTextToken;
+        $token = $user->createToken('auth_token', ['delivery'])->plainTextToken;
         $user_array['token'] = $token;
         $user_array['token_type'] = 'Bearer';
         return $this->success($user_array);
@@ -5735,6 +6399,32 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('defult_currancy_sy
         }
 
         /*
+         * P2-04-10. AND THE PRINCIPAL MUST BE ALLOWED TO CREATE ORDERS, which nothing here asked.
+         *
+         * `resolveOwnedStore()` above is a TENANT control and it is sound. It was also the ONLY
+         * control: measured by grepping this method's whole body (328 lines, two order-creating
+         * calls), `isAbleTo`, `authorize`, `Gate::` and `MerchantPermissions` appeared ZERO times.
+         * So a staff member with no order permission created a real order, with a real
+         * `final_price` and `payment_status`, in their employer's store -- the same hole as the
+         * web's `OrderController::store()`, which this slice closed in the same pass.
+         *
+         * ROLL BACK FIRST, for the reason the block above documents: these early returns sit
+         * inside the transaction opened earlier and returning without rolling back leaves it open.
+         *
+         * `$store->id`, not `current_store`: this handler serves the store named by `?store_id=`,
+         * which `resolveOwnedStore()` admits anywhere in the caller's tenant, so the grant must be
+         * evaluated against the store whose rows are about to be written.
+         */
+        if (! MerchantPermissions::allowsAny(\Auth::user(), ['Manage Order'], $store->id)) {
+            \DB::rollBack();
+
+            return response()->json([
+                'status' => 'error',
+                'message' => __('You do not have permission to perform this action.'),
+            ], 403);
+        }
+
+        /*
          * AND THE CUSTOMER MUST BE THIS STORE'S. P01-COMMERCE-SEC-03 FOLLOW-UP, found by an
          * adversarial authz review of the commit that added the product predicate above.
          *
@@ -5769,6 +6459,83 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('defult_currancy_sy
                 'message' => 'Customer not found for this store.'
             ], 404);
         }
+
+        /*
+         * ═══════════════════════════════════════════════════════════════════════════════════════
+         * F226. ONE SUBMISSION, ONE ORDER — the idempotency control this writer never had.
+         * ═══════════════════════════════════════════════════════════════════════════════════════
+         *
+         * Of the fifteen customer-order write sites the parsed census found, this is the one a
+         * shipped client calls and the one with **no accidental dedupe**: the two storefront
+         * writers consume the cart, so a sequential replay finds it empty and refuses itself, and
+         * seven gateway returns go through `claimGatewayReturn()`. This one takes a payload and
+         * writes. So a double tap, or an app retrying a request whose response was lost, wrote two
+         * orders and decremented the same stock twice. MEASURED before the fix: two submissions,
+         * two `orders` rows, `10 - 3 - 3 = 4` on the variant.
+         *
+         * The retry is the case that matters, because it is CORRECT client behaviour. A client
+         * cannot tell a lost response from a failed write, so it must retry — and the server has
+         * to make that safe rather than punish it.
+         *
+         * WHY A CONTENT FINGERPRINT. The shipped app sends no idempotency key, so a control that
+         * requires one protects nobody who is at risk today. `orderIntakeFingerprint()` therefore
+         * hashes a canonical form of the validated payload together with the authenticated
+         * principal and the server-resolved store — never caller input alone, which this project's
+         * standing rule forbids and which would let one merchant evict another's claim. Both
+         * halves of that are tested: a second merchant's identical payload is its own order, and a
+         * caller refused 403 above leaves no claim behind, because the claim is taken *after* the
+         * tenant and permission gates and not before them.
+         *
+         * `Cache::add()` and not a lock, for the reason the Paymera docblock sets out at
+         * `PaymentController.php:672`: it is atomic and has no owner to expire, so the first caller
+         * to add the key wins and every later one is answered for as long as the key lives,
+         * whatever the first caller is doing meanwhile.
+         *
+         * THE COST, STATED RATHER THAN HIDDEN. Two genuinely distinct but byte-identical orders
+         * inside the window are treated as one: same customer, same lines, same prices, same
+         * address, same note, within `ORDER_INTAKE_CLAIM_SECONDS`. That is a double submit in
+         * essentially every real case, and for the case where it is not, an `Idempotency-Key`
+         * header is folded into the fingerprint — so a client that wants two can ask for two.
+         *
+         * AND THE WINDOW IS THE LIMIT OF THE CONTROL. The cache is not durable: an eviction, or a
+         * replay arriving after the TTL, writes a second order. That bounds this to what F226
+         * actually reports — the double submit and the immediate retry — and the upgrade path is a
+         * durable intake record, the shape `plan_purchase_intents` now uses for plan purchases.
+         */
+        $ssIntakeFingerprint = $this->orderIntakeFingerprint($validated, (int) $store->id, (int) $userId, $request);
+
+        if (! \Illuminate\Support\Facades\Cache::add($ssIntakeFingerprint, self::ORDER_INTAKE_WRITING, now()->addSeconds(self::ORDER_INTAKE_CLAIM_SECONDS))) {
+            \DB::rollBack();
+
+            $ssAlreadyAnswered = \Illuminate\Support\Facades\Cache::get($ssIntakeFingerprint);
+
+            if (is_array($ssAlreadyAnswered)) {
+                /*
+                 * THE FIRST ORDER'S OWN RESPONSE, kept verbatim rather than rebuilt from the
+                 * persisted row. D-21's condition is that the shipped app sees no change, and a
+                 * rebuild is exactly where that breaks: `orders.product_price` reads back as a
+                 * STRING where the original response carried a float, so a client decoding into a
+                 * typed model would fail on the retry and not on the first attempt — the worst
+                 * possible place for a type to drift. Replaying the stored payload makes the two
+                 * identical by construction, which `AdminApiOrderIdempotencyTest` asserts.
+                 */
+                return response()->json($ssAlreadyAnswered, 201);
+            }
+
+            /*
+             * The first attempt is still in flight. 409 is a NEW code for a NEW condition — no
+             * response the app has ever received changes — and the envelope is the one every other
+             * refusal in this method uses, so a generic `if (201) ... else showError(message)`
+             * handles it. It is deliberately NOT 401: `lib/network/network.dart` maps any 401 to a
+             * forced logout that clears stored preferences.
+             */
+            return response()->json([
+                'status' => 'error',
+                'message' => __('This order is already being created. Please wait a moment and check your orders.'),
+            ], 409);
+        }
+
+        $ssIntakeCommitted = false;
 
         foreach ($validated['products'] as $item) {
             /*
@@ -5823,7 +6590,27 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('defult_currancy_sy
                 }
 
                 if ($product->track_stock == 1) {
-                    if ($variant->stock < $qty) {
+                    /*
+                     * D-21. THE TEST AND THE DECREMENT ARE NOW ONE STATEMENT.
+                     *
+                     * This was `if ($variant->stock < $qty) { refuse } $variant->stock -= $qty;
+                     * $variant->save();` — a check-then-act. Two concurrent orders could both
+                     * read the same figure, both pass the test and both subtract, so the second
+                     * write erased the first and the shop oversold without either request being
+                     * refused. `$requireAvailability = true` puts the `stock >= qty` predicate
+                     * into the UPDATE itself, so exactly one of them affects a row.
+                     *
+                     * THE RESPONSE IS DELIBERATELY UNCHANGED, byte for byte: same
+                     * `status`/`message` keys, same wording, same HTTP 400, same rollback. This
+                     * is `POST api/admin/createOrderViaApi`, the shipped Flutter admin app's own
+                     * order writer, and the owner's condition is explicit that a business refusal
+                     * must not change shape — above all it must never become a 401, which the
+                     * shipped client maps to a forced logout. `$variant->stock` still reads the
+                     * value seen before the attempt, which is what the old message reported too.
+                     */
+                    $ssVariantDecrement = $this->stockService()->decrementVariantStock($variant, $qty, false, true);
+
+                    if (! $ssVariantDecrement['applied']) {
                         \DB::rollBack();
 
                         return response()->json([
@@ -5831,8 +6618,6 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('defult_currancy_sy
                             'message' => "Insufficient stock for variant: {$variant->name}. Available: {$variant->stock}, Requested: {$qty}"
                         ], 400);
                     }
-                    $variant->stock -= $qty;
-                    $variant->save();
                 }
 
                 $productJson[] = [
@@ -5849,7 +6634,12 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('defult_currancy_sy
                 ];
             } else {
                 if ($product->track_stock == 1) {
-                    if ($product->product_stock < $qty) {
+                    /* D-21. The no-variant leg, same change and same reasoning as above: the
+                       availability test and the decrement become one atomic statement, and the
+                       refusal keeps its exact shape and status for the Flutter client. */
+                    $ssProductDecrement = $this->stockService()->decrementProductStock($product, $qty, false, true);
+
+                    if (! $ssProductDecrement['applied']) {
                         \DB::rollBack();
 
                         return response()->json([
@@ -5857,8 +6647,6 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('defult_currancy_sy
                             'message' => "Insufficient stock for product: {$product->name}. Available: {$product->product_stock}, Requested: {$qty}"
                         ], 400);
                     }
-                    $product->product_stock -= $qty;
-                    $product->save();
                 }
 
                 $productJson[] = [
@@ -5902,6 +6690,11 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('defult_currancy_sy
             'return_status' => 0,
             'additional_note' => $validated['additional_note'] ?? '',
             'store_id' => $storeId, 
+            // P2-04-11. Entered by a merchant in the admin app's order form -- the SAME source
+            // as the web form, because the provenance recorded is the path that created the
+            // order, not the device that reached it. A column that separated web from app would
+            // answer a question nobody on this screen asks and would double the vocabulary.
+            'order_source' => \App\Models\Order::SOURCE_MANUAL,
             'created_by' => $userId,
         ]);
 
@@ -5941,7 +6734,9 @@ if (!empty($validated['additional_note'])) {
 }
         \DB::commit();
 
-        return response()->json([
+        $ssIntakeCommitted = true;
+
+        $ssIntakeAnswer = [
             'status' => 'success',
             'message' => 'Order created successfully',
             'data' => [
@@ -5965,7 +6760,13 @@ if (!empty($validated['additional_note'])) {
                 'payment_type' => $order->payment_type,
                 'payment_status' => $order->payment_status,
             ]
-        ], 201);
+        ];
+
+        /* Written only after the commit, so a replay arriving mid-write meets the `writing`
+           sentinel and is told to wait rather than handed a half-built answer. */
+        \Illuminate\Support\Facades\Cache::put($ssIntakeFingerprint, $ssIntakeAnswer, now()->addSeconds(self::ORDER_INTAKE_CLAIM_SECONDS));
+
+        return response()->json($ssIntakeAnswer, 201);
 
     } catch (\Exception $e) {
         \DB::rollBack();
@@ -5975,7 +6776,89 @@ if (!empty($validated['additional_note'])) {
             'status' => 'error',
             'message' => 'Failed to create order: ' . $e->getMessage()
         ], 500);
+    } finally {
+        /*
+         * A CLAIM MUST NOT OUTLIVE A WRITE THAT NEVER HAPPENED.
+         *
+         * This method refuses in six places AFTER the claim is taken -- a variant that is not the
+         * product's, two stock shortfalls, and the catch above -- and every one of them rolls back
+         * and writes nothing. A surviving claim would answer the merchant's corrected retry as a
+         * replay of an order that does not exist, turning a recoverable refusal into a dead end.
+         * That is the direction the Paymera docblock warns about, and `finally` is what makes it
+         * hold for the early `return`s as well as for the throw, without a release line beside
+         * each one waiting to be forgotten.
+         *
+         * The converse is equally deliberate: on success the claim is NOT released, because
+         * releasing it after a successful write is what hands a replay the second order.
+         */
+        if (isset($ssIntakeFingerprint) && empty($ssIntakeCommitted)) {
+            \Illuminate\Support\Facades\Cache::forget($ssIntakeFingerprint);
+        }
     }
+}
+
+/** The sentinel a claim holds while the write is in flight. Not an array, which is the test. */
+private const ORDER_INTAKE_WRITING = 'writing';
+
+/**
+ * How long one submission's answer is remembered. Long enough to cover a client timing out and
+ * retrying -- the case this control exists for -- and short enough that two genuinely identical
+ * baskets from one merchant are not plausibly inside it.
+ */
+private const ORDER_INTAKE_CLAIM_SECONDS = 120;
+
+/**
+ * THE FINGERPRINT OF ONE SUBMISSION.
+ *
+ * Canonical, because the same basket must hash the same whatever order the client sent its keys
+ * or its lines in: the lines are rendered to strings and sorted, the money fields are normalised
+ * to a fixed scale so `10` and `10.00` agree, and the remaining keys are sorted.
+ *
+ * The principal and the store are part of the hash and are taken from the SERVER's resolution of
+ * them, never from the request: `$userId` is `auth()->id()` and `$storeId` is the id of the store
+ * `resolveOwnedStore()` admitted. A fingerprint over the payload alone would let any caller who
+ * could guess another merchant's basket pre-claim it.
+ *
+ * `Idempotency-Key` is honoured if the client sends one and is folded in rather than replacing the
+ * content hash: a distinct key buys a distinct order, which is the escape hatch for two
+ * legitimately identical baskets, and an absent one leaves the content hash doing the work for the
+ * shipped app that sends none.
+ */
+private function orderIntakeFingerprint(array $validated, int $storeId, int $userId, Request $request): string
+{
+    $lines = [];
+
+    foreach ($validated['products'] as $line) {
+        $lines[] = implode('|', [
+            (int) ($line['product_id'] ?? 0),
+            (int) ($line['variant_id'] ?? 0),
+            (int) ($line['quantity'] ?? 0),
+            number_format((float) ($line['price'] ?? 0), 4, '.', ''),
+        ]);
+    }
+
+    sort($lines);
+
+    $fields = $validated;
+    unset($fields['products']);
+
+    foreach (['delivery_price', 'tax_price'] as $money) {
+        if (array_key_exists($money, $fields)) {
+            $fields[$money] = number_format((float) $fields[$money], 4, '.', '');
+        }
+    }
+
+    ksort($fields);
+
+    $suppliedKey = $request->header('Idempotency-Key');
+
+    return 'ss_order_intake_v2:' . hash('sha256', implode("\n", [
+        $storeId,
+        $userId,
+        is_string($suppliedKey) ? $suppliedKey : '',
+        implode(';', $lines),
+        json_encode($fields),
+    ]));
 }
 public function getActivePaymentMethods(Request $request)
 {
@@ -6021,9 +6904,28 @@ public function getActivePaymentMethods(Request $request)
             $status = \App\Models\Utility::GetValueByName($enableKey, $storeId);
 
             if ($status === 'on' || $status === '1') {
+                /*
+                 * F150 -- THE LABEL, NOT THE KEY. `ucwords(str_replace('_', ' ', $id))` produced
+                 * "Cod", "Sslcommerz", "Bank Transfer", "Paiementpro" -- a mechanical transform of
+                 * an internal identifier, shown to a merchant in the admin app's order form, and
+                 * identical in Arabic because nothing translated it.
+                 *
+                 * `key` IS UNTOUCHED, and that is what makes this safe for the shipped app. The
+                 * Flutter client posts the key and displays the name, verified in its own source:
+                 * `create_order_screen.dart:237` renders `m.name` in the dropdown and `:242` sets
+                 * `orderController.paymentType.value = method?.key`. So the value that reaches
+                 * `payment_type` on the created order does not change at all; only the words the
+                 * merchant reads do. No API field is added, removed or renamed.
+                 *
+                 * A gateway with no label falls back to the old transform rather than vanishing
+                 * from the picker: this list is what a merchant can CHOOSE, and silently dropping
+                 * an enabled payment method would be a functional regression, where an ugly name
+                 * is only a cosmetic one.
+                 */
                 $activeMethods[] = [
                     'key' => $id,
-                    'name' => ucwords(str_replace('_', ' ', $id)),
+                    'name' => \App\Payments\PaymentTypeLabel::for($id)
+                        ?? ucwords(str_replace('_', ' ', $id)),
                 ];
             }
         }
@@ -6374,6 +7276,11 @@ public function Top_orders(Request $request)
                 'message' => 'fail',
                 'data' => ['message' => 'You do not have permission to access this store.']
             ], 403);
+        }
+        // The five largest orders BY `final_price`. This is the endpoint that made gating the
+        // dashboard alone pointless: it served the same money to the same token, one route over.
+        if ($refusal = $this->refuseWithoutPermission(['Manage Order', 'Show Order'], $store->id)) {
+            return $refusal;
         }
 
         // ✅ 1. جلب كود العملة الحالية الفعلي من الإعدادات (مثال: 'USD', 'SYP')

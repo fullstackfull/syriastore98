@@ -34,6 +34,14 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
         // Append middleware to the 'web' group
         $middleware->appendToGroup('web', \App\Http\Middleware\SetLocate::class);
+
+        /*
+         * P2-06-7. Notes the merchant page just visited, as a navigation `name` rather than a
+         * URL -- see the middleware for why that distinction is the requirement and not a
+         * detail. Appended AFTER SetLocate so the page title it resolves is already localised,
+         * and it runs on the way OUT so it only records a successful render.
+         */
+        $middleware->appendToGroup('web', \App\Http\Middleware\RecordRecentMerchantPage::class);
         // P1-SEC-16, acceptance 2. `withInput()` with no argument flashes the WHOLE request body into
         // `_old_input`, and session encryption is off with the database driver, so a credential the form
         // posted sits in `sessions.payload` in plaintext. Four host-app sites were changed to

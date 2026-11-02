@@ -1,13 +1,13 @@
 <span class="d-flex gap-1 justify-content-end">
 @permission('Abandon Cart')
-<button class="btn btn-sm btn-info btn-badge bandoncart"
+<button aria-label="{{ __('Send Mail :thing', ['thing' => __('Cart')]) }}" class="ss-btn ss-btn--sm ss-btn--icon ss-btn--ghost bandoncart"
     data-size="md" data-id ="{{$cart->id}}" data-bs-toggle="tooltip"
     title="{{ __('Send Mail') }}">
     <i class="fa fa-paper-plane"> </i>
 </button>
 @endpermission
 @permission('Abandon Cart')
-<button class="btn btn-sm btn-primary btn-badge bandoncartmess"
+<button aria-label="{{ __('Send Message :thing', ['thing' => __('Cart')]) }}" class="ss-btn ss-btn--sm ss-btn--icon ss-btn--ghost bandoncartmess"
     data-size="md" data-id ="{{$cart->id}}" data-bs-toggle="tooltip"
     title="{{ __('Send Message') }}">
     <i class="">
@@ -16,10 +16,10 @@
 @endpermission
 @permission('Delete Cart')
 {!! Form::open(['method' => 'DELETE', 'route' => ['carts.destroy', $cart->customer_id], 'class' => 'd-inline']) !!}
-<button type="button" class="btn btn-sm btn-danger btn-badge mr-1 show_confirm" data-bs-toggle="tooltip" data-confirm="{{ __('Are You Sure?') }}"
+<button aria-label="{{ __('Delete :thing', ['thing' => __('Cart')]) }}" type="button" class="ss-btn ss-btn--sm ss-btn--icon ss-btn--danger-quiet show_confirm" data-bs-toggle="tooltip" data-confirm="{{ __('Are You Sure?') }}"
 data-text="{{ __('This action can not be undone. Do you want to continue?') }}" data-text-yes="{{ __('Yes') }}" data-text-no="{{ __('No') }}" 
 title="{{ __('Delete') }}">
-    <i class="ti ti-trash"></i>
+    <i class="ti ti-trash" aria-hidden="true"></i>
 </button>
 {!! Form::close() !!}
 @endpermission

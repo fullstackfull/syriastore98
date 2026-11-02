@@ -221,7 +221,50 @@ public function destroy(Customer $customer)
                 }
             }
 
-            $users_id = Order::where('customer_id', $id)->get();
+            /*
+             * F169 -- THE ORDERS ARE SCOPED TO THE CUSTOMER'S OWN STORE.
+             *
+             * The guest branch below joins on an EMAIL ADDRESS, and an email address carries no
+             * tenancy. `OrderBillingDetail::where('email', ...)` had no store predicate and
+             * cannot be given one on its own row: that table has no `store_id` column in any
+             * migration. The model is also absent from `config/tenancy.php`'s `scoped_models`
+             * and registers no `StoreScope`, so the global scope short-circuits in
+             * `isActiveFor()` and adds no predicate for ANY principal -- the `Product` defect
+             * from the project skill, not the `null_tenant => 'open'` one. `Order` is likewise
+             * unscoped, by design.
+             *
+             * So a shopper who had bought as a guest from two tenants using one email address
+             * had the OTHER tenant's orders listed here: reference, date, value, payment type
+             * and status, on a page a merchant reaches with `Show Customer`. The ownership check
+             * above does not constrain it -- it decides which CUSTOMER ROW may be opened, and
+             * the branch then pivots on that customer's email. MEASURED before this predicate:
+             * the foreign store's guest order appeared in the rendered table.
+             *
+             * `order_billing_details.email` is a plain nullable string with no unique constraint
+             * and is taken from checkout input, so one address in two stores is the ordinary
+             * case for any shopper who buys from two tenants -- not a contrived collision.
+             *
+             * THE PREDICATE IS THE CUSTOMER'S STORE, NOT `getCurrentStore()`, and that is the
+             * substance of the fix rather than a style choice. The helper returns the hardcoded
+             * literal `1` for a `super admin` with an empty `current_store`
+             * (helper.php:636-637), and the operator deliberately SKIPS the customer store check
+             * above -- so a `getCurrentStore()` predicate would render a store-7 customer
+             * alongside the claim that they have no orders. That is a fabrication, not a
+             * refusal, and it is the same trap F157 recorded. The customer row has already been
+             * resolved and, for a merchant, already store-checked; its own `store_id` is the
+             * authority on whose orders these are.
+             *
+             * An empty `store_id` matches NOTHING rather than everything: `where('store_id',
+             * null)` becomes `whereNull` in Laravel, which would match every store-less order,
+             * so it is refused explicitly.
+             */
+            $customerStoreId = (int) ($customer->store_id ?? 0);
+
+            if ($customerStoreId === 0) {
+                return redirect()->back()->with('error', __('Customer not found.'));
+            }
+
+            $users_id = Order::where('customer_id', $id)->where('store_id', $customerStoreId)->get();
             if ($users_id->count() == 0) {
                 $customers = Customer::find($id);
                 $orders_detail = OrderBillingDetail::where('email', $customers->email)->get()->toArray();
@@ -229,9 +272,12 @@ public function destroy(Customer $customer)
                 foreach ($orders_detail as $orders) {
                     $order_id[] = $orders['order_id'];
                 }
-                $orders = Order::whereIn('id', $order_id)->where('customer_id', 0)->get();
+                $orders = Order::whereIn('id', $order_id)
+                    ->where('customer_id', 0)
+                    ->where('store_id', $customerStoreId)
+                    ->get();
             } else {
-                $orders = Order::where('customer_id', $id)->get();
+                $orders = Order::where('customer_id', $id)->where('store_id', $customerStoreId)->get();
             }
             return view('customer.view', compact('orders'));
         } else {

@@ -12,14 +12,14 @@
 
     <!-- Open Graph / Facebook -->
     <meta property="og:type" content="website">
-    <meta property="og:url" content="{{ env('APP_URL') }}">
+    <meta property="og:url" content="{{ config('app.url') }}">
     <meta property="og:title" content="{{ !empty($admin_settings['meta_title']) ? $admin_settings['meta_title'] : 'EcommerceGo-SaaS' }}">
     <meta property="og:description" content="{{ !empty($admin_settings['meta_description']) ? $admin_settings['meta_description'] : 'Discover the efficiency of Dash, a user-friendly web application by WorkDo.io Apps.'}} ">
     <meta property="og:image" content="{{ get_file( (!empty($admin_settings['meta_image'])) ? (check_file($admin_settings['meta_image'])) ?  $admin_settings['meta_image'] : 'uploads/meta/meta_image.png' : 'uploads/meta/meta_image.png'  ) }}{{'?'.time() }}">
 
     <!-- Twitter -->
     <meta property="twitter:card" content="summary_large_image">
-    <meta property="twitter:url" content="{{ env('APP_URL') }}">
+    <meta property="twitter:url" content="{{ config('app.url') }}">
     <meta property="twitter:title" content="{{ !empty($admin_settings['meta_title']) ? $admin_settings['meta_title'] : 'EcommerceGo-SaaS' }}">
     <meta property="twitter:description" content="{{ !empty($admin_settings['meta_description']) ? $admin_settings['meta_description'] : 'Discover the efficiency of Dash, a user-friendly web application by WorkDo.io Apps.'}} ">
     <meta property="twitter:image" content="{{ get_file( (!empty($admin_settings['meta_image'])) ? (check_file($admin_settings['meta_image'])) ?  $admin_settings['meta_image'] : 'uploads/meta/meta_image.png' : 'uploads/meta/meta_image.png'  ) }}{{'?'.time() }}">
@@ -69,4 +69,20 @@
     <link rel='stylesheet' href='https://unpkg.com/nprogress@0.2.0/nprogress.css'/>
     <script src='https://unpkg.com/nprogress@0.2.0/nprogress.js'></script>
     <link rel="stylesheet" href="{{ asset('css/responsive.css') }}">
+
+    {{-- P2-01-11: the design system, because this head serves
+         layouts/main.blade.php, which renders partision.sidebar (:21).
+
+         Without it `.ss-visually-hidden` is undefined — and an undefined
+         visually-hidden class does not fail quietly, it fails LOUDLY: the
+         screen-reader-only labels in the sidebar become ordinary visible text,
+         so "Current store:" appears inside the workspace chip and "Collapse
+         menu" appears beside the search box. That is on nine live super-admin
+         screens in the LandingPage module.
+
+         Safe to add here for the same checked reason it is loaded in
+         layouts/app.blade.php: nothing outside the design system uses an
+         `.ss-` class, so this file cannot restyle existing markup. See the
+         note at app.blade.php for the one selector that qualifies that. --}}
+    <link rel="stylesheet" href="{{ asset('css/store-syria-ds.css') }}?v=p02-7">
 </head>

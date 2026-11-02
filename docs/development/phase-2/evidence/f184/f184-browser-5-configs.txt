@@ -1,0 +1,243 @@
+fixture: product 9184 with 3 variants, no order history
+
+== en-ltr-light-desktop ==
+  ok    the variant panel rendered its trash buttons
+  ok    the dialog shell is on the page
+  ok    the confirmation bridge is defined
+  ok    StoreSyriaDS.confirmDestructive is exported
+  ok    the consent flag is 0 at rest
+  ok    the trash button carries data-variant
+  ok    the click OPENED the dialog instead of deleting
+  ok    no DELETE request was sent by the click
+  ok    the dialog has a title
+  ok    the dialog NAMES the variant
+  ok    the variant line carries no leftover marker or stray character
+  ok    the dialog states the loss is permanent
+  ok    it has a Confirm and a Cancel
+  ok    Confirm is offered for a permitted delete
+  ok    role=dialog and aria-modal=true
+  ok    a variant name containing $ is displayed verbatim
+  ok    the bridgeless-screen simulation really started without the bridge
+  ok    a screen with no page-load include gets the bridge and the shell from the panel itself
+  ok    and the trash click on that screen opens the dialog rather than deleting
+  ok    no DELETE was sent from the bridgeless screen
+  ok    the dialog on that screen still names the variant
+  ok    focus lands on Cancel, not on the destroying button
+  ok    the accordion did NOT toggle behind the dialog (stopPropagation)
+  ok    the dialog is inside the viewport
+  ok    the title is in English
+  ok    contrast >= 4.5:1 for .ss-dialog__title
+  ok    contrast >= 4.5:1 for .ss-dialog__note
+  ok    contrast >= 4.5:1 for .ss-dialog__list li
+  ok    contrast >= 4.5:1 for [data-ss-dialog-confirm]
+  ok    contrast >= 4.5:1 for [data-ss-dialog-cancel]
+  ok    Escape closed the dialog
+  ok    Escape sent no DELETE (Escape is Cancel)
+  ok    no card disappeared from the DOM
+  ok    Cancel sent no DELETE
+  ok    Confirm sent exactly ONE DELETE
+  ok    the DELETE carries the consent echo
+  ok    the echo is the variant name the dialog showed
+  ok    a CONFIRMED delete of an order-blocked variant left every card in the DOM
+  ok    the hard-block refusal reached the merchant as a visible message
+  ok    the same refusal was announced to assistive technology
+  ok    the order-free product rendered its variants
+  ok    the order-free product also confirms before deleting
+  ok    exactly one DELETE for the permitted path
+  ok    a CONFIRMED delete of an unreferenced variant removed exactly one card
+
+== ar-rtl-dark-desktop ==
+  ok    the variant panel rendered its trash buttons
+  ok    the dialog shell is on the page
+  ok    the confirmation bridge is defined
+  ok    StoreSyriaDS.confirmDestructive is exported
+  ok    the consent flag is 0 at rest
+  ok    the trash button carries data-variant
+  ok    the click OPENED the dialog instead of deleting
+  ok    no DELETE request was sent by the click
+  ok    the dialog has a title
+  ok    the dialog NAMES the variant
+  ok    the variant line carries no leftover marker or stray character
+  ok    the dialog states the loss is permanent
+  ok    it has a Confirm and a Cancel
+  ok    Confirm is offered for a permitted delete
+  ok    role=dialog and aria-modal=true
+  ok    a variant name containing $ is displayed verbatim
+  ok    the bridgeless-screen simulation really started without the bridge
+  ok    a screen with no page-load include gets the bridge and the shell from the panel itself
+  ok    and the trash click on that screen opens the dialog rather than deleting
+  ok    no DELETE was sent from the bridgeless screen
+  ok    the dialog on that screen still names the variant
+  ok    focus lands on Cancel, not on the destroying button
+  ok    the accordion did NOT toggle behind the dialog (stopPropagation)
+  ok    the dialog is inside the viewport
+  ok    the title is in Arabic
+  ok    the note is in Arabic
+  ok    the Confirm button is in Arabic
+  ok    contrast >= 4.5:1 for .ss-dialog__title
+  ok    contrast >= 4.5:1 for .ss-dialog__note
+  ok    contrast >= 4.5:1 for .ss-dialog__list li
+  ok    contrast >= 4.5:1 for [data-ss-dialog-confirm]
+  ok    contrast >= 4.5:1 for [data-ss-dialog-cancel]
+  ok    Escape closed the dialog
+  ok    Escape sent no DELETE (Escape is Cancel)
+  ok    no card disappeared from the DOM
+  ok    Cancel sent no DELETE
+  ok    Confirm sent exactly ONE DELETE
+  ok    the DELETE carries the consent echo
+  ok    the echo is the variant name the dialog showed
+  ok    a CONFIRMED delete of an order-blocked variant left every card in the DOM
+  ok    the hard-block refusal reached the merchant as a visible message
+  ok    the same refusal was announced to assistive technology
+  ok    the refusal message is in Arabic
+  ok    the order-free product rendered its variants
+  ok    the order-free product also confirms before deleting
+  ok    exactly one DELETE for the permitted path
+  ok    a CONFIRMED delete of an unreferenced variant removed exactly one card
+
+== en-ltr-dark-phone ==
+  ok    the variant panel rendered its trash buttons
+  ok    the dialog shell is on the page
+  ok    the confirmation bridge is defined
+  ok    StoreSyriaDS.confirmDestructive is exported
+  ok    the consent flag is 0 at rest
+  ok    the trash button carries data-variant
+  ok    the click OPENED the dialog instead of deleting
+  ok    no DELETE request was sent by the click
+  ok    the dialog has a title
+  ok    the dialog NAMES the variant
+  ok    the variant line carries no leftover marker or stray character
+  ok    the dialog states the loss is permanent
+  ok    it has a Confirm and a Cancel
+  ok    Confirm is offered for a permitted delete
+  ok    role=dialog and aria-modal=true
+  ok    a variant name containing $ is displayed verbatim
+  ok    the bridgeless-screen simulation really started without the bridge
+  ok    a screen with no page-load include gets the bridge and the shell from the panel itself
+  ok    and the trash click on that screen opens the dialog rather than deleting
+  ok    no DELETE was sent from the bridgeless screen
+  ok    the dialog on that screen still names the variant
+  ok    focus lands on Cancel, not on the destroying button
+  ok    the accordion did NOT toggle behind the dialog (stopPropagation)
+  ok    the dialog is inside the viewport
+  ok    the title is in English
+  ok    contrast >= 4.5:1 for .ss-dialog__title
+  ok    contrast >= 4.5:1 for .ss-dialog__note
+  ok    contrast >= 4.5:1 for .ss-dialog__list li
+  ok    contrast >= 4.5:1 for [data-ss-dialog-confirm]
+  ok    contrast >= 4.5:1 for [data-ss-dialog-cancel]
+  ok    Escape closed the dialog
+  ok    Escape sent no DELETE (Escape is Cancel)
+  ok    no card disappeared from the DOM
+  ok    Cancel sent no DELETE
+  ok    Confirm sent exactly ONE DELETE
+  ok    the DELETE carries the consent echo
+  ok    the echo is the variant name the dialog showed
+  ok    a CONFIRMED delete of an order-blocked variant left every card in the DOM
+  ok    the hard-block refusal reached the merchant as a visible message
+  ok    the same refusal was announced to assistive technology
+  ok    the order-free product rendered its variants
+  ok    the order-free product also confirms before deleting
+  ok    exactly one DELETE for the permitted path
+  ok    a CONFIRMED delete of an unreferenced variant removed exactly one card
+
+== ar-rtl-light-phone ==
+  ok    the variant panel rendered its trash buttons
+  ok    the dialog shell is on the page
+  ok    the confirmation bridge is defined
+  ok    StoreSyriaDS.confirmDestructive is exported
+  ok    the consent flag is 0 at rest
+  ok    the trash button carries data-variant
+  ok    the click OPENED the dialog instead of deleting
+  ok    no DELETE request was sent by the click
+  ok    the dialog has a title
+  ok    the dialog NAMES the variant
+  ok    the variant line carries no leftover marker or stray character
+  ok    the dialog states the loss is permanent
+  ok    it has a Confirm and a Cancel
+  ok    Confirm is offered for a permitted delete
+  ok    role=dialog and aria-modal=true
+  ok    a variant name containing $ is displayed verbatim
+  ok    the bridgeless-screen simulation really started without the bridge
+  ok    a screen with no page-load include gets the bridge and the shell from the panel itself
+  ok    and the trash click on that screen opens the dialog rather than deleting
+  ok    no DELETE was sent from the bridgeless screen
+  ok    the dialog on that screen still names the variant
+  ok    focus lands on Cancel, not on the destroying button
+  ok    the accordion did NOT toggle behind the dialog (stopPropagation)
+  ok    the dialog is inside the viewport
+  ok    the title is in Arabic
+  ok    the note is in Arabic
+  ok    the Confirm button is in Arabic
+  ok    contrast >= 4.5:1 for .ss-dialog__title
+  ok    contrast >= 4.5:1 for .ss-dialog__note
+  ok    contrast >= 4.5:1 for .ss-dialog__list li
+  ok    contrast >= 4.5:1 for [data-ss-dialog-confirm]
+  ok    contrast >= 4.5:1 for [data-ss-dialog-cancel]
+  ok    Escape closed the dialog
+  ok    Escape sent no DELETE (Escape is Cancel)
+  ok    no card disappeared from the DOM
+  ok    Cancel sent no DELETE
+  ok    Confirm sent exactly ONE DELETE
+  ok    the DELETE carries the consent echo
+  ok    the echo is the variant name the dialog showed
+  ok    a CONFIRMED delete of an order-blocked variant left every card in the DOM
+  ok    the hard-block refusal reached the merchant as a visible message
+  ok    the same refusal was announced to assistive technology
+  ok    the refusal message is in Arabic
+  ok    the order-free product rendered its variants
+  ok    the order-free product also confirms before deleting
+  ok    exactly one DELETE for the permitted path
+  ok    a CONFIRMED delete of an unreferenced variant removed exactly one card
+
+== ar-ltr-light-desktop ==
+  ok    the variant panel rendered its trash buttons
+  ok    the dialog shell is on the page
+  ok    the confirmation bridge is defined
+  ok    StoreSyriaDS.confirmDestructive is exported
+  ok    the consent flag is 0 at rest
+  ok    the trash button carries data-variant
+  ok    the click OPENED the dialog instead of deleting
+  ok    no DELETE request was sent by the click
+  ok    the dialog has a title
+  ok    the dialog NAMES the variant
+  ok    the variant line carries no leftover marker or stray character
+  ok    the dialog states the loss is permanent
+  ok    it has a Confirm and a Cancel
+  ok    Confirm is offered for a permitted delete
+  ok    role=dialog and aria-modal=true
+  ok    a variant name containing $ is displayed verbatim
+  ok    the bridgeless-screen simulation really started without the bridge
+  ok    a screen with no page-load include gets the bridge and the shell from the panel itself
+  ok    and the trash click on that screen opens the dialog rather than deleting
+  ok    no DELETE was sent from the bridgeless screen
+  ok    the dialog on that screen still names the variant
+  ok    focus lands on Cancel, not on the destroying button
+  ok    the accordion did NOT toggle behind the dialog (stopPropagation)
+  ok    the dialog is inside the viewport
+  ok    the title is in Arabic
+  ok    the note is in Arabic
+  ok    the Confirm button is in Arabic
+  ok    contrast >= 4.5:1 for .ss-dialog__title
+  ok    contrast >= 4.5:1 for .ss-dialog__note
+  ok    contrast >= 4.5:1 for .ss-dialog__list li
+  ok    contrast >= 4.5:1 for [data-ss-dialog-confirm]
+  ok    contrast >= 4.5:1 for [data-ss-dialog-cancel]
+  ok    Escape closed the dialog
+  ok    Escape sent no DELETE (Escape is Cancel)
+  ok    no card disappeared from the DOM
+  ok    Cancel sent no DELETE
+  ok    Confirm sent exactly ONE DELETE
+  ok    the DELETE carries the consent echo
+  ok    the echo is the variant name the dialog showed
+  ok    a CONFIRMED delete of an order-blocked variant left every card in the DOM
+  ok    the hard-block refusal reached the merchant as a visible message
+  ok    the same refusal was announced to assistive technology
+  ok    the refusal message is in Arabic
+  ok    the order-free product rendered its variants
+  ok    the order-free product also confirms before deleting
+  ok    exactly one DELETE for the permitted path
+  ok    a CONFIRMED delete of an unreferenced variant removed exactly one card
+
+======================================================================
+failures: 0

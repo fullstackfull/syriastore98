@@ -1,0 +1,22 @@
+ok    [en/ltr light] the baseline saw the page's controls  -- 116 controls catalogued
+ok    [en/ltr light] focus advanced through controls  -- 30 of 30 presses landed on a control
+ok    [en/ltr light] every visible focused control looks different from its unfocused self  -- 30 controls tabbed
+ok    [en/ltr light] focus does not get stuck  -- 7 distinct controls
+ok    [en/ltr light] the modal palette keeps focus inside it  -- 25 presses stayed inside, 0 escaped
+ok    [en/ltr dark] the baseline saw the page's controls  -- 116 controls catalogued
+ok    [en/ltr dark] focus advanced through controls  -- 30 of 30 presses landed on a control
+ok    [en/ltr dark] every visible focused control looks different from its unfocused self  -- 30 controls tabbed
+ok    [en/ltr dark] focus does not get stuck  -- 7 distinct controls
+ok    [en/ltr dark] the modal palette keeps focus inside it  -- 25 presses stayed inside, 0 escaped
+ok    [ar/rtl light] the baseline saw the page's controls  -- 116 controls catalogued
+ok    [ar/rtl light] focus advanced through controls  -- 30 of 30 presses landed on a control
+ok    [ar/rtl light] every visible focused control looks different from its unfocused self  -- 30 controls tabbed
+ok    [ar/rtl light] focus does not get stuck  -- 7 distinct controls
+ok    [ar/rtl light] the modal palette keeps focus inside it  -- 25 presses stayed inside, 0 escaped
+ok    [ar/rtl dark] the baseline saw the page's controls  -- 116 controls catalogued
+ok    [ar/rtl dark] focus advanced through controls  -- 30 of 30 presses landed on a control
+ok    [ar/rtl dark] every visible focused control looks different from its unfocused self  -- 30 controls tabbed
+ok    [ar/rtl dark] focus does not get stuck  -- 7 distinct controls
+ok    [ar/rtl dark] the modal palette keeps focus inside it  -- 25 presses stayed inside, 0 escaped
+
+0 check(s) failed

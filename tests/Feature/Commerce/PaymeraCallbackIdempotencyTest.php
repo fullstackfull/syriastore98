@@ -5,6 +5,7 @@ namespace Tests\Feature\Commerce;
 use App\Http\Controllers\PaymentController;
 use App\Services\PaymentService;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 /**
@@ -50,6 +51,10 @@ class PaymeraCallbackIdempotencyTest extends TestCase
     {
         Cache::forget('paymera_pending_' . self::REFERENCE);
         Cache::forget('paymera_lock_' . self::REFERENCE);
+        /* The third prefix, added with F96. Nothing leaks today -- `CACHE_STORE=array` with a fresh
+           application per test -- but a tearDown that cleans two of three keys is the kind of
+           asymmetry that becomes a cross-test false green the moment the store changes. */
+        Cache::forget('paymera_claim_' . self::REFERENCE);
 
         parent::tearDown();
     }
@@ -91,6 +96,7 @@ class PaymeraCallbackIdempotencyTest extends TestCase
             'product_order_id' => '0202501010102',
         ]);
 
+        $this->asAuthorisedCaller();   // F210's ownership gate -- see the helper
         $response = $this->controller()->handlePaymeraTrigger(self::REFERENCE);
         $payload = json_decode($response->getContent(), true);
 
@@ -102,21 +108,47 @@ class PaymeraCallbackIdempotencyTest extends TestCase
      * The `processed` guard specifically -- reached when the record is marked
      * processed but its status is not 'A'.
      *
-     * This is not a contrived state: `handlePaymeraCallback` sets `processed`
-     * and `status` in one `Cache::put`, but a trigger arriving between a
-     * callback's order write and that put sees exactly this, and the earlier
-     * `status === 'A'` guard does not cover it. The processed branch is what
-     * must answer, and it must name the order that already exists rather than
-     * create another.
+     * THIS STATE IS SYNTHETIC, AND THE REASON GIVEN HERE FOR IT WAS FALSE. [corrected 2026-10-29]
+     *
+     * It said "a trigger arriving between a callback's order write and that put sees exactly
+     * this". It does not: `handlePaymeraCallback` writes `status`, `processed`, `order_id` and
+     * `product_order_id` in ONE `Cache::put`, so that interleaving sees `processed = false`. The
+     * mandated review of F185 traced it, and the conclusion is sharper than the old sentence:
+     * **no writer produces `processed === true` with `status !== 'A'`**, so the trigger's
+     * already-`processed` branch is unreachable in current code — the `status === 'A'` guard above
+     * it returns first.
+     *
+     * The case is kept because it is the only test of that branch's CONTRACT (report the existing
+     * order rather than create another, and report it only to the session that placed it), and
+     * because the branch becomes reachable the moment a third writer or a reordered guard appears.
+     * What it is NOT is evidence of a reachable path, and it should not be read as one.
+     *
+     * [2026-10-29] THIS CASE PINNED F185 AND HAD TO BE CORRECTED, which is worth recording rather
+     * than quietly fixing. It drove the branch with NO session binding and asserted the order
+     * number came back -- which is exactly the disclosure F185 names: on this route, behind `auth`,
+     * that caller is any logged-in `web` user who guessed a live reference. The INTENT is still
+     * right and is still asserted: the replay reports the existing order rather than creating
+     * another. What changed is who is told. The record now carries an `order_id` and the session is
+     * bound to it, so this exercises the legitimate path; `PaymeraTriggerOrderNumberTest` covers
+     * the refusal, the shape and the `auth` premise.
+     *
+     * Note `OrderCompleteBinding::holds(null)` is FALSE -- `asId()` rejects a non-scalar -- so a
+     * record with no `order_id`, which is what `putPending()` defaults to, can never be told the
+     * number. That is fail-closed and is why this case has to name one.
      */
     public function test_the_processed_guard_reports_the_existing_order(): void
     {
+        $this->bindSession();
+        \App\Services\OrderCompleteBinding::remember(9102);
+
         $this->putPending([
             'status' => 'P',
             'processed' => true,
+            'order_id' => 9102,
             'product_order_id' => '0202501010102',
         ]);
 
+        $this->asAuthorisedCaller();   // F210's ownership gate -- see the helper
         $response = $this->controller()->handlePaymeraTrigger(self::REFERENCE);
         $payload = json_decode($response->getContent(), true);
 
@@ -125,7 +157,53 @@ class PaymeraCallbackIdempotencyTest extends TestCase
         $this->assertSame(
             '0202501010102',
             $payload['product_order_id'] ?? null,
-            'the replay must report the order that already exists, not make a new one'
+            'the replay must report the order that already exists, not make a new one -- to the'
+            . ' session that placed it. If this is null, F185\'s binding test is refusing the'
+            . ' legitimate caller as well as the stranger, which is a regression and not a fix.'
+        );
+    }
+
+    /**
+     * F185 DRIVEN THROUGH THE HANDLER, not just through the helper. Review's F6.5.
+     *
+     * `PaymeraTriggerOrderNumberTest` drives `paymeraTriggerAnswer()` by reflection, which pins the
+     * helper's contract but not the wiring: a branch that stopped calling it would pass every case
+     * there. The positive wiring is covered by the case above; this is the negative half, and it is
+     * the one that matters, because it is the disclosure.
+     *
+     * Same synthetic state as the case above and for the same reason (no writer produces
+     * `processed === true` with `status !== 'A'` — see that docblock), but with NO binding. A
+     * session that did not place the order must be answered null.
+     */
+    public function test_the_processed_guard_refuses_a_session_that_did_not_place_the_order(): void
+    {
+        $this->bindSession();
+        \App\Services\OrderCompleteBinding::remember(1);
+
+        $this->putPending([
+            'status' => 'P',
+            'processed' => true,
+            'order_id' => 4242,
+            'product_order_id' => '0202501010102',
+        ]);
+
+        $this->asAuthorisedCaller();   // F210's ownership gate -- see the helper
+        $response = $this->controller()->handlePaymeraTrigger(self::REFERENCE);
+        $payload = json_decode($response->getContent(), true);
+
+        $this->assertSame('A', $payload['status'] ?? null, 'the response shape changed');
+        $this->assertTrue($payload['ok'] ?? false, 'the response shape changed');
+        $this->assertArrayHasKey(
+            'product_order_id',
+            $payload,
+            'the refusal omits the key instead of nulling it, which is a shape a client can tell'
+            . ' apart from the success'
+        );
+        $this->assertNull(
+            $payload['product_order_id'],
+            'a logged-in session that placed a DIFFERENT order was handed this one\'s number'
+            . ' through the handler — so the branch is not wired to the guard, whatever the'
+            . ' helper\'s own tests say'
         );
     }
 
@@ -211,6 +289,59 @@ class PaymeraCallbackIdempotencyTest extends TestCase
      *
      * It proves nothing about Paymera's own contract -- see the class docblock.
      */
+    /**
+     * F97. THE TRIGGER ROUTE IS BEHIND `auth`, SO THE GATEWAY CANNOT REACH IT — and the handler's
+     * own comment used to assert the opposite, in exactly the place a reviewer looks to decide
+     * whether the path is safe.
+     *
+     * `routes/web.php` declares `POST store/paymera/trigger/{orderId}` inside the
+     * `['auth','xss','setlocate','verified']` group that opens at :400 and closes at :1491, so a
+     * server-to-server poke from Paymera is redirected to /login and never reaches
+     * `handlePaymeraTrigger`. The CSRF exemption at `bootstrap/app.php:412` is real but does not
+     * help: exempting CSRF on a route behind `auth` only changes which refusal it gets.
+     *
+     * THIS TEST PINS TODAY'S MEASUREMENT, NOT A PREFERENCE. Whether the route should be moved out
+     * of the group is the functional half of F97 and an owner decision, because it changes a
+     * payment route's authentication. If that decision is taken, this test fails and names the
+     * comment that has to be revisited with it — which is the point. It reads the BOOTED ROUTER
+     * rather than grepping `routes/`, so a group prefix or dynamic registration is followed.
+     */
+    public function test_the_paymera_trigger_route_is_still_behind_auth(): void
+    {
+        $routes = \Illuminate\Support\Facades\Route::getRoutes();
+
+        $trigger = null;
+        $callback = null;
+
+        foreach ($routes as $route) {
+            $uri = $route->uri();
+            if ($uri === 'store/paymera/trigger/{orderId}') {
+                $trigger = $route;
+            }
+            if ($uri === 'store/paymera/callback/{orderId}') {
+                $callback = $route;
+            }
+        }
+
+        $this->assertNotNull($trigger, 'premise: the trigger route is registered at all');
+        $this->assertNotNull($callback, 'premise: the callback route is registered at all');
+
+        $triggerMiddleware = $trigger->gatherMiddleware();
+        $callbackMiddleware = $callback->gatherMiddleware();
+
+        $this->assertContains('auth', $triggerMiddleware,
+            'the Paymera TRIGGER route no longer carries `auth`. If that is deliberate, it is the '
+            . 'functional half of F97 and needs the owner decision it records — and the comment in '
+            . 'PaymentController::handlePaymeraTrigger, which now states that the gateway cannot '
+            . 'reach this route, must be corrected in the same change. Middleware found: '
+            . implode(', ', $triggerMiddleware));
+
+        $this->assertNotContains('auth', $callbackMiddleware,
+            'the Paymera CALLBACK route has gained `auth`. It is the only live Paymera entry '
+            . 'point; putting it behind authentication makes the gateway unable to confirm any '
+            . 'payment at all. Middleware found: ' . implode(', ', $callbackMiddleware));
+    }
+
     public function test_every_routed_paymera_entry_point_has_the_replay_guard(): void
     {
         $entryPoints = $this->paymeraEntryPointMethods();
@@ -509,6 +640,384 @@ class PaymeraCallbackIdempotencyTest extends TestCase
         $this->assertSame(['mine' => 'KEEP-FIXTURE'], \Illuminate\Support\Facades\Session::get('request_data'));
     }
 
+    /*
+     * ------------------------------------------------------------------------------------------
+     * F96 — THE WINDOW THE TEN-SECOND LOCK LEAVES OPEN, 2026-10-29.
+     *
+     * `processed` is not written until the ORDER WRITER returns, and that writer makes external
+     * calls — `Utility::sendEmailTemplate()` and `Utility::SendMsgs()` — inside its stock loop.
+     * An SMTP or SMS timeout alone can exceed the lock's ten seconds. If the writer runs long the
+     * lock LAPSES while `processed` is still false, a concurrent replay acquires it, the re-check
+     * inside the lock still reads false, and a second order is written for one payment.
+     *
+     * The project's own reasoning establishes the premise one layer down: the comment at
+     * `PaymentController:2878-2886` says the database transaction was deliberately placed OUTSIDE
+     * that loop because *"holding row locks across an external call is the mistake this boundary
+     * exists to avoid"*. The cache lock is held across exactly those calls.
+     *
+     * `Cache::lock` on the `array` driver these tests run under is process-local, so no Feature
+     * test can stage two genuinely concurrent requests and watch the lock lapse. What a test CAN
+     * do is stage the STATE that interleave produces — the claim already taken, `processed` still
+     * false — and measure what the handler does with it. That is the thing the fix changes.
+     * ------------------------------------------------------------------------------------------
+     */
+
+    /*
+     * ------------------------------------------------------------------------------------------
+     * F96 — THE WINDOW THE TEN-SECOND LOCK LEAVES OPEN, closed 2026-10-29.
+     *
+     * `processed` is not written until the ORDER WRITER returns, and that writer makes external
+     * calls — `Utility::sendEmailTemplate()` and `Utility::SendMsgs()` — inside its stock loop.
+     * An SMTP or SMS timeout alone can exceed the lock's ten seconds. If the writer runs long the
+     * lock LAPSES while `processed` is still false, a concurrent replay acquires it, the re-check
+     * inside the lock still reads false, and a second order is written for one payment.
+     *
+     * The project's own reasoning establishes the premise one layer down: the comment at
+     * `PaymentController:2878-2886` says the database transaction was deliberately placed OUTSIDE
+     * that loop because *"holding row locks across an external call is the mistake this boundary
+     * exists to avoid"*. The cache lock is held across exactly those calls.
+     *
+     * THE FIX IS A DURABLE CLAIM, not a longer lock. `Cache::add()` is atomic and has no owner to
+     * expire, so the first caller to add the key wins and every later one is refused for as long
+     * as the key lives — whatever the first caller is doing meanwhile. It is the same primitive
+     * `claimGatewayReturn()` already uses for every other gateway return; this path was using a
+     * mutex where the others use a claim. Raising the TTL fixes nothing (no TTL is long enough if
+     * the writer is waiting on SMTP) and writing `processed` first is worse (a crash mid-write
+     * would leave a payment marked processed with no order).
+     *
+     * THESE ARE SOURCE ASSERTIONS, AND THE REASON IS MEASURED RATHER THAN ASSUMED. Three driven
+     * cases were written first and all three were worthless: a `fwrite(STDERR)` probe on the claim
+     * line printed NOTHING for any of them, because `handlePaymeraCallback` polls Paymera before
+     * the lock and returns at the `status != 'A'` gate — and even with `Http::fake()` supplying
+     * an `'A'`, a later gate still turns the request away before the lock region. One of the three
+     * was GREEN anyway, because the early return is also a redirect to the completion page, so it
+     * was passing for a reason that had nothing to do with the guard it named.
+     *
+     * Staging a Paymera callback all the way to the writer is fixture work this file deliberately
+     * avoids — `test_the_recheck_sits_between_the_lock_and_the_order_write` pins the ordering of
+     * this very region the same way, and for the same reason. The claim is therefore **not
+     * driven**, and that is stated rather than implied.
+     * ------------------------------------------------------------------------------------------
+     */
+
+    /** @return array<string, string> the two ROUTED entry points, as the file's own census names them */
+    public static function guardedEntryPoints(): array
+    {
+        return [
+            'the browser callback' => ['handlePaymeraCallback'],
+            'the gateway trigger' => ['handlePaymeraTrigger'],
+        ];
+    }
+
+    /**
+     * @dataProvider guardedEntryPoints
+     */
+    public function test_the_durable_claim_sits_between_the_recheck_and_the_order_write(string $method): void
+    {
+        $source = $this->executableSourceOf(PaymentController::class, $method);
+
+        $recheck = strpos($source, 'freshPaymeraPendingOrNull(');
+        $claim = strpos($source, "Cache::add(\$ssPaymeraClaim");
+        $write = strpos($source, '$this->getProductStatus(');
+
+        $this->assertNotFalse($recheck, $method . ' must still re-read the pending record');
+        $this->assertNotFalse(
+            $claim,
+            $method . ' takes no durable claim, so the ten-second lock is the only thing standing'
+            . ' between a slow writer and a second order for one payment'
+        );
+        $this->assertNotFalse($write, $method . ' must still create the order');
+
+        $this->assertGreaterThan(
+            $recheck,
+            $claim,
+            $method . ': the claim must come AFTER the re-check — ahead of it, a request that the'
+            . ' re-check would have turned away still consumes the claim'
+        );
+        $this->assertLessThan(
+            $write,
+            $claim,
+            $method . ': the claim must be taken BEFORE the writer runs, because the window it'
+            . ' closes is exactly the time the writer spends inside the lock'
+        );
+    }
+
+    /**
+     * @dataProvider guardedEntryPoints
+     */
+    public function test_a_failed_write_forgets_the_claim_so_a_retry_is_still_possible(string $method): void
+    {
+        $source = $this->executableSourceOf(PaymentController::class, $method);
+
+        /*
+         * POSITIONAL, NOT A CONTIGUOUS REGEX. The first version required `Cache::forget` to be
+         * the very next token after the catch's brace, and failed against code that is correct
+         * because an explanatory comment sits between them. The file's own
+         * `test_the_recheck_sits_between_the_lock_and_the_order_write` asserts ordering with
+         * `strpos`; this does the same.
+         */
+        $catch = strpos($source, 'catch (\\Throwable $ssPaymeraError)');
+        $forget = strpos($source, 'Cache::forget($ssPaymeraClaim);');
+        $rethrow = strpos($source, 'throw $ssPaymeraError;');
+
+        $this->assertNotFalse(
+            $catch,
+            $method . ': a failed write must be caught so the claim can be released (when nothing'
+            . ' committed -- see test_the_claim_is_released_only_when_no_order_committed).'
+            . ' `processed` is only set on success, so a failed write is retryable today, and a'
+            . ' claim that outlived a failure would refuse that retry for two hours. That is the'
+            . ' failure mode the "write processed first" patch was rejected for, and the claim'
+            . ' must not reintroduce it.'
+        );
+        $this->assertNotFalse($forget, $method . ': the claim is never forgotten, so a failed write blocks the retry');
+        $this->assertNotFalse($rethrow, $method . ': the failure must be rethrown, not swallowed');
+
+        $this->assertGreaterThan($catch, $forget, $method . ': the claim must be forgotten inside the catch');
+        $this->assertGreaterThan($forget, $rethrow, $method . ': forget the claim, then rethrow, not the other way round');
+    }
+
+    /**
+     * THE RELEASE IS CONDITIONAL, AND THE CONDITION IS THE DEFECT THE REVIEW FOUND IN THIS FIX.
+     *
+     * The first version of the catch released the claim unconditionally and said in a comment that
+     * the write "did not complete". `getProductStatus()` commits at `PaymentController:3187` and
+     * then runs ~110 lines of unguarded post-commit work whose last statement is
+     * `OrderCompleteBinding::remember()`, so a throw in that tail leaves an order written,
+     * `processed` still false, and no in-process marker of either. Releasing the claim there hands
+     * the next replay the second order this guard exists to prevent.
+     *
+     * The behaviour of the condition itself is DRIVEN, in `PaymeraPostCommitClaimTest`. What this
+     * pins is that the catch asks the question **before** it releases anything — an ordering a
+     * driven test cannot reach, for the reason this file's header records.
+     *
+     * @dataProvider guardedEntryPoints
+     */
+    public function test_the_claim_is_released_only_when_no_order_committed(string $method): void
+    {
+        $source = $this->executableSourceOf(PaymentController::class, $method);
+
+        $catch = strpos($source, 'catch (\\Throwable $ssPaymeraError)');
+        $asked = strpos($source, 'paymeraOrderCommittedSince(');
+        $forget = strpos($source, 'Cache::forget($ssPaymeraClaim);');
+
+        $this->assertNotFalse($catch, $method . ': the failure must still be caught');
+        $this->assertNotFalse(
+            $asked,
+            $method . ' releases its claim without asking whether an order committed. A throw in'
+            . ' the writer\'s post-commit tail leaves the order written and `processed` false, so'
+            . ' an unconditional release hands the next replay a SECOND order for one payment.'
+        );
+        $this->assertNotFalse($forget, $method . ': a failed write with nothing committed must still release the claim');
+
+        $this->assertGreaterThan($catch, $asked, $method . ': the question belongs inside the catch');
+        $this->assertLessThan(
+            $forget,
+            $asked,
+            $method . ': the claim is released before the question is asked, so the answer cannot'
+            . ' affect it'
+        );
+
+        /*
+         * AND THE ANSWER MUST GATE THE RELEASE, not merely precede it. A second review produced
+         * the mutation that defeated the three assertions above:
+         *
+         *     if ($this->paymeraOrderCommittedSince(...)) { Log::critical(...); }
+         *     Cache::forget($ssPaymeraClaim);          // unconditional again
+         *
+         * Every ordering still holds, the question is still asked, and the defect is fully back.
+         * The `else` between the two is what makes the release conditional, so that is what is
+         * asserted. (`executableSourceOf()` strips comments, so no comment can satisfy this.)
+         */
+        $between = substr($source, $asked, $forget - $asked);
+
+        $this->assertMatchesRegularExpression(
+            '/\belse\b/',
+            $between,
+            $method . ': the question is asked and then the claim is released regardless of the'
+            . ' answer. That is the unconditional release this case exists to prevent -- it keeps'
+            . ' the call, so ordering alone cannot tell the two apart.'
+        );
+    }
+
+    public function test_the_claim_key_is_the_payment_reference_and_nothing_else(): void
+    {
+        /*
+         * The key names the PAYMENT, not the caller. A key carrying anything a caller supplies
+         * would let one request block another's payment; a key carrying less than the reference
+         * would let one payment's claim block a different payment.
+         */
+        foreach (array_keys(self::guardedEntryPoints()) as $what) {
+            [$method] = self::guardedEntryPoints()[$what];
+            $source = $this->executableSourceOf(PaymentController::class, $method);
+
+            $this->assertStringContainsString(
+                "\$ssPaymeraClaim = 'paymera_claim_' . \$orderId;",
+                $source,
+                $what . ': the claim key must be built from the payment reference alone'
+            );
+        }
+    }
+
+    /**
+     * THE CLAIM MUST EXPIRE WELL INSIDE THE LIFE OF THE RECORD A RETRY NEEDS.
+     *
+     * This is the second defect the review found in the F96 remedy, and it is the one direction in
+     * which the first version made things WORSE than the ten-second lock it replaced. `catch` does
+     * not run when a worker DIES -- an fpm `request_terminate_timeout`, a `memory_limit` E_ERROR,
+     * a SIGKILL, a deploy restart -- so a claim can be stranded with `processed` still false. While
+     * it stands every retry is refused, and the gateway's own retry cannot help: F97 measured the
+     * trigger route to sit behind `auth`, so the buyer's refresh of the anonymous callback is the
+     * only retry path there is.
+     *
+     * The first version used TWO HOURS, which is exactly the life of `paymera_pending_<reference>`.
+     * A claim that outlives that record turns a captured payment into **no order at all**: the
+     * retry is refused until the claim expires, and by then the record it needs is gone. The
+     * constraint is therefore not a preference — it is "strictly shorter, by enough that a buyer
+     * who comes back still finds their payment".
+     *
+     * Both halves are asserted, because the margin is only meaningful against the record's own
+     * TTL: shorten the record and this test asks you to revisit the claim.
+     */
+    public function test_the_claim_expires_well_before_the_pending_record_does(): void
+    {
+        $claim = new \ReflectionClassConstant(PaymentController::class, 'PAYMERA_CLAIM_MINUTES');
+        $minutes = (int) $claim->getValue();
+
+        /*
+         * A REAL LOWER BOUND. The first version asserted only `> 0`, which a second review pointed
+         * out would pass a one-minute claim -- reopening F96 far more often than today while still
+         * satisfying the test. The floor is "comfortably above the ten-second lock it supplements":
+         * below a couple of minutes the claim is barely more than the mutex whose lapsing is the
+         * entire finding.
+         */
+        $this->assertGreaterThanOrEqual(
+            2,
+            $minutes,
+            'the claim is barely longer than the ten-second lock it supplements, so it reopens the'
+            . ' very window F96 names: the writer outruns it and a replay writes a second order'
+        );
+
+        /*
+         * WHERE THE RECORD'S TWO-HOUR LIFE IS DECIDED, AND THIS ASSERTION MOVED BECAUSE THE ANSWER
+         * MOVED. [2026-10-29]
+         *
+         * It used to read the literal `now()->addHours(2)` out of `handlePaymeraCallback`'s own
+         * `Cache::put`. **F10** replaced that with `$this->paymeraRecordDeadline($pending)`: a put
+         * minting a fresh two hours on every pass made the record RENEWABLE, and one anonymous GET
+         * an hour kept it alive past the writer's 48-hour claim. This case failed on that change
+         * and its message said to re-derive the number, which is exactly what it is for.
+         *
+         * The two hours still exist -- they are now stamped ONCE, at initiation, as
+         * `$ssPaymeraDeadline = now()->addHours(2)` in `PaymentService::processPaymera()`. So both
+         * halves are pinned, and more tightly than before: the figure the ceiling below is measured
+         * against, and the fact that the callback CONSULTS the stored deadline instead of minting
+         * its own.
+         */
+        $service = $this->executableSourceOf(\App\Services\PaymentService::class, 'processPaymera');
+
+        $this->assertStringContainsString(
+            '$ssPaymeraDeadline = now()->addHours(2);',
+            $service,
+            'the pending record is no longer stamped with a two-hour deadline at initiation, so the'
+            . ' margin this test asserts is measured against the wrong number -- re-derive it'
+        );
+
+        $source = $this->executableSourceOf(PaymentController::class, 'handlePaymeraCallback');
+
+        $this->assertStringContainsString(
+            '$this->paymeraRecordDeadline($pending)',
+            $source,
+            'the callback writes the record with a TTL of its own again instead of the deadline the'
+            . ' record carries. That is F10: the record becomes renewable, and the invariant this'
+            . ' test exists to protect -- the claim fits inside the record\'s life -- stops holding'
+            . ' because the record no longer has a fixed life'
+        );
+
+        /*
+         * THE CEILING IS THE RULE THE CONSTANT IS CHOSEN BY: half the record's life, so a stranded
+         * buyer has as long to come back as the claim held them off. At or beyond the record's own
+         * two hours the strand is PERMANENT -- a captured payment with no order, ever -- which is
+         * what the first review found when this was two hours.
+         */
+        $this->assertLessThanOrEqual(
+            120 / 2,
+            $minutes,
+            'the claim now exceeds half the life of the pending record a retry needs. A worker that'
+            . ' dies mid-write strands it with `processed` still false, and the closer the claim'
+            . ' gets to the record\'s two hours the less of a window the buyer has to recover --'
+            . ' at or beyond it, none.'
+        );
+    }
+
+    /**
+     * WHAT REALLY BOUNDS A PAYMERA RETRY IS NOT THIS FILE'S CLAIM, AND THE REASONING DEPENDS ON IT.
+     *
+     * `PAYMERA_CLAIM_MINUTES` was shortened from two hours so that a claim stranded by a worker
+     * death would not refuse a legitimate retry until after the pending record had expired. A
+     * measurement pass then established that the retry is mostly refused by something else
+     * entirely: the shared order writer takes its own claim,
+     * `gateway-return-claim:checkout:<sha1 nonce>`, **above every write** and for
+     * `GuardsGatewayReturn::GATEWAY_RETURN_CLAIM_TTL` -- 48 hours -- and nothing releases it when
+     * the writer throws. Past that line a retry meets `gatewayReturnReplayRefusal()` however short
+     * this file's claim is, and the callback then marks the payment `processed` with no order
+     * identified. That is F186.
+     *
+     * [2026-10-29] THE `processed` HALF IS FIXED; THE CLAIM HALF IS STILL RECORDED RATHER THAN
+     * FIXED. `processed` is now written only when an order is established to exist
+     * (`paymeraOrderEstablished()`), so the record no longer asserts a checkout that does not
+     * exist and a captured payment with no order is logged at `critical`. What that does NOT do is
+     * recover the capture: the paragraph above is correct, the 48-hour claim IS taken on this path
+     * (`PaymentService::process()` stamps `checkout_nonce` into the request before the gateway
+     * switch and `processPaymera()` carries it into `request_data`), so the retry the new
+     * `processed => false` permits meets `gatewayReturnReplayRefusal()` and writes nothing.
+     * Releasing that claim is the general undo `releaseGatewayReturnClaim()`'s own docblock
+     * forbids, and it stays BLOCKED for an owner decision.
+     *
+     * A DRAFT OF THIS NOTE CLAIMED THE OPPOSITE — that the claim is never taken for Paymera — and
+     * overwrote the correct paragraph above with it. It was wrong, and the way it went wrong is
+     * worth keeping: it rested on a grep for the LITERAL `checkout_nonce` in `PaymentService.php`,
+     * which finds nothing because the key is only ever written as `self::CHECKOUT_NONCE_KEY`. A
+     * census keyed on a literal cannot see a constant. The mandated review caught it, and the
+     * premise is now DRIVEN rather than asserted in prose, by
+     * `PaymeraCapturedWithoutOrderTest::test_the_paymera_state_really_does_carry_a_checkout_nonce`
+     * and `::test_the_writer_claims_the_paymera_return_and_refuses_the_replay`.
+     *
+     * So the ORDERING is load-bearing for the comment at `PAYMERA_CLAIM_MINUTES`, and it is
+     * asserted rather than assumed. Shorten the writer's claim below the record's life and the
+     * recovery analysis changes materially -- this fails and asks for it to be re-derived.
+     */
+    public function test_the_writers_own_claim_is_what_really_bounds_a_retry(): void
+    {
+        $writerClaim = (int) (new \ReflectionClassConstant(
+            \App\Http\Controllers\Concerns\GuardsGatewayReturn::class,
+            'GATEWAY_RETURN_CLAIM_TTL'
+        ))->getValue();
+
+        $paymeraClaim = 60 * (int) (new \ReflectionClassConstant(
+            PaymentController::class,
+            'PAYMERA_CLAIM_MINUTES'
+        ))->getValue();
+
+        $pendingRecord = 2 * 60 * 60;
+
+        $this->assertGreaterThan(
+            $paymeraClaim,
+            $writerClaim,
+            'the writer\'s own gateway-return claim is now SHORTER than this path\'s claim, which'
+            . ' inverts the reasoning recorded at PAYMERA_CLAIM_MINUTES: that comment says the'
+            . ' writer\'s claim is what really refuses a retry'
+        );
+
+        $this->assertGreaterThan(
+            $pendingRecord,
+            $writerClaim,
+            'the writer\'s claim no longer outlives the pending record. While it did, a failed'
+            . ' Paymera write was unrecoverable past the writer\'s own claim line whatever this'
+            . ' file did -- which is why F186 is the fix target and the claim length is not.'
+            . ' Re-derive both before changing either.'
+        );
+    }
+
     private function bindSession(): void
     {
         $request = \Illuminate\Http\Request::create('/store/paymera/trigger/x', 'POST');
@@ -523,6 +1032,32 @@ class PaymeraCallbackIdempotencyTest extends TestCase
         $m->setAccessible(true);
 
         return $m->invoke($this->controller(), $write, $sessionPlacedIt);
+    }
+
+    /**
+     * AUTHORISE THE CALLER, because F210 gave `handlePaymeraTrigger()` an ownership gate and these
+     * three cases drive the method DIRECTLY — bypassing the middleware, with nobody logged in.
+     *
+     * Found by the independent review of F210 rather than by me: without this the gate's
+     * `if (! $ssCaller)` limb returns 404 and all three assertions below read `null`, which is
+     * three UNDECLARED Feature failures and a broken known-outcome gate. The gate is correct; the
+     * fixtures predated it.
+     *
+     * THE OPERATOR LIMB RATHER THAN OWNERSHIP, and the reason is the fixture's own shape.
+     * `putPending()` hardcodes `'store_id' => 1`, so making the caller OWN that store would tie
+     * these cases to whichever row happens to get id 1 — autoincrement luck, in a class that
+     * carries no `RefreshDatabase`. `UserPolicy::isOperator()` reads only `->type` and
+     * short-circuits before `creatorId()`, so an unsaved model is enough and no database row is
+     * created. These cases are about REPLAY IDEMPOTENCY, not about tenancy — F210's own
+     * `PaymeraTriggerOwnershipTest` is where the gate is measured — so the right move is to
+     * satisfy the gate and leave each case measuring what it was written to measure.
+     */
+    private function asAuthorisedCaller(): void
+    {
+        $operator = new \App\Models\User;
+        $operator->type = 'super admin';
+
+        $this->actingAs($operator);
     }
 
     private function putPending(array $overrides = []): void

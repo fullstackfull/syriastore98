@@ -118,9 +118,26 @@ run_one verify-product-ownership-on-mysql \
   "PRODOWN_MYSQL_SOCKET=${SOCK}" "PRODOWN_MYSQL_HOST=${HOST}" "PRODOWN_MYSQL_PORT=${PORT}" \
   "PRODOWN_MYSQL_DATABASE=prodown_verify" "PRODOWN_MYSQL_USERNAME=${USER_NAME}" "PRODOWN_MYSQL_PASSWORD=${PASS}"
 
+# F58. `products.cost_price` was a GATE F column with no migration, so product CREATE was
+# impossible on any database built from this repository. The migration is reconciled against
+# production's own decimal(15,2) NOT NULL DEFAULT 0.00 and is a no-op where the column exists.
+# SQLite reports any decimal as `numeric` and stops enforcing scale and NOT NULL, so the type,
+# the scale, the INSERT-time NULL refusal and the production-shaped no-op can only be
+# established here.
+run_one verify-cost-price-migration-on-mysql \
+  "COSTPRICE_MYSQL_SOCKET=${SOCK}" "COSTPRICE_MYSQL_HOST=${HOST}" "COSTPRICE_MYSQL_PORT=${PORT}" \
+  "COSTPRICE_MYSQL_DATABASE=costprice_verify" "COSTPRICE_MYSQL_USERNAME=${USER_NAME}" "COSTPRICE_MYSQL_PASSWORD=${PASS}"
+
 run_one verify-coupon-code-matching-on-mysql \
   "COUPON_MYSQL_SOCKET=${SOCK}" "COUPON_MYSQL_HOST=${HOST}" "COUPON_MYSQL_PORT=${PORT}" \
   "COUPON_MYSQL_DATABASE=coupon_verify" "COUPON_MYSQL_USERNAME=${USER_NAME}" "COUPON_MYSQL_PASSWORD=${PASS}"
+
+# F154/F153 -- the order export's heading-to-value alignment, and the one coercion that made the
+# first draft of that script report a FAIL for a fixture of my own making. Added 2026-10-28 under
+# the directive's "export column order" clause for MySQL evidence.
+run_one verify-order-export-column-order-on-mysql \
+  "EXPORTORDER_MYSQL_SOCKET=${SOCK}" "EXPORTORDER_MYSQL_HOST=${HOST}" "EXPORTORDER_MYSQL_PORT=${PORT}" \
+  "EXPORTORDER_MYSQL_DATABASE=exportorder_verify" "EXPORTORDER_MYSQL_USERNAME=${USER_NAME}" "EXPORTORDER_MYSQL_PASSWORD=${PASS}"
 
 run_one verify-cart-quantity-guard-on-mysql \
   "MYSQL_SOCKET=${SOCK}" "MYSQL_HOST=${HOST}" "MYSQL_PORT=${PORT}" \
@@ -268,6 +285,111 @@ run_one verify-pending-partial-payment-lookup-on-mysql \
 run_one verify-product-review-category-set-null-on-mysql \
   "MYSQL_SOCK=${SOCK}" "MYSQL_HOST=${HOST}" "MYSQL_PORT_NUM=${PORT}" \
   "MYSQL_DATABASE=p1inv24_verify" "MYSQL_USER_NAME=${USER_NAME}" "MYSQL_PASS=${PASS}"
+
+# ---------------------------------------------------------------------------------------------
+# THE FOUR SCRIPTS THAT WERE OFF THIS ROSTER, and why that mattered.
+#
+# A script nobody runs is documentation, not evidence. The F194 and F197 slices each wrote one and
+# ran it by hand; the ledger audit of 2026-10-29 counted one as "off-roster" without naming the
+# rest. These use the FRESH_MYSQL_* prefix rather than MYSQL_*, which is also why a reader
+# scanning this file for them found nothing.
+#
+# Still deliberately absent: verify-gate-f-schema-on-mysql (it reads a production dump that is not
+# in the repository), and the scripts that need no server at all --
+# verify-menu-render-parity, verify-remote-fetch-pin-with-curl, verify-sec06-shopify-redirect,
+# verify-backuprestore-module-gating, verify-module-order-mutation-route-cache,
+# verify-order-document-route-cache, verify-order-chart-operator-branch.
+# ---------------------------------------------------------------------------------------------
+
+run_one verify-model-cache-isolation-on-mysql \
+  "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
+  "FRESH_MYSQL_DATABASE=modelcache_verify" "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
+
+run_one verify-model-cache-flush-scope-on-mysql \
+  "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
+  "FRESH_MYSQL_DATABASE=flushscope_verify" "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
+
+# F205 -- the consent token's bindings AND the check-then-delete race, driven on two real
+# connections. The suite runs on SQLite, where lockForUpdate() compiles to nothing, so the
+# concurrency half of the owner's condition can only be asked here.
+run_one verify-variant-removal-consent-on-mysql \
+  "CONSENT_MYSQL_SOCKET=${SOCK}" "CONSENT_MYSQL_HOST=${HOST}" "CONSENT_MYSQL_PORT=${PORT}" \
+  "CONSENT_MYSQL_DATABASE=consent_verify" "CONSENT_MYSQL_USERNAME=${USER_NAME}" "CONSENT_MYSQL_PASSWORD=${PASS}"
+
+run_one verify-login-and-settings-cache-paths-on-mysql \
+  "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
+  "FRESH_MYSQL_DATABASE=logincache_verify" "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
+
+# F211 -- the CONSEQUENCE of F194, which the flush-scope script above stops short of asking. That
+# one proves the payment keys are erased by an ordinary model save. This one proves what "erased"
+# means to the control that wrote them: `claimGatewayReturn()` takes its claim with `Cache::add()`
+# and reads false as "already claimed", so a missing key is an UN-TAKEN claim and the replayed
+# gateway return is welcomed rather than merely unguarded. Drives the full chain: claim taken,
+# replay refused, one Setting::updateOrCreate(), claim gone, SAME replay now permitted.
+# F194/F211 ACTIVATION -- the owner's 2026-10-30 decision. Runs the F211 chain TWICE in one
+# process: isolation OFF (the defect must reproduce, or the "after" proves nothing) and isolation ON
+# (the claim must survive the identical Cachable save). Plus D-28a's no-stale-read condition and the
+# boundary that activation does NOT make `cache:clear` safe, so it does not subsume F215.
+run_one verify-replay-claim-with-model-cache-isolation-on-mysql \
+  "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
+  "FRESH_MYSQL_DATABASE=claimisolation_verify" "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
+
+run_one verify-replay-claim-survives-a-model-save-on-mysql \
+  "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
+  "FRESH_MYSQL_DATABASE=replayclaim_verify" "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
+
+# F216 / D-29.3 -- one capture is one row under REAL concurrency. The sequential contract is
+# proven in GatewayReferenceIdempotencyTest; uniqueness under two simultaneous inserts is an
+# ENGINE property, so only two real connections can measure it. Also drives failure before commit
+# (a rollback must not strand the capture) and after commit (a committed claim must block it).
+run_one verify-gateway-reference-idempotency-on-mysql \
+  "OGR_MYSQL_SOCKET=${SOCK}" "OGR_MYSQL_HOST=${HOST}" "OGR_MYSQL_PORT=${PORT}" \
+  "OGR_MYSQL_DATABASE=ogr_verify" "OGR_MYSQL_USERNAME=${USER_NAME}" "OGR_MYSQL_PASSWORD=${PASS}"
+
+# F207 / D-29.2's "test concurrency, failure and retry" condition, which an adversarial sweep found
+# ARGUED RATHER THAN DRIVEN -- the row read VERIFIED while the script it pointed at contained zero
+# occurrences of concurrency, race, lock or a second connection. SQLite cannot answer it:
+# lockForUpdate() compiles to nothing and the in-memory database is one connection, so a race is
+# unobservable. Also records the transaction-wrapped deadlock as a hazard rather than discarding it.
+run_one verify-cart-reconciliation-concurrency-on-mysql \
+  "CARTREC_MYSQL_SOCKET=${SOCK}" "CARTREC_MYSQL_HOST=${HOST}" "CARTREC_MYSQL_PORT=${PORT}" \
+  "CARTREC_MYSQL_DATABASE=cartrec_verify" "CARTREC_MYSQL_USERNAME=${USER_NAME}" "CARTREC_MYSQL_PASSWORD=${PASS}"
+
+run_one verify-empty-variant-name-wipe-on-mysql \
+  "F199_MYSQL_SOCKET=${SOCK}" "F199_MYSQL_HOST=${HOST}" "F199_MYSQL_PORT=${PORT}" \
+  "F199_MYSQL_DATABASE=f199_verify" "F199_MYSQL_USERNAME=${USER_NAME}" "F199_MYSQL_PASSWORD=${PASS}"
+
+# F234. The ONE question in this roster that the Feature suite cannot answer at all rather than
+# merely answer badly: the plan initiators look their coupon up with `whereRaw('BINARY `code` = ?')`,
+# which is MySQL-only. On SQLite that is a SYNTAX ERROR, so the request dies before it reaches the
+# coupon block, and a Feature test asserting "no usage was persisted" passes for a reason with
+# nothing to do with the defect. Two such tests were written, both passed, and both were deleted
+# once driven. 43 files under app/Http/Controllers/ use that form.
+run_one verify-plan-coupon-refusal-ordering-on-mysql \
+  "F234_MYSQL_SOCKET=${SOCK}" "F234_MYSQL_HOST=${HOST}" "F234_MYSQL_PORT=${PORT}" \
+  "F234_MYSQL_DATABASE=f234_verify" "F234_MYSQL_USERNAME=${USER_NAME}" "F234_MYSQL_PASSWORD=${PASS}"
+
+# F229 / D-31. THREE properties here cannot be observed on SQLite at all, which is why the owner's
+# instruction asks for real MariaDB concurrency evidence rather than a SQLite claim standing in for
+# one: (1) two callbacks racing for one intent -- SQLite :memory: is one connection in one process,
+# so there is no second writer to lose; (2) DECIMAL(16,4), which MySQL enforces and SQLite ignores
+# by type affinity (449.10 reads back as '449.1' there and '449.1000' here -- the same affinity
+# difference that let P01-SEC-13 survive a green suite); (3) the UNIQUE constraint on `reference`.
+run_one verify-plan-purchase-intent-on-mysql \
+  "F229_MYSQL_SOCKET=${SOCK}" "F229_MYSQL_HOST=${HOST}" "F229_MYSQL_PORT=${PORT}" \
+  "F229_MYSQL_DATABASE=f229_verify" "F229_MYSQL_USERNAME=${USER_NAME}" "F229_MYSQL_PASSWORD=${PASS}"
+
+# E13-F. Two concurrent replacement attempts on one order, which the handoff listed as NOT RUN and
+# which the Feature suite cannot run: SQLite has no row locks worth the name and one PHP process
+# cannot hold two statements in flight. The property under test is narrow and load-bearing --
+# `orders.replaced_order_id` is INDEXED and NOT UNIQUE (the migration explains why a real FK and a
+# UNIQUE index were both declined), so the database will NOT refuse a duplicate and
+# `OrderReplacement`'s in-transaction `exists()` check is the only control. The script asserts the
+# non-uniqueness first, because if that index were unique every other check would pass on the
+# strength of a constraint production does not have.
+run_one verify-order-replacement-concurrency-on-mysql \
+  "E13F_MYSQL_SOCKET=${SOCK}" "E13F_MYSQL_HOST=${HOST}" "E13F_MYSQL_PORT=${PORT}" \
+  "E13F_MYSQL_DATABASE=e13f_verify" "E13F_MYSQL_USERNAME=${USER_NAME}" "E13F_MYSQL_PASSWORD=${PASS}"
 
 echo "==========================================================================="
 echo "passed: ${#PASSED[@]}   failed: ${#FAILED[@]}"

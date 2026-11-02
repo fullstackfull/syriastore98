@@ -2,23 +2,63 @@
 
 @section('page-title', __('Dashboard'))
 
+{{-- P2-02: opt into the Store Syria design system. @stack('css') is the last
+     stylesheet position in <head> (layouts/app.blade.php:176), so nothing
+     below needs !important and no other screen is affected. --}}
+@push('css')
+    @include('layouts.includes.store-syria-ds')
+@endpush
+
 @section('action-button')
+    <div class="ss-scope ss-page-header__actions justify-content-md-end justify-content-center">
+        @permission('Create Product')
+            <a href="{{ route('product.create') }}" class="ss-btn ss-btn--primary ss-btn--sm">
+                <i class="ti ti-plus" aria-hidden="true"></i>
+                <span>{{ __('Add Product') }}</span>
+            </a>
+        @endpermission
+        @permission('Manage Order')
+            <a href="{{ route('order.index') }}" class="ss-btn ss-btn--secondary ss-btn--sm">
+                <i class="ti ti-shopping-cart" aria-hidden="true"></i>
+                <span>{{ __('Orders') }}</span>
+            </a>
+        @endpermission
+    </div>
 @endsection
 
 @section('breadcrumb')
 @endsection
 
+{{-- WS C — "STORE OVERVIEW", the master prompt's first dashboard bullet, and the one region
+     the page genuinely lacked.
+
+     WHY HERE AND NOT AS A CARD. The store's name already appears twice further down — on the
+     theme card's badge and as the QR card's heading — and this slice has just deleted a
+     duplicate order list for being a duplicate. A third copy of the name in a card of its own
+     would be the same mistake. What was missing is not the NAME, it is the page saying WHICH
+     STORE this dashboard is about, at the top, before any figure: a merchant with two stores
+     reads these numbers without ever being told whose they are.
+
+     So it goes in the page header, next to "Dashboard", which is where
+     `x-ss.page-header`'s own docblock has said the store name belongs since P2-01-11.
+
+     THE STOREFRONT LINK IS `rel="noopener"` and opens in a new tab: it leaves the admin for the
+     public site, and `target="_blank"` without `noopener` hands the opened page a handle on this
+     one. --}}
+@section('page-subtitle')
+    {{ $store->name ?? __('No store selected') }}
+    @isset($theme_url)
+        <a href="{{ $theme_url }}" class="ss-link" target="_blank" rel="noopener noreferrer">
+            {{ __('View storefront') }}
+        </a>
+    @endisset
+@endsection
+
 @php
+    /* The nine inline SVG icon strings that used to live here fed the eight
+       <x-dashboard-card> tiles that P2-02 replaced. They were 9 KB of markup
+       in a @php block and nothing references them any more. */
     $setting = getAdminAllSetting();
-    $icon = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-users text-blue-500 h-6 w-6"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>';
-    $customer_icon = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-user-plus text-blue-500 h-6 w-6"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="8.5" cy="7" r="4"></circle><line x1="20" y1="8" x2="20" y2="14"></line><line x1="23" y1="11" x2="17" y2="11"></line></svg>';
-    $pending_icon = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-clock text-blue-500 h-6 w-6"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>';
-    $return_icon = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-rotate-ccw text-blue-500 h-6 w-6"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>';
-    $confirmed_icon = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-check-circle text-blue-500 h-6 w-6"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>';
-    $cancel_icon = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-x-circle text-blue-500 h-6 w-6"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>';
-    $shipped_icon = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-truck text-blue-500 h-6 w-6"><rect x="1" y="3" width="15" height="13"></rect><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon><circle cx="5.5" cy="18.5" r="2.5"></circle><circle cx="18.5" cy="18.5" r="2.5"></circle></svg>';
-    $delivered_icon = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-package w-6 h-6 text-primary" data-replit-metadata="client/src/components/dashboard/StatsGrid.tsx:85:18" data-component-name="Icon"><path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z"></path><path d="M12 22V12"></path><path d="m3.3 7 7.703 4.734a2 2 0 0 0 1.994 0L20.7 7"></path><path d="m7.5 4.27 9 5.15"></path></svg>';
-    $total_order_icon = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-shopping-cart text-blue-500 h-6 w-6"><circle cx="8" cy="21" r="1"></circle><circle cx="19" cy="21" r="1"></circle><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"></path></svg>';
 @endphp
 
 @section('content')
@@ -26,20 +66,27 @@
         <!-- [ sample-page ] start -->
         <div class="col-12">
             <div class="row mb-4 dash-order-status g-4">
-                <div class="col-12">
-                    <div class="row g-4">
-                        <x-dashboard-card :count="$pending_order" :label="__('Pending orders')" :icon="$pending_icon" />
-                        <x-dashboard-card :count="$return_order" :label="__('Order Return')" :icon="$return_icon" />
-                        <x-dashboard-card :count="$confirmed_order" :label="__('Confirmed Order')"
-                            :icon="$confirmed_icon" />
-                        <x-dashboard-card :count="$cancel_order" :label="__('Cancel Order')" :icon="$cancel_icon" />
-                        <x-dashboard-card :count="$shipped_order" :label="__('Order Shipped')" :icon="$shipped_icon" />
-                        <x-dashboard-card :count="$delivered_order" :label="__('Order Delivered')"
-                            :icon="$delivered_icon" />
-                        <x-dashboard-card :count="$totle_order" :label="__('Total Orders')" :icon="$total_order_icon" />
-                        <x-dashboard-card :count="$totle_customers" :label="__('Total Customers')" :icon="$customer_icon" />
+                {{-- P2-02 replaces eight equally-weighted count tiles with a
+                     worklist, a boxless stat grid and a status breakdown. The
+                     eight tiles reported the same six status counts the
+                     breakdown now does, with no period on any of them and no
+                     way to open the list a count referred to. See
+                     docs/development/phase-2/design/P2-DESIGN-FOUNDATION.md §3a.
 
-                    </div>
+                     THAT WAS TRUE UNTIL WS C AND IS NOT ANY MORE, so the claim
+                     is corrected rather than left to mislead. P2-02 left
+                     everything below this block untouched — which is how the
+                     page came to show the SAME order list twice, once gated on
+                     `Manage Order` by the region above and once not gated at
+                     all by the markup below. WS C deleted that duplicate,
+                     gated the two "By Sales" cards and the latest-products
+                     list on the same permissions the region above uses, and
+                     gave the period tabs ids that do not collide. The theme
+                     card, the storage card and the chart are unchanged in
+                     content; the storage card's WORDING changed, because it
+                     was stating a quota it did not have. --}}
+                <div class="col-12">
+                    @include('dashboard.overview')
                 </div>
                 <div class="col-12 admin-cards">
                     <div class="row g-4">
@@ -63,6 +110,20 @@
                                 </div>
                             </div>
                         </div>
+                        {{-- WS C. GATED, AND THE GATE IS THE POINT.
+
+                             Both cards report SUM(orders.final_price) grouped by category and by
+                             brand -- the same money the overview region above withholds from a
+                             principal without `Manage Order`. `/dashboard` carries no permission
+                             middleware, so every member of the tenant reached this markup: a
+                             staff member whose role grants only Manage Blog was shown the
+                             overview WITHOUT "Order value" and then these two cards WITH the
+                             store's order revenue, broken down, a few hundred pixels lower.
+
+                             One definition answers both now
+                             (App\Support\MerchantDashboardAbilities), so the page cannot
+                             disagree with itself about who may see order money again. --}}
+                        @if (\App\Support\MerchantDashboardAbilities::mayManageOrders())
                         <div class="col-xxl-4 col-12">
                             <div class="dashboard-card">
                                 <div class="d-flex align-items-center justify-content-between gap-3 mb-4">
@@ -76,8 +137,8 @@
                                             role="presentation">
                                             <a href="#all-category-order" class="nav-link btn-sm f-w-600 active"
                                                 id="all-category-tab" data-bs-toggle="pill"
-                                                data-bs-target="#all-category-home" type="button" role="tab"
-                                                aria-controls="all-category-home" aria-selected="true">
+                                                data-bs-target="#category-tab-data" type="button" role="tab"
+                                                aria-controls="category-tab-data" aria-selected="true">
                                                 {{ __('All') }}
                                             </a>
                                         </li>
@@ -85,38 +146,42 @@
                                             role="presentation">
                                             <a href="#today-category-order" class="nav-link btn-sm f-w-600"
                                                 id="today-category-tab" data-bs-toggle="pill"
-                                                data-bs-target="#today-category" type="button" role="tab"
-                                                aria-controls="today-category" aria-selected="true">
+                                                data-bs-target="#category-tab-data" type="button" role="tab"
+                                                aria-controls="category-tab-data" aria-selected="false" tabindex="-1">
                                                 {{ __('Today') }}
                                             </a>
                                         </li>
                                         <li class="nav-item col-xxl-2 col-xl-3 col-md-4 col-sm-6 col-12 text-center"
                                             role="presentation">
                                             <a href="#week-category-order" class="nav-link btn-sm f-w-600"
-                                                id="pills-seo-tab" data-bs-toggle="pill" data-bs-target="#pills-seo"
-                                                type="button" role="tab" aria-controls="pills-seo" aria-selected="true">
+                                                id="week-category-tab" data-bs-toggle="pill"
+                                                data-bs-target="#category-tab-data" type="button" role="tab"
+                                                aria-controls="category-tab-data" aria-selected="false" tabindex="-1">
                                                 {{ __('Week') }}
                                             </a>
                                         </li>
                                         <li class="nav-item col-xxl-2 col-xl-3 col-md-4 col-sm-6 col-12 text-center"
                                             role="presentation">
                                             <a href="#month-category-order" class="nav-link btn-sm f-w-600"
-                                                id="pills-seo-tab" data-bs-toggle="pill" data-bs-target="#pills-seo"
-                                                type="button" role="tab" aria-controls="pills-seo" aria-selected="true">
+                                                id="month-category-tab" data-bs-toggle="pill"
+                                                data-bs-target="#category-tab-data" type="button" role="tab"
+                                                aria-controls="category-tab-data" aria-selected="false" tabindex="-1">
                                                 {{ __('Month') }}
                                             </a>
                                         </li>
                                         <li class="nav-item col-xxl-2 col-xl-3 col-md-4 col-sm-6 col-12 text-center"
                                             role="presentation">
                                             <a href="#year-category-order" class="nav-link btn-sm f-w-600"
-                                                id="pills-seo-tab" data-bs-toggle="pill" data-bs-target="#pills-seo"
-                                                type="button" role="tab" aria-controls="pills-seo" aria-selected="true">
+                                                id="year-category-tab" data-bs-toggle="pill"
+                                                data-bs-target="#category-tab-data" type="button" role="tab"
+                                                aria-controls="category-tab-data" aria-selected="false" tabindex="-1">
                                                 {{ __('Year') }}
                                             </a>
                                         </li>
                                     </ul>
                                     <div class="tab-content dash-category-tab-content mt-4">
-                                        <div id="category-tab-data"></div>
+                                        <div id="category-tab-data" class="tab-pane fade show active" role="tabpanel"
+                                             aria-labelledby="all-category-tab"></div>
                                     </div>
                                 </div>
                             </div>
@@ -133,50 +198,57 @@
                                         <li class="nav-item col-xxl-2 col-xl-3 col-md-4 col-sm-6 col-12 text-center"
                                             role="presentation">
                                             <a href="#all-brand-order" class="nav-link btn-sm f-w-600 active"
-                                                id="all-brand-tab" data-bs-toggle="pill" data-bs-target="#all-brand"
-                                                type="button" role="tab" aria-controls="all-brand" aria-selected="true">
+                                                id="all-brand-tab" data-bs-toggle="pill"
+                                                data-bs-target="#brand-tab-data" type="button" role="tab"
+                                                aria-controls="brand-tab-data" aria-selected="true">
                                                 {{ __('All') }}
                                             </a>
                                         </li>
                                         <li class="nav-item col-xxl-2 col-xl-3 col-md-4 col-sm-6 col-12 text-center"
                                             role="presentation">
                                             <a href="#today-brand-order" class="nav-link btn-sm f-w-600"
-                                                id="today-brand-tab" data-bs-toggle="pill" data-bs-target="#today-brand"
-                                                type="button" role="tab" aria-controls="today-brand" aria-selected="true">
+                                                id="today-brand-tab" data-bs-toggle="pill"
+                                                data-bs-target="#brand-tab-data" type="button" role="tab"
+                                                aria-controls="brand-tab-data" aria-selected="false" tabindex="-1">
                                                 {{ __('Today') }}
                                             </a>
                                         </li>
                                         <li class="nav-item col-xxl-2 col-xl-3 col-md-4 col-sm-6 col-12 text-center"
                                             role="presentation">
-                                            <a href="#week-brand-order" class="nav-link btn-sm f-w-600" id="pills-seo-tab"
-                                                data-bs-toggle="pill" data-bs-target="#pills-seo" type="button" role="tab"
-                                                aria-controls="pills-seo" aria-selected="true">
+                                            <a href="#week-brand-order" class="nav-link btn-sm f-w-600"
+                                                id="week-brand-tab" data-bs-toggle="pill"
+                                                data-bs-target="#brand-tab-data" type="button" role="tab"
+                                                aria-controls="brand-tab-data" aria-selected="false" tabindex="-1">
                                                 {{ __('Week') }}
                                             </a>
                                         </li>
                                         <li class="nav-item col-xxl-2 col-xl-3 col-md-4 col-sm-6 col-12 text-center"
                                             role="presentation">
-                                            <a href="#month-brand-order" class="nav-link btn-sm f-w-600" id="pills-seo-tab"
-                                                data-bs-toggle="pill" data-bs-target="#pills-seo" type="button" role="tab"
-                                                aria-controls="pills-seo" aria-selected="true">
+                                            <a href="#month-brand-order" class="nav-link btn-sm f-w-600"
+                                                id="month-brand-tab" data-bs-toggle="pill"
+                                                data-bs-target="#brand-tab-data" type="button" role="tab"
+                                                aria-controls="brand-tab-data" aria-selected="false" tabindex="-1">
                                                 {{ __('Month') }}
                                             </a>
                                         </li>
                                         <li class="nav-item col-xxl-2 col-xl-3 col-md-4 col-sm-6 col-12 text-center"
                                             role="presentation">
-                                            <a href="#year-brand-order" class="nav-link btn-sm f-w-600" id="pills-seo-tab"
-                                                data-bs-toggle="pill" data-bs-target="#pills-seo" type="button" role="tab"
-                                                aria-controls="pills-seo" aria-selected="true">
+                                            <a href="#year-brand-order" class="nav-link btn-sm f-w-600"
+                                                id="year-brand-tab" data-bs-toggle="pill"
+                                                data-bs-target="#brand-tab-data" type="button" role="tab"
+                                                aria-controls="brand-tab-data" aria-selected="false" tabindex="-1">
                                                 {{ __('Year') }}
                                             </a>
                                         </li>
                                     </ul>
                                     <div class="tab-content dash-category-tab-content mt-4">
-                                        <div id="brand-tab-data"></div>
+                                        <div id="brand-tab-data" class="tab-pane fade show active" role="tabpanel"
+                                             aria-labelledby="all-brand-tab"></div>
                                     </div>
                                 </div>
                             </div>
                         </div>
+                        @endif
                     </div>
                 </div>
             </div>
@@ -220,8 +292,7 @@
                                                             data-ajax-popup="true"
                                                             data-title="{{ __('Create Main Category') }}"
                                                             class="dropdown-item text-wrap"
-                                                            data-bs-placement="top"><span>{{ __('Add
-                                                                                            New Main Category') }}</span></a>
+                                                            data-bs-placement="top"><span>{{ __('Add New Main Category') }}</span></a>
                                                         <a href="#" data-size="md" data-url="{{ route('coupon.create') }}"
                                                             data-ajax-popup="true" data-title="{{ __('Create Coupon') }}"
                                                             class="dropdown-item text-wrap"
@@ -259,16 +330,78 @@
                         </div>
                         <div class="col-12">
                             <div class="dashboard-card">
+                                @php
+                                    /* WS C — THE CARD USED TO STATE A QUOTA IT DID NOT HAVE.
+                                     *
+                                     * MEASURED IN THE BROWSER, not reasoned about: the dev
+                                     * fixture's plan is on WorkDo's UNLIMITED sentinel and the
+                                     * card rendered
+                                     *
+                                     *     Storage Status (MB / -1MB)
+                                     *
+                                     * — an empty used figure and a NEGATIVE quota — above a donut
+                                     * reading 0% Used. Three statements, none of them true.
+                                     *
+                                     * `-1` IS "UNLIMITED" and this codebase already knows it:
+                                     * `Utility::updateStorageLimit()` refuses an upload when
+                                     * `$plan->storage_limit <= $total_storage && $plan->storage_limit != -1`
+                                     * (Utility.php:812), so -1 is the value that never refuses.
+                                     * A plain `?? 0` turned that into a quota of zero already
+                                     * exceeded; `> 0` alone would turn it into "no limit
+                                     * recorded", which is a DIFFERENT statement from "no limit".
+                                     *
+                                     * Three states, three sentences:
+                                     *   quota      ->  "12MB / 500MB"      + the percentage donut
+                                     *   unlimited  ->  "12 MB used of unlimited storage", no donut
+                                     *                  (a percentage of unlimited is not a number)
+                                     *   unrecorded ->  "12 MB used", no donut
+                                     *
+                                     * The donut itself only renders for the first, because
+                                     * HomeController:401-408 leaves `$storage_limit` at 0 for the
+                                     * other two — so showing it there is showing a 0% that means
+                                     * "not computed". */
+                                    $ssStorageUsed      = (float) ($users->storage_limit ?? 0);
+                                    $ssStorageQuota     = (float) ($plan->storage_limit ?? 0);
+                                    $ssStorageUnlimited = $plan !== null && (int) $ssStorageQuota === -1;
+                                    $ssStorageKnown     = $plan !== null && $ssStorageQuota > 0;
+                                @endphp
                                 <div class="card-header">
-                                    <h4>{{ __('Storage Status') }}<small>({{ $users->storage_limit . 'MB' }} / {{ ($plan->storage_limit ?? 0) . 'MB' }})</small></h4>
+                                    {{-- `@else(` WOULD HAVE EATEN THIS. Blade's statement pattern
+                                         treats the parenthesised group after a directive as its
+                                         expression, so `@else({{ … }})` compiles to a bare `else:`
+                                         and DISCARDS the text -- measured: the <small> rendered
+                                         empty. Hence the explicit variable. --}}
+                                    @php
+                                        if ($ssStorageKnown) {
+                                            $ssStorageNote = $ssStorageUsed . 'MB / ' . $ssStorageQuota . 'MB';
+                                        } elseif ($ssStorageUnlimited) {
+                                            $ssStorageNote = __(':used MB used of unlimited storage', ['used' => $ssStorageUsed]);
+                                        } else {
+                                            $ssStorageNote = __(':used MB used', ['used' => $ssStorageUsed]);
+                                        }
+                                    @endphp
+                                    <h4>{{ __('Storage Status') }}<small>({{ $ssStorageNote }})</small></h4>
                                 </div>
                                 <div class="card-body">
-                                    <div id="device-chart"></div>
+                                    @if ($ssStorageKnown)
+                                        <div id="device-chart"></div>
+                                    @elseif ($ssStorageUnlimited)
+                                        <p class="m-0 text-muted">{{ __('This plan includes unlimited storage, so there is no percentage to show.') }}</p>
+                                    @else
+                                        <p class="m-0 text-muted">{{ __('This plan records no storage limit, so there is no percentage to show.') }}</p>
+                                    @endif
                                 </div>
                             </div>
                         </div>
                     </div>
                 </div>
+                {{-- WS C: gated on `Manage Products` for the same reason the two sales
+                     cards above are gated on `Manage Order` -- the overview region withholds
+                     its product figures and its best-selling list from a principal without
+                     that permission, and this list (newest products, WITH prices) sat below
+                     it ungated. Not deleted: newest-first is a different question from
+                     best-selling and no other region on the page answers it. --}}
+                @if (\App\Support\MerchantDashboardAbilities::mayManageProducts())
                 {{-- latest product --}}
                 <div class="col-xxl-4 col-12">
                     <div class="overflow-auto dashboard-card">
@@ -337,123 +470,7 @@
                         </div>
                     </div>
                 </div>
-                <div class="col-xxl-4 col-12">
-                    <div class="dashboard-card">
-                        <div class="d-flex justify-content-between align-items-center flex-wrap">
-                            <h4>{{ __('Recent Orders') }}</h4>
-                            @if ($new_orders && count($new_orders) > 0)
-                                <a class="text-primary" href="{{ route('order.index') }}">{{ __('View All') }}</a>
-                            @endif
-                        </div>
-                        <div class="table-responsive">
-                            <table class="table dataTable">
-                                <thead>
-                                    <tr>
-                                        <th scope="col">{{ __('Orders') }}</th>
-                                        <th scope="col" class="sort">{{ __('Date') }}</th>
-                                        <th scope="col" class="sort">{{ __('Status') }}</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    @if (count($new_orders) > 0)
-                                        @foreach ($new_orders as $order)
-                                            @if ($order->status != 'Cancel Order')
-                                                <tr>
-                                                    <td>
-                                                        <div class="d-flex align-items-center table-inner-text">
-                                                            <a href="{{ route('order.view', \Illuminate\Support\Facades\Crypt::encrypt($order->id)) }}"
-                                                                @php $btn_class = 'bg-info';
-                                                                    if (
-                                                                        $order->delivered_status == 2 ||
-                                                                        $order->delivered_status == 3
-                                                                    ) {
-                                                                        $btn_class = 'bg-danger';
-                                                                    } elseif ($order->delivered_status == 1) {
-                                                                        $btn_class = 'bg-success';
-                                                                    } elseif ($order->delivered_status == 4) {
-                                                                        $btn_class = ' bg-warning';
-                                                                    } elseif ($order->delivered_status == 5) {
-                                                                        $btn_class = 'bg-secondary';
-                                                                    } elseif ($order->delivered_status == 6) {
-                                                                        $btn_class = 'bg-dark';
-                                                                } @endphp
-                                                                class="btn bg-primary btn-sm text-sm btn-badge" data-bs-toggle="tooltip"
-                                                                title="{{ __('Invoice ID') }}">
-                                                                <span class="btn-inner--icon"></span>
-                                                                <span class="btn-inner--text">#{{ $order->product_order_id }}</span>
-                                                            </a>
-                                                        </div>
-                                                    </td>
-                                                    <td>
-                                                        <h6 class="m-0">
-                                                            {{ \App\Models\Utility::dateFormat($order->order_date) }}
-                                                        </h6>
-                                                    </td>
-
-
-
-                                                    <td class="">
-                                                        @if ($order->delivered_status == 0)
-                                                            <button type="button" class="btn btn-sm btn-info btn-icon">
-
-                                                                <span class="btn-inner--text"> {{ __('Pending') }}
-                                                                </span>
-                                                            </button>
-                                                        @elseif ($order->delivered_status == 1)
-                                                            <button type="button" class="btn btn-sm btn-success btn-icon">
-
-                                                                <span class="btn-inner--text"> {{ __('Delivered') }}
-                                                                </span>
-                                                            </button>
-                                                        @elseif ($order->delivered_status == 2)
-                                                            <button type="button" class="btn btn-sm btn-danger btn-icon">
-
-                                                                <span class="btn-inner--text"> {{ __('Cancel') }}
-                                                                </span>
-                                                            </button>
-                                                        @elseif ($order->delivered_status == 3)
-                                                            <button type="button" class="btn btn-sm btn-danger btn-icon">
-
-                                                                <span class="btn-inner--text"> {{ __('Return') }}
-                                                                </span>
-                                                            </button>
-                                                        @elseif ($order->delivered_status == 4)
-                                                            <button type="button" class="btn btn-sm btn-warning btn-icon">
-
-                                                                <span class="btn-inner--text"> {{ __('Confirmed') }}
-
-                                                                </span>
-                                                            </button>
-                                                        @elseif ($order->delivered_status == 5)
-                                                            <button type="button" class="btn btn-sm btn-secondary btn-icon">
-
-                                                                <span class="btn-inner--text"> {{ __('Picked Up') }}
-
-                                                                </span>
-                                                            </button>
-                                                        @elseif ($order->delivered_status == 6)
-                                                            <button type="button" class="btn btn-sm btn-dark btn-icon">
-
-                                                                <span class="btn-inner--text"> {{ __(key: 'Shipped') }}
-                                                                </span>
-                                                            </button>
-                                                        @elseif ($order->delivered_status == 8)
-                                                            <button type="button" class="btn btn-sm btn-dark btn-icon">
-                                                                <span class="btn-inner--text"> {{ __('Pre Order') }}
-
-                                                                </span>
-                                                            </button>
-                                                        @endif
-                                                    </td>
-                                                </tr>
-                                            @endif
-                                        @endforeach
-                                    @endif
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
+                @endif
             </div>
         </div>
     </div>
@@ -519,7 +536,7 @@
                     }
                 },
                 colors: ["var(--theme-color)"],
-                labels: ['Used'],
+                labels: [@json(__('Used'))],
                 responsive: [{
                     breakpoint: 600,
                     options: {
@@ -563,8 +580,11 @@
                 ]
             };
 
-            var chart = new ApexCharts(document.querySelector("#device-chart"), options);
-            chart.render();
+            var ssStorageChartEl = document.querySelector("#device-chart");
+            if (ssStorageChartEl) {
+                var chart = new ApexCharts(ssStorageChartEl, options);
+                chart.render();
+            }
         });
 
 

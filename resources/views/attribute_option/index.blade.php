@@ -38,8 +38,8 @@
 @endsection
 
 @section('breadcrumb')
-    <li class="breadcrumb-item"><a href="{{ route('product-attributes.index') }}">{{ __('Attribute') }}</a></li>
-    <li class="breadcrumb-item">{{ __('Attribute-options') }}</li>
+    <li class="ss-breadcrumb__item"><a class="ss-breadcrumb__link" href="{{ route('product-attributes.index') }}">{{ __('Attribute') }}</a></li>
+    <li aria-current="page" class="ss-breadcrumb__item">{{ __('Attribute-options') }}</li>
 @endsection
 
 @section('content')
@@ -165,7 +165,8 @@
 @endsection
 
 @push('custom-script')
-    <script src="{{ asset('public/js/jquery-ui.min.js') }}"></script>
+    {{-- F16: was asset('public/js/...'), which 404s. --}}
+    <script src="{{ asset('js/jquery-ui.min.js') }}"></script>
     <script>
         $(function () {
             var $status = $('#ss-sort-status');

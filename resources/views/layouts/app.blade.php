@@ -51,7 +51,22 @@
 @endphp
 
 <!DOCTYPE html>
-<html lang="{{ str_replace('_', '-', ($setting['currantLang'] ?? app()->getLocale())) }}" dir="{{ isset($setting['SITE_RTL']) && $setting['SITE_RTL'] == 'on'? 'rtl' : '' }}" id="html-dir-tag">
+{{-- P2-01-11: data-ss-theme is set SERVER-SIDE here, not only by the opt-in
+     include at layouts/includes/store-syria-ds.blade.php.
+
+     That include is per-page (dashboard, attribute_option, previews), but the
+     SIDEBAR is rendered by this layout on EVERY page -- so sidebar rules that
+     need to know the theme could not rely on it. Setting the attribute here
+     makes the theme known to CSS on every page, with no script and no
+     flash-of-wrong-theme.
+
+     `data-ss-theme-source="host"` is set with it on purpose: the brand-settings
+     page swaps #main-style-link's href live, and the include's sync() only
+     removes an attribute whose source is "host". Omitting it would leave a
+     stale data-ss-theme="dark" behind when a merchant toggles to light without
+     reloading. --}}
+<html lang="{{ str_replace('_', '-', ($setting['currantLang'] ?? app()->getLocale())) }}" dir="{{ isset($setting['SITE_RTL']) && $setting['SITE_RTL'] == 'on' ? 'rtl' : 'ltr' }}" id="html-dir-tag"
+    @if (isset($setting['cust_darklayout']) && $setting['cust_darklayout'] == 'on') data-ss-theme="dark" data-ss-theme-source="host" @endif>
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=0, minimal-ui" />
@@ -66,19 +81,19 @@
 
     <!-- Open Graph / Facebook -->
     <meta property="og:type" content="website">
-    <meta property="og:url" content="{{ env('APP_URL') }}">
+    <meta property="og:url" content="{{ config('app.url') }}">
     <meta property="og:title" content="{{ isset($SuperadminData['metatitle']) ? $SuperadminData['metatitle'] : 'EcommerceGo' }}">
     <meta property="og:description" content="{{ isset($SuperadminData['metadesc']) ? $SuperadminData['metadesc'] : 'Discover the efficiency of EcommerceGo, a user-friendly web application by Workdo.io.'}} ">
     <meta property="og:image" content="{{ get_file(isset($SuperadminData['metaimage']) ? $SuperadminData['metaimage'] : 'storage/uploads/ecommercego-saas-preview.png')  }}{{'?'.time() }}">
 
     <!-- Twitter -->
     <meta property="twitter:card" content="summary_large_image">
-    <meta property="twitter:url" content="{{ env('APP_URL') }}">
+    <meta property="twitter:url" content="{{ config('app.url') }}">
     <meta property="twitter:title" content="{{ isset($SuperadminData['metatitle']) ? $SuperadminData['metatitle'] : 'EcommerceGo' }}">
     <meta property="twitter:description" content="{{ isset($SuperadminData['metadesc']) ? $SuperadminData['metadesc'] : 'Discover the efficiency of EcommerceGo, a user-friendly web application by Workdo.io.'}} ">
     <meta property="twitter:image" content="{{ get_file(isset($SuperadminData['metaimage']) ? $SuperadminData['metaimage'] : 'storage/uploads/ecommercego-saas-preview.png')  }}{{'?'.time() }}">
 
-    <title>{{ isset($setting['title_text']) ? $setting['title_text'] : ( env('APP_NAME') ?? 'Ecommercego saas') }} - @yield('page-title') </title>
+    <title>{{ isset($setting['title_text']) ? $setting['title_text'] : config('platform.brand_name') }} - @yield('page-title') </title>
 
     <link rel="stylesheet" href="{{ asset('assets/css/plugins/select2.min.css') }}">
     <!-- Favicon icon -->
@@ -97,10 +112,32 @@
     <link rel="stylesheet" href="{{ asset('/assets/fonts/fontawesome.css') }}">
     <link rel="stylesheet" href="{{ asset('/assets/fonts/material.css') }}">
     <link rel="stylesheet" href="{{ asset('assets/css/customizer.css') }}">
-    <link rel="stylesheet" href="{{ asset('public/assets/css/plugins/dropzone.css') }}" type="text/css" />
+    {{-- P2-A-01: `asset('public/...')` resolves to /public/..., which 404s -- the docroot IS
+         public/, so the segment is doubled. See the note on the RTL-dark sheet below. --}}
+    <link rel="stylesheet" href="{{ asset('assets/css/plugins/dropzone.css') }}" type="text/css" />
 
     @if (isset($setting['cust_darklayout']) && isset($setting['SITE_RTL']) && $setting['cust_darklayout'] == 'on' && $setting['SITE_RTL'] == 'on')
-        <link rel="stylesheet" href="{{ asset('public/assets/css/rtl-style-dark.css') }}" id="main-style-link">
+        {{--
+            P2-A-01. ARABIC + DARK MODE LOADED NO STYLESHEET AT ALL.
+
+            `asset('public/assets/css/rtl-style-dark.css')` resolves to
+            `/public/assets/css/rtl-style-dark.css`, and the docroot already IS `public/`, so the
+            segment is doubled and the request 404s. MEASURED against the running application:
+            that url answers 404 while `/assets/css/rtl-style-dark.css` answers 200, and the file
+            is on disk at `public/assets/css/rtl-style-dark.css`.
+
+            `#main-style-link` is THE layout stylesheet, so an Arabic merchant with dark mode on
+            got the admin with no layout CSS: no sidebar, the language menu rendered as a bare
+            bulleted list, every link blue and underlined. Found in a screenshot of the running
+            application; the three sibling branches use the correct unprefixed form, so this one
+            was simply wrong.
+
+            THE WIDER PATTERN IS NOT FIXED HERE. `asset('public/...')` appears about 100 times
+            across 32 view files -- payment pages, theme layouts, the marketplace -- and a sweep
+            of those is a different blast radius with different callers to verify. Recorded in
+            the ledger. What is fixed is the admin layout, which is this phase's own surface.
+        --}}
+        <link rel="stylesheet" href="{{ asset('assets/css/rtl-style-dark.css') }}" id="main-style-link">
         <link rel="stylesheet" href="{{ asset('css/rtl-custom.css') }}{{ '?v=' . time() }}"  id="main-style-custom-link">
         <link rel="stylesheet" href="{{ asset('css/rtl-loader.css') }}{{ '?v=' . time() }}" >
     @elseif(isset($setting['cust_darklayout']) && $setting['cust_darklayout'] == 'on')
@@ -116,6 +153,121 @@
         <link rel="stylesheet" href="{{ asset('css/custom.css') }}{{ '?v=' . time() }}"  id="main-style-custom-link">
         <link rel="stylesheet" href="{{ asset('css/loader.css') }}{{ '?v=' . time() }}" >
     @endif
+
+    {{-- P2-01-20. AFTER the @if, so it covers all four theme combinations with one line.
+
+         The host theme suppresses the focus ring for EVERY element —
+         `public/assets/css/style.css:15685` is `*:focus { outline: none; }`, and the same rule is
+         in all four stylesheets the branches above choose between. That left every control which
+         is not a design-system component with no focus indicator, on every admin page, across all
+         70 vendored modules.
+
+         This restores it for KEYBOARD navigation only, via `:focus-visible`, so a pointer user
+         sees exactly what they see today. See the file's own header for why it is a restoration
+         rather than deleting the theme's rule, and why it cannot live in store-syria-ds.css. --}}
+    <link rel="stylesheet" href="{{ asset('css/store-syria-a11y.css') }}{{ '?v=' . time() }}"
+          id="ss-a11y-style-link">
+
+    {{-- P2-01-11: the design system is loaded for EVERY admin page now, not
+         only the screens that opt in via layouts/includes/store-syria-ds.blade.php.
+
+         Why it moved: the sidebar is shared chrome rendered by this layout on
+         every page, and its workspace chip and nav-group headings are
+         design-system components (.ss-workspace, .ss-navgroup, built in
+         P2-01-1). Opting in per screen would have left them unstyled almost
+         everywhere — which is how the first attempt at this ended up with a
+         SECOND, duplicate copy of the chip's CSS in custom.css that then
+         collided with the real one.
+
+         Why that is safe for all 70 WorkDo modules: NO SELECTOR IN
+         store-syria-ds.css CAN MATCH AN ELEMENT OUTSIDE THE DESIGN SYSTEM.
+         That is the operative property, and
+         `Tests\Unit\Ui\DesignSystemStylesheetScopeTest` is what checks it:
+         every selector in the file must be CONFINED by an `.ss-` class or a
+         `data-ss-` attribute somewhere in it, so it cannot match an element
+         the design system does not own. The test parses the real stylesheet
+         and asserts the count it parsed, so it cannot pass by matching
+         nothing; bite-tested by adding `.card-body { … }`, which it names.
+
+         THIS COMMENT USED TO CARRY THAT INVENTORY ITSELF, and the inventory is
+         why the test now exists. It listed eight shapes and a count of RTL
+         rules; measuring the file turns up twenty-four distinct subject shapes
+         (`th`, `td`, `tr:hover`, `summary`, `img`, `td::before`, …) and a
+         different RTL count, and P2-03-1 then added rules it did not mention.
+         A list of this kind drifts every time somebody edits the stylesheet
+         and nothing notices — CLAUDE.md records the same lesson about the
+         skills section being "wrong in both directions". So the list is gone
+         and the property is asserted instead.
+
+         The subtlety the list did get right, and worth keeping: the stricter
+         claim "every selector's SUBJECT carries an `.ss-` class" is FALSE
+         here. `.ss-sort-list .ui-sortable-placeholder` targets jQuery UI's own
+         class, and the twenty-four shapes above are bare element subjects.
+         Every one is confined by an ancestor, which is why the test asserts
+         confinement rather than the subject.
+
+         No existing markup in the application uses an `.ss-` class, so nothing
+         that was already on the page is restyled. Re-check this if the design
+         system's standing rule — never style a bare element selector — is ever
+         relaxed.
+
+         NOT COVERED BY ANY OF THAT: this slice also adds host-selector rules
+         to public/css/custom.css and rtl-custom.css —
+         `.dash-sidebar .sidebar-input` and its `.form-control` — which really
+         do restyle the host's sidebar search row on every admin page. They are
+         confined to `.dash-sidebar` and justified by a measurement recorded
+         beside them, but they are a host change and are not made safe by
+         anything written above.
+
+         The per-screen include remains and is now a no-op duplicate link on
+         those screens; it is kept so a screen outside this layout (guest,
+         theme_layout) can still opt in. --}}
+    <link rel="stylesheet" href="{{ asset('css/store-syria-ds.css') }}?v=p02-7">
+    {{-- P2-04-5. The BEHAVIOUR follows the stylesheet into the layout, for the same reason the
+         stylesheet was promoted: a screen that uses a design-system component should not also
+         have to remember an include. The order list's quick-preview panel is the case that
+         forced it -- order/index.blade.php never opted in, so the panel rendered and opened with
+         an empty body and the fetch never ran, measured across eight screenshot combinations.
+
+         `defer`, so it does not block the parse, and dependency-free, so order does not matter.
+         The file guards itself against a second execution, because the opt-in partial is still
+         included by dashboard.blade.php and attribute_option/index.blade.php and a repeated
+         <script src> runs again rather than being skipped. --}}
+    <script defer src="{{ asset('js/store-syria-ds.js') }}?v=p02-7"></script>
+
+    {{-- P2-A-02. THE DARK-MODE HOOK, in <head> and on every admin page.
+
+         The host does not mark dark mode with a class: it swaps `#main-style-link` between
+         style.css, style-dark.css, style-rtl.css and rtl-style-dark.css server-side. This reads
+         that same signal and publishes it as `data-ss-theme`, so a first-party stylesheet can
+         have a dark-only rule at all -- custom.css is loaded in BOTH light and dark, which is
+         why the Phase 02 contrast fixes could not previously be scoped.
+
+         The identical logic has always been in layouts/includes/store-syria-ds.blade.php, but
+         that partial is included by exactly two views, so every other admin screen had no hook.
+         Running in both places is harmless: it is idempotent and only ever sets a value it
+         itself would remove. Inline and in <head>, after #main-style-link exists and before the
+         body paints, so there is no flash of light cards in a dark admin. --}}
+    <script>
+        (function () {
+            var html = document.documentElement;
+            var main = document.getElementById('main-style-link');
+            if (!main) { return; }
+            var sync = function () {
+                if (/style-dark\.css/.test(main.getAttribute('href') || '')) {
+                    html.setAttribute('data-ss-theme', 'dark');
+                    html.setAttribute('data-ss-theme-source', 'host');
+                } else if (html.getAttribute('data-ss-theme-source') === 'host') {
+                    html.removeAttribute('data-ss-theme');
+                    html.removeAttribute('data-ss-theme-source');
+                }
+            };
+            sync();
+            if (window.MutationObserver) {
+                new MutationObserver(sync).observe(main, { attributes: true, attributeFilter: ['href'] });
+            }
+        })();
+    </script>
 
     <link rel="stylesheet" href="{{ asset('assets/css/plugins/flatpickr.min.css') }}">
 
@@ -180,27 +332,177 @@
 </head>
 
 <body class="{{ $themeColor ?? 'theme-3'}}">
+    {{-- P2-01-11: restore the collapsed rail BEFORE the sidebar paints.
+
+         This is inline and first-in-body rather than in store-syria-nav.js for
+         one reason: a deferred script runs after first paint, so the merchant
+         would see the full-width sidebar appear and then snap to the rail on
+         every single page load. Three lines here, no flash.
+
+         It only ever ADDS a class the host stylesheets already define
+         (38 `.minimenu` rules in each of style.css, style-dark.css and
+         style-rtl.css). localStorage is the right store for this and not a
+         users column: it is a per-DEVICE layout preference, and a merchant who
+         collapses the rail on a laptop has said nothing about their phone.
+         Wrapped in try/catch because localStorage throws, not returns null, in
+         a private window with site data blocked. --}}
+    <script>
+        try {
+            if (localStorage.getItem('ss-nav-rail') === 'collapsed') {
+                document.body.classList.add('minimenu');
+            }
+        } catch (e) {}
+    </script>
+
+    {{-- P2-A-03 / ledger F9. A READABLE LABEL ON THE MERCHANT'S OWN BRAND COLOUR.
+
+         THE DEFECT: `.dash-item.active > .dash-link` is `#fff` on `var(--theme-color)`, so the
+         merchant's CURRENT LOCATION was the least legible label on the screen. On the default
+         theme-3 (#10B77F) that measures 2.59:1 against a 4.5:1 requirement, at every width,
+         desktop included -- measured in the running application, all four
+         light/dark x LTR/RTL configurations.
+
+         WHY THIS AND NOT A NEW COLOUR: `--theme-color` is the merchant's brand -- ten presets
+         plus a colour picker -- so there is no single safe value, and the ledger recorded F9 as
+         an owner decision for that reason. This changes NO brand colour. The background stays
+         exactly what the merchant chose; only the LABEL flips to whichever of white or
+         near-black is readable on it, which is what a contrast-aware design system does and
+         needs no global policy.
+
+         MEASURED ACROSS ALL TEN PRESETS: white wins on six, near-black on four, and every one
+         of the ten reaches AA under this rule -- the worst becomes 4.90:1, where six of them
+         were previously below 4.5:1. A custom picker colour is handled by the same arithmetic
+         rather than by a lookup table, so it cannot be a theme nobody checked.
+
+         FIRST-IN-BODY, like the rail above and for the same reason: `--theme-color` is declared
+         on `:root .theme-N`, i.e. on this BODY element, so it cannot be read from <head>, and a
+         deferred script would let the unreadable label paint first. It only ever SETS a custom
+         property; if it throws or is blocked, the CSS falls back to #fff and the screen is
+         exactly what it is today. --}}
+    <script>
+        (function () {
+            try {
+                var raw = getComputedStyle(document.body).getPropertyValue('--theme-color').trim();
+                if (!raw) { return; }
+
+                var rgb = null;
+                var hex = raw.replace('#', '');
+                if (/^[0-9a-f]{3}$/i.test(hex)) {
+                    rgb = [parseInt(hex[0] + hex[0], 16), parseInt(hex[1] + hex[1], 16), parseInt(hex[2] + hex[2], 16)];
+                } else if (/^[0-9a-f]{6}$/i.test(hex)) {
+                    rgb = [parseInt(hex.slice(0, 2), 16), parseInt(hex.slice(2, 4), 16), parseInt(hex.slice(4, 6), 16)];
+                } else {
+                    var m = raw.match(/rgba?\(([^)]+)\)/);
+                    if (m) { rgb = m[1].split(',').slice(0, 3).map(function (v) { return parseFloat(v); }); }
+                }
+                if (!rgb || rgb.some(function (v) { return isNaN(v); })) { return; }
+
+                // WCAG 2.x relative luminance, then the standard contrast ratio against each
+                // candidate. Choosing by ratio rather than by a luminance threshold is what
+                // makes the mid-tone brands (#008ecc, #0c7785) come out right.
+                var lum = function (c) {
+                    var s = c.map(function (v) {
+                        v = v / 255;
+                        return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+                    });
+                    return 0.2126 * s[0] + 0.7152 * s[1] + 0.0722 * s[2];
+                };
+                var ratio = function (a, b) {
+                    var la = lum(a), lb = lum(b);
+                    return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+                };
+
+                var WHITE = [255, 255, 255];
+                var INK = [17, 24, 28];   // near-black, not pure black: softer on a mid tone
+
+                document.documentElement.style.setProperty(
+                    '--ss-onbrand',
+                    ratio(WHITE, rgb) >= ratio(INK, rgb) ? '#ffffff' : '#11181c'
+                );
+
+                /* AND THE BRAND AS LINK TEXT ON A LIGHT SURFACE, which is the same defect
+                   pointing the other way: the breadcrumb link is `var(--theme-color)` on the
+                   page background, and on theme-3 that measures 2.48:1.
+
+                   DARKENED TOWARDS BLACK, WHICH KEEPS THE HUE. Only the lightness moves, and
+                   only until AA is met -- measured across the ten presets, SIX ARE ALREADY
+                   ABOVE 4.5:1 AND COME OUT UNCHANGED (the loop exits on the first test). The
+                   four that need it land between 4.51:1 and 4.73:1, close to the threshold
+                   rather than washed out. The brand colour itself is untouched: this is a
+                   separate property used only where the brand is TEXT, so every fill, border
+                   and badge keeps the merchant's exact colour. */
+                var PAGE = [249, 250, 251];
+                var scale = 1;
+                var text = rgb;
+                while (scale > 0.05) {
+                    text = rgb.map(function (v) { return Math.round(v * scale); });
+                    if (ratio(text, PAGE) >= 4.5) { break; }
+                    scale -= 0.02;
+                }
+                document.documentElement.style.setProperty(
+                    '--ss-brand-ontext',
+                    'rgb(' + text[0] + ',' + text[1] + ',' + text[2] + ')'
+                );
+            } catch (e) {}
+        })();
+    </script>
+
     @include('partision.sidebar')
 
     @include('partision.header')
 
+    {{--
+        WS A7 / B6 -- THE SKIP LINK, and it is the first focusable element on every merchant
+        screen. `.ss-skip-link` has existed in the design system since the beginning
+        (public/css/store-syria-ds.css:1462, commented "first focusable element on a page,
+        invisible until focused") and was rendered by NOTHING -- a repo-wide search for call sites
+        found zero. So a keyboard user reached the main content only by tabbing through the whole
+        sidebar, on all ~150 merchant screens.
+
+        It goes here, immediately before the content container, because that is where it has to be
+        in the tab order: after nothing. `#ss-main` carries `tabindex="-1"` so the browser moves
+        focus there rather than only scrolling, which is the half of a skip link that is usually
+        missed.
+    --}}
+    <a class="ss-skip-link" href="#ss-main">{{ __('Skip to main content') }}</a>
+
     <!-- [ Main Content ] start -->
     <div class="dash-container">
-        <div class="dash-content">
+        <div class="dash-content" id="ss-main" tabindex="-1">
            <!-- [ breadcrumb ] start -->
            <div class="page-header mb-md-4 mb-3">
                 <div class="page-block d-flex align-items-center justify-content-between gap-3 flex-wrap">
                         <div class="page-header-wrp">
                             <div class="page-header-title">
-                                <h2 class="h3 mb-0">@yield('page-title')</h4>
+                                {{-- `</h2>`, not `</h4>`: the opening tag is h2 and the close
+                                     was h4, on every merchant screen. Browsers recover from it,
+                                     so nothing broke visibly -- but the DOM a screen reader and
+                                     any heading-order audit walk was malformed. --}}
+                                <h2 class="h3 mb-0 ss-scope">@yield('page-title')</h2>
+                                {{-- WS C: AN OPT-IN SUBTITLE, and it is opt-in on purpose.
+                                     `x-ss.page-header` has carried a `store` prop since P2-01-11
+                                     — "the store name is restated here on screens where knowing
+                                     which store you are editing matters" — but exactly ONE view
+                                     in the repository renders that component, while 334 set
+                                     `@section('page-title')`. So the mechanism existed and
+                                     reached nothing. `@hasSection` means a screen that defines
+                                     no subtitle renders exactly the markup it rendered before:
+                                     no empty element, no spacing change, nothing to re-measure
+                                     on 333 screens. --}}
+                                @hasSection('page-subtitle')
+                                    <p class="ss-scope ss-page-header__subtitle mb-0">@yield('page-subtitle')</p>
+                                @endif
                             </div>
                             @if (\Request::route()->getName() != 'dashboard')
-                            <ul class="breadcrumb mt-2">
-                                <li class="breadcrumb-item">
-                                        <a href="{{ route('dashboard') }}">{{ __('Home') }}</a>
-                                    </li>
-                                    @yield('breadcrumb')
-                            </ul>
+                                {{-- P2-01-14 / WS A3: the ONE breadcrumb, for all 107 merchant
+                                     screens. This was Bootstrap's `<ul class="breadcrumb">`, whose
+                                     `--bs-breadcrumb-item-active-color` and
+                                     `--bs-breadcrumb-divider-color` are BYTE-IDENTICAL in
+                                     style.css and style-dark.css -- one colour cannot be legible
+                                     in both themes, which is F151. The component's tokens are
+                                     redefined per theme. Each screen still supplies only its own
+                                     trail; Home lives in the component so it cannot drift. --}}
+                                <x-ss.breadcrumb>@yield('breadcrumb')</x-ss.breadcrumb>
                             @endif
                         </div>
                         <div class="page-header-icon d-flex flex-wrap gap-2">
@@ -228,12 +530,18 @@
             </div>
         </div>
 
-        <div id="commanModelOver" class="modal fade" tabindex="-1" role="dialog" aria-labelledby="modelCommanModelLabel"
+        {{-- WS C: ITS OWN LABEL id. Both modals named `modelCommanModelLabel`, so the id
+             appeared twice on every admin page and this modal's accessible name resolved to the
+             FIRST modal's (empty) title element -- a screen reader opening the nested dialog was
+             told the name of the dialog underneath it, or nothing at all. `custom.js:76` sets the
+             text through `#commanModelOver .modal-title`, by class and scoped to this modal, so
+             the id is used by nothing but the ARIA reference it was breaking. --}}
+        <div id="commanModelOver" class="modal fade" tabindex="-1" role="dialog" aria-labelledby="modelCommanModelOverLabel"
         aria-hidden="true">
             <div class="modal-dialog">
                 <div class="modal-content ">
                     <div class="modal-header">
-                        <h4 class="modal-title" id="modelCommanModelLabel"></h4>
+                        <h4 class="modal-title" id="modelCommanModelOverLabel"></h4>
                         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                     </div>
                     <div class="modal-body"></div>
@@ -263,6 +571,41 @@
     </div>
 
     @include('partision.settingPopup')
+    {{-- P2-06-2: the global search palette, once per admin page. --}}
+    {{-- P2-01-19 — THE "GENERATE WITH AI" SURFACE, AS A SIDE PANEL INSTEAD OF A SECOND MODAL.
+
+         Nineteen buttons across sixteen create/edit views carried the nested-dialog attribute
+         (spelled out in AjaxPopupContractRatchetTest rather than here, because that ratchet counts
+         raw occurrences and would count this comment),
+         which `custom.js:72` loads into `#commanModelOver` and opens OVER the modal those views are
+         themselves rendered in -- two stacked dialog levels, which the master prompt asks to
+         eliminate. They now open this panel, which is a sibling of the modal rather than a child of
+         it, so there is never a second dialog level.
+
+         DECLARED HERE, NOT IN THE SIXTEEN VIEWS, and that is the reason it works: those views are
+         fetched by AJAX INTO the modal's body, so a panel declared inside one of them would be
+         nested in the very dialog this change exists to get out of. The layout is already rendered
+         and sits outside it.
+
+         ONE PANEL, ONE TITLE: all nineteen buttons carried the same `data-title`
+         ("Generate Content With AI"), measured rather than assumed, so a fixed title loses nothing.
+
+         The AJAX contract is untouched -- same `route('generate', [...])` per site, now in
+         `data-ss-panel-url`, which the design system's panel loads with its own loading and error
+         states. Each site's permission gate (`currentPlan->enable_chatgpt == 'on'`) is unchanged. --}}
+    {{-- F259. THE ONE PANEL OF FOUR THAT PASSED NO STRINGS, so an Arabic merchant was shown the
+         hardcoded English in `public/js/store-syria-ds.js:228` and `:248` — "Loading…" and "This
+         could not be loaded." — inside a `dir="rtl"` document. The other three
+         (`order/index.blade.php:118`, `notification/index.blade.php:152`,
+         `product/index.blade.php:57`) all pass both through `__()`; the component's own docblock
+         warns about exactly this, because the JS has no translator and cannot have one. --}}
+    <x-ss.panel id="ai-generate"
+                :title="__('Generate Content With AI')"
+                :loading-text="__('Generating…')"
+                :error-text="__('This could not be generated. Please try again.')" />
+
+    @include('partision.command-palette')
+
     @include('partision.footerlink')
     @stack('scripts')
     @stack('custom-script')

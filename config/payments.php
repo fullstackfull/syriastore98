@@ -6,8 +6,21 @@
  *
  * WHAT THIS FILE GOVERNS, AND WHAT IT DELIBERATELY DOES NOT.
  *
- * It governs exactly one thing: whether a named provider's PLAN-PURCHASE return handler is
- * allowed to create a PlanOrder and call assignPlan(). It is consulted nowhere else.
+ * It governs TWO things, and they are different shapes of the same question -- may a provider's
+ * evidence activate a paid plan:
+ *
+ *   1. `plan_activation` (and its two documentation siblings): whether a named provider's
+ *      PLAN-PURCHASE BROWSER-RETURN handler is allowed to create a PlanOrder and call
+ *      assignPlan(). This is the original and larger half, read by
+ *      GuardsPlanActivation::assertPlanActivationEnabled().
+ *   2. `paytm_callback_enabled` (F241, added last): whether the PROVIDER-AUTHENTICATED Paytm
+ *      callback route exists at all. A separate key rather than a `plan_activation` entry
+ *      because it answers a different question -- not "do we trust this handler's gate" but
+ *      "has a live transaction been verified through this new door yet" -- and because
+ *      PlanPaymentPostureTest pins `plan_activation`'s key set exactly, so an unrelated member
+ *      would read as a forgeable browser return. Its own reasoning is at the key.
+ *
+ * It is consulted nowhere else.
  *
  * It does NOT touch, and must not be made to touch:
  *   - storefront ORDER payments. Those run through PaymentController / OrderController and the
@@ -630,7 +643,15 @@ return [
         'KhaltiPaymnetController'       => "Khalti::verifyPayment() POSTs khalti.com/api/v2/payment/verify/ with the merchant secret; gates on \$response['status_code'] == '200'",
         'NMIPayController'              => "outbound POST secure.networkmerchants.com/api/transact.php type=sale then \$parsedResponse['response'] == 1",
         'PaypalPaymentController'       => "capturePaymentOrder(\$request['token']) then \$response['status'] == 'COMPLETED'",
-        'PaystackPaymentController'     => "outbound GET api.paystack.co/transaction/verify/{ref} then \$result['status'] == true",
+        /*
+         * D-12 / F87, F88. REWRITTEN BECAUSE THE OLD MARKER WAS ACCURATE AND THE CLASSIFICATION
+         * WAS STILL WRONG: it read "then $result['status'] == true", which is the API ENVELOPE,
+         * and the list conflates "calls the gateway" with "checks that the payment succeeded".
+         * Paystack was the single outlier among the 18 -- the other 17 markers all name a check
+         * on the payment state. A marker must now describe what the code REQUIRES, not what it
+         * calls.
+         */
+        'PaystackPaymentController'     => "outbound GET api.paystack.co/transaction/verify/{ref} then \$result['data']['status'] === 'success' AND data.reference === the requested reference AND data.amount === the server-owned plan price in minor units AND data.currency matches; replay refused by (payment_type, txn_id) across every locale spelling",
     ],
 
     /**
@@ -651,4 +672,42 @@ return [
     'plan_activation_platform_approved' => [
         'BankTransferController' => 'routes/web.php order.approve => PlatformOperatorOnly middleware',
     ],
+
+    /*
+     * F241 -- THE PAYTM PROVIDER-AUTHENTICATED CALLBACK GATE. Separate from the map above, and
+     * SHIPPING CLOSED.
+     *
+     * The owner approved docs/development/phase-2/F241-PAYMENT-RETURN-ARCHITECTURE.md in principle
+     * and set a hard condition on exposure:
+     *
+     *   "Do not expose a new callback until authenticity, intent binding, replay resistance and
+     *    concurrency safety are proven."
+     *
+     * THREE OF THOSE FOUR ARE PROVEN HERE. Authenticity is exercised against Paytm's OWN vendored
+     * checksum helper rather than a guessed field name; intent binding, replay resistance and
+     * concurrency are PlanPurchaseIntent's single conditional UPDATE, tested in
+     * PaytmPlanCallbackTest and raced on a real MariaDB by
+     * tests/Support/Security/bin/verify-plan-purchase-intent-on-mysql.php.
+     *
+     * WHAT IS NOT PROVEN, AND IT IS WHY THIS SHIPS CLOSED: no LIVE Paytm transaction has been
+     * verified from this container. There are no Paytm credentials here and no network path to
+     * `securegw.paytm.in`, so the one thing that cannot be synthesised -- that a real captured
+     * payment yields a VERIFIED status with a valid checksum over the wire -- has not been
+     * observed. Every synthetic path is covered; the live one is not. **Paytm is therefore not
+     * "fixed", and neither this key nor the controller says it is.**
+     *
+     * Opening it is one deliberate act by whoever holds a Paytm sandbox, and the first thing they
+     * should do is drive one real sandbox payment through it and confirm `status: activated`.
+     *
+     * PARSED STRICTLY, FOR THE REASON THE UPLOAD GATE RECORDS. `Env::get` converts only
+     * true/false/null/empty and their parenthesised forms; everything else comes back a RAW
+     * STRING, and `empty('no')` is FALSE -- an operator typing `no` to keep config/uploads.php's
+     * gate shut once OPENED it. A payment callback must open only on an unambiguous yes, so a
+     * typo, a disabling word and an empty value all leave it closed.
+     */
+    'paytm_callback_enabled' => in_array(
+        strtolower(trim((string) env('PAYTM_CALLBACK_ENABLED', ''))),
+        ['1', 'true', 'yes', 'on'],
+        true
+    ),
 ];

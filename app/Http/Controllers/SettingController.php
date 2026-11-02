@@ -42,12 +42,28 @@ public function saveDeliverySyria(Request $request)
     $currentStoreId = getCurrentStore();
     $post = $request->all();
 
- 
+    /* The route carries only `auth` — no permission at all — so any logged-in member of the
+       store could post it and rewrite the store's shipping zones, its per-zone costs and the
+       owner's Delivery Syria token. `StoreSettingsAccess::permits()` is the decision point the
+       other integration handlers already use: operator first (Laratrust refuses the operator on
+       its own), then the tenant owner, then `Manage Setting`. */
+    $u = auth()->user();
+
+    if (! \App\Services\StoreSettingsAccess::permits($u)) {
+        return redirect()->back()->with('error', __('Permission denied.'));
+    }
+
+    /* F117. The token box is masked, so a merchant who is only re-syncing the zones posts it
+       empty. Resolve the effective token BEFORE the verification call: sending the empty string
+       would fail verification against a token that is perfectly valid and still stored. It lives
+       on the USER row (`users.deliverysyria_secret`), not in `settings`, so the fallback reads the
+       model rather than `Setting` — the same rule, a different store. */
+    $token = \App\Support\SecretSetting::resolve($request->delivery_syria_token, $u->deliverysyria_secret);
 
     // 2. إرسال الطلب إلى الـ API الخارجي
     try {
         $response = Http::post('https://deliverysyria.com/api/secret/cheack', [
-            'secret' => $request->delivery_syria_token// القيمة القادمة من الفورم
+            'secret' => $token // القيمة الفعّالة: المُدخلة الآن أو المحفوظة سابقاً
         ]);
 
      if ($response->successful()) {
@@ -93,8 +109,7 @@ public function saveDeliverySyria(Request $request)
 }
 
 
-$u=auth()->user();
-$u->deliverysyria_secret=$request->delivery_syria_token;
+$u->deliverysyria_secret = $token;
 $u->save();
     
     return redirect()->back()->with('success', __('Delivery Syria data updated successfully.'));
@@ -109,11 +124,21 @@ $u->save();
     }
 }
 
+/** Unrouted (no `Route::` declaration names it). Kept in step with saveDeliverySyria so that
+ *  routing it later cannot reintroduce either the missing permission check or the F117 erase. */
 public function saveDeliverySyria1(Request $request)
 {
 
 $u=auth()->user();
-$u->deliverysyria_secret=$request->delivery_syria_token;
+
+if (! \App\Services\StoreSettingsAccess::permits($u)) {
+    return redirect()->back()->with('error', __('Permission denied.'));
+}
+
+/* F117. The stored token is kept when the masked box posts empty. It lives on the USER row here
+   (`users.deliverysyria_secret`), not in `settings`, so the fallback reads the model rather than
+   `Setting` — the same rule, a different store. */
+$u->deliverysyria_secret = \App\Support\SecretSetting::resolve($request->delivery_syria_token, $u->deliverysyria_secret);
 $u->save();
     
     return redirect()->back()->with('success', __('Delivery Syria token updated successfully.'));
@@ -213,7 +238,11 @@ $u->save();
             $request->validate(
                 [
                     's3_key' => 'required',
-                    's3_secret' => 'required',
+                    /* F117: conditional. The box is masked, so an ordinary save of this panel posts
+                       it empty; a flat `required` makes the panel impossible to save without
+                       retyping the secret. `required` only while nothing is stored, so first-time
+                       setup still demands it. */
+                    's3_secret' => $this->secretRule('s3_secret'),
                     's3_region' => 'required',
                     's3_bucket' => 'required',
                     's3_url' => 'required',
@@ -225,7 +254,8 @@ $u->save();
 
             $post['storage_setting'] = $request->storage_setting;
             $post['s3_key'] = $request->s3_key;
-            $post['s3_secret'] = $request->s3_secret;
+            /* F117: keep the stored key when the masked box posts empty. */
+            $post['s3_secret'] = $this->keepStoredSecret('s3_secret', $request->s3_secret);
             $post['s3_region'] = $request->s3_region;
             $post['s3_bucket'] = $request->s3_bucket;
             $post['s3_url'] = $request->s3_url;
@@ -239,7 +269,7 @@ $u->save();
             $request->validate(
                 [
                     'wasabi_key' => 'required',
-                    'wasabi_secret' => 'required',
+                    'wasabi_secret' => $this->secretRule('wasabi_secret'),
                     'wasabi_region' => 'required',
                     'wasabi_bucket' => 'required',
                     'wasabi_url' => 'required',
@@ -250,7 +280,8 @@ $u->save();
             );
             $post['storage_setting'] = $request->storage_setting;
             $post['wasabi_key'] = $request->wasabi_key;
-            $post['wasabi_secret'] = $request->wasabi_secret;
+            /* F117: keep the stored key when the masked box posts empty. */
+            $post['wasabi_secret'] = $this->keepStoredSecret('wasabi_secret', $request->wasabi_secret);
             $post['wasabi_region'] = $request->wasabi_region;
             $post['wasabi_bucket'] = $request->wasabi_bucket;
             $post['wasabi_url'] = $request->wasabi_url;
@@ -537,7 +568,11 @@ $u->save();
                 'mail_host' => 'required|string|max:50',
                 'mail_port' => 'required|string|max:50',
                 'mail_username' => 'required|string|max:50',
-                'mail_password' => 'required|string|max:50',
+                /* F117: conditional. The box is masked, so an ordinary save of this panel posts
+                   it empty; a flat `required` makes the panel impossible to save without
+                   retyping the secret. `required` only while nothing is stored, so first-time
+                   setup still demands it. */
+                'mail_password' => $this->secretRule('MAIL_PASSWORD', 'string|max:50'),
                 'mail_encryption' => 'required|string|max:50',
                 'mail_from_address' => 'required|string|max:50',
                 'mail_from_name' => 'required|string|max:50',
@@ -556,7 +591,10 @@ $u->save();
         $post['MAIL_HOST'] = $request->mail_host ?? "";
         $post['MAIL_PORT'] = $request->mail_port?? "";
         $post['MAIL_USERNAME'] = $request->mail_username ?? "";
-        $post['MAIL_PASSWORD'] = $request->mail_password ?? "" ;
+        /* F117: the field posts as `mail_password` and is STORED as `MAIL_PASSWORD`, so the
+           stored value is looked up under the storage name. Keying it on the field name would
+           read nothing, resolve to '', and silently restore the erase this fix prevents. */
+        $post['MAIL_PASSWORD'] = $this->keepStoredSecret('MAIL_PASSWORD', $request->mail_password);
         $post['MAIL_ENCRYPTION'] = $request->mail_encryption ?? "";
         $post['MAIL_FROM_NAME'] = $request->mail_from_name?? "";
         $post['MAIL_FROM_ADDRESS'] = $request->mail_from_address ?? "";
@@ -585,6 +623,12 @@ $u->save();
 
     public function TestMail(Request $request)
     {
+        /* The modal is the door to the send handlers gated below; refusing here too keeps an
+           unprivileged user from being handed the store's settings array at all. */
+        if (! \App\Services\StoreSettingsAccess::permits(auth()->user())) {
+            abort(403);
+        }
+
         $email_setting = $request->all();
         $settings = Setting::where('store_id', getCurrentStore())->pluck('value', 'name')->toArray();
         $user = auth()->user();
@@ -594,7 +638,13 @@ $u->save();
         $data['mail_host'] = $request->mail_host;
         $data['mail_port'] = $request->mail_port;
         $data['mail_username'] = $request->mail_username;
-        $data['mail_password'] = $request->mail_password;
+        /*
+         * F117. NO `mail_password` HERE. The test-mail modal put it in a HIDDEN INPUT, so the
+         * stored SMTP password sat in the DOM of anyone who opened "send a test mail" — a hidden
+         * field is hidden from the layout, not from the reader. The send handler resolves it
+         * instead: what the merchant typed if they typed one, otherwise the stored value, which
+         * keeps "test the password I just entered" working without ever publishing the saved one.
+         */
         $data['mail_encryption'] = $request->mail_encryption;
         $data['mail_from_address'] = $request->mail_from_address;
         $data['mail_from_name'] = $request->mail_from_name;
@@ -605,6 +655,18 @@ $u->save();
     public function testSendMail(Request $request)
     {
         session()->put(['setting_tab' => 'email_setting']);
+
+        /* P1-SEC-18 F5, re-closed. This handler now substitutes the STORED credential when the
+           masked box posts blank, which turns an ungated test-send into a way to make the server
+           authenticate to a caller-chosen host with the merchant's saved secret. The read side
+           (settingForm) has always refused anyone failing permits(); the send side has to as
+           well, or the masking hands the credential to exactly the principal the tab refuses.
+           JSON with is_success:false, not a 403 — that is this handler's existing failure shape
+           and the only one its caller understands. */
+        if (! \App\Services\StoreSettingsAccess::permits(auth()->user())) {
+            return response()->json(['is_success' => false, 'message' => __('Permission denied.')]);
+        }
+
         $validator = \Validator::make(
             $request->all(),
             [
@@ -612,7 +674,10 @@ $u->save();
                 'mail_host' => 'required',
                 'mail_port' => 'required',
                 'mail_username' => 'required',
-                'mail_password' => 'required',
+                /* F117: conditional. The modal no longer carries the stored password, so an
+                   ordinary test-send posts this box empty and a flat `required` would make the
+                   test button unusable for everyone who has a password saved. */
+                'mail_password' => $this->secretRule('MAIL_PASSWORD', 'string'),
                 'mail_from_address' => 'required',
                 'mail_from_name' => 'required',
                 'email' => 'required|email',
@@ -628,6 +693,18 @@ $u->save();
                 ]
             );
         }
+
+        /*
+         * Resolve the password before anything reads it off the request: `SetConfigEmail()` and
+         * `TestMail` both take the whole request, so merging is what keeps them untouched.
+         * Typed wins, stored is the fallback, and the stored one never went to the browser.
+         */
+        $request->merge([
+            'mail_password' => \App\Support\SecretSetting::resolve(
+                $request->mail_password,
+                Setting::where('store_id', getCurrentStore())->where('name', 'MAIL_PASSWORD')->value('value')
+            ),
+        ]);
 
         try {
             SetConfigEmail($request);
@@ -758,9 +835,27 @@ $u->save();
         session()->put(['setting_tab' => 'recaptcha_setting']);
         if (\Auth::user()->type == 'super admin') {
             $user = Auth::user();
+            /*
+             * F117. THE SECRET'S RULE IS CONDITIONAL and the secret itself is kept when the box
+             * posts empty. Once the input stops carrying the value, an ordinary save of the site
+             * key — or of the module toggle — posts the secret box EMPTY, so a flat `required`
+             * would make this panel impossible to save and the unconditional assignment below
+             * would overwrite a live secret with ''.
+             *
+             * Note the NAME CHANGE across the boundary: the field posts as
+             * `google_recaptcha_secret` and is stored as `NOCAPTCHA_SECRET`, so the stored value
+             * must be looked up under the STORAGE name, not the field name. Getting that wrong
+             * would read nothing, resolve to '', and silently restore the erase.
+             */
+            $storedRecaptchaSecret = Setting::where('store_id', getCurrentStore())
+                ->where('name', 'NOCAPTCHA_SECRET')
+                ->value('value');
+
             $rules = [];
             $rules['google_recaptcha_key']      = 'required|string|max:50';
-            $rules['google_recaptcha_secret']   = 'required|string|max:50';
+            $rules['google_recaptcha_secret']   = \App\Support\SecretSetting::isSet($storedRecaptchaSecret)
+                ? 'nullable|string|max:50'
+                : 'required|string|max:50';
             $validator = \Validator::make($request->all(), $rules);
             if ($validator->fails()) {
                 return redirect()->back()->with('error', $validator->getMessageBag()->first());
@@ -768,7 +863,7 @@ $u->save();
             $data_recaptcha = [
                 'RECAPTCHA_MODULE'  => (isset($request->recaptcha_module)  ? 'yes' : 'no') ?? 'no',
                 'NOCAPTCHA_SITEKEY' => $request->google_recaptcha_key,
-                'NOCAPTCHA_SECRET'  => $request->google_recaptcha_secret,
+                'NOCAPTCHA_SECRET'  => \App\Support\SecretSetting::resolve($request->google_recaptcha_secret, $storedRecaptchaSecret),
                 'NOCAPTCHA_VERSON'  => $request->google_recaptcha_version ?? 'v2',
             ];
 
@@ -804,17 +899,57 @@ $u->save();
     {
         session()->put(['setting_tab' => 'chatgpt_setting']);
         if (auth()->user()->type == 'super admin') {
-            $key_arr = $request->api_key;
-            foreach ($key_arr as  $data) {
-                if ($data != '' && !empty($data)) {
-                    ApikeySetiings::updateOrCreate([
-                        'key' => $data,
-                        'created_by' => auth()->user()->id
-                    ]);
+            /* F117. The key boxes no longer carry their stored value, so the posted VALUE can no
+               longer be the row's identity. Each saved row posts under `api_key[e<id>]`; a row the
+               add-button JS cloned posts under the bare `api_key[]` and arrives with an integer
+               key. A blank existing row means KEEP, not delete.
+
+               WHY THE OLD SYNC COULD NOT CARRY A MASKED BOX, measured rather than assumed. It was
+               `updateOrCreate(['key' => $posted])` then `whereNotIn('key', $posted)->delete()`,
+               so a box that posts nothing identifies nothing. `ConvertEmptyStringsToNull` turns a
+               blank box into NULL before the handler sees it, and `whereNotIn('key', [null])` is
+               SQL three-valued logic: it matches no row, so the list silently stops reconciling
+               the moment ANY box is blank — the removed rows just stay. Fill every box and the
+               opposite happens: the delete had no `created_by` predicate, so it removed every
+               OTHER operator's keys. (Both executed against the legacy code: the delete returns
+               2 of 2 rows for a filled post, 0 for a blank one.)
+
+               So the delete is now scoped to this operator's own rows. That is forced by the
+               masking, not a separate widening: the form lists only the caller's rows, so an
+               unscoped delete would wipe everyone else's on the first save. `created_by` is
+               already the identity AITemplateController reads these by. */
+            $owner = auth()->user()->id;
+            $submitted = $request->input('api_key', []);
+            $submitted = is_array($submitted) ? $submitted : [];
+            $keptIds = [];
+
+            foreach ($submitted as $formKey => $data) {
+                $data = is_string($data) ? trim($data) : '';
+
+                if (is_string($formKey) && preg_match('/^e(\d+)$/', $formKey, $m)) {
+                    /* An existing row. Never resolve it from the request: load it by id AND owner,
+                       so a forged `api_key[e<someone-elses-id>]` reaches nothing. */
+                    $row = ApikeySetiings::where('created_by', $owner)->find((int) $m[1]);
+                    if (! $row) {
+                        continue;
+                    }
+                    if ($data !== '') {
+                        $row->key = $data;
+                        $row->save();
+                    }
+                    $keptIds[] = $row->id;
+                    continue;
+                }
+
+                if ($data !== '') {
+                    $row = ApikeySetiings::firstOrCreate(['key' => $data, 'created_by' => $owner]);
+                    $keptIds[] = $row->id;
                 }
             }
 
-            ApikeySetiings::whereNotIn('key', $key_arr)->delete();
+            ApikeySetiings::where('created_by', $owner)
+                ->when($keptIds !== [], fn ($q) => $q->whereNotIn('id', $keptIds))
+                ->delete();
 
             if (!empty($request->chat_gpt_model)) {
                 $post = [];
@@ -946,7 +1081,10 @@ $u->save();
                         }
                     }],
                     'woocommerce_consumer_key' => 'required|string',
-                    'woocommerce_consumer_secret' => 'required|string',
+                    /* F117: conditional, because a masked box posts empty on every ordinary save — a flat
+                       `required` would make the panel impossible to save once the input stops
+                       carrying the value. Required only when nothing is stored yet. */
+                    'woocommerce_consumer_secret' => $this->secretRule('woocommerce_consumer_secret'),
                 ]
             );
             if ($validator->fails()) {
@@ -958,7 +1096,8 @@ $u->save();
 
         $post['woocommerce_store_url'] = $request->woocommerce_store_url;
         $post['woocommerce_consumer_key'] = $request->woocommerce_consumer_key;
-        $post['woocommerce_consumer_secret'] = $request->woocommerce_consumer_secret;
+        /* F117: keep the stored credential when the masked box posts empty. */
+        $post['woocommerce_consumer_secret'] = $this->keepStoredSecret('woocommerce_consumer_secret', $request->woocommerce_consumer_secret);
         $settingQuery = Setting::query();
         foreach ($post as $key => $data) {
             $status = (clone $settingQuery)->updateOrCreate(
@@ -1010,7 +1149,10 @@ $u->save();
                             $fail(__('The Shopify store name must be the shop name only -- letters, digits and hyphens, with no dots, scheme or slashes.'));
                         }
                     }],
-                    'shopify_access_token' => 'required|string',
+                    /* F117: conditional, because a masked box posts empty on every ordinary save — a flat
+                       `required` would make the panel impossible to save once the input stops
+                       carrying the value. Required only when nothing is stored yet. */
+                    'shopify_access_token' => $this->secretRule('shopify_access_token'),
                 ]
             );
             if ($validator->fails()) {
@@ -1021,7 +1163,8 @@ $u->save();
 
 
         $post['shopify_store_url'] = $request->shopify_store_url;
-        $post['shopify_access_token'] = $request->shopify_access_token;
+        /* F117: keep the stored credential when the masked box posts empty. */
+        $post['shopify_access_token'] = $this->keepStoredSecret('shopify_access_token', $request->shopify_access_token);
         $settingQuery = Setting::query();
         foreach ($post as $key => $data) {
             $status = (clone $settingQuery)->updateOrCreate(
@@ -1278,7 +1421,10 @@ $u->save();
             $request->all(),
             [
                 'whatsapp_phone_number_id' => 'required|string',
-                'whatsapp_access_token' => 'required|string',
+                /* F117: conditional, because a masked box posts empty on every ordinary save — a flat
+                       `required` would make the panel impossible to save once the input stops
+                       carrying the value. Required only when nothing is stored yet. */
+                'whatsapp_access_token' => $this->secretRule('whatsapp_access_token'),
             ]
         );
         if ($validator->fails()) {
@@ -1287,7 +1433,8 @@ $u->save();
         }
 
         $post['whatsapp_phone_number_id'] = $request->whatsapp_phone_number_id;
-        $post['whatsapp_access_token'] = $request->whatsapp_access_token;
+        /* F117: keep the stored credential when the masked box posts empty. */
+        $post['whatsapp_access_token'] = $this->keepStoredSecret('whatsapp_access_token', $request->whatsapp_access_token);
         $settingQuery = Setting::query();
         foreach ($post as $key => $data) {
             (clone $settingQuery)->updateOrCreate(
@@ -1309,15 +1456,30 @@ $u->save();
 
     public function Testwhatsappmassage(Request $request)
     {
+        /* The modal is the door to the send handlers gated below; refusing here too keeps an
+           unprivileged user from being handed the store's settings array at all. */
+        if (! \App\Services\StoreSettingsAccess::permits(auth()->user())) {
+            abort(403);
+        }
+
         $email_setting = $request->all();
         $settings = Setting::where('store_id', getCurrentStore())->pluck('value', 'name')->toArray();
 
         $user = auth()->user();
 
+        /*
+         * F117. THE ACCESS TOKEN NO LONGER TRAVELS TO THE PAGE. The test-send modal used to
+         * receive it and put it in a HIDDEN INPUT, so the stored WhatsApp token sat in the DOM of
+         * anyone who opened "send a test message" — readable in page source, by any extension,
+         * and in any screenshot of it. A hidden field is not hidden from the reader; it is hidden
+         * from the LAYOUT.
+         *
+         * Nothing is lost by withholding it: the send handler now reads the token from the
+         * store's own settings, which is where it was going to end up anyway. The round trip
+         * through the browser only ever added exposure.
+         */
         $data = [];
         $data['whatsapp_phone_number_id'] = $request->whatsapp_phone_number_id;
-        $data['whatsapp_access_token'] = $request->whatsapp_access_token;
-
 
         return view('setting.test_whatsappmessage', compact('email_setting', 'settings', 'data'));
     }
@@ -1325,17 +1487,48 @@ $u->save();
     public function testSendwhatsappmassage(Request $request)
     {
         session()->put(['setting_tab' => 'whatsapp_notify_setting']);
+
+        /* P1-SEC-18 F5, re-closed. This handler now substitutes the STORED credential when the
+           masked box posts blank, which turns an ungated test-send into a way to make the server
+           send on the merchant's WhatsApp account to a caller-chosen number. The read side
+           (settingForm) has always refused anyone failing permits(); the send side has to as
+           well, or the masking hands the merchant's account to exactly the principal the tab refuses.
+           JSON with is_success:false, not a 403 — that is this handler's existing failure shape
+           and the only one its caller understands. */
+        if (! \App\Services\StoreSettingsAccess::permits(auth()->user())) {
+            return response()->json(['is_success' => false, 'message' => __('Permission denied.')]);
+        }
+
         $validator = \Validator::make(
             $request->all(),
             [
                 'mobile' => 'required',
                 'whatsapp_phone_number_id' => 'required',
-                'whatsapp_access_token' => 'required',
             ]
         );
         if ($validator->fails()) {
             $messages = $validator->getMessageBag();
             return redirect()->back()->with('error', $messages->first());
+        }
+
+        /*
+         * F117. THE TOKEN COMES FROM STORAGE, NOT FROM THE REQUEST.
+         *
+         * It used to be validated as `required` and taken from `$request->whatsapp_access_token`,
+         * which the modal supplied from a hidden input — so the stored token was published into
+         * the DOM on every "send a test message", and the route would equally send with ANY token
+         * a caller chose to post.
+         *
+         * Reading the store's own value removes both. A caller can still trigger a test send,
+         * which is the point of the screen; they can no longer read the credential out of the
+         * page, nor substitute one.
+         */
+        $whatsappAccessToken = (string) Setting::where('store_id', getCurrentStore())
+            ->where('name', 'whatsapp_access_token')
+            ->value('value');
+
+        if (! \App\Support\SecretSetting::isSet($whatsappAccessToken)) {
+            return redirect()->back()->with('error', __('Save a WhatsApp access token before sending a test message.'));
         }
         try {
 
@@ -1354,7 +1547,7 @@ $u->save();
             );
 
             $headers = array(
-                'Authorization: Bearer ' . $request->whatsapp_access_token,
+                'Authorization: Bearer ' . $whatsappAccessToken,
                 'Content-Type: application/json'
             );
 
@@ -1382,6 +1575,46 @@ $u->save();
         }
     }
 
+    /**
+     * The stored value of one credential, from the SAME store row a save would write.
+     * =============================================================================================
+     *
+     * F117. Every settings panel here writes EVERY field on EVERY save, so once a credential's
+     * input stops carrying its value (which is the point of `<x-ss.secret-field>`), an ordinary
+     * save of an unrelated field on the same panel posts that box EMPTY and the unconditional
+     * `$post[$k] = $request->$k` writes an empty string over a live credential.
+     *
+     * This reads through `getCurrentStore()` deliberately — the same expression the
+     * `updateOrCreate` below uses — so the value read and the row written are the same row even
+     * when no tenant resolves. Reading `$setting[...]` instead would be an undefined variable in
+     * these POST handlers: `$setting` is built only in the GET ones.
+     */
+    /**
+     * `required` for a credential only while none is stored.
+     *
+     * F117: once a secret's input stops carrying its value, every ordinary save of the panel
+     * posts that box EMPTY — so a flat `required` rule turns the whole panel into something that
+     * cannot be saved at all. Relaxing it is therefore part of the masking change, not a
+     * weakening of validation: a FIRST-TIME setup still has to supply the value.
+     */
+    private function secretRule(string $name, string $extra = 'string'): string
+    {
+        $stored = Setting::where('store_id', getCurrentStore())
+            ->where('name', $name)
+            ->value('value');
+
+        return (\App\Support\SecretSetting::isSet($stored) ? 'nullable' : 'required') . '|' . $extra;
+    }
+
+    private function keepStoredSecret(string $name, $submitted): string
+    {
+        $stored = Setting::where('store_id', getCurrentStore())
+            ->where('name', $name)
+            ->value('value');
+
+        return \App\Support\SecretSetting::resolve($submitted, $stored);
+    }
+
     public function TwilioSettings(Request $request)
     {
         // P1-SEC-30: a fixed-name credential writer. The menu hides this tab from a user without the Settings permission; the route did not,
@@ -1394,12 +1627,37 @@ $u->save();
         session()->put(['setting_tab' => 'twilio_setting']);
         $theme_id = !empty(App_THEME()) ? APP_THEME() : '';
         $post['twilio_setting_enabled'] = $request->twilio_setting_enabled;
+
+        /*
+         * F117. THE STORED SECRETS ARE LOADED BEFORE THE VALIDATOR, because both the rules and
+         * the write below depend on whether one already exists.
+         *
+         * `$setting` is NOT in scope in this method -- it is built in the GET handlers (`:1621`,
+         * `:1624`, `:1648`), not this POST one -- so reading `$setting['twilio_sid']` here would
+         * have been an undefined variable resolving to `''`, which would have made the whole fix
+         * a SILENT NO-OP that still erased the token. Checked before relying on it.
+         *
+         * The same `getCurrentStore()` the `updateOrCreate` below uses, so the value read and the
+         * row written are the same row even when no tenant resolves.
+         */
+        $storedSecrets = Setting::where('store_id', getCurrentStore())
+            ->whereIn('name', ['twilio_sid', 'twilio_token'])
+            ->pluck('value', 'name')
+            ->all();
+
         if (isset($request->twilio_setting_enabled) && $request->twilio_setting_enabled == 'on') {
+            /*
+             * `required` ONLY WHEN NOTHING IS STORED. Once the inputs stop carrying the value
+             * (F117), an enabled panel posts both secret boxes EMPTY on every ordinary save --
+             * so a flat `required` would make the panel IMPOSSIBLE TO SAVE while enabled. That
+             * is a regression the masking introduces and this is where it is paid for; it was
+             * caught by driving the real save path, not by reading the diff.
+             */
             $validator = \Validator::make(
                 $request->all(),
                 [
-                    'twilio_sid' => 'required|string',
-                    'twilio_token' => 'required|string',
+                    'twilio_sid' => \App\Support\SecretSetting::isSet($storedSecrets['twilio_sid'] ?? null) ? 'nullable|string' : 'required|string',
+                    'twilio_token' => \App\Support\SecretSetting::isSet($storedSecrets['twilio_token'] ?? null) ? 'nullable|string' : 'required|string',
                     'twilio_from' => 'required|numeric',
                     'twilio_notification_number' => 'required|numeric',
                 ]
@@ -1411,8 +1669,18 @@ $u->save();
         }
 
 
-        $post['twilio_sid'] = $request->twilio_sid;
-        $post['twilio_token'] = $request->twilio_token;
+        /*
+         * F117. THE SECRETS KEEP THEIR STORED VALUE WHEN THE BOX POSTS EMPTY, and that is not
+         * optional once the inputs stop carrying the value: this panel writes EVERY field on
+         * EVERY save, so `$request->twilio_token` being empty used to write an empty string over
+         * a live auth token the moment a merchant changed the sender number.
+         *
+         * Clearing is still possible and still deliberate: the `twilio_setting_enabled == 'off'`
+         * branch below blanks all four, which is a named action rather than a side effect of an
+         * empty box.
+         */
+        $post['twilio_sid'] = \App\Support\SecretSetting::resolve($request->twilio_sid, $storedSecrets['twilio_sid'] ?? '');
+        $post['twilio_token'] = \App\Support\SecretSetting::resolve($request->twilio_token, $storedSecrets['twilio_token'] ?? '');
         $post['twilio_from'] = $request->twilio_from;
         $post['twilio_notification_number'] = $request->twilio_notification_number;
 
@@ -1450,6 +1718,27 @@ $u->save();
         // restricted names this handler would write by name: whoever passes this check may write them.
         if (! \App\Services\StoreSettingsAccess::permits(auth()->user())) {
             return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
+        /*
+         * F206 [2026-10-30] -- AND THE PLATFORM OPERATOR DOES NOT REWRITE A MERCHANT'S PRICE LIST.
+         *
+         * This handler reaches `StoreCurrencyConversionService::convertStoreCurrentValues()`,
+         * which rewrites EVERY product's `price`, `sale_price` and `cost_price` and EVERY
+         * variant's `price` and `variation_price` for the store — so one operator POST to
+         * `/currency-settings` is a whole-catalogue price change. The owner's decision names
+         * prices explicitly, so it is in scope even though it arrives through a settings screen.
+         *
+         * The limb is HERE and not inside `StoreSettingsAccess`, because that service also guards
+         * SMTP and payment-gateway credentials, which are platform administration the owner
+         * excluded from this narrowing. Blocking at the service would have taken those with it.
+         *
+         * The store is `getCurrentStore()`, which for an operator who has not switched returns the
+         * hardcoded literal **1** — so before this, an operator saving the currency tab rewrote
+         * store 1's prices whether or not they meant to look at store 1.
+         */
+        if (\App\Services\OperatorCatalogueWrite::refuses(auth()->user())) {
+            return redirect()->back()->with('error', \App\Services\OperatorCatalogueWrite::message());
         }
 
     session()->put(['setting_tab' => 'currency_setting']);
@@ -1759,7 +2048,10 @@ $currencyRates = CurrencyRate::where('store_id', getCurrentStore())
                     ], 403);
                 }
 
-                $ai_key_settings = ApikeySetiings::get();
+                /* F117. Scoped to the caller, to match the save: the panel now renders each row's
+                   id, and the save only touches rows this operator owns. Listing another
+                   operator's rows would show boxes that silently do nothing. */
+                $ai_key_settings = ApikeySetiings::where('created_by', auth()->user()->id)->orderBy('id')->get();
                 $view = view($views[$tabType], compact('setting', 'ai_key_settings'));
             } elseif ($tabType == 'tax_opt_setting') {
                 // $emailTemplates = EmailTemplate::all();
@@ -1945,6 +2237,46 @@ elseif ($tabType == 'otp_setting') {
         return $gateways;
     }
 
+    /**
+     * The payment gateways and their fields, as the settings screen renders them.
+     *
+     * EVERY FIELD CARRIES `'secret'`, AND IT IS NOT OPTIONAL. F117's last and largest exception
+     * lived here: `payment_partials/payment_gateway.blade.php` rendered all 108 fields as
+     * `type="text" value="{{ $setting[$field['key']] }}"`, so opening the Payment tab put every
+     * configured gateway's live secret key into the DOM at once -- 52 providers' credentials on
+     * one screen. The other sixteen F117 fields were named one by one in a view; these are
+     * generated from this array, so the array is where the decision belongs.
+     *
+     * HOW EACH FLAG WAS SET, stated so it can be checked rather than trusted. A field is PUBLIC
+     * when its name says so (`publishable`, `public`) or when it is an identifier the provider
+     * publishes and the merchant needs to read back: `_merchant_id`, `_client_id`, `_store_id`,
+     * `_profile_id`, `_shop_id`, `_site_id`, `_vendor_id`, `_app_id`, `_login_id`,
+     * `_integration_id`, `_category_code`, `_country_iso`, `_region`, `_industry_type`,
+     * `_chat_id`, `_number`, `_email`, `_enviroment_name`, `_production_url`, `_Service_Type`,
+     * Paymera's terminal id and username, Mollie's partner id, PhonePe's client version, and
+     * Cashfree's `cashfree_key` (its App ID). Everything else is secret: 58 fields.
+     *
+     * AMBIGUOUS NAMES ARE MASKED, deliberately and asymmetrically. `ozow_pay_Site_key` and
+     * `esewa_merchant_key` are probably the provider's public code rather than a secret, and
+     * they are masked anyway, because the two errors are not equal: masking a public value costs
+     * a merchant the ability to read it back from this screen, while failing to mask a secret
+     * discloses it to anyone who can see the page. Each is one `'secret' => false` away from
+     * being readable again if the owner decides differently.
+     *
+     * THE FLAG ALONE WOULD BE A DEFECT. A masked box posts empty when the merchant does not
+     * retype it, and `PaymentSettingController::processGateway()` wrote
+     * `!empty($request->$field) ? $request->$field : ''` -- the empty string, over the stored
+     * credential. Display and persistence changed together: that method now keeps the stored
+     * value for a secret field that posts empty, proven on the real route by
+     * `PaymentGatewaySecretPersistenceTest`. `tests/Unit/Ui/PaymentGatewayFieldContractTest.php`
+     * asserts every field here carries the flag, so a new gateway cannot be added without the
+     * decision being made.
+     *
+     * The required-field rule that goes with this was DEAD when F117 shipped and is live now
+     * (F142, owner decision): it bites only when a gateway is being TURNED ON, so an already
+     * enabled gateway keeps saving, and a secret that is already stored counts as supplied.
+     * `PaymentGatewayRequiredFieldsTest` holds both halves.
+     */
     private function paymentSettingArray()
     {
         return [
@@ -1977,8 +2309,8 @@ elseif ($tabType == 'otp_setting') {
                 'is_only_admin' => false,
                 'image_default' => 'uploads/payment/stripe.png',
                 'fields' => [
-                    ['key' => 'stripe_publishable_key', 'label' => __('Stripe Publishable Key')],
-                    ['key' => 'stripe_secret_key', 'label' => __('Stripe Secret Key')],
+                    ['key' => 'stripe_publishable_key', 'label' => __('Stripe Publishable Key'), 'secret' => false],
+                    ['key' => 'stripe_secret_key', 'label' => __('Stripe Secret Key'), 'secret' => true],
                 ],
             ],
 
@@ -1993,8 +2325,8 @@ elseif ($tabType == 'otp_setting') {
                 'is_only_admin' => false,
                 'image_default' => 'uploads/payment/paymera.png',
                 'fields' => [
-                    ['key' => 'PAYMERA_TERMINAL_ID', 'label' => __('PAYMERA_TERMINAL_ID')],
-                    ['key' => 'PAYMERA_USERNAME', 'label' => __('PAYMERA_USERNAME')],
+                    ['key' => 'PAYMERA_TERMINAL_ID', 'label' => __('PAYMERA_TERMINAL_ID'), 'secret' => false],
+                    ['key' => 'PAYMERA_USERNAME', 'label' => __('PAYMERA_USERNAME'), 'secret' => false],
                 ],
             ],
 
@@ -2009,8 +2341,8 @@ elseif ($tabType == 'otp_setting') {
                 'is_only_admin' => false,
                 'image_default' => 'uploads/payment/paystack.png',
                 'fields' => [
-                    ['key' => 'paystack_public_key', 'label' => __('Paystack Public Key')],
-                    ['key' => 'paystack_secret_key', 'label' => __('Paystack Secret Key')],
+                    ['key' => 'paystack_public_key', 'label' => __('Paystack Public Key'), 'secret' => false],
+                    ['key' => 'paystack_secret_key', 'label' => __('Paystack Secret Key'), 'secret' => true],
                 ],
             ],
             [
@@ -2022,8 +2354,8 @@ elseif ($tabType == 'otp_setting') {
                 'is_only_admin' => false,
                 'image_default' => 'uploads/payment/razorpay.png',
                 'fields' => [
-                    ['key' => 'razorpay_public_key', 'label' => __('Razorpay Public Key')],
-                    ['key' => 'razorpay_secret_key', 'label' => __('Razorpay Secret Key')],
+                    ['key' => 'razorpay_public_key', 'label' => __('Razorpay Public Key'), 'secret' => false],
+                    ['key' => 'razorpay_secret_key', 'label' => __('Razorpay Secret Key'), 'secret' => true],
                 ],
             ],
             [
@@ -2036,7 +2368,7 @@ elseif ($tabType == 'otp_setting') {
                 'image_default' => 'uploads/payment/mercado.png',
                 'mode_options' => ['sandbox' => __('Sandbox'), 'live' => __('Live')],
                 'fields' => [
-                    ['key' => 'mercado_access_token', 'label' => __('Mercado Access Token')],
+                    ['key' => 'mercado_access_token', 'label' => __('Mercado Access Token'), 'secret' => true],
                 ],
             ],
             [
@@ -2048,7 +2380,7 @@ elseif ($tabType == 'otp_setting') {
                 'is_only_admin' => false,
                 'image_default' => 'uploads/payment/skrill.png',
                 'fields' => [
-                    ['key' => 'skrill_email', 'label' => __('Skrill Email')],
+                    ['key' => 'skrill_email', 'label' => __('Skrill Email'), 'secret' => false],
                 ],
             ],
             [
@@ -2060,8 +2392,8 @@ elseif ($tabType == 'otp_setting') {
                 'is_only_admin' => false,
                 'image_default' => 'uploads/payment/paymentwall.png',
                 'fields' => [
-                    ['key' => 'paymentwall_public_key', 'label' => __('PaymentWall Public Key')],
-                    ['key' => 'paymentwall_private_key', 'label' => __('PaymentWall Private Key')],
+                    ['key' => 'paymentwall_public_key', 'label' => __('PaymentWall Public Key'), 'secret' => false],
+                    ['key' => 'paymentwall_private_key', 'label' => __('PaymentWall Private Key'), 'secret' => true],
                 ],
             ],
             [
@@ -2074,8 +2406,8 @@ elseif ($tabType == 'otp_setting') {
                 'image_default' => 'uploads/payment/paypal.png',
                 'mode_options' => ['sandbox' => __('Sandbox'), 'live' => __('Live')],
                 'fields' => [
-                    ['key' => 'paypal_client_id', 'label' => __('Paypal Client Key')],
-                    ['key' => 'paypal_secret_key', 'label' => __('Paypal Secret Key')],
+                    ['key' => 'paypal_client_id', 'label' => __('Paypal Client Key'), 'secret' => false],
+                    ['key' => 'paypal_secret_key', 'label' => __('Paypal Secret Key'), 'secret' => true],
                 ],
             ],
             [
@@ -2087,8 +2419,8 @@ elseif ($tabType == 'otp_setting') {
                 'is_only_admin' => false,
                 'image_default' => 'uploads/payment/flutterwave.png',
                 'fields' => [
-                    ['key' => 'flutterwave_public_key', 'label' => __('Flutterwave Public Key')],
-                    ['key' => 'flutterwave_secret_key', 'label' => __('Flutterwave Secret Key')],
+                    ['key' => 'flutterwave_public_key', 'label' => __('Flutterwave Public Key'), 'secret' => false],
+                    ['key' => 'flutterwave_secret_key', 'label' => __('Flutterwave Secret Key'), 'secret' => true],
                 ],
             ],
             [
@@ -2101,9 +2433,9 @@ elseif ($tabType == 'otp_setting') {
                 'image_default' => 'uploads/payment/paytm.png',
                 'mode_options' => ['local' => __('Local'), 'production' => __('Production')],
                 'fields' => [
-                    ['key' => 'paytm_merchant_id', 'label' => __('Merchant ID')],
-                    ['key' => 'paytm_merchant_key', 'label' => __('Merchant Key')],
-                    ['key' => 'paytm_industry_type', 'label' => __('Industry Type')],
+                    ['key' => 'paytm_merchant_id', 'label' => __('Merchant ID'), 'secret' => false],
+                    ['key' => 'paytm_merchant_key', 'label' => __('Merchant Key'), 'secret' => true],
+                    ['key' => 'paytm_industry_type', 'label' => __('Industry Type'), 'secret' => false],
                 ],
             ],
             [
@@ -2115,9 +2447,9 @@ elseif ($tabType == 'otp_setting') {
                 'is_only_admin' => false,
                 'image_default' => 'uploads/payment/mollie.png',
                 'fields' => [
-                    ['key' => 'mollie_api_key', 'label' => __('Mollie Api Key')],
-                    ['key' => 'mollie_profile_id', 'label' => __('Mollie Profile ID')],
-                    ['key' => 'mollie_partner_id', 'label' => __('Mollie Partner ID')],
+                    ['key' => 'mollie_api_key', 'label' => __('Mollie Api Key'), 'secret' => true],
+                    ['key' => 'mollie_profile_id', 'label' => __('Mollie Profile ID'), 'secret' => false],
+                    ['key' => 'mollie_partner_id', 'label' => __('Mollie Partner ID'), 'secret' => false],
                 ],
             ],
             [
@@ -2130,7 +2462,7 @@ elseif ($tabType == 'otp_setting') {
                 'image_default' => 'uploads/payment/coingate.png',
                 'mode_options' => ['sandbox' => __('Sandbox'), 'live' => __('Live')],
                 'fields' => [
-                    ['key' => 'coingate_auth_token', 'label' => __('CoinGate Auth Token')],
+                    ['key' => 'coingate_auth_token', 'label' => __('CoinGate Auth Token'), 'secret' => true],
                 ],
             ],
             [
@@ -2142,8 +2474,8 @@ elseif ($tabType == 'otp_setting') {
                 'is_only_admin' => false,
                 'image_default' => 'uploads/payment/sspay.png',
                 'fields' => [
-                    ['key' => 'sspay_secret_key', 'label' => __('Secret Key')],
-                    ['key' => 'sspay_category_code', 'label' => __('Category Code')],
+                    ['key' => 'sspay_secret_key', 'label' => __('Secret Key'), 'secret' => true],
+                    ['key' => 'sspay_category_code', 'label' => __('Category Code'), 'secret' => false],
                 ],
             ],
             [
@@ -2155,8 +2487,8 @@ elseif ($tabType == 'otp_setting') {
                 'is_only_admin' => false,
                 'image_default' => 'uploads/payment/toyyibpay.png',
                 'fields' => [
-                    ['key' => 'toyyibpay_secret_key', 'label' => __('Secret Key')],
-                    ['key' => 'toyyibpay_category_code', 'label' => __('Category Code')],
+                    ['key' => 'toyyibpay_secret_key', 'label' => __('Secret Key'), 'secret' => true],
+                    ['key' => 'toyyibpay_category_code', 'label' => __('Category Code'), 'secret' => false],
                 ],
             ],
             [
@@ -2168,9 +2500,9 @@ elseif ($tabType == 'otp_setting') {
                 'is_only_admin' => false,
                 'image_default' => 'uploads/payment/paytabs.png',
                 'fields' => [
-                    ['key' => 'paytabs_profile_id', 'label' => __('Profile ID')],
-                    ['key' => 'paytabs_server_key', 'label' => __('Paytab Server Key')],
-                    ['key' => 'paytabs_region', 'label' => __('Paytab Region')],
+                    ['key' => 'paytabs_profile_id', 'label' => __('Profile ID'), 'secret' => false],
+                    ['key' => 'paytabs_server_key', 'label' => __('Paytab Server Key'), 'secret' => true],
+                    ['key' => 'paytabs_region', 'label' => __('Paytab Region'), 'secret' => false],
                 ],
             ],                        
             [
@@ -2183,8 +2515,8 @@ elseif ($tabType == 'otp_setting') {
                 'image_default' => 'uploads/payment/iyzipay.png',
                 'mode_options' => ['sandbox' => __('Sandbox'), 'live' => __('Live')],
                 'fields' => [
-                    ['key' => 'iyzipay_private_key', 'label' => __('Private Key')],
-                    ['key' => 'iyzipay_secret_key', 'label' => __('Secret Key')],
+                    ['key' => 'iyzipay_private_key', 'label' => __('Private Key'), 'secret' => true],
+                    ['key' => 'iyzipay_secret_key', 'label' => __('Secret Key'), 'secret' => true],
                 ],
             ],
             [
@@ -2197,9 +2529,9 @@ elseif ($tabType == 'otp_setting') {
                 'image_default' => 'uploads/payment/payfast.png',
                 'mode_options' => ['sandbox' => __('Sandbox'), 'live' => __('Live')],
                 'fields' => [
-                    ['key' => 'payfast_merchant_id', 'label' => __('Merchant ID')],
-                    ['key' => 'payfast_merchant_key', 'label' => __('Merchant Key')],
-                    ['key' => 'payfast_salt_passphrase', 'label' => __('Salt Passphrase')],
+                    ['key' => 'payfast_merchant_id', 'label' => __('Merchant ID'), 'secret' => false],
+                    ['key' => 'payfast_merchant_key', 'label' => __('Merchant Key'), 'secret' => true],
+                    ['key' => 'payfast_salt_passphrase', 'label' => __('Salt Passphrase'), 'secret' => true],
                 ],
             ],
             [
@@ -2211,8 +2543,8 @@ elseif ($tabType == 'otp_setting') {
                 'is_only_admin' => false,
                 'image_default' => 'uploads/payment/benefit.png',
                 'fields' => [
-                    ['key' => 'benefit_private_key', 'label' => __('Benefit Key')],
-                    ['key' => 'benefit_secret_key', 'label' => __('Benefit Secret Key')],
+                    ['key' => 'benefit_private_key', 'label' => __('Benefit Key'), 'secret' => true],
+                    ['key' => 'benefit_secret_key', 'label' => __('Benefit Secret Key'), 'secret' => true],
                 ],
             ],
             [
@@ -2224,8 +2556,8 @@ elseif ($tabType == 'otp_setting') {
                 'is_only_admin' => false,
                 'image_default' => 'uploads/payment/cashfree.png',
                 'fields' => [
-                    ['key' => 'cashfree_key', 'label' => __('Cashfree Key')],
-                    ['key' => 'cashfree_secret_key', 'label' => __('Cashfree Secret Key')],
+                    ['key' => 'cashfree_key', 'label' => __('Cashfree Key'), 'secret' => false],
+                    ['key' => 'cashfree_secret_key', 'label' => __('Cashfree Secret Key'), 'secret' => true],
                 ],
             ],
             [
@@ -2237,9 +2569,9 @@ elseif ($tabType == 'otp_setting') {
                 'is_only_admin' => false,
                 'image_default' => 'uploads/payment/aamarpay.png',
                 'fields' => [
-                    ['key' => 'aamarpay_store_id', 'label' => __('Store ID')],
-                    ['key' => 'aamarpay_signature_key', 'label' => __('Signature Key')],
-                    ['key' => 'aamarpay_description', 'label' => __('Aamarpay Description')],
+                    ['key' => 'aamarpay_store_id', 'label' => __('Store ID'), 'secret' => false],
+                    ['key' => 'aamarpay_signature_key', 'label' => __('Signature Key'), 'secret' => true],
+                    ['key' => 'aamarpay_description', 'label' => __('Aamarpay Description'), 'secret' => false],
                 ],
             ],
             [
@@ -2251,8 +2583,8 @@ elseif ($tabType == 'otp_setting') {
                 'is_only_admin' => true,
                 'image_default' => 'uploads/payment/telegram.png',
                 'fields' => [
-                    ['key' => 'telegram_access_token', 'label' => __('Telegram Access Token')],
-                    ['key' => 'telegram_chat_id', 'label' => __('Telegram Chat ID')],
+                    ['key' => 'telegram_access_token', 'label' => __('Telegram Access Token'), 'secret' => true],
+                    ['key' => 'telegram_chat_id', 'label' => __('Telegram Chat ID'), 'secret' => false],
                 ],
             ],
             [
@@ -2264,7 +2596,7 @@ elseif ($tabType == 'otp_setting') {
                 'is_only_admin' => true,
                 'image_default' => 'uploads/payment/whatsapp.png',
                 'fields' => [
-                    ['key' => 'whatsapp_number', 'label' => __('Whatsapp Number')],
+                    ['key' => 'whatsapp_number', 'label' => __('Whatsapp Number'), 'secret' => false],
                 ],
             ],
             [
@@ -2276,9 +2608,9 @@ elseif ($tabType == 'otp_setting') {
                 'is_only_admin' => false,
                 'image_default' => 'uploads/payment/paytr.png',
                 'fields' => [
-                    ['key' => 'paytr_merchant_id', 'label' => __('Merchant ID')],
-                    ['key' => 'paytr_merchant_key', 'label' => __('Merchant Key')],
-                    ['key' => 'paytr_salt_key', 'label' => __('Salt Passphrase')],
+                    ['key' => 'paytr_merchant_id', 'label' => __('Merchant ID'), 'secret' => false],
+                    ['key' => 'paytr_merchant_key', 'label' => __('Merchant Key'), 'secret' => true],
+                    ['key' => 'paytr_salt_key', 'label' => __('Salt Passphrase'), 'secret' => true],
                 ],
             ],
             // RETIRED (RetiredGateways::PROVIDERS). Entry KEPT on purpose: deleting it would
@@ -2293,8 +2625,8 @@ elseif ($tabType == 'otp_setting') {
                 'is_only_admin' => false,
                 'image_default' => 'uploads/payment/yookassa.png',
                 'fields' => [
-                    ['key' => 'yookassa_shop_id_key', 'label' => __('Shop ID Key')],
-                    ['key' => 'yookassa_secret_key', 'label' => __('Secret Key')],
+                    ['key' => 'yookassa_shop_id_key', 'label' => __('Shop ID Key'), 'secret' => false],
+                    ['key' => 'yookassa_secret_key', 'label' => __('Secret Key'), 'secret' => true],
                 ],
             ],
             [
@@ -2306,8 +2638,8 @@ elseif ($tabType == 'otp_setting') {
                 'is_only_admin' => false,
                 'image_default' => 'uploads/payment/xendit.png',
                 'fields' => [
-                    ['key' => 'Xendit_api_key', 'label' => __('Xendit Api Key')],
-                    ['key' => 'Xendit_token_key', 'label' => __('Xendit Token Key')],
+                    ['key' => 'Xendit_api_key', 'label' => __('Xendit Api Key'), 'secret' => true],
+                    ['key' => 'Xendit_token_key', 'label' => __('Xendit Token Key'), 'secret' => true],
                 ],
             ],
             [
@@ -2319,7 +2651,7 @@ elseif ($tabType == 'otp_setting') {
                 'is_only_admin' => false,
                 'image_default' => 'uploads/payment/midtrans.png',
                 'fields' => [
-                    ['key' => 'midtrans_secret_key', 'label' => __('Secret Key')],
+                    ['key' => 'midtrans_secret_key', 'label' => __('Secret Key'), 'secret' => true],
                 ],
             ],
             [
@@ -2332,8 +2664,8 @@ elseif ($tabType == 'otp_setting') {
                 'image_default' => 'uploads/payment/nepalste.png',
                 'mode_options' => ['sandbox' => __('Sandbox'), 'live' => __('Live')],
                 'fields' => [
-                    ['key' => 'nepalste_public_key', 'label' => __('Public Key')],
-                    ['key' => 'nepalste_secret_key', 'label' => __('Secret Key')],
+                    ['key' => 'nepalste_public_key', 'label' => __('Public Key'), 'secret' => false],
+                    ['key' => 'nepalste_secret_key', 'label' => __('Secret Key'), 'secret' => true],
                 ],
             ],
             // RETIRED (RetiredGateways::PROVIDERS). Entry KEPT -- see the note on 'yookassa'.
@@ -2347,10 +2679,10 @@ elseif ($tabType == 'otp_setting') {
                 'image_default' => 'uploads/payment/payhere.png',
                 'mode_options' => ['sandbox' => __('Sandbox'), 'live' => __('Live')],
                 'fields' => [
-                    ['key' => 'payhere_merchant_id', 'label' => __('Merchant ID')],
-                    ['key' => 'payhere_merchant_secret', 'label' => __('Merchant Secret')],
-                    ['key' => 'payhere_app_id', 'label' => __('App ID')],
-                    ['key' => 'payhere_app_secret', 'label' => __('App Secret')],
+                    ['key' => 'payhere_merchant_id', 'label' => __('Merchant ID'), 'secret' => false],
+                    ['key' => 'payhere_merchant_secret', 'label' => __('Merchant Secret'), 'secret' => true],
+                    ['key' => 'payhere_app_id', 'label' => __('App ID'), 'secret' => false],
+                    ['key' => 'payhere_app_secret', 'label' => __('App Secret'), 'secret' => true],
                 ],
             ],
             [
@@ -2362,8 +2694,8 @@ elseif ($tabType == 'otp_setting') {
                 'is_only_admin' => false,
                 'image_default' => 'uploads/payment/khalti.png',
                 'fields' => [
-                    ['key' => 'khalti_public_key', 'label' => __('Public Key')],
-                    ['key' => 'khalti_secret_key', 'label' => __('Secret Key')],
+                    ['key' => 'khalti_public_key', 'label' => __('Public Key'), 'secret' => false],
+                    ['key' => 'khalti_secret_key', 'label' => __('Secret Key'), 'secret' => true],
                 ],
             ],
             [
@@ -2376,8 +2708,8 @@ elseif ($tabType == 'otp_setting') {
                 'image_default' => 'uploads/payment/authorizenet.png',
                 'mode_options' => ['sandbox' => __('Sandbox'), 'live' => __('Live')],
                 'fields' => [
-                    ['key' => 'authorizenet_login_id', 'label' => __('Merchant Login ID')],
-                    ['key' => 'authorizenet_transaction_key', 'label' => __('Merchant Transaction Key')],
+                    ['key' => 'authorizenet_login_id', 'label' => __('Merchant Login ID'), 'secret' => false],
+                    ['key' => 'authorizenet_transaction_key', 'label' => __('Merchant Transaction Key'), 'secret' => true],
                 ],
             ],
             [
@@ -2389,7 +2721,7 @@ elseif ($tabType == 'otp_setting') {
                 'is_only_admin' => false,
                 'image_default' => 'uploads/payment/tap.png',
                 'fields' => [
-                    ['key' => 'tap_secret_key', 'label' => __('Secret Key')],
+                    ['key' => 'tap_secret_key', 'label' => __('Secret Key'), 'secret' => true],
                 ],
             ],
             [
@@ -2402,9 +2734,9 @@ elseif ($tabType == 'otp_setting') {
                 'image_default' => 'uploads/payment/phonepe.png',
                 'mode_options' => ['sandbox' => __('Sandbox'), 'live' => __('Live')],
                 'fields' => [
-                    ['key' => 'phonepe_client_id', 'label' => __('Client ID')],
-                    ['key' => 'phonepe_client_secret', 'label' => __('Client Secret')],
-                    ['key' => 'phonepe_client_version', 'label' => __('Version')],
+                    ['key' => 'phonepe_client_id', 'label' => __('Client ID'), 'secret' => false],
+                    ['key' => 'phonepe_client_secret', 'label' => __('Client Secret'), 'secret' => true],
+                    ['key' => 'phonepe_client_version', 'label' => __('Version'), 'secret' => false],
                 ],
             ],
             [
@@ -2417,9 +2749,9 @@ elseif ($tabType == 'otp_setting') {
                 'image_default' => 'uploads/payment/paddle.png',
                 'mode_options' => ['sandbox' => __('Sandbox'), 'live' => __('Live')],
                 'fields' => [
-                    ['key' => 'paddle_vendor_id', 'label' => __('Vendor ID')],
-                    ['key' => 'paddle_vendor_auth_code', 'label' => __('Vendor Auth Code')],
-                    ['key' => 'paddle_public_key', 'label' => __('Public Key')],
+                    ['key' => 'paddle_vendor_id', 'label' => __('Vendor ID'), 'secret' => false],
+                    ['key' => 'paddle_vendor_auth_code', 'label' => __('Vendor Auth Code'), 'secret' => true],
+                    ['key' => 'paddle_public_key', 'label' => __('Public Key'), 'secret' => false],
                 ],
             ],
             [
@@ -2431,7 +2763,7 @@ elseif ($tabType == 'otp_setting') {
                 'is_only_admin' => false,
                 'image_default' => 'uploads/payment/paiementpro.png',
                 'fields' => [
-                    ['key' => 'paiementpro_merchant_id', 'label' => __('Merchant ID')],
+                    ['key' => 'paiementpro_merchant_id', 'label' => __('Merchant ID'), 'secret' => false],
                 ],
             ],
             [
@@ -2444,8 +2776,8 @@ elseif ($tabType == 'otp_setting') {
                 'image_default' => 'uploads/payment/fedpay.png',
                 'mode_options' => ['sandbox' => __('Sandbox'), 'live' => __('Live')],
                 'fields' => [
-                    ['key' => 'fedpay_public_key', 'label' => __('Public Key')],
-                    ['key' => 'fedpay_secret_key', 'label' => __('Secret Key')],
+                    ['key' => 'fedpay_public_key', 'label' => __('Public Key'), 'secret' => false],
+                    ['key' => 'fedpay_secret_key', 'label' => __('Secret Key'), 'secret' => true],
                 ],
             ],
             [
@@ -2458,9 +2790,9 @@ elseif ($tabType == 'otp_setting') {
                 'image_default' => 'uploads/payment/cinet.png',
                 'mode_options' => ['sandbox' => __('Sandbox'), 'live' => __('Live')],
                 'fields' => [
-                    ['key' => 'cinet_pay_site_id', 'label' => __('CinetPay Site ID')],
-                    ['key' => 'cinet_pay_api_key', 'label' => __('CinetPay Api Key')],
-                    ['key' => 'cinet_pay_secret_key', 'label' => __('CinetPay Secret Key')],
+                    ['key' => 'cinet_pay_site_id', 'label' => __('CinetPay Site ID'), 'secret' => false],
+                    ['key' => 'cinet_pay_api_key', 'label' => __('CinetPay Api Key'), 'secret' => true],
+                    ['key' => 'cinet_pay_secret_key', 'label' => __('CinetPay Secret Key'), 'secret' => true],
                 ],
             ],
             [
@@ -2473,8 +2805,8 @@ elseif ($tabType == 'otp_setting') {
                 'image_default' => 'uploads/payment/senang.png',
                 'mode_options' => ['sandbox' => __('Sandbox'), 'live' => __('Live')],
                 'fields' => [
-                    ['key' => 'senang_pay_merchant_id', 'label' => __('SenangPay Merchant ID')],
-                    ['key' => 'senang_pay_secret_key', 'label' => __('SenangPay Secret Key')],
+                    ['key' => 'senang_pay_merchant_id', 'label' => __('SenangPay Merchant ID'), 'secret' => false],
+                    ['key' => 'senang_pay_secret_key', 'label' => __('SenangPay Secret Key'), 'secret' => true],
                 ],
             ],
             [
@@ -2486,9 +2818,9 @@ elseif ($tabType == 'otp_setting') {
                 'is_only_admin' => false,
                 'image_default' => 'uploads/payment/cybersource.png',
                 'fields' => [
-                    ['key' => 'cybersource_pay_merchant_id', 'label' => __('CyberSource Merchant ID')],
-                    ['key' => 'cybersource_pay_secret_key', 'label' => __('CyberSource Secret Key')],
-                    ['key' => 'cybersource_pay_api_key', 'label' => __('CyberSource Api Key')],
+                    ['key' => 'cybersource_pay_merchant_id', 'label' => __('CyberSource Merchant ID'), 'secret' => false],
+                    ['key' => 'cybersource_pay_secret_key', 'label' => __('CyberSource Secret Key'), 'secret' => true],
+                    ['key' => 'cybersource_pay_api_key', 'label' => __('CyberSource Api Key'), 'secret' => true],
                 ],
             ],
             [
@@ -2501,9 +2833,9 @@ elseif ($tabType == 'otp_setting') {
                 'image_default' => 'uploads/payment/ozow.png',
                 'mode_options' => ['sandbox' => __('Sandbox'), 'live' => __('Live')],
                 'fields' => [
-                    ['key' => 'ozow_pay_Site_key', 'label' => __('Ozow Site Key')],
-                    ['key' => 'ozow_pay_private_key', 'label' => __('Ozow Private Key')],
-                    ['key' => 'ozow_pay_api_key', 'label' => __('Ozow Api Key')],
+                    ['key' => 'ozow_pay_Site_key', 'label' => __('Ozow Site Key'), 'secret' => true],
+                    ['key' => 'ozow_pay_private_key', 'label' => __('Ozow Private Key'), 'secret' => true],
+                    ['key' => 'ozow_pay_api_key', 'label' => __('Ozow Api Key'), 'secret' => true],
                 ],
             ],
             [
@@ -2516,8 +2848,8 @@ elseif ($tabType == 'otp_setting') {
                 'image_default' => 'uploads/payment/myfatoorah.png',
                 'mode_options' => ['sandbox' => __('Sandbox'), 'live' => __('Live')],
                 'fields' => [
-                    ['key' => 'myfatoorah_pay_api_key', 'label' => __('MyFatoorah Api Key')],
-                    ['key' => 'myfatoorah_pay_country_iso', 'label' => __('MyFatoorah Country ISO')],
+                    ['key' => 'myfatoorah_pay_api_key', 'label' => __('MyFatoorah Api Key'), 'secret' => true],
+                    ['key' => 'myfatoorah_pay_country_iso', 'label' => __('MyFatoorah Country ISO'), 'secret' => false],
                 ],
             ],
             [
@@ -2530,9 +2862,9 @@ elseif ($tabType == 'otp_setting') {
                 'image_default' => 'uploads/payment/easebuzz.png',
                 'mode_options' => ['sandbox' => __('Sandbox'), 'live' => __('Live')],
                 'fields' => [
-                    ['key' => 'easebuzz_merchant_key', 'label' => __('Easebuzz Merchant Key')],
-                    ['key' => 'easebuzz_salt_key', 'label' => __('Easebuzz Salt Key')],
-                    ['key' => 'easebuzz_enviroment_name', 'label' => __('Easebuzz Enviroment Name')],
+                    ['key' => 'easebuzz_merchant_key', 'label' => __('Easebuzz Merchant Key'), 'secret' => true],
+                    ['key' => 'easebuzz_salt_key', 'label' => __('Easebuzz Salt Key'), 'secret' => true],
+                    ['key' => 'easebuzz_enviroment_name', 'label' => __('Easebuzz Enviroment Name'), 'secret' => false],
                 ],
             ],
             [
@@ -2544,7 +2876,7 @@ elseif ($tabType == 'otp_setting') {
                 'is_only_admin' => false,
                 'image_default' => 'uploads/payment/nmi.png',
                 'fields' => [
-                    ['key' => 'nmi_api_private_key', 'label' => __('NMI Api Private Key')],
+                    ['key' => 'nmi_api_private_key', 'label' => __('NMI Api Private Key'), 'secret' => true],
                 ],
             ],
             [
@@ -2557,8 +2889,8 @@ elseif ($tabType == 'otp_setting') {
                 'image_default' => 'uploads/payment/payu.png',
                 'mode_options' => ['sandbox' => __('Sandbox'), 'live' => __('Live')],
                 'fields' => [
-                    ['key' => 'payu_merchant_key', 'label' => __('Merchant Key')],
-                    ['key' => 'payu_salt_key', 'label' => __('Salt Key')],
+                    ['key' => 'payu_merchant_key', 'label' => __('Merchant Key'), 'secret' => true],
+                    ['key' => 'payu_salt_key', 'label' => __('Salt Key'), 'secret' => true],
                 ],
             ],
             [
@@ -2571,9 +2903,9 @@ elseif ($tabType == 'otp_setting') {
                 'image_default' => 'uploads/payment/paynow.png',
                 'mode_options' => ['sandbox' => __('Sandbox'), 'live' => __('Live')],
                 'fields' => [
-                    ['key' => 'paynow_pay_integration_id', 'label' => __('Paynow Integration ID')],
-                    ['key' => 'paynow_pay_integration_key', 'label' => __('Paynow Integration Key')],
-                    ['key' => 'paynow_pay_merchant_email', 'label' => __('Paynow Merchant Email')],
+                    ['key' => 'paynow_pay_integration_id', 'label' => __('Paynow Integration ID'), 'secret' => false],
+                    ['key' => 'paynow_pay_integration_key', 'label' => __('Paynow Integration Key'), 'secret' => true],
+                    ['key' => 'paynow_pay_merchant_email', 'label' => __('Paynow Merchant Email'), 'secret' => false],
                 ],
             ],
             [
@@ -2585,8 +2917,8 @@ elseif ($tabType == 'otp_setting') {
                 'is_only_admin' => false,
                 'image_default' => 'uploads/payment/sofort.png',
                 'fields' => [
-                    ['key' => 'sofort_publishable_key', 'label' => __('Sofort Publishable Key')],
-                    ['key' => 'sofort_secret_key', 'label' => __('Sofort Secret Key')],
+                    ['key' => 'sofort_publishable_key', 'label' => __('Sofort Publishable Key'), 'secret' => false],
+                    ['key' => 'sofort_secret_key', 'label' => __('Sofort Secret Key'), 'secret' => true],
                 ],
             ],
             [
@@ -2599,7 +2931,7 @@ elseif ($tabType == 'otp_setting') {
                 'image_default' => 'uploads/payment/esewa.png',
                 'mode_options' => ['sandbox' => __('Sandbox'), 'live' => __('Live')],
                 'fields' => [
-                    ['key' => 'esewa_merchant_key', 'label' => __('ESewa Merchant ID')],
+                    ['key' => 'esewa_merchant_key', 'label' => __('ESewa Merchant ID'), 'secret' => true],
                 ],
             ],
             [
@@ -2611,8 +2943,8 @@ elseif ($tabType == 'otp_setting') {
                 'is_only_admin' => false,
                 'image_default' => 'uploads/payment/dpo.png',
                 'fields' => [
-                    ['key' => 'dpo_pay_Company_Token', 'label' => __('Company Token')],
-                    ['key' => 'dpo_pay_Service_Type', 'label' => __('Service Type')],
+                    ['key' => 'dpo_pay_Company_Token', 'label' => __('Company Token'), 'secret' => true],
+                    ['key' => 'dpo_pay_Service_Type', 'label' => __('Service Type'), 'secret' => false],
                 ],
             ],
             [
@@ -2625,9 +2957,9 @@ elseif ($tabType == 'otp_setting') {
                 'image_default' => 'uploads/payment/braintree.png',
                 'mode_options' => ['sandbox' => __('Sandbox'), 'live' => __('Live')],
                 'fields' => [
-                    ['key' => 'braintree_pay_merchant_id', 'label' => __('Braintree Merchant ID')],
-                    ['key' => 'braintree_pay_public_key', 'label' => __('Braintree Public Key')],
-                    ['key' => 'braintree_pay_private_key', 'label' => __('Braintree Private Key')],
+                    ['key' => 'braintree_pay_merchant_id', 'label' => __('Braintree Merchant ID'), 'secret' => false],
+                    ['key' => 'braintree_pay_public_key', 'label' => __('Braintree Public Key'), 'secret' => false],
+                    ['key' => 'braintree_pay_private_key', 'label' => __('Braintree Private Key'), 'secret' => true],
                 ],
             ],
             [
@@ -2640,9 +2972,9 @@ elseif ($tabType == 'otp_setting') {
                 'image_default' => 'uploads/payment/powertranz.png',
                 'mode_options' => ['sandbox' => __('Sandbox'), 'live' => __('Live')],
                 'fields' => [
-                    ['key' => 'powertranz_pay_merchant_id', 'label' => __('PowerTranz Merchant ID')],
-                    ['key' => 'powertranz_pay_processing_password', 'label' => __('PowerTranz Processing Password')],
-                    ['key' => 'powertranz_pay_production_url', 'label' => __('PowerTranz Production url')],
+                    ['key' => 'powertranz_pay_merchant_id', 'label' => __('PowerTranz Merchant ID'), 'secret' => false],
+                    ['key' => 'powertranz_pay_processing_password', 'label' => __('PowerTranz Processing Password'), 'secret' => true],
+                    ['key' => 'powertranz_pay_production_url', 'label' => __('PowerTranz Production url'), 'secret' => false],
                 ],
             ],
             [
@@ -2655,8 +2987,8 @@ elseif ($tabType == 'otp_setting') {
                 'image_default' => 'uploads/payment/sslcommerz.png',
                 'mode_options' => ['sandbox' => __('Sandbox'), 'live' => __('Live')],
                 'fields' => [
-                    ['key' => 'sslcommerz_pay_store_id', 'label' => __('SSLCommerz Store ID')],
-                    ['key' => 'sslcommerz_pay_secret_key', 'label' => __('SSLCommerz Secret Key')],
+                    ['key' => 'sslcommerz_pay_store_id', 'label' => __('SSLCommerz Store ID'), 'secret' => false],
+                    ['key' => 'sslcommerz_pay_secret_key', 'label' => __('SSLCommerz Secret Key'), 'secret' => true],
                 ],
             ]
         ];

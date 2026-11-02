@@ -5,7 +5,7 @@
 @endsection
 
 @section('breadcrumb')
-    <li class="breadcrumb-item" aria-current="page">{{ __('Sales Downloadable Product') }}</li>
+    <li aria-current="page" class="ss-breadcrumb__item">{{ __('Sales Downloadable Product') }}</li>
 @endsection
 
 @section('action-button')

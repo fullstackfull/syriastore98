@@ -331,12 +331,68 @@ class BulkDeleteAuthorizationTest extends SecurityTestCase
             'The guard requires a permission that is not traced to a per-record destroy().'
         );
 
+        /*
+         * TWO CONTROLLERS DEMAND THEIR PERMISSION THROUGH A SHARED GATE, NOT WITH A LITERAL
+         * `isAbleTo()` IN `destroy()` — and this test had to learn the difference rather than be
+         * relaxed.
+         *
+         * **[2026-11-01] WHY.** F263 gave `ShippingController` and `TaxMethodController` the F258
+         * two-control shape: a permission gate plus a store predicate, with the gate hoisted into
+         * one method per controller so the read and the three writes cannot drift. `destroy()` now
+         * reads `$this->shippingWriteRefusal('Delete Shipping Class')`, and the `isAbleTo()` call
+         * lives inside that gate. **The pairing this test exists to protect is unchanged** — the
+         * single-record path still demands exactly the permission the bulk path demands — but the
+         * literal string moved one frame away, and the scan reported that as the permission being
+         * dropped.
+         *
+         * This docblock itself names those permissions WITHOUT the `isAbleTo('…')` call syntax, on
+         * purpose: the occurrence check below counts the literal needle in the window, and a
+         * comment quoting it is precisely how this ratchet became satisfiable by prose once before
+         * (P1-INV-08, in `CategoryController`).
+         *
+         * SO THE INDIRECTION IS FOLLOWED, NOT EXCUSED. For these two the test asserts the gate is
+         * called with the right permission in `destroy()`, AND that the named gate really reaches
+         * `isAbleTo($permission)` with that argument. An entry here whose gate did not check the
+         * permission would fail on the second half, so this is not an allowlist.
+         */
+        $viaGate = [
+            'ShippingController' => 'shippingWriteRefusal',
+            'TaxMethodController' => 'taxWriteRefusal',
+        ];
+
         foreach ($sources as $permission => $controller) {
             $file = base_path("app/Http/Controllers/{$controller}.php");
             $this->assertFileExists($file);
             $body = (string) file_get_contents($file);
             $destroy = substr($body, (int) strpos($body, 'function destroy'));
             $window = substr($destroy, 0, 1200);
+
+            if (isset($viaGate[$controller])) {
+                $gate = $viaGate[$controller];
+
+                /* `destroy()` names the permission, passed to the gate. */
+                $this->assertStringContainsString(
+                    "{$gate}('{$permission}')",
+                    $window,
+                    "{$controller}::destroy no longer passes '{$permission}' to {$gate}(), so the "
+                    . 'bulk path would be demanding a permission the single-record path does not.'
+                );
+
+                /* AND THE GATE REALLY CHECKS IT. Without this half the line above would be
+                   satisfied by a method that took the name and ignored it. */
+                $gateStart = strpos($body, "function {$gate}(");
+                $this->assertNotFalse($gateStart,
+                    "{$controller} names {$gate}() in destroy() but does not define it");
+
+                $gateBody = substr($body, (int) $gateStart, 1600);
+
+                $this->assertStringContainsString('isAbleTo($permission)', $gateBody,
+                    "{$controller}::{$gate}() does not call isAbleTo() on the permission it is "
+                    . 'given, so passing the name to it proves nothing');
+
+                continue;
+            }
+
             $needle = "isAbleTo('{$permission}')";
 
             $this->assertStringContainsString(

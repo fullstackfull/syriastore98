@@ -125,11 +125,65 @@ class Tax extends Model
 
     }
 
+    /**
+     * THE METHODS OF THIS TAX GROUP, SCOPED TO THE GROUP'S OWN STORE.
+     *
+     * ═════════════════════════════════════════════════════════════════════════════════════════════
+     * F263 FOLLOW-UP — THIS SELECTED BY `tax_id` ALONE, AND IT IS A MONEY READ
+     * ═════════════════════════════════════════════════════════════════════════════════════════════
+     *
+     * `TaxMethod` is absent from `config/tenancy.php`'s `scoped_models`, so `StoreScope` adds no
+     * predicate for any principal, and this method added none either. Its result is summed as
+     * `tax_rate * price / 100` by `Product::ProductPrice()` (`:429`) and by this class's own
+     * `TaxCount()` (`:77`, `:84`, `:99`), and read again by `Order.php:605` and
+     * `Api/ApiController.php:7390` — so a `tax_methods` row belonging to ANOTHER store changed what
+     * this store's shoppers were charged.
+     *
+     * The injection door was `TaxMethodController::store()`, which took `tax_id` raw from the
+     * request and saved the row under the CALLER's `store_id`; it is closed in that method. **This
+     * is the other half, and it is the half that matters for rows already written** — closing only
+     * the writer would leave any injected row charging the victim's shoppers for ever.
+     *
+     * **IT IS ALSO WHY `priority` MADE IT WORSE.** The column is a STRING with default `'0'`
+     * (`2023_12_25_040519_create_tax_methods_table.php:22`), so `orderBy('priority', 'ASC')` is a
+     * lexicographic sort: `''` sorts before `'0'`. A row posted with an empty priority therefore
+     * became the top priority, and the second query — which matches that priority exactly —
+     * returned the foreign row and EXCLUDED the store's own methods entirely. Both queries are
+     * scoped here, so the tie-break is now decided among this store's rows only.
+     *
+     * ═════════════════════════════════════════════════════════════════════════════════════════════
+     * THE PREDICATE IS THE GROUP'S STORE, NOT `getCurrentStore()`, and that is deliberate
+     * ═════════════════════════════════════════════════════════════════════════════════════════════
+     *
+     * `taxes` carries its own `store_id` (`$fillable` above), and this is a MODEL method reached
+     * from the storefront, from the API and from the merchant UI alike — `getCurrentStore()` means
+     * something different in each, and in the storefront it means nothing at all. The group's own
+     * store is the one fact that is true in every caller, and a method whose store differs from its
+     * group's is wrong whoever is asking.
+     *
+     * **A NULL `store_id` IS STILL ACCEPTED**, the same allowance `CartController::get_shipping_method()`
+     * records for shipping methods: the column is nullable, legacy rows may not carry it, and
+     * refusing those would stop a merchant's OWN tax being charged — a silent revenue change, which
+     * is worse than the defect. What is refused is a method belonging to a DIFFERENT store.
+     *
+     * **WHAT THIS CHANGES ABOUT COMPUTED PRICES, stated plainly rather than buried:** a price moves
+     * only where it was being computed from another store's row, which is the defect itself. No tax
+     * rule, rounding mode, inclusive/exclusive setting or stored amount is touched, and no
+     * legitimate row is dropped.
+     */
     public function tax_methods() {
-        $taxMethodQuery = TaxMethod::query();
-        $topPrority = (clone $taxMethodQuery)->where('tax_id', $this->id)->orderBy('priority', 'ASC')->first();
+        $storeId = $this->store_id;
+
+        $scoped = fn ($query) => $query
+            ->where('tax_id', $this->id)
+            ->where(function ($q) use ($storeId) {
+                $q->where('store_id', $storeId)->orWhereNull('store_id');
+            });
+
+        $topPrority = $scoped(TaxMethod::query())->orderBy('priority', 'ASC')->first();
+
         if ($topPrority) {
-            return (clone $taxMethodQuery)->where('tax_id', $this->id)->where('priority', $topPrority->priority)->get();
+            return $scoped(TaxMethod::query())->where('priority', $topPrority->priority)->get();
         } else {
             return [];
         }

@@ -8,20 +8,60 @@
                             $profile = asset(Storage::url('uploads/profile/'));
                             $str = $combination->variant;
                             $variationOptions = explode(',', $combination->variation_option);
+                            /* F72, THE COLLAPSE TARGET. `data-bs-target` is read by BOOTSTRAP's own
+                               collapse plugin, which passes it to `document.querySelector()` -- so a
+                               variant key containing a CSS-special character made `#collapseone_M/L`
+                               and threw `'#collapseone_M/L' is not a valid selector`. MEASURED: the
+                               merchant could not OPEN that variant's panel at all, so its price,
+                               SKU and stock were unreachable.
+                               Escaping at the call site cannot fix this one -- the selector is built
+                               inside Bootstrap, not here -- so the IDENTIFIER itself has to be
+                               CSS-safe. This is the same `$safe_str` the sibling view already uses
+                               (attribute_combinations.blade.php:21), kept identical on purpose so
+                               there is one spelling of this fix rather than two. `$str` stays the
+                               key everywhere it is a VALUE (request names, `data-id`, the label the
+                               merchant reads); only the id is sanitised. Its one cost is recorded as
+                               F73: two terms differing solely in a special character collapse to the
+                               same id. */
+                            /* F73: the sanitiser maps every special character to '_', so `M/L` and
+                               `M.L` both become `M_L` -- one id shared by two panels. `$loop->index`
+                               makes it injective by construction. The same suffix both sibling views
+                               carry. */
+                            $safe_str = preg_replace('/[^a-zA-Z0-9_-]/', '_', $str) . '_' . $loop->index;
                         @endphp
                         <div class="accordion accordion-flush" id="">
                             <div id="" class="accordion-item card attribute_option_data">
                                 <div class="accordion-item card media remove_option_{{ $str }}">
-                                    <h2 class="accordion-header" id="COD">
+                                    {{-- F164: `COD` is a leftover from the payment-gateway template this
+                                         accordion was copied from, and it was emitted once per variant while
+                                         being the `aria-labelledby` target below -- so every panel but the
+                                         first was announced under the FIRST variant's name. --}}
+                                    <h2 class="accordion-header" id="variant_head_{{ $safe_str }}">
                                         <button class="accordion-button collapsed according-delete-input" type="button"
-                                            data-bs-toggle="collapse" data-bs-target="#collapseone_{{ $str }}"
-                                            aria-expanded="false" aria-controls="collapseone_{{ $str }}">
+                                            data-bs-toggle="collapse" data-bs-target="#collapseone_{{ $safe_str }}"
+                                            aria-expanded="false" aria-controls="collapseone_{{ $safe_str }}">
                                             <span class="d-flex align-items-center">
                                                 <i class="ti ti-credit-card me-2"></i>{{ $combination->variant }}
                                                 @if (!empty($combination->id))
+                                                    {{-- F184: `data-variant` carries the STORED `variant` value, which is what
+                                                         `product_attribute_delete()` compares the consent echo against.
+                                                         From the stored row, never from the display string: the
+                                                         confirmation has to name what the server will match, and a
+                                                         view-side label is not that. The confirmation bridge reads this
+                                                         attribute rather than scraping the card, so nothing builds a
+                                                         selector out of merchant free text -- `M/L-Natural` is a legal
+                                                         variant name and an illegal selector (F72). --}}
                                                     <a href="#"
                                                         class="action-btn btn-danger btn btn-sm d-inline-flex align-items-center delete-option-comment"
                                                         data-url="{{ route('product.attribute.delete', $combination->id) }}"
+                                                        {{-- THE CONSENT TOKEN, NOT THE RAW COLUMN. `VariantRemovalPolicy::consentToken()` is
+     what both delete doors compare the echo against, so the button, the dialog and the
+     request all carry one value. It normalises invisible edge characters the way the
+     TrimStrings middleware will on the way back in, and gives a nameless variant a
+     `#<id>` to echo — without it such a row is undeletable and the dialog names
+     nothing. A pure static formatter, called here so the view cannot drift from the
+     server. --}}
+                                                        data-variant="{{ \App\Services\VariantRemovalPolicy::consentToken($combination) }}"
                                                         data-id="{{ $combination->id }}">
                                                         <i class="ti ti-trash"></i>
                                                     </a>
@@ -29,8 +69,8 @@
                                             </span>
                                         </button>
                                     </h2>
-                                    <div id="collapseone_{{ $str }}" class="accordion-collapse collapse"
-                                        aria-labelledby="COD" data-bs-parent="#accordionExample">
+                                    <div id="collapseone_{{ $safe_str }}" class="accordion-collapse collapse"
+                                        aria-labelledby="variant_head_{{ $safe_str }}" data-bs-parent="#accordionExample">
                                         <div class="accordion-body">
                                             <div class="row">
                                                 <div class="form-group col-md-3">
@@ -114,11 +154,11 @@
                                             </div>
 
                                             <div class="form-group col-md-12 shipping-div">
-                                                {!! Form::label('', __('Shipping'), ['class' => 'form-label']) !!}
+                                                {!! Form::label('shipping_id_' . $safe_str, __('Shipping'), ['class' => 'form-label']) !!}
                                                 {!! Form::select('shipping_id_' . $str, $Shipping, $combination->shipping, [
                                                     'class' => 'form-control',
                                                     'data-role' => 'tagsinput',
-                                                    'id' => 'Shipping',
+                                                    'id' => 'shipping_id_' . $safe_str,
                                                 ]) !!}
                                             </div>
                                             @if ($combination->stock_status != null)
@@ -145,7 +185,7 @@
                                                 ]) !!}
                                             </div>
                                             <div class="row col-md-12 d-none enable_manage_stock manageble_stock_{{ $str }}"
-                                                id="enable_manage_stock" data-id="{{ $str }}">
+                                                id="enable_manage_stock_{{ $safe_str }}" data-id="{{ $str }}">
                                                 <div class="form-group col-md-4 ">
                                                     {!! Form::label('', __('Stock'), ['class' => 'form-label']) !!}
                                                     {!! Form::number('product_stock_' . $str, $combination->stock, ['class' => 'form-control productVariantStock']) !!}
@@ -189,17 +229,62 @@
                                             </div>
                                             <input type="hidden" class="options_data_{{ $str }}[]"
                                                 name="options_datas[]" value="{{ $str }}">
+
+                                            {{-- D-26 -- THE ONE IMAGE THIS VARIANT MAY CARRY.
+                                                 Rendered only for a SAVED variant, because the control binds to a
+                                                 variant id and an unsaved combination has none. The upload posts to
+                                                 `product.variant.image.store`, which gates on `Edit Products` and
+                                                 resolves ownership through the variant's product -- the markup
+                                                 carries no product id and no store id, so there is nothing here for
+                                                 a caller to substitute. --}}
+                                            @if (!empty($combination->id))
+                                                @php
+                                                    /* The block form, not `@php(...)`: Blade's inline
+                                                       directive does not survive the nested parentheses in
+                                                       `($variantImages ?? collect())->get(...)` -- it closes at
+                                                       the first `)` and the view fails to compile. */
+                                                    $ssVariantImage = isset($variantImages) ? $variantImages->get($combination->id) : null;
+                                                @endphp
+                                                <div class="row variant-image-row" data-variant-id="{{ $combination->id }}">
+                                                    <div class="form-group col-md-12">
+                                                        <label for="variant_image_{{ $safe_str }}"
+                                                            class="form-label">{{ __('Variant Image') }}</label>
+                                                        <input type="file" accept="image/*"
+                                                            id="variant_image_{{ $safe_str }}"
+                                                            class="form-control ss-variant-image-input">
+                                                        <div class="ss-variant-image-feedback small mt-1" role="status" aria-live="polite"></div>
+                                                        <div class="mt-2 ss-variant-image-preview">
+                                                            @if ($ssVariantImage)
+                                                                <img src="{{ get_file($ssVariantImage->image_path) }}"
+                                                                    alt="{{ __('Variant Image') }}" width="80" class="rounded" />
+                                                                <a href="#" class="btn btn-sm btn-danger ms-2 ss-variant-image-remove">
+                                                                    <i class="ti ti-trash text-white py-1"></i>
+                                                                </a>
+                                                            @endif
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            @endif
                                             <div class="row download-product d-none down_product_{{ $str }}"
-                                                data-id="{{ $str }}" id="download-product">
+                                                data-id="{{ $str }}" id="download-product-{{ $safe_str }}">
                                                 <div class="form-group mb-0">
-                                                    <label for="downloadable_product"
+                                                    {{-- `for="downloadable_product"` activated the PRODUCT-level file
+                                                         input (edit.blade.php:470), first in document order, so a click
+                                                         on a variant's label opened the product's own picker. The id
+                                                         cannot be `downloadable_product_<key>`: the `Downloadable`
+                                                         CHECKBOX above already owns that one. --}}
+                                                    <label for="downloadable_product_id_{{ $safe_str }}"
                                                         class="form-label">{{ __('Downloadable Product') }}</label>
                                                     <input type="file"
                                                         name="downloadable_product_{{ $str }}"
-                                                        id="downloadable_product" class="form-control"
-                                                        onchange="document.getElementById('down_product').src = window.URL.createObjectURL(this.files[0])">
+                                                        id="downloadable_product_id_{{ $safe_str }}" class="form-control"
+                                                        {{-- `getElementById('down_product')` matched NOTHING in this view
+                                                             -- the preview img carried no id at all -- so `.src =` on null
+                                                             threw a TypeError on every file choice. --}}
+                                                        onchange="document.getElementById('down_product_{{ $safe_str }}')?.setAttribute('src', window.URL.createObjectURL(this.files[0]))">
 
-                                                    <img src="{{ !empty($combination->downloadable_product) ? get_file($combination->downloadable_product) : $profile . '/avatar.png' }}"
+                                                    <img id="down_product_{{ $safe_str }}"
+                                                        src="{{ !empty($combination->downloadable_product) ? get_file($combination->downloadable_product) : $profile . '/avatar.png' }}"
                                                         class=" rounded-circle-avatar" width="100px">
                                                 </div>
                                             </div>
@@ -227,11 +312,61 @@
     </div>
 
 @endif
+{{-- THE CONFIRMATION BRIDGE TRAVELS WITH THE PANEL.
+     This partial is injected by `$('.attribute_combination').html(data)` from THREE
+     screens -- the product editor, the read-only product view, and the vendored
+     AuctionProduct module's edit screen, which calls the same first-party route. The
+     handler below fails closed when `window.ssConfirmVariantDelete` is absent, so a
+     screen that does not define it loses the delete entirely; the AuctionProduct one
+     did, and `packages/workdo/` must not be edited. Including it here is idempotent:
+     the shell is a `<template>` cloned only when the dialog is missing, and the bridge
+     is defined only when it is not already a function. --}}
+@include('product._variant-delete-dialog')
+
 <script>
+    /* F72. ESCAPE THE KEY BEFORE IT BECOMES A SELECTOR.
+    `data-id` holds the variant key the application itself builds from the
+    merchant's own attribute TERMS -- `$str .= '-' . str_replace(' ', '', $item)`
+    in ProductController -- and only SPACES are stripped. So a term containing any
+    character that is special in a CSS selector (`/`, `.`, `#`, `:`, `"`) produces
+    e.g. `.down_product_M/L`, which is not a valid selector: jQuery THROWS
+    `Syntax error, unrecognized expression` and the handler aborts, so the
+    downloadable / virtual / manage-stock toggles silently stop working for every
+    variant on the page. `terms` is validated `required` and nothing else, so
+    `Black/White` or `2.5"` is an ordinary thing for a merchant to type.
+    The class ATTRIBUTE is fine -- class names may contain these characters -- so
+    the markup is unchanged and only the selector is escaped. Note the request-key
+    suffixes nearby already carry `str_replace('.', '_', $str)`: somebody met the
+    `.` case and patched it there, and not here. */
+    var ssSelectorKey = function (value) {
+        value = String(value === null || value === undefined ? '' : value);
+
+        return (window.CSS && CSS.escape)
+            ? CSS.escape(value)
+            : value.replace(/[^\w-]/g, '\\$&');
+    };
+
     $(document).on('click', '.delete_option', function(event) {
         event.preventDefault(); // Prevent the default behavior of the button
 
-        var id = $(this).attr('data-id');
+        /* F72, fourth site. THIS VIEW SHIPS NO `.delete_option` BUTTON, and the handler is
+           still live: it is delegated from `document`, edit.blade.php:741 calls
+           attribute_option_data() on $(document).ready() so this view loads on EVERY edit page
+           load, and replacing `.attribute_combination`'s HTML does not unbind a document-level
+           handler. The button that fires it is the sibling view's --
+           attribute_combinations_edit.blade.php's own `.delete_option` button renders it with
+           `data-id="@{{ $str }}"`, the RAW key -- so both handlers run on one click and this one
+           throws on a term like `M/L`.
+
+           F176: THE `@` IS NOT DECORATION. Blade compiles its own expressions ANYWHERE in a file,
+           including inside a JavaScript comment -- CLAUDE.md records exactly that -- so the
+           unescaped form of the line above compiled to a live `echo e($str)`. `$str` is defined
+           only inside the combination loop, so for a product with NO VARIANTS the loop never ran
+           and this endpoint answered 500. MEASURED on the running app: editing a variant-less
+           product produced `500 products/attribute_combination_data/edit` on every page load,
+           silently, because neither caller defines an AJAX error handler. `@{{ ... }}` is Blade's
+           own escape and renders the braces literally. */
+        var id = ssSelectorKey($(this).attr('data-id'));
         $('.remove_option_' + id).remove();
     });
 
@@ -253,6 +388,15 @@
 
     });
     $('#enable_product_stock').change(function() {
+        /* `show()` FIRST, THEN THE CONDITIONAL HIDE, and restoring it is a fix. HEAD bound TWO
+           handlers to this one control -- one that only hid when checked, and a second further
+           down the file that did `$('.stock_status').show()` before the same conditional hide --
+           so between them a change event always re-showed the selects first. Rewriting this
+           region for F184 kept the hiding handler and dropped the showing one, and UNCHECKING
+           "track stock" then left every per-variant stock-status select hidden with no way back
+           but a page reload. Collateral loss from the edit, unrelated to F184, caught by review.
+           One handler doing both is what the pair did together, minus the duplicate binding. */
+        $('.stock_status').show();
 
         if ($(this).prop('checked') == true) {
             $('.stock_status').hide();
@@ -321,7 +465,7 @@
 
             $('.download-product').each(function() {
                 var downProduct = $(this);
-                var downProductId = downProduct.attr('data-id');
+                var downProductId = ssSelectorKey(downProduct.attr('data-id'));
                 var downloadableCheckbox = downProduct.closest('.accordion-item').find(
                     '.downloadable');
                 if (downloadableCheckbox.prop('checked') == true) {
@@ -334,7 +478,7 @@
             // Handle virtual product checkbox
             $('.weight-div').each(function() {
                 var downProduct = $(this);
-                var downProductId = downProduct.attr('data-id');
+                var downProductId = ssSelectorKey(downProduct.attr('data-id'));
                 var downloadableCheckbox = downProduct.closest('.accordion-item').find(
                     '.virtual_product');
                 if (downloadableCheckbox.prop('checked') == true) {
@@ -347,7 +491,7 @@
             // Handle manage stock checkbox
             $('.enable_manage_stock').each(function() {
                 var downProduct = $(this);
-                var downProductId = downProduct.attr('data-id');
+                var downProductId = ssSelectorKey(downProduct.attr('data-id'));
                 var downloadableCheckbox = downProduct.closest('.accordion-item').find(
                     '.manage_stock');
                 if (downloadableCheckbox.prop('checked') == true) {
@@ -367,41 +511,134 @@
     });
 
 
-    $(function() {
-        $('body').on('click', '.delete-option-comment', function(e) {
+    /*
+     * F184 / D-28c -- THE DELETE IS NOW GATED BY A CONFIRMATION, AND BOUND ONLY ONCE.
+     *
+     * THREE THINGS CHANGED HERE AND EACH CLOSES A MEASURED PROBLEM.
+     *
+     * 1. `e.stopPropagation()`. This `<a>` sits INSIDE the accordion's collapse `<button>`, and
+     *    nothing stopped the click, so Bootstrap toggled the panel on the same press. That was
+     *    invisible while the delete fired immediately; with a dialog it means the accordion
+     *    animates open behind the backdrop and the collapse's own focus handling fights the
+     *    dialog's focus trap.
+     *
+     * 2. ONE BINDING, EVER. This partial is injected with jQuery's `.html()`, which EVALUATES its
+     *    <script> tags -- so every injection added another `$('body').on(...)` and one trash click
+     *    sent N DELETE requests. `edit.blade.php` records the same hazard for the variant-image
+     *    controls ("for a delete N deletions") and fixed it by binding on the parent page; these
+     *    handlers were never moved. Moving them now would break
+     *    `VariantDeleteReferenceGuardTest`, which asserts PER FILE that each partial still carries
+     *    an `error:` handler reading `responseJSON` -- so the binding stays here and is instead
+     *    made idempotent by a window latch. The latch is per selector, because the two partials
+     *    bind different ones.
+     *
+     * 3. THE CONFIRMATION, which is the owner's condition: *"the trash click itself is not the
+     *    confirmation and must not start the delete."* The dialog is opened by
+     *    `ssConfirmVariantDelete()` on the PARENT page -- the editor and the read-only show screen
+     *    both define it -- and the request is sent only from its callback. If no host defined it,
+     *    this FAILS CLOSED: nothing is deleted and the merchant is told the page could not confirm,
+     *    rather than falling back to the old one-click delete.
+     *
+     * The consent the server verifies travels as `ss_confirm_variant`: the variant's own stored
+     * name, read from `data-variant`. A bare boolean would record that a parameter was set rather
+     * than that a person saw what they were destroying.
+     */
+    if (!window.__ssVariantTrashBound) { window.__ssVariantTrashBound = {}; }
+
+    if (!window.__ssVariantTrashBound['.delete-option-comment']) {
+        window.__ssVariantTrashBound['.delete-option-comment'] = true;
+
+        /* A NATIVE CAPTURE-PHASE LISTENER ON `window`, NOT `$('body').on(...)` and NOT on
+           `document`. Both of those were tried and both were measured failing; this is the
+           browser's correction, not a style choice.
+           ------------------------------------------------------------------------------------
+           The trash `<a>` sits INSIDE the accordion's collapse `<button>`. A bubble-phase
+           delegate on `body` runs too late to matter -- the DOM reaches the button first, so
+           `stopPropagation()` there cannot un-toggle a collapse that has already fired.
+           A capture listener on `document` is ALSO too late, which is the part that is not
+           obvious. Bootstrap 5.1.3 registers its delegated `data-api` handler by passing its
+           own `delegation` flag straight into `addEventListener`'s third argument, so that
+           handler is itself a CAPTURE listener on `document` -- and it was registered when
+           `bootstrap.min.js` loaded, long before this partial was injected. Two capture
+           listeners on the same node run in registration order, so Bootstrap ran first and
+           `stopPropagation()` could not un-run it. MEASURED: the dialog opened correctly in all
+           four configurations and the accordion still animated open behind the backdrop in every
+           one of them; a stack capture on `bootstrap.Collapse.prototype.toggle` named
+           `HTMLDocument.s` as the caller.
+           `window` is the first object in the capture path, before `document`, so a capture
+           listener here runs before Bootstrap's whatever the registration order -- that ordering
+           is the event path itself, not a race. `stopPropagation()` then means `document` never
+           sees the click, so the button never toggles. It is still one delegated listener, so it
+           still covers a partial injected after load. */
+        window.addEventListener('click', function(e) {
+            var el = e.target && e.target.closest ? e.target.closest('.delete-option-comment') : null;
+            if (!el) { return; }
+
             e.preventDefault();
-            var id = $(this).attr('data-id');
-            var url = $(this).attr('data-url');
+            e.stopPropagation();
 
-            var data = {
-                'data': id
+            var trigger = el;
+            var id = el.getAttribute('data-id');
+            var url = el.getAttribute('data-url');
+            var variant = el.getAttribute('data-variant') || '';
+
+            var send = function() {
+                $.ajax({
+                    type: "DELETE",
+                    url: url,
+                    data: {
+                        'data': id,
+                        /* F184. The verifiable consent echo the server compares against the stored
+                           `variant`. Sent only from the dialog's confirm callback, so it cannot be
+                           produced by the click alone. */
+                        'ss_confirm_variant': variant
+                    },
+                    headers: {
+                        'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr(
+                            'content') // Include CSRF token
+                    },
+                    context: trigger,
+                    success: function(data) {
+                        $('#loader').fadeOut();
+                        show_toastr('{{ __('Success') }}',
+                            '{{ __('Variant Deleted Successfully!') }}', 'success');
+                        $(this).closest('.media').remove();
+                    },
+                    /*
+                     * F195. WITHOUT THIS A REFUSAL IS SILENT, which is why it ships with the guard
+                     * rather than after it.
+                     *
+                     * This request had `success:` only. jQuery calls it on 2xx alone, so the 409 the
+                     * server now returns when a cart line, a wishlist entry or an order still
+                     * references the variant would fade no loader, show no toast, and leave the row in
+                     * place -- the merchant clicks again and concludes the button is broken.
+                     *
+                     * The row is deliberately NOT removed here: the variant still exists, and removing
+                     * it would reproduce the lie the old any-2xx success path told.
+                     */
+                    error: function(xhr) {
+                        $('#loader').fadeOut();
+
+                        var payload = xhr.responseJSON || {};
+                        var message = payload.message || payload.msg ||
+                            '{{ __('This variant could not be deleted.') }}';
+
+                        show_toastr('{{ __('Error') }}', message, 'error');
+                    }
+                });
             };
-            // now make the ajax request
-            $.ajax({
-                type: "DELETE",
-                url: url,
-                data: data,
-                headers: {
-                    'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr(
-                        'content') // Include CSRF token
-                },
-                context: this,
-                success: function(data) {
-                    $('#loader').fadeOut();
-                    show_toastr('{{ __('Success') }}',
-                        '{{ __('Variant Deleted Successfully!') }}', 'success');
-                    $(this).closest('.media').remove();
-                }
-            });
-        });
-    });
 
-    $('#enable_product_stock').change(function() {
-        $('.stock_status').show();
-        if ($(this).prop('checked') == true) {
-            $('.stock_status').hide();
-        }
-    });
+            /* FAIL CLOSED. A host page that has not included the dialog does not get the old
+               one-click delete back; it gets a refusal it can see. */
+            if (typeof window.ssConfirmVariantDelete !== 'function') {
+                show_toastr('{{ __('Error') }}',
+                    '{{ __('This variant could not be deleted.') }}', 'error');
+                return;
+            }
+
+            window.ssConfirmVariantDelete({ variant: variant, trigger: trigger }, send);
+        }, true);
+    }
 
     $(document).ready(function() {
         if ($('.enable_product_stock').prop('checked') == true) {

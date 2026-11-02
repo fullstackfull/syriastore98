@@ -70,15 +70,29 @@ class GateFReconciliationReportTest extends SecurityTestCase
         });
 
         /*
-         * `products.cost_price` HAS NO MIGRATION EITHER -- it is GATE F draft 0004, and the first
-         * run of this file failed on exactly that ("table products has no column named
-         * cost_price"). Adding it here is the same fixture decision as the three tables above, and
-         * it is a second instance of the gap the whole of GATE F is about: live code reads a column
-         * that nothing in version control creates.
+         * `products.cost_price` NOW HAS A MIGRATION, and this comment used to say the opposite.
+         * It was GATE F draft 0004, and the first run of this file failed on exactly that ("table
+         * products has no column named cost_price"), so the fixture created the column itself --
+         * the same decision as the three tables above. F58 promoted the draft
+         * (2026_10_26_000100_add_cost_price_to_products_table), because `ProductController::store()`
+         * validates `cost_price` as required and writes it unconditionally, so CREATING A PRODUCT
+         * WAS IMPOSSIBLE on any database built from this repository.
+         *
+         * The unguarded `Schema::table()` then collided with it -- "duplicate column name:
+         * cost_price" -- and took all TEN tests in this file down. That is what the
+         * known-outcome gate caught, and it is the second time in this phase that promoting a
+         * schema draft broke a fixture which had been standing in for the missing schema.
+         *
+         * The guard stays rather than the block being deleted, so this file still runs against a
+         * tree without that migration; `GateFReconciliation` itself already asks
+         * `hasColumn('products', 'cost_price')` (tests/Support/Security/GateFReconciliation.php:270)
+         * and this keeps the fixture honest for both trees.
          */
-        Schema::table('products', function (Blueprint $table) {
-            $table->decimal('cost_price', 15, 2)->default(0);
-        });
+        if (! Schema::hasColumn('products', 'cost_price')) {
+            Schema::table('products', function (Blueprint $table) {
+                $table->decimal('cost_price', 15, 2)->default(0);
+            });
+        }
 
         Schema::create('store_order_financials', function (Blueprint $table) {
             $table->id();

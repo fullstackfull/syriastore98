@@ -1,0 +1,12 @@
+=== Security ===
+  Tests:    4 skipped, 4390 passed (18471 assertions)
+=== Merchant ===
+  Tests:    390 passed (2482 assertions)
+=== Unit ===
+  Tests:    653 passed (4080 assertions)
+=== Commerce ===
+  Tests:    7 skipped, 709 passed (2594 assertions)
+=== Tenancy ===
+  Tests:    6 skipped, 439 passed (1601 assertions)
+=== Contract ===
+  Tests:    26 passed (83 assertions)

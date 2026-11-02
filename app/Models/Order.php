@@ -13,6 +13,9 @@ class Order extends Model
     use HasFactory, Cachable;
 
     protected $fillable = [
+        /* E13 requirement D. Without the $fillable entry Laravel silently discards the value --
+           the mistake this very array already records for `created_by`. */
+        'replaced_order_id',
         'product_order_id',
         'order_date',
         'customer_id',
@@ -44,11 +47,68 @@ class Order extends Model
         'additional_note',
         'deliveryboy_id',
         'store_id',
+        'order_source',   // P2-04-11. REQUIRED here: both `Order::create([...])` writers pass
+                          // it by key, and Laravel silently DISCARDS an unfillable key -- the
+                          // exact trap `created_by` fell into below.
         'created_by',   // orders.created_by added by the schema work; without this
                         // entry Laravel silently discards the value that
                         // OrderController.php:161 passes to Order::create().
 
     ];
+
+    /**
+     * P2-04-11 / WS E8 -- THE `order_source` VOCABULARY: which path created this order.
+     *
+     * Recorded BY THE WRITER, never inferred afterwards. Three columns look as though they
+     * already answer this and none of them does -- `payment_type` is a payment method and is
+     * written through the translator by POS, `created_by` is NULL for every row older than
+     * 2026-10-12 and for two of the three merchant paths, and `is_guest` answers a different
+     * question. The migration's docblock carries that measurement in full.
+     *
+     * THERE IS DELIBERATELY NO `SOURCE_UNKNOWN`. An order with no source has NULL, and NULL is
+     * the ABSENCE of a record, not a fourth category: it means the order predates the column.
+     * Giving that absence a name would let it be stored, compared and filtered as though
+     * somebody had established it, which is the fabrication the owner's approval forbids.
+     */
+    public const SOURCE_POS = 'pos';
+    public const SOURCE_MANUAL = 'manual';
+    public const SOURCE_STOREFRONT = 'storefront';
+
+    /** The whole vocabulary, in the order the filter offers it. */
+    public const SOURCES = [
+        self::SOURCE_POS,
+        self::SOURCE_MANUAL,
+        self::SOURCE_STOREFRONT,
+    ];
+
+    /**
+     * The merchant-facing name of a source, or NULL when the order carries none.
+     *
+     * NULL IN, NULL OUT -- and every caller must render that absence as an absence. Returning a
+     * label here for an unrecorded source is the one thing this method must not do: the list
+     * and the detail page both have a test asserting that a legacy order is not presented as a
+     * storefront order, and this `default` arm is what those tests are really pinning.
+     */
+    public static function orderSourceLabel($source): ?string
+    {
+        return match ((string) $source) {
+            self::SOURCE_POS => __('Point of sale'),
+            self::SOURCE_MANUAL => __('Entered manually'),
+            self::SOURCE_STOREFRONT => __('Storefront'),
+            default => null,
+        };
+    }
+
+    /**
+     * NOT IN `$appends`, DELIBERATELY. Everything in `$appends` is serialised into every API
+     * response that returns an Order, so appending this would widen the Flutter and Lynomia
+     * payloads for every order in both repositories. The accessor exists for the two Blade
+     * surfaces that ask for it by name; the wire format stays byte-identical.
+     */
+    public function getOrderSourceLabelAttribute(): ?string
+    {
+        return self::orderSourceLabel($this->order_source);
+    }
 
     /**
      * Attribute casts.
@@ -332,6 +392,19 @@ public function getFormattedSubTotalAttribute()
             }
 
             $order_array['id'] = $order->id;
+            /*
+             * P2-04-6. THE ORDER'S OWN STORE, which the detail view needs and could not get.
+             *
+             * `order/view.blade.php` looks each line item's product up to decide whether to
+             * offer a download, and `Product` registers no `StoreScope` and is absent from
+             * `config/tenancy.php`'s `scoped_models` -- so that lookup needs an explicit store
+             * predicate. It cannot use the CALLER's store: `OrderController::order_view()`
+             * passes `getStoreById(getCurrentStore())`, and the platform operator legitimately
+             * opens another store's order (the operator limb is first in both
+             * `mayUseOrderScreen()` and `OrderDocumentAccessGuard`), so scoping to the caller
+             * would blank the line items for exactly the principal the guard admits.
+             */
+            $order_array['store_id'] = $order->store_id;
             $order_array['is_guest'] = $order->is_guest;
             $order_array['order_id'] = '#' . $order->product_order_id;
             $order_array['delivery_date'] = $order->delivery_date;
@@ -368,6 +441,33 @@ public function getFormattedSubTotalAttribute()
             if ($order->delivered_status == 5) $order_array['order_status_text'] = __('Picked Up');
             if ($order->delivered_status == 6) $order_array['order_status_text'] = __('Shipped');
             if ($order->delivered_status == 1) $order_array['order_status_text'] = __('Delivered');
+            /*
+             * F29. STATUSES 7 AND 8 FELL THROUGH AND THE API TOLD THE APP THEY WERE "PENDING".
+             *
+             * `order_status_text` is initialised to `__('Pending')` at :357 and the chain above
+             * covers 0, 1, 2, 3, 4, 5 and 6. `orders.delivered_status` holds NINE values, so 7
+             * (Partially Paid, a payment state) and 8 (Pre Order, an order type) kept the
+             * default -- and the shipped app renders that string. A merchant who had taken a
+             * part payment, and a customer who had pre-ordered, were both shown "Pending".
+             *
+             * THE NAMES ARE THE WEB'S OWN, not new ones. `OrderDataTable:191-192` renders exactly
+             * `__('Partially Paid')` and `__('Pre Order')` for the same two constants, so this
+             * makes the API agree with the panel rather than inventing a third vocabulary --
+             * which is the drift P2-04-4 found between the dashboard and the order list and
+             * fixed by giving both one source.
+             *
+             * NO BUSINESS RULE CHANGES AND NO CONTRACT BREAKS. `order_status` still carries the
+             * numeric 7 or 8 exactly as before, so any client that switches on the number is
+             * unaffected; only the human-readable string stops being wrong. Nothing here decides
+             * what a status MEANS or when it may change -- the owner's approval of F29 was
+             * explicitly for display and translation, not for the status rules.
+             */
+            if ($order->delivered_status == \App\Http\Controllers\HomeController::ORDER_STATUS_PARTIALLY_PAID) {
+                $order_array['order_status_text'] = __('Partially Paid');
+            }
+            if ($order->delivered_status == \App\Http\Controllers\HomeController::ORDER_STATUS_PRE_ORDER) {
+                $order_array['order_status_text'] = __('Pre Order');
+            }
             if ($order->delivered_status == 2) {
                 $order_array['order_status_text'] = __('Cancel');
                 $order_array['order_status_message'] = __('Your order has been canced.');
@@ -645,6 +745,34 @@ if ($order_status == 'cancel') {
                 $return = \Workdo\PreOrder\app\Models\PreOrder::ManageOrderStatus($date);
                 return $return;
             }
+
+            /*
+             * F81. AN UNRECOGNISED STATUS USED TO FALL OFF THE END AND RETURN NULL, and all three
+             * callers dereference the result without a guard:
+             *
+             *   OrderController::order_status_change():1345   if ($responce['status'] == 'success')
+             *   Api\ApiController:7449                        if ($date['status'] == 'success')
+             *   Api\DashboardController::statusChange         $responce['order_status'] = ...
+             *
+             * so the answer was `Trying to access array offset on null` -- a 500. MEASURED on the
+             * web route. The two API callers take the value straight from the request
+             * (`$request->order_status`, `$request->delivered`), so any client can produce it.
+             *
+             * AND IT IS REACHABLE WITHOUT A CRAFTED REQUEST: the branch above is gated on
+             * `module_is_active('PreOrder')`, so a caller sending the perfectly legitimate
+             * `pre_order` -- `orders.delivered_status` value 8, which F29 added to the API's own
+             * status vocabulary -- falls through here whenever that module is off.
+             *
+             * NOTHING IS WRITTEN on this path, and that is why the fix is a return rather than a
+             * guard at each caller: the order is read at the top and every branch that touches it
+             * returns, so an unmatched status has already changed nothing. What was wrong was only
+             * the REPORT. The shape matches the "Order not found." arm below, so the three callers
+             * handle it through the code they already have.
+             */
+            $return['status'] = 'error';
+            $return['message'] = __('That order status is not recognised.');
+
+            return $return;
         } else {
             $return['status'] = 'error';
             $return['message'] = 'Order not found.';
@@ -683,6 +811,33 @@ if ($order_status == 'cancel') {
      * settled through OrderRefund and `return_price`, and must not be inferred from this.
      */
     public const LINE_STOCK_RESTORED = 'stock_restored';
+
+    /**
+     * E13 REQUIREMENT D — THIS LINE'S STOCK WAS NEVER TAKEN, so no endpoint may take it.
+     *
+     * The replacement is a reissue of lines whose stock the ORIGINAL already moved. Nothing has
+     * come back to the shelf and nothing is going out again: the goods are the same goods. So the
+     * replacement's lines carry this stamp and every stock path must treat them as already
+     * accounted for.
+     *
+     * SEPARATE FROM `LINE_STOCK_RESTORED` on purpose, even though both mean "do not touch the
+     * stock for this line". That one records a PAST EVENT — goods came back — and a refund or
+     * return reads it as evidence. This one records that the event never happened on this order at
+     * all. Collapsing them would make a reissued line look like a returned one to every reader of
+     * `lineStockAlreadyRestored()`, including the refund surface, which is the kind of conflation
+     * D-15 condition 3 exists to prevent.
+     */
+    public const LINE_STOCK_CARRIED = 'stock_carried_from_original';
+
+    /**
+     * Was this line's stock accounted for somewhere other than this order?
+     *
+     * @param  array<string, mixed>  $line
+     */
+    public static function lineStockCarriedFromOriginal(array $line): bool
+    {
+        return (int) ($line[self::LINE_STOCK_CARRIED] ?? 0) === 1;
+    }
 
     /**
      * Has this line's stock already been credited by either endpoint?
@@ -933,8 +1088,16 @@ if ($order_status == 'cancel') {
                         // endpoint's loop can see that these goods are already back in. See
                         // Order::LINE_STOCK_RESTORED. P1-INV-15 (E), owner decision 5.
                         if (!empty($stockProduct) && ! self::lineStockAlreadyRestored($product_json[$key])) {
+                            /* E13-C residual: RECORDED, not merely performed. Threaded INSIDE
+                               the model rather than at the three call sites, because one caller is
+                               vendored (packages/workdo/LotteryPrizes) and must not be edited.
+                               `$orderStoreId` and `$Order` are already in scope. */
                             app(\App\Services\ProductStockService::class)
-                                ->restoreProductStock($stockProduct->id, (int) $line['qty']);
+                                ->restoreProductStock($stockProduct->id, (int) $line['qty'], [
+                                    'store_id' => $orderStoreId,
+                                    'order_id' => $Order->id ?? null,
+                                    'reason' => \App\Services\StockMovement::REASON_ORDER_RETURN,
+                                ]);
                             $product_json[$key][self::LINE_STOCK_RESTORED] = 1;
                         }
                     } else {
@@ -965,7 +1128,11 @@ if ($order_status == 'cancel') {
                         // The variant twin of the marker above, same reason.
                         if (!empty($ProductStock) && ! self::lineStockAlreadyRestored($product_json[$key])) {
                             app(\App\Services\ProductStockService::class)
-                                ->restoreVariantStock($ProductStock->id, (int) $product['qty']);
+                                ->restoreVariantStock($ProductStock->id, (int) $product['qty'], [
+                                    'store_id' => $orderStoreId,
+                                    'order_id' => $Order->id ?? null,
+                                    'reason' => \App\Services\StockMovement::REASON_ORDER_RETURN,
+                                ]);
                             $product_json[$key][self::LINE_STOCK_RESTORED] = 1;
                         }
                     }
@@ -1097,4 +1264,28 @@ public function ShippingMethod()
         'id'
     );
 }
+
+    /**
+     * E13 REQUIREMENT D — the two ends of the link, both READ-ONLY.
+     *
+     * `replacedOrder()` is the original this order replaced. `replacementOrder()` is the order that
+     * replaced this one. Neither is used to write anything; `cancelAndReplace()` sets the column
+     * directly inside its transaction.
+     *
+     * `withoutGlobalScopes()` is NOT applied here, and that is deliberate: `Order` carries no
+     * `StoreScope` and is not in `config/tenancy.php`'s `scoped_models` (CLAUDE.md), so these
+     * relations add no predicate and would reach another tenant's row if one were ever linked.
+     * Nothing links one — `cancelAndReplace()` refuses an original from another store before it
+     * writes — and the refusal is where the control belongs, because a relation cannot express
+     * "belongs to the caller's store" without knowing who is calling.
+     */
+    public function replacedOrder()
+    {
+        return $this->belongsTo(self::class, 'replaced_order_id');
+    }
+
+    public function replacementOrder()
+    {
+        return $this->hasOne(self::class, 'replaced_order_id');
+    }
 }

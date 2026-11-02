@@ -7,7 +7,7 @@
 @endsection
 
 @section('breadcrumb')
-    <li class="breadcrumb-item">{{ __('Plan Request') }}</li>
+    <li aria-current="page" class="ss-breadcrumb__item">{{ __('Plan Request') }}</li>
 @endsection
 
 @push('css')

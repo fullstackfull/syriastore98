@@ -3,7 +3,7 @@
 @section('page-title', __('Contact-us'))
 
 @section('breadcrumb')
-    <li class="breadcrumb-item">{{ __('Contact-us') }}</li>
+    <li aria-current="page" class="ss-breadcrumb__item">{{ __('Contact-us') }}</li>
 @endsection
 
 @section('content')

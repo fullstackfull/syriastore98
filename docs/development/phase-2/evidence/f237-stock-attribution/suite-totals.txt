@@ -1,0 +1,10 @@
+HEAD=8319535568ea11f9fdf0b0f81f54a65b72360d12
+  Tests:    2 failed, 17 skipped, 7024 passed (34916 assertions)
+FEATURE_EXIT=1
+--- UNIT ---
+  Tests:    657 passed (4094 assertions)
+--- CONTRACT ---
+  Tests:    26 passed (83 assertions)
+--- the two declared failures observed ---
+  ⨯ new users can register                                               0.20s  
+  ⨯ profile page is displayed                                            1.23s  

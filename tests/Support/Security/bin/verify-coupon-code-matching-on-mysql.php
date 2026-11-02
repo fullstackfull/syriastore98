@@ -100,6 +100,19 @@ $bootstrap['database'] = null;
 config(['database.connections.coupon_bootstrap' => $bootstrap]);
 config(['database.connections.coupon_verify' => $connection]);
 
+/* THE CACHE STORE, AND WITHOUT THIS LINE THIS SCRIPT CANNOT REACH ITS OWN SUBJECT.
+   `App\Models\Coupon` uses `GeneaLabs\LaravelModelCaching\Traits\Cachable` (CLAUDE.md lists it
+   with Setting, User and Order), so `Coupon::findByExactCode()` -- the whole point of this file --
+   goes through the configured cache store first. That store is `database` in this environment and
+   resolves against the DEFAULT connection, which is sqlite, so the read died on
+   "no such table: cache (Connection: sqlite)" after the two pure-SQL collation assertions had
+   already passed. MEASURED: 2 checks, 1 failure, and the failure was the harness rather than the
+   code under test.
+   `array` is the right store for a standalone verification: it needs no table, it is what
+   phpunit.xml uses for the same reason, and a per-process cache cannot carry state between the
+   assertions below. */
+config(['cache.default' => 'array']);
+
 $checks = 0;
 $failures = 0;
 

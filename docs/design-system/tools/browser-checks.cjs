@@ -59,6 +59,9 @@ function contrast(a, b) {
           outlineColor: cs.outlineColor,
           matchesFocusVisible: el.matches(':focus-visible'),
           x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height),
+          // top/bottom are what the band test needs: two controls beside each other in
+          // the page header overlap vertically, and only their boxes show that.
+          top: Math.round(r.top), bottom: Math.round(r.bottom),
           bg: cs.backgroundColor,
         };
       });
@@ -84,14 +87,91 @@ function contrast(a, b) {
       'every DS-owned control shows a >=2px focus ring (WCAG 2.4.7; size per 2.4.13)',
       `${ringed.length}/${owned.length} ss-* controls`);
 
-    // Tab order within the DS-owned content must follow visual order.
-    let ordered = true;
-    for (let i = 1; i < owned.length; i++) {
-      const a = owned[i - 1], b = owned[i];
-      if (b.y < a.y - 5) { ordered = false; break; }
-      if (Math.abs(b.y - a.y) <= 5 && b.x < a.x - 5) { ordered = false; break; }
+    // ------------------------------------------------------------------ tab order
+    //
+    // [2026-11-02 / F251] THIS RULE REPORTED A FAILURE THAT WAS ITS OWN, and the two
+    // things wrong with it were a y-tolerance and a missing direction.
+    //
+    // (1) IT TREATED SIDE-BY-SIDE AS STACKED. The old rule failed on `b.y < a.y - 5`,
+    //     a 5px tolerance. Measured on this very fixture, the page-header band holds
+    //     the breadcrumb trail at top=57 bottom=76 and the primary action at top=32
+    //     bottom=64 — boxes that OVERLAP VERTICALLY BY 7px, 1202px apart on x. They
+    //     are beside each other in one header band, not above and below; the 25px y
+    //     difference is the band's own baseline alignment. Reading order for two boxes
+    //     on the same line is left-to-right, and that is what the DOM does.
+    //
+    // (2) IT HAD NO DIRECTION. `b.x < a.x - 5` is the LTR rule applied unconditionally.
+    //     Measured on `new-ar-full` (dir=rtl) every correct pair runs the other way —
+    //     the row's Edit/Delete pair is dx=-36 — so the old rule would have called a
+    //     correct RTL page unordered. It never fired only because the suite ran this
+    //     section on the `en` fixture alone.
+    //
+    // So: consecutive stops whose boxes overlap vertically are ONE BAND and must advance
+    // along the reading direction; stops that do not overlap must advance downward. This
+    // is stricter than before, not looser — it now also catches an RTL regression, which
+    // nothing did.
+    const tabOrderViolation = (list, dir) => {
+      for (let i = 1; i < list.length; i++) {
+        const a = list[i - 1], b = list[i];
+        const sameBand = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 0;
+        if (sameBand) {
+          const advances = dir === 'rtl' ? b.x <= a.x + 5 : b.x >= a.x - 5;
+          if (!advances) {
+            return `${dir}: same band but x moves against the reading direction — ` +
+                   `"${a.label}" x=${a.x} then "${b.label}" x=${b.x}`;
+          }
+        } else if (b.top < a.top) {
+          return `${dir}: focus moved UP the page — "${a.label}" top=${a.top} ` +
+                 `then "${b.label}" top=${b.top}`;
+        }
+      }
+      return null;
+    };
+
+    const ltrViolation = tabOrderViolation(owned, 'ltr');
+    check(!ltrViolation, 'tab order within DS content follows visual reading order (LTR)',
+      ltrViolation || `${owned.length} DS-owned stops in order`);
+
+    // AND THE SAME RULE IN ARABIC, which nothing checked before. The owner's F251
+    // instruction asks for RTL and LTR compatibility explicitly, and the band rule is
+    // the one place direction changes the expected answer, so it is driven rather than
+    // reasoned about.
+    {
+      const rtlPage = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+      const resp = await rtlPage.goto(BASE + 'new-ar-full.html');
+      if (!resp || !resp.ok()) {
+        check(false, 'tab order within DS content follows visual reading order (RTL)',
+          `new-ar-full.html did not load (HTTP ${resp ? resp.status() : 'none'})`);
+      } else {
+        const dir = await rtlPage.evaluate(() =>
+          document.documentElement.getAttribute('dir') || getComputedStyle(document.body).direction);
+        const rtlStops = [];
+        for (let i = 0; i < 24; i++) {
+          await rtlPage.keyboard.press('Tab');
+          const info = await rtlPage.evaluate(() => {
+            const el = document.activeElement;
+            if (!el || el === document.body) return null;
+            const r = el.getBoundingClientRect();
+            return {
+              tag: el.tagName.toLowerCase(),
+              cls: (el.className || '').toString().split(' ').filter(c => c.startsWith('ss-')).join(' '),
+              label: (el.innerText || el.getAttribute('title') || '').trim().slice(0, 28),
+              x: Math.round(r.x), y: Math.round(r.y),
+              top: Math.round(r.top), bottom: Math.round(r.bottom),
+            };
+          });
+          if (!info) break;
+          if (rtlStops.some(s => s.x === info.x && s.y === info.y && s.tag === info.tag)) break;
+          rtlStops.push(info);
+        }
+        const rtlOwned = rtlStops.filter(s => s.cls);
+        check(dir === 'rtl', 'the Arabic pilot fixture really renders RTL', `dir=${dir}`);
+        const rtlViolation = tabOrderViolation(rtlOwned, 'rtl');
+        check(!rtlViolation, 'tab order within DS content follows visual reading order (RTL)',
+          rtlViolation || `${rtlOwned.length} DS-owned stops in order`);
+      }
+      await rtlPage.close();
     }
-    check(ordered, 'tab order within DS content follows visual reading order');
 
     const ringColors = [...new Set(owned.map(s => s.outlineColor))];
     for (const c of ringColors) {
@@ -403,8 +483,26 @@ function contrast(a, b) {
     }
     const bOk = before.stops.filter(s => s.kind !== 'none' && s.ratio >= 3).length;
     const aOk = after.stops.filter(s => s.kind !== 'none' && s.ratio >= 3).length;
-    check(aOk === 11 && aOk > bOk,
-      'every redesign control gets a focus indicator at >= 3:1 (WCAG 1.4.11)', `${bOk} -> ${aOk} of 13`);
+    const aShort = after.stops.filter(s => !(s.kind !== 'none' && s.ratio >= 3))
+      .map(s => `${JSON.stringify(s.name)} ${s.kind} ${s.ratio.toFixed(2)}:1`);
+    //
+    // [2026-11-02 / F251] THIS ASSERTED A MAGIC NUMBER AND THE NUMBER WENT STALE.
+    //
+    // It read `aOk === 11`, and the measurement was 12 — so the suite reported a FAILURE
+    // because the design system had got BETTER than the figure pinned here. P2-01-14
+    // converted the breadcrumb to `x-ss.breadcrumb`, which added a twelfth ringed control,
+    // and nobody moved the constant. An equality against a count is a ratchet that breaks
+    // on improvement, which is the opposite of what a ratchet is for.
+    //
+    // Now: EVERY probed control must reach 3:1, and the count is reported rather than
+    // asserted. That cannot go stale when a control is added, and unlike `=== 11` it fails
+    // when a NEW control arrives without a ring — the case the old form would have passed
+    // as long as the total happened to land on eleven. `aOk > bOk` stays, because the
+    // before/after improvement is the other half of the claim.
+    check(aOk === after.stops.length && aOk > bOk,
+      'every control gets a focus indicator at >= 3:1 (WCAG 1.4.11)',
+      aShort.length ? `${aOk}/${after.stops.length}; short: ${aShort.join(', ')}`
+                    : `${bOk} -> ${aOk} of ${after.stops.length}`);
 
     const bAdd = before.stops.find(s => /^Add/.test(s.name));
     check(!!bAdd && bAdd.ratio < 1.5,

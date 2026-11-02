@@ -1,0 +1,42 @@
+=== RUN 1 (clean clone) — assertion output ===
+KNOWN-OUTCOME GATE
+------------------------------------------------------------------------------
+junit log            : storage/logs/feature-junit.xml
+manifest             : .github/known-test-outcomes.json
+testcases observed   : 7030  (manifest floor 1000)
+failures observed    : 3  (manifest declares 2)
+errors observed      : 0  (always expected: 0)
+skips observed       : 17  (manifest declares 17)
+
+::error::NEW FAILURE, not in the manifest: Tests\Feature\Security\PaidDownloadEntitlementTest::test_the_old_public_path_is_still_reachable_and_that_is_why_f217_is_not_closed
+::error::  Tests\Feature\Security\PaidDownloadEntitlementTest::test_the_old_public_path_is_still_reachable_and_that_is_why_f217_is_not_closed the paid file is no longer reachable through public/uploads. If that is the containment landing, F217 can move to closed and this case should be replaced by its inverse. Failed asserting that file "/home/user/syriastore98/public/uploads/1/ss-f217-6ae5c1ba34f57.zip" exists. /home/user/syriastore98/tests/Feature/Security/PaidDownloadEntitlementTest.php:210
+::error::
+::error::This is a regression unless you can show otherwise. Do NOT add it to
+::error::.github/known-test-outcomes.json to get green -- that file records failures the owner
+::error::has accepted with a named root cause, not a list of things currently broken.
+skip reasons parsed  : 17 from feature-teamcity.txt
+
+
+::error::
+::error::KNOWN-OUTCOME GATE FAILED. The observed outcome set does not match the manifest.
+ASSERT_EXIT=1
+
+=== RUN 2 (precondition restored) — assertion output ===
+KNOWN-OUTCOME GATE
+------------------------------------------------------------------------------
+junit log            : storage/logs/feature-junit.xml
+manifest             : .github/known-test-outcomes.json
+testcases observed   : 7030  (manifest floor 1000)
+failures observed    : 2  (manifest declares 2)
+errors observed      : 0  (always expected: 0)
+skips observed       : 17  (manifest declares 17)
+
+skip reasons parsed  : 17 from feature-teamcity.txt
+
+
+OK: the observed outcome set matches the manifest exactly -- 2 declared failures, 17 declared skips, 0 errors, and nothing undeclared.
+
+This is NOT a statement that the suite is green. It is a statement that the suite is
+failing and skipping exactly the tests the project has recorded, for the reasons it has
+recorded. Read .github/known-test-outcomes.json for what is still owed and to whom.
+ASSERT_EXIT=0

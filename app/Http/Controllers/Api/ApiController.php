@@ -55,6 +55,18 @@ use App\Models\StoreDevice;
 class ApiController extends Controller
 {
     use ApiResponser;
+
+    /*
+     * D-21 / S32. The six raw read-modify-write stock decrements in `place_order()` and
+     * `ordersave()` now go through the shared trait: one atomic conditional UPDATE instead of a
+     * read-modify-write, recorded so it can be given back on an in-loop exit.
+     *
+     * THE SHORTFALL STILL OVERSELLS RATHER THAN REFUSING, deliberately. These are not
+     * post-capture paths, so refusing would be defensible -- but it would change what a
+     * storefront API client receives, and the owner reserves changes to API responses and status
+     * codes. See `docs/development/phase-2/D-21-STOCK-WRITER-INVENTORY.md`.
+     */
+    use \App\Http\Controllers\Concerns\AppliesCartStockChanges;
     use \App\Http\Middleware\Concerns\RedactsApiLogFields;   // P1-SEC-16: user_detail() logged the whole request body
 
     /**
@@ -3283,8 +3295,108 @@ public function saveStoreFcmToken(Request $request)
         }
     }
 
+    /** The value a storefront checkout claim holds while the order is being written. */
+    private const STOREFRONT_INTAKE_WRITING = 'writing';
+
+    /**
+     * How long one storefront checkout's claim survives.
+     *
+     * Long enough to cover a phone that timed out and retried, and a shopper tapping Pay again
+     * because nothing visibly happened. Short enough that a shopper genuinely buying the same
+     * basket again minutes later is not refused -- and that case is not hypothetical for a
+     * consumable.
+     */
+    private const STOREFRONT_INTAKE_CLAIM_SECONDS = 120;
+
+    /**
+     * F276 — E14's payment half, on the two storefront writers that had no control at all.
+     *
+     * The master prompt's Workstream E rule 14 is "no duplication of payments or inventory
+     * movements". `GatewayReplayGuardCensusTest` — which PARSES the tree, after the previous
+     * census was found wrong in every number it asserted — classified exactly three customer-order
+     * writers as `client-api/no-idempotency-control`. F226 closed `createOrderViaApi`. These two
+     * were left, with the census's own note reading "nothing makes a repeated post idempotent".
+     *
+     * MEASURED BEFORE IT WAS FIXED, on both writers: a second post of one checkout wrote a SECOND
+     * order and decremented stock a SECOND time
+     * (`StorefrontOrderIntakeIdempotencyTest::test_a_repeated_checkout_post_does_not_write_a_second_order`).
+     *
+     * AND THE RETRY IS THE ORDINARY CASE HERE, not the attack. These are the storefront API's
+     * checkout endpoints; the client is a phone on a mobile network, where a request that timed
+     * out client-side has still arrived. `ApiResponser::error()` answering HTTP 200 makes it
+     * worse, because a client cannot tell a refusal from a success by status code alone.
+     *
+     * THE CART IS NOT THE CONTROL, which is the same lesson F269 recorded at the till. A completed
+     * order clears the cart, so a bare second post usually finds nothing to sell — but two
+     * requests in flight together each hold their own view of the basket, and neither sees the
+     * other's clear. The claim therefore lives in the cache: `Cache::add()` is a single atomic
+     * put-if-absent, an INSERT against the `cache` primary key on the production `database` store.
+     * Same primitive as F226, F269 and F270: one idempotency mechanism in this codebase, not four.
+     *
+     * THE FINGERPRINT IS SERVER-DERIVED. The store comes from the route's slug and the customer
+     * from `resolveStoreCustomer()` — the shared predicate CLAUDE.md names — never from
+     * `$request->customer_id`, which is caller input and which THIS HANDLER was once exploitable
+     * through. Two shoppers with identical baskets are separate claims because the customer
+     * differs; the same shopper posting the same basket twice inside the window is the duplicate
+     * this exists to stop.
+     */
+    private function storefrontIntakeFingerprint(array $products, int $storeId, int $customerId, $paymentType): string
+    {
+        $lines = [];
+
+        foreach ($products as $line) {
+            $line = is_object($line) ? (array) $line : (array) $line;
+
+            $lines[] = [
+                /* THE CART ROW ID IS IN THE KEY, and leaving it out was the same hole F269 left
+                   at the till before the press id went in. Keyed on content alone, a shopper who
+                   buys two widgets and then rebuilds the SAME basket and buys again inside the
+                   window hashes identically -- so their second purchase is answered as a replay:
+                   money taken by the gateway that follows, nothing recorded. A rebuilt cart has
+                   NEW `carts.id` values, so it is a different claim; two requests racing read the
+                   SAME rows, so they are still one claim. `cart_list` emits it per line
+                   (ApiController:809), which is why no new plumbing is needed.
+
+                   AND THE COST IT BUYS, because this note used to state only the benefit: a retry
+                   that REBUILDS the basket before re-posting is no longer caught -- new row ids,
+                   new claim, second order, second stock decrement. That is the original F276
+                   shape, re-admitted for one specific client behaviour: a client that holds the
+                   basket in local state, re-syncs it after a timeout and re-posts.
+
+                   NOT LIVE TODAY, and the reason is worth stating exactly rather than
+                   comfortably: CLAUDE.md records that no client in either repository calls the
+                   storefront API, and the realistic sequential retry never reaches this claim at
+                   all -- the first post deletes the cart rows, so the retry is refused by the
+                   empty-basket check that PRECEDES the claim. If a storefront client ever
+                   appears, the fix is a client-supplied submission nonce and NOT removing the
+                   cart id: a caller-supplied value can only SPLIT the caller's own key space,
+                   because the key still binds the route-resolved store and
+                   `resolveStoreCustomer()`'s customer. That is safe in a way a caller-supplied
+                   TENANT predicate never is, and it is a contract change. */
+                'cart' => (string) ($line['cart_id'] ?? ''),
+                'id' => (string) ($line['product_id'] ?? $line['id'] ?? ''),
+                'variant' => (string) ($line['variant_id'] ?? ''),
+                'qty' => (string) ($line['qty'] ?? $line['quantity'] ?? ''),
+                'price' => (string) ($line['price'] ?? $line['final_price'] ?? ''),
+            ];
+        }
+
+        /* Sorted, so one basket assembled in a different order is one basket. */
+        usort($lines, fn ($a, $b) => [$a['cart'], $a['id'], $a['variant']] <=> [$b['cart'], $b['id'], $b['variant']]);
+
+        return 'storefront_intake:' . hash('sha256', json_encode([
+            'store' => $storeId,
+            'customer' => $customerId,
+            'payment' => is_scalar($paymentType) ? (string) $paymentType : '',
+            'lines' => $lines,
+        ]));
+    }
+
     public function place_order(Request $request, $slug = '')
     {
+        $ssOrderWritten = false;
+
+        try {
     $slug = !empty($slug) ? $slug : '';
     $store = getStore($slug);
     if (empty($store)) {
@@ -3391,6 +3503,7 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
             $billing = is_string($request->billing_info) ? (array) json_decode($request->billing_info) : $request->billing_info;
             $taxes = !empty($cartlist['tax_info']) ? $cartlist['tax_info'] : '';
             $products = $cartlist['product_list'];
+
         } else {
             return $this->error(['message' => 'User not found.']);
         }
@@ -3565,9 +3678,64 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                 __('Your cart contains an invalid quantity.')
             );
         }
+
+        /*
+         * F276. THE CLAIM, TAKEN HERE — IMMEDIATELY BEFORE THE STOCK LOOP, AND NOT EARLIER.
+         *
+         * The first version of this change took it as soon as the basket resolved, which read
+         * like "before any stock moves" and was true. INDEPENDENT REVIEW FOUND WHAT IT ALSO DID:
+         * it swept every remaining request-validation refusal INSIDE the claim. On `ordersave`
+         * that is fifteen of them — fourteen billing and delivery field checks plus the request
+         * validator itself — and none of them changes the fingerprint. So a shopper who left
+         * `billing_city` empty took the claim, was refused, corrected the field, resubmitted, and
+         * was told "This order is already being placed" for the next two minutes. My guard had
+         * made their own checkout unusable, with no attacker involved. Measured and reproduced.
+         *
+         * Here, every refusal that is about the REQUEST has already happened and everything below
+         * spends something. That is also where `PosController::store()` puts it, which is the
+         * precedent this was supposed to follow.
+         */
+        $ssIntakeClaim = $this->storefrontIntakeFingerprint(
+            (array) ($products ?? []),
+            (int) $store->id,
+            (int) $customerId,
+            $request->payment_type
+        );
+
+        if (! \Illuminate\Support\Facades\Cache::add($ssIntakeClaim, self::STOREFRONT_INTAKE_WRITING, now()->addSeconds(self::STOREFRONT_INTAKE_CLAIM_SECONDS))) {
+            $ssHeld = \Illuminate\Support\Facades\Cache::get($ssIntakeClaim);
+
+            /* THE ORDER ALREADY EXISTS, so the honest answer is the one the first post got --
+               the same envelope carrying the SAME order id. This handler's success is
+               `['order_id' => $order->id, 'slug' => $slug]`, so the replay is byte-identical in
+               shape to it. */
+            if (is_array($ssHeld) && ! empty($ssHeld['order_id'])) {
+                return $this->success(['order_id' => $ssHeld['order_id'], 'slug' => $slug]);
+            }
+
+            /* The first post is still writing. There is no order id to hand back yet and nothing
+               truthful to call a success. */
+            \Illuminate\Support\Facades\Log::warning('Storefront order intake refused as a duplicate submission', [
+                'store_id' => $store->id,
+                'customer_id' => $customerId,
+                'path' => $request->path(),
+            ]);
+
+            $ssIntakeBusy = __('This order is already being placed. Please wait a moment before trying again.');
+
+            return $this->error(['message' => $ssIntakeBusy], $ssIntakeBusy);
+        }
+
         // Order stock decrease start
         $prodduct_id_array = [];
         if (!empty($products)) {
+            /*
+             * D-21. Decrements applied by the loop below, so they can be GIVEN BACK when a later
+             * line makes this handler return early. Before this, each in-loop error exit left
+             * every line already processed decremented, with no order row to show for it.
+             */
+            $appliedStockChanges = [];
+
             foreach ($products as $key => $product) {
                 $prodduct_id_array[] = $product->product_id;
 
@@ -3618,6 +3786,8 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                  * consistent with the two paths that already behave this way.
                  */
                 if (!empty($product_id) && $product_id != 0 && empty($Product)) {
+                    $this->restoreStockDecrements($appliedStockChanges);
+
                     return $this->error(['message' => __('Product not found .')]);
                 }
 
@@ -3633,6 +3803,8 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                          * refusal. Same correction as NMIPayController received in S33.
                          */
                         if (empty($ProductStock)) {
+                            $this->restoreStockDecrements($appliedStockChanges);
+
                             return $this->error(['message' => __('Product not found .')]);
                         }
 
@@ -3640,9 +3812,14 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                         $option = in_array('manage_stock', $variationOptions);
                         if (!empty($ProductStock)) {
                             if ($option == true) {
-                                $remain_stock = $ProductStock->stock - $qtyy;
-                                $ProductStock->stock = $remain_stock;
-                                $ProductStock->save();
+                                /*
+                                 * `false` is $rejectOnShortfall. This path is NOT post-capture -- a shortfall
+                                 * could legitimately refuse here -- but making it do so would change what a
+                                 * storefront client receives, and the owner reserves changes to API responses
+                                 * (D-21). So this stays bit-identical to the subtraction it replaces: oversell
+                                 * and log, exactly as before.
+                                 */
+                                $this->decrementStockOrFail($appliedStockChanges, 'variant', $ProductStock, $qtyy, false);
 
                                 if ($ProductStock->stock <= $ProductStock->low_stock_threshold) {
                                     if (!empty(json_decode($settings['notification'])) && in_array('enable_low_stock', json_decode($settings['notification']))) {
@@ -3659,9 +3836,9 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                                     }
                                 }
                             } else {
-                                $remain_stock = $datas->product_stock - $qtyy;
-                                $datas->product_stock = $remain_stock;
-                                $datas->save();
+                                // The variant row exists but is not stock-managed, so the PARENT product is
+                                // decremented through `$datas`.
+                                $this->decrementStockOrFail($appliedStockChanges, 'product', $datas, $qtyy, false);
                                 if ($datas->product_stock <= $datas->low_stock_threshold) {
                                     if (!empty(json_decode($settings['notification'])) && in_array('enable_low_stock', json_decode($settings['notification']))) {
                                         if (isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] == 'on') {
@@ -3705,14 +3882,15 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                                 }
                             }
                         } else {
+                            $this->restoreStockDecrements($appliedStockChanges);
+
                             return $this->error(['message' => 'Product not found .']);
                         }
                     } elseif (!empty($product_id) && $product_id != 0) {
 
                         if (!empty($Product)) {
-                            $remain_stock = $Product->product_stock - $qtyy;
-                            $Product->product_stock = $remain_stock;
-                            $Product->save();
+                            // The no-variant leg.
+                            $this->decrementStockOrFail($appliedStockChanges, 'product', $Product, $qtyy, false);
                             if ($Product->product_stock <= $Product->low_stock_threshold) {
                                 if (!empty(json_decode($settings['notification'])) && in_array('enable_low_stock', json_decode($settings['notification']))) {
                                     if (isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] == 'on') {
@@ -3760,9 +3938,13 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                                 }
                             }
                         } else {
+                            $this->restoreStockDecrements($appliedStockChanges);
+
                             return $this->error(['message' => __('Product not found .')]);
                         }
                     } else {
+                        $this->restoreStockDecrements($appliedStockChanges);
+
                         return $this->error(['message' => __('Please fill proper product json field .')]);
                     }
                 }
@@ -3783,6 +3965,7 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
 
         // add in  Order table  start
         $order = new Order();
+        $order->order_source = Order::SOURCE_STOREFRONT;
         $order->product_order_id = $customerId . date('YmdHis');
         $order->order_date = date('Y-m-d H:i:s');
         $order->customer_id = $customerId;
@@ -3882,6 +4065,32 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         );
 
         $order->save();
+        /* F237: phase two of the two-phase attribution -- point this request's
+           movements at the order that now exists.
+           NO TRANSACTION ON THIS PATH, stated because the first version of this comment
+           claimed one and independent review found it false: this handler opens none, so
+           the order is already committed when this runs. A crash in between therefore
+           leaves the row unattributed, which reads UNKNOWN and makes the cancellation
+           restore -- the safe direction, and the behaviour that held before F237. Adding
+           a transaction here is a separate change, not part of F237. */
+        $this->attributeStockEvidenceTo($order);
+        /* THE ORDER NOW EXISTS. From here a failure must NOT give the stock back: an order
+           that exists claims its goods, and returning them puts the shopper's items on the
+           shelf for someone else while their order stands. */
+        $ssOrderWritten = true;
+
+        /*
+         * F276. THE CLAIM NOW CARRIES THE ANSWER, written the instant "an order exists" becomes
+         * true and before the webhook, the mails and the rest. If any of those dies, the retry
+         * that follows must be told the order exists rather than allowed to place it again.
+         */
+        if (isset($ssIntakeClaim)) {
+            \Illuminate\Support\Facades\Cache::put(
+                $ssIntakeClaim,
+                ['order_id' => $order->id],
+                now()->addSeconds(self::STOREFRONT_INTAKE_CLAIM_SECONDS)
+            );
+        }
 
         Utility::paymentWebhook( $order );
         // add in  Order table end
@@ -4089,6 +4298,59 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
             return $this->success(['order_id' => $order->id, 'slug' => $slug]);
         } else {
             return $this->error(['message' => __('Somthing went wrong.')]);
+        }
+            } catch (\Throwable $ssStockGuardError) {
+            /*
+             * F276. THE CLAIM IS RELEASED FIRST, and ONLY while it still holds the writing
+             * sentinel. Once the order exists the claim carries `['order_id' => ...]`, so this
+             * cannot free a claim standing for a real order -- which is why the test is on the
+             * VALUE and not on `$ssOrderClaimsIt`.
+             *
+             * IT SITS ABOVE THE D-13 BLOCK BECAUSE THAT BLOCK IS TEXTUALLY FENCED ON BOTH SIDES.
+             * `GatewayStockDecrementRoutingTest` requires the `$ssOrderClaimsIt` assignment to be
+             * immediately followed by its guard, and the `restoreStockDecrements(...)` call to be
+             * immediately followed by the rethrow -- two separate regexes, so there is no gap
+             * inside it to occupy. Both fired when I tried, correctly: the rules are that the
+             * compensation asks whether an order claims the stock, and that it does not change
+             * the response the caller sees. Neither is about the claim, and nothing here touches
+             * `$appliedStockChanges`, so this goes above the whole block rather than the ratchets
+             * being widened to accommodate it.
+             *
+             * WHAT RELEASING COSTS, stated as F269 states it: a throw AFTER the order was written
+             * leaves the claim held, which is correct. A throw BEFORE it releases the claim and
+             * permits a retry that decrements again -- the pre-change behaviour, and better than
+             * a checkout dead for two minutes with no order to show for it.
+             */
+            if (isset($ssIntakeClaim)
+                && \Illuminate\Support\Facades\Cache::get($ssIntakeClaim) === self::STOREFRONT_INTAKE_WRITING) {
+                \Illuminate\Support\Facades\Cache::forget($ssIntakeClaim);
+            }
+
+            /*
+             * D-13 — GIVE THE STOCK BACK ONLY IF NO ORDER ROW CLAIMS IT.
+             *
+             * TWO QUESTIONS, NOT ONE, AND THE SECOND WAS MISSING. The flag is set by the
+             * statement AFTER `$order->save()`, so it is still false while the `created` model
+             * event runs -- and `OrderObserver::created()` catches `\Exception` but NOT
+             * `\Throwable`, so a `TypeError` inside `OrderFinancialService::createForOrder()`
+             * escapes it, propagates out of `save()`, and reaches here with the row ALREADY
+             * COMMITTED. On the flag alone that restored the stock behind an order that exists,
+             * which oversells the same units to the next shopper while this order stands -- the
+             * mirror image of the defect D-13 was opened for, introduced by its own fix.
+             *
+             * `$order->exists` is the authoritative answer and closes that window:
+             * `Model::performInsert()` sets it at line 1341 and fires `created` at 1345, so by
+             * the time any `created` listener can throw, `exists` is already true. Measured in
+             * `ApiOrderWriterStockCompensationTest`, which fails on the flag alone.
+             */
+            $ssOrderClaimsIt = ($ssOrderWritten ?? false)
+                || (isset($order) && $order instanceof \App\Models\Order && $order->exists);
+
+            if (! $ssOrderClaimsIt) {
+                $this->restoreStockDecrements($appliedStockChanges ?? []);
+            }
+
+            throw $ssStockGuardError;
         }
     }
 
@@ -5782,12 +6044,63 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         $customer_id = $customer->id;
         $cart = Cart::where('customer_id', $customer_id)->where('store_id', $store->id)->get();
         $ProductVariant_array = [];
-        $shipping_method = ShippingMethod::find($request->method_id);
+        /*
+         * F263 (3 of 4). STORE-SCOPED, matching `CartController::get_shipping_method()`'s
+         * P01-COMMERCE-SEC-01 predicate.
+         *
+         * This was a bare `ShippingMethod::find($request->method_id)` on a REQUIRED,
+         * caller-supplied `method_id` (see the rules above). `ShippingMethod` is absent from
+         * `config/tenancy.php`'s `scoped_models`, so nothing else added a predicate, and this
+         * handler's whole job is to answer with a delivery charge — so a shopper could ask for
+         * any tenant's method and be quoted that tenant's `cost`, a merchant-controlled column
+         * that may be negative.
+         *
+         * `delivery_charge` QUOTES; it does not persist an order, so this is the cross-tenant read
+         * and a wrong quote, not a poisoned payable. The payable is computed by the order writer
+         * from the already-scoped lookup.
+         *
+         * A NULL `store_id` is still accepted, for the reason the sibling records: the column is
+         * nullable, legacy rows may not carry it, and refusing those would hide a merchant's own
+         * method.
+         */
+        $shipping_method = ShippingMethod::where('id', $request->method_id)
+            ->where(function ($q) use ($store) {
+                $q->where('store_id', $store->id ?? 0)->orWhereNull('store_id');
+            })
+            ->first();
         $price = 0;
         if (!empty($shipping_method)) {
             foreach ($cart as $key => $Product) {
                 $productId = $Product->product_id;
-                $product_data = Product::find($productId);
+
+                /*
+                 * F283 — THE EARLIEST BOUNDARY IN THIS HANDLER, and the line that actually leaked.
+                 *
+                 * This was `Product::find($productId)` followed immediately by
+                 * `$product_data->sale_price`, and that `sale_price` is what reached the response:
+                 * driven with two tenants, a store-A cart row naming store B's product answered
+                 * `{"original_price":"99.00", … ,"final_price":"106.00"}` — store B's catalogue
+                 * price, to a store-A shopper.
+                 *
+                 * The cart itself is already store-scoped (`Cart::where('store_id', $store->id)`
+                 * above, from the ROUTE SLUG), so a line that names a product belonging to another
+                 * store is a row that should not exist. It is SKIPPED rather than 500ed: the
+                 * remaining lines still get a quote, which is the behaviour a shopper with one bad
+                 * row should see, and the refusal is logged by the resolver.
+                 *
+                 * `productOfCartLineStore()` is shared with `calculateFlaterate()` so the two
+                 * cannot drift — the lesson of F263's two mutually-redundant predicates.
+                 */
+                $product_data = $this->productOfCartLineStore($Product);
+
+                if ($product_data === null) {
+                    $ssRefusedEveryLine = $ssRefusedEveryLine ?? true;
+
+                    continue;
+                }
+
+                $ssRefusedEveryLine = false;
+
                 $price = $product_data->sale_price;
 
                 if ($product_data->variant_product == 0) {
@@ -5833,6 +6146,27 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                 }
             }
 
+            /*
+             * F283 FOLLOW-UP — IF EVERY LINE WAS REFUSED, CHARGE THE METHOD'S OWN COST, NOT ZERO.
+             *
+             * Found by the mandated review of the F283 change, and it was an inconsistency I
+             * introduced: the `continue` above fires BEFORE `$total_shipping_price` is ever
+             * assigned, so a cart whose every line is refused fell through to the `?? 0` fallbacks
+             * and was quoted **free shipping** — while `calculateFlaterate()`'s own refusal
+             * deliberately returns the method's base cost. Two refusal policies in one change,
+             * pointing opposite ways, and the docblock on the other one claimed it "hands the
+             * caller no cheaper bucket".
+             *
+             * The method's `cost` is this store's own figure and is already store-scoped, so
+             * charging it invents nothing. A zero would have been the cheapest possible answer
+             * derived from rows this store does not own.
+             */
+            if (($ssRefusedEveryLine ?? false) === true) {
+                $total_shipping_price = $shipping_method->cost;
+                $price = $total_shipping_price;
+                $product_price = 0;
+            }
+
             $price += $total_shipping_price ?? 0;
             $ProductVariant_array['original_price'] = SetNumber($product_price ?? 0);
             $ProductVariant_array['charge_price'] = SetNumber($total_shipping_price ?? 0);
@@ -5845,19 +6179,203 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         }
     }
 
+    /**
+     * F283 — THE ONE PLACE A CART LINE'S PRODUCT AND SHIPPING CLASS ARE RESOLVED.
+     *
+     * ═════════════════════════════════════════════════════════════════════════════════════════
+     * WHY THIS EXISTS, MEASURED THROUGH A REAL REQUEST
+     * ═════════════════════════════════════════════════════════════════════════════════════════
+     *
+     * `calculateFlaterate()` read `Product::find($cartRow->product_id)` and
+     * `Shipping::find($product->shipping_id)` with no predicate on either. `Product` carries
+     * `StoreScope` but is ABSENT from `config/tenancy.php`'s `scoped_models`, so
+     * `StoreScope::isActiveFor()` short-circuits and adds nothing for ANY principal; `Shipping` is
+     * excluded outright. So the only thing protecting those reads was whether a store-A cart row
+     * can name a store-B product.
+     *
+     * Driven with two tenants through `POST api/{slug}/delivery-charge`
+     * (`ForeignProductShippingQuoteTest`), with a store-A cart row naming store B's product:
+     *
+     *     {"status":1,"data":{"original_price":"99.00","charge_price":"7.00","final_price":"106.00"}}
+     *
+     * **99.00 is store B's catalogue price, returned to a store-A shopper** — a cross-tenant read.
+     * And `charge_price` is 7.00 where this store's own classified product costs 10.00, because
+     * store B's class matches no key in store A's `product_cost` table so the per-class sum stayed
+     * zero: **naming a foreign product bought a 3.00 discount on store A's own shipping.**
+     *
+     * ═════════════════════════════════════════════════════════════════════════════════════════
+     * WHAT IS AND IS NOT CLAIMED ABOUT REACHABILITY
+     * ═════════════════════════════════════════════════════════════════════════════════════════
+     *
+     * Every cart writer refuses a foreign product TODAY — `addtocart` with a hard store match
+     * (P01-COMMERCE-SEC-03), `CartController::product_cart` with a provable-mismatch refusal, and
+     * the two WorkDo module routes through `ModuleCartWriteGuard`. So this is **defence in depth**,
+     * not a live exploit through a current door, and the test says so. It is taken because the row
+     * can exist three other ways: it predates those guards in a live database, a future writer
+     * arrives without one, or a module route appears that the middleware does not cover. The
+     * owner's instruction is explicit — *do not dismiss it merely because a different cart-entry
+     * defect is required.*
+     *
+     * ═════════════════════════════════════════════════════════════════════════════════════════
+     * THE PREDICATE IS THE CART ROW'S OWN STORE, and the NULL rule is the writers' rule
+     * ═════════════════════════════════════════════════════════════════════════════════════════
+     *
+     * `$cartRow->store_id` is server-derived: `delivery_charge` loaded the cart with
+     * `->where('store_id', $store->id)` from the ROUTE SLUG, never from a body field. So the cart
+     * row is the tenant fact, and no caller input reaches this predicate.
+     *
+     * A product whose own `store_id` is NULL is ACCEPTED, which is exactly what both cart writers
+     * do (`!empty($product->store_id) && … !== …`): the column is nullable, legacy rows may not
+     * carry it, and refusing those would break a storefront rather than fix one. **Only a provable
+     * mismatch is refused.** Introducing a stricter NULL policy here than the writers use would be
+     * a new rule, and this change introduces none.
+     *
+     * @return \App\Models\Product|null  null means the line does not belong to this cart's store.
+     */
+    private function productOfCartLineStore($cartRow)
+    {
+        $productId = $cartRow->product_id ?? null;
+        $storeId = $cartRow->store_id ?? null;
+
+        if (empty($productId)) {
+            return null;
+        }
+
+        $product = Product::find($productId);
+
+        if ($product === null) {
+            return null;
+        }
+
+        if (! empty($product->store_id) && ! empty($storeId)
+            && (int) $product->store_id !== (int) $storeId) {
+            Log::warning('shipping quote refused a cart line naming another store\'s product', [
+                'cart_store_id' => $storeId,
+                'product_store_id' => $product->store_id,
+                'product_id' => $productId,
+            ]);
+
+            return null;
+        }
+
+        return $product;
+    }
+
+    /**
+     * A shipping class, resolved only within the cart line's own store.
+     *
+     * Same NULL allowance as `CartController::get_shipping_method()`'s P01-COMMERCE-SEC-01
+     * predicate and F263's two quote paths: `shippings.store_id` is nullable and legacy rows may
+     * not carry it, so a NULL is accepted and only a different store is refused.
+     *
+     * Returning null is NOT an error here — `calculateFlaterate` already has a meaningful
+     * `$shippingClass == null` branch (the `product_no_cost` bucket), which is the supported case
+     * of a merchant who has not classified a product.
+     */
+    private function shippingClassOfStore($shippingId, $storeId)
+    {
+        /*
+         * THREE OUTCOMES, BECAUSE THREE DIFFERENT FACTS REACH HERE AND THE CALLER CHARGES
+         * DIFFERENTLY FOR EACH. Collapsing any two of them changes a figure.
+         *
+         *   null   "this product has no shipping class"        -> caller charges product_no_cost
+         *   false  "the class is not this store's"             -> caller charges NOTHING (+0)
+         *   model  the class, which this store owns            -> caller charges its bucket
+         *
+         * ═════════════════════════════════════════════════════════════════════════════════════
+         * WHY `false` EXISTS AT ALL — A REGRESSION THE MANDATED REVIEW FOUND IN MY OWN FIX
+         * ═════════════════════════════════════════════════════════════════════════════════════
+         *
+         * The first version returned null for a foreign class, and the caller reads null as "no
+         * class" and adds `product_cost['product_no_cost']`. Measured on a store-A product
+         * pointing at a store-B class id: `charge_price` came back **102.00** (method 7.00 +
+         * no-cost 95.00) where before F283 it was **7.00**.
+         *
+         * Before F283, `Shipping::find()` returned the foreign row, so `$shippingClass` was
+         * non-null, the `else` branch ran, and `$key == $shippingClass->id` matched no key in this
+         * store's table — `shippings.id` is a global auto-increment, so a foreign id can never
+         * equal one of this store's. The contribution was therefore **always +0**.
+         *
+         * So my fix turned F283's under-charge into a deterministic OVER-charge, and it needed no
+         * cart-write defect at all: nothing validates that a product's `shipping_id` belongs to
+         * its own store (`ProductController:816` assigns the request value; the admin API
+         * validates it only as `nullable`), so a merchant's own product can be in that state, and
+         * legacy rows already are.
+         *
+         * `false` preserves the pre-F283 arithmetic exactly while still never READING the foreign
+         * row's columns, which is the whole point of the predicate.
+         *
+         * ═════════════════════════════════════════════════════════════════════════════════════
+         * AND A MISSING CLASS STILL MEANS `product_no_cost`, which is why there is an existence
+         * probe rather than a bare `false`.
+         * ═════════════════════════════════════════════════════════════════════════════════════
+         *
+         * Before F283 a `shipping_id` pointing at a row that does not exist ANYWHERE also returned
+         * null from `find()` and took the no-cost bucket. Answering `false` for that case would be
+         * a second behaviour change, in the opposite direction. The probe is `exists()` on the id
+         * alone: it reads no columns and discloses nothing a bare `find()` did not already, and it
+         * runs only when the scoped lookup has already failed.
+         */
+        if (empty($shippingId)) {
+            return null;                       // genuinely unclassified
+        }
+
+        if (! empty($storeId)) {
+            $class = Shipping::where('id', $shippingId)
+                ->where(function ($q) use ($storeId) {
+                    /*
+                     * The NULL allowance is the CLASS's own `store_id`, mirroring
+                     * `CartController::get_shipping_method()`'s P01-COMMERCE-SEC-01 predicate:
+                     * `shippings.store_id` is nullable and legacy rows may not carry it.
+                     */
+                    $q->where('store_id', $storeId)->orWhereNull('store_id');
+                })
+                ->first();
+
+            if ($class !== null) {
+                return $class;
+            }
+        }
+
+        /*
+         * Not resolvable within this store. Distinguish "exists elsewhere" (refuse the bucket,
+         * `+0`, as before F283) from "does not exist at all" (the no-cost bucket, as before F283).
+         */
+        return Shipping::where('id', $shippingId)->exists() ? false : null;
+    }
+
     public  function calculateFlaterate($shippingMethods, $shippingCost, $Product)
     {
         $cost_totle =  $shippingCost;
         $price = 0;
         $productId = $Product->product_id;
-        $product_data = Product::find($productId);
+        $product_data = $this->productOfCartLineStore($Product);
+
+        /*
+         * F283: A LINE THAT IS NOT THIS STORE'S CONTRIBUTES NOTHING AND READS NOTHING.
+         *
+         * Returning the method's own cost unchanged is the conservative answer: it neither prices
+         * a foreign product nor hands the caller a cheaper bucket than their own classified
+         * products would take. The refusal is logged at the resolver.
+         */
+        if ($product_data === null) {
+            return $cost_totle;
+        }
         if ($product_data->variant_product == 0) {
             if ($shippingMethods['product_cost'] != null) {
-                $shippingClass = Shipping::find($product_data->shipping_id);
+                $shippingClass = $this->shippingClassOfStore($product_data->shipping_id, $Product->store_id ?? null);
                 $value = $shippingMethods['product_cost'];
                 $product_cost = json_decode($value, true);
-                if ($shippingClass == null) {
-                    $price  += $product_cost['product_no_cost'];
+                /*
+                 * `=== null` and not `== null`: `false` means "the class is not this store's" and
+                 * must contribute NOTHING, while `null` means "no class" and takes the no-cost
+                 * bucket. A loose comparison treats both as null and over-charges the first --
+                 * which is exactly the regression this three-way return exists to prevent.
+                 */
+                if ($shippingClass === null) {
+                    $price  += $product_cost['product_no_cost'] ?? 0;
+                } elseif ($shippingClass === false) {
+                    $price  += 0;   // foreign class: the pre-F283 arithmetic, stated explicitly
                 } else {
                     foreach ($product_cost['product_cost'] as $key => $value) {
                         if ($key == $shippingClass->id) {
@@ -5894,12 +6412,12 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                     $product_cost = json_decode($value, true);
 
                     foreach ($product_stock as $stock) {
-                        $shippingClass = Shipping::find($stock->shipping);
+                        $shippingClass = $this->shippingClassOfStore($stock->shipping, $Product->store_id ?? null);
                         $product_price = $stock->price;
                         if ($stock->shipping == 'same_as_parent') {
-                            $shipping = Shipping::find($product_data->shipping_id);
-                            if ($shipping == null) {
-                                $price  += $product_cost['product_no_cost'];
+                            $shipping = $this->shippingClassOfStore($product_data->shipping_id, $Product->store_id ?? null);
+                            if ($shipping === null) {
+                                $price  += $product_cost['product_no_cost'] ?? 0;
                             }
                             foreach ($product_cost['product_cost'] as $key => $value) {
                                 if ($shipping) {
@@ -8312,6 +8830,9 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
 
     public function ordersave(Request $request, $slug = '')
     {
+        $ssOrderWritten = false;
+
+        try {
         $store = getStore($slug);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found.')], __("Store not found."));
@@ -8390,6 +8911,7 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
             $billing = $request->billing_info;
 
             $products = $cartlist['product_list'];
+
         } else {
             return $this->error(['message' => __('User not found.')],  __('User not found.'));
         }
@@ -8628,9 +9150,87 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                 __('Your cart contains an invalid quantity.')
             );
         }
+
+        /*
+         * F276. THE CLAIM, TAKEN HERE — IMMEDIATELY BEFORE THE STOCK LOOP, AND NOT EARLIER.
+         *
+         * The first version of this change took it as soon as the basket resolved, which read
+         * like "before any stock moves" and was true. INDEPENDENT REVIEW FOUND WHAT IT ALSO DID:
+         * it swept every remaining request-validation refusal INSIDE the claim. On `ordersave`
+         * that is fifteen of them — fourteen billing and delivery field checks plus the request
+         * validator itself — and none of them changes the fingerprint. So a shopper who left
+         * `billing_city` empty took the claim, was refused, corrected the field, resubmitted, and
+         * was told "This order is already being placed" for the next two minutes. My guard had
+         * made their own checkout unusable, with no attacker involved. Measured and reproduced.
+         *
+         * Here, every refusal that is about the REQUEST has already happened and everything below
+         * spends something. That is also where `PosController::store()` puts it, which is the
+         * precedent this was supposed to follow.
+         */
+        $ssIntakeClaim = $this->storefrontIntakeFingerprint(
+            (array) ($products ?? []),
+            (int) $store->id,
+            (int) $customer_id,
+            $request->payment_type
+        );
+
+        if (! \Illuminate\Support\Facades\Cache::add($ssIntakeClaim, self::STOREFRONT_INTAKE_WRITING, now()->addSeconds(self::STOREFRONT_INTAKE_CLAIM_SECONDS))) {
+            $ssHeld = \Illuminate\Support\Facades\Cache::get($ssIntakeClaim);
+
+            /*
+             * THE ORDER ALREADY EXISTS. The first version of this branch called
+             * `$ssReplayOrder->order_detail()` with NO ARGUMENT, and independent review caught
+             * what that does: `Order::order_detail()` is a STATIC method with `$order_id = 0`, so
+             * the call never read the row it had just fetched -- it ran `Order::find(0)`, took the
+             * not-found arm, and answered HTTP 200 `{status: 1, message: "Order added
+             * successfully.", data: {message: "Order not found."}}`. Every `order-save` replay
+             * told the client a lie, and the test was green because it asserted only the order
+             * count and the stock figure.
+             *
+             * AND `order_detail()` IS NOT THIS HANDLER'S SUCCESS SHAPE EITHER. `ordersave`
+             * answers with `$order_array` whose `order_id` is the `product_order_id` STRING,
+             * while `order_detail()` sets `order_id` to `'#' . product_order_id` and adds `id`.
+             * So the payload is a superset with `order_id` overlaid to this handler's own
+             * convention: a client reading `order_id` gets what the first post gave it, and one
+             * reading more gets more. The partiality is stated rather than discovered.
+             */
+            if (is_array($ssHeld) && ! empty($ssHeld['order_id'])) {
+                $ssReplayOrder = \App\Models\Order::where('store_id', $store->id)
+                    ->where('customer_id', $customer_id)
+                    ->where('id', $ssHeld['order_id'])
+                    ->first();
+
+                if ($ssReplayOrder !== null) {
+                    $ssReplayPayload = (array) \App\Models\Order::order_detail((int) $ssReplayOrder->id);
+                    $ssReplayPayload['order_id'] = $ssReplayOrder->product_order_id ?? 0;
+
+                    return $this->success($ssReplayPayload, __('Order added successfully.'));
+                }
+            }
+
+            /* The first post is still writing. There is no order id to hand back yet and nothing
+               truthful to call a success. */
+            \Illuminate\Support\Facades\Log::warning('Storefront order intake refused as a duplicate submission', [
+                'store_id' => $store->id,
+                'customer_id' => $customer_id,
+                'path' => $request->path(),
+            ]);
+
+            $ssIntakeBusy = __('This order is already being placed. Please wait a moment before trying again.');
+
+            return $this->error(['message' => $ssIntakeBusy], $ssIntakeBusy);
+        }
+
         // Order stock decrease start
         $prodduct_id_array = [];
         if (!empty($products)) {
+            /*
+             * D-21. Decrements applied by the loop below, so they can be GIVEN BACK when a later
+             * line makes this handler return early. Before this, each in-loop error exit left
+             * every line already processed decremented, with no order row to show for it.
+             */
+            $appliedStockChanges = [];
+
             foreach ($products as $key => $product) {
                 $prodduct_id_array = $product->product_id;
 
@@ -8682,6 +9282,8 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                  * query that answers it.
                  */
                 if (!empty($product_id) && $product_id != 0 && empty($Product)) {
+                    $this->restoreStockDecrements($appliedStockChanges);
+
                     return $this->error(['message' => 'Product not found .']);
                 }
 
@@ -8707,6 +9309,8 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                          * proven by removal.
                          */
                         if (empty($ProductStock)) {
+                            $this->restoreStockDecrements($appliedStockChanges);
+
                             return $this->error(['message' => 'Product not found .']);
                         }
 
@@ -8714,9 +9318,14 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                         $option = in_array('manage_stock', $variationOptions);
                         if (!empty($ProductStock)) {
                             if ($option == true) {
-                                $remain_stock = $ProductStock->stock - $qtyy;
-                                $ProductStock->stock = $remain_stock;
-                                $ProductStock->save();
+                                /*
+                                 * `false` is $rejectOnShortfall. This path is NOT post-capture -- a shortfall
+                                 * could legitimately refuse here -- but making it do so would change what a
+                                 * storefront client receives, and the owner reserves changes to API responses
+                                 * (D-21). So this stays bit-identical to the subtraction it replaces: oversell
+                                 * and log, exactly as before.
+                                 */
+                                $this->decrementStockOrFail($appliedStockChanges, 'variant', $ProductStock, $qtyy, false);
 
                                 if ($ProductStock->stock <= $ProductStock->low_stock_threshold) {
                                     if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_low_stock", json_decode($settings['notification'] ?? '[]'))) {
@@ -8733,9 +9342,9 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                                     }
                                 }
                             } else {
-                                $remain_stock = $datas->product_stock - $qtyy;
-                                $datas->product_stock = $remain_stock;
-                                $datas->save();
+                                // The variant row exists but is not stock-managed, so the PARENT product is
+                                // decremented through `$datas`.
+                                $this->decrementStockOrFail($appliedStockChanges, 'product', $datas, $qtyy, false);
                                 if ($datas->product_stock <= $datas->low_stock_threshold) {
                                     if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_low_stock", json_decode($settings['notification'] ?? '[]'))) {
                                         if (isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] == "on") {
@@ -8779,14 +9388,15 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                                 }
                             }
                         } else {
+                            $this->restoreStockDecrements($appliedStockChanges);
+
                             return $this->error(['message' => 'Product not found .']);
                         }
                     } elseif (!empty($product_id) && $product_id != 0) {
 
                         if (!empty($Product)) {
-                            $remain_stock = $Product->product_stock - $qtyy;
-                            $Product->product_stock = $remain_stock;
-                            $Product->save();
+                            // The no-variant leg.
+                            $this->decrementStockOrFail($appliedStockChanges, 'product', $Product, $qtyy, false);
                             if ($Product->product_stock <= $Product->low_stock_threshold) {
                                 if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_low_stock", json_decode($settings['notification'] ?? '[]'))) {
                                     if (isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] == "on") {
@@ -8831,9 +9441,13 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                                 }
                             }
                         } else {
+                            $this->restoreStockDecrements($appliedStockChanges);
+
                             return $this->error(['message' => 'Product not found .']);
                         }
                     } else {
+                        $this->restoreStockDecrements($appliedStockChanges);
+
                         return $this->error(['message' => 'Please fill proper product json field .']);
                     }
                 }
@@ -8949,6 +9563,7 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
 
         // add in  Order table  start
         $order = new Order();
+        $order->order_source = Order::SOURCE_STOREFRONT;
         $order->product_order_id = $product_order_id;
         $order->order_date = date('Y-m-d H:i:s');
         $order->customer_id = !empty($customer_id) ? $customer_id : 0;
@@ -9038,6 +9653,32 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         $order->additional_note = !empty($request->additional_note) ? $request->additional_note : '-';
         $order->store_id = $store->id;
         $order->save();
+        /* F237: phase two of the two-phase attribution -- point this request's
+           movements at the order that now exists.
+           NO TRANSACTION ON THIS PATH, stated because the first version of this comment
+           claimed one and independent review found it false: this handler opens none, so
+           the order is already committed when this runs. A crash in between therefore
+           leaves the row unattributed, which reads UNKNOWN and makes the cancellation
+           restore -- the safe direction, and the behaviour that held before F237. Adding
+           a transaction here is a separate change, not part of F237. */
+        $this->attributeStockEvidenceTo($order);
+        /* THE ORDER NOW EXISTS. From here a failure must NOT give the stock back: an order
+           that exists claims its goods, and returning them puts the shopper's items on the
+           shelf for someone else while their order stands. */
+        $ssOrderWritten = true;
+
+        /*
+         * F276. THE CLAIM NOW CARRIES THE ANSWER, written the instant "an order exists" becomes
+         * true and before the webhook, the mails and the rest. If any of those dies, the retry
+         * that follows must be told the order exists rather than allowed to place it again.
+         */
+        if (isset($ssIntakeClaim)) {
+            \Illuminate\Support\Facades\Cache::put(
+                $ssIntakeClaim,
+                ['order_id' => $order->id],
+                now()->addSeconds(self::STOREFRONT_INTAKE_CLAIM_SECONDS)
+            );
+        }
         // P1-ORD-15: the posted values are IDS and this looked the city up by NAME, so every
         // order inserted a city named after an id. The state and country ids are kept too: the
         // order_billing_details columns below are joined to cities.id / states.id / countries.id
@@ -9144,6 +9785,59 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         $order_array['order_id'] = $order->product_order_id ?? 0;
 
         return $this->success($order_array,  __('Order added successfully.'));
+            } catch (\Throwable $ssStockGuardError) {
+            /*
+             * F276. THE CLAIM IS RELEASED FIRST, and ONLY while it still holds the writing
+             * sentinel. Once the order exists the claim carries `['order_id' => ...]`, so this
+             * cannot free a claim standing for a real order -- which is why the test is on the
+             * VALUE and not on `$ssOrderClaimsIt`.
+             *
+             * IT SITS ABOVE THE D-13 BLOCK BECAUSE THAT BLOCK IS TEXTUALLY FENCED ON BOTH SIDES.
+             * `GatewayStockDecrementRoutingTest` requires the `$ssOrderClaimsIt` assignment to be
+             * immediately followed by its guard, and the `restoreStockDecrements(...)` call to be
+             * immediately followed by the rethrow -- two separate regexes, so there is no gap
+             * inside it to occupy. Both fired when I tried, correctly: the rules are that the
+             * compensation asks whether an order claims the stock, and that it does not change
+             * the response the caller sees. Neither is about the claim, and nothing here touches
+             * `$appliedStockChanges`, so this goes above the whole block rather than the ratchets
+             * being widened to accommodate it.
+             *
+             * WHAT RELEASING COSTS, stated as F269 states it: a throw AFTER the order was written
+             * leaves the claim held, which is correct. A throw BEFORE it releases the claim and
+             * permits a retry that decrements again -- the pre-change behaviour, and better than
+             * a checkout dead for two minutes with no order to show for it.
+             */
+            if (isset($ssIntakeClaim)
+                && \Illuminate\Support\Facades\Cache::get($ssIntakeClaim) === self::STOREFRONT_INTAKE_WRITING) {
+                \Illuminate\Support\Facades\Cache::forget($ssIntakeClaim);
+            }
+
+            /*
+             * D-13 — GIVE THE STOCK BACK ONLY IF NO ORDER ROW CLAIMS IT.
+             *
+             * TWO QUESTIONS, NOT ONE, AND THE SECOND WAS MISSING. The flag is set by the
+             * statement AFTER `$order->save()`, so it is still false while the `created` model
+             * event runs -- and `OrderObserver::created()` catches `\Exception` but NOT
+             * `\Throwable`, so a `TypeError` inside `OrderFinancialService::createForOrder()`
+             * escapes it, propagates out of `save()`, and reaches here with the row ALREADY
+             * COMMITTED. On the flag alone that restored the stock behind an order that exists,
+             * which oversells the same units to the next shopper while this order stands -- the
+             * mirror image of the defect D-13 was opened for, introduced by its own fix.
+             *
+             * `$order->exists` is the authoritative answer and closes that window:
+             * `Model::performInsert()` sets it at line 1341 and fires `created` at 1345, so by
+             * the time any `created` listener can throw, `exists` is already true. Measured in
+             * `ApiOrderWriterStockCompensationTest`, which fails on the flag alone.
+             */
+            $ssOrderClaimsIt = ($ssOrderWritten ?? false)
+                || (isset($order) && $order instanceof \App\Models\Order && $order->exists);
+
+            if (! $ssOrderClaimsIt) {
+                $this->restoreStockDecrements($appliedStockChanges ?? []);
+            }
+
+            throw $ssStockGuardError;
+        }
     }
 
     public function variant_list(Request $request, $slug = '')
