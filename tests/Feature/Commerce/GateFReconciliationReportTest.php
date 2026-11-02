@@ -22,12 +22,29 @@ use Tests\Support\Security\GateFReconciliation;
  * there proves only that it can say yes. The CLEAN fixture is what proves it can say no, and
  * therefore that the three items it reports on real data are findings rather than its own behaviour.
  *
- * WHY THE FIXTURE BUILDS ITS OWN TABLES. The six money-bearing tables have NO MIGRATION -- that is
- * the GATE F gap itself -- so `RefreshDatabase` does not create them and the reconciliation would
- * silently report nothing. The tables here are a FIXTURE shaped to the columns the reconciliation
- * reads; they are not a second declaration of the production schema, which is verified separately
- * against a restored copy in `docs/GATE-F-VERIFIED-SCHEMA.md` and reproduced by the parked drafts.
- * Keeping them minimal is deliberate: a fixture that tried to mirror production would drift from it.
+ * THE FIXTURE NO LONGER BUILDS ITS OWN TABLES -- GATE F CLOSED ON 2026-11-02, and this is now the
+ * THIRD time promoting a schema draft has collided with a fixture standing in for the missing
+ * schema. The first two are recorded below, against `products.cost_price`; this one took all TEN
+ * tests in this file down with `table "store_wallets" already exists`.
+ *
+ * THAT COLLISION IS AN IMPROVEMENT, and the reason is worth stating. This fixture used to declare
+ * its own `store_wallets`, `store_wallet_transactions` and `store_order_financials` with only the
+ * columns the reconciliation reads, because the six money tables had no migration and
+ * `RefreshDatabase` therefore did not create them -- the reconciliation would have silently
+ * reported nothing. The fixture was honest about being a stand-in and deliberately minimal, since
+ * one that tried to mirror production would drift from it.
+ *
+ * It now runs against the REAL migrated tables, whose structure was MEASURED on a restored copy of
+ * production (`docs/GATE-F-VERIFIED-SCHEMA.md` §2, carried verbatim by
+ * `App\Support\Database\GateFProductionSchema`). So the reconciliation logic is exercised against
+ * the production structure rather than against a reduction of it -- NOT NULL columns, enums, unique
+ * keys and foreign keys included. That is strictly stronger than what this file could assert before.
+ *
+ * THE STAND-IN BLOCKS STAY, EACH BEHIND A `hasTable()` GUARD, following the precedent the
+ * `cost_price` note below set: this file still runs on a tree without the GATE F migrations, and a
+ * guard is cheaper than a second copy of the fixture. The guards also mean the stand-in columns can
+ * no longer shadow the measured ones -- whichever exists first wins, and on this tree that is the
+ * migration.
  *
  * WHAT IS NOT TESTED HERE, said plainly: that the report's figures match production's. They were
  * measured once, on the restored copy, and recorded in `docs/GATE-F-RECONCILIATION-ITEMS.md`; the
@@ -50,24 +67,28 @@ class GateFReconciliationReportTest extends SecurityTestCase
      */
     private function createGateFFixtureTables(): void
     {
-        Schema::create('store_wallets', function (Blueprint $table) {
-            $table->id();
-            $table->unsignedBigInteger('store_id');
-            $table->string('currency_code', 10)->nullable();
-            $table->decimal('available_balance', 15, 2)->default(0);
-        });
+        if (! Schema::hasTable('store_wallets')) {
+            Schema::create('store_wallets', function (Blueprint $table) {
+                $table->id();
+                $table->unsignedBigInteger('store_id');
+                $table->string('currency_code', 10)->nullable();
+                $table->decimal('available_balance', 15, 2)->default(0);
+            });
+        }
 
-        Schema::create('store_wallet_transactions', function (Blueprint $table) {
-            $table->id();
-            $table->unsignedBigInteger('store_id');
-            $table->unsignedBigInteger('wallet_id');
-            $table->string('currency_code', 10)->nullable();
-            $table->string('type', 50);
-            $table->string('direction', 10);
-            $table->decimal('amount', 15, 2)->default(0);
-            $table->decimal('balance_before', 15, 2)->default(0);
-            $table->decimal('balance_after', 15, 2)->default(0);
-        });
+        if (! Schema::hasTable('store_wallet_transactions')) {
+            Schema::create('store_wallet_transactions', function (Blueprint $table) {
+                $table->id();
+                $table->unsignedBigInteger('store_id');
+                $table->unsignedBigInteger('wallet_id');
+                $table->string('currency_code', 10)->nullable();
+                $table->string('type', 50);
+                $table->string('direction', 10);
+                $table->decimal('amount', 15, 2)->default(0);
+                $table->decimal('balance_before', 15, 2)->default(0);
+                $table->decimal('balance_after', 15, 2)->default(0);
+            });
+        }
 
         /*
          * `products.cost_price` NOW HAS A MIGRATION, and this comment used to say the opposite.
@@ -94,13 +115,61 @@ class GateFReconciliationReportTest extends SecurityTestCase
             });
         }
 
-        Schema::create('store_order_financials', function (Blueprint $table) {
-            $table->id();
-            $table->unsignedBigInteger('store_id');
-            $table->unsignedBigInteger('order_id');
-            $table->decimal('product_cost', 15, 2)->default(0);
-            $table->decimal('gross_profit', 15, 2)->default(0);
-        });
+        if (! Schema::hasTable('store_order_financials')) {
+            Schema::create('store_order_financials', function (Blueprint $table) {
+                $table->id();
+                $table->unsignedBigInteger('store_id');
+                $table->unsignedBigInteger('order_id');
+                $table->decimal('product_cost', 15, 2)->default(0);
+                $table->decimal('gross_profit', 15, 2)->default(0);
+            });
+        }
+    }
+
+    /**
+     * A `store_order_financials` row, with the columns the REAL table requires.
+     *
+     * ADDED 2026-11-02. Five inline inserts here supplied only store_id, order_id, product_cost
+     * and gross_profit -- the four the reconciliation reads -- which was sufficient against the
+     * minimal stand-in table this file used to build for itself. Against the MIGRATED table they
+     * all failed with `NOT NULL constraint failed: store_order_financials.wallet_id`.
+     *
+     * That failure is the measured value of running against the real structure: production's
+     * `wallet_id` is NOT NULL with a foreign key to `store_wallets` ON DELETE CASCADE, so a
+     * financial row cannot exist without a wallet to attach it to -- and a fixture that omitted it
+     * was describing a row production cannot hold. The wallet is created once per store and
+     * reused, which is also what `uq_store_wallet_store_id` enforces.
+     *
+     * AND IT IS AN `updateOrInsert`, NOT AN `insert`, FOR A REASON WORTH KNOWING ABOUT THIS WHOLE
+     * BRANCH. With `store_order_financials` migrated, `App\Observers\OrderObserver::created()`
+     * now reaches `OrderFinancialService::createForOrder()` successfully, so EVERY `Order::create`
+     * in a test writes a financial row by itself -- provided the store has a wallet, which the
+     * service requires with `firstOrFail()` and the observer swallows when it is absent.
+     *
+     * So the second write here collided with `uq_store_order_financial_order`, the unique key that
+     * makes "one financial row per order" an enforced guarantee. The constraint was correct and
+     * the fixture was wrong: it was inserting a second row for an order that already had one.
+     *
+     * NOTHING ABOUT PRODUCTION CHANGED. The tables are already there, so the observer has always
+     * written these rows in production -- 92 of them at the time of measurement. What changed is
+     * that a database built from THIS REPOSITORY now behaves the same way, which is precisely what
+     * GATE F was for. A fixture that wants a specific product_cost therefore AMENDS the row the
+     * observer wrote rather than competing with it.
+     */
+    private function financialRow(int $storeId, int $orderId, float $productCost, float $grossProfit): void
+    {
+        $walletId = (int) (DB::table('store_wallets')->where('store_id', $storeId)->value('id')
+            ?? $this->wallet($storeId, 'USD', 0.00));
+
+        DB::table('store_order_financials')->updateOrInsert(
+            ['order_id' => $orderId],
+            [
+                'store_id'     => $storeId,
+                'wallet_id'    => $walletId,
+                'product_cost' => $productCost,
+                'gross_profit' => $grossProfit,
+            ]
+        );
     }
 
     private function reconciliation(): GateFReconciliation
@@ -183,10 +252,7 @@ class GateFReconciliationReportTest extends SecurityTestCase
         $productId = $this->productWithCost($store, 40.00);
         $orderId = $this->codOrder($store, 'Unpaid', 100.00, $productId, 1);
 
-        DB::table('store_order_financials')->insert([
-            'store_id' => $store->id, 'order_id' => $orderId,
-            'product_cost' => 40.00, 'gross_profit' => 60.00,
-        ]);
+        $this->financialRow($store->id, $orderId, 40.00, 60.00);
 
         $this->assertSame([], $this->reconciliation()->items(),
             'THE REPORT CANNOT SAY "NO". Every other assertion in this file is then meaningless, '
@@ -310,10 +376,7 @@ class GateFReconciliationReportTest extends SecurityTestCase
         $orderB = $this->codOrder($store, 'Unpaid', 100.00, $hasCostNow, 2);
 
         foreach ([$orderA, $orderB] as $orderId) {
-            DB::table('store_order_financials')->insert([
-                'store_id' => $store->id, 'order_id' => $orderId,
-                'product_cost' => 0.00, 'gross_profit' => 100.00,
-            ]);
+            $this->financialRow($store->id, $orderId, 0.00, 100.00);
         }
 
         $items = $this->itemsByCode();
@@ -335,10 +398,7 @@ class GateFReconciliationReportTest extends SecurityTestCase
         $productId = $this->productWithCost($store, 30.00);
         $orderId = $this->codOrder($store, 'Unpaid', 100.00, $productId, 1);
 
-        DB::table('store_order_financials')->insert([
-            'store_id' => $store->id, 'order_id' => $orderId,
-            'product_cost' => 30.00, 'gross_profit' => 70.00,
-        ]);
+        $this->financialRow($store->id, $orderId, 30.00, 70.00);
 
         $this->assertArrayNotHasKey('R3', $this->itemsByCode());
     }
@@ -356,10 +416,7 @@ class GateFReconciliationReportTest extends SecurityTestCase
         $productId = $this->productWithCost($store, 0.00);
         $paid = $this->codOrder($store, 'Paid', 400.00, $productId, 1);
 
-        DB::table('store_order_financials')->insert([
-            'store_id' => $store->id, 'order_id' => $paid,
-            'product_cost' => 0.00, 'gross_profit' => 400.00,
-        ]);
+        $this->financialRow($store->id, $paid, 0.00, 400.00);
 
         $codes = array_keys($this->itemsByCode());
 
@@ -418,10 +475,7 @@ class GateFReconciliationReportTest extends SecurityTestCase
         $this->txn($walletId, $store->id, 'SYP', 'credit', 9999.00, 0.00);
         $productId = $this->productWithCost($store, 0.00);
         $orderId = $this->codOrder($store, 'Paid', 400.00, $productId, 1);
-        DB::table('store_order_financials')->insert([
-            'store_id' => $store->id, 'order_id' => $orderId,
-            'product_cost' => 0.00, 'gross_profit' => 400.00,
-        ]);
+        $this->financialRow($store->id, $orderId, 0.00, 400.00);
 
         $tables = [
             'store_wallets', 'store_wallet_transactions',
