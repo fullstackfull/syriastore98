@@ -339,6 +339,23 @@ class CrossTenantModelIsolationTest extends TestCase
             'customers' => [Customer::class, 'customers', ['email' => 'c-']],
             'carts' => [Cart::class, 'carts', []],
             'order notes' => [OrderNote::class, 'order_notes', []],
+            // THE THREE FINANCE ROWS BEGAN PASSING ON 2026-11-02, AND WHAT THEY PROVE IS NARROWER
+            // THAN "the wallet is tenant-isolated". They predate this branch (they are on
+            // origin/main) and were SKIPPED while the tables had no migration; GATE F closing is
+            // what made them run.
+            //
+            // What they exercise is `isOwnedByCurrentStore()` / `isOwnedByStore()` from
+            // BelongsToStore -- and that helper has ZERO call sites in app/. Measured: the only
+            // matches are its own definition in app/Models/Concerns/BelongsToStore.php and a
+            // docblock mention in app/Helper/helper.php. So these data sets prove the MODEL-SIDE
+            // half, which this class's docblock is explicit about, and NOT the control of record.
+            //
+            // The control of record for the money tables is the hand-written
+            // `where('store_id', getCurrentStore())` in StoreFinanceController and
+            // CurrencyRateController -- none of these models is in config/tenancy.php's
+            // scoped_models, so no global scope adds a predicate for them either. Do not let
+            // "cross-tenant isolation on the wallet is tested" into an evidence note on the
+            // strength of these three rows. Pointed out by independent review.
             'finance: wallets' => [StoreWallet::class, 'store_wallets', []],
             'finance: wallet ledger' => [StoreWalletTransaction::class, 'store_wallet_transactions', []],
             'finance: withdrawals' => [StoreWithdrawal::class, 'store_withdrawals', []],

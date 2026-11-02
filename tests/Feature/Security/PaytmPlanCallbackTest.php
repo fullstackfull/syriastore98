@@ -168,7 +168,18 @@ class PaytmPlanCallbackTest extends SecurityTestCase
             'MID' => self::MID,
             'ORDERID' => 'set-by-caller',
             'TXNID' => 'TXN' . uniqid(),
-            'TXNAMOUNT' => '1000.00',
+            // 100.00, MATCHING the intent's expected_amount at the top of this file. It must
+            // stay matching: this is the default every happy-path case uses, and a mismatching
+            // default makes the four cases that assert ACTIVATION fail while the cases that assert
+            // a refusal still pass -- for the wrong reason, since they would be refusing on the
+            // default rather than on the value they override.
+            //
+            // It was briefly '1000.00' (commit e3443cb3) and that was MY OWN DOING, not a design
+            // choice: I mutation-tested the new overpayment case by sed-replacing 1000.00 with
+            // 100.00, then reverted with the inverse sed -- which rewrote EVERY '100.00' in the
+            // file, this default included. Found by independent review, not by the run: the
+            // four-case breakage is in classes I did not re-run after the revert.
+            'TXNAMOUNT' => '100.00',
             'STATUS' => 'TXN_SUCCESS',
             'CURRENCY' => '',
             'RESPCODE' => '01',

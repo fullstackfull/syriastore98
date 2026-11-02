@@ -127,7 +127,6 @@ class FinancialSurfaceCoverageTest extends TestCase
      */
     public function test_a_same_currency_conversion_is_exact_and_needs_no_rate_table(): void
     {
-        $this->assertGateFTablesArePresent();
 
         $service = new StoreCurrencyConversionService();
 
@@ -143,7 +142,6 @@ class FinancialSurfaceCoverageTest extends TestCase
     /** The short-circuit is case- and whitespace-insensitive. */
     public function test_the_same_currency_short_circuit_normalises_the_code(): void
     {
-        $this->assertGateFTablesArePresent();
 
         $service = new StoreCurrencyConversionService();
 
@@ -164,7 +162,6 @@ class FinancialSurfaceCoverageTest extends TestCase
      */
     public function test_a_same_currency_conversion_rounds_to_two_places(): void
     {
-        $this->assertGateFTablesArePresent();
 
         $service = new StoreCurrencyConversionService();
 
@@ -175,7 +172,6 @@ class FinancialSurfaceCoverageTest extends TestCase
     /** getRate('USD') is 1.0 and returns before the currency_rates query. */
     public function test_the_usd_rate_is_one_without_consulting_the_rate_table(): void
     {
-        $this->assertGateFTablesArePresent();
 
         $service = new StoreCurrencyConversionService();
 
@@ -186,13 +182,16 @@ class FinancialSurfaceCoverageTest extends TestCase
     /**
      * A MISSING RATE THROWS, and that is reported rather than changed.
      *
-     * getRate() throws when no active currency_rates row exists
-     * (StoreCurrencyConversionService.php:67). With the table absent entirely the
-     * query itself raises instead, so what this proves is narrower and is stated
-     * as such: a non-USD rate CANNOT be resolved in this environment, by either
-     * route, and nothing silently falls back to 1.0. A silent fallback would be
-     * the dangerous outcome -- it would convert money at par.
+     * getRate() throws when no active `currency_rates` row exists
+     * (StoreCurrencyConversionService.php:67), and nothing silently falls back to 1.0 -- which
+     * would be the dangerous outcome, because it converts money at par.
      *
+     * CORRECTED 2026-11-02, because the old reason had gone stale and a stale reason attached to a
+     * correct test is how a test outlives its purpose. This used to say "with the table absent
+     * entirely the query itself raises instead, so what this proves is narrower" -- true while
+     * `currency_rates` had no migration. GATE F closed: the table now EXISTS and is empty, so this
+     * exercises the service's real `throw` rather than a `QueryException` about a missing table.
+     * The test is strictly stronger than its old docblock claimed.
      * Whether throwing is right for the CHECKOUT path is an open question for the
      * owner, not something to change blind: the throw propagates into
      * OrderFinancialService::createForOrder() (:134) and
@@ -200,7 +199,6 @@ class FinancialSurfaceCoverageTest extends TestCase
      */
     public function test_a_non_usd_rate_cannot_resolve_and_never_defaults_to_par(): void
     {
-        $this->assertGateFTablesArePresent();
 
         $service = new StoreCurrencyConversionService();
 
@@ -340,6 +338,12 @@ class FinancialSurfaceCoverageTest extends TestCase
             'payment_status' => 'Paid',
         ]);
 
+        // THE OBSERVER HAS ALREADY DONE THIS, and the explicit call is the no-op the service's own
+        // `$exists` guard provides. `OrderObserver::created()` reaches `createForOrder()` for every
+        // Order::create now that the table is migrated, so `seedOrder()` above already wrote the
+        // financial row and credited the wallet. The call is kept because the assertions must fail
+        // if `createForOrder` breaks -- but nobody should read it as the thing that credits the
+        // wallet. Pointed out by independent review.
         app(OrderFinancialService::class)->createForOrder($order);
 
         $financial = DB::table('store_order_financials')->where('order_id', $order->id)->first();
@@ -388,6 +392,25 @@ class FinancialSurfaceCoverageTest extends TestCase
             'A second createForOrder() credited the wallet twice.'
         );
     }
+
+    /**
+     * AND A LATENT FINDING THESE TWO TESTS NORMALISE, recorded by independent review rather than
+     * by the run: `markFinancialAsPaid()` and `markFinancialAsUnpaid()` look up
+     * `store_order_financials` **by `id` alone** and then load the wallet by
+     * `$financial->wallet_id`, with **no store predicate** on either `lockForUpdate()` lookup.
+     *
+     * They are safe today only because their single web caller scopes first --
+     * `StoreFinanceController` does `where('id', $id)->where('store_id', $storeId)` before calling
+     * the service. That is a **caller-dependent invariant that nothing enforces**, and the two
+     * tests below now call the unscoped form DIRECTLY, which makes the unscoped shape look
+     * sanctioned.
+     *
+     * Not a hole: no handler reaches these methods with a caller-supplied id and no ownership
+     * predicate. Recorded as **latent**, with the one-line hardening named so it is not re-derived:
+     * take `(int $financialId, $storeId)` and add `->where('store_id', $storeId)` to both
+     * `lockForUpdate()` lookups. Deliberately NOT done inside a schema change -- it alters a money
+     * service's signature and belongs in its own package.
+     */
 
     /**
      * The paid transition. WAS BLOCKED on `store_order_financials` / `store_wallets`.
@@ -627,30 +650,24 @@ class FinancialSurfaceCoverageTest extends TestCase
     |--------------------------------------------------------------------------
     */
 
-    /**
-     * Every GATE F table must now EXIST when a short-circuit assertion runs.
+    /*
+     * THE PREMISE HELPER WAS REMOVED, NOT INVERTED -- and that is the second decision about it.
      *
-     * INVERTED 2026-11-02, and the inversion is the point. This was
-     * `assertGateFTablesAreAbsent()`, guarding the five short-circuit tests above so that a
-     * fixture which created one of these tables with GUESSED columns could not make them pass for
-     * the wrong reason. That hazard is gone: the tables are created by migrations whose structure
-     * was measured against production, so the property worth guarding is now the opposite -- that
-     * the short-circuits are exercised against a REAL schema rather than an empty database.
+     * It began as `assertGateFTablesAreAbsent()`, called from the five short-circuit tests above so
+     * that a fixture creating one of these tables with GUESSED columns could not make them pass for
+     * the wrong reason. When GATE F closed it was inverted to `assertGateFTablesArePresent()`, which
+     * kept the file non-vacuous but coupled five tests to a schema **they never consult**:
+     * `convertAmount()` returns at its same-currency guard and `getRate('USD')` returns 1.0, both
+     * before any query. A reverted migration would have reddened five tests with a message about
+     * tables they do not touch.
      *
-     * The old version had a quieter problem too. This class had no `RefreshDatabase`, so
-     * `Schema::hasTable()` was false for EVERY table, not just these six: it asserted the absence
-     * of six tables in a schema that contained none.
+     * So the coupling is gone and the ratchet lives in exactly one place --
+     * `test_the_gate_f_tables_are_declared_by_a_migration` above. Pointed out by independent review.
+     *
+     * Worth keeping on the record: the ORIGINAL version had a quieter problem than either. This
+     * class had no `RefreshDatabase`, so `Schema::hasTable()` was false for EVERY table, not just
+     * these six -- it asserted the absence of six tables in a schema that contained none.
      */
-    private function assertGateFTablesArePresent(): void
-    {
-        foreach (self::GATE_F_TABLES as $table) {
-            $this->assertTrue(
-                Schema::hasTable($table),
-                $table . ' is missing, so this assertion is running against a schema that is not '
-                    . 'the one the application uses'
-            );
-        }
-    }
 
     /*
     | Fixtures are local rather than inherited: this class extends Tests\TestCase, while the richer
