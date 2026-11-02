@@ -775,6 +775,17 @@ FOR ENGINEERING PURPOSES. MERGE AND PRODUCTION RELEASE ARE NOT AUTHORIZED."*
 | **DEPLOYED** | **NO** |
 | **NEXT PHASE IMPLEMENTATION AUTHORIZED** | **NO** |
 
+> **هذا الجدول سجلٌّ أمينٌ لقرار D-34 لحظةَ صدوره، ويُحفَظ كما هو لا يُعاد كتابته —
+> وخَليّتان منه عُدِّلتا بحدثَين لاحقَين.** بعد D-34 دُمج الفرعان في `main` دمجاً تكاملياً
+> للتطوير: PR #123 (المالك، `a5a9d7a2`) و PR #124 (بتفويض §9، `230d2e12`) في Laravel،
+> و PR #5 ثم #6 (`94cdcdb0`) في Flutter — فصارت `MERGED TO MAIN` **نعم**، وأصبح CI الخاص
+> بـ `main` **أخضر** في المستودعَين. انظر **D-36** و **D-37** في سجل القرارات.
+>
+> **ولم يتغيَّر شيء آخر.** `RELEASE READY` و `DEPLOYED` و
+> `NEXT PHASE IMPLEMENTATION AUTHORIZED` ما زالت **لا** ثلاثتها، ونصّ المالك أعلاه —
+> *"MERGE AND PRODUCTION RELEASE ARE NOT AUTHORIZED"* — يبقى هو المرجع في النشر: الدمج
+> التكاملي في `main` **ليس** نشراً في الإنتاج وليس تفويضاً به.
+
 ### البصمات المقبولة — كاملة ومُتحقَّقة
 
 | المستودع | الفرع | البصمة الكاملة |

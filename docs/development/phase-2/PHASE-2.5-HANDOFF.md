@@ -128,7 +128,7 @@ integration**, and `main` integration is **not** production deployment.
 | # | blocker | state | does it block a UI phase? |
 |---|---|---|---|
 | 1 | Phase 01 outstanding release gates | **OPEN** — two items closed 2026-11-02 (the D15-gated migrations; the larabug reading for a from-source install); the rest need a live server, a provider sandbox, a business fact or an owner decision | **no**, except where a screen displays a figure the business has not reconciled |
-| 2 | Security incident #120 (exposed database dump) | **OWNER-DEFERRED / OPEN** under `D-35` — not fixed, not resolved; PR #122 open and deliberately unmerged | **no** for development; **YES** before real customer data or any production claim |
+| 2 | Security incident #120 (exposed database dump) | **OWNER-DEFERRED / OPEN** under `D-35` — not fixed, not resolved; PR #122 is **`closed`, `merged: false`** and deliberately unmerged (measured 2026-11-02: `closed_at` 09:35:04Z, still a draft). This cell said *"open"* until 2026-11-02; #122's state changed during execution and the word was never updated. **The incident itself is OPEN regardless of the PR's state** — closing a remediation PR does not resolve the finding, which is precisely why the two are recorded separately | **no** for development; **YES** before real customer data or any production claim |
 | 3 | GATE F | **CLOSED 2026-11-02** | it **unblocks** financial UI work — see §3.1 |
 | 4 | Paytm callback activation | **OPEN** — `PAYTM_CALLBACK_ENABLED` stays shut pending authentic provider testing | **no**, unless a screen claims a plan is active |
 | 5 | Benefit and Flutterwave | **DEFERRED** under `D-33`, fail-closed, unchanged | **no** |
