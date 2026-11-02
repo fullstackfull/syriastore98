@@ -1,6 +1,31 @@
 # Phase 02 — handoff
 
 > ═══════════════════════════════════════════════════════════════════════════════════════════════
+> ## [2026-11-02, LATER] PR #123 IS MERGED, `main` WENT RED, AND PR #124 IS THE FOLLOW-UP.
+>
+> Everything below this block predates the merge. Read it with **D-36** in
+> [`PHASE-02-DECISION-REGISTER.md`](PHASE-02-DECISION-REGISTER.md), which records the act and its
+> consequence together.
+>
+> | | |
+> |---|---|
+> | [fullstackfull/syriastore98#123](https://github.com/fullstackfull/syriastore98/pull/123) | **MERGED by the owner** at `11:33:54Z`, head `69fec16e`, merge commit `a5a9d7a2`, with `mergeable_state: unstable` |
+> | `main`'s CI on `a5a9d7a2` | **FAILED** — the Known-Outcome gate, on nine undeclared failures and two undeclared skips, all of them GATE F closing |
+> | [fullstackfull/syriastore98#124](https://github.com/fullstackfull/syriastore98/pull/124) | **the follow-up**, head `0bce5000` — waves 3, 4 and 5, seven live defects fixed, two ratchets added, one S1 escalated |
+> | the gate on the follow-up head | **PASSES**: 7,457 passed · 2 declared failures · 1 declared skip · 0 errors; assertion exit **0** |
+>
+> **A merged pull request is finished and cannot track new work**, so #124 is a new one rather than
+> a reopened #123. The branch was re-based onto `origin/main` preserving its unmerged commit, so
+> `69fec16e` is still an ancestor; no history was rewritten and no force-push was used.
+>
+> **`P1-SEC-43` IS OPEN, S1, AND GATES DEPLOYMENT — NOT THIS MERGE.** One forged Zid webhook
+> creates a real parcel at Delivery Syria on another merchant's account with an attacker-chosen COD
+> amount. It is pre-existing on `main`, this change neither introduces nor worsens it, and it
+> cannot be fixed from this side: the secret is platform-wide and a predicate built from the
+> caller's own payload is not a check. See `docs/security/P01-SECURITY-WORK-QUEUE.md` S49.
+> ═══════════════════════════════════════════════════════════════════════════════════════════════
+
+> ═══════════════════════════════════════════════════════════════════════════════════════════════
 > ## §-1. RELEASE INTEGRATION — 2026-11-02. NEWER THAN EVERYTHING BELOW, INCLUDING THE D-34 BLOCK.
 >
 > **The branch is `claude/loving-noether-f4qxdt`, in both repositories.** It is the dedicated
