@@ -475,6 +475,9 @@ jobs:
       - name: Guard - no live .env in the checkout or the index
         run: .github/scripts/guard-no-env-files.sh .
 
+      - name: Guard - no root-level database dumps (#120)
+        run: bash .github/scripts/guard-no-root-db-dumps.sh .
+
       - name: Guard - GATE F money tables are still created by nothing
         # BLOCKING, and deliberately duplicated from
         # tests/Unit/Database/GateFSchemaContainmentTest.php, which asserts the same
