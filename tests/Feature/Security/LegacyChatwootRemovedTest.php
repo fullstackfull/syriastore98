@@ -134,6 +134,36 @@ class LegacyChatwootRemovedTest extends TestCase
      *
      * Scoped to the directories the legacy code lived in. docs/ is excluded on purpose: the
      * audit record of what the endpoint WAS is history worth keeping, not live configuration.
+     *
+     * ================================================================================================
+     *  TWO EXEMPTIONS ADDED 2026-11-02, AND THE FINDING BEHIND THEM IS WORSE THAN THE EXEMPTIONS.
+     * ================================================================================================
+     *
+     * GATE F closed and `chatwoot_integrations` gained a migration. The measured production column
+     * is:
+     *
+     *     `base_url` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'https://chat.lynomia.com'
+     *
+     * So **production's schema hardcodes the endpoint as a column default**, and the two files that
+     * transcribe that measurement now contain the literal. They are exempt because they are a
+     * RECORD of what production has -- the same reason `docs/` is excluded -- and because removing
+     * the default would make a fresh environment diverge from production and make
+     * `GateFSchemaGuard::assertCompatible()` throw against it. Dropping it would defeat GATE F, not
+     * satisfy this test.
+     *
+     * **AND THE TEST'S OWN CLOSING CLAIM IS NOT CURRENTLY TRUE.** It says "the replacement
+     * integration must take its base URL from configuration". Measured 2026-11-02: nothing in
+     * `app/` or `packages/workdo/LynomiaChat/src` reads a chatwoot base URL from `config()` at all.
+     * The source of that endpoint in production IS the column default. This test passed before only
+     * because the column was declared by no migration, so no file in scope mentioned it -- the
+     * violation existed in the database and nowhere the test could see.
+     *
+     * GATE F therefore did not create this; it made it VISIBLE. Changing a live column's default is
+     * a production schema change against existing rows, which this workstream is not authorised to
+     * make, so it is recorded here and in the release report rather than done.
+     *
+     * THE EXEMPTION IS EXACT, not a widened scope: the allowed set is asserted to be precisely
+     * those two paths, so a third occurrence anywhere -- including a new migration -- still fails.
      */
     public function test_the_hardcoded_integration_endpoint_is_gone_from_source(): void
     {
@@ -163,12 +193,39 @@ class LegacyChatwootRemovedTest extends TestCase
             }
         }
 
+        // The measured-schema transcription, and ONLY that. See the docblock: production's own
+        // column default carries this literal, so these two files record it rather than configure it.
+        $measuredSchemaRecord = [
+            'app/Support/Database/GateFProductionSchema.php',
+            'database/migrations/2026_11_02_000900_create_chatwoot_integrations_table.php',
+        ];
+
+        sort($offenders);
+
+        $unexpected = array_values(array_diff($offenders, $measuredSchemaRecord));
+
         $this->assertSame(
             [],
-            $offenders,
-            "The retired hardcoded endpoint chat.lynomia.com is still referenced in:\n"
-            . implode("\n", $offenders)
-            . "\nThe replacement integration must take its base URL from configuration."
+            $unexpected,
+            "The retired hardcoded endpoint chat.lynomia.com is referenced in:\n"
+            . implode("\n", $unexpected)
+            . "\nThe replacement integration must take its base URL from configuration. The only "
+            . "permitted occurrences are the two files that transcribe the MEASURED production "
+            . "schema, whose chatwoot_integrations.base_url column carries this literal as its "
+            . "DEFAULT -- see this test's docblock."
+        );
+
+        // AND THE EXEMPTION MUST NOT ROT. If the measured-schema files stop carrying the literal,
+        // either production's default changed (which belongs in
+        // docs/GATE-F-VERIFIED-SCHEMA.md first) or the exemption is dead weight that would hide a
+        // future hardcoding. Either way somebody should read this docblock again.
+        $this->assertSame(
+            $measuredSchemaRecord,
+            array_values(array_intersect($offenders, $measuredSchemaRecord)),
+            'The exempted measured-schema files no longer contain chat.lynomia.com. If '
+            . "production's chatwoot_integrations.base_url default has genuinely changed, update "
+            . 'docs/GATE-F-VERIFIED-SCHEMA.md from a restored copy first and then narrow this '
+            . 'exemption. Do not leave an exemption standing for a literal that is no longer there.'
         );
     }
 
