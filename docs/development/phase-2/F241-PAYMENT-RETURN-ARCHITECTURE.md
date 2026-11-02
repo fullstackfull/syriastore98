@@ -11,8 +11,8 @@ This document establishes what is measured, what the architecture is, and what i
 
 Every plan-return route sits in `routes/web.php` inside `Route::middleware(['web'])` (`:390`) →
 `Route::middleware(['auth', 'xss', 'setlocate', 'verified'])` (`:411`). None of the four is in
-`bootstrap/app.php`'s CSRF exception list — each of the 28 patterns was run through `fnmatch()`
-with `inExceptArray()`'s own `trim($except, '/')` semantics and **all four miss**.
+`bootstrap/app.php`'s CSRF exception list — each of the **27** patterns was run through `fnmatch()`
+with `inExceptArray()`'s own `trim($except, '/')` semantics and **all four miss**. **[2026-11-02] CORRECTED: 27, not 28.** Measured from `bootstrap/app.php:374` with comments stripped: 27 entries. The error propagated from this sentence into `PHASE-02-FINAL-CLOSURE-AR.md` before an adversarial review caught it, and nothing pinned the number — `PaymentReturnReachabilityTest` asserts only `count($except) > 10`. A first re-count said 24, because the regex ate `/*` from `'iyzipay/callback/*'` and `'/aamarpay/*'` as a comment opener; counting the entry LINES gives 27.
 
 But they do not behave the same, and the reason is the HTTP verb:
 
