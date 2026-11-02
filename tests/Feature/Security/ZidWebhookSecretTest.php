@@ -210,8 +210,10 @@ class ZidWebhookSecretTest extends TestCase
     {
         $this->configure(null, null);
 
-        $this->postJson(self::URI, ['store_id' => 1, 'event' => 'order.create'])
+        $this->postJson(self::URI, ['store_id' => self::ZID_MERCHANT, 'event' => 'order.create'])
             ->assertStatus(401);
+
+        $this->assertSame(0, $this->events()->count(), 'a refused request still recorded an event');
     }
 
     /**
@@ -225,9 +227,11 @@ class ZidWebhookSecretTest extends TestCase
 
         $this->postJson(
             self::URI,
-            ['store_id' => 1],
+            ['store_id' => self::ZID_MERCHANT],
             ['Authorization' => 'Basic ' . base64_encode(':')]
         )->assertStatus(401);
+
+        $this->assertSame(0, $this->events()->count(), 'a refused request still recorded an event');
     }
 
     /**
@@ -235,8 +239,9 @@ class ZidWebhookSecretTest extends TestCase
      * an `application.uninstall` event DELETEs a `zid_stores` row chosen by the caller.
      *
      * STRENGTHENED ON 2026-11-02. This used to assert the 401 and nothing else. That is a
-     * refusal test whose subject could disappear without it noticing: if the DELETE at
-     * routes/web.php:1683 were removed, this test would stay green while the finding it records
+     * refusal test whose subject could disappear without it noticing: if the
+     * `DB::table('zid_stores')->...->delete()` in routes/web.php's `zid/events` closure were
+     * removed, this test would stay green while the finding it records
      * -- "the handler ... DELETEs the caller-named store's `zid_stores` row -- a destructive
      * cross-tenant write" -- quietly became unverified. `zid_stores` was declared by no
      * migration, so the row could not be seeded and the claim could not be checked here at all.
@@ -260,7 +265,8 @@ class ZidWebhookSecretTest extends TestCase
         $this->assertTrue(
             $this->zidMerchantIsLinked(self::ZID_MERCHANT),
             'AN ANONYMOUS CALLER UNLINKED A ZID MERCHANT. The uninstall payload reached the '
-            . 'DELETE at routes/web.php:1683 although no secret is configured, which is '
+            . 'unlink in routes/web.php\'s `zid/events` closure although no secret is '
+            . 'configured, which is '
             . 'NEW-ZID-HOOK-FAILOPEN-01 itself.'
         );
 
@@ -346,6 +352,25 @@ class ZidWebhookSecretTest extends TestCase
         $this->configure(self::SECRET);
         $this->withoutExceptionHandling();
 
+        // THE WARNING IS THE MITIGATION, SO IT IS PINNED HERE.
+        //
+        // The fix's whole justification is an asymmetry: NOT unlinking is visible and reversible,
+        // unlinking wrongly is neither. The visibility is one `Log::warning` in routes/web.php,
+        // and nothing asserted it -- so it could have been deleted silently and the justification
+        // would have quietly become unfounded. Raised by independent review.
+        //
+        // Captured through the logger's own `MessageLogged` event rather than a Mockery spy, so
+        // the assertion is an ordinary one that fails inside the test body: a spy's
+        // `shouldHaveReceived()` is verified at teardown, and a mitigation pinned by an assertion
+        // whose failure might not reach the test's result is not pinned at all.
+        $logged = [];
+        \Illuminate\Support\Facades\Event::listen(
+            \Illuminate\Log\Events\MessageLogged::class,
+            function (\Illuminate\Log\Events\MessageLogged $e) use (&$logged) {
+                $logged[] = $e;
+            }
+        );
+
         $this->postJson(
             self::URI,
             [
@@ -368,6 +393,82 @@ class ZidWebhookSecretTest extends TestCase
             'order.create',
             $this->events()->value('event'),
             'the recorded event name is not the one the request carried'
+        );
+
+        $warnings = array_values(array_filter(
+            $logged,
+            fn ($e) => $e->level === 'warning'
+                && str_contains((string) $e->message, 'NEW-ZID-UNINSTALL-SUBSTRING-01')
+        ));
+
+        $this->assertCount(
+            1,
+            $warnings,
+            'THE SAFETY NET IS GONE. routes/web.php no longer warns when "application.uninstall" '
+            . 'appears in the body but NOT in the resolved event name, so an uninstall that Zid '
+            . 'announces somewhere this handler does not read is dropped in SILENCE -- and that '
+            . 'warning is the entire reason the fix could be made fail-safe instead of escalated '
+            . 'untouched. Log records seen: '
+            . json_encode(array_map(fn ($e) => $e->level . ': ' . substr((string) $e->message, 0, 60), $logged))
+        );
+
+        $this->assertSame(
+            self::ZID_MERCHANT,
+            $warnings[0]->context['store_id'] ?? null,
+            'the warning does not name the merchant it declined to unlink, so it is not actionable'
+        );
+
+        $this->assertArrayNotHasKey(
+            'payload',
+            $warnings[0]->context,
+            'the warning logs the request body. Zid payloads carry shopper PII -- consignee name '
+            . 'and mobile, the shipping address, the customer note, all read by '
+            . 'ZidProcessEvents::saveOrder() -- and this log must not carry it.'
+        );
+    }
+
+    /**
+     * THE `X-Zid-Event` HEADER ARM, which NOTHING in this class drove until now.
+     *
+     * The handler resolves the event as `$r->header('X-Zid-Event') ?? $r->input('event')`. Every
+     * other test here puts the name in the BODY, so deleting the header half of that expression
+     * left the whole class green -- measured by independent review, which ran the mutation rather
+     * than reading the file.
+     *
+     * It matters MORE after the uninstall fix than before it. Previously the body's `event` value
+     * was inside `$raw`, so the unlink fired on a body key even if header resolution were broken;
+     * now the unlink depends solely on that one resolution. And the repository's own evidence says
+     * the header is probably the arm real traffic uses: `ZidProcessEvents::saveNewEvents()` keys on
+     * `isset($o['id'], $o['order_status'])` and `saveOrder()` reads `data_get($o, 'store_id')` --
+     * both from the payload ROOT, with no envelope -- so if order webhooks carried a top-level
+     * `event` key that consumer would be reading past a wrapper it never looks for.
+     */
+    public function test_the_event_name_is_taken_from_the_x_zid_event_header(): void
+    {
+        $this->linkZidMerchant(self::ZID_MERCHANT);
+
+        $this->configure(self::SECRET);
+        $this->withoutExceptionHandling();
+
+        // NO `event` KEY IN THE BODY. That is the point: the header must be the only source.
+        $this->postJson(
+            self::URI,
+            ['store_id' => self::ZID_MERCHANT],
+            ['X-Hook-Secret' => self::SECRET, 'X-Zid-Event' => 'application.uninstall']
+        )->assertOk();
+
+        $this->assertSame(
+            'application.uninstall',
+            $this->events()->value('event'),
+            'The handler did not take the event name from `X-Zid-Event`. The header half of '
+            . '`$r->header(\'X-Zid-Event\') ?? $r->input(\'event\')` has been removed, and with it '
+            . 'the arm real Zid traffic probably uses.'
+        );
+
+        $this->assertFalse(
+            $this->zidMerchantIsLinked(self::ZID_MERCHANT),
+            'an uninstall announced through the header did not unlink the merchant, so the unlink '
+            . 'is reachable only through a body key'
         );
     }
 

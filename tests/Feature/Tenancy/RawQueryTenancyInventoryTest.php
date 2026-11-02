@@ -582,7 +582,18 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             'shetabit_visits' => [16, 0],
             'side_menus_option' => [28, 0],
             'store_devices' => [2, 1],
-            'store_order_financials' => [7, 3],
+            // 7 -> 10 AND 3 -> 5 ON 2026-11-02, and NOTHING IN app/ MOVED. This is the scanner's
+            // own blind spot being closed -- see the OPEN_TABLE_CALL_PATTERN branch in
+            // literalTableSites(). Three calls in the tree write `DB::table(` on one line and the
+            // table name on the next, all three on this table, and the line-by-line match could
+            // not see them. TWO OF THE THREE ARE THE STORE-LESS MONEY READS:
+            //     OrderFinancialService.php:289  ->where('id', $financialId)->lockForUpdate()  [store-LESS]
+            //     OrderFinancialService.php:402  ->where('id', $financialId)->lockForUpdate()  [store-LESS]
+            //     StoreFinanceController.php:545 ->where('store_id', $storeId)                [aware]
+            // So the census was under-reporting this money table by exactly the two sites that
+            // matter. Found by independent review of the wave-4 change, which re-derived the
+            // number instead of accepting it.
+            'store_order_financials' => [10, 5],
             // 18 -> 19 AND 17 -> 18 with P1-INV-20: LotteryRefundOwnershipGuard's slug lookup,
             // `DB::table('stores')->where('slug', $slug)->value('id')`.
             //
@@ -680,8 +691,19 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // LIMIT 2 in this class's docblock rather than a new weakness. What covers them instead is
         // direct: GatewayReferenceIdempotencyTest drives tenant isolation on the service, and the
         // per-directory assertion above counts all six.
-        $this->assertSame(167, array_sum(array_map(fn ($r) => $r[0], $actual)),
-            '167 literal-table sites of the 219 entry points; the other 52 build their table name '
+        $this->assertSame(170, array_sum(array_map(fn ($r) => $r[0], $actual)),
+            '[2026-11-02] 167 -> 170 AND the remainder 52 -> 49, with NOTHING IN app/ CHANGED. '
+            . 'Three entry points were counted by RAW_ENTRY_POINT_PATTERN and NOT attributed to '
+            . 'their table, because they write `DB::table(` on one line and the name on the next: '
+            . 'OrderFinancialService.php:289 and :402 and StoreFinanceController.php:545, all '
+            . 'three on `store_order_financials`. They were in the 52 "unattributable" remainder '
+            . 'for the WRONG reason -- that remainder is for names built from a variable or a '
+            . 'class constant, and these are plain literals the scanner simply could not see. '
+            . 'OPEN_TABLE_CALL_PATTERN closes it, which moves them from the remainder into the '
+            . 'per-table count and leaves 219 unchanged. Two of the three are the store-less money '
+            . 'reads of F219, so the blind spot was hiding exactly what this census exists for. '
+            . 'Found by independent review re-deriving the number rather than accepting it. '
+            . '170 literal-table sites of the 219 entry points; the other 49 build their table name '
             . 'from a variable or a class constant and so cannot be attributed (see LIMIT 2 in '
             . 'this class docblock). [2026-11-01] THIS MESSAGE SAID "164 of 207 / the other 43" '
             . 'while the assertion itself read 164 and the real total was 215 -- the number in the '
@@ -710,7 +732,11 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // and NOT in any count of cross-tenant reads. The sibling assertion is what keeps that
         // distinction honest: if `personal_access_tokens` ever gained a `store_id` column it would
         // move to the discriminated list and fail there first.
-        $this->assertSame(78, array_sum(array_map(fn ($r) => $r[1], $actual)));
+        // 78 -> 80 on 2026-11-02, and again nothing in app/ moved: OPEN_TABLE_CALL_PATTERN made the
+        // scanner see three previously invisible sites, two of which carry no `store_id`
+        // (OrderFinancialService.php:289 and :402 -- the F219 money reads). The third,
+        // StoreFinanceController.php:545, does carry it and so is counted as aware.
+        $this->assertSame(80, array_sum(array_map(fn ($r) => $r[1], $actual)));
     }
 
     /**
@@ -943,13 +969,34 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // enforces. The one-line hardening is named in the test that drives the unscoped form
             // directly. What GATE F changed is only that the census can now SEE it.
             //
-            // WHAT BOUNDS IT, and why it is latent rather than live. These return no rows to any
-            // caller -- they are writes, and their only output is an affected-row count. And
-            // `uq_store_order_financial_order` makes `order_id` UNIQUE, so one order has at most
-            // one financial row and an id-keyed update cannot fan out: the blast radius is exactly
-            // one row, the one whose id the caller supplied. A predicate here would not change
-            // which row is written in any correct call; it would refuse the incorrect one.
-            'store_order_financials' => 3,
+            // CORRECTED ON 2026-11-02, TWICE, BY INDEPENDENT REVIEW -- and both corrections are
+            // kept visible because this is a money table and the first version of this note was
+            // confidently wrong in two places.
+            //
+            // (1) THE COUNT IS 5, NOT 3. The first version said 3 and named only the three UPDATEs.
+            // 3 was what the scanner saw, not what the table has: two more store-LESS reads were
+            // invisible because they write `DB::table(` and the table name on separate lines --
+            // OrderFinancialService.php:289 and :402, both
+            // `->where('id', $financialId)->lockForUpdate()->first()`. The scanner now sees them
+            // (see literalTableSites()), and they are the two that matter most, because every
+            // wallet movement in markFinancialAsPaid()/markFinancialAsUnpaid() derives from the row
+            // they resolve. That is F219, already recorded and contained by its single web caller
+            // scoping first -- a caller-dependent invariant nothing enforces, with the one-line
+            // hardening named in the test that calls the unscoped form directly. NOT a new finding,
+            // and not reported as one.
+            //
+            // (2) THE SINGLE-ROW GUARANTEE IS THE PRIMARY KEY'S, NOT THE UNIQUE KEY'S. The first
+            // version credited it to `uq_store_order_financial_order`. That key is UNIQUE on
+            // `order_id`; an `->where('id', ...)` update is bounded by the PRIMARY KEY on `id`. The
+            // unique key underwrites a different thing -- one P&L row per order -- which is what
+            // the two store-AWARE lookups at :28 and :228 rest on. Getting that backwards is the
+            // kind of error that makes a correct conclusion unreliable.
+            //
+            // WHAT STILL BOUNDS THE THREE UPDATES. They return no rows to any caller: their only
+            // output is an affected-row count, and the primary key makes that count at most one --
+            // the row whose id the caller supplied. A predicate here would not change which row a
+            // correct call writes; it would refuse an incorrect one.
+            'store_order_financials' => 5,
         ], $discriminated, 'The set of tenant-discriminated tables reached by raw SQL without a '
             . '`store_id` predicate changed. Each statement here is an unconstrained cross-tenant '
             . 'query that NO global scope can reach; the remedy is an explicit predicate at the '
@@ -1156,6 +1203,12 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
 
     private const LITERAL_TABLE_PATTERN = '/\\\\?DB::table\s*\(\s*[\'"]([a-zA-Z0-9_]+)[\'"]/';
 
+    /**
+     * `DB::table(` with NOTHING after the opening parenthesis -- the table name is on the next
+     * line. See the branch in literalTableSites() for what this closes and what was measured.
+     */
+    private const OPEN_TABLE_CALL_PATTERN = '/\\\\?DB::table\s*\(\s*$/';
+
     /** @return array<int, string> */
     private function rawEntryPoints(string $dir): array
     {
@@ -1184,11 +1237,46 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
                 $lines = file(base_path($file)) ?: [];
 
                 foreach ($this->codeLines($file) as $number => $line) {
-                    if (! preg_match(self::LITERAL_TABLE_PATTERN, $line, $match)) {
+                    $table = null;
+
+                    if (preg_match(self::LITERAL_TABLE_PATTERN, $line, $match)) {
+                        $table = $match[1];
+                    } elseif (preg_match(self::OPEN_TABLE_CALL_PATTERN, $line)) {
+                        // THE TABLE NAME ON A CONTINUATION LINE. This branch is NEW on 2026-11-02
+                        // and it is a correction to the MEASUREMENT, not to a count.
+                        //
+                        // LITERAL_TABLE_PATTERN requires `DB::table(` and the quoted name on the
+                        // SAME line, and the scan is line by line, so a call written
+                        //
+                        //     $financial = DB::table(
+                        //         'store_order_financials'
+                        //     )->where('id', $financialId)->lockForUpdate()->first();
+                        //
+                        // was invisible to this census -- while RAW_ENTRY_POINT_PATTERN, which does
+                        // not look for the name at all, counted it. So the two sibling tests
+                        // disagreed by construction and neither said so.
+                        //
+                        // MEASURED ACROSS app/ AND packages/: exactly THREE sites are written this
+                        // way, and all three are on `store_order_financials` --
+                        // OrderFinancialService.php:289 and :402, both store-LESS
+                        // `->where('id', ...)->lockForUpdate()` reads, and
+                        // StoreFinanceController.php:545, which does carry `store_id`. Two of the
+                        // three hidden sites were therefore the money reads this census exists to
+                        // surface, which is why the blind spot is closed rather than documented.
+                        //
+                        // Found by independent review of the wave-4 census change, which checked
+                        // the number instead of accepting it.
+                        $next = $lines[$number] ?? '';   // $lines is 0-indexed, so this IS the next line
+
+                        if (preg_match('/^\s*[\'"]([a-zA-Z0-9_]+)[\'"]/', $next, $continued)) {
+                            $table = $continued[1];
+                        }
+                    }
+
+                    if ($table === null) {
                         continue;
                     }
 
-                    $table = $match[1];
                     $site = $file . ':' . $number;
 
                     $byTable[$table]['all'][] = $site;

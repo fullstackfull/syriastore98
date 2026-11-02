@@ -4275,15 +4275,31 @@ Two things make that worse than a wide match. **The handler recorded one thing a
 its own audit row said `order.create`, so nothing in the system would have explained why the
 merchant was unlinked. And **the trigger is content, not a crafted request** — product names,
 order notes and addresses are merchant- and shopper-controlled text that Zid relays verbatim.
-`2026_11_02_000800_create_zid_stores_table.php`'s own `down()` records that the row *"cannot be
+`2026_11_02_001300_create_zid_stores_table.php`'s own `down()` records that the row *"cannot be
 reconstructed without re-authorising"*, so the loss is not recoverable from this side.
 
 ### Severity
 
-**S2 HIGH.** Not S1: it needs the platform-wide shared secret, so the caller is Zid or someone
-holding that secret, and it destroys an integration credential rather than disclosing customer
-data. But it is remotely triggerable by ordinary content, it is silent, and it is unrecoverable
-without the merchant re-authorising.
+**S2 HIGH** — and the FIRST VERSION OF THIS PARAGRAPH GAVE THE WRONG REASON, which independent
+review refuted. It said: *"Not S1: it needs the platform-wide shared secret, so the caller is Zid
+or someone holding that secret."* That is true and misleading in the same breath.
+
+**The shared secret is a literal in this repository.** `config/services.php:33-34` defines
+`services.zid.hook_user` and `services.zid.hook_pass` as plain strings, and the same block carries
+`services.zid.client_secret` at `:31` and `services.deliverysyria.api_key` at `:44`. This is
+already tracked: **SEC-CFG-02**, where `hook_pass` is rated **HIGH, P0 to rotate — "the nastiest of
+the four"** for exactly this reason (*"possession lets an attacker forge Zid webhook deliveries"*).
+So "someone holding that secret" is anyone who can read the repository, not a narrow set.
+
+**The rating still stands, for a different reason:** what this defect destroys is an integration
+credential, not customer data, and the row is re-creatable by the merchant re-authorising. What
+makes it HIGH rather than MEDIUM is that it was **remotely triggerable by ordinary content** — the
+attacker needed no credential at all, only to get a string into a product name that Zid relays, with
+Zid as the authenticated caller. That is a confused deputy, and the fix closes it.
+
+**Worth claiming and previously unclaimed:** the fail-open fix in the same closure is the
+**prerequisite** that makes SEC-CFG-02's remediation safe. Moving those literals to the environment
+before it would have turned `null === null` into an open endpoint.
 
 ### The fix, and the one thing it deliberately does not decide
 
@@ -4301,9 +4317,22 @@ carries that event name somewhere else, an uninstall now goes **unprocessed**. T
 `Log::warning`-ed rather than dropped in silence, and the two failure modes are deliberately
 asymmetric: *not* unlinking is visible and reversible, unlinking wrongly is neither.
 
-**Owner action:** confirm where Zid's `application.uninstall` callback carries its event name. If
-it is neither the header nor a top-level `event`, the warning above will say so in the log and the
-read site needs widening — to the named keys, never back to the whole body.
+**Owner action, and it is CHEAPER THAN ASKING ZID.** `zid_events` holds live production data, so one
+query settles it: read the `event` column and the `payload` of a recent `order.create` row. A
+non-null `event` means the top-level key is real; null or blank means `X-Zid-Event` is the only
+source. The same query answers whether `application.uninstall` has **ever** arrived. Also confirm
+the exact **spelling and case** — raised by review, and acted on: the WARNING now matches
+case-insensitively while the ACTION stays case-sensitive, so `Application.Uninstall` is logged
+rather than silently ignored, and no other spelling is given licence to destroy credentials. If the
+name turns out to live elsewhere, widen the READ site to the named keys — never back to the whole
+body.
+
+**One piece of repository evidence supports the fix and was not used in the first version.**
+`ZidProcessEvents::saveNewEvents()` keys on `isset($o['id'], $o['order_status'])` and `saveOrder()`
+reads `data_get($o, 'store_id')` — both from the payload **root**, with no envelope. If order
+webhooks carried a top-level `event` key, that consumer would be reading past a wrapper it never
+looks for. Indirect, but it is the strongest evidence in the tree and it agrees with reading the
+header first.
 
 ### Proof
 
@@ -4314,17 +4343,36 @@ and drives the exact measured payload. Its pair,
 proves the DELETE still happens with a bystander merchant left alone — without it the regression
 test would pass against a handler that had simply stopped deleting.
 
-Mutations, each run and each hitting exactly one test: restoring the whole-body match reddens only
-the regression test; deleting `hash_equals($configuredUser, $basicUser)` from the gate reddens only
-`test_the_right_password_under_a_wrong_user_is_refused`, which exists because that mutation left
-every other test in the class green — also found by the review, by running the mutation rather than
-by reading the file.
+**Two more tests exist because review ran mutations instead of reading the file.**
+`test_the_right_password_under_a_wrong_user_is_refused` exists because deleting
+`hash_equals($configuredUser, $basicUser)` from the gate left every other test green — the
+wrong-password case reddens if *either* comparison goes, and so proves neither.
+`test_the_event_name_is_taken_from_the_x_zid_event_header` exists because **nothing** drove
+`X-Zid-Event`, and this fix made that resolution load-bearing: before it, the body's `event` value
+was inside `$raw`, so the unlink fired on a body key even with header resolution broken.
+
+And the **`Log::warning` is now pinned**, through the logger's own `MessageLogged` event rather than
+a Mockery spy, so the assertion fails inside the test body. It had to be: the whole fail-safe
+argument rests on that warning, and without an assertion it could have been deleted silently.
+
+Mutations, each run, each hitting exactly the intended test: restoring the whole-body match reddens
+only the regression test; deleting the gate's user comparison reddens only the wrong-user test;
+deleting the `X-Zid-Event` half of the resolution reddens only the header test; deleting the whole
+`Log::warning` block reddens only the regression test. And one *negative* result worth recording —
+deleting the real `DB::table('zid_stores')->...->delete()` statement still reddens
+`OwnedPathRawQueryInventoryTest`, so the long code comment added here, which quotes the OLD
+condition, did **not** satisfy that text-scanning ratchet by accident. Review flagged it as a
+near-miss; it was measured, and it is a miss.
 
 ### Two things found beside it, and left open
 
-- **The five refusal tests could not distinguish a refusal from a gate that answers 401 *after*
-  writing the event row.** Each now also asserts zero `zid_events` rows — an observation that was
-  impossible before GATE F.
+- **The refusal tests could not distinguish a refusal from a gate that answers 401 *after* writing
+  the event row.** There are **six** of them, and the first version of this line said "five ...
+  each" when the assertion was on four — corrected after review, and the assertion added to the
+  other two so the sentence is now true as written: **all six** assert zero `zid_events` rows. For
+  the two fail-open cases the status assertion alone was already sufficient (an admitted request
+  answers 200, not 401); the row assertion was added anyway, because uniformity in a security class
+  is worth more than minimality. The observation itself was impossible before GATE F.
 - **The 401-vs-403 question in that closure's own comment block is untouched and still open.**
   Repo B forces a logout on any 401 from the API it calls; this is a non-`/api` server-to-server
   path, so no claim about repo B's call sites is made here.
@@ -4425,6 +4473,81 @@ cross-store one and nothing else.
   `OrderAssignPermissionTest` and `OrderMutationTest` — conditions that were always true, wrappers
   that were dead, and comments that had become false. Made unconditional in the same change; a
   conditional whose premise has expired reads as coverage being deliberately skipped.
+
+---
+
+## S49 — One forged webhook creates a REAL parcel at Delivery Syria on another merchant's account, with an attacker-chosen COD amount — **P1-SEC-43, OPEN, OWNER DECISION REQUIRED BEFORE DEPLOYMENT**
+
+**S1.** Raised by independent review of S47 and **verified link by link here** before being written
+down. It is not fixed, and it is not fixable inside this workstream: containment needs either
+credential rotation or a change to what is sent to Zid at link time, both of which the owner holds.
+
+### The chain, each link read in code
+
+1. **Ingest.** `routes/web.php`, `POST /zid/events/{v?}` — anonymous, gated only by the
+   platform-wide shared secret, which is a **literal in `config/services.php:33-34`** (SEC-CFG-02,
+   already rated HIGH / P0-to-rotate). The handler writes the request body verbatim:
+   `DB::table('zid_events')->insert(['store_id' => $storeId, 'event' => $event, 'payload' => $raw, ...])`
+   where `$raw = json_encode($r->all())`. Nothing validates the body.
+2. **Drain.** `app/Console/Commands/ZidProcessEvents.php:47` takes 200 unprocessed `zid_events`
+   rows; `:53` calls `saveOrder($o)` for any payload where `isset($o['id'], $o['order_status'])`.
+3. **Promotion to an order row.** `saveOrder()` at `:78` writes
+   `'store_id' => (string) data_get($o, 'store_id')` — **read from the payload ROOT, not from the
+   `zid_events.store_id` column** — together with `consignee.name`, `consignee.mobile`,
+   `shipping.address.*`, `order_total` and `customer_note`, all caller-supplied, and inserts into
+   `zid_orders` with `parcel_status => 'pending'`.
+4. **The outbound call, on the victim's credential.** `sendPendingOrders():107` selects pending
+   rows; `sendOrder():128` looks `zid_stores` up by that **caller-supplied** `store_id`, and `:148`
+   does `Http::withToken(Crypt::decryptString($store->ds_secret))` — **the named merchant's
+   Delivery Syria secret** — POSTing `/api/parcel/create-with-security` with `cod_amount2` and
+   `selling_price` derived from the caller's `order_total`, and the caller's customer name, phone,
+   address and note.
+5. **It runs by itself.** `routes/console.php:9`:
+   `Schedule::command('zid:process-events')->everyMinute()->withoutOverlapping();`
+
+So **one `POST /zid/events` creates a real parcel at a third-party courier, on another merchant's
+account, with an attacker-chosen cash-on-delivery amount.** Forged rows keep `processed_at` NULL,
+so they are a stored, delayed payload: if the server is not currently running `schedule:run`, they
+drain in batches of 200 the first time it does.
+
+### Why this is S1 and S47 is S2
+
+S47 destroyed an integration credential the merchant could re-create by re-authorising. This one
+**takes an action in the physical world with money attached**, on a third party's account, and
+there is no undo in this codebase. The principal set is the same as S47's and just as wide: anyone
+who can read `config/services.php`.
+
+### Why it is NOT fixed here, stated rather than left implicit
+
+There is **no local authorization signal to fix it with.** The credential is platform-wide, so
+nothing distinguishes a genuine Zid delivery from a forged one. And a predicate cannot help: the
+payload's `store_id` and the ingest row's `store_id` come from the **same request**, so comparing
+them is the "a tenant predicate built from caller-supplied input is not a tenant check" trap this
+codebase has already produced four defects from.
+
+`zid_stores` also has no column linking a row to a local principal — `store_id` is Zid's merchant
+id, `ds_merchant_id` is Delivery Syria's, there is no `stores.id` and no foreign key — which is why
+the two read routes were restricted to the platform operator rather than given an ownership
+predicate.
+
+### The remedies, for the owner to choose between
+
+1. **Bind the webhook credential per merchant.** Zid's subscription API already takes a
+   `username`/`password` per webhook, and `ZidOAuthController.php:106-107` currently sends **the
+   same platform-wide pair for every merchant**. A per-merchant secret would let the handler resolve
+   the merchant **from the credential** and demote the body's `store_id` to a consistency check
+   (refuse if they disagree). This is the real fix. It changes what is sent to Zid at link time and
+   needs existing merchants to be re-subscribed, so it is an owner decision.
+2. **Rotate `services.zid.hook_pass` and move it to the environment** — SEC-CFG-02's existing P0.
+   This narrows the principal set from "anyone who can read the repository" back to Zid, but does
+   not fix the model: any holder of the rotated secret can still name any merchant.
+3. **An interim, if either of the above is slow:** stop the drain. Disabling
+   `zid:process-events` prevents the outbound call while leaving ingest and the audit rows intact.
+   It stops legitimate parcel creation too, so it is a trade the owner makes, not one this
+   workstream takes.
+
+**Nothing here was changed.** No credential was rotated, no schedule was disabled, no behaviour was
+altered on this path — that is the escalation, and it is deliberate.
 
 ---
 

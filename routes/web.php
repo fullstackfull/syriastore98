@@ -1702,7 +1702,7 @@ Route::post('/zid/events/{v?}', function (\Illuminate\Http\Request $r) {
      * system would have explained why they were unlinked. Product names, order notes and addresses
      * are merchant- and shopper-controlled content that Zid relays verbatim, which makes this
      * remotely triggerable by content, not by a request anyone had to craft. And
-     * 2026_11_02_000800_create_zid_stores_table.php's own down() records that the row "cannot be
+     * 2026_11_02_001300_create_zid_stores_table.php's own down() records that the row "cannot be
      * reconstructed without re-authorising", so the loss is not recoverable from this side.
      *
      * It was invisible until 2026-11-02 because `zid_stores` was declared by no migration, so no
@@ -1725,7 +1725,24 @@ Route::post('/zid/events/{v?}', function (\Illuminate\Http\Request $r) {
     $resolvedEvent = (string) ($event ?? '');
     $isUninstall = $resolvedEvent !== '' && str_contains($resolvedEvent, 'application.uninstall');
 
-    if (! $isUninstall && str_contains((string) $raw, 'application.uninstall')) {
+    /*
+     * THE WARNING MATCHES CASE-INSENSITIVELY AND THE ACTION DOES NOT, on purpose.
+     *
+     * Both used to be case-sensitive, which left the safety net exactly as brittle as the thing it
+     * guards: an uninstall spelled `Application.Uninstall` would be neither acted on NOR logged,
+     * and the whole asymmetry argument above rests on the logging. Widening the WARNING costs
+     * nothing and can only make a missed uninstall visible; widening the ACTION would decide,
+     * without evidence, that another spelling should destroy a merchant's credentials. So the net
+     * is deliberately wider than the trigger. Raised by independent review.
+     *
+     * ALSO WORTH KNOWING, AND NOT CHANGED: the truthiness test in `if ($storeId && $isUninstall)`
+     * below is what stops a numeric `store_id` of 0 becoming a MASS DELETE. `zid_stores.store_id`
+     * is varchar(255), and MySQL coerces a varchar column to DOUBLE for a numeric binding, so
+     * `where('store_id', 0)` would match every row whose id is non-numeric. Both `0` and `"0"` are
+     * falsy, so the guard holds -- but it was written to skip a MISSING id, not to block coercion,
+     * and SQLite cannot show the hazard. Do not "tidy" it to `$storeId !== null`.
+     */
+    if (! $isUninstall && str_contains(strtolower((string) $raw), 'application.uninstall')) {
         \Illuminate\Support\Facades\Log::warning(
             'Zid webhook: "application.uninstall" appears in the body but NOT in the resolved '
             . 'event name, so the store was NOT unlinked. If this was a real uninstall, Zid sends '
