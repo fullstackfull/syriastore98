@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Customer\Auth;
 use App\Events\CreateCustomer;
 use App\Models\Blog;
 use App\Http\Controllers\Controller;
+use App\Services\OtpTransport;
 use App\Models\PageOption;
 use App\Models\Store;
 use App\Models\Student;
@@ -257,12 +258,19 @@ $phone = $this->normalizePhone($customer->mobile);
                 ];
             }
 
-            $response = Http::asMultipart()
-                ->timeout(20)
-                ->post(
-                    $baseUrl . '/api/send/sms',
-                    $data
-                );
+            /*
+             * [2026-11-02, P1-SEC-55] THROUGH THE PINNED SENDER. This was
+             * `Http::asMultipart()->post()` with NO destination check of any kind -- the
+             * P1-SEC-45 guard was added to the merchant `test()` endpoint only, and THIS is the
+             * live customer-facing send of the same `$integration->api_secret`.
+             *
+             * `OtpTransport` judges the complete URL through `SafeRemoteFetch::check` (no
+             * private, loopback, link-local or metadata address on ANY record), PINS the
+             * connection to the address it judged, and refuses redirects -- so a stored
+             * `http://169.254.169.254` is refused before anything is sent, and a public host
+             * cannot 307 the credential onward.
+             */
+            $sent = OtpTransport::post($baseUrl, '/api/send/sms', $data);
         }
 
         /*
@@ -280,10 +288,10 @@ $phone = $this->normalizePhone($customer->mobile);
                 );
             }
 
-            $response = Http::asMultipart()
-                ->timeout(20)
-                ->post(
-                    $baseUrl . '/api/send/whatsapp',
+            // Same pinned sender as the SMS branch above; see the note there.
+            $sent = OtpTransport::post(
+                $baseUrl,
+                '/api/send/whatsapp',
                     [
                         [
                             'name' => 'secret',
@@ -310,7 +318,7 @@ $phone = $this->normalizePhone($customer->mobile);
                             'contents' => 1,
                         ],
                     ]
-                );
+            );
         }
 
         else {
@@ -320,13 +328,39 @@ $phone = $this->normalizePhone($customer->mobile);
             );
         }
 
-        $result = $response->json();
+        /*
+         * [2026-11-02, P1-SEC-55] NOTHING FROM THE REMOTE SIDE IS FLASHED TO THIS CALLER.
+         *
+         * This used to be `$result['message'] ?? __('Unable to send OTP.')`, and the route it
+         * sits on -- `POST {storeSlug?}/forgot-password/otp/send` -- carries NO AUTH
+         * (`web, ActiveTheme, ThemeLanguage, ThrottleRequests:auth`). So an UNAUTHENTICATED
+         * caller received the remote body on success-but-not-200, and the exception text below
+         * on a transport failure. MEASURED: a remote banner surfaced as
+         * `session('error') = 'INTERNAL-SERVICE-BANNER: redis 7.0.11 on 127.0.0.1'`, and a
+         * refusal surfaced as `'cURL error 7: ... port 6379 ... Connection refused'`. That is a
+         * port and service oracle over the platform's own network, readable by anyone.
+         *
+         * `throttle:auth` is not a mitigation for it: it keys on ip + sha256(`email`) and this
+         * route posts `mobile`, so the bucket is 10/min per IP -- a cap, not a control.
+         *
+         * The merchant-facing `test()` endpoint still surfaces the provider's own `message`,
+         * because that caller is authenticated AND now permission-checked. This one gets one
+         * fixed string, and the detail goes to the log.
+         */
+        if ($sent['outcome'] !== OtpTransport::ANSWERED || $sent['status'] !== 200) {
 
-        if (!$response->successful() || ($result['status'] ?? null) != 200) {
+            \Log::warning('Customer OTP send did not succeed.', [
+                'store_id' => $store->id,
+                'customer_id' => $customer->id,
+                'channel' => $integration->otp_channel,
+                'outcome' => $sent['outcome'],
+                'provider_status' => $sent['status'],
+                'provider_message' => $sent['provider_message'],
+            ]);
 
             return redirect()->back()->with(
                 'error',
-                $result['message'] ?? __('Unable to send OTP.')
+                __('Unable to send OTP. Please try again later.')
             );
         }
 
@@ -352,9 +386,19 @@ $phone = $this->normalizePhone($customer->mobile);
 
     } catch (\Exception $e) {
 
+        /*
+         * [2026-11-02, P1-SEC-55] THE EXCEPTION TEXT IS NOT FLASHED TO AN ANONYMOUS CALLER.
+         * It was, and that is the other half of the oracle described above -- a cURL failure
+         * names the host and the port it could not reach. Logged, not returned.
+         */
+        \Log::warning('Customer OTP send threw.', [
+            'store_slug' => $storeSlug ?? null,
+            'exception' => $e->getMessage(),
+        ]);
+
         return redirect()->back()->with(
             'error',
-            $e->getMessage()
+            __('Unable to send OTP. Please try again later.')
         );
     }
 }
