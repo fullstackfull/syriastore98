@@ -525,7 +525,12 @@ jobs:
         # while leaving the two <env> lines looking correct.
         run: .github/scripts/guard-test-isolation.sh .
 
-      - name: Guard - no live .env in the checkout or the index
+      - name: Guard - the known .env exposure is reported, and no new one appeared
+        # NOT "no live .env in the checkout or the index", which is what this step was
+        # called until 2026-11-02. `.env` stopped being tracked, that phrasing became
+        # true, and the guard went silent on an exposure that is still reachable in
+        # history. This job checks out with fetch-depth: 0, so it is the one of the three
+        # call sites that can actually examine history and report the finding.
         run: .github/scripts/guard-no-env-files.sh .
 
       - name: Guard - GATE F money tables are still created by nothing
@@ -884,10 +889,16 @@ jobs:
           # absence can never be satisfied without overriding that decision.
           #
           # .github/scripts/guard-no-env-files.sh already encodes the right rule and PASSES in
-          # the `static` job: it emits an OPEN SECURITY RISK warning for the one known tracked
-          # file and exits 0, and exits 1 for ANY other live or tracked env file and for a
-          # .env written during the build. So a NEW secret still fails the build here; only the
-          # already-accepted one does not.
+          # the `static` job: it reports the one known, owner-deferred exposure and exits 0,
+          # and exits 1 for ANY other live or tracked env file and for a .env written during
+          # the build. So a NEW secret still fails the build here; only the already-accepted
+          # one does not.
+          #
+          # It used to say "the one known TRACKED file". That was the guard's expired premise:
+          # `.env` is no longer tracked, so the warning keyed on tracking stopped firing and
+          # the guard printed OK. It is now keyed on reachability in history. THIS job checks
+          # out at depth 1, so here it correctly reports that it could not examine history --
+          # the `static` job, at fetch-depth: 0, reports the finding itself.
           .github/scripts/guard-no-env-files.sh .
 
           # What actually keeps this run off real credentials is not the file's absence but

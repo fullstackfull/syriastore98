@@ -53,10 +53,21 @@ The order matters, and the first step is the one that actually ends the exposure
 The pipeline neither hides the finding nor blocks development on it, because the owner has
 required both:
 
-- `.github/scripts/guard-no-env-files.sh` **reports** the known tracked `.env` as a GitHub
+- `.github/scripts/guard-no-env-files.sh` **reports** the known `.env` exposure as a GitHub
   warning annotation on every run and exits 0 for that one accepted state — and **fails**
   on any other live env file, any other tracked env file, or a `.env` written by a build
   step. The exposure cannot grow quietly.
+
+  **This bullet said "the known *tracked* `.env`" until 2026-11-02, and that word was the
+  bug.** The guard gated its warning on `.env` appearing in `git ls-files`. `.env` stopped
+  being tracked at some point before Phase 01 closed — it is gitignored now — so the
+  condition went false, the warning stopped firing, and the script fell through to printing
+  `OK: no live .env in the checkout or the index`. That line was then recorded as a passing
+  release gate in `docs/development/phase-1/PHASE-01-FINAL-DECISION-REPORT.md` and
+  `PR3-ATTESTATION-S21.md`. Untracking does not un-leak history: the file is still reachable
+  at `3c39c160:.env` (blob `aa5c75b8`), an ancestor of `main`. The guard is now keyed on that
+  reachability, distinguishes "gone" from "I could not look" (a depth-1 checkout cannot see
+  it), and has **no** branch that reports a clean bill of health while the finding is open.
 - The gitleaks history scan is **reporting only** (`continue-on-error: true`), because a
   history scan cannot come back clean until rotation happens.
 - The diff screen (`.github/scripts/scan-secrets.sh`) is **blocking**. It sees only changed

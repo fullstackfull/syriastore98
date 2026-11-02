@@ -4676,6 +4676,134 @@ deployment.** See S49 above.
 
 ---
 
+## S51 — The `.env` guard's premise expired, so it went silent and its silence was filed as a passing release gate — **P1-SEC-48 CLOSED; the underlying exposure (#120 / P1-OWN-09) remains OPEN and OWNER-DEFERRED**
+
+This is not a vulnerability. It is a **detection** defect, and it is the most instructive one
+found in this codebase, because the control did not break loudly — it started saying the
+opposite of the truth, and that sentence was then copied into two release attestations as
+evidence.
+
+### 1. What the control was for
+
+`.github/scripts/guard-no-env-files.sh` exists to hold two owner instructions that pull against
+each other: the committed `.env` carrying a live `APP_KEY` and the database credential set is
+**not** to be rotated, deleted or cleaned up, and it must **not** block development — while the
+finding must stay **OPEN**, not marked fixed. So the guard reports that one state loudly on every
+run and exits 0 for it alone, and exits 1 for anything else: a second env file, a differently
+named tracked env file, or a `.env` written during a build.
+
+It runs at three sites in `ci.yml` — the `static` job, and both suite jobs.
+
+### 2. What actually happened
+
+The guard gated its OPEN-RISK warning on this:
+
+```bash
+if [[ "${TRACKED}" == *"${KNOWN_TRACKED_ENV}"* ]]; then   # TRACKED = git ls-files '.env' ...
+```
+
+`.env` stopped being tracked. It is gitignored today (`.gitignore:60`). So `TRACKED` went empty,
+the condition went false, the warning **stopped firing**, and control fell through to the script's
+last line:
+
+```
+  OK: no live .env in the checkout or the index.
+```
+
+**Measured, not deduced.** Run against this repository in its current state with no `.env` on
+disk, the old script printed exactly that and exited 0.
+
+Untracking does not un-leak anything. The file is still reachable at `3c39c160:.env`, blob
+`aa5c75b8`, and `3c39c160` is an ancestor of both `HEAD` and `origin/main` — all four facts
+measured with `git rev-parse` / `git merge-base --is-ancestor`, not recalled.
+
+A detail worth keeping, because it is why nobody noticed: `git log -- .env` returns **nothing**.
+History simplification hides changes that appear only in merges. `git log --full-history -- .env`
+shows it added and removed repeatedly across branches. A census that asks the first question
+concludes the file was never there.
+
+### 3. Why this one matters more than the other three of its shape
+
+Three earlier controls in this codebase expired the same way. This is the only one whose silence
+reached an attestation. `OK: no live .env in the checkout or the index` is recorded as a passing
+release gate in:
+
+| document | row |
+|---|---|
+| `docs/development/phase-1/PHASE-01-FINAL-DECISION-REPORT.md` | `guard-no-env-files.sh` \| **exit 0** — no live `.env` in the checkout or the index |
+| `docs/development/phase-1/PR3-ATTESTATION-S21.md` | `guard-no-env-files.sh` \| **exit 0** — no live `.env` in checkout or index |
+
+Both cells now carry a dated correction naming this section. The original wording is preserved
+rather than overwritten — the point of the record is that it was written down.
+
+**The lesson, stated so the next census can key on it:** a control whose passing condition is the
+*absence* of something will eventually pass because the world moved, not because the risk closed,
+and it will pass **quietly**. Of the five GATE F waves, three turned on absence used as proof. The
+defence is to key a control on what is *positively* true — here, reachability in history — and to
+leave it no branch that can report a clean bill of health while the finding is open.
+
+### 4. The second defect, found while reading the first
+
+With `.env` untracked but present on disk — **the normal state of every developer's working
+copy** — the guard took its `elif` branch and exited 1:
+
+```
+a .env was written by the build (it is not tracked): .env
+```
+
+Measured: exit 1 in this working tree. That inference was exactly right while `.env` was tracked
+(the only way to see one untracked was a build step writing it) and became both a false alarm and
+a misattribution when it stopped being. It fired only locally — on the one branch CI can never
+reach — which is why it survived.
+
+### 5. What the guard does now
+
+| state | how it is determined | verdict |
+|---|---|---|
+| **reachable** | the recorded commit is in this clone **and** its tree carries `.env` | `::warning OPEN SECURITY RISK`, names commit, blob and ancestry, exit 0 |
+| **rewritten** | the commit is here but no longer carries `.env`, or carries **different** content | `::warning THIS GUARD NEEDS A HUMAN` — stale record, re-verify by hand, exit 0 |
+| **cannot-tell** | the commit is not in this clone (shallow checkout), or there is no git dir | `::warning OPEN SECURITY RISK NOT CHECKED` — names `fetch-depth: 0` as the remedy, exit 0 |
+
+**There is deliberately no fourth state.** While the finding is open the only honest outputs are
+"open", "stale" and "could not look". The `OK:` line is gone from the script.
+
+`cannot-tell` is not hypothetical and is not a guess: `static`, `secrets` and `regression-gate`
+check out at `fetch-depth: 0`; `tests`, `tests-degraded` and `lockfile-reproducibility` take the
+`actions/checkout@v4` default of depth 1. Proved with a real `git clone --depth 1` — 1 commit
+cloned, `3c39c160` unresolvable — rather than assumed from the YAML.
+
+The on-disk rule is now scoped to CI (`GITHUB_ACTIONS` / `CI`), where the inference holds. Locally
+it prints a note. **Nothing about CI's verdict is weakened:** a checkout has no `.env`, and a step
+writing one still fails.
+
+All eight branches were executed and their output recorded: reachable (local and CI shape), a
+`.env` written by the build (exit 1), a second env file appearing (exit 1, both entries named), a
+real depth-1 clone, no git dir at all, the rewritten record, and the blob-drift sub-warning.
+
+### 6. What this does NOT do, per the owner's standing deferral
+
+Recorded explicitly, because a fix to a *detector* must not be read as a fix to the *finding*:
+
+- **The exposure is unchanged and stays OPEN.** Issue #120 / `P1-OWN-09` remain **OWNER-DEFERRED /
+  OPEN**, not fixed, not resolved, not production-ready.
+- **Nothing was rotated, deleted or rewritten.** No credential, no `APP_KEY`, no database
+  credential, no deployed `.env`, no git history. The guard reads history; it does not touch it.
+- **No new secret entered the repository.** The `.env` in this working copy is gitignored and was
+  moved aside and restored to run the probes; `git status` carries no env file.
+- **The demo-data distinction is preserved** in the warning text itself: the owner's statement that
+  the data is demo data does not establish that every exposed secret is harmless.
+- The exemption remains scoped to the literal name `.env`. Re-adding `.env` to the index would
+  still be covered by it. Tightening that is the owner's call and is recorded here rather than
+  taken unilaterally.
+
+### 7. Status
+
+| id | finding | state |
+|---|---|---|
+| **P1-SEC-48** | the guard's OPEN-RISK report was keyed on an expired premise and went silent; its silence was filed as a passing release gate | **CLOSED** — keyed on history reachability, three states, no clean branch, eight branches measured |
+| **P1-SEC-48b** | the same guard failed exit 1 on every developer's working copy | **CLOSED** — the inference is scoped to CI, reported locally |
+| **#120 / P1-OWN-09** | the live `APP_KEY` and database credentials reachable at `3c39c160:.env` | **OPEN, OWNER-DEFERRED.** Unchanged by this work. Must be reassessed before real customer data or any production-ready claim |
+
 ## Cross-repository row, carried over
 
 **B8 — a merchant can read their own webhook secret and forge events for their own store.**
