@@ -1,0 +1,36 @@
+FROZEN HEAD: e95afda4  (Fri Oct 30 23:44:56 UTC 2026)
+=== FEATURE ===
+     81▕     {
+
+
+  Tests:    2 failed, 17 skipped, 6956 passed (34704 assertions)
+  Duration: 1477.30s
+
+=== KNOWN-OUTCOME ASSERTER ===
+KNOWN-OUTCOME GATE
+------------------------------------------------------------------------------
+junit log            : storage/logs/feature-junit.xml
+manifest             : .github/known-test-outcomes.json
+testcases observed   : 6975  (manifest floor 1000)
+failures observed    : 2  (manifest declares 2)
+errors observed      : 0  (always expected: 0)
+skips observed       : 17  (manifest declares 17)
+
+skip reasons parsed  : 17 from feature-teamcity.txt
+
+
+OK: the observed outcome set matches the manifest exactly -- 2 declared failures, 17 declared skips, 0 errors, and nothing undeclared.
+
+This is NOT a statement that the suite is green. It is a statement that the suite is
+failing and skipping exactly the tests the project has recorded, for the reasons it has
+recorded. Read .github/known-test-outcomes.json for what is still owed and to whom.
+=== UNIT ===
+  Tests:    657 passed (4093 assertions)
+  Duration: 34.96s
+
+=== CONTRACT ===
+  Tests:    26 passed (83 assertions)
+  Duration: 4.18s
+
+=== TREE CLEAN? ===
+(empty = the run measured this commit)

@@ -159,6 +159,88 @@ class RefundIntegrityService
     }
 
     /**
+     * E13 REQUIREMENT E — THE REFUSAL NOW HAS A DESTINATION, not just a log line.
+     *
+     * ══════════════════════════════════════════════════════════════════════════════════════════
+     * WHAT WAS MISSING, precisely
+     * ══════════════════════════════════════════════════════════════════════════════════════════
+     *
+     * D-15 condition 6 is *"refusal-and-pending-review, never auto-replacement"*, and the REFUSAL
+     * half has worked since this service existed: a refund with no driver is stored as
+     * `STATUS_APPROVED_NOT_SETTLED` rather than `Refunded`, so nothing claims money moved that did
+     * not. The **PENDING REVIEW** half was a `Log::warning`. A log line is a refusal nobody
+     * reads — and `grep -rn "pending.review|pendingReview|PENDING_REVIEW|needs_review" app/`
+     * returned **zero**, so there was no subject in code for that half of the condition at all.
+     *
+     * This is that subject, and it needed no migration: a refund awaiting settlement is already
+     * fully described by `order_refunds.refund_status`. Inventing a table for a state the data
+     * already carries would make the review surface disagree with the refunds themselves the first
+     * time one was updated by any other path.
+     *
+     * ══════════════════════════════════════════════════════════════════════════════════════════
+     * WHY `APPROVED_NOT_SETTLED` IS THE WHOLE LIST, AND WHY THAT IS NOT A BUG
+     * ══════════════════════════════════════════════════════════════════════════════════════════
+     *
+     * `hasGatewayRefundDriver()` is hardcoded `false`, so **every** online refund lands here, not
+     * a subset. That is the honest state of the platform: no refund driver has been written, so no
+     * online refund has ever settled automatically, and the queue is every one of them. It is
+     * stated rather than filtered down to look smaller, because the size of this list IS the
+     * finding — and on the day a driver exists, `resolveRefundStatus()` starts returning
+     * `STATUS_SETTLED` for that type and those rows stop appearing here without this method
+     * changing.
+     *
+     * ══════════════════════════════════════════════════════════════════════════════════════════
+     * STORE-SCOPED BY ARGUMENT, because `OrderRefund` is not scoped by anything
+     * ══════════════════════════════════════════════════════════════════════════════════════════
+     *
+     * `OrderRefund` carries no `StoreScope` and is not in `config/tenancy.php`'s `scoped_models`,
+     * so a bare query reaches every tenant's refunds (CLAUDE.md). The store is therefore a
+     * required argument and the predicate is written here, not inherited: a review surface that
+     * showed one merchant another's refunds would be a cross-tenant disclosure of money.
+     *
+     * READ-ONLY, and it introduces no refund or settlement behaviour — D-31 requirement 9 and
+     * D-15 condition 3. It reports; it does not pay anybody.
+     *
+     * @return \Illuminate\Support\Collection
+     */
+    public function awaitingSettlement($storeId, int $limit = 200)
+    {
+        if (! is_numeric($storeId) || (int) $storeId <= 0) {
+            /*
+             * No store, no answer. Returning everything would be the cross-tenant disclosure this
+             * method exists to avoid, and "all stores" is never what a caller meant.
+             *
+             * AND THIS GUARD DOES NOT CURRENTLY BITE, which is worth saying rather than implying.
+             * Removing it leaves the tests green, because `(int) null`, `(int) ''` and
+             * `(int) 'not-a-store'` are all `0`, so the predicate below becomes
+             * `where store_id = 0` and matches nothing anyway. It is kept for two reasons: it
+             * states the intent where a reader will look for it, and it survives a change to the
+             * predicate -- the day somebody makes the store clause conditional, or widens it to a
+             * `whereIn`, the coercion stops saving us and this is the only thing that does.
+             */
+            return collect();
+        }
+
+        try {
+            return \App\Models\OrderRefund::withoutGlobalScopes()
+                ->where('store_id', (int) $storeId)
+                ->where('refund_status', self::STATUS_APPROVED_NOT_SETTLED)
+                ->orderBy('id')
+                ->limit($limit)
+                ->get();
+        } catch (\Throwable $theQueryFailed) {
+            /* An absent table or a renamed column must not take a merchant's finance screen down
+               with it. The same failure direction `GatewayReference::unreconciled()` takes. */
+            Log::warning('Refunds awaiting settlement could not be listed.', [
+                'store_id' => $storeId,
+                'reason' => $theQueryFailed->getMessage(),
+            ]);
+
+            return collect();
+        }
+    }
+
+    /**
      * Whether a stored status would be claiming that money moved.
      *
      * For a caller that wants to branch rather than take the status.

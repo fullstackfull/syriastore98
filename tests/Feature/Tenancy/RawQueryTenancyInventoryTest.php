@@ -264,7 +264,110 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // caught it. Raw and not Eloquent because `cod_collection_events` has no model and no
         // table yet: it is a GATE F draft, so an Eloquent class would be a model for a table that
         // does not exist, and the service's isAvailable() gate is what keeps both sites inert.
-        $this->assertSame(['app' => 145, 'packages' => 45], $perDir,
+        // 145 -> 146 WITH THE STAGE 1 TOKEN INVENTORY REPORT, and the new site is correct by
+        // construction rather than tolerated. `App\Console\Commands\TokenInventoryReport` is the
+        // read-only operator report the token-expiry proposal's Stage 1 requires before any expiry
+        // policy can be chosen, and it reads `personal_access_tokens` -- a table this very file's
+        // DO-NOT-SCOPE list classifies as "platform; tokens belong to a user, not a store". There
+        // is no `store_id` column to predicate on, so the per-table row below moving [2,2] -> [3,3]
+        // is the expected shape and not an exposure: its no-store_id column rises because no such
+        // column exists, which is the one case this ratchet's warning does not describe.
+        //
+        // RAW AND NOT ELOQUENT FOR A SECURITY REASON, which is worth stating because this file's
+        // default assumption is the opposite. The statement is
+        // `->select(['id','tokenable_type','created_at','last_used_at','expires_at'])`, an explicit
+        // allow-list that NEVER names `token` -- the SHA-256 secret half. An Eloquent read would
+        // hydrate the model and make "the secret is not loaded" a convention; the explicit select
+        // makes it structural. The report prints aggregates only, never a row.
+        // 146 -> 147 [2026-10-30, F215]: `HomeController::ensureLandingPageInstalled()` asks
+        // `DB::table('landing_page_settings')->exists()` to decide whether the LandingPage module
+        // has already been seeded, so an anonymous `GET /` stops re-running `package:seed` — whose
+        // `PermissionTableSeeder:22` is `Artisan::call('cache:clear')`, a flush of the whole default
+        // store, which erases every gateway-return replay claim on the platform. See F215.
+        //
+        // THIS RATCHET'S WARNING DOES NOT APPLY TO IT, and that is a statement about the schema
+        // rather than a judgement: `landing_page_settings` is `id`, `name` (unique), `value` and
+        // timestamps — `2023_06_05_043450_create_landing_page_settings_table.php:17-22`. **There is
+        // no `store_id` column to predicate on.** It is a platform-level settings table, the same
+        // category as `personal_access_tokens` in the note above, so the "a NEW site needs an
+        // explicit `store_id` predicate" remedy has nothing to attach to.
+        //
+        // AND RAW RATHER THAN ELOQUENT DELIBERATELY, for a different reason than the token read
+        // above: the Eloquent model is `Workdo\LandingPage\...\LandingPageSetting`, inside a
+        // VENDORED package. Naming it here would give a first-party controller a hard compile-time
+        // dependency on a package that may not be vendored in every deployment, and the guard's
+        // whole job is to be safe when the module is absent — which is why the line above it is
+        // `Schema::hasTable()`. A raw read against a table name costs nothing if the table is gone.
+        // 147 -> 148 [2026-10-30, F207 / D-29.2]: ModuleResourceOwnershipGuard's product_type
+        // read, which confines each module's delete door to its own kind of product. It carries
+        // `->where('store_id', $rowStore)` -- redundant, because storeMatches() has already
+        // refused a foreign row, and kept so the read cannot reach another tenant even if that
+        // limb were ever reordered. Classified 'tenant' in OwnedPathRawQueryInventoryTest, earning
+        // the category rather than taking an exemption.
+        // 154 -> 160 on 2026-10-31: `app/Services/StockMovement.php` (E13's stock-evidence record)
+        // adds SIX entry points, each with an explicit `store_id` predicate at the call site --
+        // which is the only remedy this test accepts, and the reason the per-table assertion below
+        // did not move. The table deliberately has no model: it is written on the checkout path
+        // where 79 of 95 models are `Cachable`, and an idempotency record read out of a cache is
+        // no record at all. See ServiceLayerRawQueryInventoryTest for the per-statement account.
+        // 160 -> 162 on 2026-10-31 [F237]: `StockMovement::attributionStateFor()` adds TWO entry
+        // points, each with an explicit `store_id` predicate at the call site, so the per-table
+        // assertion below does not move. They answer the question `attributeToOrder()`'s row count
+        // cannot: zero rows moved means "already attributed" OR "rows exist and did not move", and
+        // the second must never be reported as success.
+        // 169 -> 170 on 2026-10-31 [F229, Cashfree + Mollie]: `consumeForPlanBinding()`, the plan
+        // binding without the amount comparison. Same table, same per-purchaser isolation, same
+        // unattributable remainder because it names `self::TABLE`.
+        // 168 -> 169 on 2026-10-31 [F229 round 3]: `PlanPurchaseIntent::recordRecoverableRefusal()`,
+        // added because round 2's REFUSED_RECOVERABLE left the row `pending` having written
+        // nothing -- which `unreconciled()` could not match, so a captured payment was
+        // indistinguishable from an abandoned checkout. Same table, same per-purchaser isolation,
+        // and it joins the same unattributable remainder because it names `self::TABLE`.
+        // 162 -> 168 on 2026-10-31 [F229 / D-31 req 1]: `app/Services/PlanPurchaseIntent.php`,
+        // the server-owned plan purchase intent, adds SIX entry points. **None names `store_id`,
+        // and the table has no such column** -- a SaaS plan is bought by a USER from the platform,
+        // not by one merchant's store from another (`plans` has no store_id either, and
+        // `plan_orders` keys on user_id). The isolation this needs is PER-PURCHASER, which is
+        // requirement 5's cross-user reuse, and `verifyAndConsume()` refuses an intent whose
+        // user_id is not the authenticated principal BEFORE comparing the amount -- so a probe
+        // cannot even learn what the purchase was worth. All six are declared with their reason in
+        // ServiceLayerRawQueryInventoryTest::STORE_LESS_BY_DESIGN, ratcheted by
+        // PlanPurchaseIntentTest and driven on a real engine (two connections racing) by
+        // verify-plan-purchase-intent-on-mysql.php.
+        /*
+         * 170 -> 174 on 2026-11-01, FOUR NEW SITES, ALL STORE-SCOPED — and this census had already
+         * been RED for several commits, which is the finding worth recording beside the number.
+         *
+         * Measured by running this file's own scan over `git archive <sha> app` for each commit
+         * since the last full gate, rather than inferred:
+         *
+         *     4852b380  170   <- the last sha the Feature gate was actually run on
+         *     401a185c  170
+         *     bc9ff2a5  171   <- P0 / E13 added the replacement lock read
+         *     59c79155  174   <- P1 / F242 added three in TopSellersByRevenue
+         *     bbc712a6  174
+         *     9f9fff7d  174
+         *
+         * So two committed slices moved the count and neither moved this assertion. The gate was
+         * failing from `bc9ff2a5` onward and nobody looked, because it was not run again until this
+         * pass. **That is a process failure, not a code one** — the ratchet did exactly its job the
+         * moment it was executed — and it is the reason the final verification runs the whole gate
+         * on a frozen tree rather than trusting per-slice runs.
+         *
+         * THE FOUR SITES:
+         *   - `app/Services/OrderReplacement.php` +1 — the `lockForUpdate()` re-read of the
+         *     original order (D-15 condition 8), now carrying `->where('store_id',
+         *     $original->store_id)`.
+         *   - `app/Support/TopSellersByRevenue.php` +3 — `DB::table('products')`,
+         *     `DB::table($table)` and `DB::table('orders')`, each with `->where('store_id',
+         *     $storeId)`. `$table` comes from a hardcoded `match` on the dimension, never from
+         *     request input, so the variable table name is not a caller-controlled identifier.
+         *
+         * Only three of the four reach the per-table census below, because `DB::table($table)` has
+         * no literal name for `LITERAL_TABLE_PATTERN` to capture. That is why `app` moves by 4 while
+         * the per-table rows move by 3.
+         */
+        $this->assertSame(['app' => 174, 'packages' => 45], $perDir,
             'The raw query-builder entry-point count moved. Every one of these is invisible to '
             . 'every Eloquent global scope, so a NEW site needs an explicit `store_id` predicate '
             . 'written at the call site -- there is no other remedy. A REMOVED one probably means '
@@ -288,7 +391,53 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // 188 -> 190 with the two CodCollectionService sites above. The per-table row for
         // `cod_collection_events` is NEW at [2, 0] -- both statements name store_id -- so the
         // unscoped sum below does not move.
-        $this->assertSame(190, array_sum($perDir));
+        // 190 -> 191 with the Stage 1 token inventory report (see the note above the per-directory
+        // assertion). NOTE THE METHOD NAME IS A HISTORICAL LABEL, not a live claim: it says "one
+        // hundred and sixty eight" and the trail above shows 168 -> 191 across eight deltas, none
+        // of them a rename. Observed rather than renamed, so this delta's diff stays about the one
+        // site it adds.
+        // 191 -> 192 with F215's `landing_page_settings` existence check (see the note above).
+        // 192 -> 193 with F207's product_type read (see the note above).
+        // 193 -> 199 [2026-10-30] with SIX sites from the three D-29 slices, each named so the
+        // delta is auditable rather than a number that moved:
+        //   F207 / D-29.2  -- ModuleResourceOwnershipGuard:523, the `products` existence check
+        //       that must run BEFORE any cart cleaning. Raw and not Eloquent because `Product` is
+        //       `Cachable`: a cached read can report a just-deleted product as still present,
+        //       which would skip the cleaning silently. Carries `store_id`.
+        //   F216 / D-29.3  -- GatewayReference:98, :165, :186, :206 (insert, bind, orderFor,
+        //       unreconciled). Raw and not Eloquent DELIBERATELY: the insert relies on the
+        //       database's own UNIQUE (store_id, gateway, reference) to decide a race, so it must
+        //       reach the engine without a model's fill, events or cache layer in between. All
+        //       four carry `store_id`; they do not appear in the per-table inventory below because
+        //       they name the table through `self::TABLE` rather than a literal.
+        //   F217 / D-29.6  -- DownloadExposureReport:52, the read-only exposure census. Its table
+        //       is a VARIABLE (`DB::table($table)`), so it likewise cannot appear per-table.
+        // 199 -> 205 [2026-10-31] with SIX sites from E13's stock-evidence record,
+        //   `app/Services/StockMovement.php`: :93 insert, :146 the per-line read, :182 its
+        //   observed-anything fallback, :236 attributeToOrder, :266 unattributed, :283 forOrder.
+        //   **Every one carries `store_id`**, so the unscoped sum does not move. Raw and not
+        //   Eloquent for the same reason GatewayReference is: it is written on the checkout path
+        //   where 79 of 95 models are `Cachable`, and a movement record read out of a cache is no
+        //   record at all. Like GatewayReference's four they name the table through `self::TABLE`
+        //   rather than a literal, so they do not appear in the per-table inventory below.
+        // The unscoped sum does not move for any of them, which is the property that matters.
+        // 205 -> 207 [2026-10-31, F237] with TWO more from the same file:
+        //   `StockMovement::attributionStateFor()` — the for-this-order probe and the any-row probe.
+        //   **Both carry `store_id`**, so the unscoped sum again does not move, and both name the
+        //   table through `self::TABLE`, so they too stay out of the per-table inventory below.
+        //   They exist because a row count cannot carry the answer: `attributeToOrder()` returning
+        //   zero means EITHER already-attributed (success) OR rows that exist and did not move (a
+        //   failure), and the caller must not read the second as the first.
+        // 214 -> 215 [2026-10-31, F229 Cashfree+Mollie]: consumeForPlanBinding(), see above.
+        // 213 -> 214 [2026-10-31, F229 round 3]: recordRecoverableRefusal(), see the note above.
+        // 207 -> 213 [2026-10-31, F229 req 1]: the six PlanPurchaseIntent entry points above.
+        // The UNSCOPED sum DOES move here, for the first time in this file's history, and that
+        // is deliberate rather than drift: the table carries no store_id column at all, so
+        // there is nothing to scope by. Each one is declared with its reason and the isolation
+        // is per-purchaser. See the note on the per-directory assertion above.
+        // 215 -> 219 [2026-11-01]: the same four sites as the per-directory assertion above
+        // (174 + 45). Stated here as well because this sum is what a reader quotes.
+        $this->assertSame(219, array_sum($perDir));
     }
 
     /**
@@ -395,11 +544,18 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // row it returns, for the engine reason recorded on the per-directory assertion above.
             'order_partial_payments' => [1, 0],
             'order_refunds' => [2, 2],    // P1-ORD-12: OrderDocumentAccessGuard resolves a refund id to its order id; the ORDER's store is what is compared to the caller
-            'orders' => [1, 0],
+            // 1 -> 3 [2026-11-01]: OrderReplacement's lockForUpdate re-read (E13 / D-15 condition 8) and
+            // TopSellersByRevenue's line-revenue query (F242). **THE UNSCOPED HALF STAYS AT 0, which is the
+            // assertion that matters** -- both new sites name `store_id` at the call site.
+            'orders' => [3, 0],
             'owner_menu_items' => [1, 1],
             'owner_menu_settings' => [1, 1],
             'owner_menus' => [1, 1],
-            'personal_access_tokens' => [2, 2],
+            // [2,2] -> [3,3] WITH THE STAGE 1 TOKEN INVENTORY REPORT. Both columns rise because
+            // this table has NO `store_id` column -- it is on the DO-NOT-SCOPE list below -- so
+            // "no store_id predicate" is the only possible shape here and the rise is not the
+            // cross-tenant read this ratchet's message warns about. See the per-directory note.
+            'personal_access_tokens' => [3, 3],
             // NEW WITH P1-INV-19, and the [1, 0] is a HEURISTIC ARTIFACT worth naming rather than
             // reading as reassurance. AuctionBidIdentityGuard:118 is
             // `DB::table('products')->where('id', $productId)->first(['id', 'store_id'])` -- it
@@ -421,7 +577,7 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // remedy is, uniquely here, the defect. Verified on MySQL 8.0.46 by
             // tests/Support/Security/bin/verify-category-product-cascade-on-mysql.php (6 checks, 0 failures) and by
             // mutant B of the removal check. None of the three returns rows -- each is a COUNT read only to refuse.
-            'products' => [5, 3],    // 1 -> 2 with P1-SEC-04 ModuleStorefrontInputGuard::productOfStoreOrAbsent, WITH a store_id predicate -- the product must be the slug store's own
+            'products' => [7, 3],     // 1 -> 2 with P1-SEC-04 ModuleStorefrontInputGuard::productOfStoreOrAbsent, WITH a store_id predicate -- the product must be the slug store's own. 5 -> 6 total [2026-10-30, F207 / D-29.2] with ModuleResourceOwnershipGuard:523's existence check; THE UNSCOPED HALF STAYS AT 3, which is the assertion that matters -- the new site names `store_id`. 6 -> 7 [2026-11-01, F242] with TopSellersByRevenue:106's dimension lookup, AGAIN WITH a store_id predicate, so the unscoped half still does not move
             'settings' => [17, 5],   // 16 -> 17 with P1-SEC-11 criterion 4's review follow-up (DocumentDirection::ownRow reads the ORDER store's SITE_RTL and invoice_logo rows, WITH a store_id predicate -- see the entry-point note above for why it cannot go through GetValueByName); 15 -> 16 with P1-SEC-11 (OrderController::shippinglabel reads the order store's five address rows, WITH a store_id predicate); earlier: 15 -> 16 with P1-SEC-27 (StoreSettingsAccess::storedRows, WITH a store_id predicate); 16 -> 15 and 9 -> 5 with P1-SEC-29 (HostClaims)
             'shetabit_visits' => [16, 0],
             'side_menus_option' => [28, 0],
@@ -510,16 +666,51 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // `cod_collection_events` literally and both carry a store_id predicate, so the unscoped
         // sum below does not move. They are literals rather than `self::TABLE` precisely so this
         // assertion and the map above can see them -- see the row's own note.
-        $this->assertSame(162, array_sum(array_map(fn ($r) => $r[0], $actual)),
-            '162 literal-table sites of the 190 entry points; the other 28 build their table name '
-            . 'from a variable and so cannot be attributed (see LIMIT 2 in this class docblock).');
+        // 162 -> 163 with the Stage 1 token inventory report's `personal_access_tokens` read. It
+        // names the table literally, so it is attributable here; the unattributable remainder is
+        // unchanged at 28 (191 - 163).
+        // 163 -> 164 [2026-10-30] with F207 / D-29.2's `products` existence check at
+        // ModuleResourceOwnershipGuard:523, the ONLY one of that delta's six new raw sites that
+        // names its table literally. THE UNATTRIBUTABLE REMAINDER THEREFORE RISES 28 -> 35, and
+        // that is not drift to be smoothed over: the other five sites genuinely cannot be
+        // attributed to a table by reading one line. F216's four GatewayReference statements name
+        // `self::TABLE` because the table name belongs to the service that owns it, and F217's
+        // exposure census takes `$table` as a loop variable precisely because its job is to walk
+        // several tables. Both are the right code and the wrong shape for this scanner, which is
+        // LIMIT 2 in this class's docblock rather than a new weakness. What covers them instead is
+        // direct: GatewayReferenceIdempotencyTest drives tenant isolation on the service, and the
+        // per-directory assertion above counts all six.
+        $this->assertSame(167, array_sum(array_map(fn ($r) => $r[0], $actual)),
+            '167 literal-table sites of the 219 entry points; the other 52 build their table name '
+            . 'from a variable or a class constant and so cannot be attributed (see LIMIT 2 in '
+            . 'this class docblock). [2026-11-01] THIS MESSAGE SAID "164 of 207 / the other 43" '
+            . 'while the assertion itself read 164 and the real total was 215 -- the number in the '
+            . 'ASSERTION was ratcheted and the numbers in its own MESSAGE were not, which is the '
+            . 'same split this file keeps finding elsewhere. Measured now: 167 + 52 = 219. '
+            . '164 -> 167 [F242 / E13]: TopSellersByRevenue adds two literal sites (products, '
+            . 'orders) and OrderReplacement one (orders); its third statement names the table '
+            . 'through a variable and so joins the unattributable remainder. '
+            . '41 -> 43 on 2026-10-31 [F237]: both of '
+            . '`StockMovement::attributionStateFor()`\'s statements name the table through '
+            . '`self::TABLE`, so they join that unattributable remainder for the same reason '
+            . 'F216\'s four GatewayReference statements did. What covers them instead is direct: '
+            . 'StockAttributionTest drives tenant isolation on the service in both directions.');
         // 66 -> 71: +9 (campaigns 1, helpdesk_tickets 1, email_templates 1, user_email_templates 1, order_refunds 1, stores 2, plus the Duo/credential reads) and -2 (zid_orders)
         // 71 -> 73: of the five new sites only the two `stores` slug resolutions carry no `store_id` in their statement
         // 73 -> 76 with the three D13 category-delete product counts, which carry no `store_id` DELIBERATELY -- see the
         // `products` note above: the cascading foreign key does not read the column, so a predicate would make each
         // count read zero against a populated category and permit the very cascade the refusal exists to stop.
         // 76 -> 77 with the D3 duplicate-refund check, store-less for the reason stated on the `order_refunds` row.
-        $this->assertSame(77, array_sum(array_map(fn ($r) => $r[1], $actual)));
+        // 77 -> 78 with the Stage 1 token inventory report. THIS IS THE ONE SUM WHOSE RISE IS
+        // ROUTINELY A FINDING, so the reason is spelled out rather than assumed:
+        // `personal_access_tokens` has NO `store_id` column -- the sibling test below classifies it
+        // as a platform table, and says in terms that counting such tables as exposure "would have
+        // inflated the finding by eight sites, which is the kind of error this project has already
+        // made in both directions". So this +1 is in the numerator of "statements with no store_id"
+        // and NOT in any count of cross-tenant reads. The sibling assertion is what keeps that
+        // distinction honest: if `personal_access_tokens` ever gained a `store_id` column it would
+        // move to the discriminated list and fail there first.
+        $this->assertSame(78, array_sum(array_map(fn ($r) => $r[1], $actual)));
     }
 
     /**

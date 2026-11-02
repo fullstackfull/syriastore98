@@ -27,6 +27,42 @@ use App\Http\Controllers\DeliverySyriaStatusController;
 //     return $request->user();
 // });
 
+/*
+|--------------------------------------------------------------------------
+| F241 — the Paytm provider callback. GATED, and registered FIRST on purpose.
+|--------------------------------------------------------------------------
+|
+| WHY IT IS IN THIS FILE AND NOT `web.php`. `routes/api.php` is outside the `web` group: no
+| session, no cookie, no CSRF token. That is the whole architecture (§2.2) — the callback
+| authenticates by PROVIDER EVIDENCE, so it needs no session, and therefore needs no CSRF
+| exemption. `plan-paytm-payment` keeps `auth`, `verified`, `xss` and its CSRF check exactly as
+| they are; the owner's instruction not to weaken CSRF on existing session routes is honoured by
+| not touching them at all.
+|
+| WHY IT IS REGISTERED AT THE TOP. CLAUDE.md: "Later route declarations REPLACE earlier ones for
+| the same method+URI, silently dropping the earlier middleware." This file also declares
+| `Route::post('{slug}/', …)` and a long list of `{slug}/…` patterns. A two-segment literal path
+| cannot collide with a one-segment `{slug}/`, and `payment-callback` is not a store slug — but
+| the ordering is made explicit rather than relied upon, and `route:list` is checked after any
+| change here.
+|
+| WHY IT IS GATED OFF. The owner's condition is that no callback is exposed until authenticity,
+| intent binding, replay resistance and concurrency are proven. Three of the four are proven in
+| this repository; the live-provider half of authenticity cannot be — there are no Paytm
+| credentials in this container and no route to `securegw.paytm.in`. So the route does not exist
+| at all until `PAYTM_CALLBACK_ENABLED` is set to an unambiguous yes. See `config/payments.php`.
+|
+| NO `throttle` IS APPLIED, deliberately: the `api` group already carries one, and a provider
+| retrying a delivery must not be rate-limited into never confirming a captured payment. Every
+| call costs one server-to-server status check, which is the cost of knowing.
+*/
+if (config('payments.paytm_callback_enabled')) {
+    Route::post(
+        'payment-callback/paytm/plan',
+        [\App\Http\Controllers\PaymentCallbackController::class, 'paytmPlan']
+    )->name('payment.callback.paytm.plan');
+}
+
 
 
 

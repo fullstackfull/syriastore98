@@ -4,7 +4,7 @@
 
 
 @section('breadcrumb')
-    <li class="breadcrumb-item">{{ __('Support Ticket') }}</li>
+    <li aria-current="page" class="ss-breadcrumb__item">{{ __('Support Ticket') }}</li>
 @endsection
 
 @section('content')

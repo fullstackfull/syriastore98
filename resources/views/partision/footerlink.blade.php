@@ -32,6 +32,26 @@
 @else
     <script src="{{ asset('assets/js/dash.js') }}"></script>
 @endif
+{{-- P2-01-11: sidebar behaviour (workspace switcher, rail persistence).
+
+     OUTSIDE the branch, and the first version got that wrong. It sat in the
+     @else arm only, so on a tenant with SidebarCustomization active the chip
+     still rendered — sidebar.blade.php includes it unconditionally — with no
+     script to un-hide its listbox. A multi-store merchant saw a "Switch store"
+     button that did nothing at all, and the rail lost its persistence and its
+     aria-pressed state. The sidebar is rendered on both branches, so its
+     behaviour belongs on both.
+
+     Still loaded AFTER the branch, because the order is load-bearing: whichever
+     of dash.js / side-dash.js ran owns the #vertical-nav-toggle click that adds
+     or removes `body.minimenu` (dash.js:71, side-dash.js:68); this file only
+     persists the result. Listeners on one element fire in registration order,
+     so this must be registered second or it reads the class before the host
+     has changed it.
+
+     Not part of store-syria-ds.js on purpose: that bundle is included
+     per-screen, and the sidebar is on every screen. --}}
+<script src="{{ asset('js/store-syria-nav.js') }}?v=p02-2"></script>
 <script src="{{ asset('assets/js/plugins/apexcharts.min.js') }}"></script>
 <script src="{{ asset('assets/js/plugins/simple-datatables.js') }}"></script>
 <script src="{{ asset('assets/js/plugins/notifier.js') }}"></script>
@@ -44,18 +64,57 @@
 <script src="{{ asset('js/custom.js') }}{{ "?".time() }}"></script>
 <script src="{{ asset('js/jquery.form.js') }}"></script>
 <script src="{{ asset('js/jspdf.umd.min.js') }}"></script>
-<script src="{{ asset('public/assets/js/plugins/dropzone.min.js') }}"></script>
+{{--
+    F16, HERE. Three scripts were `asset('public/...')`, and `asset()` already prepends an
+    application url whose docroot IS `public/` -- so the segment doubled and every one of them
+    404d. MEASURED against the running application before and after:
+
+        /public/assets/js/plugins/dropzone.min.js   404      /assets/js/plugins/dropzone.min.js   200
+        /public/assets/js/plugins/select2.min.js    404      /assets/js/plugins/select2.min.js    200
+        /public/js/html2pdf.bundle.min.js           404      REMOVED, not corrected -- see below
+
+    This partial is included by `layouts/app.blade.php`, so the breakage was on EVERY admin page:
+    `Dropzone is not defined` and `$(...).select2 is not a function` on page load, which is why the
+    product editor's image dropzone and its tag/category pickers did nothing -- and why
+    `#submit-all`'s handler, whose first statements reach for Dropzone, could not save a product at
+    all. The same class of defect as the Arabic+dark stylesheet P2-A-01 fixed in the layout itself.
+
+    NO NEW DEPENDENCY AND NO REPLACED SERVICE: the same vendored files, addressed correctly.
+--}}
+<script src="{{ asset('assets/js/plugins/dropzone.min.js') }}"></script>
+{{--
+    The bundle ships `Dropzone.autoDiscover = true` and registers a DOMContentLoaded handler
+    that instantiates EVERY `.dropzone` element it finds. While the script 404d that flag did
+    not exist, so fixing the path above turned a dormant default into a live one on every admin
+    page. Measured: a bare `<div class="dropzone">` injected into /dashboard gains an instance
+    and the page throws an uncaught `No URL provided.`
+
+    Today nothing breaks -- all six real consumers (product create/edit, AuctionProduct
+    create/edit, addon/create, module/add) disarm it themselves in parse-time inline script --
+    but that makes correctness depend on each new view remembering an incantation. Turning it
+    off once, here, costs nothing because every consumer initialises explicitly anyway.
+--}}
+<script>Dropzone.autoDiscover = false;</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pickadate.js/3.5.3/picker.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pickadate.js/3.5.3/picker.date.js"></script>
 {{-- select2 --}}
 
-<script src="{{ asset('public/assets/js/plugins/select2.min.js') }}"></script>
+<script src="{{ asset('assets/js/plugins/select2.min.js') }}"></script>
 <script src="{{ asset('js/loader.js') }}"></script>
 <script src="{{ asset('js/emojionearea.min.js') }}"></script>
 <script src="{{ asset('js/calendar.js') }}"></script>
 <script src="{{ asset('js/moment/min/moment.min.js') }}"></script>
 
-<script type="text/javascript" src="{{ asset('public/js/html2pdf.bundle.min.js') }}"></script>
+{{--
+    html2pdf is NOT loaded here. It was `asset('public/js/html2pdf.bundle.min.js')` and 404d,
+    and correcting the path along with the two above would have put 469 KB on every admin page
+    for nothing: all nine call sites (order/view, order/script, support/edit, three reports,
+    AuctionProduct/auctionorder/view, ProductsPDF, LotteryPrizes) already load their own copy at
+    the correct path, several with `?time()`, so those screens would have downloaded it twice.
+    Verified by reading the bundle: it defines `window.html2pdf` and nothing else -- no
+    html2canvas, no jsPDF global, every prototype patch `||`-guarded, es6-promise's polyfill()
+    defined but never invoked -- so removing it from here changes no behaviour anywhere.
+--}}
 
 <script>
     feather.replace();
@@ -208,18 +267,29 @@
     var searchInput = document.getElementById("searchInput");
     if (searchInput) {
         searchInput.addEventListener("input", function() {
-        var input, filter, ul, li, a, i, txtValue;
-        input = document.getElementById("searchInput");
-        filter = input.value.toUpperCase();
-        div = document.getElementById("storeList");
-        a = div.getElementsByTagName("a");
-        for (i = 0; i < a.length; i++) {
-            txtValue = a[i].textContent || a[i].innerText;
-            if (txtValue.toUpperCase().indexOf(filter) > -1) {
-                a[i].style.display = "";
-            } else {
-                a[i].style.display = "none";
-            }
+        /*
+         * P2-SEC-F12. This filtered `storeList.getElementsByTagName("a")`, which was every
+         * entry while every entry was a link. P2-SEC-F12 made the SWITCHABLE stores posting
+         * forms (a GET that moves the tenant pointer is reachable from a third-party page), so
+         * only the current store and the locked ones stayed anchors -- and the search box then
+         * hid exactly the rows it should leave alone and left every switchable store visible.
+         * Found by the independent review of that change.
+         *
+         * Filtering `.dropdown-item` instead: Bootstrap puts that class on the control in all
+         * three shapes, so the selector names what is being filtered rather than what it
+         * happens to be made of. The element hidden is the one carrying the class, and for a
+         * form-wrapped button that is the button -- hiding the button empties the row, so the
+         * form is hidden too, by walking up to the row wrapper when there is one.
+         */
+        var input = document.getElementById("searchInput");
+        var filter = input.value.toUpperCase();
+        var div = document.getElementById("storeList");
+        var items = div.querySelectorAll(".dropdown-item");
+
+        for (var i = 0; i < items.length; i++) {
+            var txtValue = items[i].textContent || items[i].innerText;
+            var row = items[i].closest("form") || items[i];
+            row.style.display = txtValue.toUpperCase().indexOf(filter) > -1 ? "" : "none";
         }
     });
     }

@@ -3,7 +3,7 @@
 @section('page-title', __('Menus'))
 
 @section('breadcrumb')
-    <li class="breadcrumb-item">{{ __('Menus') }}</li>
+    <li aria-current="page" class="ss-breadcrumb__item">{{ __('Menus') }}</li>
 @endsection
 
 @section('action-button')

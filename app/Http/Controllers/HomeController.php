@@ -122,12 +122,84 @@ class HomeController extends Controller
         } else {
             $settings = getSuperAdminAllSetting();
             if (isset($settings['display_landing']) && $settings['display_landing'] == 'on') {
-                Artisan::call('package:migrate LandingPage');
-                Artisan::call('package:seed LandingPage');
+                $this->ensureLandingPageInstalled();
+
                 return view('landing-page::layouts.landingpage');
             } else {
                 return redirect('login');
             }
+        }
+    }
+
+    /**
+     * F215 — INSTALL THE LANDING MODULE ONCE, NOT ON EVERY ANONYMOUS REQUEST.
+     * =============================================================================================
+     *
+     * `Landing()` used to call `package:migrate LandingPage` and then `package:seed LandingPage`
+     * unconditionally, on every request that reached the landing branch. That branch is the ROOT
+     * ROUTE — `routes/web.php:393`, `Route::any('/')` with `->middleware('setlocate')` and nothing
+     * else: no `auth`, no `throttle`, and `any` so a bare GET reaches it with no CSRF token. And
+     * `display_landing => 'on'` is the seeded default (`database/seeders/DefaultSetting.php:28`),
+     * so this was the shipped configuration rather than an unusual one.
+     *
+     * WHY THAT WAS A PAYMENT DEFECT RATHER THAN A PERFORMANCE ONE.
+     * `LandingPageDatabaseSeeder:19` calls `PermissionTableSeeder`, whose **first** statement
+     * (`:22`) is `Artisan::call('cache:clear')` — a `Cache::flush()` over the whole default store.
+     * `GuardsGatewayReturn::claimGatewayReturn()` takes its gateway-return replay claim in that
+     * store with **`Cache::add()`**, and `add()` on a missing key returns **true**, so an erased
+     * claim is not a missing record the control notices: it is an UN-TAKEN claim, indistinguishable
+     * from a first arrival (measured on MariaDB in F211). The claim carries a 48-hour TTL precisely
+     * so a late replay cannot slip through.
+     *
+     * `PaymentController::getProductStatus()` — reached by `store.payment.status`, which
+     * `app/Services/PaymentService.php` names **48 times** as a return, cancel or callback URL
+     * across the gateway catalogue — takes that claim at `PaymentController.php:2923` and makes no
+     * signature or verification call of its own, so the claim is that handler's only replay
+     * control. `releaseGatewayReturnClaim()` has exactly one call site in all of `app/`
+     * (`NMIPayController.php:1526`), so nothing else touches those keys either. A stranger hitting
+     * the home page therefore cleared the replay claims for every gateway return in flight,
+     * platform-wide, for free, as often as they liked.
+     *
+     * `packages/workdo/` must not be edited, so the seeder keeps its `cache:clear`; what changes is
+     * that a request no longer invokes it.
+     *
+     * WHAT THE GUARD IS, AND THE TRADE IT MAKES — STATED RATHER THAN HIDDEN.
+     * The calls are legitimate exactly once: a brand-new deployment whose first visitor needs the
+     * module's tables and rows. So each is gated on its own precondition:
+     *
+     *   - `package:migrate` runs only while the module's primary table is absent.
+     *   - `package:seed` runs only while that table holds no rows. `LandingPageDataTableSeeder:98`
+     *     writes `LandingPageSetting` with `updateOrCreate`, so a populated table is exactly the
+     *     evidence that the seed has already run.
+     *
+     * **THE TRADE:** a future module update that adds a table will no longer be migrated by an
+     * anonymous page view. That is the correct expectation — migrations belong to a deployment step,
+     * and relying on a stranger's request to run them is the defect, not the feature — but it IS a
+     * behaviour change, and an operator upgrading the LandingPage module must run
+     * `php artisan package:migrate LandingPage` as part of the deploy. Nothing here touches
+     * production, and the fresh-install path is asserted by
+     * `AnonymousLandingCacheFlushTest::test_a_fresh_install_is_still_seeded_on_the_first_visit`.
+     *
+     * The table name is NOT guessed: `LandingPageSetting`'s own table, created by
+     * `2023_06_05_043450_create_landing_page_settings_table.php`.
+     */
+    private function ensureLandingPageInstalled(): void
+    {
+        $table = 'landing_page_settings';
+
+        if (! \Illuminate\Support\Facades\Schema::hasTable($table)) {
+            Artisan::call('package:migrate LandingPage');
+        }
+
+        /* Re-asked rather than assumed: if the migrate could not create it, there is nothing to
+           seed and the view will report its own failure, which is more honest than seeding into a
+           table that is not there. */
+        if (! \Illuminate\Support\Facades\Schema::hasTable($table)) {
+            return;
+        }
+
+        if (! DB::table($table)->exists()) {
+            Artisan::call('package:seed LandingPage');
         }
     }
 
@@ -209,12 +281,44 @@ class HomeController extends Controller
 
         $totle_cancel_order = (clone $orderQuery)->where('delivered_status', 2)->count();
 
-        $total_revenues = (clone $orderQuery)->where(function ($query) {
-            $query->where(function ($subquery) {
-                $subquery->where('delivered_status', '!=', 2)
-                    ->where('delivered_status', '!=', 3);
-            })->orWhere('return_status', '!=', 2);
-        })->sum('final_price');
+        /*
+         * F257 — OWNER DECISION: THE ACTIONABLE ORDER-VALUE FIGURE EXCLUDES CANCELLED ORDERS.
+         *
+         * WHAT THIS REPLACED, AND WHY IT EXCLUDED ALMOST NOTHING. The predicate was
+         *
+         *     where(delivered_status != 2 AND delivered_status != 3)
+         *     OR  (return_status != 2)
+         *
+         * and the two limbs are joined by **OR**. A cancelled order has `delivered_status = 2`, so
+         * it fails the first group — and `return_status` defaults to `0`, so `0 != 2` is TRUE and
+         * the second limb admits it anyway. The only orders the filter could exclude were those
+         * whose return has been APPROVED *and* which are also cancelled or returned by fulfilment
+         * status. In practice the figure was every order's total, cancellations included, while
+         * reading as though it excluded them.
+         *
+         * NOW: one AND-ed predicate, cancellations out.
+         *
+         * **RETURNS (status 3) ARE STILL INCLUDED, and that is a deliberate non-decision.** The
+         * dead first group above shows its author intended to exclude them too, and there is a case
+         * for it — a returned order's money came back just as a cancelled one's never arrived. But
+         * the owner's F257 decision names CANCELLED orders and nothing else, and widening it here
+         * would be inventing the next decision rather than implementing this one. Recorded as an
+         * open question in the ledger instead.
+         *
+         * **NOTHING FINANCIAL CHANGES.** This is a displayed metric: no settlement, no ledger, no
+         * transaction status, no merchant balance. The cancelled orders themselves are untouched and
+         * still counted by `$totle_cancel_order` and by the status breakdown, so the money is not
+         * hidden — it is attributed to the bucket that describes it.
+         *
+         * **PER-CUSTOMER LIFETIME SPEND IS A DIFFERENT REPORT AND IS NOT TOUCHED.**
+         * `Api\DashboardController` computes `$totalSpend` per customer over every order including
+         * cancellations. That answers "what has this customer spent with you", which is a different
+         * question with a different right answer, and the owner's instruction is to preserve such a
+         * report with an accurate label rather than silently change its meaning.
+         */
+        $total_revenues = (clone $orderQuery)
+            ->where('delivered_status', '!=', self::ORDER_STATUS_CANCEL)
+            ->sum('final_price');
 
         $topSellingProductIds = (clone $orderQuery)->pluck('product_id')
             ->flatMap(function ($productIds) {
@@ -238,6 +342,86 @@ class HomeController extends Controller
         $out_of_stock_threshold = Utility::GetValueByName('out_of_stock_threshold', getCurrentStore());
         $latests = (clone $productQuery)->orderBy('created_at', 'Desc')->limit(3)->get();
 
+        /* P2-02 / F222: the count behind the dashboard's "needs attention" row.
+         *
+         * THE COMMENT THAT USED TO BE HERE WAS WRONG, AND THE CODE WITH IT. It
+         * said "The predicate is NOT a new rule. It is the SAME one the product
+         * list already labels a row with ... one that does track stock is out
+         * when its count is at or below the store's threshold." The first
+         * sentence was false and the third WAS the divergence, written as if it
+         * were the shared rule.
+         *
+         * The authoritative rule is `ProductDataTable::trackedStockState()`
+         * (:305) and the list's own filter `applyStockFilter()` (:339), and
+         * both agree that A TRACKED PRODUCT IS OUT ONLY AT `product_stock <= 0`.
+         * The threshold is the LOW boundary, not the out boundary. So with the
+         * threshold at 5, a product with stock 3 was labelled LOW on the list
+         * and COUNTED AS OUT here: one question, two numbers, on two surfaces
+         * the merchant reaches from each other. `ReportController` calls the
+         * shared helpers at eleven sites for exactly this reason; this handler
+         * called neither.
+         *
+         * Fixed by using the same boundary. It stays a SQL predicate rather
+         * than a call to `trackedStockState()` because that method takes a
+         * single row's values and this must be a count the database evaluates
+         * -- the same reason `applyStockFilter()` is hand-written SQL beside
+         * it, and `ProductStockIndicatorTest` keeps those two in step.
+         *
+         * ONE LIMB IS DELIBERATELY BROADER THAN THE LIST, and it is said here
+         * rather than left to be rediscovered: the list's stock filter opens
+         * with `where('track_stock', 1)`, so it never considers an untracked
+         * product at all. This count DOES include an untracked product whose
+         * `stock_status` string says `out_of_stock`, because such a product is
+         * out of stock in the only sense available for it, and a dashboard that
+         * ignored it would under-report. That is a difference in COVERAGE, not
+         * in the rule applied to a tracked product.
+         *
+         * $productQuery already carries ->where('store_id', getCurrentStore()),
+         * which is the tenant predicate and has to be explicit: Product is NOT
+         * in config/tenancy.php's scoped_models, so StoreScope adds nothing to
+         * it for any principal. getCurrentStore() derives from the
+         * authenticated user, never from request input.
+         */
+        $out_of_stock_products = (clone $productQuery)
+            ->where(function ($q) {
+                $q->where('variant_product', '!=', 1)->orWhereNull('variant_product');
+            })
+            ->where(function ($q) {
+                $q->where(function ($untracked) {
+                    $untracked->where('track_stock', 0)->where('stock_status', 'out_of_stock');
+                })->orWhere(function ($tracked) {
+                    /* `<= 0`, matching ProductDataTable::applyStockFilter('out'). NOT the
+                       threshold: that is the LOW boundary. See the note above. */
+                    $tracked->where('track_stock', '!=', 0)
+                        ->where('product_stock', '<=', 0);
+                });
+            })
+            ->count();
+
+        /* WS C — INVENTORY ALERTS, the master prompt's own phrase, and the half that was missing.
+         *
+         * `$out_of_stock_products` above answers "what has run out". It does NOT answer "what is
+         * about to", which is the alert a merchant can still act on — and that was the gap: the
+         * dashboard had no low-stock figure at all while the product list has had an
+         * `?ss_stock=low` filter since P2-03-9.
+         *
+         * THE PREDICATE IS THE LIST'S OWN, not a second copy of it. `ProductDataTable` records
+         * what happened the last time this expression existed twice: the badge and the filter
+         * disagreed at the boundary. A count that disagrees with the list it links to is worse
+         * than no count, because the merchant follows it.
+         *
+         * Variant parents are excluded on the same terms as the out-of-stock count — their stock
+         * lives on the variant rows, so the parent's own `product_stock` is not a quantity.
+         */
+        $low_stock_products = (clone $productQuery)
+            ->where(function ($q) {
+                $q->where('variant_product', '!=', 1)->orWhereNull('variant_product');
+            })
+            ->where(function ($q) {
+                \App\DataTables\ProductDataTable::scopeToLowStock($q);
+            })
+            ->count();
+
         $orderCountsToday = $this->getOrderCounts($orderQuery, $todayStart, $todayEnd);
         $orderCounts = $this->getOrderCounts($orderQuery);
 
@@ -258,6 +442,12 @@ class HomeController extends Controller
         $return_order = $orderCounts['return'];
         $confirmed_order = $orderCounts['complete'];
         $shipped_order = $orderCounts['shipped'];
+        // P2-04: the three statuses that were counted by nothing, plus the
+        // catch-all, so the dashboard's breakdown reconciles with its total.
+        $picked_up_order = $orderCounts['picked_up'];
+        $partially_paid_order = $orderCounts['partially_paid'];
+        $pre_order_order = $orderCounts['pre_order'];
+        $other_status_order = $orderCounts['other'];
         $new_orders = $orderQuery->orderBy('id', 'DESC')->limit(4)->get();
         $chartData = $this->getOrderChart(['duration' => 'week']);
 
@@ -293,6 +483,8 @@ class HomeController extends Controller
             'total_revenues',
             'totle_cancel_order',
             'out_of_stock_threshold',
+            'out_of_stock_products',
+            'low_stock_products',
             'theme_name',
             'pending_order',
             'delivered_order',
@@ -308,34 +500,84 @@ class HomeController extends Controller
             'customerPer',
             'productPer',
             'shippedOrderPer',
-            'shipped_order'
+            'shipped_order',
+            'picked_up_order',
+            'partially_paid_order',
+            'pre_order_order',
+            'other_status_order'
         );
         return $data;
     }
 
+    /**
+     * The nine values `orders.delivered_status` really takes, by the name the
+     * order list already shows for each one (OrderDataTable::dataTable()).
+     *
+     * The column's own migration comment says `0=>pending/1=>diliver/2=>cancel
+     * /3=>return` and has been stale for a long time: 4, 5, 6, 7 and 8 are all
+     * live in app/ and resources/.
+     *
+     * Two of these are NOT fulfilment states and are worth naming as such,
+     * because they are the reason a "status" column cannot be read as one
+     * thing: 7 is PARTIALLY PAID, which is a payment state, and 8 is PRE
+     * ORDER, which is an order type. They sit in the same integer column as
+     * "shipped", so an order can be exactly one of the nine and the set does
+     * partition -- but what it partitions by is not a single concept.
+     */
+    public const ORDER_STATUS_PENDING        = 0;
+    public const ORDER_STATUS_DELIVERED      = 1;
+    public const ORDER_STATUS_CANCEL         = 2;
+    public const ORDER_STATUS_RETURN         = 3;
+    public const ORDER_STATUS_CONFIRMED      = 4;
+    public const ORDER_STATUS_PICKED_UP      = 5;
+    public const ORDER_STATUS_SHIPPED        = 6;
+    public const ORDER_STATUS_PARTIALLY_PAID = 7;   // a PAYMENT state
+    public const ORDER_STATUS_PRE_ORDER      = 8;   // an ORDER TYPE
+
+    /**
+     * Counts per status, plus an `other` bucket so the parts ALWAYS sum to the
+     * total.
+     *
+     * This used to count six of the nine values -- 0, 1, 2, 3, 4 and 6 --
+     * leaving picked-up (5), partially-paid (7) and pre-order (8) in no bucket
+     * at all. A screen that shows those six beside a total is then quietly
+     * wrong for any store that uses the other three, and a merchant has no way
+     * to tell from the screen that anything is missing.
+     *
+     * `other` is a deliberate catch-all rather than a tenth count: if a value
+     * outside 0-8 is ever written, it lands here and stays visible instead of
+     * disappearing. P2-04 asserts total == sum(parts).
+     */
     private function getOrderCounts($orderQuery, $start = null, $end = null)
     {
-        if (!empty($start) && !empty($end)) {
-            return [
-                'total' => (clone $orderQuery)->whereBetween('created_at', [$start, $end])->count(),
-                'pending' => (clone $orderQuery)->where('delivered_status', 0)->whereBetween('created_at', [$start, $end])->count(),
-                'delivered' => (clone $orderQuery)->where('delivered_status', 1)->whereBetween('created_at', [$start, $end])->count(),
-                'complete' => (clone $orderQuery)->where('delivered_status', 4)->whereBetween('created_at', [$start, $end])->count(),
-                'cancel' => (clone $orderQuery)->where('delivered_status', 2)->whereBetween('created_at', [$start, $end])->count(),
-                'return' => (clone $orderQuery)->where('delivered_status', 3)->whereBetween('created_at', [$start, $end])->count(),
-                'shipped' => (clone $orderQuery)->where('delivered_status', 6)->whereBetween('created_at', [$start, $end])->count(),
-            ];
-        } else {
-            return [
-                'total' => (clone $orderQuery)->count(),
-                'pending' => (clone $orderQuery)->where('delivered_status', 0)->count(),
-                'delivered' => (clone $orderQuery)->where('delivered_status', 1)->count(),
-                'complete' => (clone $orderQuery)->where('delivered_status', 4)->count(),
-                'cancel' => (clone $orderQuery)->where('delivered_status', 2)->count(),
-                'return' => (clone $orderQuery)->where('delivered_status', 3)->count(),
-                'shipped' => (clone $orderQuery)->where('delivered_status', 6)->count(),
-            ];
-        }
+        $scoped = function () use ($orderQuery, $start, $end) {
+            $q = clone $orderQuery;
+            if (!empty($start) && !empty($end)) {
+                $q->whereBetween('created_at', [$start, $end]);
+            }
+            return $q;
+        };
+
+        $counts = [
+            'total'          => $scoped()->count(),
+            'pending'        => $scoped()->where('delivered_status', self::ORDER_STATUS_PENDING)->count(),
+            'delivered'      => $scoped()->where('delivered_status', self::ORDER_STATUS_DELIVERED)->count(),
+            'cancel'         => $scoped()->where('delivered_status', self::ORDER_STATUS_CANCEL)->count(),
+            'return'         => $scoped()->where('delivered_status', self::ORDER_STATUS_RETURN)->count(),
+            'complete'       => $scoped()->where('delivered_status', self::ORDER_STATUS_CONFIRMED)->count(),
+            'picked_up'      => $scoped()->where('delivered_status', self::ORDER_STATUS_PICKED_UP)->count(),
+            'shipped'        => $scoped()->where('delivered_status', self::ORDER_STATUS_SHIPPED)->count(),
+            'partially_paid' => $scoped()->where('delivered_status', self::ORDER_STATUS_PARTIALLY_PAID)->count(),
+            'pre_order'      => $scoped()->where('delivered_status', self::ORDER_STATUS_PRE_ORDER)->count(),
+        ];
+
+        $accounted = $counts['pending'] + $counts['delivered'] + $counts['cancel']
+            + $counts['return'] + $counts['complete'] + $counts['picked_up']
+            + $counts['shipped'] + $counts['partially_paid'] + $counts['pre_order'];
+
+        $counts['other'] = max(0, $counts['total'] - $accounted);
+
+        return $counts;
     }
 
     private function calculatePercentageToday($todayCount, $allCount)
@@ -403,8 +645,46 @@ class HomeController extends Controller
         $arrTask['data'] = [];
         $registerTotal = '';
         $newguestTotal = '';
+        /* P2-02: the discriminator was `type == 'admin'`, and that was the wrong
+         * question.
+         *
+         * A staff user's `type` is THEIR ROLE NAME -- UserController::store sets
+         * `$user->type = $role_r->name` -- so "Manager", "Accountant", anything
+         * the merchant named the role. It is never the literal 'admin', which
+         * only the store owner carries. Every staff member therefore fell into
+         * the else-branch below and had their dashboard chart built from
+         * `PlanOrder`: the PLATFORM's SaaS subscription orders, with no
+         * `store_id` predicate of any kind (PlanOrder is not in
+         * config/tenancy.php's scoped_models and registers no StoreScope, so
+         * nothing scopes it).
+         *
+         * LATENT, NOT LIVE -- and the distinction is the point. `$chartData` is
+         * rendered by exactly two views, superadmin/dashboard.blade.php and
+         * theme_analytic.blade.php; `resources/views/dashboard.blade.php` and
+         * its overview partial never reference it (measured: 0 occurrences).
+         * So for merchant staff these counts were computed server-side and
+         * discarded, never rendered and never serialised. An earlier version of
+         * this comment said an employee "was shown" the platform's subscription
+         * volume. That was an overclaim, caught in review, and corrected here.
+         *
+         * It is still worth fixing now rather than later: PHASE-02-REUSE-INVENTORY
+         * marks this chart "Reuse", i.e. Phase 02 intends to start rendering it,
+         * which is precisely when latent would become live.
+         *
+         * The real question is operator-or-merchant: getOrderChart() is called
+         * from handleSuperAdmin() -- where PlanOrder is genuinely the right
+         * table -- and from handleRegularUser(), where the store's own Orders
+         * are, for the owner and for staff alike.
+         *
+         * Asked through UserPolicy::isOperator() rather than a fourth
+         * hand-written spelling of it: P1-SEC-11 criterion 3 asks for the
+         * operator to be defined ONCE, and that helper normalises the way
+         * MySQL's PAD SPACE does.
+         */
+        $isOperator = \App\Policies\UserPolicy::isOperator($user);
+
         foreach ($arrDuration as $date => $label) {
-            if (auth()->user()->type == 'admin') {
+            if (! $isOperator) {
                 $data = Order::select(\DB::raw('count(*) as total'))                    
                     ->where('store_id', getCurrentStore())
                     ->whereDate('created_at', '=', $date)
@@ -422,6 +702,9 @@ class HomeController extends Controller
                     ->whereDate('last_active', '=', $date)
                     ->first();
             } else {
+                // The platform operator only. PlanOrder is deliberately
+                // unscoped here -- platform-wide subscription volume is what
+                // the Super Admin dashboard is for.
                 $data = PlanOrder::select(\DB::raw('count(*) as total'))
                     ->whereDate('created_at', '=', $date)
                     ->first();
@@ -1105,163 +1388,103 @@ class HomeController extends Controller
         }
     }
 
+    /**
+     * The dashboard's "Top Category / Top Brand — By Sales" bodies.
+     *
+     * WS C ADDED THE PERMISSION CHECK, and it is not belt-and-braces. The route
+     * (`routes/web.php:399`, `top.brand.category.chart`) carries
+     * `['auth','xss','setlocate','verified']` and NO permission middleware, so
+     * every principal on the `web` guard in the tenant could POST it and read
+     * the store's order revenue broken down by category and by brand — the same
+     * money the dashboard's own overview region withholds from anyone without
+     * `Manage Order`. The gate is operator-first, because `isAbleTo()` alone
+     * refuses the platform operator; the one definition lives in
+     * App\Support\MerchantDashboardAbilities.
+     *
+     * AND THE TWELVE QUERIES NOW NAME THE STORE'S ORDERS. They filtered
+     * `categories.store_id` / `product_brands.store_id` only; `orders` carries
+     * no global scope in this codebase (it is absent from
+     * `config/tenancy.php`'s `scoped_models`), so the sum reached every
+     * tenant's orders that happened to reference one of this store's products.
+     * `handleRegularUser()` has always scoped its own order figures with
+     * `Order::where('store_id', getCurrentStore())`, so the two "By Sales"
+     * cards were the only order money on the page not filtered that way.
+     *
+     * The twelve near-identical query bodies are left as they are: only the
+     * date predicate differs between them, and collapsing them is a change to
+     * vendored shape that this slice does not need.
+     *
+     * TWO THINGS AN INDEPENDENT REVIEW OF THIS CHANGE INSISTED BE WRITTEN DOWN:
+     *
+     *  - `orders.store_id` IS NULLABLE (create_orders_table.php:43), so an order carrying a NULL
+     *    discriminator now drops out of both cards' totals. That is a change to a reported
+     *    FIGURE, not to isolation, and it narrows rather than widens. If `getCurrentStore()`
+     *    itself returns null the predicate becomes `IS NULL` on both columns — tighter than the
+     *    unconstrained join it replaces, which reached every tenant.
+     *
+     *  - DO NOT "COMPLETE THE SWEEP" ONTO `showCategory()`. The thirteenth query that joins
+     *    `orders` in this file (around :2030) is a LEFT JOIN, and pasting this same
+     *    `->where('orders.store_id', …)` onto its outer builder would silently convert it to an
+     *    inner join and drop every category with no orders. For an outer join the predicate
+     *    belongs in the ON clause. All twelve here are inner joins, where WHERE and ON are
+     *    equivalent, which is why the outer builder is the right place for these.
+     */
     public function top_brand_category_chart(Request $request)
     {
+        if (! \App\Support\MerchantDashboardAbilities::mayManageOrders()) {
+            /* No partial, no figures, and NOT an exception: the dashboard calls
+               this on page load for both cards, and a 403 there would put an
+               error in the console of a staff member who is simply not
+               entitled to the number. The cards themselves are hidden by the
+               same check in `dashboard.blade.php`, so a refusal here is only
+               reached by a direct POST. */
+            return response()->json([
+                'html' => '',
+                'tab_name' => '',
+                'type' => '',
+            ]);
+        }
+
         $tab_name = $request->tabId;
         $type = $request->type;
-        if ($type == 'category') {
-            if ($tab_name == '#all-category-order') {
-                $top_sales = Category::select('categories.name as sale_name', 'categories.image_path as sale_image_path', \DB::raw('SUM(orders.final_price) as total_sale'))
-                    ->join('products', 'categories.id', '=', 'products.category_id')
-                    ->join('orders', function ($join) {
-                        $join->on('products.id', '=', \DB::raw("SUBSTRING_INDEX(SUBSTRING_INDEX(orders.product_id, ',', numbers.n), ',', -1)"))
-                            ->crossJoin(\DB::raw('(SELECT 1 + a.N + b.N * 10 AS n FROM (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS a CROSS JOIN (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS b) AS numbers'));
-                    })
-                    ->where('categories.store_id', getCurrentStore())
-                    ->groupBy('categories.name')
-                    ->orderBy('total_sale', 'desc')
-                    ->get();
 
-            } elseif ($tab_name == '#today-category-order') {
+        /*
+         * F242 — THE TWELVE CROSS-JOIN QUERIES ARE GONE, replaced by one computation over the real
+         * per-line values. The owner approved the fix; the reasoning is in
+         * `App\Support\TopSellersByRevenue`, and the short version is that the old shape was wrong
+         * in two independent ways:
+         *
+         *   1. The `numbers.n` 1..100 cross join fanned each order out NON-UNIFORMLY — products
+         *      1..k-1 matched once and product k matched 101-k times — so the view's `/100` was
+         *      exact only for single-product orders and under-reported every earlier category of a
+         *      multi-product order a hundredfold.
+         *   2. It summed `orders.final_price`, crediting each matched category the WHOLE order
+         *      including shipping and tax, so a two-category order was counted twice over.
+         *
+         * The window is HALF-OPEN `[from, to)` so a midnight order belongs to one period, and the
+         * tab names are unchanged so the dashboard's AJAX and its tab ids keep working.
+         */
+        $dimension = $type === 'category'
+            ? \App\Support\TopSellersByRevenue::CATEGORY
+            : \App\Support\TopSellersByRevenue::BRAND;
 
-                $top_sales = Category::select('categories.name as sale_name', 'categories.image_path as sale_image_path', \DB::raw('SUM(orders.final_price) as total_sale'))
-                    ->join('products', 'categories.id', '=', 'products.category_id')
-                    ->join('orders', function ($join) {
-                        $join->on('products.id', '=', \DB::raw("SUBSTRING_INDEX(SUBSTRING_INDEX(orders.product_id, ',', numbers.n), ',', -1)"))
-                            ->crossJoin(\DB::raw('(SELECT 1 + a.N + b.N * 10 AS n FROM (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS a CROSS JOIN (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS b) AS numbers'))
-                            ->whereDate('orders.created_at', '=', \DB::raw('CURDATE()'));
-                    })
-                    ->where('categories.store_id', getCurrentStore())
-                    ->groupBy('categories.name')
-                    ->orderBy('total_sale', 'desc')
-                    ->get();
+        $suffix = $type === 'category' ? '-category-order' : '-brand-order';
 
-            } elseif ($tab_name == '#week-category-order') {
-                $top_sales = Category::select('categories.name as sale_name', 'categories.image_path as sale_image_path', \DB::raw('SUM(orders.final_price) as total_sale'))
-                    ->join('products', 'categories.id', '=', 'products.category_id')
-                    ->join('orders', function ($join) {
-                        $join->on('products.id', '=', \DB::raw("SUBSTRING_INDEX(SUBSTRING_INDEX(orders.product_id, ',', numbers.n), ',', -1)"))
-                            ->crossJoin(\DB::raw('(SELECT 1 + a.N + b.N * 10 AS n FROM (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS a CROSS JOIN (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS b) AS numbers'))
-                            ->whereBetween('orders.created_at', [now()->startOfWeek(), now()->endOfWeek()]);
-                    })
-                    ->where('categories.store_id', getCurrentStore())
-                    ->groupBy('categories.name')
-                    ->orderBy('total_sale', 'desc')
-                    ->get();
+        [$from, $to] = match ($tab_name) {
+            '#today' . $suffix => [now()->startOfDay(), now()->startOfDay()->addDay()],
+            '#week' . $suffix => [now()->startOfWeek(), now()->startOfWeek()->addWeek()],
+            '#month' . $suffix => [now()->startOfMonth(), now()->startOfMonth()->addMonth()],
+            '#year' . $suffix => [now()->startOfYear(), now()->startOfYear()->addYear()],
+            default => [null, null],
+        };
 
-            } elseif ($tab_name == '#month-category-order') {
-                $top_sales = Category::select('categories.name as sale_name', 'categories.image_path as sale_image_path', \DB::raw('SUM(orders.final_price) as total_sale'))
-                    ->join('products', 'categories.id', '=', 'products.category_id')
-                    ->join('orders', function ($join) {
-                        $join->on('products.id', '=', \DB::raw("SUBSTRING_INDEX(SUBSTRING_INDEX(orders.product_id, ',', numbers.n), ',', -1)"))
-                            ->crossJoin(\DB::raw('(SELECT 1 + a.N + b.N * 10 AS n FROM (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS a CROSS JOIN (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS b) AS numbers'))
-                            ->whereYear('orders.created_at', now()->year)
-                            ->whereMonth('orders.created_at', now()->month);
-                    })
-                    ->where('categories.store_id', getCurrentStore())
-                    ->groupBy('categories.name')
-                    ->orderBy('total_sale', 'desc')
-                    ->get();
-            } elseif ($tab_name == '#year-category-order') {
-                $top_sales = Category::select('categories.name as sale_name', 'categories.image_path as sale_image_path', \DB::raw('SUM(orders.final_price) as total_sale'))
-                    ->join('products', 'categories.id', '=', 'products.category_id')
-                    ->join('orders', function ($join) {
-                        $join->on('products.id', '=', \DB::raw("SUBSTRING_INDEX(SUBSTRING_INDEX(orders.product_id, ',', numbers.n), ',', -1)"))
-                            ->crossJoin(\DB::raw('(SELECT 1 + a.N + b.N * 10 AS n FROM (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS a CROSS JOIN (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS b) AS numbers'))
-                            ->whereYear('orders.created_at', now()->year);
-                    })
-                    ->where('categories.store_id', getCurrentStore())
-                    ->groupBy('categories.name')
-                    ->orderBy('total_sale', 'desc')
-                    ->get();
-            } else {
-                $top_sales = Category::select('categories.name as sale_name', 'categories.image_path as sale_image_path', \DB::raw('SUM(orders.final_price) as total_sale'))
-                    ->join('products', 'categories.id', '=', 'products.category_id')
-                    ->join('orders', function ($join) {
-                        $join->on('products.id', '=', \DB::raw("SUBSTRING_INDEX(SUBSTRING_INDEX(orders.product_id, ',', numbers.n), ',', -1)"))
-                            ->crossJoin(\DB::raw('(SELECT 1 + a.N + b.N * 10 AS n FROM (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS a CROSS JOIN (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS b) AS numbers'));
-                    })
-                    ->where('categories.store_id', getCurrentStore())
-                    ->groupBy('categories.name')
-                    ->orderBy('total_sale', 'desc')
-                    ->get();
-            }
-        } else {
-            if ($tab_name == '#all-brand-order') {
-                $top_sales = ProductBrand::select('product_brands.name as sale_name', 'product_brands.logo as sale_image_path', \DB::raw('SUM(orders.final_price) as total_sale'))
-                    ->join('products', 'product_brands.id', '=', 'products.brand_id')
-                    ->join('orders', function ($join) {
-                        $join->on('products.id', '=', \DB::raw("SUBSTRING_INDEX(SUBSTRING_INDEX(orders.product_id, ',', numbers.n), ',', -1)"))
-                            ->crossJoin(\DB::raw('(SELECT 1 + a.N + b.N * 10 AS n FROM (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS a CROSS JOIN (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS b) AS numbers'));
-                    })
-                    ->where('product_brands.store_id', getCurrentStore())
-                    ->groupBy('product_brands.name')
-                    ->orderBy('total_sale', 'desc')
-                    ->get();
-            } elseif ($tab_name == '#today-brand-order') {
+        $top_sales = collect(\App\Support\TopSellersByRevenue::compute(
+            $dimension,
+            getCurrentStore(),
+            $from?->toDateTimeString(),
+            $to?->toDateTimeString()
+        ));
 
-                $top_sales = ProductBrand::select('product_brands.name as sale_name', \DB::raw('SUM(orders.final_price) as total_sale'))
-                    ->join('products', 'product_brands.id', '=', 'products.brand_id')
-                    ->join('orders', function ($join) {
-                        $join->on('products.id', '=', \DB::raw("SUBSTRING_INDEX(SUBSTRING_INDEX(orders.product_id, ',', numbers.n), ',', -1)"))
-                            ->crossJoin(\DB::raw('(SELECT 1 + a.N + b.N * 10 AS n FROM (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS a CROSS JOIN (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS b) AS numbers'))
-                            ->whereDate('orders.created_at', '=', \DB::raw('CURDATE()'));
-                    })
-                    ->where('product_brands.store_id', getCurrentStore())
-                    ->groupBy('product_brands.name')
-                    ->orderBy('total_sale', 'desc')
-                    ->get();
-
-            } elseif ($tab_name == '#week-brand-order') {
-                $top_sales = ProductBrand::select('product_brands.name as sale_name', 'product_brands.logo as sale_image_path', \DB::raw('SUM(orders.final_price) as total_sale'))
-                    ->join('products', 'product_brands.id', '=', 'products.brand_id')
-                    ->join('orders', function ($join) {
-                        $join->on('products.id', '=', \DB::raw("SUBSTRING_INDEX(SUBSTRING_INDEX(orders.product_id, ',', numbers.n), ',', -1)"))
-                            ->crossJoin(\DB::raw('(SELECT 1 + a.N + b.N * 10 AS n FROM (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS a CROSS JOIN (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS b) AS numbers'))
-                            ->whereBetween('orders.created_at', [now()->startOfWeek(), now()->endOfWeek()]);
-                    })
-                    ->where('product_brands.store_id', getCurrentStore())
-                    ->groupBy('product_brands.name')
-                    ->orderBy('total_sale', 'desc')
-                    ->get();
-            } elseif ($tab_name == '#month-brand-order') {
-                $top_sales = ProductBrand::select('product_brands.name as sale_name', 'product_brands.logo as sale_image_path', \DB::raw('SUM(orders.final_price) as total_sale'))
-                    ->join('products', 'product_brands.id', '=', 'products.brand_id')
-                    ->join('orders', function ($join) {
-                        $join->on('products.id', '=', \DB::raw("SUBSTRING_INDEX(SUBSTRING_INDEX(orders.product_id, ',', numbers.n), ',', -1)"))
-                            ->crossJoin(\DB::raw('(SELECT 1 + a.N + b.N * 10 AS n FROM (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS a CROSS JOIN (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS b) AS numbers'))
-                            ->whereYear('orders.created_at', now()->year)
-                            ->whereMonth('orders.created_at', now()->month);
-                    })
-                    ->where('product_brands.store_id', getCurrentStore())
-                    ->groupBy('product_brands.name')
-                    ->orderBy('total_sale', 'desc')
-                    ->get();
-            } elseif ($tab_name == '#year-brand-order') {
-                $top_sales = ProductBrand::select('product_brands.name as sale_name', 'product_brands.logo as sale_image_path', \DB::raw('SUM(orders.final_price) as total_sale'))
-                    ->join('products', 'product_brands.id', '=', 'products.brand_id')
-                    ->join('orders', function ($join) {
-                        $join->on('products.id', '=', \DB::raw("SUBSTRING_INDEX(SUBSTRING_INDEX(orders.product_id, ',', numbers.n), ',', -1)"))
-                            ->crossJoin(\DB::raw('(SELECT 1 + a.N + b.N * 10 AS n FROM (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS a CROSS JOIN (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS b) AS numbers'))
-                            ->whereYear('orders.created_at', now()->year);
-                    })
-                    ->where('product_brands.store_id', getCurrentStore())
-                    ->groupBy('product_brands.name')
-                    ->orderBy('total_sale', 'desc')
-                    ->get();
-            } else {
-                $top_sales = ProductBrand::select('product_brands.name as sale_name', 'product_brands.logo as sale_image_path', \DB::raw('SUM(orders.final_price) as total_sale'))
-                    ->join('products', 'product_brands.id', '=', 'products.brand_id')
-                    ->join('orders', function ($join) {
-                        $join->on('products.id', '=', \DB::raw("SUBSTRING_INDEX(SUBSTRING_INDEX(orders.product_id, ',', numbers.n), ',', -1)"))
-                            ->crossJoin(\DB::raw('(SELECT 1 + a.N + b.N * 10 AS n FROM (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS a CROSS JOIN (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS b) AS numbers'));
-                    })
-                    ->where('product_brands.store_id', getCurrentStore())
-                    ->groupBy('product_brands.name')
-                    ->orderBy('total_sale', 'desc')
-                    ->get();
-            }
-        }
         $html = '';
         $html = view('order.brand_category_chart', compact('tab_name', 'top_sales'))->render();
 

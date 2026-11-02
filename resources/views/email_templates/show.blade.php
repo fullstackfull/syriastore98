@@ -7,7 +7,7 @@
     <script src="{{ asset('assets/css/summernote/summernote-bs4.js') }}"></script>
 @endpush
 @section('breadcrumb')
-    <li class="breadcrumb-item active" aria-current="page">{{ __('Email Template') }}</li>
+    <li aria-current="page" class="ss-breadcrumb__item">{{ __('Email Template') }}</li>
 @endsection
 @section('action-button')
 <div class="d-flex flex-wrap justify-content-lg-end drp-languages gap-1">

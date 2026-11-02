@@ -1,0 +1,55 @@
+using the unix socket at /var/run/mysqld/mysqld.sock (set FRESH_MYSQL_SOCKET='' to force TCP)
+F269 -- the POS sale claim under real concurrency, on MySQL/MariaDB
+------------------------------------------------------------------------------
+server: 10.11.14-MariaDB-0ubuntu0.24.04.1  engine: InnoDB  isolation: REPEATABLE-READ
+
+A. the premise: the claim rests on a PRIMARY KEY, not on a PHP comparison
+  ok    InnoDB is the default engine (without row locks nothing below means anything)
+  ok    cache.key is the PRIMARY KEY, so a duplicate is refused by the engine
+  ok    DatabaseStore implements its own add(), so Cache::add() is NOT the Repository fallback
+  ok    the fingerprint fits cache.key without truncation (73 of 255 bytes)
+
+B. the sequential claim: the second press is refused
+cache key prefix: ''
+  ok    the first press takes the claim
+  ok    the SECOND press is refused the same claim
+
+C. the CONCURRENT press -- the case the suite cannot stage
+  ok    B BLOCKS on the row lock instead of deciding on its stale read (error 1205)
+  ok    once A has committed, B is refused -- re-evaluated against the COMMITTED row
+  ok    and A, which won the race, really does hold the claim
+
+D. the claim's VALUE is what tells a replay from a collision
+  ok    a fresh claim starts as the writing sentinel
+  ok    the completed claim round-trips as an ARRAY carrying the order id, read back over a DIFFERENT connection
+  ok    and the handler's own replay predicate is satisfied by it
+
+E. the claim separates what must be separated, and nothing more
+  ok    two stores ringing up an IDENTICAL basket are separate claims
+  ok    two cashiers at the same store ringing up an identical basket are separate claims
+  ok    a different quantity is a different claim
+  ok    a different discount is a different claim
+  ok    a different variant of the same product is a different claim
+  ok    the same basket assembled in a different order is the SAME claim
+  ok    a different per-line price is a different claim (the component the cart really writes)
+  ok    two presses of the SAME payment modal are the same claim
+  ok    a NEW payment modal with an identical basket is a DIFFERENT claim
+  ok    a missing press id degrades to content-addressed rather than throwing
+  ok    a non-scalar discount is absorbed rather than raising "Array to string conversion"
+
+F. the TTL means what the constant says: an expired claim is retakeable
+  ok    an EXPIRED claim does not permanently block the basket
+  ok    POS_SALE_CLAIM_SECONDS is still the 120 this section reasons about
+
+G. what the SUITE is and is NOT evidence for
+  ok    ArrayStore has NO add() of its own, so under CACHE_STORE=array Cache::add() is the Repository get-then-put fallback and is NOT atomic -- which is why sections B-C exist
+  ok    the production default really is the database store (.env.example)
+  ok    the session store exposes no atomic put-if-absent to have used instead
+
+------------------------------------------------------------------------------
+28 checks, 0 failures
+
+recorded 2026-11-01T09:16:28Z on Linux 6.18.44-fc-v185 x86_64
+re-run after independent review added the press-id, per-line-price, non-scalar and
+degradation checks (23 -> 28). HEAD at capture: 1c8412bb963548a41da3c045679926894428db6c, with the F269/F270
+change uncommitted in the working tree and committed as the same change.

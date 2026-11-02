@@ -5,7 +5,7 @@
 @endsection
 
 @section('breadcrumb')
-    <li class="breadcrumb-item" aria-current="page">
+    <li aria-current="page" class="ss-breadcrumb__item">
         {{ __('Stock Reports') }}</li>
 @endsection
 
@@ -119,33 +119,38 @@
         <div class="col-xl-3">
             <div class="sticky-top " style="top:60px">
                 <div class="list-group list-group-flush addon-set-tab" id="useradd-sidenav">
-                    <ul class="nav nav-pills flex-column w-100 gap-2" id="pills-tab" role="tablist">
-                        <li class="nav-item " role="presentation">
-                            <a href="#LowStock_Setting"
-                                class="nav-link @if(isset($stock_active_tab) && ($stock_active_tab == 'pills-low-stock-tab')) active @endif list-group-item list-group-item-action rounded-1 text-center f-w-600"
-                                id="pills-low-stock-tab" data-bs-toggle="pill" data-bs-target="#pills-low-stock" type="button"
-                                role="tab" aria-controls="pills-low-stock" aria-selected="true">
-                                {{ __('Low In Stock') }}
-                            </a>
+                    {{-- P2-05-3. `ss-tabrail` scopes the active pill's AA fix to THIS screen. The pill measured
+                             2.59:1 (white on the brand green) in all four configurations, and the rail markup is
+                             shared with three other screens that belong to other slices -- see the DS rule and
+                             F106 for why the fix is scoped rather than applied to the shared selector. --}}
+                    {{--
+                        ALL THREE TABS CLAIMED `aria-selected="true"`.
+                        A tablist has exactly one selected tab; three saying so means a screen
+                        reader announces all three as current, and the one that is actually
+                        showing is distinguishable only by the `active` CSS class — which is the
+                        same visible-but-not-announced split the period bars had.
 
-                        </li>
-                        <li class="nav-item " role="presentation">
-                            <a href="#OutOfStock_Setting"
-                                class="nav-link @if(isset($stock_active_tab) && ($stock_active_tab == 'pills-out-of-stock-tab')) active @endif list-group-item list-group-item-action rounded-1 text-center f-w-600"
-                                id="pills-out-of-stock-tab" data-bs-toggle="pill" data-bs-target="#pills-out-of-stock" type="button"
-                                role="tab" aria-controls="pills-out-of-stock" aria-selected="true">
-                                {{ __('Out Of Stock') }}
-                            </a>
-
-                        </li>
-                        <li class="nav-item " role="presentation">
-                            <a href="#MostStock_Setting"
-                                class="nav-link @if(isset($stock_active_tab) && ($stock_active_tab == 'pills-most-stocked-tab')) active @endif list-group-item list-group-item-action rounded-1 text-center f-w-600"
-                                id="pills-most-stocked-tab" data-bs-toggle="pill" data-bs-target="#pills-most-stocked"
-                                type="button" role="tab" aria-controls="pills-most-stocked" aria-selected="true">
-                                {{ __('Most Stocked') }}
-                            </a>
-                        </li>
+                        The loop is not tidying for its own sake: it makes the invariant
+                        structural. `$ssActive` is compared once per tab and drives BOTH the
+                        class and the attribute, so they cannot be edited apart again.
+                    --}}
+                    <ul class="nav nav-pills flex-column w-100 gap-2 ss-tabrail" id="pills-tab" role="tablist">
+                        @foreach ([
+                            'pills-low-stock-tab' => ['pills-low-stock', 'LowStock_Setting', __('Low In Stock')],
+                            'pills-out-of-stock-tab' => ['pills-out-of-stock', 'OutOfStock_Setting', __('Out Of Stock')],
+                            'pills-most-stocked-tab' => ['pills-most-stocked', 'MostStock_Setting', __('Most Stocked')],
+                        ] as $ssTabId => [$ssPane, $ssAnchor, $ssLabel])
+                            @php $ssActive = ($stock_active_tab ?? 'pills-low-stock-tab') === $ssTabId; @endphp
+                            <li class="nav-item" role="presentation">
+                                <a href="#{{ $ssAnchor }}"
+                                   class="nav-link @if ($ssActive) active @endif list-group-item list-group-item-action rounded-1 text-center f-w-600"
+                                   id="{{ $ssTabId }}" data-bs-toggle="pill" data-bs-target="#{{ $ssPane }}"
+                                   role="tab" aria-controls="{{ $ssPane }}"
+                                   aria-selected="{{ $ssActive ? 'true' : 'false' }}">
+                                    {{ $ssLabel }}
+                                </a>
+                            </li>
+                        @endforeach
                     </ul>
                 </div>
             </div>
@@ -166,7 +171,7 @@
                                     </div>
                                 </div>
                                 <div class="row mt-3 g-0">
-                                    <div class="card-body table-border-style">
+                                    <div class="card-body table-border-style ss-dt-card-body">
                                         <div class="table-responsive ecom-data-table">
                                             <table class="table" id="low-stock-table" style="width:100%">
                                                 <thead>
@@ -196,7 +201,7 @@
                                     </div>
                                 </div>
                             </div>
-                            <div class="card-body table-border-style">
+                            <div class="card-body table-border-style ss-dt-card-body">
                                 <div class="table-responsive ecom-data-table">
                                     <table class="table" id="out-of-stock-table" style="width:100%">
                                         <thead>
@@ -225,7 +230,7 @@
                                     </div>
                                 </div>
                             </div>
-                            <div class="card-body table-border-style">
+                            <div class="card-body table-border-style ss-dt-card-body">
                                 <div class="table-responsive ecom-data-table">
                                     <table class="table" id="most-stocked-table" style="width:100%">
                                         <thead>
@@ -266,7 +271,7 @@
                         }
                     },
                     { data: 'stock', name: 'stock' },
-                    {data: 'action', name: 'action', orderable: false, searchable: false}
+                    {data: 'action', name: 'action', orderable: false, searchable: false, className: 'text-center ss-col-locked ss-col-pinned'}
                 ],
                 initComplete: function(settings, json) {
                     removeSortingOrderFromHeader();
@@ -329,7 +334,7 @@
                         return data;  // Render stock_status as HTML
                     } },
                     { data: 'stock', name: 'stock' },
-                    {data: 'action', name: 'action', orderable: false, searchable: false}
+                    {data: 'action', name: 'action', orderable: false, searchable: false, className: 'text-center ss-col-locked ss-col-pinned'}
                 ],
                 initComplete: function(settings, json) {
                     removeSortingOrderFromHeader();
@@ -392,7 +397,7 @@
                         return data;  // Render stock_status as HTML
                     } },
                     { data: 'stock', name: 'stock' },
-                    { data: 'action', name: 'action', orderable: false, searchable: false}
+                    { data: 'action', name: 'action', orderable: false, searchable: false, className: 'text-center ss-col-locked ss-col-pinned'}
                 ],
                 initComplete: function(settings, json) {
                     removeSortingOrderFromHeader();

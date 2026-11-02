@@ -487,7 +487,12 @@ class ResidualTenancyExposureTest extends TestCase
             //   why the one model in this group that IS now scoped has no live bypass.
             'app/Models/Product.php:108',
             'app/Models/ProductAttribute.php:48',
-            'app/Models/Tag.php:47',
+            // :47 -> :76 when F62/F62b added the empty-slug guard and the non-null
+            //   fallthrough ABOVE this method in Tag::slugs(). The SET is unchanged -- same
+            //   method, same DB::table() call, and NO store predicate was added, so the
+            //   deliberate decision recorded above still stands. The line is only how a site
+            //   is named, exactly as the User.php note below says.
+            'app/Models/Tag.php:76',
             // :155 -> :160 when B4 added the `mobile_verified_at` cast above it. The SET is
             // unchanged -- same method, same DB::table() call, five lines down -- which is what
             // this census measures; the line is only how a site is named.
@@ -517,12 +522,12 @@ class ResidualTenancyExposureTest extends TestCase
             // numbers moves whenever a comment does, which is why the D13 store-less
             // declaration in OwnedPathRawQueryInventoryTest keys on a statement fragment
             // instead.
-            'app/Models/Utility.php:3254',
-            'app/Models/Utility.php:3256',
-            'app/Models/Utility.php:3279',
-            'app/Models/Utility.php:3281',
-            'app/Models/Utility.php:3295',
-            'app/Models/Utility.php:3297',
+            'app/Models/Utility.php:3312',
+            'app/Models/Utility.php:3314',
+            'app/Models/Utility.php:3337',
+            'app/Models/Utility.php:3339',
+            'app/Models/Utility.php:3353',
+            'app/Models/Utility.php:3355',
 
         ], $sites, 'The raw-query inventory in the owned models changed. A NEW site here is '
             . 'invisible to every global scope and needs an explicit predicate written at the '

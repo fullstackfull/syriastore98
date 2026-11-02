@@ -1,4 +1,64 @@
+# GATE F — SUPERSEDED provisional drafts. KEPT AS A RECORD. NOT ACTIVE.
+
+> ## SUPERSEDED ON 2026-11-02 — GATE F IS CLOSED. DO NOT PROMOTE ANYTHING FROM THIS DIRECTORY.
+>
+> All 15 SCHEMA-01 tables and all three columns now have **real migrations** in
+> `database/migrations/`, numbered `2026_11_02_000100`…`2026_11_02_001500` plus
+> `2026_10_26_000100` (`products.cost_price`) and the corrected
+> `2026_10_12_000105_create_audit_logs_table.php`. Their structure is **not** derived from the
+> drafts below. It comes from `App\Support\Database\GateFProductionSchema`, a verbatim copy of
+> `docs/GATE-F-VERIFIED-SCHEMA.md` section 2, which was generated from `information_schema` on a
+> restored copy of the production dump.
+>
+> **Why these files are still here, and must stay.** They are the record of what the definitions
+> looked like **before** they were measured, and that record is the reason the promoted migrations
+> are generated from a measurement rather than written by hand. Against production the drafts had
+> **22 money-scale contradictions** (every money column declared `decimal(18,4)` where production
+> uses `(15,2)`, `(10,2)`, `(5,2)` and `(20,8)`), **four enums turned into `varchar(255)`** —
+> including `store_wallet_transactions.direction`, the ledger's credit/debit discriminator, made
+> nullable free text — and **none** of production's 3 unique keys or 12 foreign keys. Two of their
+> `down()` methods were measured destroying production data.
+>
+> Two tests also depend on this directory existing and holding `*.php.draft` files:
+> `MigrationHygieneTest::test_gate_f_provisional_drafts_are_not_discoverable_as_migrations` and
+> `GateFSchemaContainmentTest::test_every_gate_f_table_still_has_a_parked_draft`, the second of
+> which asserts this README says **SUPERSEDED**.
+>
+> **If you are looking for the authoritative definition of one of these tables, it is in
+> `database/migrations/`, and the structure it must match is in
+> `docs/GATE-F-VERIFIED-SCHEMA.md`.** Verified on a real server by
+> `tests/Support/Security/bin/verify-gate-f-migrations-on-mysql.php` (29 checks, 0 failed).
+
+---
+
+## The original header, kept verbatim for the record
+
 # GATE F — PROVISIONAL schema drafts. NOT ACTIVE. NOT REVIEWED AGAINST PRODUCTION.
+
+> **ONE DRAFT HAS BEEN PROMOTED AND IS NO LONGER HERE.**
+> `0004_draft_add_cost_price_to_products_table.php.draft` became
+> `database/migrations/2026_10_26_000100_add_cost_price_to_products_table.php` on **2026-10-26**,
+> on the owner's written approval of ledger finding **F58**, scoped to isolated development and
+> test environments with existing data preserved and no production migration run.
+>
+> It was promotable and the other eight are not, for the reason this README gives below: a
+> guarded migration "is safe when the definition is right and a silent trap when it is a guess".
+> `products.cost_price` was READ OFF the production schema on 2026-10-24
+> (`decimal(15,2) NOT NULL DEFAULT 0.00`, `docs/GATE-F-VERIFIED-SCHEMA.md:382`), so its
+> `hasColumn()` guard is a genuine no-op rather than a trap. The remaining drafts' types are
+> still not derivable from `$fillable`, so they stay here.
+>
+> What promoting it fixed: product CREATE was impossible on every database built from this
+> repository, because `store()` validates `cost_price` as required and writes it unconditionally.
+> Driven end to end afterwards, a create through the real UI with both images now succeeds
+> (`docs/development/phase-2/tools/check-product-create-live.cjs`, 9/9), and dropping the column
+> again reproduces the original error exactly.
+>
+> MySQL evidence is PREPARED BUT UNCOLLECTED:
+> `tests/Support/Security/bin/verify-cost-price-migration-on-mysql.php` establishes the type, the
+> enforced scale, the INSERT-time NULL refusal, the production-shaped no-op and the harmless
+> rollback — and the container this was written in has no MySQL server. Run it before anyone
+> calls F58 closed on MySQL.
 
 ## Why this directory is not `database/migrations/`
 
@@ -136,7 +196,7 @@ change: `ALTER TABLE` on a table that already exists, not `CREATE TABLE` for one
 
 | # | Draft | Target | Why it is here |
 |---|---|---|---|
-| 7 | `0007_draft_add_cost_price_to_products_table.php.draft` | `products.cost_price` | Read and written as money by live code, declared by no migration. **Sequence it BEFORE `store_order_financials` (0004)**: with no column, `OrderFinancialService.php:214` reads null, `?? 0` makes the unit cost zero, and every P&L row is all-margin. Creating the financials table first would begin recording confident, wrong profit. |
+| 7 | ~~`0007_draft_add_cost_price_to_products_table.php.draft`~~ **PROMOTED 2026-10-26, see the note at the top of this file** | `products.cost_price` | Read and written as money by live code, declared by no migration. **Sequence it BEFORE `store_order_financials` (0004)**: with no column, `OrderFinancialService.php:214` reads null, `?? 0` makes the unit cost zero, and every P&L row is all-margin. Creating the financials table first would begin recording confident, wrong profit. |
 | 8 | `0008_draft_add_commission_columns_to_delivery_boys_table.php.draft` | `delivery_boys.commission_percentage`, `.is_commission_enabled` | Both `$fillable`, both written unconditionally by `DeliveryBoyApiController` store() and update(), neither declared — so **both handlers 500 for everyone today**. **Promote at the same time as `delivery_earnings` (0005) or before it**, never after: `is_commission_enabled` is what gates the earning write, so creating 0005 first leaves the earnings subsystem silently dead in exactly the way this README warns about. |
 
 The same rule applies to both: the drafts are **inferences**, the production dump wins on every

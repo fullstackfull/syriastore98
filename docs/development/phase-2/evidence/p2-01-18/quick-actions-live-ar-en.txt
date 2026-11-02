@@ -1,0 +1,50 @@
+ok    [en] /order: Ctrl+K opens the quick-action surface  -- open=true
+ok    [en] /order: it is a labelled modal dialog  -- role=dialog aria-modal=true labelled=true
+ok    [en] /order: focus moves into it
+ok    [en] /order: Escape closes it again  -- open=false
+ok    [en] /product: Ctrl+K opens the quick-action surface  -- open=true
+ok    [en] /product: it is a labelled modal dialog  -- role=dialog aria-modal=true labelled=true
+ok    [en] /product: focus moves into it
+ok    [en] /product: Escape closes it again  -- open=false
+ok    [en] /customer: Ctrl+K opens the quick-action surface  -- open=true
+ok    [en] /customer: it is a labelled modal dialog  -- role=dialog aria-modal=true labelled=true
+ok    [en] /customer: focus moves into it
+ok    [en] /customer: Escape closes it again  -- open=false
+ok    [en] /coupon: Ctrl+K opens the quick-action surface  -- open=true
+ok    [en] /coupon: it is a labelled modal dialog  -- role=dialog aria-modal=true labelled=true
+ok    [en] /coupon: focus moves into it
+ok    [en] /coupon: Escape closes it again  -- open=false
+ok    [en] /order-kanban: Ctrl+K opens the quick-action surface  -- open=true
+ok    [en] /order-kanban: it is a labelled modal dialog  -- role=dialog aria-modal=true labelled=true
+ok    [en] /order-kanban: focus moves into it
+ok    [en] /order-kanban: Escape closes it again  -- open=false
+ok    [en] /product/create: Ctrl+K opens the quick-action surface  -- open=true
+ok    [en] /product/create: it is a labelled modal dialog  -- role=dialog aria-modal=true labelled=true
+ok    [en] /product/create: focus moves into it
+ok    [en] /product/create: Escape closes it again  -- open=false
+ok    [ar] /order: Ctrl+K opens the quick-action surface  -- open=true
+ok    [ar] /order: it is a labelled modal dialog  -- role=dialog aria-modal=true labelled=true
+ok    [ar] /order: focus moves into it
+ok    [ar] /order: Escape closes it again  -- open=false
+ok    [ar] /product: Ctrl+K opens the quick-action surface  -- open=true
+ok    [ar] /product: it is a labelled modal dialog  -- role=dialog aria-modal=true labelled=true
+ok    [ar] /product: focus moves into it
+ok    [ar] /product: Escape closes it again  -- open=false
+ok    [ar] /customer: Ctrl+K opens the quick-action surface  -- open=true
+ok    [ar] /customer: it is a labelled modal dialog  -- role=dialog aria-modal=true labelled=true
+ok    [ar] /customer: focus moves into it
+ok    [ar] /customer: Escape closes it again  -- open=false
+ok    [ar] /coupon: Ctrl+K opens the quick-action surface  -- open=true
+ok    [ar] /coupon: it is a labelled modal dialog  -- role=dialog aria-modal=true labelled=true
+ok    [ar] /coupon: focus moves into it
+ok    [ar] /coupon: Escape closes it again  -- open=false
+ok    [ar] /order-kanban: Ctrl+K opens the quick-action surface  -- open=true
+ok    [ar] /order-kanban: it is a labelled modal dialog  -- role=dialog aria-modal=true labelled=true
+ok    [ar] /order-kanban: focus moves into it
+ok    [ar] /order-kanban: Escape closes it again  -- open=false
+ok    [ar] /product/create: Ctrl+K opens the quick-action surface  -- open=true
+ok    [ar] /product/create: it is a labelled modal dialog  -- role=dialog aria-modal=true labelled=true
+ok    [ar] /product/create: focus moves into it
+ok    [ar] /product/create: Escape closes it again  -- open=false
+
+0 check(s) failed

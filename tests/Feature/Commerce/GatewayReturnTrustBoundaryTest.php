@@ -244,6 +244,41 @@ class GatewayReturnTrustBoundaryTest extends SecurityTestCase
     }
 
     /** The shape PaymentService stores, with every money field the handlers read. */
+    /**
+     * A KHALTI VERIFIER THAT CONFIRMS, BOUND SO THESE ROWS STILL REACH WHAT THEY MEASURE.
+     *
+     * D-13 moved the Khalti verification ABOVE the cart read and the stock loop, so a return whose
+     * capture is not confirmed now stops before either. That is the fix; it also means a khalti row
+     * that binds no verifier stops at the payment and never reaches the guard or the loop this test
+     * is about. Before the fix those rows reached the stock loop WITH NO PAYMENT EVIDENCE AT ALL,
+     * which is the exposure D-13 closed -- so the rows were only ever reachable because of the
+     * defect.
+     *
+     * Binding a confirming double is therefore not a relaxation: it makes the fixture a LEGITIMATE
+     * PAID return, which is the only kind that should reach a stock loop, and the row's own claim
+     * is unchanged and now stronger -- the guard fires, or the setting gates the deduction, EVEN
+     * when the payment is good.
+     *
+     * The canned response carries no `amount`, deliberately: `verifyKhaltiCapture()` treats a 200
+     * with no amount field as verified (its own test pins that), so this double is independent of
+     * whatever total the fixture happens to price, and will not start failing if one changes.
+     *
+     * Harmless for the other gateways in these data sets: none of them resolves `Khalti` at all.
+     */
+    private function bindConfirmingKhalti(): void
+    {
+        $this->app->instance(\App\Khalti\Khalti::class, new class extends \App\Khalti\Khalti {
+            public function __construct()
+            {
+            }
+
+            public function verifyPayment($secret, $token, $amount)
+            {
+                return ['status_code' => 200, 'data' => ['idx' => 'trust-boundary-double']];
+            }
+        });
+    }
+
     private function forgedCheckoutState($store, $customerId, array $overrides = []): array
     {
         return array_merge([
@@ -444,10 +479,19 @@ class GatewayReturnTrustBoundaryTest extends SecurityTestCase
      * packages/workdo/FrequentlyProduct/.../FrequentlyProductController.php:88 -- both under
      * plain `web`, both unfixable in place under the vendor guard).
      *
-     * If it reaches the loop, `$remain_stock = $Product->product_stock - $qtyy` ADDS stock, and
-     * the same line reduces every total it is summed into. The basket is worth 1000.00 and nets
-     * positive on purpose, so a guard that only catches a basket summing to nothing would not
-     * satisfy this.
+     * If it reaches the loop, the same line reduces every total it is summed into. The basket is
+     * worth 1000.00 and nets positive on purpose, so a guard that only catches a basket summing
+     * to nothing would not satisfy this.
+     *
+     * THE INVENTORY HALF OF THIS IS NOW WEAKER THAN IT WAS, and that is stated rather than left
+     * for someone to discover. It used to be that `$remain_stock = $Product->product_stock -
+     * $qtyy` would ADD stock for a negative quantity, so the stock assertion below could fail on
+     * its own if the guard were removed. D-13 routed four of these six handlers through
+     * `ProductStockService`, whose `normaliseQuantity()` returns null for a non-positive
+     * quantity — so on those four the decrement is now SKIPPED, and "stock did not move" is true
+     * whether the guard fires or not. The test still fails on guard removal, via the refusal
+     * message, the order count, and `$big`'s stock going 50 -> 49; but the `$cheap` assertion is
+     * a corroborating check on those four rather than an independent one.
      *
      * @dataProvider reachableStockLoopRoutes
      */
@@ -469,6 +513,7 @@ class GatewayReturnTrustBoundaryTest extends SecurityTestCase
 
         $state = $this->forgedCheckoutState($store, $customer->id);
         $before = self::orderCount();
+        $this->bindConfirmingKhalti();
 
         session()->forget('error');
         $this->actingAs($customer, 'customers')
@@ -488,8 +533,11 @@ class GatewayReturnTrustBoundaryTest extends SecurityTestCase
         $this->assertSame($before, self::orderCount(),
             'An order was written for a basket holding a negative line.');
         $this->assertSame(20, (int) Product::withoutGlobalScopes()->find($cheap->id)->product_stock,
-            "The merchant's stock moved for a refused order. It goes UP, not down, because the "
-            . 'decrement subtracts a negative quantity.');
+            "The merchant's stock moved for a refused order. On the two handlers still carrying a "
+            . 'raw `stock - qty` it would go UP, because the decrement subtracts a negative; on '
+            . 'the four D-13 routed through ProductStockService the quantity is normalised away '
+            . 'and nothing moves either way. See the note in this method\'s docblock about which '
+            . 'assertions here are independent and which corroborate.');
         $this->assertSame(50, (int) Product::withoutGlobalScopes()->find($big->id)->product_stock,
             'Stock moved for the legitimate line of a refused basket.');
     }
@@ -1187,6 +1235,7 @@ class GatewayReturnTrustBoundaryTest extends SecurityTestCase
 
         $state = $this->forgedCheckoutState($store, '');
         $before = self::orderCount();
+        $this->bindConfirmingKhalti();
 
         session()->forget('error');
         $this->withCookie('cart', $sid)

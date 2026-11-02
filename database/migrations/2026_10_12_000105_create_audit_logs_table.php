@@ -1,81 +1,116 @@
 <?php
 
+use App\Support\Database\GateFSchemaGuard;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * Create `audit_logs` — row 7 of SCHEMA-01's "tables live code reads and writes that no
- * migration creates".
+ * Create `audit_logs` -- row 7 of SCHEMA-01's "tables live code reads and writes that no migration
+ * creates".
  *
- * WHY THIS ONE IS NOT HELD BEHIND GATE F while the 6 money tables are.
- * GATE F exists because a provisional money-table definition with a GUESSED column type is a
- * silent trap: `Schema::hasTable()` makes the later correct migration a no-op, so the guess
- * becomes permanent and invisible. That reasoning is about types that are NOT derivable.
- * This table is different on both counts:
+ * ================================================================================================
+ *  CORRECTED 2026-11-02 AGAINST THE MEASURED PRODUCTION STRUCTURE. The previous version of this
+ *  file was DERIVED FROM THE MODEL, and the derivation was reasonable and wrong in five places.
+ * ================================================================================================
  *
- *   1. It is not money-bearing. SCHEMA-01 classifies it "no (compliance)".
- *   2. Its column list and types ARE fully derivable from the model, with no guessing:
- *      App\Models\AuditLog declares $fillable at :11-21 (user_id, store_id, action,
- *      subject_type, subject_id, old_values, new_values, ip_address, user_agent) and
- *      $casts at :23-26 ('old_values' => 'array', 'new_values' => 'array'), which fixes
- *      those two as JSON. Nothing is inferred beyond that.
+ * The earlier docblock argued, at length, that this table was safe to create ahead of GATE F
+ * because "its column list and types ARE fully derivable from the model, with no guessing". The
+ * column LIST was. The TYPES were not, and `$fillable` cannot tell you a length. What production
+ * actually has, measured on 2026-10-24 from a restored copy of the dump and recorded in
+ * `docs/GATE-F-VERIFIED-SCHEMA.md` section 2, differed from what this file created in five ways:
  *
- * It is also a live FUNCTIONAL break, not a latent one: App\Models\AuditLog::record() is
- * called from 8 sites in app/Http/Controllers/UserController.php (:131, :246, :283, :333,
- * :410, :426, :511, :569) and now from StoreController as well. Every one of those calls
- * throws "no such table: audit_logs" on a from-source database today. Verified MISSING after
- * a clean `migrate` from zero on sqlite before this migration was added.
+ *   | column / key           | this file used to create | production has                        |
+ *   |------------------------|--------------------------|---------------------------------------|
+ *   | `action`               | `varchar(255)`           | `varchar(100)`                        |
+ *   | `subject_type`         | `varchar(255)`           | `varchar(150)`                        |
+ *   | `created_at`           | `DEFAULT NULL`           | `DEFAULT CURRENT_TIMESTAMP`           |
+ *   | `updated_at`           | `DEFAULT NULL`           | `CURRENT_TIMESTAMP ON UPDATE ...`     |
+ *   | indexes                | one per column, Laravel-named | four, production-named, two of them COMPOSITE |
  *
- * NULLABILITY is taken from the call site, not assumed. ::record() at :28-48 passes
- * `auth()->id()` for user_id and `getCurrentStore()` for store_id, and BOTH are null in the
- * contexts R4-02 names (queued job, console command, storefront, customer/deliveryboy guard).
- * `subject` is an optional parameter defaulting to null, so subject_type/subject_id are
- * nullable too. `action` is a non-nullable string parameter, so that column is NOT NULL.
- * old_values/new_values are written as `$oldValues ?: null`, i.e. explicitly nullable.
+ * The index set is the one that mattered. Production indexes `(store_id, created_at)` together --
+ * the shape every read of this table actually uses, "what happened in this store, most recent
+ * first" -- where this file created a single-column `store_id` index that cannot serve the sort.
+ * It is corrected to the measured structure, names included, because a later migration or a raw
+ * query that names `idx_audit_store_created` must find it.
  *
- * NO FOREIGN KEYS, deliberately. An audit record must outlive the user or store it refers to;
- * a cascade or a restrict would either destroy the compliance trail or block the deletion that
- * the trail is meant to record. user_id and store_id are plain indexed integers.
+ * NONE OF THIS TOUCHED PRODUCTION. `audit_logs` was applied there out of band and this migration
+ * has never run against it; the `hasTable()` check below has always made it a no-op there. The
+ * damage was confined to environments built from this repository -- CI, development, staging -- and
+ * it was silent: a shorter string truncating on MySQL, or a slow audit read, with nothing to say
+ * why.
+ *
+ * WHY IT IS STILL NOT HELD BEHIND GATE F. GATE F exists because a GUESSED money-column type becomes
+ * permanent and invisible once a guarded migration has created the table. Two things make this
+ * table a different case: it is not money-bearing -- SCHEMA-01 classifies it "no (compliance)" --
+ * and since 2026-10-24 its types are MEASURED rather than guessed. The guess is what GATE F
+ * guards against, and there is no longer one here.
+ *
+ * NO FOREIGN KEYS, deliberately, and production agrees -- it declares none either. An audit record
+ * must outlive the user or store it refers to; a cascade would destroy the compliance trail and a
+ * restrict would block the very deletion the trail exists to record. `user_id` and `store_id` are
+ * plain indexed integers.
+ *
+ * NULLABILITY is taken from the call site, and the measurement confirms it.
+ * `AuditLog::record()` passes `auth()->id()` for `user_id` and `getCurrentStore()` for `store_id`,
+ * and both are null in the contexts R4-02 names (queued job, console command, storefront,
+ * customer/deliveryboy guard). `subject` is an optional parameter defaulting to null.
+ * `action` is a non-nullable string parameter, and production has it NOT NULL.
+ *
+ * `old_values` / `new_values` are declared `json()`, which the model's `$casts` requires. On
+ * MariaDB that is `longtext COLLATE utf8mb4_bin` with a `json_valid` CHECK -- exactly what
+ * production shows, both constraints included -- and on SQLite it is `text`, so the same migration
+ * runs under test.
  */
 return new class extends Migration
 {
     public function up(): void
     {
         if (Schema::hasTable('audit_logs')) {
+            // An existing table is compared against the measured production structure rather than
+            // accepted on its name. This matters most for an environment created by the PREVIOUS
+            // version of this file: that table is still there, still the wrong shape, and nothing
+            // would otherwise say so. The guard names every difference and stops.
+            GateFSchemaGuard::assertCompatible('audit_logs');
+
             return;
         }
 
         Schema::create('audit_logs', function (Blueprint $table) {
+            // Production is utf8mb4_general_ci here, while the application default is
+            // utf8mb4_unicode_ci -- so leaving this out would substitute a different collation.
+            $table->charset   = 'utf8mb4';
+            $table->collation = 'utf8mb4_general_ci';
+
             $table->id();
-
-            // Nullable: see the NULLABILITY note above. Indexed because every read of this
-            // table is "what did this user do" or "what happened in this store".
-            $table->unsignedBigInteger('user_id')->nullable()->index();
-            $table->unsignedBigInteger('store_id')->nullable()->index();
-
-            $table->string('action')->index();
-
-            // Matches the model's subject_type / subject_id pair and adds the composite index
-            // that a "history of this record" lookup needs.
-            $table->nullableMorphs('subject');
-
-            // $casts declares these 'array'. json() is the portable choice: Laravel 11 maps it
-            // to native JSON on MySQL/MariaDB and to TEXT on SQLite, so the same migration runs
-            // on the production driver and under test.
+            $table->unsignedBigInteger('user_id')->nullable();
+            $table->unsignedBigInteger('store_id')->nullable();
+            $table->string('action', 100);
+            $table->string('subject_type', 150)->nullable();
+            $table->unsignedBigInteger('subject_id')->nullable();
             $table->json('old_values')->nullable();
             $table->json('new_values')->nullable();
-
-            // 45 chars holds a full IPv6 address including an IPv4-mapped form.
             $table->string('ip_address', 45)->nullable();
             $table->text('user_agent')->nullable();
+            $table->timestamp('created_at')->nullable()->useCurrent();
+            $table->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate();
 
-            $table->timestamps();
+            // The production index set, names and composition included. Two are composite; there
+            // is no single-column store_id or subject_type index, deliberately.
+            $table->index(['store_id', 'created_at'], 'idx_audit_store_created');
+            $table->index(['subject_type', 'subject_id'], 'idx_audit_subject');
+            $table->index('user_id', 'idx_audit_user');
+            $table->index('action', 'idx_audit_action');
         });
     }
 
     public function down(): void
     {
-        Schema::dropIfExists('audit_logs');
+        // DELIBERATELY NOT `dropIfExists`, changed 2026-11-02 along with the structure above.
+        //
+        // `audit_logs` exists in production with live rows -- 29 of them at the time of
+        // measurement -- and it is the compliance trail. A `migrate:rollback` that dropped it would
+        // destroy the record of who did what, which is the one table whose whole purpose is to
+        // survive the events it records. Drop it by hand, on purpose, with a backup, or not at all.
     }
 };

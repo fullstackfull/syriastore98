@@ -9,10 +9,13 @@ use App\Models\PlanUserCoupon;
 use App\Models\Utility;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use App\Http\Controllers\Concerns\RefusesDeferredGateway;
 
 
 class FlutterwaveController extends Controller
 {
+    use RefusesDeferredGateway;
+
     public $secret_key;
     public $flutterwave_public_key;
     public $is_enabled;
@@ -50,6 +53,18 @@ class FlutterwaveController extends Controller
         $coupon_id = '';
         $admin_payments_details = getSuperAdminAllSetting();
         $CURRENCY = !empty($admin_payments_details['CURRENCY_NAME']) ? $admin_payments_details['CURRENCY_NAME'] : 'USD';
+
+        /*
+         * D-33 — NO CHARGE IS MADE AT ALL. Owner correction, 2026-10-31. Same reasoning as
+         * Benefit's: the return-path refusal arrived after Flutterwave could already have
+         * captured, so the refusal moves to before the checkout is built.
+         */
+        $flutterwaveDeferredCheckout = $this->refuseDeferredGatewayCheckout('Flutterwave', $plan, $request->coupon);
+
+        if ($flutterwaveDeferredCheckout !== null) {
+            return $flutterwaveDeferredCheckout;
+        }
+
         if ($plan) {
             $price = $plan->price;
             $coupons = PlanCoupon::whereRaw('BINARY `code` = ?', [$request->coupon])->where('is_active', '1')->first();
@@ -147,6 +162,21 @@ class FlutterwaveController extends Controller
         $plan           = Plan::find($planID);
         $result = array();
         $user = Auth::user();
+
+        /*
+         * D-33 — DEFERRED GATEWAY. A paid plan activation refuses here, BEFORE the verify call,
+         * because this handler's gate is `$response['status'] == 'success'` on the **envelope of
+         * the verify CALL** rather than on the transaction's own state -- so a reachable endpoint
+         * answering at all reads as a successful payment. Establishing the real response contract
+         * needs documentation this environment cannot reach, and requirement 8 forbids guessing
+         * it. Zero-price plans are unaffected; impact is in the trait's header.
+         */
+        $flutterwaveDeferred = $this->refuseDeferredGatewayPaidActivation('Flutterwave', $plan, $request->coupon, $pay_id);
+
+        if ($flutterwaveDeferred !== null) {
+            return $flutterwaveDeferred;
+        }
+
         if ($plan) {
             try {
                 $orderID = time();

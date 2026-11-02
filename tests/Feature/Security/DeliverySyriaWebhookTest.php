@@ -115,13 +115,75 @@ class DeliverySyriaWebhookTest extends SecurityTestCase
     }
 
     /**
-     * A valid token must still be rejected for ANOTHER store's order. This is
-     * the per-store half: a single global secret would let any configured
-     * merchant move any other merchant's orders.
+     * A valid token must still be rejected for ANOTHER store's order. This is the per-store half: a
+     * single global secret would let any configured merchant move any other merchant's orders.
      *
-     * BLOCKED -- see the class docblock. Without zid_orders and without
-     * users.deliverysyria_secret there is no way to construct either a matching
-     * or a mismatching store.
+     * ================================================================================================
+     *  WRITTEN 2026-11-02, WHEN GATE F CLOSED. The previous version ended in
+     *  `$this->fail('The schema now supports this test -- write the positive and cross-store
+     *  cases.')` behind a `hasTable()` skip, so the moment `zid_orders` and `zid_stores` got
+     *  migrations the suite would demand these cases. It did; here they are.
+     * ================================================================================================
+     *
+     * WHY BOTH DIRECTIONS ARE IN ONE TEST. The negative case alone would also pass if the endpoint
+     * refused EVERYTHING -- which is exactly what it did for every caller while the secret column
+     * read as empty on a from-source database. So store B's own token is driven through the same
+     * order immediately afterwards and must succeed. A refusal that is indiscriminate is not
+     * isolation.
+     *
+     * NO EGRESS. The success path calls Zid's change-order-status API, so `Http::fake()` stands in
+     * for it. The faked response is the only thing faked: the credential resolution, the per-store
+     * order lookup and the local `zid_orders` write are all real.
+     *
+     * ================================================================================================
+     *  READ THIS BEFORE QUOTING THE POSITIVE LIMB. THE FIXTURE WRITES AN IDENTIFIER NAMESPACE THAT NO
+     *  PRODUCTION WRITER PRODUCES, so the positive limb proves the SQL and NOT the endpoint.
+     *  Found by independent review, not by this test.
+     * ================================================================================================
+     *
+     * `DeliverySyriaCredential::storeIdsFor()` returns **`stores.id` integers**
+     * (`app/Services/DeliverySyriaCredential.php:48`), and the controller applies them with
+     * `whereIn('store_id', $storeIds)` to `zid_orders`. But `zid_orders.store_id` holds **ZID'S OWN
+     * merchant identifier**, never `stores.id`:
+     *
+     *   - `app/Console/Commands/ZidProcessEvents.php` writes it as
+     *     `(string) data_get($o, 'store_id')`, verbatim from Zid's webhook payload;
+     *   - `app/Http/Controllers/ZidOAuthController.php` writes `zid_stores.store_id` from
+     *     `data_get($profile, 'user.store.id')`, Zid's profile API;
+     *   - `routes/web.php` already says it in as many words: *"zid_stores.store_id is Zid's own
+     *     store id and the row links to a Delivery Syria merchant, not to a StoreSyria tenant, so
+     *     there is no column to write an ownership predicate against"*;
+     *   - `docs/GATE-F-VERIFIED-SCHEMA.md` §2 measured the columns as `varchar(255)` and
+     *     `varchar(191)` with **no foreign key to `stores`**, which is the same fact in schema form.
+     *
+     * So this fixture inserts `(string) $storeB->id` into a column production fills with a 7-digit
+     * Zid id. Two consequences, both stated rather than left for a reader to discover:
+     *
+     * **1. In production this endpoint fails CLOSED, not open.** Once the provider is configured as
+     * the GATE block in `DeliverySyriaStatusController` requires, a genuine callback gets
+     * `404 "Zid order not found."`, because no Zid store id equals a `stores.id`. The sibling
+     * endpoint this shape was copied from -- `Api\DeliverySyriaOrderController` -- applies the same
+     * `$storeIds` to `orders.store_id`, which really **is** `stores.id`. The copy landed on the
+     * wrong table. **That is a finding against the controller and is deliberately NOT repaired
+     * here**: this is a schema change, and altering a webhook's reach belongs in its own package
+     * with the owner's visibility.
+     *
+     * **2. This test's own anti-vacuity argument is therefore weaker than it reads.** The negative
+     * limb would also pass against an endpoint that refused everything -- and in production it
+     * does refuse everything. The positive limb succeeds only because the fixture fabricates the
+     * matching namespace. What the pair really proves is that the `whereIn` confines the lookup to
+     * the ids the credential owns, which is worth proving and is not the same as "a configured
+     * merchant can move its own order".
+     *
+     * **AND A CONSTRAINT ON ANY FUTURE REPAIR, because the obvious repair is the dangerous one.**
+     * Do NOT fix this by writing `stores.id` into `zid_orders.store_id`. On MySQL/MariaDB a
+     * `varchar` column compared against an integer binding is coerced to DOUBLE, so `'2abc' = 2`,
+     * `' 2' = 2`, `'02' = 2` and `'2e0' = 2` are all TRUE -- one merchant's token would move
+     * another merchant's order through a value Zid itself supplied. SQLite applies the opposite
+     * rule, so **this suite structurally cannot see that**: it is the same blind spot `CLAUDE.md`
+     * records as the way P01-SEC-13 survived. A correct repair resolves the merchant's Zid store id
+     * through `zid_stores` (or keys off `zid_stores.ds_merchant_id`), or compares as strings on
+     * both sides.
      */
     public function test_a_valid_token_cannot_move_another_stores_order(): void
     {
@@ -136,8 +198,8 @@ class DeliverySyriaWebhookTest extends SecurityTestCase
 
         // NEW-STALE-DOC-02: this guard no longer fires -- the column IS declared,
         // by 2026_10_12_000103_add_deliverysyria_secret_to_users_table.php:64-66.
-        // It is KEPT so that dropping the column again cannot turn the eventual
-        // positive test into a false pass, and it is asserted rather than assumed
+        // It is KEPT so that dropping the column again cannot turn this positive
+        // test into a false pass, and it is asserted rather than assumed
         // by test_the_delivery_syria_secret_column_is_declared() below.
         if (!Schema::hasColumn('users', 'deliverysyria_secret')) {
             $this->markTestSkipped(
@@ -146,9 +208,68 @@ class DeliverySyriaWebhookTest extends SecurityTestCase
             );
         }
 
-        $this->fail(
-            'The schema now supports this test -- write the positive and '
-            . 'cross-store cases.'
+        $secretA = 'ds-secret-store-a-' . bin2hex(random_bytes(8));
+        $secretB = 'ds-secret-store-b-' . bin2hex(random_bytes(8));
+
+        $merchantA = $this->makeMerchant(['deliverysyria_secret' => $secretA]);
+        $storeA    = $this->makeStore($merchantA);
+        $merchantB = $this->makeMerchant(['deliverysyria_secret' => $secretB]);
+        $storeB    = $this->makeStore($merchantB);
+
+        // The order, and the Zid credentials to push it with, both belong to store B.
+        $zidOrderId = 75604309;
+
+        \DB::table('zid_orders')->insert([
+            'zid_order_id'   => $zidOrderId,
+            'store_id'       => (string) $storeB->id,
+            'raw'            => '{}',
+            'parcel_status'  => 'pending',
+            'status_code'    => 'pending',
+            'created_at'     => now(),
+            'updated_at'     => now(),
+        ]);
+
+        \DB::table('zid_stores')->insert([
+            'store_id'      => (string) $storeB->id,
+            'authorization' => \Illuminate\Support\Facades\Crypt::encryptString('zid-authorization'),
+            'access_token'  => \Illuminate\Support\Facades\Crypt::encryptString('zid-manager-token'),
+            'created_at'    => now(),
+            'updated_at'    => now(),
+        ]);
+
+        \Illuminate\Support\Facades\Http::fake([
+            'api.zid.sa/*' => \Illuminate\Support\Facades\Http::response(['status' => 'ok'], 200),
+        ]);
+
+        // ---- the negative direction: store A's VALID token, store B's order.
+        $this->postJson(
+            self::URI,
+            ['product_order_id' => 'ZID-' . $zidOrderId, 'status' => 6],
+            ['X-Platform' => 'deliverysyria', 'Authorization' => 'Bearer ' . $secretA]
+        )->assertStatus(404)->assertJson(['message' => 'Zid order not found.']);
+
+        $this->assertSame(
+            'pending',
+            (string) \DB::table('zid_orders')->where('zid_order_id', $zidOrderId)->value('status_code'),
+            "Store A's token moved store B's order. The whereIn('store_id', ...) confinement in "
+            . 'DeliverySyriaStatusController is the only thing standing between one merchant and '
+            . "another merchant's fulfilment state."
+        );
+
+        \Illuminate\Support\Facades\Http::assertNothingSent();
+
+        // ---- the positive direction: store B's own token, same order.
+        $this->postJson(
+            self::URI,
+            ['product_order_id' => 'ZID-' . $zidOrderId, 'status' => 6],
+            ['X-Platform' => 'deliverysyria', 'Authorization' => 'Bearer ' . $secretB]
+        )->assertStatus(200)->assertJson(['success' => true]);
+
+        $this->assertSame(
+            'indelivery',
+            (string) \DB::table('zid_orders')->where('zid_order_id', $zidOrderId)->value('status_code'),
+            "Store B's own token did not move store B's order, so the refusal above proves nothing: "
+            . 'an endpoint that refuses everybody is not per-store isolation.'
         );
     }
 

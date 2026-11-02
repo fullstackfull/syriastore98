@@ -26,6 +26,19 @@ class PayUPaymentController extends Controller
 {
     use GuardsPlanActivation;
     use GuardsGatewayReturn;
+
+    /*
+     * D-21 / S32. The three raw read-modify-write stock decrements in this handler now go through
+     * the shared trait, which performs the same subtraction as one atomic conditional UPDATE and
+     * RECORDS it so `restoreStockDecrements()` can give it back on an in-loop exit.
+     *
+     * WHAT IT DOES NOT DO. It does not close the unverified decrement. The inventory in
+     * `docs/development/phase-2/D-21-STOCK-WRITER-INVENTORY.md` measured the ordering on this
+     * path: the stock is taken hundreds of lines BEFORE the payment status is resolved, and the
+     * decrement is conditioned on nothing. Closing that needs E13's durable stock evidence, which
+     * is BLOCKED. This bounds the damage; it does not remove it.
+     */
+    use \App\Http\Controllers\Concerns\AppliesCartStockChanges;
     use \App\Http\Controllers\Concerns\ResolvesPartialPaymentDeposit;
     /* P1-ORD-02: a pending balance is flipped to paid only for the customer who owes it. */
     use \App\Http\Controllers\Concerns\ResolvesPendingPartialPayment;
@@ -211,6 +224,9 @@ class PayUPaymentController extends Controller
 
     public function getProductStatus(Request $request, $slug)
     {
+        $ssOrderWritten = false;
+
+        try {
         $requests_data = (Session::get('request_data'));
         if($requests_data == null)
         {
@@ -471,6 +487,13 @@ class PayUPaymentController extends Controller
         }
 
         if (!empty($products)) {
+            /*
+             * D-21. Decrements applied by the loop below, so they can be GIVEN BACK when a later
+             * line makes this handler return early. Before this, each in-loop
+             * `return $this->error(...)` left every line already processed decremented, with
+             * PayU's money captured and no order row to show for it.
+             */
+            $appliedStockChanges = [];
             foreach ($products as $key => $product) {
                 $prodduct_id_array[] = $product->product_id;
 
@@ -489,9 +512,14 @@ class PayUPaymentController extends Controller
                         if (!empty($ProductStock)) {
                             if($option == true)
                             {
-                                $remain_stock = $ProductStock->stock - $qtyy;
-                                $ProductStock->stock = $remain_stock;
-                                $ProductStock->save();
+                                /*
+                                 * `false` is $rejectOnShortfall, and it is what keeps this bit-identical: on a
+                                 * shortfall the trait re-runs the decrement with overselling allowed, exactly as the
+                                 * raw `stock - qty` did. Refusing is not available here -- PayU has already
+                                 * captured the money by the time this runs, so abandoning the basket would lose a
+                                 * paid order.
+                                 */
+                                $this->decrementStockOrFail($appliedStockChanges, 'variant', $ProductStock, $qtyy, false);
 
                                 if($ProductStock->stock <= $ProductStock->low_stock_threshold)
                                 {
@@ -517,9 +545,9 @@ class PayUPaymentController extends Controller
                             }
                             else
                             {
-                                $remain_stock = $datas->product_stock - $qtyy;
-                                $datas->product_stock = $remain_stock;
-                                $datas->save();
+                                // The variant row exists but is not stock-managed, so the PARENT product is
+                                // decremented through `$datas`.
+                                $this->decrementStockOrFail($appliedStockChanges, 'product', $datas, $qtyy, false);
                                 if($datas->product_stock <= $datas->low_stock_threshold)
                                 {
                                     if (!empty(json_decode($settings['notification'])) && in_array("enable_low_stock",json_decode($settings['notification'])))
@@ -577,14 +605,15 @@ class PayUPaymentController extends Controller
                                 }
                             }
                         } else {
+                            $this->restoreStockDecrements($appliedStockChanges);
+
                             return $this->error(['message' => 'Product not found .']);
                         }
                     } elseif (!empty($product_id) && $product_id != 0) {
 
                         if (!empty($Product)) {
-                            $remain_stock = $Product->product_stock - $qtyy;
-                            $Product->product_stock = $remain_stock;
-                            $Product->save();
+                            // The no-variant leg.
+                            $this->decrementStockOrFail($appliedStockChanges, 'product', $Product, $qtyy, false);
                             if($Product->product_stock <= $Product->low_stock_threshold)
                             {
                                 if (!empty(json_decode($settings['notification'])) && in_array("enable_low_stock",json_decode($settings['notification'])))
@@ -643,9 +672,13 @@ class PayUPaymentController extends Controller
                             }
 
                         } else {
+                            $this->restoreStockDecrements($appliedStockChanges);
+
                             return $this->error(['message' => 'Product not found .']);
                         }
                     } else {
+                        $this->restoreStockDecrements($appliedStockChanges);
+
                         return $this->error(['message' => 'Please fill proper product json field .']);
                     }
                 }
@@ -670,16 +703,23 @@ class PayUPaymentController extends Controller
 
         $product_order_id  = '0' . date('YmdHis');
         $is_guest = 1;
+        // F46. The AUTHENTICATED customer's id, never $request->customer_id. This is one of NINE byte-for-
+        // byte copies of the same checkout block; see app/Services/PaymentService.php for the full
+        // reasoning. The guest branch is untouched, and PosController is deliberately NOT changed -- it
+        // uses the MERCHANT guard and the merchant legitimately picks the customer.
+        $orderCustomerId = ! empty($request->customer_id) ? $request->customer_id : 0;
         if (auth('customers')->check()) {
-            $product_order_id  = $request->customer_id . date('YmdHis');
+            $orderCustomerId = auth('customers')->id();
+            $product_order_id  = $orderCustomerId . date('YmdHis');
             $is_guest = 0;
         }
 
         // add in  Order table  start
         $order = new Order();
+        $order->order_source = Order::SOURCE_STOREFRONT;
         $order->product_order_id = $product_order_id;
         $order->order_date = date('Y-m-d H:i:s');
-        $order->customer_id = !empty($request->customer_id) ? $request->customer_id : 0;
+        $order->customer_id = $orderCustomerId;   // F46
         $order->is_guest = $is_guest;
         $order->product_id = $prodduct_id_array;
         $order->product_json = json_encode($products);
@@ -754,13 +794,26 @@ class PayUPaymentController extends Controller
          * and PaymentService (:2594) already use. This was the literal `'Paid'`, with nothing
          * between the shopper's browser and this line having asked a gateway whether money moved.
          *
-         * NO BEHAVIOUR CHANGES TODAY: this payment type is not in
-         * PaymentVerificationService::ENFORCED_PAYMENT_TYPES, so the call returns exactly the 'Paid'
-         * the literal did. What it buys is that the unverified write is LOGGED -- the exposure
-         * becomes measurable -- and that enforcing this gateway later is a one-line change in that
-         * service instead of another edit here. Flipping the posture is the owner's call, because
-         * recording every gateway order as Pending stops merchant wallets being credited; see the
-         * blocker in docs/security/P01-SECURITY-WORK-QUEUE.md.
+         * THIS PARAGRAPH USED TO SAY THE OPPOSITE OF WHAT THE CODE DOES, and the correction matters
+         * because it is the paragraph a reviewer reads to decide whether this path is safe. It said:
+         * "NO BEHAVIOUR CHANGES TODAY: this payment type is not in ENFORCED_PAYMENT_TYPES, so the call
+         * returns exactly the 'Paid' the literal did", and that flipping the posture was still the
+         * owner's to choose.
+         *
+         * Both were true when written and are now false. The owner CHOSE it -- the Phase 01 final
+         * execution directive, "any unverified gateway payment must remain Pending, never Paid" -- and
+         * resolveOrderPaymentStatus() now returns STATUS_PENDING on its no-record branch. That service's
+         * own docblock quotes the superseded sentence and says so.
+         *
+         * WHAT ACTUALLY HAPPENS HERE: nothing, because this handler is UNROUTED dead code (F94) -- no
+         * route declares PayUPaymentController::getProductStatus, and it would fatal on six unimported
+         * classes if it were wired. Were it live it would record no verification, so its orders would be
+         * PENDING. The recorded disposition for this method is deletion, not maintenance; the paragraph
+         * is corrected rather than left asserting the opposite of the truth in case anyone reads it
+         * before that happens.
+         * Pinned by tests/Feature/Commerce/PaymentStatusDerivationTest.php and
+         * tests/Feature/Commerce/UnverifiedGatewayStaysPendingTest.php, so the claim above is checkable
+         * rather than another comment to trust.
          */
         $order->payment_status = $this->gatewayReturnPaymentStatus(
             $requests_data['payment_type'] ?? null,
@@ -778,6 +831,19 @@ class PayUPaymentController extends Controller
         $order->additional_note = $request->additional_note;
         $order->store_id = $store->id;
         $order->save();
+        /* F237: phase two of the two-phase attribution -- point this request's
+           movements at the order that now exists.
+           NO TRANSACTION ON THIS PATH, stated because the first version of this comment
+           claimed one and independent review found it false: this handler opens none, so
+           the order is already committed when this runs. A crash in between therefore
+           leaves the row unattributed, which reads UNKNOWN and makes the cancellation
+           restore -- the safe direction, and the behaviour that held before F237. Adding
+           a transaction here is a separate change, not part of F237. */
+        $this->attributeStockEvidenceTo($order);
+        /* THE ORDER NOW EXISTS. From here a failure must NOT give the stock back: an order
+           that exists claims its goods, and returning them puts the shopper's items on the
+           shelf for someone else while their order stands. */
+        $ssOrderWritten = true;
         // add in  Order table end
         if (module_is_active('CheckoutAttachment')) {
             \Workdo\CheckoutAttachment\app\Models\CheckoutAttachment::CheckoutAttachment($order, $slug , $request);
@@ -1000,6 +1066,33 @@ class PayUPaymentController extends Controller
             return redirect()->route('order.complete', $slug)->with('data', $order->product_order_id);
         } else {
             return $this->error(['message' => 'Somthing went wrong.']);
+        }
+            } catch (\Throwable $ssStockGuardError) {
+            /*
+             * D-13 — GIVE THE STOCK BACK ONLY IF NO ORDER ROW CLAIMS IT.
+             *
+             * TWO QUESTIONS, NOT ONE, AND THE SECOND WAS MISSING. The flag is set by the
+             * statement AFTER `$order->save()`, so it is still false while the `created` model
+             * event runs -- and `OrderObserver::created()` catches `\Exception` but NOT
+             * `\Throwable`, so a `TypeError` inside `OrderFinancialService::createForOrder()`
+             * escapes it, propagates out of `save()`, and reaches here with the row ALREADY
+             * COMMITTED. On the flag alone that restored the stock behind an order that exists,
+             * which oversells the same units to the next shopper while this order stands -- the
+             * mirror image of the defect D-13 was opened for, introduced by its own fix.
+             *
+             * `$order->exists` is the authoritative answer and closes that window:
+             * `Model::performInsert()` sets it at line 1341 and fires `created` at 1345, so by
+             * the time any `created` listener can throw, `exists` is already true. Measured in
+             * `ApiOrderWriterStockCompensationTest`, which fails on the flag alone.
+             */
+            $ssOrderClaimsIt = ($ssOrderWritten ?? false)
+                || (isset($order) && $order instanceof \App\Models\Order && $order->exists);
+
+            if (! $ssOrderClaimsIt) {
+                $this->restoreStockDecrements($appliedStockChanges ?? []);
+            }
+
+            throw $ssStockGuardError;
         }
     }
 }

@@ -331,8 +331,27 @@ class ReportController extends Controller
             }
         }
 
+        /* PRD-001. A figure with no period is the commonest way a report misleads: the same
+           card reads "412 orders" for the year and for last week, and nothing on it says which.
+           The window is decided by exactly the input this method already dispatched on, so it is
+           named once here rather than in five branches — a per-branch label would be five places
+           for the label and the data to drift apart.
+
+           The column header travels with it for the same reason: the year view's buckets are
+           MONTHS and every other view's are DAYS, and a table that says "Day" over twelve month
+           names is wrong in a way no one notices until they read it aloud. */
+        [$periodLabel, $columnLabel] = $this->chartPeriodLabels($request);
+
         $html = '';
-        $html = view('reports.chart_data', compact('customer', 'guest', 'totaluser', 'customer_total'))->render();
+        $html = view('reports.chart_data', compact(
+            'customer', 'guest', 'totaluser', 'customer_total',
+            'periodLabel', 'columnLabel', 'monthList'
+        ) + [
+            'userTotal' => $userTotal ?? [],
+            'guestTotal' => $guestTotal ?? [],
+            'registerTotal' => $registerTotal ?? [],
+            'newguestTotal' => $newguestTotal ?? [],
+        ])->render();
 
         $return['html'] = $html;
         $return['guestTotal'] = $guestTotal ?? [];
@@ -347,6 +366,47 @@ class ReportController extends Controller
 
 
         return response()->json($return);
+    }
+
+    /**
+     * The period a `reports_chart` answer covers, and what its buckets are called.
+     *
+     * Returns [period, column]. Both are already translated, because they go straight into a
+     * heading and a table header. The caller dispatches on the same `chart_data` value, so this
+     * cannot name a window the data does not cover — which is the whole point of deriving it
+     * once instead of writing a literal into each branch.
+     *
+     * The default branch is a single date or a ` to ` range from the date picker, so it names the
+     * actual dates rather than something vague: "12 Mar 2026" or "1 Mar 2026 – 31 Mar 2026".
+     */
+    private function chartPeriodLabels(Request $request): array
+    {
+        switch ($request->chart_data) {
+            case 'last-month':
+                return [__('Last month') . ' (' . date('F Y', strtotime('first day of last month')) . ')', __('Day')];
+            case 'this-month':
+                return [__('This month') . ' (' . date('F Y') . ')', __('Day')];
+            case 'seven-day':
+                return [__('Last 7 days'), __('Day')];
+            case 'year':
+                return [__('This year') . ' (' . date('Y') . ')', __('Month')];
+        }
+
+        $raw = (string) $request->Date;
+
+        if ($raw === '') {
+            return [__('Today') . ' (' . date('d M Y') . ')', __('Day')];
+        }
+
+        if (str_contains($raw, ' to ')) {
+            $parts = explode(' to ', $raw);
+            $from = date('d M Y', strtotime($parts[0]));
+            $to = date('d M Y', strtotime($parts[count($parts) > 1 ? 1 : 0]));
+
+            return [$from === $to ? $from : $from . ' – ' . $to, __('Day')];
+        }
+
+        return [date('d M Y', strtotime($raw)), __('Day')];
     }
 
     public function getCurrentMonthDates()
@@ -823,7 +883,19 @@ class ReportController extends Controller
         }
 
         $html = '';
-        $html = view('reports.order_chart_data', compact('TotalOrder', 'PurchasedProductItemTotal', 'TotalgrossSale', 'currency', 'TotalNetSale', 'TotalCouponAmount', 'TotalShippingCharge'))->render();
+        [$periodLabel] = $this->chartPeriodLabels($request);
+
+        /* The series go into the view too, so the charts can ship their numbers as tables. They
+           were already being returned to the browser below; the view simply never saw them. */
+        $html = view('reports.order_chart_data', compact(
+            'TotalOrder', 'PurchasedProductItemTotal', 'TotalgrossSale', 'currency',
+            'TotalNetSale', 'TotalCouponAmount', 'TotalShippingCharge', 'periodLabel'
+        ) + [
+            'labels' => $monthList ?? [],
+            'grossSeries' => $GrossSaleTotal ?? [],
+            'netSeries' => $NetSaleTotal ?? [],
+            'orderSeries' => $TotalOrderCount ?? [],
+        ])->render();
 
         $return['html'] = $html;
 
@@ -1306,7 +1378,18 @@ class ReportController extends Controller
         }
 
         $html = '';
-        $html = view('reports.order_bar_chart_data', compact('TotalOrder', 'PurchasedProductItemTotal', 'TotalgrossSale', 'currency', 'TotalNetSale', 'TotalCouponAmount', 'TotalShippingCharge'))->render();
+        [$periodLabel] = $this->chartPeriodLabels($request);
+
+        $html = view('reports.order_bar_chart_data', compact(
+            'TotalOrder', 'PurchasedProductItemTotal', 'TotalgrossSale', 'currency',
+            'TotalNetSale', 'TotalCouponAmount', 'TotalShippingCharge', 'periodLabel'
+        ) + [
+            'labels' => $monthList ?? [],
+            'grossSeries' => $GrossSaleTotal ?? [],
+            'netSeries' => $NetSaleTotal ?? [],
+            'orderSeries' => $TotalOrderCount ?? [],
+            'itemSeries' => $PurchasedItemTotal ?? [],
+        ])->render();
 
         $return['html'] = $html;
 
@@ -1355,7 +1438,12 @@ class ReportController extends Controller
             $NetSaleTotal = array_fill(0, 31, 0);
             $PurchasedItemTotal = array_fill(0, 31, 0);
             if (empty($selectedProducts)) {
-                $selectedProducts = Product::all()->where('store_id', getCurrentStore())->pluck('id');
+                /* `Product::all()->where(...)` loaded EVERY tenant's catalogue into memory and
+                   filtered it in PHP. `Product` is not in `config/tenancy.php`'s `scoped_models`,
+                   so `all()` really is every row in the table; the PHP filter then kept the right
+                   ones, so nothing leaked — but a report on a store with ten products read the
+                   whole platform's product table to find them. The predicate belongs in SQL. */
+                $selectedProducts = Product::where('store_id', getCurrentStore())->pluck('id');
             }
             $PurchasedItem = 0;
             $Totalsale = 0;
@@ -1436,7 +1524,8 @@ class ReportController extends Controller
             $Totalsale = 0;
             $PurchasedItem = 0;
             if (empty($selectedProducts)) {
-                $selectedProducts = Product::all()->where('store_id', getCurrentStore())->pluck('id');
+                /* Scoped in SQL, not in PHP — see the note at the first of these. */
+                $selectedProducts = Product::where('store_id', getCurrentStore())->pluck('id');
             }
             if (!empty($selectedProducts)) {
                 foreach ($selectedProducts as $productId) {
@@ -1559,7 +1648,8 @@ class ReportController extends Controller
             $NetSaleTotal = [];
             $PurchasedItemTotal = [];
             if (empty($selectedProducts)) {
-                $selectedProducts = Product::all()->where('store_id', getCurrentStore())->pluck('id');
+                /* Scoped in SQL, not in PHP — see the note at the first of these. */
+                $selectedProducts = Product::where('store_id', getCurrentStore())->pluck('id');
             }
             $Totalsale = 0;
             $PurchasedItem = 0;
@@ -1711,7 +1801,12 @@ class ReportController extends Controller
 
         }
         $html = '';
-        $html = view('reports.order_product_chart', compact('currency', 'Totalsale', 'PurchasedItem'))->render();
+        [$periodLabel] = $this->chartPeriodLabels($request);
+        /* The SERIES go into the view as well, so the chart can ship a real table instead of
+           an ApexCharts container with nothing behind it. They were already being returned to
+           the browser in the JSON below; the view simply never saw them. */
+        $html = view('reports.order_product_chart', compact('currency', 'Totalsale', 'PurchasedItem', 'periodLabel')
+            + ['labels' => $monthList ?? [], 'netSeries' => $NetSaleTotal ?? [], 'itemSeries' => $PurchasedItemTotal ?? []])->render();
 
         $return['html'] = $html;
 
@@ -1755,7 +1850,8 @@ class ReportController extends Controller
             $daysInPreviousMonth = date('j', strtotime('last day of last month'));
 
             if (empty($selectedCategory)) {
-                $selectedCategory = Category::all()->where('store_id', getCurrentStore())->pluck('id');
+                /* Scoped in SQL, not in PHP — see the note at the first of these. */
+                $selectedCategory = Category::where('store_id', getCurrentStore())->pluck('id');
             }
 
             $categoryNetSales = [];
@@ -1828,7 +1924,8 @@ class ReportController extends Controller
             $daysInCurrentMonth = date('j', strtotime('last day of this month'));
 
             if (empty($selectedCategory)) {
-                $selectedCategory = Category::all()->where('store_id', getCurrentStore())->pluck('id');
+                /* Scoped in SQL, not in PHP — see the note at the first of these. */
+                $selectedCategory = Category::where('store_id', getCurrentStore())->pluck('id');
             }
 
             $categoryNetSales = [];
@@ -1986,7 +2083,8 @@ class ReportController extends Controller
             $totalNetSalesAllCategories = array_fill(0, count($monthList), 0);
 
             if (empty($selectedCategory)) {
-                $selectedCategory = Category::all()->where('store_id', getCurrentStore())->pluck('id');
+                /* Scoped in SQL, not in PHP — see the note at the first of these. */
+                $selectedCategory = Category::where('store_id', getCurrentStore())->pluck('id');
             }
 
             $categoryNetSales = [];
@@ -2161,7 +2259,9 @@ class ReportController extends Controller
             }
         }
         $html = '';
-        $html = view('reports.order_category_chart', compact('currency', 'NetSalesofcategory'))->render();
+        [$periodLabel] = $this->chartPeriodLabels($request);
+        $html = view('reports.order_category_chart', compact('currency', 'NetSalesofcategory', 'periodLabel')
+            + ['labels' => $monthList ?? [], 'netSeries' => $NetSaleTotal ?? []])->render();
 
         $return['html'] = $html;
 
@@ -2614,7 +2714,9 @@ class ReportController extends Controller
             $NetSalesofbrand['All Brands'] = array_sum($totalNetSalesAllBrands);
             $monthList = $dayList; // Use dayList to represent the selected date range
         }
-        $html = view('reports.order_brand_chart', compact('currency', 'NetSalesofbrand'))->render();
+        [$periodLabel] = $this->chartPeriodLabels($request);
+        $html = view('reports.order_brand_chart', compact('currency', 'NetSalesofbrand', 'periodLabel')
+            + ['labels' => $monthList ?? [], 'netSeries' => $NetSaleTotal ?? []])->render();
 
         $return = [
             'html' => $html,
@@ -2642,34 +2744,7 @@ class ReportController extends Controller
         $productQuery = Product::where('store_id', getCurrentStore());
         $orderQuery = Order::where('store_id', getCurrentStore());
 
-        $topSellingProductIds = (clone $orderQuery)->get()
-            ->pluck('product_id')
-            ->flatMap(function ($productIds) {
-                return explode(',', $productIds);
-            })
-            ->map(function ($productId) {
-                return (int) $productId;
-            })
-            ->groupBy(function ($productId) {
-                return $productId;
-            })
-            ->map(function ($group) {
-                return $group->count();
-            })
-            ->sortDesc()
-            ->take(5)
-            ->keys();
-
-        $topSellingProducts = (clone $productQuery)->whereIn('id', $topSellingProductIds->toArray())->get();
-
-        $productNames = $topSellingProducts->pluck('name')->toArray();
-        $productCounts = $topSellingProductIds->map(function ($id) use ($orderQuery) {
-            return $orderQuery->get()->pluck('product_id')->flatMap(function ($productIds) {
-                return explode(',', $productIds);
-            })->filter(function ($productId) use ($id) {
-                return $productId == $id;
-            })->count();
-        })->values()->toArray();
+        [$productNames, $productCounts] = $this->topSellingProducts($orderQuery, $productQuery);
 
         $top_sales = Category::select(
             'categories.name as sale_name',
@@ -2711,35 +2786,128 @@ class ReportController extends Controller
             'top_sales' => $top_sales,
             'productNames' => $productNames,
             'productCounts' => $productCounts,
-            'MainCategoryList' => Product::pluck('name', 'id')
+            'periodLabel' => __('All time'),
         ]);
+    }
+
+    /**
+     * The order-status breakdown.
+     *
+     * THREE THINGS WERE WRONG, and the first is the one that matters.
+     *
+     * 1. IT COUNTED SEVEN OF THE NINE STATUSES. The map was a fresh literal `0 => 'Pending' …
+     *    6 => 'Shipped'`, while `delivered_status` carries nine values: `ORDER_STATUS_PARTIALLY_PAID`
+     *    (7) and `ORDER_STATUS_PRE_ORDER` (8) existed and were simply absent, so for any store
+     *    that uses them the pie, the bar and the line each showed a breakdown whose parts did
+     *    not sum to the store's order count — and nothing on the screen said so. This is the
+     *    same defect `HomeController::getOrderCounts()` already fixed for the dashboard, down to
+     *    the `other` catch-all: a value outside 0-8 lands there and stays visible instead of
+     *    disappearing. The labels now come from HomeController's constants rather than a second
+     *    literal map, so the two cannot drift again.
+     *
+     * 2. IT STATED NO PERIOD. The query has no date filter at all — it is every order the store
+     *    has ever taken — and the screen read as though it were current (PRD-001). It says
+     *    "All time" now, because that is what it is.
+     *
+     * 3. THE LABELS WERE HARDCODED ENGLISH, so an Arabic merchant read English statuses on an
+     *    otherwise Arabic page. They go through `__()` now.
+     *
+     * The wording of status 2 is deliberately `__('Cancel')` and not `__('Cancelled')`, which is
+     * the better word: `Order::getDeliveredStatusStringAttribute()` says `Cancel`, and
+     * `tests/Feature/ApiContract/OrderStatusTextTest.php` PINS that for the Flutter app. Using
+     * the better word here would make the report disagree with the order list and with the app.
+     * The wording is a contract question, recorded in the ledger, not this slice's to change.
+     */
+    /**
+     * The five products appearing in the most orders, as two arrays the chart can consume.
+     *
+     * THE LABELS USED TO BE ATTACHED TO THE WRONG SLICES, and this is extracted so that can be
+     * tested: the rest of `top_product()` joins with `SUBSTRING_INDEX`, which SQLite does not
+     * have, so the screen cannot be rendered in the suite at all.
+     *
+     * What was wrong. The ids came out sorted by COUNT DESCENDING; the names then came from
+     * `Product::whereIn('id', $ids)->get()->pluck('name')`, which returns rows in whatever order
+     * the database gives — id order, in practice — while the counts stayed in count order. The
+     * chart paired name[i] with count[j] for two different products, and nothing on the screen
+     * could reveal it, because it was a pie in an empty div with no table to check against.
+     *
+     * Worse, the two arrays could be different LENGTHS: `whereIn` drops an id whose product has
+     * been deleted or belongs to another store, while the counts array always had five, so every
+     * slice after the gap shifted by one.
+     *
+     * Both are gone because the name and the count are carried together, keyed by id. The counts
+     * are also computed from ONE fetch rather than re-fetching every order inside a loop over
+     * five ids — six full table reads for one chart.
+     *
+     * `$productQuery` is already scoped to the caller's store, which matters: `Product` is NOT in
+     * `config/tenancy.php`'s `scoped_models`, so an unscoped `Product::find()` reaches every
+     * tenant's catalogue. An id that resolves to no product of this store is skipped rather than
+     * named.
+     *
+     * @return array{0: list<string>, 1: list<int>} [names, counts], index-aligned
+     */
+    private function topSellingProducts($orderQuery, $productQuery): array
+    {
+        $countsById = (clone $orderQuery)->pluck('product_id')
+            ->flatMap(fn ($ids) => explode(',', (string) $ids))
+            ->map(fn ($id) => (int) trim($id))
+            ->filter(fn ($id) => $id > 0)
+            ->countBy()
+            ->sortDesc()
+            ->take(5);
+
+        $namesById = (clone $productQuery)->whereIn('id', $countsById->keys()->all())
+            ->pluck('name', 'id');
+
+        $names = [];
+        $counts = [];
+        foreach ($countsById as $id => $count) {
+            if (! isset($namesById[$id])) {
+                continue;
+            }
+            $names[] = (string) $namesById[$id];
+            $counts[] = (int) $count;
+        }
+
+        return [$names, $counts];
     }
 
     public function showOrderStatusReport()
     {
-        $order_status = \App\Models\Order::where('store_id', getCurrentStore())->orderBy('id', 'DESC')->get(); // Assuming the Order model is being used
-
-        $order_statusMethods = $order_status->groupBy('delivered_status')->map(function ($orders) {
-            return $orders->count();
-        });
-
-        $statusLabels = [
-            0 => 'Pending',
-            1 => 'Delivered',
-            2 => 'Cancel',
-            3 => 'Return',
-            4 => 'Confirm Order',
-            5 => 'PickUp',
-            6 => 'Shipped'
+        $labels = [
+            \App\Http\Controllers\HomeController::ORDER_STATUS_PENDING        => __('Pending'),
+            \App\Http\Controllers\HomeController::ORDER_STATUS_DELIVERED      => __('Delivered'),
+            \App\Http\Controllers\HomeController::ORDER_STATUS_CANCEL         => __('Cancel'),
+            \App\Http\Controllers\HomeController::ORDER_STATUS_RETURN         => __('Return'),
+            \App\Http\Controllers\HomeController::ORDER_STATUS_CONFIRMED      => __('Confirmed'),
+            \App\Http\Controllers\HomeController::ORDER_STATUS_PICKED_UP      => __('Picked Up'),
+            \App\Http\Controllers\HomeController::ORDER_STATUS_SHIPPED        => __('Shipped'),
+            \App\Http\Controllers\HomeController::ORDER_STATUS_PARTIALLY_PAID => __('Partially Paid'),
+            \App\Http\Controllers\HomeController::ORDER_STATUS_PRE_ORDER      => __('Pre Order'),
         ];
 
-        $order_statusCounts = [];
-        foreach ($statusLabels as $key => $label) {
-            $order_statusCounts[$label] = $order_statusMethods->get($key, 0);
+        $byStatus = Order::where('store_id', getCurrentStore())
+            ->selectRaw('delivered_status, COUNT(*) as aggregate')
+            ->groupBy('delivered_status')
+            ->pluck('aggregate', 'delivered_status');
+
+        $orderStatusCounts = [];
+        foreach ($labels as $value => $label) {
+            $orderStatusCounts[$label] = (int) ($byStatus[$value] ?? 0);
+        }
+
+        /* Anything outside 0-8. Shown only when it is non-zero, so a healthy store does not
+           carry an empty bucket, but never silently dropped. */
+        $accounted = array_sum($orderStatusCounts);
+        $total = (int) $byStatus->sum();
+        if ($total > $accounted) {
+            $orderStatusCounts[__('Other')] = $total - $accounted;
         }
 
         return view('reports.orderStatusReport', [
-            'orderStatusCounts' => $order_statusCounts
+            'orderStatusCounts' => $orderStatusCounts,
+            'orderStatusTotal' => $total,
+            'periodLabel' => __('All time'),
         ]);
     }
 
@@ -2967,21 +3135,79 @@ class ReportController extends Controller
 
         $total = Order::where('store_id', getCurrentStore())->count();
 
+        /* TWO NUMBERS THAT COUNT DIFFERENT THINGS USED TO SIT SIDE BY SIDE WITH NO EXPLANATION.
+           `$total` is every order the store has taken. `$billingData` counts only orders that
+           have a billing-detail row whose country resolves — so the per-country figures sum to
+           something at or below `$total`, and the card showed "Total Order Is: N" beside a chart
+           that did not add up to N. A merchant reading that concludes either the chart is broken
+           or their orders are missing. Both numbers are now named for what they are, and the
+           difference is stated rather than left to be inferred. */
+        $withCountry = (int) $billingData->sum('total_orders');
+
         $formattedData = [];
+        $unmapped = 0;
         foreach ($billingData as $data) {
             $countryCode = $countryCodeMap[$data->country_name] ?? null;
             if ($countryCode) {
                 $formattedData[$countryCode] = ['pageviews' => $data->total_orders];
+                continue;
             }
+
+            /* A country the hardcoded map does not know used to be dropped with no `else` at
+               all, so its orders vanished from the map and from any sum taken off it. It is
+               counted here instead: the map still cannot draw it, but the reader is told it
+               exists. */
+            $unmapped += (int) $data->total_orders;
         }
-        // Convert to JSON (optional if you are passing to a view)
-        $jsonFormattedData = json_encode($formattedData);
 
         return view('reports.order_country_Report', [
             'total' => $total,
+            'withCountry' => $withCountry,
+            'unmapped' => $unmapped,
             'billingData' => $billingData,
-            'formattedData' => $formattedData
+            'formattedData' => $formattedData,
+            'periodLabel' => __('All time'),
         ]);
+    }
+
+    /*
+     * P2-05-3. THE STOCK BADGE A REPORT ROW SHOWS, derived from the one shared rule.
+     * ============================================================================
+     *
+     * MEASURED on the live report before this existed. The status column -- header
+     * "Stock status" -- was EMPTY on the low-stock and most-stocked tabs for every row, and the
+     * out-of-stock tab showed a raw Bootstrap `bg-light-danger` pill. The other two were blank
+     * because the partials gated on `stock_order_status` being one of four values and the products
+     * carry NULL; had it read `allow`, the LOW-STOCK report would have shown a badge reading
+     * **"In stock"** on every low row. Either way the column answered a different question from
+     * the tab it sits in.
+     *
+     * `stock_order_status` is the merchant's BACKORDER POLICY (allow / not_allow), not a stock
+     * level. Reading it as a level is the same category error as the two predicates this slice
+     * already corrected: the setting means one thing and the screen said another.
+     *
+     * So the state is computed HERE, once, by `ProductDataTable::trackedStockState()` -- the same
+     * function the product list's badge and the list's own filter use -- and handed to the view as
+     * `stock_state`. The view stays dumb. `stock_status` is left in the payload untouched, because
+     * the datatables column definitions still reference it and this slice removes no functionality.
+     *
+     * `stock_effective_low` repeats the rule in a figure, so the badge's title can state the
+     * threshold the verdict was reached against rather than leaving the merchant to infer it --
+     * exactly what `ProductDataTable` does for its own badge.
+     *
+     * @param  array<string,mixed>  $row
+     * @return array<string,mixed>
+     */
+    private function withStockState(array $row, int $stock, $lowThreshold, int $fallback): array
+    {
+        $row['stock_state'] = \App\DataTables\ProductDataTable::trackedStockState(
+            $stock,
+            $lowThreshold,
+            $fallback
+        );
+        $row['stock_effective_low'] = (int) ($lowThreshold ?: 0) ?: $fallback;
+
+        return $row;
     }
 
     public function getLowStockProducts(Request $request)
@@ -2990,11 +3216,43 @@ class ReportController extends Controller
         $products = Product::where('store_id', getCurrentStore())
             ->get();
 
+        /*
+         * P2-05-3. The fallback threshold, resolved FROM THE SAME STORE AS THE PRODUCTS ABOVE.
+         * P1-SEC-26 recorded why the explicit store argument matters and the sibling
+         * getOutOfStockProducts() already carries that fix: a no-argument getAdminAllSetting()
+         * resolves from the CALLER, and for a staff member it walks up to created_by and reads the
+         * OWNER's current_store -- so a staff member whose owner is in another store would judge
+         * this store's stock by that other store's threshold. This report had no fallback at all,
+         * so it had no such bug to fix; introducing the fallback introduces the hazard, and it is
+         * closed in the same line that creates it.
+         */
+        $lowStockFallback = \App\DataTables\ProductDataTable::stockFallbackThreshold(
+            getAdminAllSetting(null, getCurrentStore())
+        );
+
         $low_stock_products = [];
 
         foreach ($products as $product) {
             if ($product->variant_product == 0) {
-                if ($product->track_stock == 1 && $product->product_stock != 0 && $product->product_stock > 0 && $product->product_stock <= $product->low_stock_threshold) {
+                /*
+                 * P2-05-3. ONE RULE, SHARED WITH THE PRODUCT LIST. This was
+                 * `$product->product_stock <= $product->low_stock_threshold` -- a direct
+                 * comparison with NO FALLBACK -- while the product list treats a per-product
+                 * threshold of 0 as UNSET and falls back to the store's out_of_stock_threshold
+                 * (ProductDataTable::trackedStockState, shared with the list's own filter so the
+                 * badge and the filter cannot disagree).
+                 *
+                 * MEASURED CONSEQUENCE, with low_stock_threshold = 0, stock = 3 and a store
+                 * threshold of 5: the product list said LOW STOCK, this report OMITTED the product
+                 * (3 <= 0 is false), and the out-of-stock report LISTED it as out. Three answers
+                 * for one row of one table. StockReportPredicateTest drives all three.
+                 */
+                if ($product->track_stock == 1
+                    && \App\DataTables\ProductDataTable::trackedStockState(
+                        (int) $product->product_stock,
+                        $product->low_stock_threshold,
+                        $lowStockFallback
+                    ) === 'low') {
                     $low_stock_product = [
                         'product_name' => $product->name,
                         'stock_status' => $product->stock_order_status,
@@ -3002,7 +3260,12 @@ class ReportController extends Controller
                         'category' => $product->ProductData->name,
                         'product_id' => $product->id,
                     ];
-                    $low_stock_products[] = $low_stock_product;
+                    $low_stock_products[] = $this->withStockState(
+                        $low_stock_product,
+                        (int) $product->product_stock,
+                        $product->low_stock_threshold,
+                        $lowStockFallback
+                    );
                 }
             } else {
                 $product_stocks = ProductVariant::where('product_id', $product->id)->get();
@@ -3010,7 +3273,20 @@ class ReportController extends Controller
                 foreach ($product_stocks as $stock) {
                     $variationOptions = explode(',', $stock->variation_option);
 
-                    if (in_array('manage_stock', $variationOptions) && $stock->stock != 0 && $stock->stock > 0 && $stock->stock <= $stock->low_stock_threshold) {
+                    /*
+                     * P2-05-3, the variant twin. `manage_stock` in `variation_option` is the
+                     * variant's equivalent of the parent's `track_stock`, so it stays; the
+                     * comparison moves onto the shared rule with the SAME fallback. The product
+                     * list renders "In Variant" for a variant product -- it makes no stock claim
+                     * at the parent row and defers to the variant -- so the variant row is the
+                     * authority here, judged by the same predicate.
+                     */
+                    if (in_array('manage_stock', $variationOptions)
+                        && \App\DataTables\ProductDataTable::trackedStockState(
+                            (int) $stock->stock,
+                            $stock->low_stock_threshold,
+                            $lowStockFallback
+                        ) === 'low') {
                         $low_stock_product = [
                             'product_name' => $product->name . '(' . $stock->variant . ')',
                             'category' => $product->ProductData->name,
@@ -3025,7 +3301,12 @@ class ReportController extends Controller
 
                         $low_stock_product['stock'] = $stock->stock;
 
-                        $low_stock_products[] = $low_stock_product;
+                        $low_stock_products[] = $this->withStockState(
+                            $low_stock_product,
+                            (int) $stock->stock,
+                            $stock->low_stock_threshold,
+                            $lowStockFallback
+                        );
                     }
                 }
             }
@@ -3051,9 +3332,37 @@ class ReportController extends Controller
         // staff member whose owner is currently in another store judged this store's stock by that other store's threshold.
         $settings = getAdminAllSetting(null, getCurrentStore());
 
+        /*
+         * P2-05-3. The same fallback the product list uses, off the store-scoped settings above --
+         * and IT DOES NOT AFFECT THIS REPORT'S VERDICT, which is worth stating so that nobody
+         * later "fixes" an out-of-stock complaint by tuning this setting.
+         *
+         * `trackedStockState()` returns 'out' on `$stock <= 0` alone; the threshold only moves the
+         * 'low' boundary. MEASURED: forcing this value to 99 changes nothing -- all five cases in
+         * StockReportPredicateTest still pass -- while forcing the LOW report's fallback to 0 fails
+         * it. So it is passed for one shared call shape across both reports, not because the out
+         * verdict depends on it. The setting is a low-stock fallback; reading it as an
+         * out-of-stock LEVEL is exactly the defect this slice removed.
+         */
+        $outStockFallback = \App\DataTables\ProductDataTable::stockFallbackThreshold($settings);
+
         foreach ($products as $product) {
             if ($product->variant_product == 0) {
-                if ($product->track_stock == 1 && isset($settings['out_of_stock_threshold']) && $product->product_stock <= $settings['out_of_stock_threshold']) {
+                /*
+                 * P2-05-3. THE SAME SHARED RULE, and this leg was wrong in the OPPOSITE direction
+                 * to the low-stock report. It used the store's out_of_stock_threshold as the OUT
+                 * boundary, so a product with 3 units against a threshold of 5 was reported out of
+                 * stock -- while the product list calls a tracked product out only at ZERO and
+                 * calls that one LOW. The setting is a LOW-stock fallback in the list's rule, not
+                 * an out-of-stock level, and reading it as one is what produced a product listed
+                 * simultaneously as low on the catalogue and out in the report.
+                 */
+                if ($product->track_stock == 1
+                    && \App\DataTables\ProductDataTable::trackedStockState(
+                        (int) $product->product_stock,
+                        $product->low_stock_threshold,
+                        $outStockFallback
+                    ) === 'out') {
                     $out_of_stock_product = [
                         'product_name' => $product->name,
                         'stock_status' => $product->stock_order_status,
@@ -3061,14 +3370,25 @@ class ReportController extends Controller
                         'category' => $product->ProductData->name,
                         'product_id' => $product->id,
                     ];
-                    $out_of_stock_products[] = $out_of_stock_product;
+                    $out_of_stock_products[] = $this->withStockState(
+                        $out_of_stock_product,
+                        (int) $product->product_stock,
+                        $product->low_stock_threshold,
+                        $outStockFallback
+                    );
                 }
             } else {
                 $product_stocks = ProductVariant::where('product_id', $product->id)->get();
 
                 foreach ($product_stocks as $stock) {
                     $variationOptions = explode(',', $stock->variation_option);
-                    if (in_array('manage_stock', $variationOptions) && isset($settings['out_of_stock_threshold']) && $stock->stock <= $settings['out_of_stock_threshold']) {
+                    /* P2-05-3, the variant twin of the leg above. Same rule, same fallback. */
+                    if (in_array('manage_stock', $variationOptions)
+                        && \App\DataTables\ProductDataTable::trackedStockState(
+                            (int) $stock->stock,
+                            $stock->low_stock_threshold,
+                            $outStockFallback
+                        ) === 'out') {
                         $out_of_stock_product = [
                             'product_name' => $product->name . '(' . $stock->variant . ')',
                             'stock_status' => $stock->stock_order_status,
@@ -3076,7 +3396,12 @@ class ReportController extends Controller
                             'category' => $product->ProductData->name,
                             'product_id' => $product->id,
                         ];
-                        $out_of_stock_products[] = $out_of_stock_product;
+                        $out_of_stock_products[] = $this->withStockState(
+                            $out_of_stock_product,
+                            (int) $stock->stock,
+                            $stock->low_stock_threshold,
+                            $outStockFallback
+                        );
                     }
                 }
             }
@@ -3099,16 +3424,29 @@ class ReportController extends Controller
         $most_stocked_products = [];
         $product_data = [];
 
+        /*
+         * P2-05-3. The same fallback the other two tabs and the product list use, resolved from the
+         * SAME store as the products -- see getLowStockProducts() for why the explicit store
+         * argument is load-bearing (P1-SEC-26).
+         *
+         * This report's MEMBERSHIP is deliberately NOT changed: it ranks by quantity and takes the
+         * top ten, which is a different question from "is this low". Only the status BADGE moves
+         * onto the shared rule, because that badge was empty for every row.
+         */
+        $mostStockedFallback = \App\DataTables\ProductDataTable::stockFallbackThreshold(
+            getAdminAllSetting(null, getCurrentStore())
+        );
+
         foreach ($products as $product) {
             if ($product->variant_product == 0) {
                 if ($product->track_stock == 1 && $product->product_stock != 0 && $product->product_stock > 0) {
-                    $product_data[] = [
+                    $product_data[] = $this->withStockState([
                         'product_name' => $product->name,
                         'stock_status' => $product->stock_order_status,
                         'stock' => $product->product_stock, // Use product_stock here
                         'category' => $product->ProductData->name,
                         'product_id' => $product->id,
-                    ];
+                    ], (int) $product->product_stock, $product->low_stock_threshold, $mostStockedFallback);
                 }
             } else {
                 $product_stocks = ProductVariant::where('product_id', $product->id)->get();
@@ -3128,6 +3466,19 @@ class ReportController extends Controller
                         }
 
                         $product_data[count($product_data) - 1]['stock'] = $stock->stock; // Use stock here
+
+                        /*
+                         * P2-05-3. Decorated AFTER the index mutations above, not at the push: this
+                         * leg builds the row and then adds `stock_status` and `stock` by index, so
+                         * decorating at the push would hand the helper a row without its quantity
+                         * and the badge's title would read a zero it never measured.
+                         */
+                        $product_data[count($product_data) - 1] = $this->withStockState(
+                            $product_data[count($product_data) - 1],
+                            (int) $stock->stock,
+                            $stock->low_stock_threshold,
+                            $mostStockedFallback
+                        );
                     }
                 }
             }

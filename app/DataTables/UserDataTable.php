@@ -3,6 +3,7 @@
 namespace App\DataTables;
 
 use App\Models\User;
+use App\Support\DsBadge;
 use Illuminate\Database\Eloquent\Builder as QueryBuilder;
 use Yajra\DataTables\EloquentDataTable;
 use Yajra\DataTables\Html\Builder as HtmlBuilder;
@@ -23,12 +24,33 @@ class UserDataTable extends DataTable
     {
         return (new EloquentDataTable($query))
             ->addIndexColumn()
+            /*
+             * P2-05-5. THREE THINGS WERE WRONG WITH ONE CELL, and the live sweep found all three.
+             *
+             * It was `<a><img … id="blah3"></a>`:
+             *   - an ANCHOR WITH NO href and no text, so every row contributed a control with no
+             *     accessible name (3 of them on the dev fixture, in all eight configurations);
+             *   - `id="blah3"` emitted ONCE PER ROW, so the document carried duplicate ids —
+             *     which makes every `for=` and `getElementById` on the page ambiguous;
+             *   - the image had no `alt`.
+             *
+             * The avatar is decoration beside the name column, not a link and not information, so
+             * it is a bare `<img>` with an empty alt and `aria-hidden`: announced by nothing,
+             * which is correct, rather than announced as an unnamed link. The URL is escaped
+             * because this cell is built by concatenation inside a raw column.
+             */
             ->editColumn('avatar', function (User $user) {
                 $avatarUrl = check_file($user->profile_image) ? get_file($user->profile_image) : get_file('storage/uploads/avatar.png');
-                return '<a><img src="' . $avatarUrl . '" class="img-fluid rounded-circle card-avatar" width="35" id="blah3"></a>';
+
+                return '<img src="' . e($avatarUrl) . '" class="img-fluid rounded-circle card-avatar" width="35" alt="" aria-hidden="true">';
             })
+            /*
+             * `ss-badge`, not `badge bg-primary`: white on the host brand green measures 2.59:1,
+             * the figure P2-04-4, P2-05-3 and F133 all recorded. `DsBadge` carries the dot that
+             * keeps the state from being signalled by colour alone, and escapes its own label.
+             */
             ->editColumn('type', function (User $user) {
-                return  '<span class="badge bg-primary p-2 px-3 rounded rounded">' . $user->type . '</span>';
+                return DsBadge::render('brand', (string) $user->type);
             })
             ->addColumn('action', function (User $user) {
                 return view('users.action', compact('user'));

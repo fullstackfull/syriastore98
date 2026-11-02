@@ -65,8 +65,24 @@ class OrderController extends Controller
         return $this->paymentVerifier ??= new \App\Services\PaymentVerificationService();
     }
 
+/**
+ * P2-04-10. THE WORST OF THE THREE: AN ORDER WRITE WITH NO PERMISSION GATE.
+ *
+ * This validates its input, opens a transaction and INSERTS AN ORDER carrying `final_price` and
+ * `payment_status`. Nothing asked whether the principal may. DEMONSTRATED ON THE DATABASE rather
+ * than inferred -- driven with a staff member holding NO ROLE AT ALL, the orders table went from
+ * 0 rows to 1. Independent review reproduced it in an isolated checkout of HEAD. A status assertion could not have shown it: the handler redirects
+ * on success and on validation failure alike, so only the row count distinguishes them.
+ *
+ * The gate goes BEFORE the validator, so an unpermitted principal cannot use the validation
+ * messages to probe which customer and product ids exist in the store.
+ */
 public function store(Request $request)
 {
+    if (! $this->mayUseOrderScreen('Manage Order')) {
+        return redirect()->back()->with('error', __('Permission denied.'));
+    }
+
     $validator = \Validator::make($request->all(), [
         'customer_id' => 'required|exists:customers,id',
         'products' => 'required|array|min:1',
@@ -348,6 +364,9 @@ public function store(Request $request)
             'return_status' => 0,
             'additional_note' => $request->additional_note ?? '',
             'store_id' => $storeId,
+            // P2-04-11. The merchant typed this order into the web form; that is the one fact
+            // this column records, and it is recorded by the writer rather than inferred later.
+            'order_source' => \App\Models\Order::SOURCE_MANUAL,
             'created_by' => auth()->id(),
             
             'currency_code' => $currentCurrencyCode,
@@ -418,8 +437,27 @@ public function store(Request $request)
 }
 /////////
 
+    /**
+     * P2-04-10. NO PERMISSION GATE AT ALL, on a form that discloses the store's customer list.
+     *
+     * THE GATE WAS ABSENT, NOT MIS-NAMED, and independent review sharpened this: a staff user with
+     * NO ROLE AND NO PERMISSION AT ALL also got **200** (`roles held: []`). Any authenticated
+     * member of the tenant reached it; the permission a test fixture happens to hold is beside the
+     * point.
+     * The view it renders (`order/createOrder.blade.php`) lists every active Customer in the
+     * store as `first_name last_name (email)` -- so names AND email addresses
+     * (createOrder.blade.php:40) -- plus the whole catalogue with its PRICES (:99-101). Store-scoped, so not a cross-tenant leak; a disclosure to an employee the
+     * merchant never gave order access to, which is what this row is about.
+     *
+     * `Manage Order`, not the read-only `Show Order`: this is the manual order-entry form, and
+     * its POST counterpart creates an order.
+     */
     public function create(Request $request)
 {
+    if (! $this->mayUseOrderScreen('Manage Order')) {
+        return redirect()->back()->with('error', __('Permission denied.'));
+    }
+
     $preselectedCustomerId = $request->query('customer_id');
     $preselectedCustomer = null;
 
@@ -443,16 +481,6 @@ public function store(Request $request)
     $gatewaysConfig = $paymentSettingController->getPaymentGateways();
     $activePaymentMethods = [];
 
-    $customLabels = [
-        'cod' => 'Cash on Delivery',
-        'bank_transfer' => 'Bank Transfer',
-        'dpopay' => 'DPO Pay',
-        'paytr' => 'Pay TR',
-        'Xendit' => 'Xendit',
-        'Senangpay' => 'SenangPay',
-        'myfatoorah' => 'MyFatoorah',
-    ];
-
     foreach ($gatewaysConfig as $gateway) {
         $id = $gateway['id'];
         $enableKey = "is_{$id}_enabled"; // مثال: is_stripe_enabled
@@ -460,13 +488,48 @@ public function store(Request $request)
         $status = \App\Models\Utility::GetValueByName($enableKey);
 
         if ($status === 'on' || $status === '1') {
-            $label = $customLabels[$id] ?? ucwords(str_replace('_', ' ', $id));
-            $activePaymentMethods[$id] = __($label);
+            /*
+             * F150 -- THE FOURTH COPY OF THE PAYMENT-LABEL MAP, and the one that had drifted
+             * furthest. The other three read sites now share `App\Payments\PaymentTypeLabel`:
+             * `OrderDataTable:131`, `Api\DashboardController:6392` and
+             * `customer/view.blade.php:83`. This one kept a 7-entry `$customLabels` with a
+             * `ucwords(str_replace('_', ' ', $id))` fallback, and the whole result went through
+             * `__()`.
+             *
+             * MEASURED, AND THE ARABIC IS THE PART THAT MATTERS. Seventeen of the 52 registry ids
+             * disagreed with the resolver in English alone -- `Nmi` for `NMI`, `Payu` for `PayU`,
+             * `Sslcommerz` for `SSLCommerz`, `Cash on Delivery` for `Cash On Delivery`,
+             * `Pay TR` for `PayTR` -- so the merchant's web order form and the admin app's picker
+             * named the same gateway differently. Worse, passing BRAND names through `__()` meant
+             * `resources/lang/ar.json` answered for them: `__('DPO Pay')` resolves to
+             * `راتب موظف حماية البيانات` -- "Data Protection Officer's salary" -- which an Arabic
+             * merchant was being offered as a payment method. `__('Pay TR')` gave `دفع الـ TR`,
+             * a literal translation of a brand. Five of the seven mapped entries were wrong in
+             * Arabic.
+             *
+             * THE POSTED VALUE DOES NOT CHANGE. `createOrder.blade.php:56` renders
+             * `<option value="{{ $key }}">{{ $name }}</option>`, so the array KEY is what reaches
+             * `payment_type` on the created order and only the displayed words move -- the same
+             * property that made the API twin safe.
+             *
+             * An id with no label keeps the old mechanical transform rather than vanishing: this
+             * list is what a merchant can CHOOSE, and silently dropping an enabled payment method
+             * would be a functional regression where an ugly name is a cosmetic one.
+             */
+            $activePaymentMethods[$id] = \App\Payments\PaymentTypeLabel::for($id)
+                ?? __(ucwords(str_replace('_', ' ', $id)));
         }
     }
 
     if (empty($activePaymentMethods)) {
-        $activePaymentMethods['cod'] = __('Cash on Delivery (Default)');
+        /*
+         * The default keeps its own wording -- it says something the resolver's label does not,
+         * namely that nothing is configured -- but it is built from the resolver so the provider
+         * half cannot drift away from the other three sites again.
+         */
+        $activePaymentMethods['cod'] = __(':method (Default)', [
+            'method' => \App\Payments\PaymentTypeLabel::for('cod'),
+        ]);
     }
 
     return view('order.createOrder', compact(
@@ -481,10 +544,118 @@ public function store(Request $request)
     public function index(Request $request, OrderDataTable $dataTable)
     {
         if ($this->mayUseOrderScreen('Manage Order')) {
-            return $dataTable->render('order.index');
+            /*
+             * P2-06-5 — see the twin in `ProductController::index()` for why this is a 302 and
+             * not a client-side form fill, and `App\Services\TableFilterMemory` for why the
+             * store is the server session.
+             *
+             * INSIDE THE PERMISSION GATE: a caller who may not see orders never reads or writes
+             * the memory.
+             */
+            if ($request->has(\App\Services\TableFilterMemory::CLEAR)) {
+                \App\Services\TableFilterMemory::forget('order');
+
+                return redirect()->route('order.index');
+            }
+
+            if (\App\Services\TableFilterMemory::shouldRestore($request)) {
+                $remembered = \App\Services\TableFilterMemory::recall('order');
+
+                if ($remembered !== []) {
+                    return redirect()->route('order.index', $remembered)
+                        ->with('ss_filters_restored', true);
+                }
+            }
+
+            /*
+             * F149. REFUSED BEFORE THE LIST QUERY RUNS, which is the owner's requirement and not
+             * merely a narrower predicate: `OrderDataTable::query()` would otherwise execute
+             * `where('store_id', null)` -> `WHERE store_id IS NULL` and serve every NULL-store
+             * order on the platform. Placed after the permission gate and after the filter
+             * memory's redirects so a caller who may not see orders never reaches it, and before
+             * `remember()` so a refused request writes nothing.
+             *
+             * NOT A 401 AND NOT AN ABORT: this is an ordinary commercial refusal -- the caller
+             * has the permission and lacks a store context -- so it takes the same
+             * redirect-with-error shape every other refusal in this controller takes. A 401 here
+             * would log the Flutter app out, which is a user-visible regression for a condition
+             * that is not an authentication failure.
+             */
+            if ($this->resolvedCurrentStoreId() === null) {
+                return redirect()->back()->with('error', __('No store is selected.'));
+            }
+
+            \App\Services\TableFilterMemory::remember($request, 'order');
+
+            /*
+             * P2-04-9. The signed-in employee's saved views for THIS screen, in THIS store.
+             * `forCurrentPrincipal()` carries both predicates and fails closed when no store
+             * resolves; the guard above has already established that one does.
+             */
+            return $dataTable->render('order.index', $this->orderAttentionCounts() + [
+                'ssSavedViews' => \App\Models\SavedView::forCurrentPrincipal('order')->get(),
+            ]);
         } else {
             return redirect()->back()->with('error', __('Permission denied.'));
         }
+    }
+
+
+    /**
+     * P2-04-13 / WS E9 — the order screen's "needs attention" counts.
+     *
+     * EVERY COUNT HERE IS LINKED TO A LIST THAT REALLY CONTAINS IT, which is the property that
+     * makes the block worth reading and the one that is easy to get wrong. Each predicate below
+     * is the SAME predicate the filter its link carries will apply:
+     *
+     *   pending  -> `delivered_status = 0`      -> ?ss_status=0
+     *   returns  -> `return_status = 1`         -> ?ss_return=1
+     *   unpaid   -> `payment_status = 'Unpaid'` -> ?ss_payment=Unpaid
+     *
+     * TWO MISMATCHES WERE FOUND BY MEASURING AND ARE THE REASON THAT PROPERTY IS SPELLED OUT.
+     *
+     *  1. The dashboard's "returns" count is `delivered_status = ORDER_STATUS_RETURN`
+     *     (`HomeController::getOrderCounts()`'s `return` bucket) -- the FULFILMENT status. That is
+     *     NOT `orders.return_status`, which holds the return-REQUEST workflow
+     *     (`0 none, 1 request, 2 approve, 3 cancel`). The two columns count different things, and
+     *     a link from one to a filter on the other lands the merchant on a list that does not
+     *     contain the orders just counted. `returns` below is the REQUEST queue -- "raised and
+     *     nobody has decided" -- which nothing could filter for before this slice.
+     *
+     *  2. The dashboard's stock count and the product list's `ss_stock=out` filter DISAGREE, so
+     *     that link is deliberately left unfiltered rather than given false precision. The count
+     *     includes untracked products the merchant marked out of stock
+     *     (`track_stock = 0 AND stock_status = 'out_of_stock'`, HomeController.php:263-264); the
+     *     filter requires `track_stock = 1` on all three of its states, because a product the
+     *     merchant told the system not to count has no stock state at all -- a property
+     *     `ProductListFilterTest` asserts as a partition. Making either match the other changes a
+     *     figure a merchant reads or breaks that partition, so it is recorded rather than papered
+     *     over.
+     *
+     * STORE-SCOPED FROM THE PRINCIPAL, never from request input: `getCurrentStore()` reads the
+     * authenticated user's own `current_store`. `Order` is not in `config/tenancy.php`'s
+     * `scoped_models`, so this predicate is the only thing keeping another tenant's orders out of
+     * these numbers.
+     *
+     * @return array<string, int>
+     */
+    private function orderAttentionCounts(): array
+    {
+        $store = getCurrentStore();
+
+        if (empty($store)) {
+            return ['ssAttentionPending' => 0, 'ssAttentionReturns' => 0, 'ssAttentionUnpaid' => 0];
+        }
+
+        $scoped = fn () => Order::where('store_id', $store);
+
+        return [
+            'ssAttentionPending' => (int) $scoped()
+                ->where('delivered_status', \App\Http\Controllers\HomeController::ORDER_STATUS_PENDING)
+                ->count(),
+            'ssAttentionReturns' => (int) $scoped()->where('return_status', 1)->count(),
+            'ssAttentionUnpaid' => (int) $scoped()->where('payment_status', 'Unpaid')->count(),
+        ];
     }
 
     public function show(Order $order, $id)
@@ -524,6 +695,43 @@ public function store(Request $request)
             && (\App\Policies\UserPolicy::isOperator($user) || $user->isAbleTo($permission));
     }
 
+    /**
+     * F149 -- IS THERE A REAL STORE BEHIND THIS REQUEST?
+     *
+     * `getCurrentStore()` RETURNS NULL FOR A REACHABLE PRINCIPAL, and that is the whole finding.
+     * The helper (`app/Helper/helper.php`) returns `current_store` when set; otherwise a
+     * hardcoded `1` for `type == 'super admin'`; otherwise
+     * `Store::where('created_by', $user->id)->first()?->id` -- which is **NULL for a STAFF
+     * member**, because staff do not create stores. A staff user whose `current_store` has never
+     * been set is not exotic: it is the ordinary state of a newly added employee.
+     *
+     * AND NULL IS NOT INERT. Laravel rewrites `where('store_id', null)` into
+     * `WHERE store_id IS NULL`, so an unguarded list query does not return nothing -- it returns
+     * EVERY ORDER ON THE PLATFORM WHOSE `store_id` IS NULL. `orders.store_id` is nullable
+     * (`create_orders_table.php`) and P1-PLT-02 records writers that persisted NULL into it, so
+     * the set is not hypothetical on a database with history.
+     *
+     * TWO CONDITIONS, NOT ONE, and the second is `fileExport()`'s hard-won lesson rather than
+     * caution: `empty()` alone is not the question, because the helper hands an operator the
+     * literal `1` whether or not store 1 exists. On a deployment whose stores do not start at 1 --
+     * one deleted first store is enough -- that guard passes and the screen then works against a
+     * store that is not the operator's, or against none at all. Ask whether the store RESOLVES.
+     *
+     * CONSOLIDATED RATHER THAN COPIED. This decision already existed inline in `fileExport()`,
+     * whose own comment complains that the operator test had become "a fourth copy of the
+     * decision". `fileExport()` now calls this too, so the count goes down rather than up.
+     */
+    private function resolvedCurrentStoreId(): ?int
+    {
+        $storeId = getCurrentStore();
+
+        if (empty($storeId) || getStoreById($storeId) === null) {
+            return null;
+        }
+
+        return (int) $storeId;
+    }
+
     public function order_view(Request $request, $id)
     {
         if ($this->mayUseOrderScreen('Show Order')) {
@@ -532,11 +740,92 @@ public function store(Request $request)
                 $order = Order::order_detail($id);
                 $store_id = $store = getStoreById(getCurrentStore());
                 $order_notes = OrderNote::where('order_id', $id)->where('store_id', getCurrentStore())->get();
-                $deliveryboys = DeliveryBoy::where('store_id', $store_id->id)->pluck('name', 'id')->prepend('Assign to delivery boy', "");
+                // P2-04-6: `__()`. This was a bare English string, so the Arabic order detail
+                // page offered "Assign to delivery boy" in English -- visible in the screenshots.
+                $deliveryboys = DeliveryBoy::where('store_id', $store_id->id)->pluck('name', 'id')
+                    ->prepend(__('Assign to delivery boy'), "");
                 if (!empty($order['message'])) {
                     return redirect()->back()->with('error', __('Order Not Found.'));
                 }
-                return view('order.view', compact('order', 'store', 'order_notes', 'deliveryboys'));
+                /*
+                 * P2-04-11. READ SEPARATELY AND SCOPED, rather than taken from `order_detail()`.
+                 *
+                 * `Order::order_detail()` builds the array THIS VIEW renders and the array the
+                 * order-detail API returns to the Flutter and Lynomia clients -- the same method,
+                 * the same keys. Adding the source there would widen both payloads for every
+                 * order in both repositories, and the source is wanted on this screen only, so
+                 * it is read here and passed on its own. The API wire format is untouched.
+                 *
+                 * NOT SCOPED BY THE CALLER'S STORE, and the first version of this was -- which
+                 * made the page LIE. `OrderDocumentAccessGuard` deliberately admits the platform
+                 * operator to any store's order, and supports a dual-identity case besides (a
+                 * merchant of store A who is also a signed-in shopper of store B, reading their
+                 * own B order). For both, `getCurrentStore()` is not the order's store, so the
+                 * read fell to null and the Source row asserted IN WORDS that the order "was
+                 * created before the source was recorded" -- about an order created today. That
+                 * is the same fabrication this slice exists to prevent, pointing the other way.
+                 *
+                 * ROW OWNERSHIP IS NOT THIS METHOD'S DECISION, and this file already says so:
+                 * `mayUseOrderScreen()`'s docblock records "Row ownership is not decided here:
+                 * OrderDocumentAccessGuard does that for these URIs", and the two neighbouring
+                 * per-order reads on the same guarded URIs -- `shippinglabel()` and
+                 * `order_receipt()` -- are both `Order::where('id', $id)->value('store_id')` with
+                 * no caller predicate, for the identical reason (P1-SEC-11).
+                 *
+                 * AND IT WEAKENS NOTHING: `Order::order_detail($id)` on the line above already
+                 * loads that row with no store predicate and the view renders its whole contents,
+                 * so a predicate on one further column of the same row protected nothing while
+                 * making the sentence beside it false. An operator-first predicate was rejected
+                 * too: it would be a fourth spelling of the operator test, and it does not even
+                 * fix the dual-identity case, where the reader is not the operator.
+                 */
+                $orderSource = Order::where('id', $id)->value('order_source');
+
+                /*
+                 * E13 / D-32. WHETHER TO OFFER THE CANCEL-AND-REPLACE CONTROL.
+                 *
+                 * `OrderReplacement::cancelAndReplace()`, `order_replace()` and the
+                 * `order-replace/{id}` route all shipped and were tested; NO VIEW RENDERED A
+                 * TRIGGER FOR ANY OF IT, so the approved capability was complete in the engine
+                 * and unreachable in the product. This is the whole gap, and the service is not
+                 * rebuilt or re-wrapped to close it.
+                 *
+                 * THE FOUR CONDITIONS ARE THE SERVICE'S OWN REFUSALS, asked here so the merchant
+                 * is not offered a control that is certain to be declined:
+                 *   available()            -> REFUSED_COLUMN_ABSENT
+                 *   updateStatus policy    -> REFUSED_NOT_AUTHORISED (OrderPolicy: Manage Order)
+                 *   delivered_status === 0 -> REFUSED_ALREADY_DISPATCHED
+                 *   no linked replacement  -> REFUSED_ALREADY_REPLACED
+                 *
+                 * THE SERVICE STILL RE-CHECKS EVERY ONE, including inside its transaction. This
+                 * is an affordance, never the control -- a view that decided authorisation would
+                 * be the defect, not the fix.
+                 *
+                 * Computed here rather than in Blade because two of the four are queries, and a
+                 * query in a view is how an N+1 reaches a list later.
+                 */
+                $ssOrderModel = Order::find($id);
+
+                /*
+                 * E13 / D-15 — THE BUTTON ASKS THE SERVICE'S OWN QUESTION, NOT A COPY OF IT.
+                 *
+                 * This used to re-express four of the service's conditions inline. The service then
+                 * grew three more (D-15's payment gate and its two stock-evidence gates) and the
+                 * inline copy did not, so the control would be offered for orders the service
+                 * refuses — the exact "hidden or disabled for ineligible orders" requirement,
+                 * broken by duplication.
+                 *
+                 * `OrderReplacement::eligibility()` is now the single predicate and both callers
+                 * use it. Authorization stays separate because it is the CALLER's question: the
+                 * service asks it again for the action, and a merchant who may not change this
+                 * order's status must not see the control whatever its eligibility.
+                 */
+                $ssCanReplaceOrder = $ssOrderModel !== null
+                    && \Illuminate\Support\Facades\Gate::allows('updateStatus', $ssOrderModel)
+                    && \App\Services\OrderReplacement::eligibility($ssOrderModel)
+                        === \App\Services\OrderReplacement::REPLACED;
+
+                return view('order.view', compact('order', 'store', 'order_notes', 'deliveryboys', 'orderSource', 'ssCanReplaceOrder'));
             } catch (DecryptException $e) {
                 return redirect()->back()->with('error', __('Something was wrong.'));
             } catch (\Exception $e) {
@@ -545,6 +834,82 @@ public function store(Request $request)
         } else {
             return redirect()->back()->with('error', __('Permission denied.'));
         }
+    }
+
+    /**
+     * P2-04-5. THE AUTHORIZED QUICK PREVIEW -- a read-only fragment for the side panel.
+     *
+     * WHY A NEW URI NEEDS A NEW GUARD ENTRY, EXPLICITLY. `OrderDocumentAccessGuard` keys on
+     * `$route->uri()`, not on the controller action, which is deliberate (its docblock: "a second
+     * uri on a guarded handler is NOT guarded by implication"). So this route is listed in that
+     * guard's TARGETS map in the same change, and `order_preview` is added to the document-method
+     * list `OrderDocumentRouteResolutionTest`'s census scans -- otherwise the census would be
+     * keyed on a spelling that does not include this one, which is the exact way four earlier
+     * censuses in this project missed what they claimed to cover.
+     *
+     * THE ID IS RAW, NOT ENCRYPTED, AND THAT IS THE HONEST CHOICE. `APP_KEY` is in git history
+     * and is not being rotated (owner decision D7), so `Crypt::encrypt($id)` in a URL is an
+     * ENCODING, not a control -- the ciphertext is forgeable for any id. Shipping a new surface
+     * with an encrypted id would imply a protection that does not exist. Authorization is the
+     * guard plus the two checks below, and the guard already accepts either form.
+     *
+     * DEFENCE IN DEPTH, not duplication. The middleware is the control; these checks mean the
+     * handler is still safe if the route is ever re-declared outside the `web` group (which is
+     * how `Authenticate` silently vanished from an order document route once already -- see
+     * OrderDocumentAccessGuard's docblock on AutomaticOrderPrinting:31).
+     */
+    public function order_preview(Request $request, $id)
+    {
+        if (! $this->mayUseOrderScreen('Show Order')) {
+            return response()->json(['message' => __('Permission denied.')], 403);
+        }
+
+        $orderId = filter_var($id, FILTER_VALIDATE_INT);
+
+        // `filter_var`, not `is_numeric`: is_numeric accepts '5.9' and rejects '5abc', while
+        // MySQL coerces '5abc' to row 5 in a `WHERE id = ?` comparison.
+        if ($orderId === false || $orderId <= 0) {
+            return response()->json(['message' => __('Order Not Found.')], 404);
+        }
+
+        $user = auth()->user();
+        $order = Order::find($orderId);
+
+        if ($order === null) {
+            return response()->json(['message' => __('Order Not Found.')], 404);
+        }
+
+        /*
+         * THE OWNERSHIP TEST, DERIVED FROM THE PRINCIPAL AND NEVER FROM REQUEST INPUT.
+         * `Order` is not in config/tenancy.php's `scoped_models` and registers no `StoreScope`,
+         * so `Order::find()` above reaches every tenant's orders -- the global scope contributes
+         * nothing here for any principal. `getCurrentStore($user->id)` takes the id explicitly
+         * because the no-argument form reads the MUTABLE default guard.
+         *
+         * Operator first, which is this codebase's rule: Laratrust has no super-admin bypass.
+         */
+        if (! \App\Policies\UserPolicy::isOperator($user)) {
+            $currentStore = getCurrentStore($user->id);
+
+            // Fail closed on either side being absent. An order with a NULL store_id is
+            // invisible to every store predicate in the application and must not become visible
+            // here.
+            if (empty($currentStore) || $order->store_id === null
+                || (int) $order->store_id !== (int) $currentStore) {
+                return response()->json(['message' => __('Order Not Found.')], 404);
+            }
+        }
+
+        $detail = Order::order_detail($orderId);
+
+        if (! empty($detail['message'])) {
+            return response()->json(['message' => __('Order Not Found.')], 404);
+        }
+
+        return response()->view('order.partials.preview', [
+            'order' => $detail,
+            'orderModel' => $order,
+        ]);
     }
 
     public function applycoupon(Request $request, $slug)
@@ -1081,7 +1446,14 @@ public function store(Request $request)
             }
 
             if ($variantId == 0 || empty($variantId)) {
-                $this->stockService()->restoreProductStock($product->id, $qty);
+                /* E13-C residual: RECORDED, not merely performed. Without a context
+                   `recordMovement()` writes nothing, so this restore was invisible to the
+                   record and `movedOutFor()` could not net it against the placement. */
+                $this->stockService()->restoreProductStock($product->id, $qty, [
+                    'store_id' => $storeId,
+                    'order_id' => $order->id,
+                    'reason' => \App\Services\StockMovement::REASON_ORDER_RETURN,
+                ]);
                 $restored[] = $index;
 
                 continue;
@@ -1107,7 +1479,11 @@ public function store(Request $request)
                 continue;
             }
 
-            $this->stockService()->restoreVariantStock($variant->id, $qty);
+            $this->stockService()->restoreVariantStock($variant->id, $qty, [
+                'store_id' => $storeId,
+                'order_id' => $order->id,
+                'reason' => \App\Services\StockMovement::REASON_ORDER_RETURN,
+            ]);
             $restored[] = $index;
         }
 
@@ -1128,6 +1504,108 @@ public function store(Request $request)
 
             $order->product_json = json_encode($lines);
         }
+    }
+
+    /**
+     * E13 REQUIREMENT D — CANCEL AND ISSUE A LINKED REPLACEMENT. Reachable as of **D-32**.
+     *
+     * ══════════════════════════════════════════════════════════════════════════════════════════
+     * WHY THIS ENTRY POINT EXISTS ONLY NOW
+     * ══════════════════════════════════════════════════════════════════════════════════════════
+     *
+     * `OrderReplacement::cancelAndReplace()` was built under D-15 and deliberately left with NO
+     * caller, because the design's Q1 — may a replacement differ from the original? — was a
+     * commercial rule the owner had not settled, and wiring a money path to an unsettled rule is
+     * what the standing limits forbid. A test asserted the absence and named what would unblock it.
+     *
+     * **D-32 answers Q1: identical products, identical quantities, identical prices.** That is the
+     * narrowest of the three readings, and it is the one the design said makes Q2 (a partially-paid
+     * original) and Q3 (original prices or today's) *fall away* — so no refund, settlement or
+     * stock rule is invented by opening this door. Different-item replacements are Phase 04.
+     *
+     * ══════════════════════════════════════════════════════════════════════════════════════════
+     * NO NEW PERMISSION, WHICH IS D-15 CONDITION 5
+     * ══════════════════════════════════════════════════════════════════════════════════════════
+     *
+     * The service itself gates on `OrderPolicy::updateStatus` — the existing status-change gate,
+     * because cancelling IS a status change and this operation is a cancel plus a reissue. This
+     * method therefore performs **no authorisation of its own**: duplicating the check here would
+     * create two gates free to disagree, and the one that matters is the one inside the
+     * transaction. What this method does is resolve the order, call the service, and translate its
+     * named outcome into a response.
+     *
+     * `$request->route('id')` and not `$request->id`, for the reason the sibling method documents
+     * at length: `Request::__get` reads `all()` BEFORE the route parameters, so a posted `id`
+     * would win over the URL segment — measured on that sibling to act on a victim's order.
+     *
+     * ══════════════════════════════════════════════════════════════════════════════════════════
+     * EVERY REFUSAL IS A NAMED STATE, NOT A BOOLEAN
+     * ══════════════════════════════════════════════════════════════════════════════════════════
+     *
+     * The service returns one of seven outcomes and each gets its own message, because "something
+     * went wrong" on a money path is what sends a merchant to support instead of to the fix. The
+     * HTTP shape matches the sibling's exactly — `{status, message}` over 200 — so the existing
+     * caller conventions on this screen are unchanged, and **no 401 is ever used for a business
+     * refusal** (CLAUDE.md: the shipped Flutter app force-logs-out on any 401; this is a web
+     * route, but the rule is the project's and there is no reason to depart from it here).
+     */
+    public function order_replace(Request $request)
+    {
+        $orderId = $request->route('id');
+        $original = Order::find($orderId);
+
+        if (empty($original)) {
+            return response()->json([
+                'status' => false,
+                'message' => __('Something was wrong.'),
+            ]);
+        }
+
+        [$state, $replacement, $reason] = \App\Services\OrderReplacement::cancelAndReplace(
+            $original,
+            \Auth::user()
+        );
+
+        if ($state !== \App\Services\OrderReplacement::REPLACED) {
+            /* Named, so the merchant is told which of the seven things happened. The service's
+               `$reason` is for the log and is deliberately NOT surfaced -- it names internal
+               columns. */
+            $messages = [
+                \App\Services\OrderReplacement::REFUSED_NOT_AUTHORISED =>
+                    __('You do not have permission to perform this action.'),
+                \App\Services\OrderReplacement::REFUSED_ALREADY_DISPATCHED =>
+                    __('The order has been delivered. So you cannot cancel the order.'),
+                \App\Services\OrderReplacement::REFUSED_ALREADY_REPLACED =>
+                    __('This order has already been replaced.'),
+                \App\Services\OrderReplacement::REFUSED_UNREADABLE_LINES =>
+                    __('This order\'s items cannot be reissued.'),
+                \App\Services\OrderReplacement::REFUSED_COLUMN_ABSENT =>
+                    __('Order replacement is not available on this installation.'),
+                \App\Services\OrderReplacement::REFUSED_CANCEL_FAILED =>
+                    __('The order could not be replaced and nothing was changed.'),
+            ];
+
+            \Illuminate\Support\Facades\Log::warning('Order replacement refused.', [
+                'state' => $state,
+                'reason' => $reason,
+                'original_order_id' => $original->id,
+                'user_id' => \Auth::id(),
+            ]);
+
+            return response()->json([
+                'status' => false,
+                'message' => $messages[$state] ?? __('Something was wrong.'),
+            ]);
+        }
+
+        return response()->json([
+            'status' => true,
+            'message' => __('Order replaced successfully.'),
+            'data' => [
+                'replacement_order_id' => $replacement->id,
+                'replacement_order_number' => $replacement->product_order_id,
+            ],
+        ]);
     }
 
     public function order_status_change(Request $request)
@@ -1404,8 +1882,48 @@ public function store(Request $request)
             abort(404);
         }
 
-        $data['order_id'] = $request->order_id;
-        $data['order_status'] = $request->order_status;
+        /*
+         * THIS ROUTE DOES ONE THING, AND UNTIL NOW IT DID WHATEVER IT WAS TOLD.
+         *
+         * `order_status` arrived from the request with no validation and went straight into the
+         * shared `Order::order_status_change()`. Only that method's `cancel` arm carries an
+         * idempotency guard (`delivered_status != 0`, app/Models/Order.php:637-641); its
+         * `confirmed`, `pickedup`, `shipped` and `delivered` arms each set a date, save, and
+         * return `success` UNCONDITIONALLY. The restore loop below is gated on
+         * `$responce['status'] == 'success'` — so posting `order_status=confirmed` to a route
+         * named `status-cancel` ran the restore loop, and ran it again on every repeat.
+         *
+         * MEASURED: five `confirmed` requests against one two-unit line added ten units of stock
+         * that nobody returned. That is the SAME unbounded inventory-inflation primitive this
+         * method's docblock above records as fixed — moving the loop inside the success branch
+         * closed it for `cancel` and left it open for the four arms that always succeed. No test
+         * saw it because every test posted `'cancel'`.
+         *
+         * THE REFUSAL IS HERE RATHER THAN IN `order_status_change()` DELIBERATELY. That method is
+         * shared with the merchant admin and the two API doors, which legitimately set
+         * `confirmed`, `pickedup`, `shipped` and `delivered`; adding guards there is a separate,
+         * wider change. What is wrong is that a CUSTOMER self-service cancellation endpoint
+         * accepts any lifecycle transition at all. Found by independent review of the E13
+         * evidence-consult slice.
+         */
+        $requestedStatus = is_string($request->order_status) ? trim($request->order_status) : '';
+
+        if ($requestedStatus !== 'cancel') {
+            Log::warning('Customer cancellation endpoint refused a status it does not serve', [
+                'order_id' => $order->id,
+                'store_id' => $order->store_id,
+                'customer_id' => $customer->id,
+                'requested_status' => substr($requestedStatus, 0, 32),
+            ]);
+
+            $return['status'] = 'error';
+            $return['message'] = __('This action is not available.');
+
+            return response()->json($return);
+        }
+
+        $data['order_id'] = $order->id;
+        $data['order_status'] = 'cancel';
 
         $responce = Order::order_status_change($data);
 
@@ -1439,6 +1957,23 @@ public function store(Request $request)
              * product in another store.
              */
             DB::transaction(function () use ($order_detail, $order) {
+                /*
+                 * THE SAME "ALREADY BACK IN" MARKER THE RETURN PATH WRITES.
+                 *
+                 * `Order::product_return()` stamps `Order::LINE_STOCK_RESTORED` on every line it
+                 * credits (app/Models/Order.php:1063, :1094) and the merchant return loop reads it
+                 * before crediting (:1353-1360). This loop did neither, so a cancellation credited
+                 * the goods and left no mark — and a merchant who then approved a return on the
+                 * same order credited them a SECOND time. `movedOutFor()` does not catch that one:
+                 * the return path threads no evidence, so its restore is invisible to the record,
+                 * and on production the record does not exist at all. The marker is the control
+                 * that already spans both doors. Raised by independent review.
+                 *
+                 * Collected as (product_id, variant_id) pairs and stamped after the loop, because
+                 * `$order_detail['product']` is a derived copy rather than the stored lines.
+                 */
+                $restoredLines = [];
+
                 foreach ($order_detail['product'] as $item) {
                     $productId = $item['product_id'] ?? null;
                     $qty = $item['qty'] ?? null;
@@ -1468,15 +2003,94 @@ public function store(Request $request)
                         continue;
                     }
 
-                    if ($item['variant_id'] == 0) {
-                        $this->stockService()->restoreProductStock($product->id, $qty);
+                    /*
+                     * E13 SLICE 3 — ASK THE RECORD, DO NOT INFER FROM THE STATUS.
+                     *
+                     * D-15, restated by D-30: *"Do not infer stock movement from order status,
+                     * payment status, a guessed flag or the existence of an order."* Until this
+                     * line existed, the loop below inferred precisely that — it credited every
+                     * line of every successfully cancelled order, on the assumption that placing
+                     * the order had taken that stock out.
+                     *
+                     * THE ASSUMPTION IS WRONG WHENEVER THE ORIGINAL NEVER REACHED A DECREMENT: a
+                     * refused shortfall, an untracked product, a transaction that rolled back
+                     * after the order row was written. In those cases the cancellation does not
+                     * restore inventory, it INVENTS it — and the arithmetic looks perfect while
+                     * doing so, which is why nothing caught it.
+                     *
+                     * `movedOutFor()` answers in three states and each gets its own behaviour:
+                     *
+                     *   MOVED      give it back, and record the restore (below) so the same line
+                     *              reads NOT_MOVED afterwards — that is what makes a second
+                     *              restore impossible rather than merely unlikely.
+                     *   NOT_MOVED  SKIP. The record saw this order and this line never took
+                     *              anything out.
+                     *   UNKNOWN    give it back, and say so in the log.
+                     *
+                     * UNKNOWN RESTORES ON PURPOSE. `stock_movements` is development-and-test-only
+                     * (its migration says so), so on every live installation `available()` is
+                     * false, every line is UNKNOWN, and this path behaves exactly as it did before
+                     * — one log line heavier. The protection switches on when, and only when, the
+                     * record exists. Refusing on UNKNOWN would stop restoring stock for every real
+                     * order on the platform, which is a far larger defect than the one being
+                     * fixed.
+                     */
+                    /* `empty()` as well as `== 0`, so an EMPTY-STRING variant_id is a product
+                       line rather than a lookup for variant 0 that silently skips the line. The
+                       sibling return loop at :1404 already reads it this way and the two must not
+                       disagree about the same stored value; raised by independent review. */
+                    $variantId = empty($item['variant_id']) || $item['variant_id'] == 0
+                        ? null
+                        : (int) $item['variant_id'];
+
+                    $movement = \App\Services\StockMovement::movedOutFor(
+                        $order->store_id,
+                        $order->id,
+                        $product->id,
+                        $variantId
+                    );
+
+                    if ($movement === \App\Services\StockMovement::NOT_MOVED) {
+                        Log::warning('Order cancellation skipped a line the stock record says never took stock out', [
+                            'order_id' => $order->id,
+                            'store_id' => $order->store_id,
+                            'product_id' => $product->id,
+                            'variant_id' => $variantId,
+                            'qty' => $qty,
+                        ]);
+
+                        continue;
+                    }
+
+                    if ($movement === \App\Services\StockMovement::UNKNOWN) {
+                        Log::info('Order cancellation restored a line with no stock evidence', [
+                            'order_id' => $order->id,
+                            'store_id' => $order->store_id,
+                            'product_id' => $product->id,
+                            'variant_id' => $variantId,
+                            'qty' => $qty,
+                        ]);
+                    }
+
+                    /* The restore is RECORDED, not just performed: `movedOutFor()` nets applied
+                       ins against applied outs, so feeding it here is what turns the consult above
+                       into a restore-twice guard. */
+                    $evidence = [
+                        'store_id' => $order->store_id,
+                        'order_id' => $order->id,
+                        'reason' => \App\Services\StockMovement::REASON_ORDER_CANCEL,
+                    ];
+
+                    if ($variantId === null) {
+                        $this->stockService()->restoreProductStock($product->id, $qty, $evidence);
+                        $restoredLines[] = [(int) $product->id, null];
 
                         continue;
                     }
 
                     // Both predicates, so a variant_id belonging to another
                     // product cannot be credited against this line.
-                    $variant = ProductVariant::where('id', $item['variant_id'])
+                    $variant = ProductVariant::where('id', $variantId)
                         ->where('product_id', $product->id)
                         ->first();
 
@@ -1484,13 +2098,20 @@ public function store(Request $request)
                         Log::warning('Order cancellation skipped a line whose variant does not belong to its product', [
                             'order_id' => $order->id,
                             'product_id' => $product->id,
-                            'variant_id' => $item['variant_id'],
+                            'variant_id' => $variantId,
                         ]);
 
                         continue;
                     }
 
-                    $this->stockService()->restoreVariantStock($variant->id, $qty);
+                    $this->stockService()->restoreVariantStock($variant->id, $qty, $evidence);
+                    $restoredLines[] = [(int) $product->id, (int) $variant->id];
+                }
+
+                /* Stamped inside the same transaction as the credits it describes: a marker that
+                   survived a rolled-back restore would stop a legitimate return credit. */
+                if ($restoredLines !== []) {
+                    $this->markCancelledLinesRestored($order, $restoredLines);
                 }
             });
 
@@ -1502,6 +2123,72 @@ public function store(Request $request)
             $return['message'] = $responce['message'];
             return response()->json($return);
         }
+    }
+
+    /**
+     * Stamp `Order::LINE_STOCK_RESTORED` on the stored lines a cancellation really did credit.
+     *
+     * Keyed on (product_id, variant_id) rather than on the array index, because
+     * `Order::order_detail()` returns a DERIVED copy of the lines and its keys are not promised to
+     * match the stored `product_json`. A line that was skipped — the record says it never took
+     * stock out, or its product or variant did not resolve — is deliberately NOT stamped: the
+     * marker means "these goods are already back in", and claiming it for goods that never came
+     * back would block a legitimate return credit later.
+     *
+     * @param list<array{0:int,1:int|null}> $restoredLines
+     */
+    private function markCancelledLinesRestored(Order $order, array $restoredLines): void
+    {
+        $lines = json_decode((string) $order->product_json, true);
+
+        if (! is_array($lines) || $lines === []) {
+            return;
+        }
+
+        $wanted = [];
+
+        foreach ($restoredLines as [$productId, $variantId]) {
+            $wanted[$productId . ':' . ($variantId ?? '')] = true;
+        }
+
+        $changed = false;
+
+        foreach ($lines as $key => $line) {
+            if (! is_array($line)) {
+                continue;
+            }
+
+            $productId = isset($line['product_id']) && is_numeric($line['product_id'])
+                ? (int) $line['product_id'] : null;
+
+            if ($productId === null) {
+                continue;
+            }
+
+            $variantId = empty($line['variant_id']) || $line['variant_id'] == 0
+                ? null
+                : (int) $line['variant_id'];
+
+            if (! isset($wanted[$productId . ':' . ($variantId ?? '')])) {
+                continue;
+            }
+
+            if (Order::lineStockAlreadyRestored($line)) {
+                continue;
+            }
+
+            $lines[$key][Order::LINE_STOCK_RESTORED] = 1;
+            $changed = true;
+        }
+
+        if (! $changed) {
+            return;
+        }
+
+        /* Written through Eloquent so the model cache is flushed: `Order` is `Cachable`, and a raw
+           update would leave route-model binding serving the pre-write row. */
+        $order->product_json = json_encode($lines);
+        $order->save();
     }
 
     public function destroy(Order $order)
@@ -1595,7 +2282,10 @@ public function store(Request $request)
          * where store 1 DOES exist and is not the operator's, `Order.xlsx` quietly held that
          * store's orders with nothing in the response naming it.
          */
-        if (empty(getCurrentStore()) || getStoreById(getCurrentStore()) === null) {
+        // F149: through `resolvedCurrentStoreId()`, which is this check extracted verbatim. The
+        // reasoning above is why the helper tests BOTH conditions; it is kept here because this
+        // is where it was learned.
+        if ($this->resolvedCurrentStoreId() === null) {
             return redirect()->back()->with('error', __('Permission denied.'));
         }
 
@@ -1742,15 +2432,150 @@ public function store(Request $request)
         ]);
     }
 
+    /**
+     * P2-04-10. THE PERMISSION WAS FROM THE WRONG DOMAIN, and that single word did three things.
+     *
+     * This view's only content is ORDERS -- `Order::where('store_id', getCurrentStore())` -- and
+     * it was gated on `isAbleTo('Manage Products')`. Measured, by driving it:
+     *
+     *   * a staff member holding `Manage Products` and NO order permission got **200** and read
+     *     every order in the store -- while being REFUSED the order list itself (`GET order` =
+     *     302), so the same principal could not open the list and could open a grid of the same
+     *     rows. Intra-tenant, not cross-tenant: `getCurrentStore()` reads the authenticated
+     *     user's own `current_store`, so the predicate is a real store scope. What breaks is
+     *     privilege separation INSIDE one store, and what it discloses is customer names and
+     *     mobile numbers;
+     *   * a staff member holding `Manage Order` got **302 "Permission denied."** -- for the
+     *     "Grid View" button that `resources/views/order/index.blade.php:18` renders for them,
+     *     inside a page they reached legitimately;
+     *   * the platform operator got **302** as well, because a bare `isAbleTo()` refuses them.
+     *     There is no super-admin bypass in this codebase; the rule is recorded three times over.
+     *
+     * `mayUseOrderScreen('Manage Order')` is `index()`'s own gate -- this view is an alternative
+     * presentation of the same list -- and it tests the operator first, through the one helper,
+     * rather than adding a fourth spelling of that decision.
+     *
+     * THE WRONG NAME WAS A COPY-PASTE: `ProductController.php:4373` carries the identical shape
+     * on a product surface, where `Manage Products` is the RIGHT name and the missing
+     * operator-first limb is still wrong. Named here so the next pass fixes the source and not
+     * only this copy.
+     */
     public function order_grid_view(Request $request)
     {
-        if(auth()->user() && auth()->user()->isAbleTo('Manage Products')) {
-            $orders = Order::where('store_id', getCurrentStore())->orderBy('created_at', 'desc')->paginate(16);
-            
+        if ($this->mayUseOrderScreen('Manage Order')) {
+            // F149. THE SAME UNGUARDED PREDICATE as the list had, on the alternative view of the
+            // same data -- `where('store_id', null)` is `WHERE store_id IS NULL`. Fixing only the
+            // DataTable would have left this reachable at `order-grid`.
+            $storeId = $this->resolvedCurrentStoreId();
+
+            if ($storeId === null) {
+                return redirect()->back()->with('error', __('No store is selected.'));
+            }
+
+            $orders = Order::where('store_id', $storeId)->orderBy('created_at', 'desc')->paginate(16);
+
             return view('order.grid', compact('orders'));
         } else {
             return redirect()->back()->with('error', __('Permission denied.'));
         }
+    }
+
+    /**
+     * P2-04-7 / WS E — THE ORDER BOARD (Kanban).
+     *
+     * A PRESENTATION OF THE EXISTING DATA AND NOTHING ELSE. Three things it deliberately does not
+     * do, because the brief forbids each of them:
+     *   - it creates NO update path. A card's status control posts to `order.status.change`, the
+     *     same route the detail page uses, whose handler reads the id from the ROUTE SEGMENT,
+     *     checks `OrderPolicy::allow('updateStatus')` operator-first and then `sameStore`, and
+     *     whose cancel limb is a MONEY WRITE that `OrderObserver` forwards to
+     *     `OrderFinancialService`. A second writer would have to re-earn all of that.
+     *   - it touches no stock and no payment. It reads.
+     *   - it reuses the SAME filter vocabulary as the list, so a board and a list carrying the
+     *     same query string show the same orders.
+     *
+     * THE COLUMNS ARE THE FULFILMENT STAGES, AND TWO STATUSES ARE DELIBERATELY NOT COLUMNS.
+     * `orders.delivered_status` holds NINE values and ledger F0 records that two of them are not
+     * fulfilment states at all: 7 is Partially Paid (a PAYMENT state) and 8 is Pre Order (an
+     * ORDER TYPE). A board that rendered them as pipeline stages would assert a delivery stage
+     * that does not exist -- so they are grouped separately, labelled as what they are, and the
+     * orders in them stay reachable. The filter bar already makes the same distinction with its
+     * optgroup; this is the same honesty in a different shape.
+     */
+    public function order_kanban_view(Request $request)
+    {
+        if (! $this->mayUseOrderScreen('Manage Order')) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
+        // F149. Refuse before the query: `where('store_id', null)` is `WHERE store_id IS NULL`.
+        $storeId = $this->resolvedCurrentStoreId();
+
+        if ($storeId === null) {
+            return redirect()->back()->with('error', __('No store is selected.'));
+        }
+
+        /*
+         * THE LIST'S OWN FILTERS, through the DataTable's own `applyFilters()`. Calling it rather
+         * than re-reading the `ss_*` parameters here is what makes "the board and the list agree"
+         * a property of one implementation instead of a coincidence between two.
+         */
+        $query = (new \App\DataTables\OrderDataTable())
+            ->query(new Order())
+            ->with('ShippingMethod');
+
+        $orders = $query->get();
+
+        $pipeline = [
+            HomeController::ORDER_STATUS_PENDING,
+            HomeController::ORDER_STATUS_CONFIRMED,
+            HomeController::ORDER_STATUS_PICKED_UP,
+            HomeController::ORDER_STATUS_SHIPPED,
+            HomeController::ORDER_STATUS_DELIVERED,
+            HomeController::ORDER_STATUS_CANCEL,
+            HomeController::ORDER_STATUS_RETURN,
+        ];
+
+        // F0: a payment state and an order type, not stages.
+        $notStages = [
+            HomeController::ORDER_STATUS_PARTIALLY_PAID,
+            HomeController::ORDER_STATUS_PRE_ORDER,
+        ];
+
+        $grouped = $orders->groupBy(fn (Order $o) => (int) $o->delivered_status);
+
+        $columns = [];
+
+        foreach ($pipeline as $status) {
+            $columns[$status] = $grouped->get($status, collect());
+        }
+
+        $aside = [];
+
+        foreach ($notStages as $status) {
+            $aside[$status] = $grouped->get($status, collect());
+        }
+
+        /*
+         * ANY OTHER VALUE IS SHOWN, NOT DROPPED. If a tenth status is ever written, a board that
+         * silently omitted it would hide live orders from the only screen a merchant is looking
+         * at -- the same failure mode as a filter offering 0..6. They go to the aside with their
+         * raw value named, which is visible and reportable rather than invisible.
+         */
+        foreach ($grouped->keys() as $status) {
+            $status = (int) $status;
+
+            if (! in_array($status, $pipeline, true) && ! array_key_exists($status, $aside)) {
+                $aside[$status] = $grouped->get($status, collect());
+            }
+        }
+
+        return view('order.kanban', [
+            'ssColumns' => $columns,
+            'ssAside' => $aside,
+            'ssPipeline' => $pipeline,
+            'ssTotal' => $orders->count(),
+        ] + $this->orderAttentionCounts());
     }
 
     private function getFrontThemeUrl($store)

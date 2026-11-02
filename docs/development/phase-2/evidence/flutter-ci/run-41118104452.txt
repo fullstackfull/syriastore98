@@ -1,0 +1,35 @@
+Flutter CI — F212 merchant-surface RTL slice
+============================================
+
+repository : fullstackfull/StoreSyria_app98
+branch     : claude/store-syria-p02-continuation-smlpwi
+head_sha   : 3888a9fb94a614d08eb7791949822e819a1286cd
+run id     : 41118104452   (run_number 7)
+url        : https://github.com/fullstackfull/StoreSyria_app98/actions/runs/41118104452
+status     : completed / success
+
+JOB "Analyze and test"  -> success
+  1  Set up job                                              success
+  2  actions/checkout                                        success
+  3  subosito/flutter-action                                 success
+  4  Record the toolchain actually used                       success
+  5  The committed pubspec.lock is installable, and is used   success
+  6  No errors and no warnings                                success
+  7  Informational issues must not grow                       success   <- the 248 ratchet held
+  8  flutter test                                             success   <- the new RTL ratchet ran
+  9  The SDK's tracked-file rewrites are contained             success
+
+JOB "Secrets and suppression hygiene"  -> success
+  3  No signing material is tracked by git                    success
+  4  No new analyzer suppressions                             success
+
+WHAT THIS PROVES THAT THE LOCAL CONTAINER CANNOT
+------------------------------------------------
+There is no Flutter SDK in the Laravel session's container (`which flutter dart` is empty).
+That is a fact about the container and NOT a claim that the app is untested -- the two are
+different, and conflating them was an error in an earlier report that the owner corrected.
+This run compiled the Dart I could not compile locally, ran the analyzer against it, and
+executed `flutter test` including the five new cases in test/rtl/directional_positioning_test.dart.
+
+The previous run on the previous HEAD is also recorded, for the same reason:
+  run 40735373693 / head 7ef0b6b499e333a6eba0cf0642d89f872029ab98 / completed / success

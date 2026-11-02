@@ -1245,13 +1245,74 @@ the remaining work, not about the system being correct.
    The upload itself was deliberate and useful: it is what unblocked the GATE F verification, which had
    stalled for want of a restored copy. The finding is that **it is still there.**
 
+   **2026-11-02 — OWNER-DEFERRED under `D-35`, and still OPEN.** The owner has overridden this
+   item's *blocking* effect on the development-only `main` integration, and nothing else. It is
+   **not** fixed and **not** resolved: the blob is still in `main`'s tree. Recorded exactly as
+   `D-35` requires:
+
+   | | |
+   |---|---|
+   | state | **OWNER-DEFERRED / OPEN** |
+   | blocks `main` integration | **no**, by `D-35` |
+   | blocks production deployment / real customer data | **YES** — must be reassessed first |
+   | remediation | PR #122 is **CLOSED and NOT MERGED** (checked 2026-11-02; `closed_at` 09:35:04Z, closed by the owner, not by this workstream). It was *partial* containment at best -- it removed the tracked file from the current tree and added a recurrence guard, and said in its own body that the blob *"remain[s] obtainable from old commits"*. With it closed, even that partial step is no longer proposed: the dump is still in `main`'s current tree, no guard yet refuses a tracked root-level SQL dump, and the history purge and exposure assessment remain outstanding. **Not reopened here** -- that is an owner decision. |
+   | forbidden in this workstream | deleting the dump, rewriting history, rotating `APP_KEY`, changing DB credentials, any incident cleanup |
+
+   **The owner's statement that the customer rows are test/demo data does not make every exposed
+   secret harmless, and is not recorded as if it did.** It bears on the personal-data impact of
+   those rows only. The `APP_KEY` exposure (`CLAUDE.md` §1 — in Git history, unrotated, which is
+   why `Crypt::encrypt()` is an encoding here and not a control) is a **separate** OPEN item that
+   the demo-data statement does not touch, and `D-35` constraint 2 forbids rotating it here.
+
 1. **13 environment / server observations** — `FINAL` §2a, unchanged. Plus the fourteenth of the
    same kind (`P1-PLT-04` #36 criterion 2), flagged there rather than renumbered.
-2. **5 D15-gated migrations** — `FINAL` §2b, unchanged. **The two ordering constraints must not be
-   lost between documents.**
+2. ~~**5 D15-gated migrations**~~ — **CLOSED 2026-11-02. GATE F is closed; the migrations exist.**
+   All 15 SCHEMA-01 tables and all 3 columns are now declared by migrations in
+   `database/migrations/`, derived from `App\Support\Database\GateFProductionSchema`, which
+   carries `docs/GATE-F-VERIFIED-SCHEMA.md` §2 verbatim.
+
+   **BOTH ORDERING CONSTRAINTS WERE PRESERVED, and are verifiable from the filenames rather than
+   from this sentence** — which is the point of recording them here:
+
+   | constraint | satisfied by |
+   |---|---|
+   | `products.cost_price` **before** `store_order_financials` | `2026_10_26_000100` < `2026_11_02_000400` |
+   | the `delivery_boys` commission columns **with or before** `delivery_earnings` | `2026_11_02_000500` < `2026_11_02_000600` |
+
+   The original drafts violated **both** through their own numbering (`0004 = financials`,
+   `0007 = cost_price`, `0005 = earnings`, `0008 = commission`), which is why the constraint was
+   written down in the first place.
+
+   **Promotion is a no-op against production by design** and is not reported as anything else: all
+   15 tables already exist there with live data. What it closes is that a *fresh* environment — CI,
+   staging, a new tenant database — now gets the same structure. Verified on a real server, 29
+   checks and 0 failures, including that the migrations change no structure and lose no row against
+   a production-shaped database and that `migrate:rollback` drops none of the 15
+   (`tests/Support/Security/bin/verify-gate-f-migrations-on-mysql.php`; log in
+   `docs/development/phase-2/evidence/phase-01-gates-2026-11-02/`).
+
+   **`cod_collection_events` was NOT created, deliberately.** It is the ninth draft and the one
+   object production genuinely lacks, by decision D-15, and creating it would silently activate COD
+   settlement — which is also the premise of item 5's **R2** below. Asserted rather than left to
+   this note, by `tests/Unit/Database/CodCollectionEventsStillAbsentTest`.
 3. **#82 criterion 4** — one provider sandbox per gateway. Owner/infrastructure.
 4. **#89 criterion 3** — `php tests/Support/Security/bin/report-larabug-configuration.php`, run
    where the app runs; its output is the record.
+
+   **RUN 2026-11-02 in the release-integration container, and the output is committed** at
+   `docs/development/phase-2/evidence/phase-01-gates-2026-11-02/larabug-configuration-local-container.log`.
+   It reports `larabug.login_key` and `larabug.project_key` **SET BUT BLANK**,
+   `larabug.environments = production`, `larabug in this env = no`,
+   `ScrubbedLaraBug::isConfigured() = false` and `mayReportOutbound() = false`, and concludes
+   *"this install is NOT keyed, so nothing is posted whatever outbound_enabled says"*.
+
+   **THIS DOES NOT CLOSE THE CRITERION FOR PRODUCTION, and must not be read as doing so.** The
+   report's first line is `APP_ENV : local`. It is a reading of **this container's** configuration,
+   built from `.env.example`/`.env.testing`, and the criterion's own wording is *"run where the app
+   runs"*. Production has a different `.env` whose key values this environment cannot see — if they
+   are set there, the answer there is different. So: **DONE for a from-source install, OPEN for
+   production**, which stays an environment reading the owner holds. Running it there is one
+   command and the output is the record.
 5. **The three GATE F reconciliation items** — `GATE-F-RECONCILIATION-ITEMS.md`. **R1** a wallet
    whose stored balance cannot be reconstructed from its own ledger (0 arithmetic violations, 9
    broken chain links, worst jump −98.28bn, three currencies summed into one column); **R2** 17 COD

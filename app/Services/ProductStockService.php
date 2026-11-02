@@ -85,7 +85,8 @@ class ProductStockService
         $product,
         $qty,
         bool $allowOversell = false,
-        bool $requireAvailability = false
+        bool $requireAvailability = false,
+        array $evidence = []
     ): array {
         $quantity = $this->normaliseQuantity($qty);
 
@@ -113,6 +114,17 @@ class ProductStockService
                 'stock_at_read_time' => $product->product_stock,
             ]);
 
+            /* E13: A REFUSAL IS EVIDENCE TOO, and the most important kind. "The order tried and
+               failed" is a different fact from "the order took stock", and a replacement built on
+               the second while the first is true deducts stock twice. `applied => false`. */
+            $this->recordMovement($evidence, [
+                'product_id' => $product->id,
+                'direction' => \App\Services\StockMovement::OUT,
+                'quantity' => $quantity,
+                'applied' => false,
+                'outcome' => self::INSUFFICIENT,
+            ]);
+
             return $this->result(false, self::INSUFFICIENT, $quantity, null);
         }
 
@@ -131,8 +143,24 @@ class ProductStockService
                 'remaining_stock' => $remaining,
             ]);
 
+            $this->recordMovement($evidence, [
+                'product_id' => $product->id,
+                'direction' => \App\Services\StockMovement::OUT,
+                'quantity' => $quantity,
+                'applied' => true,
+                'outcome' => self::OVERSOLD,
+            ]);
+
             return $this->result(true, self::OVERSOLD, $quantity, $remaining);
         }
+
+        $this->recordMovement($evidence, [
+            'product_id' => $product->id,
+            'direction' => \App\Services\StockMovement::OUT,
+            'quantity' => $quantity,
+            'applied' => true,
+            'outcome' => self::APPLIED,
+        ]);
 
         return $this->result(true, self::APPLIED, $quantity, $remaining);
     }
@@ -167,7 +195,8 @@ class ProductStockService
         $variant,
         $qty,
         bool $allowOversell = false,
-        bool $requireAvailability = false
+        bool $requireAvailability = false,
+        array $evidence = []
     ): array {
         $quantity = $this->normaliseQuantity($qty);
 
@@ -196,6 +225,17 @@ class ProductStockService
                 'stock_at_read_time' => $variant->stock,
             ]);
 
+            /* E13: A REFUSAL IS EVIDENCE TOO, and the most important kind. "The order tried and
+               failed" is a different fact from "the order took stock", and a replacement built on
+               the second while the first is true deducts stock twice. `applied => false`. */
+            $this->recordMovement($evidence, [
+                'variant_id' => $variant->id,
+                'direction' => \App\Services\StockMovement::OUT,
+                'quantity' => $quantity,
+                'applied' => false,
+                'outcome' => self::INSUFFICIENT,
+            ]);
+
             return $this->result(false, self::INSUFFICIENT, $quantity, null);
         }
 
@@ -214,8 +254,24 @@ class ProductStockService
                 'remaining_stock' => $remaining,
             ]);
 
+            $this->recordMovement($evidence, [
+                'variant_id' => $variant->id,
+                'direction' => \App\Services\StockMovement::OUT,
+                'quantity' => $quantity,
+                'applied' => true,
+                'outcome' => self::OVERSOLD,
+            ]);
+
             return $this->result(true, self::OVERSOLD, $quantity, $remaining);
         }
+
+        $this->recordMovement($evidence, [
+            'variant_id' => $variant->id,
+            'direction' => \App\Services\StockMovement::OUT,
+            'quantity' => $quantity,
+            'applied' => true,
+            'outcome' => self::APPLIED,
+        ]);
 
         return $this->result(true, self::APPLIED, $quantity, $remaining);
     }
@@ -228,25 +284,45 @@ class ProductStockService
      * inventory. This is a correction of this service's own effect, not a
      * general stock-adjustment API.
      */
-    public function restoreProductStock($productId, int $quantity): void
+    public function restoreProductStock($productId, int $quantity, array $evidence = []): void
     {
         if (empty($productId) || $quantity <= 0) {
             return;
         }
 
-        Product::query()->whereKey($productId)->increment('product_stock', $quantity);
+        $affected = Product::query()->whereKey($productId)->increment('product_stock', $quantity);
         $this->flushModelCache(Product::class);
+
+        /* `applied` is the AFFECTED ROW COUNT, not the fact that we called increment(). A restore
+           for a product that no longer exists changes nothing, and recording it as applied would
+           make `movedOutFor()` believe stock came back when it did not. */
+        $this->recordMovement($evidence, [
+            'product_id' => $productId,
+            'direction' => \App\Services\StockMovement::IN,
+            'quantity' => $quantity,
+            'applied' => $affected > 0,
+            'outcome' => $affected > 0 ? self::APPLIED : self::SKIPPED,
+        ]);
     }
 
     /** Give variant stock back. See {@see restoreProductStock()}. */
-    public function restoreVariantStock($variantId, int $quantity): void
+    public function restoreVariantStock($variantId, int $quantity, array $evidence = []): void
     {
         if (empty($variantId) || $quantity <= 0) {
             return;
         }
 
-        ProductVariant::query()->whereKey($variantId)->increment('stock', $quantity);
+        $affected = ProductVariant::query()->whereKey($variantId)->increment('stock', $quantity);
         $this->flushModelCache(ProductVariant::class);
+
+        /* See restoreProductStock(): `applied` is the affected row count. */
+        $this->recordMovement($evidence, [
+            'variant_id' => $variantId,
+            'direction' => \App\Services\StockMovement::IN,
+            'quantity' => $quantity,
+            'applied' => $affected > 0,
+            'outcome' => $affected > 0 ? self::APPLIED : self::SKIPPED,
+        ]);
     }
 
     /**
@@ -318,6 +394,52 @@ class ProductStockService
      * worst case a cart shows a stale stock figure for one cache lifetime,
      * which is the behaviour that already exists everywhere else.
      */
+    /**
+     * E13 / D-30 — write one line of stock evidence, if the caller supplied a context.
+     *
+     * **NO CONTEXT, NO ROW, AND THAT IS DELIBERATE.** `$evidence` carries `store_id`, `order_id` and
+     * `reason`, and only a caller that knows which order it is acting for can supply them. A
+     * movement recorded without an order is not evidence for E13 — it cannot answer "did THIS order
+     * move stock?" — and recording one anyway would put rows in the table that look like answers and
+     * are not. So an un-threaded call site records nothing, and `StockMovement::movedOutFor()` then
+     * answers UNKNOWN for that order, which is the honest result and the one D-15 requires a caller
+     * to refuse on.
+     *
+     * `StockMovementEvidenceTest::test_the_shared_trait_threads_a_token_at_every_stock_call` is
+     * what stops that silence becoming permanent for the checkout path: it pins the six call
+     * sites in `AppliesCartStockChanges`. **IT DOES NOT COVER THE RESTORE SITES** --
+     * OrderController's return loop, Order::product_return, OrderRefundController and
+     * PaymentService thread no context, so their movements are not recorded. That is stated
+     * here rather than implied, because the previous version of this paragraph named a
+     * `StockMovementCoverageTest` THAT DOES NOT EXIST -- a claim about the filesystem, which
+     * CLAUDE.md's own section 6 records as having been wrong in both directions before. Found
+     * by independent review.
+     */
+    private function recordMovement(array $evidence, array $movement): void
+    {
+        /*
+         * A STORE IS REQUIRED. An order id OR a correlation token is required -- the token is how a
+         * PLACEMENT path records a movement that happens before `new Order()` exists, which
+         * `AppliesCartStockChanges::decrementStockOrFail()`'s own comment confirms is the real
+         * ordering. Without either, the row could not be attributed to anything and would look like
+         * an answer without being one.
+         */
+        if (empty($evidence['store_id'])) {
+            return;
+        }
+
+        if (empty($evidence['order_id']) && empty($evidence['correlation_token'])) {
+            return;
+        }
+
+        \App\Services\StockMovement::record(array_merge($movement, [
+            'store_id' => $evidence['store_id'],
+            'order_id' => $evidence['order_id'] ?? null,
+            'reason' => $evidence['reason'] ?? null,
+            'correlation_token' => $evidence['correlation_token'] ?? null,
+        ]));
+    }
+
     private function flushModelCache(string $modelClass): void
     {
         try {

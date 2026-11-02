@@ -6,7 +6,7 @@
 @endsection
 
 @section('breadcrumb')
-    <li class="breadcrumb-item">{{ __('Category') }}</li>
+    <li aria-current="page" class="ss-breadcrumb__item">{{ __('Category') }}</li>
 @endsection
 @push('css')
     @include('layouts.includes.datatable-css')

@@ -240,6 +240,19 @@ class CatalogueEndpointIntegrityTest extends SecurityTestCase
     public function test_update_variant_applies_the_name_when_a_type_is_also_sent(): void
     {
         [$merchant, $store] = $this->makeTenant();
+
+        /*
+         * `Edit Products`, which this endpoint did not require until F202.
+         *
+         * `UpdateVariant` had NO permission check at all, and the field it writes -- `variant` --
+         * is the key both of `ProductController::update()`'s rebuilds match their deletes on, so a
+         * rename armed the owner's next save to hard-delete the row. It now reads the permission
+         * against the parent product's store through `VariantRemovalPolicy::authorize()`. In
+         * production every merchant holds the shared global `admin` role that carries this, so the
+         * grant below is the fixture catching up with production rather than a loosened assertion;
+         * this case is about the `type`-column repair, not about authorization.
+         */
+        $this->grantPermission(\App\Models\User::find($merchant->id), 'Edit Products');
         $token = $merchant->createToken('auth_token')->plainTextToken;
 
         $variantId = DB::table('product_variants')->insertGetId([

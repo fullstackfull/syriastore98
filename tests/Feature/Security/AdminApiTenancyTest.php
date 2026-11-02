@@ -727,18 +727,26 @@ class AdminApiTenancyTest extends SecurityTestCase
      * That is what is asserted: not 403 (the gate admitted the owner) and not 404
      * (both the order and the rider were found inside the authorised store).
      *
-     * The call does NOT complete, and no claim is made that it does:
-     * assignOrder's transaction begins with
-     * `DeliveryEarning::where('order_id', ...)->delete()` (:8221) and
-     * `delivery_earnings` is declared by NO migration -- one of the six GATE F money
-     * tables -- so the method's own catch returns a generic 500 and the order's
-     * deliveryboy_id is rolled back. End-to-end assignment is therefore
-     * BLOCKED -- EXTERNAL DEPENDENCY (GATE F), exactly as its web twin
-     * OrderController::order_assign (:1074/:1094) is. This test deliberately does
-     * NOT skip, because the authorization property it covers is fully exercised; it
-     * records what remains unproven instead of implying coverage.
+     * UPDATED 2026-11-02, WHEN GATE F CLOSED, exactly as the old assertion demanded.
+     *
+     * This test used to end with
+     * `assertFalse(Schema::hasTable('delivery_earnings'))` and the message *"delivery_earnings now
+     * exists, so this test must be rewritten to assert the completed assignment instead of
+     * stopping at the GATE F boundary."* That fired.
+     *
+     * WHAT USED TO HAPPEN, and why the limit was honest at the time: `assignOrder`'s transaction
+     * begins with `DeliveryEarning::where('order_id', ...)->delete()`, and `delivery_earnings` was
+     * declared by NO migration -- one of the six GATE F money tables -- so the method's own catch
+     * returned a generic 500 and the order's `deliveryboy_id` was rolled back. The authorization
+     * property was fully exercised; end-to-end assignment was not, and the docblock said so rather
+     * than implying coverage.
+     *
+     * The table exists now, so the assignment COMPLETES and that is what is asserted: the order
+     * carries the rider afterwards. The two "not 403 / not 404" assertions are kept -- they are
+     * what distinguishes "the gate admitted the owner" from "the lookup found nothing" -- but they
+     * are no longer the end of the story, because a 500 would have satisfied both.
      */
-    public function test_assign_order_lets_the_owner_past_the_gate_but_gate_f_blocks_the_write(): void
+    public function test_assign_order_lets_the_owner_past_the_gate_and_completes(): void
     {
         [, $storeA, $tokenA] = $this->twoTenants();
 
@@ -763,10 +771,26 @@ class AdminApiTenancyTest extends SecurityTestCase
             . 'which would mean the resolved store id no longer matches the rows.'
         );
 
-        $this->assertFalse(
+        $this->assertTrue(
             \Illuminate\Support\Facades\Schema::hasTable('delivery_earnings'),
-            'delivery_earnings now exists, so this test must be rewritten to assert the '
-            . 'completed assignment instead of stopping at the GATE F boundary.'
+            'delivery_earnings is missing again, so assignOrder cannot complete for any caller and '
+            . 'the assertion below cannot distinguish a refusal from a crash. GATE F added it on '
+            . '2026-11-02.'
+        );
+
+        // THE ASSIGNMENT ITSELF, which the GATE F boundary used to make unassertable.
+        // Read through withoutGlobalScopes(): Order is NOT in config/tenancy.php's scoped_models,
+        // but the habit is the point -- a plain read here would answer against whichever tenant
+        // happens to be resolved if that ever changes.
+        $assigned = \App\Models\Order::withoutGlobalScopes()->find($own->id);
+
+        $this->assertSame(
+            (int) $driver->id,
+            (int) $assigned->deliveryboy_id,
+            'The owner got past the gate and past both lookups, but the order was not actually '
+            . 'assigned. Status was ' . $response->getStatusCode() . ': a 500 here would have '
+            . 'satisfied both assertions above, which is exactly why this one exists. Body: '
+            . substr((string) $response->getContent(), 0, 300)
         );
     }
 

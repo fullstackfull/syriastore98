@@ -330,14 +330,15 @@ class FinancePermissionTest extends SecurityTestCase
      */
     public function test_a_super_admin_can_approve_a_pending_withdrawal_on_a_fresh_database(): void
     {
+        // GATE F closed on 2026-11-02: these three tables have measured migrations, so this test
+        // is live. An assertion rather than a dormant skip -- see the note in
+        // WithdrawalAuthorizationTest for why a skip that can silently return is the worse shape.
         foreach (['store_wallets', 'store_withdrawals', 'store_wallet_transactions'] as $table) {
-            if (!Schema::hasTable($table)) {
-                $this->markTestSkipped(
-                    "BLOCKED: `{$table}` is declared by no migration, though the "
-                    . 'model exists and this controller queries it '
-                    . '(cross-agent dependency -- schema agent).'
-                );
-            }
+            $this->assertTrue(
+                Schema::hasTable($table),
+                "`{$table}` is missing, so this controller cannot be exercised -- check that its "
+                . 'GATE F migration has not been reverted or renamed.'
+            );
         }
 
         [$merchant, $store] = $this->makeTenant();

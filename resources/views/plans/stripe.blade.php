@@ -6,8 +6,8 @@
 @endsection
 
 @section('breadcrumb')
-    <li class="breadcrumb-item"><a href="{{ route('plan.index') }}">{{ __('Plan') }}</a></li>
-    <li class="breadcrumb-item">{{ __('Order Summary') }}</li>
+    <li class="ss-breadcrumb__item"><a class="ss-breadcrumb__link" href="{{ route('plan.index') }}">{{ __('Plan') }}</a></li>
+    <li aria-current="page" class="ss-breadcrumb__item">{{ __('Order Summary') }}</li>
 @endsection
 
 @section('content')
@@ -3407,7 +3407,7 @@
             "publicKey": "{{ isset($admin_payments_details['khalti_public_key']) ? $admin_payments_details['khalti_public_key'] : '' }}",
             "productIdentity": "1234567890",
             "productName": "demo",
-            "productUrl": "{{env('APP_URL')}}",
+            "productUrl": {!! json_encode(config('app.url')) !!},
             "paymentPreference": [
                 "KHALTI",
                 "EBANKING",

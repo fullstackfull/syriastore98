@@ -1,31 +1,28 @@
-<!-- cache setting -->
-<div class="card" id="Cache_Settings">
-    <div class="card-header">
-        <div class="row">
-            <div class="col-6">
-                <h5 class="h6 md-0">{{ __('Cache Settings') }}</h5>
-            </div>
+{{--
+    Cache, on the design system. The size readout was an `<input disabled>` with NO label of any
+    kind — a form control that is not a form control, announced as "edit text, disabled, blank"
+    with the number in it and nothing saying what the number is. It is a read-only figure, so it
+    is `<x-ss.stat>`: a value with a label, which is what it always was.
+--}}
+<div class="ss-card" id="Cache_Settings">
+    <div class="ss-card__header">
+        <div class="ss-page-header__text">
+            <h2 class="ss-card__title">{{ __('Cache Settings') }}</h2>
+            <p class="ss-page-header__subtitle">
+                {{ __('This is a page meant for more advanced users, simply ignore it if you do not understand what cache is.') }}
+            </p>
         </div>
     </div>
-    <div class="card-body">
-        <div class="row">
-            <div class="col-md-12">
-                <div class="form-group">
-                    <p>{{ __('This is a page meant for more advanced users, simply ignore it if you do not understand what cache is.') }}
-                    </p>
-                </div>
-            </div>
 
-            <div class="col-lg-12">
-                <div class="input-group search-form">
-                    <input type="text" value="{{ \App\Models\Utility::GetCacheSize() }}" class="form-control" disabled>
-                    <span class="input-group-text bg-transparent">{{ __('MB') }}</span>
-                </div>
-            </div>
-        </div>
+    <div class="ss-card__body">
+        <x-ss.stats>
+            <x-ss.stat :label="__('Cache size')"
+                       :value="\App\Models\Utility::GetCacheSize() . ' ' . __('MB')"
+                       :period="__('right now')" />
+        </x-ss.stats>
     </div>
-    <div class="card-footer text-end">
-        <a href="{{ url('config-cache') }}" class="btn btn-badge btn-m btn-primary mr-2 ">{{ __('Clear Cache') }}</a>
+
+    <div class="ss-card__footer ss-card__footer--end">
+        <a href="{{ url('config-cache') }}" class="ss-btn ss-btn--secondary">{{ __('Clear Cache') }}</a>
     </div>
 </div>
-<!-- end cache setting -->

@@ -48,7 +48,14 @@
         <div class="add_list repeater-container" id="repeater-container">
             <div class="">
                 @if (!empty($sale_condition))
-                    @foreach (json_decode($sale_condition->condition) as $index => $item)
+                    {{-- F267. `json_decode(null)` RETURNS NULL, and `@foreach (null)` is fatal.
+                         `flash_sale_conditions.condition` is a nullable longText, so any sale
+                         whose condition row exists but carries no JSON -- or whose stored JSON is
+                         malformed, which `json_decode` also answers with null -- made this form
+                         answer 500 instead of opening. The guard above only tests that the ROW is
+                         present (`!empty($sale_condition)`), which is a different question from
+                         whether its one meaningful column holds anything. --}}
+                    @foreach (json_decode($sale_condition->condition) ?: [] as $index => $item)
                         <input type="hidden" class="condition_option_value" value="{{ $item->condition_option }}">
                         <div class="mt-2 row filter-row filter-css form-group-container"
                             data-id="form-group-container{{ $index }}">
@@ -206,9 +213,11 @@
     </div>
     {!! Form::close() !!}
 
-    <link rel="stylesheet" href="{{ asset('public/assets/css/plugins/daterangepicker.css') }}">
-    <script src="{{ asset('public/assets/js/plugins/daterangepicker.js') }}"></script>
-    <script src="{{ asset('public/js/jquery-ui.min.js') }}"></script>
+    {{-- F16: these were `asset('public/...')`, which doubles the docroot segment and 404s.
+         The files exist and answer 200 at the unprefixed path. --}}
+    <link rel="stylesheet" href="{{ asset('assets/css/plugins/daterangepicker.css') }}">
+    <script src="{{ asset('assets/js/plugins/daterangepicker.js') }}"></script>
+    <script src="{{ asset('js/jquery-ui.min.js') }}"></script>
 
     <script>
         $(document).ready(function() {

@@ -3,7 +3,7 @@
 @section('page-title', __('Shipping Zone'))
 
 @section('breadcrumb')
-    <li class="breadcrumb-item">{{ __('Shipping Zone') }}</li>
+    <li aria-current="page" class="ss-breadcrumb__item">{{ __('Shipping Zone') }}</li>
 @endsection
 
 @section('action-button')

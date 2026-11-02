@@ -91,6 +91,14 @@ class CrossTenantModelIsolationTest extends TestCase
         $ids = [];
         $required = $this->requiredColumnStubs($table);
 
+        // Both tenant ids must exist in `stores` before a table whose store_id is a FOREIGN KEY
+        // can take them. Until the GATE F migrations landed, none of the tables this class seeds
+        // had such a key, so two bare integers were enough; `store_wallets.store_id` now
+        // references `stores.id` ON DELETE CASCADE and sqlite enforces it under RefreshDatabase,
+        // which turned four tenancy assertions into "FOREIGN KEY constraint failed". The store
+        // rows are fixture scaffolding only -- nothing asserts on them.
+        $this->ensureTenantStoresExist();
+
         foreach ([self::STORE_A, self::STORE_B] as $storeId) {
             // Explicit $base wins over a generated stub, and store_id wins over both: the
             // tenant column is the thing under test and must never be stubbed.
@@ -106,6 +114,33 @@ class CrossTenantModelIsolationTest extends TestCase
         }
 
         return $ids;
+    }
+
+    /**
+     * Make sure `stores` really holds rows with the two tenant ids this class uses.
+     *
+     * Idempotent, and it reuses requiredColumnStubs() rather than listing `stores`' own required
+     * columns, for the same reason that method exists: a hand-written list is wrong the moment a
+     * migration adds a NOT NULL column.
+     */
+    private function ensureTenantStoresExist(): void
+    {
+        if (! Schema::hasTable('stores')) {
+            return;
+        }
+
+        foreach ([self::STORE_A, self::STORE_B] as $storeId) {
+            if (\DB::table('stores')->where('id', $storeId)->exists()) {
+                continue;
+            }
+
+            $row = $this->requiredColumnStubs('stores', 1);
+            $row['id'] = $storeId;
+            $row['created_at'] = now();
+            $row['updated_at'] = now();
+
+            \DB::table('stores')->insert($row);
+        }
     }
 
     /**
@@ -155,8 +190,21 @@ class CrossTenantModelIsolationTest extends TestCase
                 continue;
             }
 
-            // The tenant column and the timestamps are set by seedPair() itself.
-            if (in_array($name, ['store_id', 'created_at', 'updated_at'], true)) {
+            // The tenant column and the timestamps are set by seedPair() itself -- but ONLY for
+            // the table under test. At depth > 0 this method is building a PARENT row to satisfy a
+            // foreign key, and nothing sets that parent's store_id.
+            //
+            // Measured when the GATE F migrations landed: seeding `store_wallet_transactions`
+            // resolves `wallet_id` by inserting a `store_wallets` parent, and skipping store_id
+            // there produced `NOT NULL constraint failed: store_wallets.store_id` in six cases --
+            // reported inside a tenancy assertion, where it looked like a tenancy result rather
+            // than the fixture gap it was. `created_at`/`updated_at` stay excluded at every depth
+            // because existingOrNewParentId() sets them explicitly.
+            if (in_array($name, ['created_at', 'updated_at'], true)) {
+                continue;
+            }
+
+            if ($name === 'store_id' && $depth === 0) {
                 continue;
             }
 
@@ -291,6 +339,23 @@ class CrossTenantModelIsolationTest extends TestCase
             'customers' => [Customer::class, 'customers', ['email' => 'c-']],
             'carts' => [Cart::class, 'carts', []],
             'order notes' => [OrderNote::class, 'order_notes', []],
+            // THE THREE FINANCE ROWS BEGAN PASSING ON 2026-11-02, AND WHAT THEY PROVE IS NARROWER
+            // THAN "the wallet is tenant-isolated". They predate this branch (they are on
+            // origin/main) and were SKIPPED while the tables had no migration; GATE F closing is
+            // what made them run.
+            //
+            // What they exercise is `isOwnedByCurrentStore()` / `isOwnedByStore()` from
+            // BelongsToStore -- and that helper has ZERO call sites in app/. Measured: the only
+            // matches are its own definition in app/Models/Concerns/BelongsToStore.php and a
+            // docblock mention in app/Helper/helper.php. So these data sets prove the MODEL-SIDE
+            // half, which this class's docblock is explicit about, and NOT the control of record.
+            //
+            // The control of record for the money tables is the hand-written
+            // `where('store_id', getCurrentStore())` in StoreFinanceController and
+            // CurrencyRateController -- none of these models is in config/tenancy.php's
+            // scoped_models, so no global scope adds a predicate for them either. Do not let
+            // "cross-tenant isolation on the wallet is tested" into an evidence note on the
+            // strength of these three rows. Pointed out by independent review.
             'finance: wallets' => [StoreWallet::class, 'store_wallets', []],
             'finance: wallet ledger' => [StoreWalletTransaction::class, 'store_wallet_transactions', []],
             'finance: withdrawals' => [StoreWithdrawal::class, 'store_withdrawals', []],
@@ -313,14 +378,22 @@ class CrossTenantModelIsolationTest extends TestCase
     #[DataProvider('tenantOwnedDomains')]
     public function test_ownership_check_denies_the_other_tenant(string $modelClass, string $table, array $extra): void
     {
-        if (! Schema::hasTable($table)) {
-            // The 15 undeclared finance/wallet tables are GATE F. Skipping is the honest outcome
-            // -- a silent pass here would be worse than a reported gap.
-            $this->markTestSkipped(
-                "Table `{$table}` has no migration: it is one of the 15 undeclared tables held "
-                . 'behind GATE F (SCHEMA-01), whose column types are not derivable from $fillable.'
-            );
-        }
+        // GATE F closed on 2026-11-02: all 15 formerly undeclared tables now have migrations whose
+        // structure was MEASURED against a restored copy of production rather than inferred from
+        // $fillable. This was a `markTestSkipped` on `! Schema::hasTable($table)`, which was the
+        // honest outcome while the tables did not exist.
+        //
+        // It is now an ASSERTION rather than a deleted check. A dormant skip is the worse shape
+        // here: if a migration were reverted, the three finance data sets would quietly go back to
+        // skipping, which reopens a declared hole -- and an UNDECLARED skip fails the known-outcome
+        // gate anyway, with no explanation attached. Asserting names the cause at the point of
+        // failure.
+        $this->assertTrue(
+            Schema::hasTable($table),
+            "Table `{$table}` is missing from a database built by this repository's migrations, so "
+            . 'this tenancy data set cannot run. GATE F closed on 2026-11-02 -- check that the '
+            . 'migration has not been reverted or renamed.'
+        );
 
         $base = [];
         foreach ($extra as $column => $value) {

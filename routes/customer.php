@@ -308,6 +308,21 @@ Route::post(
     Route::post('{storeSlug?}/states-list', [AccountProfileController::class, 'states_list'])->name('states.list');
     Route::post('add-newsletter', [AccountProfileController::class, 'add_newsletter'])->name('add.newsletter');
     Route::post('{storeSlug?}/city-list', [AccountProfileController::class, 'city_list'])->name('city.list');
+    /*
+     * F217 — the paid-download route. OUTSIDE the `EnsureCustomerAuthenticated` group BY DESIGN,
+     * and that is not a gap: a GUEST order (`orders.is_guest`) has no account to authenticate, so
+     * requiring the customer guard here would make a guest's paid download unreachable, which the
+     * owner's decision explicitly forbids ("support the registered buyer AND the guest"). The
+     * entitlement is asked INSIDE the controller instead, and it is asked twice over — the
+     * signed-in buyer's own order, or a server-held `DownloadGrant`. Neither is the URL.
+     *
+     * `{order}` is a database id and nothing else; the FILENAME is never a route parameter, so
+     * there is no path for a caller to traverse. See `PaidDownloadController`'s docblock.
+     */
+    Route::get('{storeSlug?}/paid-download/{order}', [\App\Http\Controllers\PaidDownloadController::class, 'show'])
+        ->where('order', '[0-9]+')
+        ->name('paid.download');
+
     Route::get('{storeSlug?}/order', [AccountProfileController::class, 'order_list'])->name('order');
     Route::get('{storeSlug?}/address', [AccountProfileController::class, 'address'])->name('address');
     Route::get('{storeSlug?}/support-ticket', [AccountProfileController::class, 'support_ticket'])->name('support.ticket');

@@ -6,11 +6,17 @@
 
 @php
 $logo = asset(Storage::url('uploads/profile/'));
+
+/* P2-03-4 / F75. THE UPLOAD RULES THE SERVER WILL ACTUALLY APPLY -- see the same block in
+   create.blade.php. `UploadLimits` takes the MINIMUM of the platform setting and PHP's own
+   `upload_max_filesize`, because the setting said 2 GB, PHP allows 2 MB per file and 8 MB per
+   request, and the Dropzone was advertising its own 256 MB default. */
+$ssUpload = \App\Services\UploadLimits::forStore();
 @endphp
 
 @section('breadcrumb')
-<li class="breadcrumb-item" aria-current="page"><a href="{{ route('product.index') }}">{{ __('Product') }}</a></li>
-<li class="breadcrumb-item" aria-current="page">{{ __('Edit') }}</li>
+<li class="ss-breadcrumb__item"><a class="ss-breadcrumb__link" href="{{ route('product.index') }}">{{ __('Product') }}</a></li>
+<li aria-current="page" class="ss-breadcrumb__item">{{ __('Edit') }}</li>
 @endsection
 @section('action-button')
 <div class=" text-end d-flex all-button-box justify-content-md-end justify-content-center">
@@ -25,7 +31,66 @@ $stock_management = \App\Models\Utility::GetValueByName('stock_management');
 $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold');
 @endphp
 @section('content')
-{{ Form::model($product, ['route' => ['product.update', $product->id], 'method' => 'PUT', 'enctype' => 'multipart/form-data', 'id' => 'choice_form', 'class' => 'choice_form_edit']) }}
+{{-- P2-03-3. `data-ss-dirty-track` opts this form into StoreSyriaDS.wireDirtyTracking, which
+     arms on the first real input and reveals the unsaved-changes marker in the action bar below.
+     `ss-has-actionbar` is the scroll offset that keeps the sticky bar off a focused field (WCAG
+     2.2 "Focus Not Obscured"). The existing `choice_form_edit` class is KEPT: `edit.blade.php`
+     selects on it. --}}
+{{ Form::model($product, ['route' => ['product.update', $product->id], 'method' => 'PUT', 'enctype' => 'multipart/form-data', 'id' => 'choice_form', 'class' => 'choice_form_edit ss-has-actionbar', 'data-ss-dirty-track' => true]) }}
+
+  <x-ss.error-summary :errors="$errors" class="mb-3" />
+{{--
+    P2-03-5. THE CONCURRENT-EDIT TOKEN.
+
+    Two people editing the same product is a last-writer-wins race with no signal: the second
+    save silently discards the first person's work -- a price, a stock figure -- and both see a
+    success message. This carries the `updated_at` the form LOADED, and ProductController::update
+    refuses the save if the row has moved since.
+
+    `->toJSON()` rather than the default cast, so the value survives the round trip at full
+    precision; the controller parses it back to an instant and compares with `->eq()`, so a
+    formatting difference is never read as a conflict.
+
+    No migration: `updated_at` is already there, and Workstream G's rule is not to add a column
+    when an existing one answers the question.
+--}}
+<input type="hidden" name="ss_last_seen_at" value="{{ optional($product->updated_at)->toJSON() }}">
+
+{{--
+    F184 / D-28c. THE SAVE PATH'S CONSENT FLAG.
+
+    `ProductController::ssVariantRemovalPreflight()` has read `ss_confirm_variant_removal` since
+    F196; what was missing was any UI that sets it, so a merchant whose save would destroy
+    variants got the refusal toast and had no control to confirm with. The confirmed branch was
+    reachable only by a hand-built request, which is why sixteen green tests coexisted with a path
+    no browser could walk.
+
+    INSIDE THE FORM, deliberately. `#submit-all` lives in `@section('action-button')`, OUTSIDE the
+    form, and the save handler sends `$('#choice_form').serializeArray()` -- so an input placed
+    beside the button would never be sent. This is the same route `ss_last_seen_at` above travels,
+    and the same one `_method=PUT` travels, which is why the save resolves to a PUT route at all.
+
+    `0` AT REST, AND RESET AFTER EVERY ATTEMPT. `$request->boolean()` reads "0" as false, so the
+    flag is inert until the dialog sets it. It is reset in every one of the four save handlers
+    because a refusal does NOT navigate away: without the reset, a merchant who confirmed and then
+    lost the `ss_last_seen_at` race would leave the flag at "1", and their next unrelated save
+    would confirm a second removal they were never shown.
+--}}
+<input type="hidden" name="ss_confirm_variant_removal" id="ss_confirm_variant_removal" value="0">
+{{-- F205 [2026-10-30] — THE SERVER-ISSUED CONSENT, beside the old boolean rather than replacing it.
+
+     The boolean field stays because it is still what the *old* clients post and what twelve tests
+     drive; it no longer authorises anything on its own. The value this field carries is a token the
+     SERVER issued in its own refusal, bound to this employee, this store, this product, the exact
+     variant ids being removed and the data they were shown, with a time limit — so `confirm=1`
+     cannot stand in for it.
+
+     A SEPARATE FIELD, not the same one, and that is deliberate: all three server reads were
+     `$request->boolean()`, and `filter_var('9f3ac1…', FILTER_VALIDATE_BOOLEAN)` is FALSE — so
+     putting a token in the boolean's field would have silently turned every confirmed save back
+     into an unconfirmed one. --}}
+<input type="hidden" name="{{ \App\Services\VariantRemovalConsent::FIELD }}"
+       id="ss_variant_removal_consent" value="">
 
 <div class="row product-page-info">
     <div class="col-md-12">
@@ -47,7 +112,10 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                                 <div class="d-flex flex-wrap gap-3">
                                     <input class="input-group-text col-12" readonly id="basic-addon2"
                                         value="{{ $link }}">
-                                    {!! Form::text('slug', null, ['class' => 'form-control slug col-12', 'data-bs-toggle'=>'tooltip', 'title'=> __('Sku or Slug')]) !!}
+                                    {!! Form::text('slug', null, ['class' => 'form-control slug col-12', 'aria-describedby' => 'slug-help']) !!}
+                                    {{-- P2-06-10: this carried `title='Sku or Slug'` as a tooltip -- hover-only,
+                                         a restatement of its own label, and associated with nothing. --}}
+                                    <x-ss.field-help for="slug">{{ __("Part of the product's web address. Leave it blank and it is generated from the name.") }}</x-ss.field-help>
                                 </div>
                             </div>
                             <div class="col-sm-6 col-12">
@@ -61,34 +129,6 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                                     @endforeach
                                 </select>
                             </div>
-                            <div class="col-md-6 col-12 switch-width">
-                                {{ Form::label('tax_id', __('Taxs'), ['class' => ' form-label']) }}
-                                <select name="tax_id[]" data-role="tagsinput" id="tax_id" multiple>
-                                    @foreach ($Tax as $Key => $tax)
-                                    <option @if (in_array($Key, $get_tax)) selected @endif value="{{ $Key }}">
-                                        {{ $tax }}</option>
-                                    @endforeach
-                                </select>
-                            </div>
-                            <div class="col-md-6 col-12">
-                                {!! Form::label('', __('Tax Status'), ['class' => 'form-label']) !!}
-                                {!! Form::select('tax_status', $Tax_status, null, [ 'class' => 'form-control',
-                                'data-role' => 'tagsinput', 'id' => 'tax_id', ]) !!}
-                            </div>
-                            <div class=" col-sm-6 col-12" data_val='0'>
-                                {!! Form::label('', __('Brand'), ['class' => 'form-label']) !!}
-                                <span>
-                                    {!! Form::select('brand_id', $brands, null, [ 'class' => 'form-control',
-                                    'data-role' => 'tagsinput', 'id' => 'brand-dropdown', ]) !!}
-                                </span>
-                            </div>
-                            <div class=" col-sm-6 col-12" data_val='0'>
-                                {!! Form::label('', __('Label'), ['class' => 'form-label']) !!}
-                                <span>
-                                    {!! Form::select('label_id', $labels, null, [ 'class' => 'form-control',
-                                    'data-role' => 'tagsinput', 'id' => 'label-dropdown', ]) !!}
-                                </span>
-                            </div>
                             <div class="col-md-6 col-12">
                                 {!! Form::label('', __('Tags'), ['class' => 'form-label']) !!}
                                 <select name="tag_id[]" class="select2 form-control" id="tag_id" multiple required>
@@ -98,18 +138,62 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                                     @endforeach
                                 </select>
                             </div>
-                            <div class="col-sm-6 col-12">
-                                {!! Form::label('', __('Shipping'), ['class' => 'form-label']) !!}
-                                {!! Form::select('shipping_id', $Shipping, null, [
-                                'class' => 'form-control',
-                                'data-role' => 'tagsinput',
-                                'id' => 'shipping_id',
-                                ]) !!}
-                            </div>
-                            <div class="col-sm-6 col-12 product-weight">
-                                {!! Form::label('', __('Weight(Kg)'), ['class' => 'form-label ']) !!}
-                                {!! Form::number('product_weight', null, ['class' => 'form-control', 'min' => '0',
-                                'step' => '0.01']) !!}
+                            {{-- P2-03-8. Mirrors create.blade.php: the six catalogue-level fields behind
+                                 one disclosure. Nothing left the form, no name, value or rule changed. A
+                                 closed <details> still submits -- see the component for why that matters,
+                                 why `tag_id[]` (which carries `required`) is deliberately outside, and
+                                 why that `required` rule is a guard against a browser behaviour this
+                                 AJAX-submitted editor does not currently trip. --}}
+                            <div class="col-12">
+                              <x-ss.advanced-fields
+                                  :title="__('Advanced options')"
+                                  :hint="__('Taxes, brand, label, shipping and weight. These are usually set once for the whole catalogue.')"
+                                  :fields="['tax_id[]', 'tax_status', 'brand_id', 'label_id', 'shipping_id', 'product_weight']">
+                                <div class="row row-gap">
+                                <div class="col-md-6 col-12 switch-width">
+                                    {{ Form::label('tax_id', __('Taxs'), ['class' => ' form-label']) }}
+                                    <select name="tax_id[]" data-role="tagsinput" id="tax_id" multiple>
+                                        @foreach ($Tax as $Key => $tax)
+                                        <option @if (in_array($Key, $get_tax)) selected @endif value="{{ $Key }}">
+                                            {{ $tax }}</option>
+                                        @endforeach
+                                    </select>
+                                </div>
+                                <div class="col-md-6 col-12">
+                                    {!! Form::label('', __('Tax Status'), ['class' => 'form-label']) !!}
+                                    {!! Form::select('tax_status', $Tax_status, null, [ 'class' => 'form-control',
+                                    'data-role' => 'tagsinput', 'id' => 'tax_id', ]) !!}   {{-- duplicate id: F68, see create.blade.php --}}
+                                </div>
+                                <div class=" col-sm-6 col-12" data_val='0'>
+                                    {!! Form::label('', __('Brand'), ['class' => 'form-label']) !!}
+                                    <span>
+                                        {!! Form::select('brand_id', $brands, null, [ 'class' => 'form-control',
+                                        'data-role' => 'tagsinput', 'id' => 'brand-dropdown', ]) !!}
+                                    </span>
+                                </div>
+                                <div class=" col-sm-6 col-12" data_val='0'>
+                                    {!! Form::label('', __('Label'), ['class' => 'form-label']) !!}
+                                    <span>
+                                        {!! Form::select('label_id', $labels, null, [ 'class' => 'form-control',
+                                        'data-role' => 'tagsinput', 'id' => 'label-dropdown', ]) !!}
+                                    </span>
+                                </div>
+                                <div class="col-sm-6 col-12">
+                                    {!! Form::label('', __('Shipping'), ['class' => 'form-label']) !!}
+                                    {!! Form::select('shipping_id', $Shipping, null, [
+                                    'class' => 'form-control',
+                                    'data-role' => 'tagsinput',
+                                    'id' => 'shipping_id',
+                                    ]) !!}
+                                </div>
+                                <div class="col-sm-6 col-12 product-weight">
+                                    {!! Form::label('', __('Weight(Kg)'), ['class' => 'form-label ']) !!}
+                                    {!! Form::number('product_weight', null, ['class' => 'form-control', 'min' => '0',
+                                    'step' => '0.01', 'aria-describedby' => 'product_weight-help']) !!}
+                                    <x-ss.field-help for="product_weight">{{ __('Used to work out shipping. Leave blank if your shipping does not depend on weight.') }}</x-ss.field-help>
+                                </div>
+                                </div>
+                              </x-ss.advanced-fields>
                             </div>
                             <div class="col-md-6 col-12 product_price product-weight">
                                 {!! Form::label('', __('Price'), ['class' => 'form-label']) !!}<span
@@ -121,7 +205,8 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                                 {!! Form::label('', __('Sale Price'), ['class' => 'form-label']) !!}<!--<span
                                     class="text-danger">*</span>-->
                                 {!! Form::number('sale_price', null, ['class' => 'form-control', 'min' => '0',
-                                'step' => '0.01']) !!}
+                                'step' => '0.01', 'aria-describedby' => 'sale_price-help']) !!}
+                                <x-ss.field-help for="sale_price">{{ __('The discounted price customers pay. It must be lower than the price.') }}</x-ss.field-help>
                             </div>
                         </div>
                  
@@ -132,8 +217,10 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
         'class' => 'form-control',
         'min' => '0',
         'step' => '0.01',
-        'required' => true
+        'required' => true,
+        'aria-describedby' => 'cost_price-help',
     ]) !!}
+    <x-ss.field-help for="cost_price">{{ __('What the item costs you. Required, cannot exceed the price, and never shown to customers.') }}</x-ss.field-help>
 </div>
                  
                  
@@ -173,7 +260,8 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                         </div>
                         <div class="row row-gap">
                             <div class="col-12 stock_stats">
-                                {!! Form::label('', __('Stock Status:'), ['class' => 'form-label f-w-800']) !!}
+                                <x-ss.choice-group name="stock_status" :legend="__('Stock Status:')"
+                                  :hint= + HINT1 + >
                                 <div class="col-mb-9 d-flex flex-wrap row-gap">
                                 <div class="form-check form-check-inline">
                                     <input class="form-check-input code" type="radio" id="in_stock" value="in_stock" name="stock_status" {{ $product->stock_status == 'in_stock' ? 'checked' : '' }}>
@@ -194,6 +282,7 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                                     </label>
                                 </div>
                                 </div>
+                                </x-ss.choice-group>
                             </div>
                             </div>
                         </div>
@@ -208,10 +297,12 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                                     <div class="col-md-6 col-12">
                                         {!! Form::label('', __('Low stock threshold'), ['class' => 'form-label']) !!}
                                         {!! Form::number('low_stock_threshold', $low_stock_threshold, ['class' =>
-                                        'form-control', 'min' => '0']) !!}
+                                        'form-control', 'min' => '0', 'aria-describedby' => 'low_stock_threshold-help']) !!}
+                                        <x-ss.field-help for="low_stock_threshold">{{ __('The product list shows Low stock at or below this number. Leave 0 to use the store default.') }}</x-ss.field-help>
                                     </div>
                                     <div class="col-12 mb-3">
-                                        {!! Form::label('', __('Allow BackOrders:'), ['class' => 'form-label']) !!}
+                                        <x-ss.choice-group name="stock_order_status" :legend="__('Allow BackOrders:')"
+                                          :hint= + HINT2 + >
                                         <div class="form-check m-1">
                                             <input type="radio" id="not_allow" value="not_allow" name="stock_order_status" class="form-check-input code" {{ $product->stock_order_status == 'not_allow' ? 'checked' : '' }}>
                                             <label class="form-check-label" for="not_allow">{{ __('Do Not Allow') }}</label>
@@ -225,6 +316,7 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                                             <input type="radio" id="allow" value="allow" name="stock_order_status" class="form-check-input code" {{ $product->stock_order_status == 'allow' ? 'checked' : '' }}>
                                             <label class="form-check-label" for="allow">{{ __('Allow') }}</label>
                                         </div>
+                                        </x-ss.choice-group>
                                     </div>
                                 </div>
                             @endif
@@ -306,7 +398,18 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                                             <img src="{{ asset('assets/images/notification/upload_icon.png') }}"
                                                 alt="Upload Icon"
                                                 style="width: 50px; height: 50px; margin:0 auto 10px;">
-                                            <span>Drop files here to upload</span>
+                                            {{-- P2-03-4: this string was hardcoded English. --}}
+                                            <span>{{ __('Drop files here to upload') }}</span>
+                                            {{-- P2-03-4 / F75: state what the SERVER accepts. --}}
+                                            <span class="ss-upload-hint ss-upload-hint--on-light" id="ss-gallery-upload-hint"
+                                                data-ss-upload-hint>
+                                                @if (!empty($ssUpload['extensions']))
+                                                    {{ __('Accepted formats') }}:
+                                                    {{ strtoupper(implode(', ', $ssUpload['extensions'])) }}.
+                                                @endif
+                                                {{ __('Up to :size per file', ['size' => $ssUpload['max_label']]) }}.
+                                                {{ __('Up to :total for all files together', ['total' => $ssUpload['request_max_label']]) }}.
+                                            </span>
                                         </div>
 
                                         <div class="fallback">
@@ -375,10 +478,21 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                                     <label for="cover_image"
                                         class="form-label">{{ __('Upload Cover Image') }}</label><span
                                         class="text-danger">*</span>
+                                    {{-- P2-03-4 / F75: `accept` is the server's own configured list, verbatim --
+                                         narrowing it here would newly block a `pdf` or `csv` that works today. --}}
                                     <input type="file" name="cover_image" id="cover_image"
                                         class="form-control custom-input-file"
+                                        @if (!empty($ssUpload['accept'])) accept="{{ $ssUpload['accept'] }}" @endif
+                                        aria-describedby="ss-cover-upload-hint"
                                         onchange="document.getElementById('upcoverImg').src = window.URL.createObjectURL(this.files[0]);"
                                         multiple>
+                                    <span class="ss-upload-hint" id="ss-cover-upload-hint" data-ss-upload-hint>
+                                        @if (!empty($ssUpload['extensions']))
+                                            {{ __('Accepted formats') }}:
+                                            {{ strtoupper(implode(', ', $ssUpload['extensions'])) }}.
+                                        @endif
+                                        {{ __('Up to :size per file', ['size' => $ssUpload['max_label']]) }}.
+                                    </span>
                                     <img id="upcoverImg"
                                         src="{{ get_file($product->cover_image_path) }}" width="20%"
                                         class="mt-2" />
@@ -388,8 +502,11 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                                     <div class="choose-file">
                                         <label for="downloadable_product"
                                             class="form-label">{{ __('Downloadable Product') }}</label>
+                                        {{-- `accept` from UploadLimits -- see create.blade.php. --}}
                                         <input type="file" class="form-control" name="downloadable_product"
                                             id="downloadable_product"
+                                            {{-- F190: the field's own list; platform fallback while F217 gates it. --}}
+                                            accept="{{ \App\Support\UploadRules::accept('downloadable_product', $ssUpload['accept']) }}"
                                             onchange="document.getElementById('downloadable_product').src = window.URL.createObjectURL(this.files[0]);"
                                             multiple>
                                         @if ($product->downloadable_product != '')
@@ -407,8 +524,11 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                                     <div class="choose-file">
                                         <label for="preview_video"
                                             class="form-label">{{ __('Preview Video') }}</label>
+                                        {{-- `accept` from UploadLimits -- see create.blade.php, and F190. --}}
                                         <input type="file" class="form-control" name="preview_video"
                                             id="preview_video"
+                                            {{-- F190: .mp4,.webm,.mov, matching the server rule. --}}
+                                            accept="{{ \App\Support\UploadRules::accept('preview_video', $ssUpload['accept']) }}"
                                             value="{{ $product->preview_type == 'Video File' ? $product->preview_content : '' }}"
                                             onchange="document.getElementById('preview_video').src = window.URL.createObjectURL(this.files[0]);"
                                             multiple>
@@ -672,7 +792,32 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
       </div>
     </div>
   </div>
+  {{--
+      P2-03-3 -- STICKY SAVE, for the same measured reason as the create form: the only Save is
+      `#submit-all` in the page header, outside this form, and it scrolls off the top.
+
+      IT CLICKS THE EXISTING CONTROL rather than submitting. `edit.blade.php` binds its own
+      FormData assembly to `#submit-all` -- including the `ss_last_seen_at` concurrency token
+      P2-03-5 added -- and a second submit path would have to keep that in step. Proxying means
+      there is one implementation and the conflict detection cannot be bypassed by using the new
+      button instead of the old one.
+  --}}
+  <x-ss.actionbar :label="__('Save or discard your changes')">
+    <a href="#" class="btn btn-primary ss-btn"
+       data-ss-click-proxy="#submit-all"
+       data-title="{{ __('Update Product') }}">
+      <i class="ti ti-device-floppy" aria-hidden="true"></i>
+      <span class="ms-2 me-2">{{ __('Save') }}</span>
+    </a>
+  </x-ss.actionbar>
+
 {!! Form::close() !!}
+
+{{-- F184: the confirmation shell AND the trash door's bridge, shared with the read-only product
+     screen so neither surface keeps a one-click delete. OUTSIDE the form, so nothing in it is ever
+     serialised into a save. The save path's own refusal handler is below and opens the same
+     shell. --}}
+@include('product._variant-delete-dialog')
 @endsection
 
     @push('custom-script')
@@ -1021,9 +1166,20 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                     previewTemplate: n.html(),
                     maxFiles: 10,
                     parallelUploads: 10,
+                    /* P2-03-4 / F75. maxFilesize is MEGABYTES in Dropzone and its default is 256 --
+                       128x the real per-file ceiling. addRemoveLinks lets a merchant take a queued
+                       file back out, which was previously impossible without reloading the page. */
+                    maxFilesize: {{ max(1, (int) round($ssUpload['max_kb'] / 1024)) }},
+                    addRemoveLinks: true,
+                    dictRemoveFile: @json(__('Remove')),
+                    dictFileTooBig: @json(__('That file is too large. The maximum is :max.', ['max' => $ssUpload['max_label']])),
+                    dictInvalidFileType: @json(__('That file type is not accepted.')),
                     autoProcessQueue: false,
                     uploadMultiple: true,
-                    acceptedFiles: a ? null : "image/*",
+                    /* P2-03-4 / F75. WAS `a ? null : "image/*"`, and this element carries
+                       `data-dropzone-multiple`, so it took the `null` branch and accepted ANY file
+                       type while the server refuses everything outside its configured list. */
+                    acceptedFiles: @json($ssUpload['accept'] !== '' ? $ssUpload['accept'] : 'image/*'),
                     success: function(file, response) {
                         if (response.flag == "success") {
                             show_toastr('success', response.msg, 'success');
@@ -1051,7 +1207,132 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
             }))
         }()
 
-        $('#submit-all').on('click', function() {
+
+        /* ==========================================================================
+           F184 / D-28c -- THE CONFIRMATION BRIDGE.
+           ==========================================================================
+
+           TWO CALLERS, ONE DIALOG. The trash buttons in both variant panels call
+           `window.ssConfirmVariantDelete()`; the save path calls
+           `ssHandleVariantRemovalRefusal()`. Both open the one `.ss-dialog` shell rendered after
+           the form, through `StoreSyriaDS.confirmDestructive()`.
+
+           EVERY STRING IS RENDERED BY BLADE AND PASSED IN. `store-syria-ds.js` has no translator,
+           which is why `applyFormErrors` below takes its labels as arguments. A literal here would
+           ship English to an Arabic merchant -- the F70 lesson.
+
+           `Are you sure?` IS NOT USED: `ar.json` renders it feminine-singular, which on a
+           destructive dialog reads as a grammatical error. The titles are pronoun-free. */
+
+        /* The trash door's bridge lives in `product/_variant-delete-dialog.blade.php`, beside the
+           shell, because the read-only product screen needs it too. This file adds only the SAVE
+           path, which that screen has no equivalent of. */
+
+        /* The save door.
+           ----------------------------------------------------------------------------
+           KEYED ON `ss_variant_removal.confirm_with`, NOT ON `flag == 'error'`, and that
+           distinction is the whole correctness of this function. The error branch is shared by
+           ordinary validation failures (which carry `data.errors` and drive `applyFormErrors`), by
+           the `ss_last_seen_at` concurrent-edit refusal, and by the D-20 HARD blocks. Keying on
+           `flag` would offer "delete these anyway" over a live cart reference -- the exact thing
+           the owner forbade -- and over a conflict, where confirming cannot help.
+
+           `confirm_with` is emitted by exactly one branch of `VariantRemovalPolicy::refuse()`: the
+           one where removal is provably safe and only consent is missing. Every blocking branch
+           emits `blocked` instead.
+
+           THE BODY IS THE SERVER'S OWN MESSAGE. It already names each variant with its SKU, price
+           and stock, says the loss is permanent, and is fully translated. Rebuilding that list from
+           the DOM would drift from what the server actually refused -- and the panels' SKU is
+           synthesised by the view rather than read from storage, so it would also be wrong.
+
+           Returns true when it handled the refusal, so the caller falls through to its existing
+           toast and `applyFormErrors` for everything else. */
+        function ssHandleVariantRemovalRefusal(data) {
+            var info = data && data.ss_variant_removal;
+            if (!info) { return false; }
+
+            var blocked = !!info.blocked;
+
+            /* `typeof … === 'function'`, NOT a truthiness check on `window.StoreSyriaDS`.
+               `confirmDestructive` is new in this change, and a merchant holding a CACHED
+               `store-syria-ds.js` from the previous slice has a `StoreSyriaDS` object that is
+               perfectly truthy and has no such method -- so this threw a TypeError inside jQuery's
+               `success` callback, which jQuery does not catch, and execution never reached the
+               `show_toastr()` below it. The merchant saw NOTHING: no dialog, no message, and a
+               save that appeared to do nothing at all. The sibling bridge in
+               `_variant-delete-dialog.blade.php` already guarded correctly, which is what made the
+               omission visible. (The asset token was bumped in the same change so a fresh load
+               cannot hit this at all; the guard is for the browser that is already holding the old
+               file.) */
+            var opened = window.StoreSyriaDS
+                && typeof StoreSyriaDS.confirmDestructive === 'function'
+                && StoreSyriaDS.confirmDestructive(window.SS_VARIANT_DIALOG, {
+                title: blocked
+                    ? @json(__('This variant could not be deleted.'))
+                    : @json(__('Remove these variants permanently?')),
+                message: data.msg || '',
+                note: blocked ? '' : @json(__('This cannot be undone.')),
+                blocked: blocked,
+                confirmText: @json(__('Delete permanently')),
+                cancelText: @json(__('Cancel')),
+                closeText: @json(__('Close'))
+            }, function () {
+                /* CONSENT IS SET, THEN THE SAVE IS RE-RUN THROUGH ITS OWN HANDLER, so the retry is
+                   byte-for-byte the request the merchant already made plus the flag. Re-reading the
+                   file inputs is why: `fd` is rebuilt from `cover_image`, `preview_video`,
+                   `downloadable_product`, every `.downloadable_product_variant` and the dropzone,
+                   and those sources are still there. The refused attempt uploaded them once --
+                   bandwidth, not corruption, because the preflight persists nothing. */
+                /* F205: send back the token the server issued in THIS refusal. The old boolean
+                   is still set for any client or test that reads it, but the token is what the
+                   server now checks. `info.confirm_value` is the field the refusal advertises in
+                   `confirm_with`; writing the advertised pair rather than a literal is what makes
+                   the signal verifiable instead of decorative. */
+                $('#ss_confirm_variant_removal').val('1');
+                $('#ss_variant_removal_consent').val((info && info.confirm_value) || '');
+                ssSubmitProduct();
+            }, document.getElementById('submit-all'));
+
+            if (!opened) { return false; }   // no shell: fall through to the toast.
+
+            return true;
+        }
+
+        /* RESET AFTER EVERY ATTEMPT, and this is not housekeeping.
+
+           A refusal does NOT navigate away. So after a merchant confirms, the save can still be
+           refused by the `ss_last_seen_at` optimistic lock -- which `update()` checks BEFORE the
+           variant preflight -- and the page stays with the flag still at "1". The merchant then
+           edits something unrelated, clicks Save, and a second variant removal is confirmed
+           without a dialog ever being shown. Called from all four save handlers. */
+        function ssClearVariantConsent() {
+            $('#ss_confirm_variant_removal').val('0');
+            $('#ss_variant_removal_consent').val('');
+        }
+
+        /* F184: THE SAVE IS A NAMED FUNCTION so the confirmation can re-run it. The click binding
+           below is unchanged in behaviour -- what changes is that there is now a second caller.
+
+           RE-ENTRANCY IS GUARDED BY `ssSaveInFlight`, NOT by `disabled`. `#submit-all` is an
+           `<a href="#">`, and the `disabled` ATTRIBUTE HAS NO EFFECT ON AN ANCHOR -- the jQuery
+           handler still fires, and `StoreSyriaDS.wireClickProxy()` calls `target.click()`
+           unconditionally. So the `attr('disabled', true)` below has never guarded anything, and
+           an impatient double-click on the dialog's Confirm would otherwise send two saves. */
+        var ssSaveInFlight = false;
+
+        function ssSubmitProduct() {
+            /* THE LATCH IS SET WHERE THE REQUEST IS ISSUED, NOT HERE, AND THAT IS A FIX RATHER
+               THAN A STYLE CHOICE. Setting it at the top left every exit BEFORE `$.ajax` stuck at
+               `true` for the life of the page -- and there is such an exit: the
+               CartQuantityControl branch's `return false` below, plus two unguarded dereferences
+               (`cover_image.files[0]`, the dropzone's `getAcceptedFiles()`) that can throw. Save
+               then went permanently dead with no feedback at all, because `attr('disabled', …)`
+               on an `<a>` has never done anything. Worst right after the merchant confirmed the
+               removal dialog, which is the one moment they have just told us to proceed.
+               Everything between this check and `$.ajax` is synchronous, so no second click can
+               interleave and the guard loses nothing by being set later. */
+            if (ssSaveInFlight) { return; }
 
             $('#submit-all').attr('disabled', true);
             var fd = new FormData();
@@ -1111,6 +1392,7 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                     show_toastr('Error', 'Please correct the error message before submitting the form.');
                     return false;
                 } else {
+                    ssSaveInFlight = true;
                     $.ajax({
                         url: "{{ route('product.update', $product->id) }}",
                         headers: {
@@ -1122,17 +1404,43 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                         type: 'POST',
                         success: function(data) {
                             $('#loader').fadeOut();
+                            ssSaveInFlight = false;
                             if (data.flag == "success") {
+                                ssClearVariantConsent();
                                 $('#submit-all').attr('disabled', true); 
                                 localStorage.setItem('success_msg', data.msg);
                                 window.location.href = "{{ route('product.index') }}" + '?id=2';
                             } else {
+                                ssClearVariantConsent();
+                                $('#submit-all').attr('disabled', false);
+
+                                /* F184. A variant-removal refusal is the one error the merchant can
+                                   ACT on, so it gets the dialog instead of a toast they can only
+                                   read. Everything else -- validation, the concurrent-edit conflict,
+                                   the D-20 hard blocks -- falls through unchanged. */
+                                if (ssHandleVariantRemovalRefusal(data)) { return; }
+
                                 show_toastr('Error', data.msg, 'error');
+                                /* F70. The toast says WHAT is wrong; this says WHERE. It marks each failed
+                                   field, writes the message beside it, OPENS the collapsed section the field
+                                   lives in, and builds the summary -- none of which the server-rendered
+                                   path could do, because this save never re-renders the page.
+                                   The strings are passed in because store-syria-ds.js has no translator;
+                                   omit them and an Arabic merchant reads English. */
+                                if (window.StoreSyriaDS && data.errors) {
+                                    StoreSyriaDS.applyFormErrors(data.errors, {
+                                        form: '#choice_form',
+                                        needsAttentionText: @json(__('Needs attention')),
+                                        titleText: @json(__('Please correct the highlighted fields'))
+                                    });
+                                }
                                 $('#submit-all').attr('disabled', false);
                             }
                         },
                         error: function(data) {
                             $('#loader').fadeOut();
+                            ssSaveInFlight = false;
+                            ssClearVariantConsent();
 
                             $('#submit-all').attr('disabled', false);
                             // Dropzones.removeFile(file);
@@ -1145,6 +1453,7 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                     });
                 }
             } else {
+                ssSaveInFlight = true;
                 $.ajax({
                     url: "{{ route('product.update', $product->id) }}",
                     headers: {
@@ -1156,18 +1465,56 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                     type: 'POST',
                     success: function(data) {
                         $('#loader').fadeOut();
+                        ssSaveInFlight = false;
                         if (data.flag == "success") {
                             $('#submit-all').attr('disabled', true);
+
+                            /* P2-03-4 / F75. THE DEFAULT SAVE PATH. There are TWO near-identical AJAX calls
+                               here, chosen by `module_is_active('CartQuantityControl')`, and THIS is the `else`
+                               -- the one that runs when that module is not enabled, which is the ordinary case.
+                               The first version of this fix patched only the other one and measured nothing:
+                               the server's warning was in the response (asserted separately as B1) and the
+                               merchant still saw no toast, because this branch navigated away without
+                               displaying `data.msg` at all.
+                               `edit.blade.php` had the same pair and the pre-existing `success_msg` write was
+                               likewise on the module-only branch, so by default an edit save showed the
+                               merchant nothing either. Both defaults now carry the message. */
+                            try { localStorage.setItem('success_msg', data.msg); } catch (e) { /* private mode */ }
+                            ssClearVariantConsent();
                             window.location.href = "{{ route('product.index') }}" + '?id=2';
 
 
                         } else {
+                            ssClearVariantConsent();
+                            $('#submit-all').attr('disabled', false);
+
+                            /* F184. See the sibling branch above. BOTH are patched because
+                               `module_is_active('CartQuantityControl')` chooses between them and
+                               THIS is the ordinary case -- the file's own comment records a previous
+                               fix that patched only the other one and measured nothing. */
+                            if (ssHandleVariantRemovalRefusal(data)) { return; }
+
                             show_toastr('Error', data.msg, 'error');
+                            /* F70. The toast says WHAT is wrong; this says WHERE. It marks each failed
+                               field, writes the message beside it, OPENS the collapsed section the field
+                               lives in, and builds the summary -- none of which the server-rendered
+                               path could do, because this save never re-renders the page.
+                               The strings are passed in because store-syria-ds.js has no translator;
+                               omit them and an Arabic merchant reads English. */
+                            if (window.StoreSyriaDS && data.errors) {
+                                StoreSyriaDS.applyFormErrors(data.errors, {
+                                    form: '#choice_form',
+                                    needsAttentionText: @json(__('Needs attention')),
+                                    titleText: @json(__('Please correct the highlighted fields'))
+                                });
+                            }
                             $('#submit-all').attr('disabled', false);
                         }
                     },
                     error: function(data) {
                         $('#loader').fadeOut();
+                        ssSaveInFlight = false;
+                        ssClearVariantConsent();
 
                         $('#submit-all').attr('disabled', false);
                         // Dropzones.removeFile(file);
@@ -1179,7 +1526,102 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                     },
                 });
             }
-        });  
-        
+        }
+
+        $('#submit-all').on('click', function() {
+            ssSubmitProduct();
+        });
+
+        /*
+         * D-26 -- the one image a product variant may carry.
+         *
+         * BOUND HERE, ON THE PARENT PAGE, AND DELEGATED -- not inside the injected partials. Both
+         * `attribute_combinations_data` and `attribute_combinations_edit` are injected with
+         * jQuery's `.html()`, which EVALUATES their <script> tags, so a handler declared inside
+         * one of them re-binds on every injection and a single click then fires it N times. For
+         * an upload that would mean N requests, and for a delete N deletions. One delegated
+         * binding on the parent covers both partials and cannot accumulate.
+         */
+        $(document).on('change', '.ss-variant-image-input', function() {
+            var input = $(this);
+            var row = input.closest('.variant-image-row');
+            var feedback = row.find('.ss-variant-image-feedback');
+            var file = this.files && this.files[0];
+
+            if (!file) { return; }
+
+            var data = new FormData();
+            data.append('_token', $('meta[name="csrf-token"]').attr('content'));
+            data.append('variant_id', row.data('variant-id'));
+            data.append('variant_image', file);
+
+            feedback.text('{{ __('Uploading…') }}').removeClass('text-danger text-success');
+
+            $.ajax({
+                url: '{{ route('product.variant.image.store') }}',
+                type: 'POST',
+                data: data,
+                processData: false,
+                contentType: false,
+                success: function(res) {
+                    if (res.flag !== 'success') {
+                        /* The server's own wording, which for a refused file NAMES it (F75). */
+                        feedback.addClass('text-danger').text(res.msg || '{{ __('The file was not accepted.') }}');
+                        return;
+                    }
+                    feedback.addClass('text-success').text(res.msg);
+                    row.find('.ss-variant-image-preview').html(
+                        $('<img>').attr({src: res.url, alt: '{{ __('Variant Image') }}', width: 80}).addClass('rounded')
+                    ).append(
+                        $('<a>').attr('href', '#')
+                            .addClass('btn btn-sm btn-danger ms-2 ss-variant-image-remove')
+                            .append($('<i>').addClass('ti ti-trash text-white py-1'))
+                    );
+                    input.val('');
+                },
+                error: function(xhr) {
+                    /* A refusal is a 403 or a 422 with a body; anything else gets a generic line
+                       rather than a raw status, and NOTHING from the response is injected as
+                       HTML -- `.text()`, not `.html()`. */
+                    var msg = (xhr.responseJSON && xhr.responseJSON.msg)
+                        ? xhr.responseJSON.msg
+                        : '{{ __('The file was not accepted.') }}';
+                    feedback.addClass('text-danger').text(msg);
+                },
+            });
+        });
+
+        $(document).on('click', '.ss-variant-image-remove', function(e) {
+            e.preventDefault();
+
+            var row = $(this).closest('.variant-image-row');
+            var feedback = row.find('.ss-variant-image-feedback');
+
+            $.ajax({
+                url: '{{ route('product.variant.image.destroy') }}',
+                type: 'POST',
+                data: {
+                    _token: $('meta[name="csrf-token"]').attr('content'),
+                    /* Laravel reads the method override from the body; the route is DELETE. */
+                    _method: 'DELETE',
+                    variant_id: row.data('variant-id'),
+                },
+                success: function(res) {
+                    if (res.flag !== 'success') {
+                        feedback.addClass('text-danger').text(res.msg || '{{ __('Permission denied.') }}');
+                        return;
+                    }
+                    row.find('.ss-variant-image-preview').empty();
+                    feedback.removeClass('text-danger').addClass('text-success').text(res.msg);
+                },
+                error: function(xhr) {
+                    var msg = (xhr.responseJSON && xhr.responseJSON.msg)
+                        ? xhr.responseJSON.msg
+                        : '{{ __('Permission denied.') }}';
+                    feedback.addClass('text-danger').text(msg);
+                },
+            });
+        });
+
     </script>
 @endpush

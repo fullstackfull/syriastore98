@@ -1,0 +1,12 @@
+HEAD=f93de37fb2af3c50e66a6ec01cc3fd0fa251e07f
+TREE_DIRTY_FILES=0
+  Tests:    2 failed, 17 skipped, 7035 passed (34942 assertions)
+  Duration: 1678.94s
+FEATURE_EXIT=1
+--- the two declared failures, as observed ---
+  ⨯ new users can register                                               0.20s  
+  ⨯ profile page is displayed                                            0.96s  
+--- UNIT ---
+  Tests:    657 passed (4094 assertions)
+--- CONTRACT ---
+  Tests:    26 passed (83 assertions)

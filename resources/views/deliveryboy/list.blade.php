@@ -9,7 +9,7 @@
 @endphp
 
 @section('breadcrumb')
-    <li class="breadcrumb-item" aria-current="page">{{ __('DeliveryBoy') }}</li>
+    <li aria-current="page" class="ss-breadcrumb__item">{{ __('DeliveryBoy') }}</li>
 @endsection
 
 @section('action-button')

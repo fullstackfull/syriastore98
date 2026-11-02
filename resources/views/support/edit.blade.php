@@ -46,8 +46,8 @@
 @endsection
 
 @section('breadcrumb')
-    <li class="breadcrumb-item"><a href="{{ route('support_ticket.index') }}">{{ __('Support Ticket') }}</a></li>
-    <li class="breadcrumb-item"> {{ __('Reply Ticket') }} - {{ $ticket->ticket_id }}</li>
+    <li class="ss-breadcrumb__item"><a class="ss-breadcrumb__link" href="{{ route('support_ticket.index') }}">{{ __('Support Ticket') }}</a></li>
+    <li aria-current="page" class="ss-breadcrumb__item"> {{ __('Reply Ticket') }} - {{ $ticket->ticket_id }}</li>
 @endsection
 @php
     $logo = get_file('/');

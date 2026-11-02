@@ -4,7 +4,7 @@
 {{ __('Abandon Cart')}}
 @endsection
 @section('breadcrumb')
-    <li class="breadcrumb-item">{{ __('Abandon Cart') }}</li>
+    <li aria-current="page" class="ss-breadcrumb__item">{{ __('Abandon Cart') }}</li>
 @endsection
 
 @section('content')

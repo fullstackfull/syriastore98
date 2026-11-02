@@ -1,0 +1,22 @@
+
+--- EN / LTR
+  [ OK ] the sidebar search field is rendered at all (premise: if this fails the rest is vacuous)
+  [ OK ] it carries a non-empty aria-label: "Search here..."
+  [ OK ] the visible placeholder is KEPT, because it still helps sighted users: "Search here..."
+  [ OK ] the browser COMPUTES that name for the field: getByRole("textbox", { name: "Search here..." }) matched 1
+  [ OK ] and the element the name resolves to IS #sideBarsearch, not another textbox
+  [ OK ] (1) with the placeholder changed to a DIFFERENT string, the computed name still follows the aria-label (1) and not the placeholder (0) -- so the name is explicit, not a fallback
+  [ OK ] (2) and the name survives the user typing into the field -- which is exactly when a placeholder-derived name disappears
+
+--- AR / RTL
+  [ OK ] the sidebar search field is rendered at all (premise: if this fails the rest is vacuous)
+  [ OK ] it carries a non-empty aria-label: "ابحث هنا"
+  [ OK ] the visible placeholder is KEPT, because it still helps sighted users: "ابحث هنا"
+  [ OK ] the browser COMPUTES that name for the field: getByRole("textbox", { name: "ابحث هنا" }) matched 1
+  [ OK ] and the element the name resolves to IS #sideBarsearch, not another textbox
+  [ OK ] (1) with the placeholder changed to a DIFFERENT string, the computed name still follows the aria-label (1) and not the placeholder (0) -- so the name is explicit, not a fallback
+  [ OK ] (2) and the name survives the user typing into the field -- which is exactly when a placeholder-derived name disappears
+  [ OK ] in Arabic the announced name is Arabic text, not an English fallback
+
+======================================================================
+every check held: the sidebar search field is named in both directions

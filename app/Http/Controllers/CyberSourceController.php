@@ -102,10 +102,50 @@ class CyberSourceController extends Controller
         $admin_settings = getSuperAdminAllSetting();
         $data           = json_decode($input['data'], true);
         $duration       =  $data['duration'];
-        $amount         =  $data['amount'];
         $coupon_code    = $data['coupon_code'];
 
         $plan           = Plan::find($data['id']);
+
+        /*
+         * F230 -- A PLAN THAT NAMES NOTHING MUST NOT REACH THE CARD NETWORK.
+         *
+         * `$data` is `json_decode()` of ONE PLAINTEXT, UNSIGNED hidden field
+         * (`plans/cybersourcerequest.blade.php:35`), so `$data['id']` is whatever the caller sends.
+         * An id matching no row left `$plan` null, and the handler then dereferenced `$plan->id`
+         * while building the order -- i.e. a fatal AFTER the card had already been charged. There
+         * is no correct amount to charge for a plan that does not exist, so the refusal belongs
+         * ahead of the outbound call.
+         *
+         * 403 and not 401: `lib/network/network.dart` turns any 401 into a forced logout.
+         */
+        if (empty($plan)) {
+            \Illuminate\Support\Facades\Log::warning('CyberSource plan purchase refused: the posted plan id matches no plan.', [
+                'user_id' => optional(\Auth::user())->id,
+                'controller' => static::class,
+            ]);
+
+            abort(403, __('This payment method is not available for subscription purchases.'));
+        }
+
+        /*
+         * F230 -- THE CHARGE IS THE SERVER'S FIGURE, NOT THE CALLER'S. THIS IS THE DEFECT.
+         *
+         * `$amount` used to be `$data['amount']`, read from that same unsigned field, and it was
+         * sent outbound as `orderInformation.amountDetails.totalAmount`. The handler then recorded
+         * `serverOwnedPlanPrice()` further down -- so the CHARGE was the caller's and the RECORD
+         * was the server's, decoupled by construction. Paying 1 for a 499 plan wrote 499 to
+         * `plan_orders`, and the underpayment left no trace anywhere.
+         *
+         * NOT THE F229 UNIT QUESTION, and the distinction is why this needs no owner decision.
+         * D-31 forbids guessing a provider's minor/major convention when COMPARING an amount the
+         * provider reported. Nothing is compared here: the handler is deciding what to SEND, and
+         * it already computes the right figure for the row it writes. Using one value for both
+         * involves no provider convention at all. It is the rule D-17 settled for Paystack and the
+         * rule F229's own row restates -- never read the payable amount from the caller.
+         *
+         * The same expression is reused at the recording site, so the two cannot drift apart.
+         */
+        $amount         = $this->serverOwnedPlanPrice($plan, $coupon_code);
         $authuser       = \Auth::user();
         $orderID        = strtoupper(str_replace('.', '', uniqid('', true)));
         $admin_currancy = !empty($admin_settings['defult_currancy']) ? $admin_settings['defult_currancy'] : 'USD';

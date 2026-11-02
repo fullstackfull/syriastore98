@@ -6,7 +6,7 @@
 @endsection
 
 @section('breadcrumb')
-    <li class="breadcrumb-item">{{ __('Add-on Apps') }}</li>
+    <li aria-current="page" class="ss-breadcrumb__item">{{ __('Add-on Apps') }}</li>
 @endsection
 
 @section('content')

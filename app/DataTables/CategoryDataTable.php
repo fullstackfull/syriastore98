@@ -3,6 +3,7 @@
 namespace App\DataTables;
 
 use App\Models\Category;
+use App\Support\DsBadge;
 use Illuminate\Database\Eloquent\Builder as QueryBuilder;
 use Yajra\DataTables\EloquentDataTable;
 use Yajra\DataTables\Html\Builder as HtmlBuilder;
@@ -30,37 +31,68 @@ class CategoryDataTable extends DataTable
                 $trending = $category->trending == 1 ? __('Yes') : __('No');
                     return $trending;
             })
+            /*
+             * P2-05-4. `bg-success` / `bg-danger` are the vendored theme's, and P2-04-4 measured
+             * that family on the order list: below AA in 44 of 56 readings across LTR/RTL x
+             * light/dark, two of them effectively unreadable. `ss-badge` takes theme-aware
+             * tokens instead, which is the same substitution that took the order list's worst
+             * reading to 6.82:1.
+             *
+             * Through `DsBadge` rather than a hand-built span, and that was not a style choice:
+             * the first version wrote the markup inline and the live check failed in all four
+             * configurations on the missing `ss-badge__dot`. The dot is the second channel that
+             * keeps the badge from carrying its meaning in colour alone (WCAG 1.4.1), and the
+             * helper is where that is guaranteed. `DsBadge::render()` escapes the label itself.
+             */
             ->editColumn('status', function ($category) {
-                if (!empty($category->status)) {
-                    return '<span class="badges fix_badges bg-success p-2 px-3 badge">' . __('Active') . '</span>';
-                } else {
-                    return '<span class="badges fix_badges bg-danger p-2 px-3 badge">' . __('In-Active') . '</span>';
-                }
+                return $category->status
+                    ? DsBadge::render('success', __('Active'))
+                    : DsBadge::render('danger', __('In-Active'));
             })
+            /*
+             * P2-05-4: `e()`, for the same reason as `parent_id` eleven lines below -- and found
+             * by the independent review of that fix, which pointed out the identical shape in the
+             * same method.
+             *
+             * THE FILENAME IS ATTACKER-CONTROLLED END TO END. `CategoryController:89` builds it
+             * as `rand() . '_' . time() . '_' . $request->image->getClientOriginalName()`, and
+             * `getClientOriginalName()` is the raw multipart filename: Symfony strips path
+             * separators and nothing else, so a double quote survives. `Utility.php:402` does not
+             * sanitise it, `get_file()` returns `url($path)` and Laravel's UrlGenerator
+             * rawurlencodes only its `$extra` argument, not the path. `XSS` middleware does not
+             * help either -- it only filters STRING request values, so an UploadedFile is skipped.
+             *
+             * So a real PNG named `a" onerror=... z=".png` passes the `mimes:` rule and lands in
+             * this cell as live markup, because the column is in `rawColumns()` and the cell is
+             * built by concatenation rather than by Blade. Same blast radius as the category-name
+             * defect (F125): same store, any user who opens the list.
+             */
             ->editColumn('image_path', function (Category $category) {
-                if (!empty($category->image_path)) {
-                    $imagePath = get_file($category->image_path);
-                    $html = '<img src="' . $imagePath . '" alt="" class="category_Image">';
-                } else {
-                    $html = '-';
+                if (empty($category->image_path)) {
+                    return '-';
                 }
-                return $html;
+
+                return '<img src="' . e(get_file($category->image_path)) . '" alt="" class="category_Image">';
             })
             ->editColumn('icon_path', function (Category $category) {
-                if (!empty($category->icon_path)) {
-                    $iconPath = get_file($category->icon_path);
-                    $iconPath = '<img src="' . $iconPath . '" alt="" class="category_Image">';
-                } else {
-                    $iconPath = '-';
+                if (empty($category->icon_path)) {
+                    return '-';
                 }
-                return $iconPath;
+
+                return '<img src="' . e(get_file($category->icon_path)) . '" alt="" class="category_Image">';
             })
             ->editColumn('parent_id', function (Category $category) {
                 // P1-INV-11: the relation is unscoped, so a parent_id written before the controller validated it could name another store's
                 // category. Only a parent of the SAME store is printed.
                 $parent = $category->parent_category;
 
-                return ($parent && (int) $parent->store_id === (int) $category->store_id) ? $parent->name : '-';
+                /*
+                 * P2-05-4: `e()`. `parent_id` is in rawColumns(), so this string is printed as
+                 * MARKUP -- and `$parent->name` is merchant input. Same shape as F98 on
+                 * CustomerDataTable, on the screen this slice converts. Blade is not involved on
+                 * this path: the DataTable builds the cell itself.
+                 */
+                return ($parent && (int) $parent->store_id === (int) $category->store_id) ? e($parent->name) : '-';
             })
             ->filterColumn('parent_id', function ($query, $keyword) {
                 $query->whereHas('parent_category', function ($q) use ($keyword) {

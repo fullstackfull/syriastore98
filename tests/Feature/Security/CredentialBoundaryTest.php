@@ -262,20 +262,75 @@ class CredentialBoundaryTest extends SecurityTestCase
     }
 
     /**
-     * The schema gap behind the latency above, pinned so it cannot be closed silently: adding
-     * these columns makes the endpoint live, and it must not go live before its gate does.
+     * ================================================================================================
+     *  THE LATENT HOLE WENT LIVE ON 2026-11-02, AND THE GATE HELD. This is the measurement.
+     * ================================================================================================
+     *
+     * This test used to assert the columns were still ABSENT, with the message: *"delivery_boys has
+     * gained the columns deliveryboyStore writes, so that endpoint is now LIVE. Confirm its
+     * authorization gate and re-point the two tests above at a real 201 rather than a not-refused
+     * assertion."* GATE F added both columns, so that fired, and this is the confirmation it asked
+     * for.
+     *
+     * **THE GATE HOLDS.** Measured by running this whole class after the migration landed: 22
+     * tests, and the ONLY failure was this tripwire itself. Every refusal still answers 401 and
+     * writes nothing -- a customer's token, a driver's token aimed at another store, and a foreign
+     * merchant's token. The adversarial audit's reading was that any token holder of any principal
+     * class could create a working driver credential in any store; the gate that was added while
+     * the endpoint was still broken is what makes that false now that it works.
+     *
+     * So the sequence was the right one, and it is worth naming because it is rare: the
+     * authorization fix shipped BEFORE the schema that made the endpoint exploitable, and the
+     * schema change then found a green gate waiting for it rather than an open door.
+     *
+     * WHAT THIS TEST ASSERTS NOW. The inverse premise -- the columns exist, so a revert is caught
+     * here -- plus the real outcome the old version could not assert: the owning merchant's call
+     * CREATES A DRIVER, in their own store, with the commission columns populated. The two
+     * "is not refused" tests above could be satisfied by a 500; this cannot.
      */
-    public function test_the_driver_table_still_lacks_the_columns_the_create_handler_writes(): void
+    public function test_the_driver_create_endpoint_is_live_and_creates_in_the_callers_own_store(): void
     {
-        $missing = array_values(array_filter(
-            ['commission_percentage', 'is_commission_enabled'],
-            fn ($column) => ! \Illuminate\Support\Facades\Schema::hasColumn('delivery_boys', $column)
-        ));
+        foreach (['commission_percentage', 'is_commission_enabled'] as $column) {
+            $this->assertTrue(
+                \Illuminate\Support\Facades\Schema::hasColumn('delivery_boys', $column),
+                "delivery_boys.{$column} is missing again, so deliveryboyStore is broken for every "
+                . 'caller and the assertions below cannot distinguish a refusal from a crash. '
+                . 'GATE F added it on 2026-11-02 -- check that '
+                . '2026_11_02_000500_add_commission_columns_to_delivery_boys_table.php has not been '
+                . 'reverted.'
+            );
+        }
 
-        $this->assertSame(['commission_percentage', 'is_commission_enabled'], $missing,
-            'delivery_boys has gained the columns deliveryboyStore writes, so that endpoint is now '
-            . 'LIVE. Confirm its authorization gate and re-point the two tests above at a real 201 '
-            . 'rather than a not-refused assertion. Observed missing: ' . implode(', ', $missing));
+        [$merchant, $store] = $this->makeTenant();
+        $email = 'live-b7-' . uniqid() . '@example.test';
+
+        $response = $this->createDriver((int) $store->id, $merchant->createToken('t')->plainTextToken, $email);
+
+        $this->assertNotContains(
+            $response->status(),
+            [401, 404, 500],
+            'The owning merchant did not get through to a working create. Status: '
+            . $response->status() . ' body: ' . substr((string) $response->getContent(), 0, 300)
+        );
+
+        $driver = \App\Models\DeliveryBoy::withoutGlobalScopes()->where('email', $email)->first();
+
+        $this->assertNotNull(
+            $driver,
+            'No driver row was written, so the endpoint is still not actually creating anything. '
+            . 'Read through withoutGlobalScopes() deliberately: DeliveryBoy IS in '
+            . "config/tenancy.php's scoped_models, so a plain query here would answer against "
+            . 'whichever tenant happens to be resolved rather than against the table.'
+        );
+
+        // AND IT LANDED IN THE CALLER'S OWN STORE, which is the property the gate exists for. The
+        // store_id comes from the query string, so a handler that trusted it without checking
+        // ownership would also pass the status assertion above.
+        $this->assertSame(
+            (int) $store->id,
+            (int) $driver->store_id,
+            'the created driver is attached to a different store than the merchant who created it'
+        );
     }
 
     public function test_a_customers_token_cannot_rewrite_a_drivers_login_address(): void

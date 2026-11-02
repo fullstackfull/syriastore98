@@ -469,7 +469,7 @@ document.addEventListener('DOMContentLoaded', function() {
         { value: 'home', label: 'Home', icon: 'ti ti-home' },
         { value: 'user', label: 'User', icon: 'ti ti-user' },
         { value: 'shopping-cart', label: 'Cart', icon: 'ti ti-shopping-cart' },
-        { value: 'category', label: 'Category', icon: 'ti ti-category' },
+        { value: 'category', label: 'Category', icon: 'ti ti-layout-grid' },   // `ti-category` is not in the bundled font; `ti-layout-grid` is the same 2x2 mark
         { value: 'image', label: 'Image', icon: 'ti ti-photo' },
         { value: 'settings', label: 'Settings', icon: 'ti ti-settings' },
         { value: 'menu', label: 'Menu', icon: 'ti ti-menu' },

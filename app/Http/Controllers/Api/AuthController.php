@@ -313,7 +313,7 @@ class AuthController extends Controller
         }
 
         auth('customers')->login($user);
-        $token = $user->createToken('auth_token')->plainTextToken;
+        $token = $user->createToken('auth_token', ['storefront'])->plainTextToken;
         $user->token = $token;
         $user->token_type = 'Bearer';
 
@@ -395,7 +395,7 @@ class AuthController extends Controller
 
         auth('customers')->login($user);
         $user->tokens()->delete();
-        $token = $user->createToken('auth_token')->plainTextToken;
+        $token = $user->createToken('auth_token', ['storefront'])->plainTextToken;
         $user_array['token'] = $token;
         $user_array['token_type'] = 'Bearer';
         return $this->success($user_array, __('Login successfully.'));
@@ -616,7 +616,7 @@ class AuthController extends Controller
         $user_array['city'] = !empty($DeliveryAddress->city) ? $DeliveryAddress->city : '';
         $user_array['address'] = !empty($DeliveryAddress->address) ? $DeliveryAddress->address : '';
         $user_array['postcode'] = !empty($DeliveryAddress->postcode) ? $DeliveryAddress->postcode : '';
-        $accessToken = $has_email->createToken('auth_token');
+        $accessToken = $has_email->createToken('auth_token', ['storefront']);
         $token = $accessToken->plainTextToken;
         $user_array['token'] = $token;
         $user_array['token_type'] = 'Bearer';

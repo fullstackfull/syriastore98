@@ -33,7 +33,38 @@ DECL = re.compile(r'(--ss-[a-z0-9-]+)\s*:\s*([^;]+);')
 
 def block_body(text, selector):
     """Return the concatenated bodies of every top-level block whose selector
-    line matches `selector` exactly (brace-matched, so nested rules are safe)."""
+    LIST contains `selector` (brace-matched, so nested rules are safe).
+
+    A SELECTOR LIST COUNTS, and getting that wrong made this checker silently
+    blind to the entire light theme.
+
+    It used to require `selector` to sit IMMEDIATELY before the `{`, accepting
+    only '' or ',' between them. That rule is right about what it rejects --
+    `:root .card {` and `:root[data-theme="x"] {` are different selectors and
+    must not be collected -- but it also rejected the ordinary CSS idiom
+
+        :root,
+        [data-ss-theme="light"] { ... }
+
+    which IS a `:root` block. Commit fcf35ddc ("P2-05-4 -- categories and
+    attributes on the design system") changed the light semantic block from a
+    bare `:root {` to exactly that list, so that an explicit light override
+    could exist. From that commit onward this checker collected only the
+    PRIMITIVE `:root {` block above it and reported all 29 light-theme pairs as
+    MISSING / "unresolved" -- not as failures of contrast, but as an inability to
+    read the file at all.
+
+    Nobody saw it, and the reason is worth recording: no pull request had been
+    opened for the Phase 02 branch, so this job had never run on that CSS. The
+    release-integration PR was the first time CI looked, and `main`'s own copy
+    still passes 29/29 because `main` still has the bare `:root {`. A widened
+    surface, a control written against the narrower one, and no loud failure --
+    which is the exact shape .github/SECURITY-DIFF-REVIEW.md exists for.
+
+    The rule now accepts a comma-separated LIST that contains the selector, and
+    still rejects a descendant or compound selector, because those do not begin
+    with a comma after the match.
+    """
     bodies, i = [], 0
     while True:
         i = text.find(selector, i)
@@ -42,9 +73,12 @@ def block_body(text, selector):
         j = text.find('{', i)
         if j == -1:
             return '\n'.join(bodies)
-        # Reject matches where the selector isn't immediately before the brace.
-        between = text[i + len(selector):j]
-        if between.strip() not in ('', ','):
+        # Accept: the selector is immediately before the brace, OR it is one
+        # member of a comma-separated selector list. Reject anything else --
+        # ` .card` (descendant) and `[data-theme="x"]` (compound) do not start
+        # with a comma, so they still fall through.
+        between = text[i + len(selector):j].strip()
+        if between != '' and not between.startswith(','):
             i += len(selector)
             continue
         depth, k = 1, j + 1
@@ -103,6 +137,28 @@ PAIRS = [
     ('--ss-danger-fg', '--ss-danger-bg', 'danger badge text on fill', 4.5),
     ('--ss-info-fg', '--ss-info-bg', 'info badge text on fill', 4.5),
     ('--ss-neutral-fg', '--ss-neutral-bg', 'neutral badge text on fill', 4.5),
+
+    # --- Phase 02 components ---------------------------------------------
+    # The stat grid has no card: it sits directly on the page background, so
+    # its label and period need their own pairs. These are the three that
+    # were NOT already covered by the card-surface rows above.
+    ('--ss-fg-muted', '--ss-bg', 'stat label on page background', 4.5),
+    # fg-subtle is deliberately NOT paired with --ss-bg: it is the lightest
+    # neutral clearing 4.5:1 on *white*, and on the page background it measures
+    # 4.40:1. The stat period therefore uses fg-muted. Kept as a pair so that
+    # a future screen cannot quietly put subtle text on the page background.
+    ('--ss-fg-muted', '--ss-bg', 'stat period on page background', 4.5),
+    # The unsaved-changes marker sits in the sticky action bar, which is a
+    # surface, and warning-fg was only ever solved against warning-bg.
+    ('--ss-warning-fg', '--ss-surface', 'unsaved marker on action bar', 4.5),
+    # Accent bars and fills carry meaning, so they are UI components under
+    # WCAG 1.4.11 and take the 3:1 non-text threshold, not 4.5:1.
+    ('--ss-brand-accent', '--ss-surface', 'workspace accent bar on surface', 3.0),
+    ('--ss-warning-fg', '--ss-surface', 'attention accent bar, warning', 3.0),
+    ('--ss-danger-fg', '--ss-surface', 'attention accent bar, danger', 3.0),
+    ('--ss-info-fg', '--ss-surface', 'help accent bar on surface', 3.0),
+    ('--ss-brand', '--ss-surface-sunken', 'progress fill on its track', 3.0),
+    ('--ss-grey-400', '--ss-surface', 'switch track, off state', 3.0),
 ]
 
 THEMES = [

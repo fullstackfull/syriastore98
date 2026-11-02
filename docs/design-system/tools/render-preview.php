@@ -11,6 +11,28 @@
  * the stylesheets do in a real browser.
  *
  * usage: php render-preview.php <view.blade.php> <locale: en|ar> <state: full|empty|noperm> <out.html> [light|dark]
+ *
+ * ---------------------------------------------------------------------------
+ * PHASE 02 EXTENSION
+ *
+ * Two additions, both backwards compatible -- the Sprint 01 pilot commands in
+ * tools/README.md still produce the same output:
+ *
+ *   1. FIXTURES. If docs/design-system/tools/fixtures/<view-basename>.php
+ *      exists it is included and owns the view's variables and $GRANTS, so a
+ *      screen's stub data is declarative and lives beside the screen instead
+ *      of being hardcoded here. With no fixture, the pilot's own stubs below
+ *      are used, exactly as before.
+ *
+ *   2. BLADE COMPONENTS. <x-ss.stat ... /> and <x-ss.card> ... </x-ss.card>
+ *      are expanded, including :bound="expressions", named <x-slot:name>
+ *      slots, @props defaults and $attributes->merge(). Phase 02 builds its
+ *      screens out of resources/views/components/ss/*, so without this the
+ *      harness could not render a single Phase 02 screen.
+ *
+ * It remains a PREVIEW harness, not the application. What it proves is what
+ * the view's markup and the real stylesheets do in a real browser.
+ * ---------------------------------------------------------------------------
  */
 
 $repo = dirname(__DIR__, 3);   // <repo>/docs/design-system/tools -> <repo>
@@ -26,12 +48,67 @@ if (!$viewPath || !$locale || !$state || !$out) {
 $langFile = "$repo/resources/lang/$locale.json";
 $T = is_file($langFile) ? json_decode(file_get_contents($langFile), true) : [];
 $missing = [];
-function __t($key)
+function __t($key, array $replace = [])
 {
     global $T, $missing;
-    if (isset($T[$key]) && $T[$key] !== '') return $T[$key];
-    $missing[$key] = true;
-    return $key;
+    $line = (isset($T[$key]) && $T[$key] !== '') ? $T[$key] : null;
+    if ($line === null) {
+        $missing[$key] = true;
+        $line = $key;
+    }
+    // Laravel's __() substitutes :placeholders; a harness that ignored them
+    // would render ":sum of :total" and look like a translation bug.
+    foreach ($replace as $k => $v) {
+        $line = str_replace([':' . $k, ':' . ucfirst($k)], (string) $v, $line);
+    }
+    return $line;
+}
+
+/**
+ * `__()` itself, for PHP that the harness runs directly rather than compiling.
+ *
+ * The Blade pass rewrites `__(` to `__t(` in TEMPLATES, but a fixture that
+ * eval's a real helper out of app/ -- which is how the sidebar preview gets the
+ * shipped menuTree() instead of a copy of it -- calls `__()` from PHP, where no
+ * rewrite happens. Without this that call is a fatal.
+ */
+if (!function_exists('__')) {
+    function __($key, array $replace = [], $locale = null) { return __t($key, $replace); }
+}
+
+/**
+ * trans_choice() stand-in. Picks the plural branch the way Laravel's simple
+ * "singular|plural" form does and substitutes :placeholders.
+ */
+function __tc($key, $count, array $replace = [])
+{
+    $line = __t($key);
+    $parts = explode('|', $line);
+    $pick = ($count == 1 || count($parts) < 2) ? $parts[0] : $parts[1];
+    foreach ($replace as $k => $v) {
+        $pick = str_replace([':' . $k, ':' . ucfirst($k)], (string) $v, $pick);
+    }
+    return $pick;
+}
+
+/**
+ * Stand-in for a Laravel MessageBag, for the validation-summary component.
+ * A fixture sets $errors = new ErrorBagStub([...]) to render the failed state.
+ */
+class ErrorBagStub
+{
+    private $bag;
+    public function __construct(array $bag = []) { $this->bag = $bag; }
+    public function any()   { return $this->bag !== []; }
+    public function count() { return count($this->bag); }
+    public function keys()  { return array_keys($this->bag); }
+    public function has($k) { return isset($this->bag[$k]); }
+    public function first($k = null)
+    {
+        if ($k === null) { return $this->bag ? reset($this->bag)[0] : ''; }
+        return isset($this->bag[$k]) ? $this->bag[$k][0] : '';
+    }
+    public function get($k) { return $this->bag[$k] ?? []; }
 }
 
 // ---------------------------------------------------------------- stub model
@@ -61,10 +138,220 @@ $GRANTS = $state === 'noperm'
 
 function permission_check($p) { global $GRANTS; return !empty($GRANTS[$p]); }
 
+/**
+ * auth() stand-in.
+ *
+ * A view may ask the question either way round -- `@permission('X')` for a
+ * whole block, or `auth()->user()->isAbleTo('X')` for one attribute -- and the
+ * two MUST answer from the same place, or a preview can show a gated control
+ * and a gated link disagreeing with each other. Both read $GRANTS.
+ *
+ * This models a merchant, never the platform operator: `super admin` is routed
+ * to superadmin.dashboard by HomeController::index() and never reaches the
+ * views previewed here. A preview harness that silently granted operator
+ * status would make every gate look passable.
+ */
+/* AND A MINIMAL `App\Models\User`, because the ability class type-checks its principal.
+ *
+ * `MerchantDashboardAbilities::holds()` refuses anything that is not an `App\Models\User` before
+ * calling `isAbleTo()` — a guard this project paid for once already (P2-06-7: the same call
+ * without it turned 112 storefront security tests into 500s, because `isAbleTo()` is a FATAL on a
+ * `Customer`, not a false). The real model cannot be loaded here: it extends Laravel's
+ * `Authenticatable` and uses six traits, none of which exist without the framework.
+ *
+ * WITHOUT THIS STUB THE SHIM ABOVE IS NOT ENOUGH, and the failure is the dangerous kind rather
+ * than the loud kind: `PreviewUser` would not satisfy the type test, every ability would answer
+ * false, and all twelve dashboard fixtures would render as though the viewer held no permissions
+ * at all — which is exactly what the `noperm` fixture is supposed to be the only one showing. A
+ * harness that renders the no-permission state for every case still renders, still screenshots,
+ * and still passes its own checks.
+ *
+ * So `PreviewUser` extends it. Nothing is inherited but the identity. */
+if (!class_exists('App\Models\User')) {
+    eval('namespace App\Models; class User {}');
+}
+
+class PreviewUser extends \App\Models\User
+{
+    public $type = 'admin';
+    public function isAbleTo($permission) { return permission_check($permission); }
+    public function can($permission) { return permission_check($permission); }
+
+    /* P2-01-11. The workspace chip asks the authenticated user which stores it
+     * may switch into. $SS_STORES is set by a fixture; the DEFAULT IS ONE
+     * STORE, not several, because the single-store chip renders as static text
+     * while the multi-store one renders a listbox — and defaulting to the
+     * richer branch would show every screen's preview a control most merchants
+     * never see. */
+    public $current_store = 1;
+    public function switchableStores()
+    {
+        global $SS_STORES;
+        return collect($SS_STORES ?? [new PreviewStore(1, 'Linen & Co')]);
+    }
+}
+
+/** Shaped like the columns partision/workspace-chip.blade.php actually reads. */
+class PreviewStore
+{
+    public $id;
+    public $name;
+    public function __construct($id, $name) { $this->id = $id; $this->name = $name; }
+}
+
+/**
+ * The few Collection methods the previews use. Not a reimplementation of
+ * Illuminate's: if a view starts needing map/filter/sortBy, add them here
+ * rather than quietly changing the view to use arrays, or the preview stops
+ * exercising the same code as production.
+ */
+class PreviewCollection implements IteratorAggregate, Countable
+{
+    private $items;
+    public function __construct(array $items = []) { $this->items = $items; }
+    public function count(): int { return count($this->items); }
+    public function getIterator(): Iterator { return new ArrayIterator($this->items); }
+}
+
+if (!function_exists('collect')) {
+    function collect($items = []) { return new PreviewCollection(is_array($items) ? $items : [$items]); }
+}
+
+/* P2-02-9: the dashboard reads HomeController's order-status constants, so a
+ * preview needs them. They are EXTRACTED FROM THE REAL CONTROLLER rather than
+ * copied, for the same reason the sidebar fixture extracts menuTree(): a
+ * hand-copied 0..8 here would silently stop matching the day someone renumbers
+ * a status, and the preview would then show a confident wrong label.
+ *
+ * The class cannot simply be autoloaded -- it extends Laravel's Controller and
+ * there is no framework here -- so only the constants are lifted. */
+if (!class_exists('App\\Http\\Controllers\\HomeController')) {
+    $__ssCtl = @file_get_contents(dirname(__DIR__, 3) . '/app/Http/Controllers/HomeController.php');
+    $__ssConsts = '';
+    if ($__ssCtl !== false && preg_match_all(
+            '/public const (ORDER_STATUS_[A-Z_]+)\s*=\s*(\d+);/', $__ssCtl, $__ssM, PREG_SET_ORDER)) {
+        foreach ($__ssM as $__ssC) {
+            $__ssConsts .= "    public const {$__ssC[1]} = {$__ssC[2]};\n";
+        }
+    }
+    if ($__ssConsts === '') {
+        fwrite(STDERR, "HARNESS: no ORDER_STATUS_* constants found in HomeController -- "
+            . "the dashboard preview would fail, or worse, render every order as an unknown status.\n");
+        exit(3);
+    }
+    eval("namespace App\\Http\\Controllers; class HomeController {\n{$__ssConsts}}");
+}
+
+/* P2-04-4: the dashboard asks App\Support\OrderStatusTone which tone each order status
+ * wears, and the order list asks the same class, which is the whole point of it existing.
+ *
+ * THE REAL FILE IS LOADED, not shimmed. It is a plain final class with no framework
+ * dependency -- its only Laravel call is `e()` inside `badge()`, which the dashboard does not
+ * reach -- so a `require` gives the preview the ACTUAL mapping rather than a second copy that
+ * could drift. That matters more here than anywhere: the class exists specifically because two
+ * surfaces had drifted apart, and a preview carrying a third copy would be the same defect
+ * wearing a harness.
+ *
+ * AFTER the HomeController shim above, which supplies the constants its entries are keyed on.
+ * If this require is ever removed, the dashboard fixture dies with "class not found" rather
+ * than rendering something plausible -- which is how this was found. */
+if (!class_exists('App\\Support\\OrderStatusTone')) {
+    $__ssTone = dirname(__DIR__, 3) . '/app/Support/OrderStatusTone.php';
+    if (!is_file($__ssTone)) {
+        fwrite(STDERR, "HARNESS: app/Support/OrderStatusTone.php is missing -- the dashboard "
+            . "preview cannot resolve an order status to a tone.\n");
+        exit(3);
+    }
+    require_once $__ssTone;
+}
+
+/* AND THE SAME SHIM FOR THE DASHBOARD'S ABILITY CLASS, for the same reason and after the same
+ * defect. WS C moved the overview's `$ssMayOrders` / `$ssMayProducts` / `$ssMayCustomers` /
+ * `$ssMayStoreSettings` flags into `App\Support\MerchantDashboardAbilities`, because
+ * `dashboard.blade.php` needed the same answers and a flag defined inside an `@include` is
+ * invisible to its parent. This harness has no Composer autoloader, so that move killed the
+ * dashboard fixtures outright — exactly as the OrderStatusTone move did, and PHASE-02-TEST-EVIDENCE
+ * records what made that one dangerous rather than merely broken: **the first browser run after it
+ * still reported 159/159**, because `render-all-fixtures.sh` had exited non-zero and the STALE HTML
+ * was still on disk and still being served. A false green, not a red.
+ *
+ * `render-all-fixtures.sh` renders `dashboard-after` twelve times (en/ar x full/empty/noperm x
+ * light/dark) and every one of them includes `dashboard.overview`.
+ *
+ * The harness's stand-in principal answers the class correctly once it is loaded: `PreviewUser`
+ * has `$type = 'admin'` (so `isOperator()` is false) and an `isAbleTo()` that reads `$GRANTS`, so
+ * the `noperm` fixture still models a staff member holding only `Manage Blog`. */
+if (!class_exists('App\Support\MerchantDashboardAbilities')) {
+    $__ssAbilities = dirname(__DIR__, 3) . '/app/Support/MerchantDashboardAbilities.php';
+    if (!is_file($__ssAbilities)) {
+        fwrite(STDERR, "HARNESS: app/Support/MerchantDashboardAbilities.php is missing -- the "
+            . "dashboard preview cannot resolve who may see which region.\n");
+        exit(3);
+    }
+    require_once $__ssAbilities;
+}
+
+if (!function_exists('getStoreById')) {
+    function getStoreById($id)
+    {
+        global $SS_STORES;
+        foreach ($SS_STORES ?? [] as $s) {
+            if ((int) $s->id === (int) $id) return $s;
+        }
+        return new PreviewStore((int) $id, 'Linen & Co');
+    }
+}
+
+class PreviewAuth
+{
+    public function check() { return true; }
+    public function user() { return new PreviewUser(); }
+    public function guest() { return false; }
+    public function id() { return 1; }
+}
+
+if (!function_exists('auth')) {
+    function auth($guard = null) { return new PreviewAuth(); }
+}
+
+// ---------------------------------------------------------------- fixtures
+// A screen's stub data belongs beside the screen, not in this file. If
+// fixtures/<view-basename>.php exists it runs here, in global scope, and may
+// define or overwrite anything above -- including $GRANTS. $errors always
+// exists so a view can reference it unconditionally.
+$errors = new ErrorBagStub();
+$ssFixtureName = basename(dirname($viewPath)) . '-' . basename($viewPath, '.blade.php');
+foreach ([__DIR__ . "/fixtures/{$ssFixtureName}.php",
+          __DIR__ . '/fixtures/' . basename($viewPath, '.blade.php') . '.php'] as $ssFixture) {
+    if (is_file($ssFixture)) {
+        require $ssFixture;
+        fwrite(STDERR, "fixture: " . basename($ssFixture) . "\n");
+        break;
+    }
+}
+
 // ---------------------------------------------------------------- stub helpers
 function route($name, $p = null) { return '#' . $name . ($p !== null ? '/' . (is_object($p) ? $p->id : $p) : ''); }
 function asset($p) { return '/' . ltrim($p, '/'); }
-function e_($v) { return htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8'); }
+/**
+ * Marks a string as already-HTML, so `{{ $x }}` prints it rather than escaping
+ * it. This is Laravel's Htmlable contract in miniature, and it is not optional:
+ * a component's slot and its $attributes bag are BOTH echoed through `{{ }}`,
+ * so without it every nested component renders as visible escaped markup --
+ * which is exactly what the first screenshot run showed.
+ */
+class SafeHtml
+{
+    private $html;
+    public function __construct($html) { $this->html = (string) $html; }
+    public function __toString() { return $this->html; }
+}
+
+function e_($v)
+{
+    if ($v instanceof SafeHtml || $v instanceof AttrBag) { return (string) $v; }
+    return htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
+}
 
 class FormStub
 {
@@ -78,6 +365,415 @@ class FormStub
     public static function close() { return '</form>'; }
 }
 
+// ---------------------------------------------------------------- components
+/**
+ * The global symbol table, MINUS the entries a template must never receive.
+ *
+ * `GLOBALS` is the one that matters: $GLOBALS contains a `GLOBALS` entry
+ * pointing at itself, so extracting it into a scope and then calling
+ * get_defined_vars() in that scope copies a self-referential array. Nest that
+ * two components deep and the process is killed by the OOM killer -- which is
+ * exactly what happened here before this filter existed, with no error message
+ * to explain it.
+ */
+function ss_clean_globals()
+{
+    static $keys = ['GLOBALS', 'T', 'missing', 'argv', 'argc',
+                    '_SERVER', '_ENV', '_GET', '_POST', '_COOKIE', '_FILES', '_REQUEST',
+                    '__sections', '__stacks', '__cur'];
+    $out = [];
+    foreach ($GLOBALS as $k => $v) {
+        if (!in_array($k, $keys, true)) { $out[$k] = $v; }
+    }
+    return $out;
+}
+
+/**
+ * Strips the entries a scope must never carry into a nested render.
+ *
+ * `__ss*` is the important half. A scope handed up from a call site is that
+ * caller's get_defined_vars(), and if the caller is itself a render closure
+ * those vars include the closure's OWN include path. Extracting it with
+ * EXTR_OVERWRITE then replaced the nested render's include target with the
+ * outer template's, so `include` re-ran the whole view -- an infinite
+ * recursion that looked like a hang with no error at all. Every harness
+ * internal is therefore named __ss* and filtered here, and no Blade view
+ * defines a variable with that prefix.
+ */
+function ss_clean_scope(array $scope)
+{
+    unset($scope['GLOBALS'], $scope['T'], $scope['missing'],
+          $scope['__sections'], $scope['__stacks'], $scope['__cur']);
+    foreach (array_keys($scope) as $k) {
+        if (strncmp((string) $k, '__ss', 4) === 0) { unset($scope[$k]); }
+    }
+    return $scope;
+}
+
+/**
+ * Stand-in for Laravel's ComponentAttributeBag. Only the three things the
+ * ss-* components actually call: merge(), get() and string interpolation.
+ */
+class AttrBag
+{
+    public $items = [];
+    public function __construct(array $items = []) { $this->items = $items; }
+
+    public function merge(array $defaults = [])
+    {
+        $out = $this->items;
+        foreach ($defaults as $k => $v) {
+            if ($k === 'class') {
+                // Laravel appends; the component's own class comes first.
+                $out['class'] = trim($v . ' ' . ($out['class'] ?? ''));
+            } elseif (!array_key_exists($k, $out)) {
+                $out[$k] = $v;
+            }
+        }
+        return new AttrBag($out);
+    }
+
+    public function get($k, $default = null) { return $this->items[$k] ?? $default; }
+
+    public function __toString()
+    {
+        $parts = [];
+        foreach ($this->items as $k => $v) {
+            if ($v === true) { $parts[] = e_($k); continue; }
+            if ($v === false || $v === null) { continue; }
+            $parts[] = e_($k) . '="' . e_($v) . '"';
+        }
+        return $parts ? ' ' . implode(' ', $parts) : '';
+    }
+}
+
+/**
+ * Renders resources/views/components/<path>.blade.php with $props bound.
+ *
+ * Props come from the component's own @props([...]) declaration: a string key
+ * is a prop with a default, a numeric key is a required prop with none. Any
+ * attribute that is NOT a declared prop lands in $attributes, which is how
+ * Laravel does it and which is what lets a caller pass id/aria-* straight
+ * through to the root element.
+ */
+function ss_component($path, array $props, $slot = '', array $namedSlots = [])
+{
+    global $repo;
+
+    $file = $repo . '/resources/views/components/' . str_replace('.', '/', $path) . '.blade.php';
+    if (!is_file($file)) {
+        fwrite(STDERR, "missing component: x-{$path}\n");
+        return '';
+    }
+
+    $src = file_get_contents($file);
+
+    // Declared props, and their defaults.
+    $declared = [];
+    if (preg_match('/@props\s*\(\s*(\[.*?\])\s*\)/s', $src, $m)) {
+        $arr = eval('return ' . $m[1] . ';');
+        foreach ($arr as $k => $v) {
+            if (is_int($k)) { $declared[$v] = null; } else { $declared[$k] = $v; }
+        }
+        $src = preg_replace('/@props\s*\(\s*\[.*?\]\s*\)/s', '', $src, 1);
+    }
+
+    $scope = [];
+    foreach ($declared as $name => $default) {
+        $scope[$name] = array_key_exists($name, $props) ? $props[$name] : $default;
+    }
+    // Everything the component did not declare becomes an attribute.
+    $attrs = [];
+    foreach ($props as $k => $v) {
+        if (!array_key_exists($k, $declared)) { $attrs[$k] = $v; }
+    }
+
+    $scope['attributes'] = new AttrBag($attrs);
+    $scope['slot'] = new SafeHtml($slot);
+    foreach ($namedSlots as $n => $html) { $scope[$n] = new SafeHtml($html); }
+
+    $__ssPhp = compile_blade($src);
+
+    $__ssTmp = tempnam(sys_get_temp_dir(), 'sscomp') . '.php';
+    file_put_contents($__ssTmp, $__ssPhp);
+
+    // The component body still reads the globals a Blade view would see
+    // (the fixture's data, __t(), route(), permission_check()), plus its own
+    // props and slot on top. Note the __ss* names: see ss_clean_scope().
+    $scope = ss_clean_scope($scope);
+    $__ssRender = function () use ($__ssTmp, $scope) {
+        extract(ss_clean_globals(), EXTR_SKIP);
+        extract($scope, EXTR_OVERWRITE);
+        ob_start();
+        include $__ssTmp;
+        return ob_get_clean();
+    };
+    $__ssOut = $__ssRender();
+    unlink($__ssTmp);
+    return $__ssOut;
+}
+
+/**
+ * Renders resources/views/<path>.blade.php with $data bound, for the
+ * `@include('x', [...])` form.
+ *
+ * Separate from ss_component() because a partial is not a component: it has no
+ * @props, no $attributes and no $slot. It sees the caller's globals plus the
+ * data it was handed, which is Laravel's behaviour.
+ *
+ * This is what lets partision/menu-tree render a submenu by including itself.
+ */
+function ss_include($path, array $data = [])
+{
+    global $repo;
+
+    $file = $repo . '/resources/views/' . str_replace('.', '/', $path) . '.blade.php';
+    if (!is_file($file)) {
+        fwrite(STDERR, "missing include: {$path}\n");
+        return '';
+    }
+
+    $__ssPhp = compile_blade(file_get_contents($file));
+    $__ssTmp = tempnam(sys_get_temp_dir(), 'ssincl') . '.php';
+    file_put_contents($__ssTmp, $__ssPhp);
+
+    $data = ss_clean_scope($data);
+    $__ssRender = function () use ($__ssTmp, $data) {
+        extract(ss_clean_globals(), EXTR_SKIP);
+        extract($data, EXTR_OVERWRITE);
+        ob_start();
+        include $__ssTmp;
+        return ob_get_clean();
+    };
+    $__ssOut = $__ssRender();
+    unlink($__ssTmp);
+    return $__ssOut;
+}
+
+/**
+ * Finds the index just past the matching close tag for a component that opened
+ * at $from, counting nested <x-same> opens so a card inside a card closes the
+ * right one.
+ */
+function ss_match_close($s, $name, $from)
+{
+    $open = '<x-' . $name;
+    $close = '</x-' . $name . '>';
+
+    /* The character after the name must END it. Without this check
+       <x-ss.attention-item> counts as a nested <x-ss.attention>, because one
+       name is a prefix of the other, and the depth counter then never returns
+       to zero -- which is exactly how this was first wrong. */
+    $endsName = function ($at) use ($s, $open) {
+        $c = $s[$at + strlen($open)] ?? '';
+        return $c === '' || $c === '>' || $c === '/' || ctype_space($c);
+    };
+
+    $depth = 1;
+    $i = $from;
+    while ($i < strlen($s)) {
+        $nc = strpos($s, $close, $i);
+        if ($nc === false) { return false; }
+
+        // The next genuine open tag for this same name before that close.
+        $no = $i;
+        while (($no = strpos($s, $open, $no)) !== false) {
+            if ($endsName($no)) { break; }
+            $no += strlen($open);
+        }
+
+        if ($no !== false && $no < $nc) { $depth++; $i = $no + strlen($open); continue; }
+        $depth--;
+        if ($depth === 0) { return [$nc, $nc + strlen($close)]; }
+        $i = $nc + strlen($close);
+    }
+    return false;
+}
+
+/** Parses `a="b" :c="$expr" d` into a PHP array literal source string. */
+function ss_parse_attrs($raw)
+{
+    $parts = [];
+    $re = '/(?:^|\s)(:?)([A-Za-z_@\[\]][A-Za-z0-9_\-:.\[\]]*)(?:\s*=\s*"([^"]*)")?/';
+    preg_match_all($re, $raw, $ms, PREG_SET_ORDER);
+    foreach ($ms as $m) {
+        $bound = $m[1] === ':';
+        $name = $m[2];
+        $hasVal = isset($m[3]);
+        $key = "'" . str_replace("'", "\'", $name) . "'";
+        if (!$hasVal) { $parts[] = "$key => true"; continue; }
+        if ($bound) {
+            // :value="$x" -- the quoted text is a PHP expression.
+            $parts[] = "$key => (" . $m[3] . ")";
+        } else {
+            // value="literal {{ $x }}" -- a plain string, but it may itself
+            // contain echoes, so run it back through the compiler.
+            $lit = $m[3];
+            // Either raw Blade ({{ }}) or, now that expansion runs last,
+            // already-compiled PHP. Both need executing rather than quoting.
+            if (strpos($lit, '{{') !== false || strpos($lit, '<?php') !== false) {
+                $parts[] = "$key => ss_inline(" . var_export($lit, true) . ", get_defined_vars())";
+            } else {
+                $parts[] = "$key => " . var_export($lit, true);
+            }
+        }
+    }
+    return '[' . implode(', ', $parts) . ']';
+}
+
+/** Compiles and runs a tiny inline Blade fragment, for attribute values. */
+function ss_inline($lit, array $scope = [])
+{
+    $__ssPhp = compile_blade($lit);
+    $__ssTmp = tempnam(sys_get_temp_dir(), 'ssinl') . '.php';
+    file_put_contents($__ssTmp, $__ssPhp);
+    // $scope is the caller's get_defined_vars(), so a component nested inside
+    // an @foreach can read the loop variable from its own slot body.
+    $scope = ss_clean_scope($scope);
+    $__ssRender = function () use ($__ssTmp, $scope) {
+        extract(ss_clean_globals(), EXTR_SKIP);
+        extract($scope, EXTR_OVERWRITE);
+        ob_start();
+        include $__ssTmp;
+        return ob_get_clean();
+    };
+    $__ssOut = $__ssRender();
+    unlink($__ssTmp);
+    return $__ssOut;
+}
+
+/**
+ * Rewrites every <x-...> in $s into a ss_component() call. Runs innermost-last
+ * (the slot body is compiled by the recursive compile_blade call on it), so
+ * nesting works to any depth.
+ */
+function ss_expand_components($s)
+{
+    $out = '';
+    $offset = 0;
+    $re = '/<x-([A-Za-z0-9_.\-]+)((?:[^>"\x27]|"[^"]*"|\x27[^\x27]*\x27)*?)(\/?)>/';
+
+    /* A SINGLE FORWARD PASS, and the offset is the whole point.
+     *
+     * The first version of this re-scanned the whole string each iteration.
+     * That made it walk back into text it had just var_export()ed into a PHP
+     * string literal, expand a <x-...> tag sitting INSIDE that literal, and
+     * splice unescaped quotes into the middle of it -- a parse error whose
+     * cause is invisible in the Blade. Advancing past each replacement means
+     * a slot body stays raw here and is expanded by the recursive
+     * compile_blade() call that ss_inline() makes on it, which is both
+     * correct and how nesting ends up working to any depth.
+     */
+    while (preg_match($re, $s, $m, PREG_OFFSET_CAPTURE, $offset)) {
+        $whole = $m[0][0];
+        $at = $m[0][1];
+        $name = $m[1][0];
+        $rawAttrs = $m[2][0];
+        $selfClose = $m[3][0] === '/';
+
+        $propsSrc = ss_parse_attrs($rawAttrs);
+        $afterOpen = $at + strlen($whole);
+
+        if ($selfClose) {
+            $inner = '';
+            $end = $afterOpen;
+        } else {
+            $found = ss_match_close($s, $name, $afterOpen);
+            if ($found === false) {
+                fwrite(STDERR, "unclosed component: x-{$name}\n");
+                $out .= substr($s, $offset, $at - $offset);
+                $offset = $afterOpen;
+                continue;
+            }
+            $inner = substr($s, $afterOpen, $found[0] - $afterOpen);
+            $end = $found[1];
+        }
+
+        /* Named slots.
+         *
+         * Blade closes these BOTH ways -- `</x-slot>` and `</x-slot:footer>`
+         * -- and accepting only the short form left the whole block sitting
+         * un-extracted inside the slot text, where the later directive passes
+         * then rewrote its @if/@foreach *inside* the generated string literal
+         * and corrupted it. The failure surfaced as a PHP parse error pointing
+         * at a line of perfectly good Blade, so: accept both. */
+        $named = [];
+        $inner = preg_replace_callback(
+            '/<x-slot:([A-Za-z0-9_\-]+)\s*>(.*?)<\/x-slot(?::\1)?>/s',
+            function ($sm) use (&$named) { $named[$sm[1]] = $sm[2]; return ''; },
+            $inner
+        );
+
+        $namedSrc = [];
+        foreach ($named as $n => $html) {
+            // Only slots the caller actually wrote are passed, so a component's
+            // @isset($actions) stays false when none was given.
+            $namedSrc[] = "'" . $n . "' => ss_inline(" . var_export($html, true) . ", get_defined_vars())";
+        }
+
+        $call = '<?php echo ss_component(' . var_export($name, true) . ', ' . $propsSrc . ', '
+              . ($inner === '' ? "''" : 'ss_inline(' . var_export($inner, true) . ', get_defined_vars())') . ', '
+              . '[' . implode(', ', $namedSrc) . ']); ?>';
+
+        $out .= substr($s, $offset, $at - $offset) . $call;
+        $offset = $end;
+    }
+
+    return $out . substr($s, $offset);
+}
+
+/**
+ * Rewrites @name(...) directives with a PAREN COUNTER rather than a regex.
+ *
+ * The Sprint 01 harness used /@if\s*(\(.*?\))/ and that is only correct when
+ * the directive is the last thing on its line: for `@if (! is_null($c))<span>`
+ * the lazy group stops at the first ")" and emits `if (! is_null($c)` --
+ * a PHP syntax error. Phase 02's components write exactly that shape, so the
+ * matching is done properly here.
+ *
+ * $fmt receives the inside of the parens and returns the PHP to emit.
+ */
+function ss_directive($s, $name, callable $fmt)
+{
+    $i = 0;
+    $out = '';
+    $needle = '@' . $name;
+    while (($at = strpos($s, $needle, $i)) !== false) {
+        // Must not match @iffy when looking for @if, and must not match an
+        // e-mail-ish @if inside a word.
+        $after = $at + strlen($needle);
+        $nextCh = $s[$after] ?? '';
+        if (ctype_alnum($nextCh) || $nextCh === '_') { $out .= substr($s, $i, $after - $i); $i = $after; continue; }
+
+        // Skip whitespace, then require an opening paren.
+        $j = $after;
+        while ($j < strlen($s) && ctype_space($s[$j])) { $j++; }
+        if (($s[$j] ?? '') !== '(') { $out .= substr($s, $i, $after - $i); $i = $after; continue; }
+
+        $depth = 0;
+        $k = $j;
+        $inStr = false;
+        $q = '';
+        for (; $k < strlen($s); $k++) {
+            $c = $s[$k];
+            if ($inStr) {
+                if ($c === '\\') { $k++; continue; }
+                if ($c === $q) { $inStr = false; }
+                continue;
+            }
+            if ($c === '"' || $c === "'") { $inStr = true; $q = $c; continue; }
+            if ($c === '(') { $depth++; continue; }
+            if ($c === ')') { $depth--; if ($depth === 0) { break; } }
+        }
+        if ($depth !== 0) { $out .= substr($s, $i, $after - $i); $i = $after; continue; }
+
+        $inside = substr($s, $j + 1, $k - $j - 1);
+        $out .= substr($s, $i, $at - $i) . $fmt($inside);
+        $i = $k + 1;
+    }
+    return $out . substr($s, $i);
+}
+
 // ---------------------------------------------------------------- Blade subset
 function compile_blade($src)
 {
@@ -86,8 +782,22 @@ function compile_blade($src)
     // Comments first, so directives inside them never compile.
     $s = preg_replace('/\{\{--.*?--\}\}/s', '', $src);
 
-    // @include('a.b.c') -> resources/views/a/b/c.blade.php, inlined before the
-    // rest of the compile so the partial's own directives are handled too.
+    /* @include('a.b.c') -> resources/views/a/b/c.blade.php, inlined before the
+       rest of the compile so the partial's own directives are handled too.
+
+       @include('a.b.c', ['x' => $y]) is a DIFFERENT shape and is compiled to a
+       call instead of inlined: inlining it would lose the data binding, and
+       inlining a partial that includes ITSELF (which is how
+       partision/menu-tree renders a submenu) would recurse forever at compile
+       time. ss_include() below renders it in its own scope. */
+    $s = preg_replace_callback(
+        '/@include\s*\(\s*([\'"])([A-Za-z0-9_.\-]+)\1\s*,\s*(\[.*?\])\s*\)/s',
+        function ($m) {
+            return '<?php echo ss_include(' . var_export($m[2], true) . ', ' . $m[3] . '); ?>';
+        },
+        $s
+    );
+
     $s = preg_replace_callback(
         '/@include\s*\(\s*([\'"])([A-Za-z0-9_.\-]+)\1\s*\)/',
         function ($m) use ($repo) {
@@ -120,15 +830,28 @@ function compile_blade($src)
     $s = preg_replace('/@(?:permission|can)\s*\(\s*([\'"])(.+?)\1\s*\)/', "<?php if (permission_check('$2')): ?>", $s);
     $s = preg_replace('/@(endpermission|endcan)\b/', '<?php endif; ?>', $s);
 
-    // control flow
-    $s = preg_replace('/@if\s*(\(.*?\))\s*$/m', '<?php if $1: ?>', $s);
-    $s = preg_replace('/@if\s*(\(.*?\))/', '<?php if $1: ?>', $s);
-    $s = preg_replace('/@elseif\s*(\(.*?\))/', '<?php elseif $1: ?>', $s);
+    // control flow -- paren-counted, see ss_directive().
+    $s = ss_directive($s, 'if',      fn($e) => '<?php if (' . $e . '): ?>');
+    $s = ss_directive($s, 'elseif',  fn($e) => '<?php elseif (' . $e . '): ?>');
+    $s = ss_directive($s, 'unless',  fn($e) => '<?php if (! (' . $e . ')): ?>');
+    $s = ss_directive($s, 'isset',   fn($e) => '<?php if (isset(' . $e . ')): ?>');
+    $s = ss_directive($s, 'empty',   fn($e) => '<?php if (empty(' . $e . ')): ?>');
+    $s = ss_directive($s, 'foreach', fn($e) => '<?php foreach (' . $e . '): ?>');
+    $s = ss_directive($s, 'for',     fn($e) => '<?php for (' . $e . '): ?>');
+    // @checked / @disabled / @selected / @required emit the bare attribute.
+    $s = ss_directive($s, 'checked',  fn($e) => '<?php echo (' . $e . ') ? \'checked\' : \'\'; ?>');
+    $s = ss_directive($s, 'disabled', fn($e) => '<?php echo (' . $e . ') ? \'disabled\' : \'\'; ?>');
+    $s = ss_directive($s, 'selected', fn($e) => '<?php echo (' . $e . ') ? \'selected\' : \'\'; ?>');
+    $s = ss_directive($s, 'required', fn($e) => '<?php echo (' . $e . ') ? \'required\' : \'\'; ?>');
+    $s = ss_directive($s, 'php',      fn($e) => '<?php ' . $e . '; ?>');
+
     $s = preg_replace('/@else\b/', '<?php else: ?>', $s);
-    $s = preg_replace('/@endif\b/', '<?php endif; ?>', $s);
-    $s = preg_replace('/@foreach\s*(\(.*?\))/', '<?php foreach $1: ?>', $s);
+    $s = preg_replace('/@end(if|unless|isset|empty)\b/', '<?php endif; ?>', $s);
     $s = preg_replace('/@endforeach\b/', '<?php endforeach; ?>', $s);
-    $s = preg_replace('/@php\s*\((.+?)\)/', '<?php $1; ?>', $s);
+    $s = preg_replace('/@endfor\b/', '<?php endfor; ?>', $s);
+
+    // @php ... @endphp (block form)
+    $s = preg_replace('/@php\b(?!\s*\()(.*?)@endphp/s', '<?php $1 ?>', $s);
 
     // @json(expr) -> a JavaScript literal, as Laravel's @json directive emits.
     // Scanned with a paren counter, because expr is usually a nested call.
@@ -148,7 +871,24 @@ function compile_blade($src)
 
     // translation + Form facade
     $s = str_replace('Form::', 'FormStub::', $s);
+    $s = preg_replace('/\btrans_choice\(/', '__tc(', $s);
     $s = preg_replace('/\b__\(/', '__t(', $s);
+
+    /* Components LAST, and the order is the whole point.
+     *
+     * The expansion var_export()s each slot body into a PHP string literal. If
+     * any pass runs AFTER that, it rewrites the Blade inside that literal --
+     * and a half-rewritten @if whose paren scan then runs off the end of the
+     * literal corrupts the generated file, surfacing as a parse error pointing
+     * at a line of perfectly good Blade. (It did. Twice: once via a
+     * re-scanning loop, once via pass ordering.)
+     *
+     * Running last means a slot body is already-compiled PHP by the time it is
+     * quoted, and nothing touches it again. The recursive compile_blade() call
+     * that ss_inline() makes on it is then a no-op for directives and still
+     * expands any nested <x-...> the slot contains.
+     */
+    $s = ss_expand_components($s);
 
     return $s;
 }
@@ -163,9 +903,20 @@ $__sections = [];
 $__stacks = [];
 $__cur = null;
 
-ob_start();
-include $tmp;
-ob_end_clean();            // the view's own stray output is discarded; sections are what matter
+/* The view runs in a FUNCTION scope, not the global one, for the same reason
+   ss_clean_globals() exists: at the top level get_defined_vars() -- which the
+   component expansion emits to pass a slot its surrounding scope -- would
+   return the global symbol table including its own `GLOBALS` self-reference.
+   The sections and stacks are passed by reference so the view still fills
+   the ones the stand-in layout below reads. */
+$__ssViewTmp = $tmp;
+$__ssRenderView = function () use ($__ssViewTmp, &$__sections, &$__stacks, &$__cur) {
+    extract(ss_clean_globals(), EXTR_SKIP);
+    ob_start();
+    include $__ssViewTmp;
+    ob_end_clean();        // stray output is discarded; the sections are what matter
+};
+$__ssRenderView();
 unlink($tmp);
 
 // ---------------------------------------------------------------- stand-in layout
@@ -215,17 +966,44 @@ $html = <<<HTML
 </style>
 </head>
 <body class="theme-3">
-<!-- Real chrome structure from layouts/app.blade.php:188-214 -->
+<!--
+  Real chrome structure from layouts/app.blade.php.
+
+  [2026-11-02 / F251] THE BREADCRUMB HERE WAS TWO VERSIONS BEHIND THE PRODUCT, and that is what
+  made one of F251's two failures. This block emitted Bootstrap's `<ul class="breadcrumb">` with a
+  BARE `<a href="#dashboard">Home</a>` -- no `ss-` class -- while `layouts/app.blade.php:505` has
+  rendered `<x-ss.breadcrumb>` since P2-01-14, which puts `ss-breadcrumb__link` on the Home crumb
+  exactly like every other crumb.
+
+  So the fixture produced a HYBRID that exists nowhere in the product: a Bootstrap wrapper with an
+  unclassed Home link, spliced with the screen's own real `ss-breadcrumb__item` entries. The
+  focus-indicator probe (`a[href], button`) therefore found 13 controls of which 12 carried the
+  design system's 2px ring at 3.74:1 and ONE -- that Home link -- carried none, and the suite
+  reported it as "12 of 13", i.e. as a missing focus indicator in the design system.
+
+  IT WAS A MEASUREMENT ARTEFACT, NOT AN ACCESSIBILITY DEFECT. Measured before changing anything:
+  every `ss-*` control reaches 3.74:1, and the only unringed stop was markup the product had
+  already stopped emitting. The old comment above even cited `layouts/app.blade.php:188-214` for
+  the structure, a line range that no longer contains it -- a stale pointer of exactly the kind
+  this project keeps paying for.
+
+  Now mirrored from the component itself (`resources/views/components/ss/breadcrumb.blade.php`):
+  a labelled `<nav>` around an ORDERED list, because a trail is a sequence, and `ss-scope` so the
+  opt-in stylesheet applies. `BreadcrumbContractTest` is what keeps the component honest; this
+  keeps the HARNESS honest about the component.
+-->
 <div class="dash-container">
   <div class="dash-content">
     <div class="page-header mb-md-4 mb-3">
       <div class="page-block d-flex align-items-center justify-content-between gap-3 flex-wrap">
         <div class="page-header-wrp">
           <div class="page-header-title"><h2 class="h3 mb-0">{$title}</h2></div>
-          <ul class="breadcrumb mt-2">
-            <li class="breadcrumb-item"><a href="#dashboard">Home</a></li>
-            {$breadcrumb}
-          </ul>
+          <nav aria-label="Breadcrumb">
+            <ol class="ss-scope ss-breadcrumb mt-2">
+              <li class="ss-breadcrumb__item"><a class="ss-breadcrumb__link" href="#dashboard">Home</a></li>
+              {$breadcrumb}
+            </ol>
+          </nav>
         </div>
         <div class="page-header-icon d-flex flex-wrap gap-2">{$actions}</div>
       </div>
@@ -234,6 +1012,15 @@ $html = <<<HTML
   </div>
 </div>
 <template id="ss-pushed-scripts">{$pushedJs}</template>
+<!-- P2-01-11: the sidebar's own behaviour, loaded the same way
+     partision/footerlink.blade.php loads it in production.
+
+     Without it a preview renders a workspace chip that cannot be opened and a
+     rail toggle with no state, and a browser check driving either would be
+     measuring an absence rather than the behaviour -- which is exactly what
+     happened: "ArrowDown moves focus into the list" failed with 3 options
+     present, because no listener existed to move it. -->
+<script src="/js/store-syria-nav.js"></script>
 </body>
 </html>
 HTML;

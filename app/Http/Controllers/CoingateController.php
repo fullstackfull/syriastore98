@@ -63,6 +63,62 @@ class CoingateController extends Controller
         $price   = $this->serverOwnedPlanPrice($plan, $request->coupon);
         $admin_payment_setting = getSuperAdminAllSetting();
 
+        /*
+         * F234 -- REFUSE HERE, ABOVE THE `try` AND ABOVE BOTH BRANCHES.
+         *
+         * The coupon block below persists a `PlanUserCoupon` and may deactivate the coupon
+         * platform-wide, fifty lines below, `:200` reads `$admin_payment_setting['coingate_mode']`
+         * and raises on an installation that never saved its CoinGate settings. F196 Option A
+         * (D-28b): the refusal must precede persistence and every side effect.
+         *
+         * ABOVE THE `try` because `HttpException` extends `\Exception`: inside it, the `catch`
+         * below would swallow the 403 and downgrade it into a flash redirect, and the refusal
+         * would stop refusing.
+         *
+         * BUT ONLY WHEN THE GATEWAY IS ACTUALLY NEEDED, and an existing test is why.
+         *
+         * The first version of this guard refused unconditionally, on the reasoning that D-28b
+         * requires the refusal above BOTH persisting branches. That broke
+         * `PlanPaymentFailClosedTest::test_the_coingate_initiator_still_reaches_the_shortcut_for_a_genuinely_free_plan`
+         * -- and the test was right. **A genuinely free plan never calls CoinGate**, so refusing it
+         * because CoinGate has no credentials is refusing a path that does not need them. That is
+         * the positive-control half of F196's own lesson: a guard that refuses everything satisfies
+         * every negative assertion and is still wrong.
+         *
+         * `$price` here is `serverOwnedPlanPrice()` from the line above, which already applies the
+         * coupon, so this is the server's own post-discount figure and not the caller's.
+         *
+         * **WHAT THIS DELIBERATELY DOES NOT FIX.** The free branch also persists the coupon before
+         * it can fail -- `$authuser->plan = $plan->id` writes a column no migration creates. That
+         * is a different defect, in the F58 family, already pinned by
+         * `test_the_free_plan_shortcut_writes_a_users_column_that_no_migration_creates`, and
+         * refusing the free path here to cover it would break the legitimate free activation the
+         * suite declares. F234 is the GATEWAY path's burn; the free path's is recorded, not
+         * silently absorbed into this slice.
+         */
+        if ($price > 0) {
+            $this->assertProviderCredentialsPresent('coingate', $admin_payment_setting, [
+                'coingate_mode',
+                'coingate_auth_token',
+                /*
+                 * CURRENCY_NAME IS HERE BECAUSE INDEPENDENT REVIEW FOUND THE FIRST VERSION OF THIS
+                 * LIST INCOMPLETE, AND THE OMISSION REPRODUCED F234 EXACTLY, ONE SETTING OVER.
+                 *
+                 * `:211-212` read `$admin_payment_setting['CURRENCY_NAME']` as a BARE subscript --
+                 * unlike `:180`, which guards the same key with `!empty()` -- inside the `try` and
+                 * AFTER the coupon row is saved and the coupon possibly deactivated. So an
+                 * installation holding both CoinGate rows but no CURRENCY_NAME row still burned a
+                 * coupon use on a request that could not succeed.
+                 *
+                 * THE SUITE COULD NOT HAVE CAUGHT IT: `PlanPaymentTestCase::seedSuperAdminCurrency()`
+                 * inserts CURRENCY_NAME in every fixture, including the "unconfigured" cases, so no
+                 * existing test can reach that state. `test_a_missing_currency_setting_is_also_refused_before_any_write`
+                 * seeds the CoinGate rows and deliberately omits the currency.
+                 */
+                'CURRENCY_NAME',
+            ]);
+        }
+
         try {
             if(!empty($request->coupon))
             {

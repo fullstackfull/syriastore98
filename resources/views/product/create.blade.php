@@ -9,8 +9,8 @@
 @endphp
 
 @section('breadcrumb')
-  <li class="breadcrumb-item" aria-current="page"><a href="{{ route('product.index') }}">{{ __('Product') }}</a></li>
-  <li class="breadcrumb-item" aria-current="page">{{ __('Create') }}</li>
+  <li class="ss-breadcrumb__item"><a class="ss-breadcrumb__link" href="{{ route('product.index') }}">{{ __('Product') }}</a></li>
+  <li aria-current="page" class="ss-breadcrumb__item">{{ __('Create') }}</li>
 @endsection
 @section('action-button')
   <div class=" text-end d-flex all-button-box justify-content-md-end justify-content-center">
@@ -23,9 +23,24 @@
   $plan = \App\Models\Plan::find(\Auth::user()->plan_id);
   $stock_management = \App\Models\Utility::GetValueByName('stock_management');
   $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold');
+  /* P2-03-4 / F75. THE UPLOAD RULES THE SERVER WILL ACTUALLY APPLY, so the editor can state them
+     instead of accepting anything and letting the save refuse it. `UploadLimits` reads the same
+     platform settings `Utility::upload_file()` reads and then takes the MINIMUM against PHP's own
+     `upload_max_filesize` -- which is what a merchant really hits. Measured in this container:
+     the setting says 2 GB, PHP allows 2 MB per file and 8 MB per request, and the Dropzone was
+     advertising its own 256 MB default. Three numbers, none of them the real one. */
+  $ssUpload = \App\Services\UploadLimits::forStore();
 @endphp
 @section('content')
-  {{ Form::open(['route' => 'product.store', 'method' => 'post', 'id' => 'choice_form', 'enctype' => 'multipart/form-data']) }}
+  {{-- P2-03-3. `data-ss-dirty-track` opts this form into StoreSyriaDS.wireDirtyTracking, which
+     arms on the first real input (not on focus) and is what reveals the unsaved-changes marker in
+     the action bar below. `ss-has-actionbar` is the scroll offset the sticky bar needs so it
+     cannot cover a focused field -- WCAG 2.2 "Focus Not Obscured". --}}
+{{ Form::open(['route' => 'product.store', 'method' => 'post', 'id' => 'choice_form', 'enctype' => 'multipart/form-data', 'data-ss-dirty-track' => true, 'class' => 'ss-has-actionbar']) }}
+
+  {{-- The validation summary complements the inline field errors; it never replaces them, and
+       StoreSyriaDS moves focus here after a failed submit. --}}
+  <x-ss.error-summary :errors="$errors" class="mb-3" />
   <div class="row product-page-info">
     <div class="col-md-12">
       <div class="row">
@@ -43,7 +58,10 @@
                     {!! Form::label('', __('parmalink'), ['class' => 'form-label col-md-3']) !!}
                     <div class="d-flex flex-wrap gap-3">
                       <input class="input-group-text col-12"  readonly id="basic-addon2" value="{{ $link }}">
-                      {!! Form::text('slug', null, ['class' => 'form-control slug col-12', 'data-bs-toggle'=>'tooltip', 'title'=> __('Sku or Slug')]) !!}
+                      {!! Form::text('slug', null, ['class' => 'form-control slug col-12', 'aria-describedby' => 'slug-help']) !!}
+                      {{-- P2-06-10: this field carried `data-bs-toggle=tooltip, title='Sku or Slug'` --
+                           a hover-only restatement of its own label, associated with nothing. --}}
+                      <x-ss.field-help for="slug">{{ __("Part of the product's web address. Leave it blank and it is generated from the name.") }}</x-ss.field-help>
                     </div>
                   </div>
                   <div class="col-sm-6 col-12">
@@ -55,43 +73,6 @@
                         @endforeach
                     </select>
                   </div>
-                  <div class="col-md-6 col-12 switch-width">
-                    {{ Form::label('tax_id', __('Taxs'), ['class' => ' form-label']) }}
-                    <select name="tax_id[]" data-role="tagsinput" id="tax_id" multiple>
-                      @foreach ($Tax as $Key => $tax)
-                        <option value={{ $Key }}>
-                          {{ $tax }}</option>
-                      @endforeach
-                    </select>
-                  </div>
-                  <div class="col-md-6 col-12">
-                    {!! Form::label('', __('Tax Status'), ['class' => 'form-label']) !!}
-                    {!! Form::select('tax_status', $Tax_status, null, [
-                        'class' => 'form-control',
-                        'data-role' => 'tagsinput',
-                        'id' => 'tax_id',
-                    ]) !!}
-                  </div>
-                  <div class=" col-sm-6 col-12" data_val='0'>
-                    {!! Form::label('', __('Brand'), ['class' => 'form-label']) !!}
-                    <span>
-                      {!! Form::select('brand_id', $brands, null, [
-                          'class' => 'form-control',
-                          'data-role' => 'tagsinput',
-                          'id' => 'brand-dropdown',
-                      ]) !!}
-                    </span>
-                  </div>
-                  <div class=" col-sm-6 col-12" data_val='0'>
-                    {!! Form::label('', __('Label'), ['class' => 'form-label']) !!}
-                    <span>
-                      {!! Form::select('label_id', $labels, null, [
-                          'class' => 'form-control',
-                          'data-role' => 'tagsinput',
-                          'id' => 'label-dropdown',
-                      ]) !!}
-                    </span>
-                  </div>
                   <div class="col-sm-6 col-12">
                     {!! Form::label('', __('Tags'), ['class' => 'form-label']) !!}
                     <select name ="tag_id[]" class="select2 form-control" id="tag_id" multiple required>
@@ -100,17 +81,89 @@
                       @endforeach
                     </select>
                   </div>
-                  <div class="col-sm-6 col-12">
-                    {!! Form::label('', __('Shipping'), ['class' => 'form-label']) !!}
-                    {!! Form::select('shipping_id', $Shipping, null, [
-                        'class' => 'form-control',
-                        'data-role' => 'tagsinput',
-                        'id' => 'shipping_id',
-                    ]) !!}
-                  </div>
-                  <div class="col-sm-6 col-12 product-weight">
-                    {!! Form::label('', __('Weight(Kg)'), ['class' => 'form-label ']) !!}
-                    {!! Form::number('product_weight', null, ['class' => 'form-control', 'min' => '0', 'step' => '0.01']) !!}
+                  {{-- P2-03-8. The six fields a merchant sets once for the whole catalogue,
+                         behind one disclosure. NOTHING MOVED OUT OF THE FORM and no name, value
+                         or validation rule changed -- a closed <details> still submits what is
+                         inside it, which is why this is a <details> and not a hidden div or a
+                         disabled fieldset. `tag_id[]` is NOT in here: it carries `required`, and
+                         a required control inside a closed <details> is hidden from the
+                         browser's own constraint UI. That rule is a GUARD, not a bug report --
+                         this editor posts by AJAX from `#submit-all` and has no native submit
+                         path, so constraint validation never runs here today; see the component
+                         for the full reasoning. `tag_id[]` moves up beside Category, where it
+                         belongs anyway -- both are classification. --}}
+                  <div class="col-12">
+                    <x-ss.advanced-fields
+                        :title="__('Advanced options')"
+                        :hint="__('Taxes, brand, label, shipping and weight. These are usually set once for the whole catalogue.')"
+                        :fields="['tax_id[]', 'tax_status', 'brand_id', 'label_id', 'shipping_id', 'product_weight']">
+                      <div class="row row-gap">
+                      <div class="col-md-6 col-12 switch-width">
+                        {{ Form::label('tax_id', __('Taxs'), ['class' => ' form-label']) }}
+                        <select name="tax_id[]" data-role="tagsinput" id="tax_id" multiple>
+                          @foreach ($Tax as $Key => $tax)
+                            <option value={{ $Key }}>
+                              {{ $tax }}</option>
+                          @endforeach
+                        </select>
+                      </div>
+                      <div class="col-md-6 col-12">
+                        {!! Form::label('', __('Tax Status'), ['class' => 'form-label']) !!}
+                        {{-- This `id` is 'tax_id', which DUPLICATES the tax multiselect above:
+                             invalid HTML, `getElementById` returns only the first, and
+                             `Form::label('tax_id', __('Taxs'))` labels the wrong one. It is
+                             already recorded as P3-06 in P2-03-3-RECONNAISSANCE.md and
+                             deliberately NOT fixed here. Giving it a unique
+                             id was tried and MEASURED: the duplicate is what has been keeping
+                             Choices.js OFF this control, so a unique id makes Choices take it
+                             over -- display:none on the native select, options moved into the
+                             widget. The submitted value is unaffected (verified: FormData still
+                             carries `tax_status=taxable`), but a field changing from a bare
+                             native select to a Choices widget is a VISIBLE change to a control,
+                             and this slice's contract is that nothing about a field changes
+                             except where it sits. It wants its own slice with screenshots in
+                             both directions. --}}
+                        {!! Form::select('tax_status', $Tax_status, null, [
+                            'class' => 'form-control',
+                            'data-role' => 'tagsinput',
+                            'id' => 'tax_id',
+                        ]) !!}
+                      </div>
+                      <div class=" col-sm-6 col-12" data_val='0'>
+                        {!! Form::label('', __('Brand'), ['class' => 'form-label']) !!}
+                        <span>
+                          {!! Form::select('brand_id', $brands, null, [
+                              'class' => 'form-control',
+                              'data-role' => 'tagsinput',
+                              'id' => 'brand-dropdown',
+                          ]) !!}
+                        </span>
+                      </div>
+                      <div class=" col-sm-6 col-12" data_val='0'>
+                        {!! Form::label('', __('Label'), ['class' => 'form-label']) !!}
+                        <span>
+                          {!! Form::select('label_id', $labels, null, [
+                              'class' => 'form-control',
+                              'data-role' => 'tagsinput',
+                              'id' => 'label-dropdown',
+                          ]) !!}
+                        </span>
+                      </div>
+                      <div class="col-sm-6 col-12">
+                        {!! Form::label('', __('Shipping'), ['class' => 'form-label']) !!}
+                        {!! Form::select('shipping_id', $Shipping, null, [
+                            'class' => 'form-control',
+                            'data-role' => 'tagsinput',
+                            'id' => 'shipping_id',
+                        ]) !!}
+                      </div>
+                      <div class="col-sm-6 col-12 product-weight">
+                        {!! Form::label('', __('Weight(Kg)'), ['class' => 'form-label ']) !!}
+                        {!! Form::number('product_weight', null, ['class' => 'form-control', 'min' => '0', 'step' => '0.01', 'aria-describedby' => 'product_weight-help']) !!}
+                        <x-ss.field-help for="product_weight">{{ __('Used to work out shipping. Leave blank if your shipping does not depend on weight.') }}</x-ss.field-help>
+                      </div>
+                      </div>
+                    </x-ss.advanced-fields>
                   </div>
                   <div class="col-md-6 col-12 product_price product-weight">
                     {!! Form::label('', __('Price'), ['class' => 'form-label']) !!}<span class="text-danger">*</span>
@@ -118,7 +171,8 @@
                   </div>
                   <div class="col-md-6 col-12 product-weight">
                     {!! Form::label('', __('Sale Price'), ['class' => 'form-label']) !!}<!--<span class="text-danger">*</span>-->
-                    {!! Form::number('sale_price', null, ['class' => 'form-control', 'min' => '0', 'step' => '0.01']) !!}
+                    {!! Form::number('sale_price', null, ['class' => 'form-control', 'min' => '0', 'step' => '0.01', 'aria-describedby' => 'sale_price-help']) !!}
+                    <x-ss.field-help for="sale_price">{{ __('The discounted price customers pay. It must be lower than the price.') }}</x-ss.field-help>
                   </div>
                 <div class="col-md-6 col-12 product-weight">
     {!! Form::label('', __('Cost Price'), ['class' => 'form-label']) !!}
@@ -127,8 +181,10 @@
         'class' => 'form-control',
         'min' => '0',
         'step' => '0.01',
-        'required' => true
+        'required' => true,
+        'aria-describedby' => 'cost_price-help',
     ]) !!}
+    <x-ss.field-help for="cost_price">{{ __('What the item costs you. Required, cannot exceed the price, and never shown to customers.') }}</x-ss.field-help>
 </div>
                 
                 
@@ -160,12 +216,13 @@
                   </div>
                   <div class="row row-gap">
                       <div class="col-12 stock_stats">
-                        {!! Form::label('', __('Stock Status:'), ['class' => 'form-label f-w-800']) !!}
+                        <x-ss.choice-group name="stock_status" :legend="__('Stock Status:')"
+                          :hint="__('This is what customers see on the product page. It does not change the quantity you hold.')">
                         <div class="col-mb-9 d-flex flex-wrap row-gap">
                           <div class="form-check form-check-inline">
                             <input class="form-check-input code" type="radio" id="in_stock" value="in_stock"
                               name="stock_status" checked="checked">
-                            <label class="form-check-label" for="   ">
+                            <label class="form-check-label" for="in_stock">
                               {{ __('In Stock') }}
                             </label>
                           </div>
@@ -184,6 +241,7 @@
                             </label>
                           </div>
                         </div>
+                        </x-ss.choice-group>
                       </div>
                     </div>
                    </div>
@@ -196,10 +254,12 @@
                       </div>
                       <div class="col-md-6 col-12">
                         {!! Form::label('', __('Low stock threshold'), ['class' => 'form-label']) !!}
-                        {!! Form::number('low_stock_threshold', $low_stock_threshold, ['class' => 'form-control', 'min' => '0']) !!}
+                        {!! Form::number('low_stock_threshold', $low_stock_threshold, ['class' => 'form-control', 'min' => '0', 'aria-describedby' => 'low_stock_threshold-help']) !!}
+                        <x-ss.field-help for="low_stock_threshold">{{ __('The product list shows Low stock at or below this number. Leave 0 to use the store default.') }}</x-ss.field-help>
                       </div>
                       <div class="col-12 mb-3">
-                        {!! Form::label('', __('Allow BackOrders:'), ['class' => 'form-label']) !!}
+                        <x-ss.choice-group name="stock_order_status" :legend="__('Allow BackOrders:')"
+                          :hint="__('Decide what happens when this product runs out of stock.') . ' ' . __('Allowing backorders means customers can still order and pay for it.')">
                         <div class="form-check m-1">
                           <input type="radio" id="not_allow" value="not_allow" name="stock_order_status"
                             class="form-check-input code" checked="checked">
@@ -216,6 +276,7 @@
                             class="form-check-input code">
                           <label class="form-check-label" for="allow">{{ __('Allow') }}</label>
                         </div>
+                        </x-ss.choice-group>
                       </div>
                     </div>
                   @endif
@@ -293,7 +354,17 @@
                             <!-- Dropzone message with icon -->
                             <div class="dz-message d-flex flex-column mb-2">
                                 <img src="{{ asset('assets/images/notification/upload_icon.png') }}" alt="Upload Icon" style="width: 50px; height: 50px; margin:0 auto 10px;">
-                                <span>Drop files here to upload</span>
+                                {{-- P2-03-4: this string was hardcoded English and is now translated. --}}
+                                <span>{{ __('Drop files here to upload') }}</span>
+                                {{-- P2-03-4 / F75: state what the SERVER accepts. `aria-describedby` on the
+                                     dropzone points here, so the rules are announced rather than only seen. --}}
+                                <span class="ss-upload-hint ss-upload-hint--on-light" id="ss-gallery-upload-hint" data-ss-upload-hint>
+                                    @if (!empty($ssUpload['extensions']))
+                                        {{ __('Accepted formats') }}: {{ strtoupper(implode(', ', $ssUpload['extensions'])) }}.
+                                    @endif
+                                    {{ __('Up to :size per file', ['size' => $ssUpload['max_label']]) }}.
+                                    {{ __('Up to :total for all files together', ['total' => $ssUpload['request_max_label']]) }}.
+                                </span>
                             </div>
 
                             <div class="fallback">
@@ -330,16 +401,36 @@
                     </div>
                     <div class="col-12">
                       <label for="cover_image" class="form-label">{{ __('Upload Cover Image') }}</label><span class="text-danger">*</span>
+                      {{-- P2-03-4 / F75: `accept` filters the OS picker to what the server will take, so an
+                           unsupported file is not chosen in the first place. It is the server's own configured
+                           list, verbatim -- narrowing it here would newly block a `pdf` or `csv` that works
+                           today. An empty value means nothing is configured, which correctly imposes nothing. --}}
                       <input type="file" name="cover_image" id="cover_image" class="form-control custom-input-file"
+                        @if (!empty($ssUpload['accept'])) accept="{{ $ssUpload['accept'] }}" @endif
+                        aria-describedby="ss-cover-upload-hint"
                         onchange="document.getElementById('upcoverImg').src = window.URL.createObjectURL(this.files[0]);"
                         multiple>
+                      <span class="ss-upload-hint" id="ss-cover-upload-hint" data-ss-upload-hint>
+                          @if (!empty($ssUpload['extensions']))
+                              {{ __('Accepted formats') }}: {{ strtoupper(implode(', ', $ssUpload['extensions'])) }}.
+                          @endif
+                          {{ __('Up to :size per file', ['size' => $ssUpload['max_label']]) }}.
+                      </span>
                       <img id="upcoverImg" src="" width="20%" class="mt-2" />
                     </div>
 
                   <div class=" col-12" id="downloadable-product-div">
                       <div class="choose-file">
                         <label for="downloadable_product" class="form-label">{{ __('Downloadable Product') }}</label>
+                        {{-- `accept` from UploadLimits, the SAME source the gallery upload already uses: the
+                             picker must advertise what the server will actually take. Without it this field
+                             offered every file type and the save then refused most of them -- F75's defect
+                             shape, one field over. See F190 for what the server's list does NOT contain. --}}
                         <input type="file" class="form-control" name="downloadable_product" id="downloadable_product"
+                          {{-- F190: the field's OWN list, from the same config the server validates against.
+                               Falls back to the platform list while the F217 gate holds this field off,
+                               because that is then what the server really uses. --}}
+                          accept="{{ \App\Support\UploadRules::accept('downloadable_product', $ssUpload['accept']) }}"
                           onchange="document.getElementById('downloadable_product').src = window.URL.createObjectURL(this.files[0]);"
                           multiple>
                         <div class="invalid-feedback">{{ __('invalid form file') }}</div>
@@ -352,7 +443,13 @@
                   <div class=" col-md-6 col-12" id="preview-video-div">
                       <div class="choose-file">
                         <label for="preview_video" class="form-label">{{ __('Preview Video') }}</label>
+                        {{-- See the downloadable field above. F190: on a default install this list holds no
+                             video format at all, so this field cannot accept the thing it is named for. --}}
                         <input type="file" class="form-control" name="preview_video" id="preview_video"
+                          {{-- F190: .mp4,.webm,.mov -- the only types the server accepts here. It used to
+                               advertise the platform IMAGE list, so every file the picker offered was
+                               refused and the ones that work were not offered. --}}
+                          accept="{{ \App\Support\UploadRules::accept('preview_video', $ssUpload['accept']) }}"
                           onchange="document.getElementById('preview_video').src = window.URL.createObjectURL(this.files[0]);"
                           multiple>
                         <div class="invalid-feedback">{{ __('invalid form file') }}</div>
@@ -479,6 +576,32 @@
     </div>
   </div>
 
+
+  {{--
+      P2-03-3 -- STICKY SAVE.
+
+      MEASURED, not assumed. The only Save on this screen is `#submit-all`, an anchor in the page
+      header OUTSIDE this form. Scrolled to the bottom of the create form it sits at
+
+          1440px   page 2172px, viewport 900   ->  Save at y = -1175   off-screen
+           390px   page 4161px, viewport 900   ->  Save at y = -3131   off-screen
+
+      so a merchant who has just filled the form cannot see or reach it without scrolling back to
+      the top -- over three thousand pixels on a phone.
+
+      THIS BUTTON DOES NOT SUBMIT. `create.blade.php` binds ~120 lines of FormData assembly to
+      `#submit-all`'s click, and a second handler would be a second submit path to keep in step.
+      `data-ss-click-proxy` clicks the existing control instead, so there is exactly one
+      implementation and a change to it reaches both controls.
+  --}}
+  <x-ss.actionbar :label="__('Save or discard your changes')">
+    <a href="#" class="btn btn-primary ss-btn"
+       data-ss-click-proxy="#submit-all"
+       data-title="{{ __('Create Product') }}">
+      <i class="ti ti-device-floppy" aria-hidden="true"></i>
+      <span class="ms-2 me-2">{{ __('Save') }}</span>
+    </a>
+  </x-ss.actionbar>
 
   {!! Form::close() !!}
 @endsection
@@ -827,9 +950,22 @@
           previewTemplate: n.html(),
           maxFiles: 10,
           parallelUploads: 10,
+          /* P2-03-4 / F75. maxFilesize is MEGABYTES in Dropzone and its default is 256, which was
+             128x the real per-file ceiling. addRemoveLinks lets a merchant take a queued file back
+             out -- before this there was no way to undo a mistaken drop except reloading the page
+             and losing the rest of the form. */
+          maxFilesize: {{ max(1, (int) round($ssUpload['max_kb'] / 1024)) }},
+          addRemoveLinks: true,
+          dictRemoveFile: @json(__('Remove')),
+          dictFileTooBig: @json(__('That file is too large. The maximum is :max.', ['max' => $ssUpload['max_label']])),
+          dictInvalidFileType: @json(__('That file type is not accepted.')),
           autoProcessQueue: false,
           uploadMultiple: true,
-          acceptedFiles: a ? null : "image/*",
+          /* P2-03-4 / F75. WAS `a ? null : "image/*"`, and this element carries
+             `data-dropzone-multiple`, so it took the `null` branch and accepted ANY file type while
+             the server refuses everything outside its configured list. Now both branches advertise
+             the server's own list; the fallback keeps the original intent when nothing is set. */
+          acceptedFiles: @json($ssUpload['accept'] !== '' ? $ssUpload['accept'] : 'image/*'),
           success: function(file, response) {
             if (response.flag == "success") {
               show_toastr('success', response.msg, 'success');
@@ -931,10 +1067,33 @@
               if (data.flag == "success") {
                 $('#submit-all').attr('disabled', true);
 
+                /* P2-03-4 / F75. THE SUCCESS BRANCH NAVIGATES IMMEDIATELY AND SHOWED `data.msg`
+                   NOWHERE, so the server's own warning -- "These images were not uploaded: ..." --
+                   was appended to a message nothing displayed. Measured: a refused gallery image
+                   produced no toast and no text on either page.
+                   `edit.blade.php` already solved this by handing the message to
+                   `product/index.blade.php` through localStorage (`success_msg`, read at
+                   index.blade.php:67 and list.blade.php:169), so the same mechanism is used here
+                   rather than a second one invented beside it. */
+                try { localStorage.setItem('success_msg', data.msg); } catch (e) { /* private mode */ }
+
                 window.location.href = "{{ route('product.index') }}" + '?id=1';
 
               } else {
                 show_toastr('Error', data.msg, 'error');
+                /* F70. The toast says WHAT is wrong; this says WHERE. It marks each failed
+                   field, writes the message beside it, OPENS the collapsed section the field
+                   lives in, and builds the summary -- none of which the server-rendered
+                   path could do, because this save never re-renders the page.
+                   The strings are passed in because store-syria-ds.js has no translator;
+                   omit them and an Arabic merchant reads English. */
+                if (window.StoreSyriaDS && data.errors) {
+                    StoreSyriaDS.applyFormErrors(data.errors, {
+                        form: '#choice_form',
+                        needsAttentionText: @json(__('Needs attention')),
+                        titleText: @json(__('Please correct the highlighted fields'))
+                    });
+                }
                 $('#submit-all').attr('disabled', false);
               }
             },
@@ -965,10 +1124,35 @@
             if (data.flag == "success") {
               $('#submit-all').attr('disabled', true);
               
+
+              /* P2-03-4 / F75. THE DEFAULT SAVE PATH. There are TWO near-identical AJAX calls
+                 here, chosen by `module_is_active('CartQuantityControl')`, and THIS is the `else`
+                 -- the one that runs when that module is not enabled, which is the ordinary case.
+                 The first version of this fix patched only the other one and measured nothing:
+                 the server's warning was in the response (asserted separately as B1) and the
+                 merchant still saw no toast, because this branch navigated away without
+                 displaying `data.msg` at all.
+                 `edit.blade.php` had the same pair and the pre-existing `success_msg` write was
+                 likewise on the module-only branch, so by default an edit save showed the
+                 merchant nothing either. Both defaults now carry the message. */
+              try { localStorage.setItem('success_msg', data.msg); } catch (e) { /* private mode */ }
               window.location.href = "{{ route('product.index') }}" + '?id=1';
 
             } else {
               show_toastr('Error', data.msg, 'error');
+              /* F70. The toast says WHAT is wrong; this says WHERE. It marks each failed
+                 field, writes the message beside it, OPENS the collapsed section the field
+                 lives in, and builds the summary -- none of which the server-rendered
+                 path could do, because this save never re-renders the page.
+                 The strings are passed in because store-syria-ds.js has no translator;
+                 omit them and an Arabic merchant reads English. */
+              if (window.StoreSyriaDS && data.errors) {
+                  StoreSyriaDS.applyFormErrors(data.errors, {
+                      form: '#choice_form',
+                      needsAttentionText: @json(__('Needs attention')),
+                      titleText: @json(__('Please correct the highlighted fields'))
+                  });
+              }
               $('#submit-all').attr('disabled', false);
             }
           },

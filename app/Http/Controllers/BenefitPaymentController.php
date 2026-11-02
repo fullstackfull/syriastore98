@@ -10,14 +10,22 @@ use GuzzleHttp\Client;
 use Exception;
 use App\Models\PlanCoupon;
 use Illuminate\Support\Facades\Auth;
+use App\Http\Controllers\Concerns\RefusesDeferredGateway;
 
 use App\Http\Controllers\Concerns\GuardsPlanActivation;
 
 class BenefitPaymentController extends Controller
 {
     use GuardsPlanActivation;
+    use RefusesDeferredGateway;
 
     //
+
+    /** D-33: the gateway name in one place, so a call site cannot name the wrong one. */
+    private function refuseDeferredGatewayPaidCheckoutOrNull($plan, $couponCode)
+    {
+        return $this->refuseDeferredGatewayCheckout('Benefit', $plan, $couponCode);
+    }
 
     public function initiatePayment(Request $request)
     {
@@ -27,6 +35,20 @@ class BenefitPaymentController extends Controller
         $objUser = Auth::user();
         $planID = \Illuminate\Support\Facades\Crypt::decrypt($request->plan_id);
         $plan = Plan::find($planID);
+
+        /*
+         * D-33 — NO CHARGE IS MADE AT ALL. Owner correction, 2026-10-31.
+         *
+         * This refusal used to live only on the return, which meant the merchant reached tap, was
+         * charged, came back and was told the method was unavailable -- money taken, nothing
+         * given. Refusing here, before `$plan` is even priced for the outbound call, means the
+         * provider is never contacted.
+         */
+        $benefitDeferredCheckout = $this->refuseDeferredGatewayPaidCheckoutOrNull($plan, $request->coupon);
+
+        if ($benefitDeferredCheckout !== null) {
+            return $benefitDeferredCheckout;
+        }
 
         if ($plan) {
             $get_amount = $plan->price;
@@ -159,6 +181,41 @@ class BenefitPaymentController extends Controller
         if ($coupons !== null) {
             $request['coupon_id'] = $coupons->id;
         }
+
+        /*
+         * ONE TAP CHARGE, ONE PLAN ACTIVATION -- and it has to be decided HERE, above the try.
+         *
+         * `plan_id` on this route is a RAW query-string integer (:148), published in the return
+         * URL by the initiator at :108, and the gate below is `$data->gateway->response->code ==
+         * '00'` -- a property of the tap CHARGE, which says nothing about which plan the charge
+         * paid for. So before this guard, one real tap payment re-opened as
+         * `?tap_id=<mine>&plan_id=<any>` activated any plan, any number of times, and
+         * `txn_id` was recorded as '' so the replay left nothing to find afterwards.
+         *
+         * The charge id is the value this method is ABOUT to ask tap.company about, so it is in
+         * hand before any network traffic -- which is also what makes the refusal reachable from
+         * a test; see GuardsPlanActivation::refusePlanActivationReplay().
+         */
+        $benefitReference = $request->tap_id;
+        /*
+         * D-33 — DEFERRED GATEWAY. A paid plan activation refuses here, BEFORE the outbound call,
+         * because tap's charge says nothing about which plan the money was for and the contract
+         * that would let the intent bind to it cannot be established from this environment.
+         * Zero-price plans are unaffected. Compatibility and business impact are set out in the
+         * trait's header, as D-33 requires.
+         */
+        $benefitDeferred = $this->refuseDeferredGatewayPaidActivation('Benefit', $plan, $request->coupon, $benefitReference);
+
+        if ($benefitDeferred !== null) {
+            return $benefitDeferred;
+        }
+
+        $benefitReplay = $this->refusePlanActivationReplay('Benefit', $benefitReference, $plan, $user);
+
+        if ($benefitReplay !== null) {
+            return $benefitReplay;
+        }
+
         try {
             $post = $request->all();
             $client = new Client();
@@ -186,7 +243,12 @@ class BenefitPaymentController extends Controller
                 $order->price_currency = $admin_payment_setting['CURRENCY_NAME'];
                 $order->payment_type = __('Benefit');
                 $order->payment_status = 'success';
-                $order->txn_id = '';
+                // THE SAME VARIABLE THE GUARD WAS GIVEN. Upstream recorded '' here, with the tap
+                // charge id in hand and discarded, so a replay left nothing in plan_orders to
+                // find. Hoisting it into one local is deliberate: see the structural assertion in
+                // PlanActivationReplayGuardTest -- a guard keyed on one expression and a txn_id
+                // written from another is how the Cashfree arm of this change protected nothing.
+                $order->txn_id = (string) $benefitReference;
                 $order->receipt = '';
                 $order->user_id = $user->id;
                 $order->save();

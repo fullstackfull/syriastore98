@@ -2,14 +2,14 @@
 
 @if((auth()->user()->type == 'super admin') && (!empty($setting['chatgpt_key'])))
     <div class="d-flex justify-content-end">
-        <a href="#" class="btn btn-primary btn-badge ai-btn" data-size="lg" data-ajax-popup-over="true" data-url="{{ route('generate',['store']) }}" data-bs-toggle="tooltip" data-bs-placement="top" title="{{ __('Generate') }}" data-title="{{ __('Generate Content With AI') }}">
+        <a href="#" class="btn btn-primary btn-badge ai-btn" data-size="lg" data-ss-panel-open="ai-generate" data-ss-panel-url="{{ route('generate',['store']) }}" data-bs-toggle="tooltip" data-bs-placement="top" title="{{ __('Generate') }}" data-title="{{ __('Generate Content With AI') }}">
             <i class="fas fa-robot"></i> {{ __('Generate with AI') }}
         </a>
     </div>
 @endif
 @if((auth()->user()->type == 'admin') && $plan && ($plan->enable_chatgpt == 'on'))
     <div class="d-flex justify-content-end">
-        <a href="#" class="btn btn-primary btn-badge ai-btn" data-size="lg" data-ajax-popup-over="true" data-url="{{ route('generate',['store']) }}" data-bs-toggle="tooltip" data-bs-placement="top" title="{{ __('Generate') }}" data-title="{{ __('Generate Content With AI') }}">
+        <a href="#" class="btn btn-primary btn-badge ai-btn" data-size="lg" data-ss-panel-open="ai-generate" data-ss-panel-url="{{ route('generate',['store']) }}" data-bs-toggle="tooltip" data-bs-placement="top" title="{{ __('Generate') }}" data-title="{{ __('Generate Content With AI') }}">
             <i class="fas fa-robot"></i> {{ __('Generate with AI') }}
         </a>
     </div>

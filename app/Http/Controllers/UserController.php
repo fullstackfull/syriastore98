@@ -500,25 +500,120 @@ AuditLog::record(
         return redirect()->back()->with('success', __('Password update succefully.'));
     }
 
+    /**
+     * The tenant-owner overview behind "Admin Info" on the operator's store list.
+     * =============================================================================================
+     *
+     * P2-05-5. THIS HANDLER HAD NO AUTHORIZATION OF ANY KIND -- no permission check, no ownership
+     * predicate, no null guard -- and it reports the target's total / active / disabled STORE
+     * counts plus, per store, their total / active / disabled USER counts. Driven: a merchant of
+     * store A asking for store B's owner got **HTTP 200 and the figures**.
+     *
+     * Nothing else was stopping it, and each was checked rather than assumed: the route
+     * (`web.php:443`) sits in the group carrying only `['auth', 'xss', 'setlocate', 'verified']`;
+     * `User` is not in `config/tenancy.php`'s `scoped_models` and registers no global scope, so
+     * `find()` reaches every tenant.
+     *
+     * AND `Crypt::decrypt()` WAS DOING THE WORK OF A CONTROL WITHOUT BEING ONE. `APP_KEY` is in
+     * git history and unrotated, so an encrypted id in a URL is forgeable for any user id --
+     * the same point `StoreController::storeResetPassword` records as SEC-F1. It is kept here
+     * only as the URL FORMAT the two callers already use, never as the reason to trust the id.
+     *
+     * THE CALLERS DISAGREE ABOUT THAT FORMAT, which is why the id is resolved defensively rather
+     * than by `decrypt()` alone: `store/action.blade.php:29` passes `encrypt($user->id)` while
+     * `store/index.blade.php:159` passes the RAW id. The original tried to paper over that with
+     * `if (empty(decrypt($id))) { $id = $request->id; }` -- a fallback to request input, the shape
+     * this codebase has paid for repeatedly, and broken anyway because `decrypt()` THROWS on a
+     * non-payload rather than returning empty, so the raw-id caller never reached the fallback.
+     */
     public function userInfo(Request $request, $id)
 	{
-        if(empty(decrypt($id))){
-            $id = $request->id;
+        $actor = auth()->user();
+
+        if (! $actor) {
+            return redirect()->back()->with('error', __('Permission denied.'));
         }
-		if(!empty($id)){
-            $user = User::find(decrypt($id));
-            $status = $user->is_active;
-		    $data = $this->storeUserCounter(decrypt($id));
-		    if($data['is_success']){
-		        $users_data = $data['response']['users_data'];
-		        $store_data = $data['response']['store_data'];
-		        return view('users.user_info', compact('id','users_data','store_data','status'));
-		    }
-		}
-		else
-		{
-		    return redirect()->back()->with('error', __('Permission denied.'));
-		}
+
+        /* Accept either shape the two callers send, and treat NEITHER as proof of anything. */
+        $targetId = null;
+
+        try {
+            $targetId = \Crypt::decrypt($id);
+        } catch (\Throwable $e) {
+            $targetId = is_numeric($id) ? (int) $id : null;
+        }
+
+        if (empty($targetId) || ! is_numeric($targetId)) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
+        $user = User::find((int) $targetId);
+
+        /* A valid-but-unknown id reached `$user->is_active` unguarded and raised
+           "property on null" -- an HTTP 500 that doubled as an existence oracle. */
+        if (! $user) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
+        /*
+         * OPERATOR OR SELF, and nothing else. Both are deliberate.
+         *
+         * OPERATOR FIRST because `isAbleTo()` alone REFUSES the platform operator here, and this
+         * is the operator's own screen: an ownership fix written as a permission check would
+         * have locked them out of it while every cross-tenant test still passed.
+         *
+         * THROUGH `UserPolicy::isOperator()` rather than a local comparison. The first version
+         * wrote `strtolower(trim($actor->type))`, and `trim()` is WIDER THAN THE MySQL COLLATION:
+         * the helper deliberately uses `rtrim(..., ' ')` to match PAD SPACE, because the engine
+         * ignores a trailing space but not a leading one and not a tab. A row typed
+         * `' super admin'` would have been operator here and not-operator to the database. That
+         * is measured and documented at `UserPolicy:74-93`, and having two spellings of one
+         * decision is the drift `OperatorCheckCensusTest` exists to stop.
+         *
+         * NO SAME-TENANT LIMB, and that is a deliberate narrowing rather than an omission. An
+         * earlier version admitted anyone whose `creatorId()` matched the target's, which let a
+         * ZERO-PERMISSION staff member read their own tenant's store counts and, through the
+         * view, every colleague's name and login state -- while the sibling screens gate exactly
+         * that roster on `Manage User` (`:36`, `:805`). It bought nothing: BOTH callers of this
+         * route are operator-only -- `store/index.blade.php:159` sits inside
+         * `@if (Auth::user()->type == 'super admin')` at `:148`, and `store/action.blade.php:29`
+         * renders only through `StoreDataTable` for `StoreController::list`, which is gated the
+         * same way. Checked that those are the only two callers before narrowing.
+         */
+        if (! \App\Policies\UserPolicy::isOperator($actor) && (int) $actor->id !== (int) $user->id) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
+        $status = $user->is_active;
+        $data = $this->storeUserCounter($user->id);
+
+        if (empty($data['is_success'])) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
+        $users_data = $data['response']['users_data'];
+        $store_data = $data['response']['store_data'];
+
+        /*
+         * `$user->id`, NOT the route parameter. `compact('id')` passed the RAW parameter through,
+         * and `users/user_info.blade.php:59` uses it as a tenant predicate:
+         * `User::where('created_by', $id)`. From the operator's primary button that parameter is
+         * CIPHERTEXT, and `users.created_by` is an unsignedBigInteger -- so on MySQL the
+         * ciphertext casts to **0** and the modal lists whatever rows carry `created_by = 0`,
+         * from any tenant. A caller-supplied value used as the tenant predicate, inside a view.
+         *
+         * THE SUITE COULD NEVER HAVE SHOWN THIS: on SQLite the same comparison matches nothing,
+         * which is CLAUDE.md's standing warning that SQLite's type affinity hides real MySQL
+         * defects. Pre-existing rather than introduced here, and closable now only because the
+         * target is resolved and authorized above. It also fixes a plain functional bug -- the
+         * operator's Admin Info modal printed "User not found." in every store tab.
+         */
+        return view('users.user_info', [
+            'id' => $user->id,
+            'users_data' => $users_data,
+            'store_data' => $store_data,
+            'status' => $status,
+        ]);
     }
 
     public function storeUserCounter($id)

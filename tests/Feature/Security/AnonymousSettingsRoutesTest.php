@@ -5,6 +5,7 @@ namespace Tests\Feature\Security;
 use App\Models\Store;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
@@ -73,11 +74,19 @@ class AnonymousSettingsRoutesTest extends SecurityTestCase
     #[\PHPUnit\Framework\Attributes\DataProvider('anonymousMutationProvider')]
     public function test_an_anonymous_caller_is_refused(string $method, string $uri, array $payload): void
     {
-        $this->assertFalse(
+        // GATE F closed on 2026-11-02 and this used to be
+        // `assertFalse(Schema::hasTable('otp_integrations'))`, whose message said: "otp_integrations
+        // now exists, so the 'no QueryException' witness below is gone: assert on the absent row
+        // instead." That is what happens below -- the premise is now that the table EXISTS, so a
+        // row written by an anonymous caller would be real and visible.
+        $this->assertTrue(
             Schema::hasTable('otp_integrations'),
-            'otp_integrations now exists, so the "no QueryException" witness below is '
-            . 'gone: assert on the absent row instead.'
+            'otp_integrations is missing, so the absent-row assertion below would pass whether or '
+            . 'not the refusal works. GATE F closed on 2026-11-02; check that its migration has '
+            . 'not been reverted.'
         );
+
+        $before = DB::table('otp_integrations')->count();
 
         // Nothing may leave the server either. The OTP pair was an anonymous
         // outbound-request primitive, so a faked client proves no request was made
@@ -101,6 +110,20 @@ class AnonymousSettingsRoutesTest extends SecurityTestCase
         );
 
         Http::assertNothingSent();
+
+        // THE WITNESS THE MISSING TABLE USED TO PROVIDE, now supplied directly and more strongly.
+        // Before GATE F closed, "the controller was never reached" was inferred from the ABSENCE of
+        // a QueryException about an undeclared table -- which proves only that no query ran. Now
+        // the table is real, so the question is the one that actually matters: did an anonymous
+        // caller manage to write a row? A 302 to /login with a row written would be a refusal in
+        // name only.
+        $this->assertSame(
+            $before,
+            DB::table('otp_integrations')->count(),
+            "{$method} {$uri} answered 302 to /login but an `otp_integrations` row changed. A "
+            . 'redirect that does not prevent the write is not a refusal -- and this endpoint '
+            . 'stores a per-store OTP credential.'
+        );
     }
 
     /**
@@ -138,10 +161,15 @@ class AnonymousSettingsRoutesTest extends SecurityTestCase
      * and the save, or the gate has broken the settings page it protects -- the
      * failure mode that has shipped twice on this codebase.
      *
-     * The save itself cannot complete: `otp_integrations` is declared by no
-     * migration, so it stops at the write exactly as the anonymous call used to.
-     * Reaching that write is the proof the middleware ADMITTED this caller, and it
-     * is asserted as such rather than dressed up as a working save.
+     * REWRITTEN 2026-11-02, WHEN GATE F CLOSED. It used to prove admission by CATCHING a
+     * `QueryException` naming the undeclared `otp_integrations` table -- the save could not
+     * complete, so reaching the write was the only available evidence that the middleware had
+     * admitted the caller, and the docblock was explicit that this was not a working save.
+     *
+     * The table is real now, so admission is proven by the SAVE ACTUALLY HAPPENING: a row exists
+     * for this merchant's store afterwards. That is strictly stronger -- it would catch a
+     * middleware change that admitted the caller into a handler that then silently did nothing,
+     * which the old form could not distinguish from success.
      */
     public function test_an_authenticated_merchant_still_reaches_the_otp_settings_save(): void
     {
@@ -149,21 +177,39 @@ class AnonymousSettingsRoutesTest extends SecurityTestCase
 
         Http::fake();
 
-        $this->withoutExceptionHandling();
+        $this->assertSame(0, DB::table('otp_integrations')->count(), 'premise: no row yet');
 
-        try {
-            $this->actingAs($merchant->fresh())->post('/otp-integration', [
-                'base_url' => 'https://gateway.example/otp',
-                'otp_channel' => 'sms',
-            ]);
+        $response = $this->actingAs($merchant->fresh())->post('/otp-integration', [
+            'base_url' => 'https://gateway.example/otp',
+            'otp_channel' => 'sms',
+        ]);
 
-            $this->fail(
-                'Expected the admitted request to reach the undeclared otp_integrations '
-                . 'table. If it did not, this test is no longer measuring admission.'
-            );
-        } catch (\Illuminate\Database\QueryException $e) {
-            $this->assertStringContainsString('otp_integrations', $e->getMessage());
-        }
+        // A 302 is CORRECT here and my first version of this assertion was wrong: this is a Blade
+        // admin form, so a successful POST redirects back with a flash. What distinguishes
+        // admission from refusal is WHERE it redirects -- the anonymous cases above go to /login.
+        $this->assertStringNotContainsString(
+            '/login',
+            (string) $response->headers->get('Location'),
+            'the admitted merchant was sent to the login screen, which is what a broken gate on a '
+            . 'settings page looks like -- the failure mode that has shipped twice on this codebase'
+        );
+
+        $this->assertSame(
+            1,
+            DB::table('otp_integrations')->count(),
+            'The admitted merchant did not reach the save. Either the middleware refused a caller '
+            . 'it must admit -- the failure mode that has shipped twice on this codebase -- or the '
+            . 'handler admitted them and then silently did nothing.'
+        );
+
+        $row = DB::table('otp_integrations')->first();
+
+        $this->assertSame(
+            'https://gateway.example/otp',
+            $row->base_url,
+            'the saved row does not carry what the merchant posted'
+        );
+        $this->assertSame('sms', $row->otp_channel);
     }
 
     /**

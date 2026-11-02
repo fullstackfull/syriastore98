@@ -10,8 +10,48 @@ use Illuminate\Http\Request;
 use App\DataTables\ShippingZoneDataTable;
 use App\DataTables\ShippingMethodDataTable;
 
+/**
+ * F261 — the sibling of F258, and the two writes here were worse.
+ *
+ * `ShippingZone` and `ShippingMethod` are BOTH absent from `config/tenancy.php`'s
+ * `scoped_models`, so `StoreScope` adds no predicate to either. Every `find($id)` below took its
+ * id straight from the route.
+ *
+ *   destroy()  deleted another tenant's zone AND one of their `shipping_methods` rows, on nothing
+ *              more than holding `Delete Shipping Zone` — which a merchant's own tenant role
+ *              grants. A capability check is not an ownership check.
+ *   update()   carried `$ShippingZone->store_id = getCurrentStore()`, the exact row-theft just
+ *              removed from `ShippingMethodController`, and then inserted new `shipping_methods`
+ *              rows against the victim's zone id. The victim's zone vanished from their settings
+ *              and their own method rows were left orphaned against a zone that now belonged to
+ *              somebody else.
+ *   edit()     had no permission check at all, and 500d on an unknown id (`explode()` on null).
+ *   show()     resolved the zone unscoped; only the method list beside it was scoped.
+ *
+ * Found by an independent review of the F258 change — the same defect, one route away, which the
+ * F258 work would have left in place.
+ *
+ * `scopedZone()` is the control. It is the ONLY thing between a route parameter and another
+ * tenant's row, so it is applied in every handler that takes an id, and `empty($storeId)` returns
+ * null BEFORE a query is built, because `where('store_id', null)` compiles to `IS NULL` and would
+ * match an orphaned row rather than nothing.
+ */
 class ShippingZoneController extends Controller
 {
+    /**
+     * This store's shipping zone, or null.
+     */
+    private function scopedZone($id): ?ShippingZone
+    {
+        $storeId = getCurrentStore();
+
+        if (empty($storeId)) {
+            return null;
+        }
+
+        return ShippingZone::where('store_id', $storeId)->find($id);
+    }
+
     public function index(ShippingZoneDataTable $dataTable)
     {
         if (auth()->user() && auth()->user()->isAbleTo('Manage Shipping Zone')) {
@@ -116,7 +156,12 @@ class ShippingZoneController extends Controller
     public function show($id, ShippingMethodDataTable $dataTable)
     {
         if (auth()->user() && auth()->user()->isAbleTo('Show Shipping Zone')) {
-            $shippingZones = ShippingZone::find($id);
+            $shippingZones = $this->scopedZone($id);
+
+            if ($shippingZones === null) {
+                return redirect()->back()->with('error', __('Shipping zone not found.'));
+            }
+
             $shippingMethods = ShippingMethod::where('zone_id', $id)->where('store_id', getCurrentStore())->get();
             $dataTable->setZoneId($id);
             return $dataTable->render('shipping_method.index', compact('shippingZones', 'shippingMethods'));
@@ -133,7 +178,18 @@ class ShippingZoneController extends Controller
      */
     public function edit($id)
     {
-        $shippingzone = ShippingZone::find($id);
+        /* NO PERMISSION CHECK AT ALL before this. Its siblings all have one; this handler was
+           reachable by any authenticated member of the tenant, for any store's zone. */
+        if (! auth()->user() || ! auth()->user()->isAbleTo('Edit Shipping Zone')) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
+        $shippingzone = $this->scopedZone($id);
+
+        if ($shippingzone === null) {
+            // And this is also the 500 fix: `explode(',', null)` was fatal on an unknown id.
+            return redirect()->back()->with('error', __('Shipping zone not found.'));
+        }
 
         $zone_selected = explode(',', $shippingzone->shipping_method);
 
@@ -161,13 +217,20 @@ class ShippingZoneController extends Controller
         }
 
         if (auth()->user() && auth()->user()->isAbleTo('Edit Shipping Zone')) {
-            $ShippingZone = ShippingZone::find($id);
+            $ShippingZone = $this->scopedZone($id);
+
+            if ($ShippingZone === null) {
+                return redirect()->back()->with('error', __('Shipping zone not found.'));
+            }
+
             $ShippingZone->zone_name = $request->zone_name;
             $ShippingZone->country_id = $request->country_id;
             $ShippingZone->state_id = $request->state_id;
             $shipping_method = implode(',', $request->shipping_method);
             $ShippingZone->shipping_method = $shipping_method;
-            $ShippingZone->store_id = getCurrentStore();
+            /* `store_id` IS NOT REASSIGNED. It used to be set on every save, which -- with no
+               predicate on the lookup above -- MOVED another tenant's zone into the caller's
+               store. The row already belongs to this store, because the lookup now says so. */
 
             $shippingMethods = ShippingMethod::where('store_id', getCurrentStore())->where('zone_id', $id)->get();
             $shippingMethods->each->delete();
@@ -201,8 +264,17 @@ class ShippingZoneController extends Controller
     {
 
         if (auth()->user() && auth()->user()->isAbleTo('Delete Shipping Zone')) {
-            $ShippingZone = ShippingZone::find($id);
-            $shippingMethods = ShippingMethod::where('zone_id', $id)->first();
+            $ShippingZone = $this->scopedZone($id);
+
+            if ($ShippingZone === null) {
+                return redirect()->back()->with('error', __('Shipping zone not found.'));
+            }
+
+            /* SCOPED, and it was not. `ShippingMethod::where('zone_id', $id)` with no store
+               predicate deleted whichever tenant's method happened to sit on that zone id. */
+            $shippingMethods = ShippingMethod::where('zone_id', $id)
+                ->where('store_id', getCurrentStore())
+                ->first();
             if (! empty($shippingMethods)) {
                 $shippingMethods->delete();
             }

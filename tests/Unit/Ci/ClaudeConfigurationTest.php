@@ -899,7 +899,17 @@ class ClaudeConfigurationTest extends TestCase
      */
     public function test_no_vendored_skill_competes_with_the_project_protocol(): void
     {
-        foreach (glob($this->root() . '/.claude/skills/*/*.md') ?: [] as $file) {
+        $files = $this->vendoredSkillFiles();
+
+        // REACHABILITY, because this assertion is the whole point of the test and an empty
+        // glob would satisfy every loop below vacuously. Three skills, seven files, which is
+        // the same count PROVENANCE.md pins.
+        $this->assertCount(7, $files,
+            'Expected exactly the seven vendored superpowers files. Found ' . count($files)
+            . '. If the vendored set has genuinely changed, update VENDORED_SKILLS, PROVENANCE.md '
+            . 'and the pin count in test_the_provenance_record_pins_what_was_vendored together.');
+
+        foreach ($files as $file) {
             $source = (string) file_get_contents($file);
             $relative = str_replace($this->root() . '/', '', $file);
 
@@ -916,6 +926,163 @@ class ClaudeConfigurationTest extends TestCase
                 "{$relative} contains a URL. The vendored subset was chosen partly because it has "
                 . 'no egress at all; a URL means that is no longer true.');
         }
+    }
+
+    /**
+     * THE THREE VENDORED SUPERPOWERS SKILLS, NAMED.
+     *
+     * This list exists because the egress assertion above was written when `.claude/skills/*` held
+     * only these three plus the first-party `store-syria-laravel-tenancy`, so a glob over every
+     * subdirectory and the vendored subset were the same set. Phase 02 committed eight design
+     * skills on the owner's instruction and they are not that subset -- they reference external
+     * documentation, font and API hosts -- so the glob started failing against content the owner
+     * asked for, while the assertion's own docblock said "vendored" throughout.
+     *
+     * Naming them is the narrower fix and the more honest one: the egress-free property is a
+     * property OF THE VENDORED SUBSET, claimed in PROVENANCE.md and in CLAUDE.md, and it is still
+     * asserted here in full. The design skills get their own assertion below rather than an
+     * exemption -- before this change they had no check at all, because the only one that reached
+     * them could not pass.
+     */
+    private const VENDORED_SKILLS = [
+        'systematic-debugging',
+        'test-driven-development',
+        'verification-before-completion',
+    ];
+
+    /** @return list<string> */
+    private function vendoredSkillFiles(): array
+    {
+        $files = [];
+
+        foreach (self::VENDORED_SKILLS as $skill) {
+            foreach (glob($this->root() . '/.claude/skills/' . $skill . '/*.md') ?: [] as $file) {
+                $files[] = $file;
+            }
+        }
+
+        sort($files);
+
+        return $files;
+    }
+
+    /**
+     * Every markdown file under a skill directory that is NOT the vendored subset and not the
+     * first-party project skill -- SKILL.md and everything under `references/`.
+     *
+     * @return list<string>
+     */
+    private function designSkillFiles(): array
+    {
+        $files = [];
+        $base = $this->root() . '/.claude/skills';
+
+        $iterator = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($base, \FilesystemIterator::SKIP_DOTS)
+        );
+
+        foreach ($iterator as $entry) {
+            if (! $entry->isFile() || strtolower($entry->getExtension()) !== 'md') {
+                continue;
+            }
+
+            $relative = ltrim(str_replace($base, '', $entry->getPathname()), '/');
+            $skill = explode('/', $relative)[0];
+
+            // `.claude/skills/PROVENANCE.md` has no skill directory.
+            if ($skill === basename($relative)) {
+                continue;
+            }
+
+            if (in_array($skill, self::VENDORED_SKILLS, true) || $skill === 'store-syria-laravel-tenancy') {
+                continue;
+            }
+
+            $files[] = $entry->getPathname();
+        }
+
+        sort($files);
+
+        return $files;
+    }
+
+    /**
+     * THE DESIGN SKILLS DECLARE EVERY EXTERNAL HOST THEY REFERENCE, AND THE LIST IS PINNED.
+     *
+     * These are not egress-free and are not claimed to be. What matters is that the set of
+     * external services they point a session at is a decision somebody made, not something that
+     * grows silently on the next update -- one of them already references
+     * `aistudio.google.com/apikey`, i.e. an AI image API behind a credential.
+     *
+     * So this is a RATCHET on hosts, not a prohibition on URLs. A new host fails this test, which
+     * is the moment to read what it is for and decide. The two conditions that ARE absolute for
+     * every skill in the repository -- no second ledger, no git write -- are asserted here too,
+     * because those were never about egress.
+     */
+    public function test_the_design_skills_declare_every_external_host_they_reference(): void
+    {
+        // MEASURED on this tree, 58 files across the eight design skills. `localhost` is a
+        // skill's own preview server, not egress. `aistudio.google.com` is the one that matters:
+        // an AI image API behind a credential.
+        $expected = [
+            'aistudio.google.com',
+            'cdn.jsdelivr.net',
+            'colorhunt.co',
+            'coolors.co',
+            'fonts.googleapis.com',
+            'github.com',
+            'headlessui.com',
+            'images.pexels.com',
+            'localhost',
+            'radix-ui.com',
+            'tailwindcss.com',
+            'tailwindui.com',
+            'ui.shadcn.com',
+            'v0.dev',
+            'webaim.org',
+            'www.python.org',
+        ];
+
+        // RECURSIVE, not a one-level glob. A one-level glob reaches only each skill's top-level
+        // SKILL.md and misses every nested reference file beneath it. MEASURED: 10 files and 10
+        // hosts one level deep, 58 files and 16 hosts recursively. Six hosts
+        // (fonts.googleapis.com, webaim.org, github.com, images.pexels.com, coolors.co,
+        // colorhunt.co) appear ONLY in the nested files, so the shallow version would have
+        // ratcheted a set that was not the set.
+        $files = $this->designSkillFiles();
+
+        $this->assertNotEmpty($files,
+            'No design-skill files found. If the design skills have been removed, delete this test '
+            . 'and correct CLAUDE.md section 6, which states that they are committed.');
+
+        $hosts = [];
+        foreach ($files as $file) {
+            $source = (string) file_get_contents($file);
+            $relative = str_replace($this->root() . '/', '', $file);
+
+            // The two absolute conditions, which are not about egress.
+            $this->assertDoesNotMatchRegularExpression('#docs/superpowers|\.superpowers/#', $source,
+                "{$relative} references a superpowers-owned document or workspace path.");
+
+            $this->assertDoesNotMatchRegularExpression('/\bgit (merge|push|worktree)\b/', $source,
+                "{$relative} instructs a git merge, push or worktree.");
+
+            if (preg_match_all('#https?://([a-z0-9.-]+)#i', $source, $m)) {
+                foreach ($m[1] as $host) {
+                    $hosts[strtolower($host)] = true;
+                }
+            }
+        }
+
+        $found = array_keys($hosts);
+        sort($found);
+
+        $this->assertSame($expected, $found,
+            'The design skills reference a different set of external hosts than this test pins. '
+            . 'New hosts: ' . implode(', ', array_diff($found, $expected)) . '. Gone: '
+            . implode(', ', array_diff($expected, $found)) . '. Read what the new host is for, '
+            . 'decide whether the owner wants a session pointed at it, then update this list and '
+            . 'CLAUDE.md section 6.');
     }
 
     /**

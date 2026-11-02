@@ -227,6 +227,17 @@ Route::middleware(['auth'])->group(function () {
         ->middleware('finance.permission:View Finance Withdrawal Requests')
         ->name('finance.withdrawals');
 
+    /*
+     * D4 / D-29.4. A READ-ONLY review surface for a collected payment that has no order, gated on
+     * a SEEDED VIEW permission because it is a view. There is deliberately no POST sibling: every
+     * action a reviewer might want -- mark paid, create the order, release the claim, restore
+     * stock -- is one D-29.4 forbids without gateway evidence, and a merchant's statement is not
+     * evidence. See StoreFinanceController::unreconciledCaptures for the full account.
+     */
+    Route::get('/finance/unreconciled-captures', [StoreFinanceController::class, 'unreconciledCaptures'])
+        ->middleware('finance.permission:View Finance Dashboard')
+        ->name('finance.unreconciled.captures');
+
     // approve / reject / pay had NO authorization of any kind, in the route file
     // or in the controller. The controller halves are now guarded too
     // (StoreFinanceController::approveWithdrawal / rejectWithdrawal /
@@ -530,6 +541,24 @@ Route::get(
     Route::post('storage-settings', [SettingController::class, 'StorageSettings'])->name('storage.settings');
     Route::post('business-settings', [SettingController::class, 'BusinessSettings'])->name('business.settings');
     Route::post('/payment-setting', [PaymentSettingController::class, 'update'])->name('payment.settings');
+
+    /*
+     * F141 — removing ONE stored gateway credential, as an action of its own.
+     *
+     * BOTH ARE POST, including the one that only ASKS. The confirmation step writes nothing, so
+     * a GET would be defensible — but it carries a credential's field name in the url, which
+     * would then sit in browser history, in a referer header and in any access log. A POST keeps
+     * it in the body. `StateChangingGetInventoryTest` ratchets the state-changing GETs in this
+     * codebase and neither of these joins that set.
+     *
+     * Permission is enforced in the handlers via `StoreSettingsAccess::permits()`, operator
+     * first, exactly as `payment.settings` above does — the route group's `auth` is not a
+     * permission check.
+     */
+    Route::post('/payment-setting/secret/confirm', [PaymentSettingController::class, 'confirmSecretRemoval'])
+        ->name('payment.secret.confirm');
+    Route::post('/payment-setting/secret/remove', [PaymentSettingController::class, 'removeSecret'])
+        ->name('payment.secret.remove');
     Route::post('/setting-form', [SettingController::class, 'settingForm'])->name('setting.form');
 
     Route::get('plan/prepare-amount', [PlanController::class, 'planPrepareAmount'])->name('plan.prepare.amount');
@@ -755,14 +784,52 @@ Route::get(
     Route::any('/plan/sslcommerz/status/{plan_id}', [SSLCommerzPaymentController::class, 'planGetSSLCommerzStatus'])->name('plan.get.sslcommerz.status');
 
     ///*************************cache setting******************** ***/
+    /*
+     * F197 (b). `cache:clear` REMOVED FROM THIS ROUTE, and the compiled-artifact clears kept.
+     *
+     * This is a GET inside the `['auth','xss','setlocate','verified']` group with NO permission
+     * check, so any logged-in merchant could reach it -- and `cache:clear` empties the DEFAULT
+     * store, which in production holds every tenant's `gateway-return-claim:*`,
+     * `paymera_pending_*`, `paymera_claim_*` and `paymera_lock_*`. One merchant pressing "Clear
+     * Cache" on their own settings screen destroyed another merchant's in-flight checkout and
+     * un-took the replay claim that stops one capture becoming two paid orders.
+     *
+     * WHAT THE BUTTON IS FOR, and why the replacement is not a loss. The other five commands clear
+     * COMPILED ARTEFACTS -- routes, views, config, the optimisation manifest -- which is what a
+     * settings screen's "clear cache" is for and which carries no payment state. The one thing
+     * `cache:clear` additionally bought was dropping `settings_store_<id>`, the `rememberForever`
+     * entry `Utility::GetValByName()` writes and which nothing else forgets. That is forgotten
+     * directly, for the store the caller is actually in, which is the same targeted shape the F188
+     * slice used on the language routes.
+     *
+     * STILL OPEN AND RECORDED, NOT FIXED HERE: this route has no permission check. That is a
+     * separate question from the payment-cache destruction, and narrowing who may press a button
+     * that now only clears compiled artefacts is a smaller matter than the flush was. See F197.
+     */
     Route::get('/config-cache', function () {
       session()->put(['setting_tab' => 'cache_setting']);
       Artisan::call('optimize');
-      Artisan::call('cache:clear');
       Artisan::call('route:clear');
       Artisan::call('view:clear');
-      Artisan::call('optimize:clear');
+
+      /*
+       * `--except=cache`, AND REMOVING THE EXPLICIT `cache:clear` WAS NOT ENOUGH WITHOUT IT.
+       *
+       * `optimize:clear` runs `cache:clear` as the FIRST of its six tasks
+       * (`OptimizeClearCommand::getOptimizeClearTasks()`: cache, compiled, config, events, routes,
+       * views). So dropping the explicit call left this route still emptying the whole store
+       * through `optimize:clear` — the test drove the real route and caught it, which a
+       * source-level assertion would not have.
+       *
+       * `--except` takes either the task key or the command name and is rejected from the task
+       * list before anything runs, so this keeps `clear-compiled`, `config:clear`, `event:clear`,
+       * `route:clear` and `view:clear` exactly as before and drops only the destructive one.
+       */
+      Artisan::call('optimize:clear', ['--except' => 'cache']);
       Artisan::call('config:clear');
+
+      \Illuminate\Support\Facades\Cache::forget('settings_store_' . getCurrentStore());
+
       return redirect()->back()->with('success', 'Clear Cache successfully.');
     })->withoutMiddleware('setlocate');
 
@@ -827,7 +894,22 @@ Route::get(
     Route::get('stores/user/create', [StoreController::class, 'userCreate'])->name('store.user.create');
     Route::get('store/customdomain', [StoreController::class, 'customDomain'])->name('store.customdomain');
     Route::get('store/subdomain', [StoreController::class, 'subDomain'])->name('store.subdomain');
-    Route::get('store/change-status', [StoreController::class, 'changeStatus'])->name('store.active.status');
+    /*
+     * P2-SEC-F12(b). POST, NOT GET -- the same finding as `change-store` one screen away, found
+     * by the independent review of that fix rather than by the sweep that produced it.
+     *
+     * `changeStatus()` writes `stores.is_active` from query input, so as a GET
+     * `<img src="/store/change-status?id=<a store the caller owns>&status=0">` on any page a
+     * signed-in merchant visits takes that storefront OFFLINE -- no token, no click, and link
+     * prefetching reaches it too. `resolveOwnedStore()` confines it to the caller's own stores
+     * and the last-active-store guard saves a single-store merchant, so a merchant with two or
+     * more stores is the exposed case.
+     *
+     * The route NAME is unchanged, and both callers are jQuery `$.ajax` calls in
+     * store/index.blade.php and store/list.blade.php; each is switched to POST and now sends the
+     * CSRF token. There is no bookmarkable use of this uri -- it answers JSON to a toggle.
+     */
+    Route::post('store/change-status', [StoreController::class, 'changeStatus'])->name('store.active.status');
     Route::get('store/list', [StoreController::class, 'list'])->name('store.list');
 
     Route::post('pwa-settings/{id}', [StoreController::class, 'pwaSetting'])->name('pwa.setting');
@@ -838,7 +920,25 @@ Route::get(
     Route::get('store-reset-password/{id}', [StoreController::class, 'storeResetPassword'])->name('stores.reset.password');
     Route::post('store-reset-password-update/{id}', [StoreController::class, 'storeResetPasswordUpdate'])->name('stores.reset.password.update');
 
-    Route::get('/change-store/{id}', [StoreController::class, 'changeStore'])->name('change.store');
+    /*
+     * P2-SEC-F12. POST, NOT GET -- this writes `users.current_store`, the tenant pointer every
+     * `where('store_id', getCurrentStore())` in the application reads.
+     *
+     * As a GET it was a state-changing request with no CSRF token, so it fired from a
+     * third-party page's `<img src>` or link, and from browser link prefetching with no click at
+     * all. `changeStore()` ownership-checks the target (R4-03), so the reachable effect was
+     * bounded to flipping a merchant between stores they already own -- not a cross-tenant
+     * write -- but that is still a silent tenant switch, and every screen the merchant then
+     * loads reports another store's data as if they had asked for it. P2-01-11 made switching a
+     * permanently visible control rather than an admin-only menu item, which is what moved this
+     * from recorded to fixed.
+     *
+     * The ROUTE NAME is unchanged, so `route('change.store', $id)` still resolves for every
+     * caller; both of them (partision/header.blade.php and partision/workspace-chip.blade.php)
+     * are converted to posting forms in the same change. A bookmarked GET now answers 405,
+     * which is the correct answer for this URI and is asserted in TenantSwitchTest.
+     */
+    Route::post('/change-store/{id}', [StoreController::class, 'changeStore'])->name('change.store');
 
     Route::resource('testimonial', TestimonialController::class);
     Route::post('get-product', [TestimonialController::class, 'get_product'])->name('get.product');
@@ -921,6 +1021,17 @@ Route::get(
     Route::any('products/attribute_combination_data/edit', [ProductController::class, 'attribute_combination_data'])->name('products.attribute_combination_data');
 
     Route::delete('product-attribute-delete/{id}', [ProductController::class, 'product_attribute_delete'])->name('product.attribute.delete');
+
+    /*
+     * D-26 -- the one image a product variant may carry. Add/replace and remove.
+     *
+     * In this group, so they inherit its middleware; declared ONCE each, because a later
+     * declaration of the same method+URI silently replaces an earlier one along with its
+     * middleware (CLAUDE.md). Both handlers gate on `Edit Products` and resolve ownership through
+     * the variant's PRODUCT before touching anything.
+     */
+    Route::post('products/variant-image', [ProductController::class, 'variant_image_store'])->name('product.variant.image.store');
+    Route::delete('products/variant-image', [ProductController::class, 'variant_image_destroy'])->name('product.variant.image.destroy');
 
     Route::resource('app-setting', AppSettingController::class);
     Route::get('mobile-screen-content', [AppSettingController::class, 'MobileScreenContent'])->name('mobilescreen.content');
@@ -1056,7 +1167,14 @@ Route::get(
     Route::resource('customer', CustomerController::class);
     Route::get('/customer-filter', [CustomerController::class, 'CustomFilter'])->name('customer.filter');
     Route::get('/customer-filter-data', [CustomerController::class, 'CustomFilterData'])->name('customer.filter.data');
-    Route::get('/customer-status', [CustomerController::class, 'customerStatus'])->name('update.customer.status');
+    /*
+     * P2-05-1. POST, not GET. `customerStatus()` already carries the operator-first permission
+     * check and the ownership predicate (Phase 01); what it did not have was a verb that
+     * matched what it does. It writes `customers.status` from query input, so an `<img src>` on
+     * any page a signed-in merchant visited deactivated one of their own customers with no
+     * token and no click. The route NAME is unchanged.
+     */
+    Route::post('/customer-status', [CustomerController::class, 'customerStatus'])->name('update.customer.status');
     Route::get('/customer-timeline/{id}', [CustomerController::class, 'customerTimeline'])->name('customer.timeline');
     
     
@@ -1101,6 +1219,103 @@ Route::get(
         ->middleware('themelanguage');
 
     Route::get('order-grid', [OrderController::class, 'order_grid_view'])->name('order.grid');
+    // P2-04-7. A READ-ONLY view of the same orders. GET, because it reads; every status control
+    // on it posts to `order.status.change`, which is the only order-status writer.
+    Route::get('order-kanban', [OrderController::class, 'order_kanban_view'])->name('order.kanban');
+
+    /*
+     * P2-04-9 -- saved filter views. Inside this group, so `auth` applies; every handler then
+     * derives the store and the employee from the principal and checks `SavedViewPolicy`.
+     * POST and DELETE only: nothing here is a state-changing GET, which is the defect class
+     * F14/F30/F31 record on this very controller's neighbours.
+     */
+    Route::post('saved-views', [\App\Http\Controllers\SavedViewController::class, 'store'])->name('saved-views.store');
+    Route::post('saved-views/{id}/apply', [\App\Http\Controllers\SavedViewController::class, 'apply'])->name('saved-views.apply');
+    Route::delete('saved-views/{id}', [\App\Http\Controllers\SavedViewController::class, 'destroy'])->name('saved-views.destroy');
+
+    /*
+     * P2-06-2. The merchant's global search.
+     *
+     * Inside the authenticated admin group, so it is never anonymous, and every SECTION of the
+     * response is gated and tenant-scoped in the controller -- a search box is an enumeration
+     * oracle otherwise. GET because it is a read; it writes nothing and has no side effects.
+     */
+    Route::get('merchant-search', [\App\Http\Controllers\MerchantSearchController::class, 'search'])
+        ->name('merchant.search');
+
+    /*
+     * P2-06-7. The merchant marks a page as a favourite.
+     *
+     * POST because it changes state; see the note on the notification marks below for why a
+     * state-changing GET is not used here either. No permission middleware: the authorisation is
+     * per PAGE inside the handler, since an employee who may open Products and not Orders must be
+     * able to favourite the first and be refused the second.
+     *
+     * `merchant-favourite-page`, matching the `merchant-` prefix on this phase's other new
+     * routes -- `RouteShadowingTest` compares DECLARED strings across `routes/`, so a new name has
+     * to be unique in the files and not merely at runtime.
+     */
+    Route::post('merchant-favourite-page', [\App\Http\Controllers\MerchantPageShortcutController::class, 'toggle'])
+        ->name('merchant.pages.favourite');
+
+    /*
+     * P2-06-3. The merchant's notifications on the web, against the SAME `store_notifications`
+     * rows the shipped Flutter app already reads through `api/admin/notification`. No schema
+     * change, and that API is untouched -- see MerchantNotificationController's class note on
+     * why its `count` cannot be corrected from here.
+     *
+     * The two marks are POST, because they change state. A state-changing GET is reachable from
+     * a third-party `<img>` and by link prefetching, which is F12 and F14 on this phase's
+     * ledger; it is not repeated.
+     *
+     * No permission middleware: authorisation is BY NOTIFICATION TYPE inside the handler, since
+     * a merchant who may read order notifications and not customer ones must get the first and
+     * not the second rather than a 403 for the whole bell.
+     */
+    /*
+     * `merchant-notifications`, NOT `notifications`.
+     *
+     * `routes/api.php:347` already declares `Route::get('notifications', ...)` for the delivery
+     * boy's own feed. At RUNTIME the two do not collide -- that one sits inside
+     * `Route::prefix('admin')` and registers as `api/admin/notifications` -- but
+     * `RouteShadowingTest` compares the DECLARED strings in the route files, and it is right to:
+     * "only the later declaration survives registration, with no error" is how an authenticated
+     * `order-view/{id}` once lost its slot to an unauthenticated copy. Two identical `get
+     * notifications` lines in `routes/` is a hazard whether or not today's prefixes happen to
+     * separate them, and the `merchant-` prefix matches `merchant-search` on this phase's other
+     * new route. Found by that guard, not by review.
+     */
+    Route::get('merchant-notifications', [\App\Http\Controllers\MerchantNotificationController::class, 'index'])
+        ->name('merchant.notifications');
+    Route::get('merchant-notifications/feed', [\App\Http\Controllers\MerchantNotificationController::class, 'feed'])
+        ->name('merchant.notifications.feed');
+    Route::post('merchant-notifications/{id}/read', [\App\Http\Controllers\MerchantNotificationController::class, 'markRead'])
+        ->name('merchant.notifications.read');
+    Route::post('merchant-notifications/read-all', [\App\Http\Controllers\MerchantNotificationController::class, 'markAllRead'])
+        ->name('merchant.notifications.read-all');
+
+    /*
+     * P2-03-6. The product quick-preview fragment, read-only.
+     *
+     * Unlike the order preview, this needs NO entry in OrderDocumentAccessGuard -- that guard is
+     * about order documents and arming it here would be a category error. Products are
+     * authorised by the handler itself, in the same shape `show()`, `update()` and `destroy()`
+     * already use (P1-INV-01). The id is raw: encryption is an encoding here, not a control.
+     */
+    Route::get('product-preview/{id}', [ProductController::class, 'product_preview'])
+        ->name('product.preview');
+
+    /*
+     * P2-04-5. The read-only quick-preview fragment for the order side panel.
+     *
+     * GET, because it is a read -- and because OrderDocumentAccessGuard arms only on GET
+     * (`! in_array('GET', $route->methods(), true)` returns early). Its uri is registered in
+     * that guard's TARGETS map, which is what authorises it; the handler repeats the ownership
+     * test as defence in depth. The id is RAW: `Crypt::encrypt()` is an encoding here, not a
+     * control, because APP_KEY is in git history and unrotated (owner decision D7).
+     */
+    Route::get('order-preview/{id}', [OrderController::class, 'order_preview'])
+        ->name('order.preview');
     // Pos Route
     Route::resource('pos', PosController::class);
     Route::get('product-categories', [CategoryController::class, 'getProductCategories'])->name('product.categories');
@@ -1164,12 +1379,25 @@ Route::get(
 
     // Product Brand
     Route::resource('product-brand', ProductBrandController::class);
-    Route::get('product-brand-status', [ProductBrandController::class, 'changeStatus'])->name('product-brand.status');
-    Route::get('product-brand-popular', [ProductBrandController::class, 'changePopular'])->name('product-brand.popular');
+    /*
+     * P2-05-1. POST, NOT GET -- the route NAMES are unchanged, so every caller keeps working
+     * once its `type` is corrected. These three wrote `product_brands.status`,
+     * `product_brands.is_popular` and `product_labels.status` from QUERY INPUT on a GET, so an
+     * `<img src>` on any page a signed-in merchant visited flipped a row with no token and no
+     * click, and link prefetching reached them too. F12 and F14 on this phase's ledger are the
+     * same shape; this is the third and fourth instance.
+     *
+     * The verb was the smaller half. The handlers had no permission check, no ownership check
+     * and no tenant predicate at all, and neither model is in `config/tenancy.php`'s
+     * `scoped_models` -- see the controllers' own notes.
+     */
+    Route::post('product-brand-status', [ProductBrandController::class, 'changeStatus'])->name('product-brand.status');
+    Route::post('product-brand-popular', [ProductBrandController::class, 'changePopular'])->name('product-brand.popular');
 
     // Product Label
     Route::resource('product-label', ProductLabelController::class);
-    Route::get('product-label-status', [ProductLabelController::class, 'changeStatus'])->name('product-label.status');
+    // P2-05-1. POST, not GET -- see the note on product-brand-status above.
+    Route::post('product-label-status', [ProductLabelController::class, 'changeStatus'])->name('product-label.status');
 
     Route::get('newsletter/export', [NewsletterController::class, 'fileExport'])->name('newsletter.export');
 
@@ -1211,6 +1439,15 @@ Route::get(
   Route::resource('newsletter', NewsletterController::class)->except(['store'])->middleware('themelanguage');
   Route::get('shippinglabel/pdf/{id}', [OrderController::class, 'shippinglabel'])->name('shippinglabel.pdf');
   Route::post('order-status-change/{id}', [OrderController::class, 'order_status_change'])->name('order.status.change')->middleware('themelanguage');
+  /*
+   * E13 requirement D, reachable as of D-32 (identical products, quantities and prices only).
+   * Deliberately alongside order-status-change and in the same group: the operation IS a cancel
+   * plus a reissue, it is authorised by the same OrderPolicy::updateStatus gate, and the `{id}`
+   * segment is what the handler reads -- a posted `id` would otherwise win over the URL, which
+   * is measured on the sibling route above. Merchant-initiated only; the storefront and customer
+   * API stay out of scope, which D-32 states explicitly.
+   */
+  Route::post('order-replace/{id}', [OrderController::class, 'order_replace'])->name('order.replace')->middleware('themelanguage');
   Route::post('order-payment-status', [OrderController::class, 'order_payment_status'])->name('order.payment.status')->middleware('themelanguage');
   Route::resource('order-note', OrderNoteController::class);
 

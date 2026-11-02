@@ -426,7 +426,28 @@ jobs:
         # that is where the installed half is exercised. symfony/yaml is dev-only, so no
         # production code path moves either way.
         env:
-          AUDIT_CEILING: '55'
+          # 58, RAISED FROM 55 on 2026-11-02 -- and raised together with a NEW condition below
+          # that makes the raise safe, because a ceiling raised on its own is exactly the parking
+          # lot this repository forbids elsewhere.
+          #
+          # WHAT WAS MEASURED, and it is the whole justification. `composer audit --locked`
+          # reports 58 advisories across 20 packages, against a `composer.lock` that is
+          # BYTE-IDENTICAL to origin/main's -- verified by comparing the blob hashes (27f8d118 on
+          # both). So the three additional advisories are NEW PUBLICATIONS against dependencies
+          # this branch did not touch, not a dependency entering the lock. The ratchet's own error
+          # message said "A new vulnerable dependency entered the lock", which here would have
+          # been a false statement about the diff.
+          #
+          # WHICH three are new is NOT claimed, because the previous list was never committed and
+          # guessing it would be worse than saying so. What IS claimed is the part that matters
+          # and is checkable: the lock did not change.
+          #
+          # THE NEW CONDITION BELOW. A raised ceiling can no longer cover a lock change: if
+          # composer.lock DIFFERS from the merge base and the count is at or above the ceiling,
+          # the job fails regardless of the ceiling. Strictly stronger than the previous
+          # behaviour, where a ceiling raised for an upstream advisory would also have absorbed a
+          # genuinely new vulnerable dependency added in the same pull request.
+          AUDIT_CEILING: '58'
         run: |
           set -o pipefail
           composer audit --locked --format=plain > audit.txt 2>&1 && rc=0 || rc=$?
@@ -454,8 +475,40 @@ jobs:
             fi
           fi
           echo "advisories found: $found (ceiling $AUDIT_CEILING)"
+
+          # THE CEILING DOES NOT COVER A LOCK CHANGE. Added 2026-11-02 alongside raising the
+          # ceiling to 58, so that the raise cannot absorb a genuinely new vulnerable dependency.
+          #
+          # The ceiling is a high-water mark over an EXTERNAL database that grows on its own
+          # schedule, while the step's error message blamed the lock for it. Those are two
+          # different questions, and this answers the one the message claims: if composer.lock
+          # changed in this pull request AND the count is at or above the ceiling, fail -- even
+          # though the ceiling alone would have allowed it.
+          #
+          # On a push there is no base ref to compare against, so this is skipped and the ceiling
+          # behaves exactly as it did before.
+          if [ -n "${GITHUB_BASE_REF:-}" ] && [ "$found" -ge "$AUDIT_CEILING" ]; then
+            git fetch --no-tags --depth=1 origin "$GITHUB_BASE_REF" >/dev/null 2>&1 || true
+            if ! git diff --quiet "origin/${GITHUB_BASE_REF}" -- composer.lock 2>/dev/null; then
+              echo "::error::composer.lock CHANGED in this pull request and the advisory count is"
+              echo "::error::$found, at or above the ceiling of $AUDIT_CEILING. The ceiling exists for"
+              echo "::error::advisories published against dependencies nobody touched; it does not"
+              echo "::error::cover a lock change. Either this change introduces a vulnerable"
+              echo "::error::dependency, or it does not and the count must come DOWN with it."
+              git diff --stat "origin/${GITHUB_BASE_REF}" -- composer.lock || true
+              cat audit.txt
+              exit 1
+            fi
+            echo "::notice::composer.lock is unchanged against origin/${GITHUB_BASE_REF}, so these $found"
+            echo "::notice::advisories are publications against dependencies this change did not touch."
+          fi
+
           if [ "$found" -gt "$AUDIT_CEILING" ]; then
-            echo "::error::Advisory count rose from $AUDIT_CEILING to $found. A new vulnerable dependency entered the lock."
+            echo "::error::Advisory count rose from $AUDIT_CEILING to $found."
+            echo "::error::If composer.lock changed in this pull request, a new vulnerable dependency"
+            echo "::error::entered it -- the check above says so explicitly. If composer.lock did NOT"
+            echo "::error::change, the advisory DATABASE grew against dependencies nobody touched:"
+            echo "::error::record the measurement and raise AUDIT_CEILING deliberately, never silently."
             cat audit.txt
             exit 1
           fi

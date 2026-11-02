@@ -130,10 +130,29 @@ class DownloadableProductMailTest extends SecurityTestCase
         $response = $this->ask($owner, $store, $order->id);
 
         $this->assertSame('success', $response->json('status'), 'Premise: the legitimate journey works: ' . $response->getContent());
+        /*
+         * CHANGED BY F217 / D-29.6, AND THE NEW ASSERTION IS THE STRONGER ONE.
+         *
+         * This used to require the mailed link to CONTAIN `uploads/<store>/files/ebook.pdf` -- the
+         * file's real path under the document root. That was the defect: the mail handed the buyer
+         * (and anyone the mail was forwarded to) a URL that needs no order, no session and no
+         * entitlement, because `public/uploads` is a symlink to `../uploads`. The owner's decision
+         * is explicit that a guessable link is never authorisation.
+         *
+         * So the requirement inverts: the link must go through the entitlement controller, must
+         * carry a grant, and must NOT disclose the stored path at all. The negative is the half
+         * that matters -- "it is a route now" would pass just as well with the path bolted on the
+         * end as a query parameter.
+         */
         Mail::assertSent(ProdcutMail::class, function (ProdcutMail $mail) use ($store) {
+            $link = (string) $mail->product_link;
+
             return $mail->hasTo('owner-buyer@example.test')
-                && $mail->product_link !== self::ATTACKER_LINK
-                && str_contains((string) $mail->product_link, 'uploads/' . $store->id . '/files/ebook.pdf');
+                && $link !== self::ATTACKER_LINK
+                && str_contains($link, '/paid-download/')
+                && str_contains($link, \App\Services\DownloadGrant::FIELD . '=')
+                && ! str_contains($link, 'uploads/' . $store->id)
+                && ! str_contains($link, 'ebook.pdf');
         });
         Mail::assertSent(ProdcutMail::class, 1);
     }
@@ -175,20 +194,38 @@ class DownloadableProductMailTest extends SecurityTestCase
 
         $path = 'uploads/' . $store->id . '/files/ebook.pdf';
 
-        // The premise: this deployment is on local storage, where the two helpers agree.
+        // The premise still holds and is still worth stating: on local storage the two helpers
+        // agree, so `asset($path)` IS the link the shipped view used to post.
         $this->assertSame(
             asset($path),
             get_file($path),
-            'get_file() and asset() no longer agree on local storage, so the byte-identical claim '
-            . 'for the owner\'s journey needs re-deriving -- the shipped view posted asset().'
+            'get_file() and asset() no longer agree on local storage, so the claim below about '
+            . 'WHICH link was replaced needs re-deriving -- the shipped view posted asset().'
         );
 
         $response = $this->ask($owner, $store, $order->id);
 
         $this->assertSame('success', $response->json('status'), $response->getContent());
 
+        /*
+         * REVERSED BY F217 / D-29.6. This case used to assert the mailed link was BYTE-IDENTICAL to
+         * what the shipped view posted -- `asset('uploads/<store>/files/ebook.pdf')` -- as proof the
+         * server had not been talked into mailing something else. The anti-tampering half of that
+         * is still asserted (the attacker's link never arrives, elsewhere in this file), but
+         * byte-identity with `asset()` is now exactly what must NOT hold: that URL is the
+         * unauthenticated public path to a paid file.
+         *
+         * The handler's job changed from "echo the server's own version of the posted link" to
+         * "issue an entitlement-bearing link of its own", so this now asserts the replacement
+         * happened and that the replaced value is nowhere in the result.
+         */
         Mail::assertSent(ProdcutMail::class, function (ProdcutMail $mail) use ($path) {
-            return (string) $mail->product_link === asset($path);
+            $link = (string) $mail->product_link;
+
+            return $link !== asset($path)
+                && ! str_contains($link, $path)
+                && str_contains($link, '/paid-download/')
+                && str_contains($link, \App\Services\DownloadGrant::FIELD . '=');
         });
 
         // And the response SHAPE is the handler's own, unchanged: the caller has a `success:`
@@ -374,7 +411,38 @@ class DownloadableProductMailTest extends SecurityTestCase
         (new Order())->flushCache();   // Order is Cachable: the raw update above would otherwise be invisible to the handler's own read
         $this->ask($owner, $store, $order->id);
 
-        Mail::assertSent(ProdcutMail::class, fn (ProdcutMail $mail) => str_contains((string) $mail->product_link, 'uploads/' . $store->id . '/files/variant.pdf'));
+        /*
+         * F217 / D-29.6 again: the link no longer names the file. What this case is REALLY about is
+         * that the variant's OWN file is the one mailed and a foreign variant's is not, and that
+         * survives the change -- it is now asserted on the grant rather than on the URL, because
+         * the grant is what the path is bound into. `authorises()` compares a hash over canonical
+         * JSON of (store, path), so a grant issued for the foreign variant's path cannot authorise
+         * this one.
+         */
+        Mail::assertSent(ProdcutMail::class, function (ProdcutMail $mail) use ($store, $order) {
+            $link = (string) $mail->product_link;
+
+            if (! str_contains($link, '/paid-download/') || str_contains($link, 'variant.pdf')) {
+                return false;
+            }
+
+            parse_str((string) parse_url($link, PHP_URL_QUERY), $query);
+            $grant = \App\Services\DownloadGrant::resolve(
+                (string) ($query[\App\Services\DownloadGrant::FIELD] ?? '')
+            );
+
+            return $grant !== null
+                && \App\Services\DownloadGrant::authorises(
+                    $grant,
+                    (int) $store->id,
+                    'uploads/' . $store->id . '/files/variant.pdf'
+                )
+                && ! \App\Services\DownloadGrant::authorises(
+                    $grant,
+                    (int) $store->id,
+                    'uploads/' . $store->id . '/files/foreign-variant.pdf'
+                );
+        });
     }
 
     /** Defence in depth: an order that names this customer but sits in ANOTHER store is not answered through this store's slug (the mail would go out over that other store's relay). */

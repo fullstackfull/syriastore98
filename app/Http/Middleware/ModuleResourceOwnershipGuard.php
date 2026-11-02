@@ -5,6 +5,7 @@ namespace App\Http\Middleware;
 use App\Http\Middleware\Concerns\ComparesRowOwnership;
 use Closure;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -116,6 +117,15 @@ class ModuleResourceOwnershipGuard
             'table' => 'products',
             'parameter' => 'auctionproduct',
             'permission' => 'Delete Auction Product',
+            // F207 / D-29.2. The module deletes the product and leaves every cart row that named
+            // it behind as an orphan, which is a 500 on the shopper's basket rather than a
+            // mispriced line. Reconciled AFTER the handler has run, and only if the product row
+            // really is gone -- see `reconcileOrphanedCartRows()`.
+            'reconcile_carts' => true,
+            // F207. The auction DELETE door resolves the HOST `products` table with no
+            // `product_type` predicate of its own, so an auction permission reached the whole
+            // catalogue. See the `product_type` note on this constant.
+            'product_type' => 'auction',
         ],
 
         // --- auctionsetting: the module's own table. The handlers check NO permission; the
@@ -236,6 +246,11 @@ class ModuleResourceOwnershipGuard
             'table' => 'products',
             'parameter' => 'digitalproduct',
             'permission' => 'Delete Digital Product',
+            'reconcile_carts' => true,
+            // F207, the twin. `DigitalProductController::destroy():529` is the same shape and
+            // worse: it never deletes `ProductVariant` at all, so it orphans the variants as well
+            // as the carts. Zero `Cart` and zero `ProductVariant` references in the whole file.
+            'product_type' => 'digital',
         ],
         'DELETE digital-products/{id}/delete' => [
             'table' => 'digital_product_images',
@@ -356,7 +371,177 @@ class ModuleResourceOwnershipGuard
             return $this->deny($request, 'other store');
         }
 
-        return $next($request);
+        /*
+         * F207 — A MODULE'S DELETE DOOR MAY ONLY DELETE ITS OWN KIND OF PRODUCT.
+         * ==========================================================================================
+         *
+         * `AuctionProductController::destroy()` is `isAbleTo('Delete Auction Product')` followed by
+         * `Product::find($id)` — the HOST catalogue model — with **no `product_type` predicate**
+         * (zero occurrences between :1509 and :1561). So an auction permission reached every
+         * product in the caller's store. `DigitalProductController::destroy():529` is the identical
+         * shape and worse: it never deletes `ProductVariant` at all, and holds zero `Cart`
+         * references, so it orphans both.
+         *
+         * THE COST TO LEGITIMATE WORKFLOWS IS NIL, AND THAT IS MEASURED RATHER THAN HOPED. The
+         * predicate refuses every NULL, `''` and `'digital'` row at the auction door — which is
+         * almost the whole catalogue — and **not one of them can reach this door through any UI
+         * path**, because the auction screen filters on the same literal in both places that could
+         * produce a delete link:
+         *
+         *   - `AuctionProductController::index():47` — `where('product_type', 'auction')`
+         *   - `DataTables/AuctionProductData.php:68` — `where('product_type','auction')`
+         *
+         * and the destroy link has exactly ONE producer: `resources/views/action.blade.php:10`,
+         * rendered only from `AuctionProductData.php:29`, inside that filtered query. So every
+         * product whose delete button the auction screen renders already satisfies the predicate,
+         * and what this refuses is a hand-forged URL. The digital door narrows identically
+         * (`:35` and `DataTables/DigitalProductData.php:78`).
+         *
+         * `update()` NEVER WRITES `product_type`, so there is no "convert an old product into an
+         * auction product" workflow to protect: a NULL product edited through the auction screen
+         * stays NULL and is absent from the auction list on the next load.
+         *
+         * THE REAL POPULATION IS `NULL`, NOT `'simple_product'`. The F207 row's own measurement
+         * quoted a fixture value that **exists nowhere in this codebase** — the sole repo-wide
+         * occurrence of `simple_product` is an unrelated test method's name. The host's own product
+         * creator never writes the column; its migration is `->nullable()` with no default. The four
+         * values that occur in practice are `NULL` (ordinary), `'auction'`, `'digital'`, and `''`
+         * (ImportExport with no CSV column).
+         *
+         * STRICT COMPARISON, AND `NULL` MUST FAIL. `null !== 'auction'` and `'' !== 'auction'`. A
+         * loose compare would admit `''`. Fail closed.
+         *
+         * READ RAW, NOT THROUGH ELOQUENT, for the same reason `readRowStore()` does: `Product` is
+         * `Cachable`, so `Product::find()` can serve a pre-write row while a raw read sees the
+         * truth.
+         *
+         * WHAT THIS DOES NOT DO: it does not touch the carts of a genuine auction product deleted
+         * through this door. That orphan is unchanged — and it is a 500 rather than a mispriced
+         * line, because `Cart::cart_list_cookie()` dereferences the missing rows. Handling it means
+         * a guard performing a DELETE on the caller's behalf, which is an owner decision and is
+         * written up rather than taken. This limb strictly reduces the set of products that can
+         * reach the unguarded delete; it does not make the remaining case worse.
+         */
+        if (isset($target['product_type'])) {
+            /*
+             * THE `store_id` PREDICATE IS REDUNDANT HERE AND IT STAYS, for two reasons.
+             *
+             * It is redundant because `storeMatches()` three statements above has already refused
+             * any row whose store is not the caller's, so `$rowId` is known to be in `$rowStore`.
+             *
+             * It stays because (a) defence in depth costs nothing: if that earlier limb were ever
+             * reordered or removed, this read would still not reach another tenant's row; and
+             * (b) `OwnedPathRawQueryInventoryTest` requires every raw query in an owned path to
+             * carry a tenant predicate or be declared store-less **by design**. Declaring it would
+             * have been the wrong answer: a declaration is an exemption, and this statement does
+             * not need one — it can simply be scoped. An exemption that could have been a
+             * predicate is how an inventory accumulates hand-carved exceptions.
+             */
+            // ONE LINE, and not for style: `OwnedPathRawQueryInventoryTest` reads the LINE a
+            // `DB::table(` appears on when it looks for a tenant predicate, so a fluent chain
+            // split across lines hides the `store_id` from it and the statement reads as
+            // unscoped. Measured — the multi-line form failed that inventory with the first line
+            // alone quoted back.
+            $actualType = DB::table($target['table'])->where('id', $rowId)->where('store_id', $rowStore)->value('product_type');
+
+            if ((string) $actualType !== (string) $target['product_type']) {
+                return $this->deny($request, 'wrong product type');
+            }
+        }
+
+        $response = $next($request);
+
+        if (! empty($target['reconcile_carts'])) {
+            $this->reconcileOrphanedCartRows($rowId, $rowStore);
+        }
+
+        return $response;
+    }
+
+    /**
+     * F207 / OWNER DECISION D-29.2 - REMOVE THE CART ROWS A DELETED PRODUCT LEFT BEHIND.
+     * =============================================================================================
+     *
+     * `AuctionProductController::destroy()` deletes `ProductImage`, `ProductVariant` and the
+     * `products` row and **never touches `Cart`** - zero `Cart` references in the whole file.
+     * `DigitalProductController::destroy()` is worse: zero `Cart` AND zero `ProductVariant`. The
+     * host's own door does it properly - `ProductController::destroy()` deletes the variants and
+     * then `Cart::where('product_id', $product->id)->delete()` at :3070-3072.
+     *
+     * WHAT THE ORPHAN COSTS, measured rather than assumed. `Cart::cart_list_cookie()` is a static
+     * at `Cart.php:237`, and under Laravel's `HandleExceptions` an "Attempt to read property on
+     * null" is a thrown `ErrorException`. A cart line WITH a variant dies at :538, one WITHOUT at
+     * :531, and failing both, :554 dies unconditionally. So the shopper's basket does not merely
+     * misprice - **it stops opening**, with no way to remove the offending line from the page that
+     * crashes. F216's `basketHasMissingProductRow()` covers 5 of 38 payment controllers' gateway
+     * returns and its own docblock states it deliberately leaves the cart page, the sidebar and the
+     * API alone, so it relocates the failure rather than containing it.
+     *
+     * THE ORDER IS THE OWNER'S FIRST CONDITION AND IT IS LOAD-BEARING: `$next($request)` has
+     * ALREADY RUN by the time this is called. This is reconciliation after the fact, never a
+     * pre-emptive delete.
+     *
+     * AND THE GATE IS THE PRODUCT'S ABSENCE, not the response status. That is the second condition
+     * - "delete no cart rows if the operation failed or the permission was refused" - and asking
+     * the database is strictly stronger than reading a status code, because it fails safe in every
+     * direction at once:
+     *
+     *   - THE PLATFORM OPERATOR, which is the case the owner named. This guard passes them
+     *     unconditionally, while `destroy():1511` is `isAbleTo('Delete Auction Product')` with no
+     *     operator limb and therefore REFUSES them - and F206 has since decided the operator may
+     *     not delete merchants' products at all. A pre-`$next()` delete would have wiped shopper
+     *     carts for a delete that never happened. Here the product row survives, so nothing is
+     *     deleted. **That asymmetry is why the reconciliation is post-response.**
+     *   - a permission refusal, a missing row, an exception inside the handler, or a module that
+     *     starts soft-deleting instead: in every one the row remains and this is a no-op.
+     *
+     * SCOPED TO THE ONE PRODUCT, the fourth and fifth conditions: the predicate is `product_id`
+     * and nothing else. No whole cart is cleared and no other product is touched - the rows
+     * removed are exactly the lines that can no longer be rendered.
+     *
+     * TENANT ISOLATION IS PRESERVED BY CONSTRUCTION, and `withoutGlobalScopes()` is used BECAUSE
+     * of that rather than in spite of it. `$rowId` is a product this guard has already proven
+     * belongs to `$rowStore`, the caller's own store, so every cart row naming it is a row for
+     * that product in that store. Meanwhile `Cart` IS in `config/tenancy.php`'s `scoped_models`
+     * and genuinely filters, and `null_tenant => 'open'` means a scoped delete's predicate depends
+     * on whichever tenant resolves for THIS request - a merchant deleting a product, not the
+     * shopper whose cart row must go. Being explicit removes that dependence; the `product_id`
+     * predicate is what bounds the blast radius.
+     *
+     * ELOQUENT AND NOT `DB::table()`, deliberately: `Cart` is `Cachable`, so a raw delete would
+     * leave the model cache serving rows that no longer exist - CLAUDE.md's three measured false
+     * readings. Eloquent flushes. Same reason the host's own door uses `Cart::where(...)->delete()`.
+     *
+     * AND IT CANNOT TURN A SUCCESSFUL DELETE INTO AN ERROR. Any throw is caught and logged: the
+     * product is already gone and the response is already made, so a reconciliation failure must
+     * leave a recoverable orphan rather than a 500 on a delete that worked. The log line is the
+     * record that one needs cleaning by hand.
+     */
+    private function reconcileOrphanedCartRows($rowId, $rowStore): void
+    {
+        try {
+            if (DB::table('products')->where('id', $rowId)->where('store_id', $rowStore)->exists()) {
+                /* The handler did not delete it - refused, failed, or soft-deleted. Nothing to
+                   reconcile, and nothing is touched. */
+                return;
+            }
+
+            $removed = \App\Models\Cart::withoutGlobalScopes()->where('product_id', $rowId)->delete();
+
+            if ($removed > 0) {
+                Log::info('orphaned cart rows removed after a module product delete', [
+                    'product_id' => $rowId,
+                    'store_id' => $rowStore,
+                    'rows' => $removed,
+                ]);
+            }
+        } catch (\Throwable $e) {
+            Log::error('orphaned cart reconciliation failed; cart rows still name a deleted product', [
+                'product_id' => $rowId,
+                'store_id' => $rowStore,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     /**

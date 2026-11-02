@@ -56,6 +56,19 @@ class EasebuzzController extends Controller
     /* P1-ORD-02: a pending balance is flipped to paid only for the customer who owes it. */
     use \App\Http\Controllers\Concerns\ResolvesPendingPartialPayment;
 
+    /*
+     * D-13 / S32. The three raw read-modify-write stock decrements in `getProductStatus()` now go
+     * through this trait's `decrementStockOrFail()`, which RECORDS each decrement so
+     * `restoreStockDecrements()` can give it back when a later cart line makes the handler return
+     * early. It does NOT close the unverified decrement -- see the note on the same trait in
+     * CinetPayController and `docs/development/phase-2/E13-STOCK-EVIDENCE-ANALYSIS.md`.
+     *
+     * WATCH THE EXIT SPELLING HERE. This handler refuses with `Utility::error(...)`, not
+     * `$this->error(...)` like its three siblings, so a sweep that greps for the latter finds
+     * nothing in this file and reports it as having no in-loop exits at all.
+     */
+    use \App\Http\Controllers\Concerns\AppliesCartStockChanges;
+
     public function planPayWithEasebuzz(Request $request)
     {
         $payment_setting = getSuperAdminAllSetting();
@@ -68,7 +81,11 @@ class EasebuzzController extends Controller
         $user = \Auth::user();
 
         if ($plan) {
-            try {
+            /* Declared with the try so the catch can always read it: the compensation is gated
+           on whether the ORDER was written, not on whether anything threw. */
+        $ssOrderWritten = false;
+
+        try {
 
                 $price = $plan->price;
                 if (!empty($request->coupon))
@@ -228,6 +245,38 @@ class EasebuzzController extends Controller
 
     public function getProductStatus(Request $request, $storeSlug)
     {
+        /*
+         * D-13. THE STOCK LOOP RUNS INSIDE THIS METHOD, and until this wrapper nothing gave the
+         * inventory back if the ORDER WRITE threw. Between the last decrement and the end of the order write
+         * the handler creates the order, its billing detail, its tax rows, its notes and its coupon usage,
+         * with NO transaction and NO catch -- measured across all seven first-party gateway writers; the only
+         * `catch` blocks in that region are the narrow SMTP ones around mail. MEASURED by injecting a failure
+         * at `Order::creating`: `product_stock` stayed down and no order was written.
+         *
+         * `OrderWriteTransactionTest` pins exactly this property -- "a rolled-back order write must give back
+         * the stock it consumed" -- for PaymentController::getProductStatus, PaymentService::getProductStatus
+         * and PaymentController::whatsapp. The four gateway RETURN handlers were not in its data provider.
+         *
+         * THE EXCEPTION IS RETHROWN, so the response the caller sees is unchanged. This adds compensation and
+         * changes nothing about whether a payment is accepted, which is what keeps it inside D-13's condition
+         * of not altering unapproved collection rules.
+         *
+         * `?? []` because `$appliedStockChanges` is initialised deep inside the body: a failure before the
+         * loop has nothing to give back, and an undefined variable must not become a second error inside the
+         * handler for the first one.
+         *
+         * THE WHOLE BODY IS WRAPPED rather than the order-write region, and the reason is NOT that a
+         * narrower wrap is impossible -- the independent review corrected that claim. Wrapping from
+         * `$order = new Order()` to the method's closing brace is brace-balanced but not
+         * STATEMENT-balanced (the order write sits inside an `if` whose `else` comes later, so the
+         * inserted `}` closed the `if` and all four files stopped parsing), but a narrower
+         * statement-balanced run of statements DOES exist. It would not have helped: the order is
+         * COMMITTED inside any such region, so narrowing moves the problem rather than solving it.
+         * The gate on `$ssOrderWritten` is what solves it, and with the gate in place the width of
+         * the try no longer matters. A method body is balanced by definition, so that is what it
+         * wraps.
+         */
+        try {
         /*
          * P01-COMMERCE-SEC-01. THE CHECKOUT STATE IS THE SERVER'S, OR THERE IS NO ORDER.
          *
@@ -389,6 +438,32 @@ class EasebuzzController extends Controller
                 ]);
             }
 
+            /*
+             * D-22 / F121. A BASKET LINE WHOSE PRODUCT OR VARIANT ROW IS GONE.
+             *
+             * MEASURED on this route's guest arm before this guard existed: a deleted product made
+             * the return answer `ErrorException: Attempt to read property "id" on null`, and a
+             * dangling variant reference `... property "variant" on null` -- the two unguarded
+             * dereferences in `Cart::cart_list_cookie()` that the register names. Zero orders, and
+             * no decrement, because the cart read precedes the loop
+             * (tests/Feature/Security/GatewaySiblingMissingProductTest.php).
+             *
+             * THIS GATEWAY VERIFIES NOTHING, so `null` is passed where Khalti passes its
+             * verification outcome, and that is the honest value rather than a placeholder:
+             * `PaymentVerificationService` holds three provider verifiers and none of them is this
+             * one, so every return here is "before proof of collection" by construction. The log
+             * therefore records that the capture state is UNKNOWN rather than claiming it was not
+             * collected -- this gateway may well have taken the money before redirecting.
+             *
+             * WHAT THIS FIXES IS THE 500, NOT THE LOST ORDER. Before: an unhandled exception, no
+             * order, no decrement. After: a structured refusal, no order, no decrement. A customer
+             * who has paid still has no order -- that half of D-22 is the owner's open decision --
+             * but the failure is now a message and a `critical` log instead of a stack trace.
+             */
+            if ($this->basketHasMissingProductRow($store)) {
+                return $this->gatewayReturnMissingProductRefusal($request, 'easebuzz', null, $this->serverPayableAmount($requests_data), $store);
+            }
+
             $cartlist_final_price = 0;
             $final_price = 0;
             $tax_price = 0;
@@ -505,8 +580,13 @@ class EasebuzzController extends Controller
              * behind. It is the same position assertCartAvailable() occupies in
              * PaymentController::processOrder, and the same reasoning.
              *
-             * The decrement below is `$remain_stock = $Product->product_stock - $qtyy`, so a negative
-             * quantity ADDS stock while the same line reduces every total it is summed into. See
+             * The decrement below subtracts $qtyy. D-13 routed it through
+             * `decrementStockOrFail()`; it was `$remain_stock = $Product->product_stock - $qtyy`,
+             * and THAT is the form a negative quantity could ADD stock through. It no longer can:
+             * `ProductStockService::normaliseQuantity()` returns null for a non-positive quantity,
+             * so the decrement is SKIPPED rather than inverted. The guard is still needed, because
+             * the pricing half is untouched -- a negative line still reduces every total it is
+             * summed into. See
              * App\Http\Controllers\Concerns\GuardsGatewayReturn::basketHasUnusableQuantity() for why
              * the initiation-time guard is not enough on its own: the cart stays mutable across the
              * gateway round trip, and two vendored module routes can still write such a row.
@@ -572,6 +652,14 @@ class EasebuzzController extends Controller
 
             $prodduct_id_array = [];
             if (!empty($products)) {
+                /*
+                 * D-13. Decrements applied by the loop below, so they can be GIVEN BACK when a
+                 * later line makes this handler return early. Before this, each of the three
+                 * in-loop `return Utility::error(...)` exits left every line already processed
+                 * decremented, with Easebuzz's money captured and no order row to show for it.
+                 */
+                $appliedStockChanges = [];
+
                 foreach ($products as $key => $product) {
                     $prodduct_id_array[] = $product->product_id;
 
@@ -590,9 +678,14 @@ class EasebuzzController extends Controller
                             if (!empty($ProductStock)) {
                                 if($option == true)
                                 {
-                                    $remain_stock = $ProductStock->stock - $qtyy;
-                                    $ProductStock->stock = $remain_stock;
-                                    $ProductStock->save();
+                                    /*
+                                     * `false` is $rejectOnShortfall: on a shortfall the trait
+                                     * re-runs the decrement with overselling allowed, which is
+                                     * exactly what the raw `stock - qty` did, and logs it at
+                                     * critical. Refusing is not available here -- Easebuzz has
+                                     * already captured the money by the time this runs.
+                                     */
+                                    $this->decrementStockOrFail($appliedStockChanges, 'variant', $ProductStock, $qtyy, false);
 
                                     if($ProductStock->stock <= $ProductStock->low_stock_threshold)
                                     {
@@ -618,9 +711,9 @@ class EasebuzzController extends Controller
                                 }
                                 else
                                 {
-                                    $remain_stock = $datas->product_stock - $qtyy;
-                                    $datas->product_stock = $remain_stock;
-                                    $datas->save();
+                                    // The variant row exists but is not stock-managed, so the
+                                    // PARENT product is decremented through `$datas`.
+                                    $this->decrementStockOrFail($appliedStockChanges, 'product', $datas, $qtyy, false);
                                     if($datas->product_stock <= $datas->low_stock_threshold)
                                     {
                                         if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_low_stock",json_decode($settings['notification'] ?? '[]')))
@@ -678,14 +771,15 @@ class EasebuzzController extends Controller
                                     }
                                 }
                             } else {
+                                $this->restoreStockDecrements($appliedStockChanges);
+
                                 return Utility::error(['message' => 'Product not found .']);
                             }
                         } elseif (!empty($product_id) && $product_id != 0) {
 
                             if (!empty($Product)) {
-                                $remain_stock = $Product->product_stock - $qtyy;
-                                $Product->product_stock = $remain_stock;
-                                $Product->save();
+                                // The no-variant leg.
+                                $this->decrementStockOrFail($appliedStockChanges, 'product', $Product, $qtyy, false);
                                 if($Product->product_stock <= $Product->low_stock_threshold)
                                 {
                                     if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_low_stock",json_decode($settings['notification'] ?? '[]')))
@@ -744,9 +838,13 @@ class EasebuzzController extends Controller
                                 }
 
                             } else {
+                                $this->restoreStockDecrements($appliedStockChanges);
+
                                 return Utility::error(['message' => __('Product not found .')]);
                             }
                         } else {
+                            $this->restoreStockDecrements($appliedStockChanges);
+
                             return Utility::error(['message' => 'Please fill proper product json field .']);
                         }
                     }
@@ -776,16 +874,23 @@ class EasebuzzController extends Controller
 
             $product_order_id  = '0' . date('YmdHis');
             $is_guest = 1;
+            // F46. The AUTHENTICATED customer's id, never $request->customer_id. This is one of NINE byte-for-
+            // byte copies of the same checkout block; see app/Services/PaymentService.php for the full
+            // reasoning. The guest branch is untouched, and PosController is deliberately NOT changed -- it
+            // uses the MERCHANT guard and the merchant legitimately picks the customer.
+            $orderCustomerId = ! empty($request->customer_id) ? $request->customer_id : 0;
             if (auth('customers')->check()) {
-                $product_order_id  = $request->customer_id . date('YmdHis');
+                $orderCustomerId = auth('customers')->id();
+                $product_order_id  = $orderCustomerId . date('YmdHis');
                 $is_guest = 0;
             }
 
             // add in  Order table  start
             $order = new Order();
+            $order->order_source = Order::SOURCE_STOREFRONT;
             $order->product_order_id = $product_order_id;
             $order->order_date = date('Y-m-d H:i:s');
-            $order->customer_id = !empty($request->customer_id) ? $request->customer_id : 0;
+            $order->customer_id = $orderCustomerId;   // F46
             $order->is_guest = $is_guest;
             $order->product_id = $prodduct_id_array;
             $order->product_json = json_encode($products);
@@ -869,13 +974,29 @@ class EasebuzzController extends Controller
              * and PaymentService (:2594) already use. This was the literal `'Paid'`, with nothing
              * between the shopper's browser and this line having asked a gateway whether money moved.
              *
-             * NO BEHAVIOUR CHANGES TODAY: this payment type is not in
-             * PaymentVerificationService::ENFORCED_PAYMENT_TYPES, so the call returns exactly the 'Paid'
-             * the literal did. What it buys is that the unverified write is LOGGED -- the exposure
-             * becomes measurable -- and that enforcing this gateway later is a one-line change in that
-             * service instead of another edit here. Flipping the posture is the owner's call, because
-             * recording every gateway order as Pending stops merchant wallets being credited; see the
-             * blocker in docs/security/P01-SECURITY-WORK-QUEUE.md.
+             * THIS PARAGRAPH USED TO SAY THE OPPOSITE OF WHAT THE CODE DOES, and the correction
+             * matters because it is the paragraph a reviewer reads to decide whether this path is
+             * safe. It said: "NO BEHAVIOUR CHANGES TODAY: this payment type is not in
+             * ENFORCED_PAYMENT_TYPES, so the call returns exactly the 'Paid' the literal did."
+             *
+             * That was true when it was written and is now false. The owner's Phase 01 final
+             * execution directive -- "any unverified gateway payment must remain Pending, never
+             * Paid" -- INVERTED the default: PaymentVerificationService::resolveOrderPaymentStatus()
+             * returns STATUS_PENDING when no verification record exists
+             * (PaymentVerificationService.php, the `$verification === null` branch), and that
+             * service's own docblock records that it superseded the very sentence quoted above.
+             *
+             * SO WHAT ACTUALLY HAPPENS HERE: nothing records a verification for this gateway, so
+             * every order this handler writes is PENDING. `OrderObserver::created()` credits a
+             * merchant wallet only for an order already Paid at creation, so no wallet is credited
+             * -- which is the bound that keeps this handler's unverified-stock exposure (F90) from
+             * being free paid goods. A merchant who confirms the capture with the provider marks it
+             * Paid through the existing status workflow, and `OrderObserver::updated()` syncs the
+             * wallet then.
+             *
+             * The behaviour is pinned by tests/Feature/Commerce/PaymentStatusDerivationTest.php and
+             * tests/Feature/Commerce/UnverifiedGatewayStaysPendingTest.php, so the claim above is
+             * checkable rather than another comment to trust.
              */
             $order->payment_status = $this->gatewayReturnPaymentStatus(
                 $requests_data['payment_type'] ?? null,
@@ -893,6 +1014,19 @@ class EasebuzzController extends Controller
             $order->additional_note = $request->additional_note;
             $order->store_id = $store->id;
             $order->save();
+            /* F237: phase two of the two-phase attribution -- point this request's
+               movements at the order that now exists.
+               NO TRANSACTION ON THIS PATH, stated because the first version of this comment
+               claimed one and independent review found it false: this handler opens none, so
+               the order is already committed when this runs. A crash in between therefore
+               leaves the row unattributed, which reads UNKNOWN and makes the cancellation
+               restore -- the safe direction, and the behaviour that held before F237. Adding
+               a transaction here is a separate change, not part of F237. */
+            $this->attributeStockEvidenceTo($order);
+            /* THE ORDER NOW EXISTS. From here a failure must NOT give the stock back: an order
+               that exists claims its goods, and returning them puts the shopper's items on the
+               shelf for someone else while their order stands. */
+            $ssOrderWritten = true;
             // add in  Order table end
             // Utility::paymentWebhook($order);
 
@@ -1156,6 +1290,33 @@ class EasebuzzController extends Controller
             }
         }else{
             return redirect()->back()->with('error',__('Transaction has been failed'));
+        }
+        } catch (\Throwable $ssStockGuardError) {
+            /*
+             * D-13 — GIVE THE STOCK BACK ONLY IF NO ORDER ROW CLAIMS IT.
+             *
+             * TWO QUESTIONS, NOT ONE, AND THE SECOND WAS MISSING. The flag is set by the
+             * statement AFTER `$order->save()`, so it is still false while the `created` model
+             * event runs -- and `OrderObserver::created()` catches `\Exception` but NOT
+             * `\Throwable`, so a `TypeError` inside `OrderFinancialService::createForOrder()`
+             * escapes it, propagates out of `save()`, and reaches here with the row ALREADY
+             * COMMITTED. On the flag alone that restored the stock behind an order that exists,
+             * which oversells the same units to the next shopper while this order stands -- the
+             * mirror image of the defect D-13 was opened for, introduced by its own fix.
+             *
+             * `$order->exists` is the authoritative answer and closes that window:
+             * `Model::performInsert()` sets it at line 1341 and fires `created` at 1345, so by
+             * the time any `created` listener can throw, `exists` is already true. Measured in
+             * `ApiOrderWriterStockCompensationTest`, which fails on the flag alone.
+             */
+            $ssOrderClaimsIt = ($ssOrderWritten ?? false)
+                || (isset($order) && $order instanceof \App\Models\Order && $order->exists);
+
+            if (! $ssOrderClaimsIt) {
+                $this->restoreStockDecrements($appliedStockChanges ?? []);
+            }
+
+            throw $ssStockGuardError;
         }
     }
 

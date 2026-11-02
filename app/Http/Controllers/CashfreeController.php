@@ -126,7 +126,54 @@ class CashfreeController extends Controller
                     }
                 }
                     $coupon = (empty($request->coupon)) ? "0" : $request->coupon;
+
+                    /*
+                     * ═══════════════════════════════════════════════════════════════════════════
+                     * F229 / D-31 REQUIREMENT 1 -- THE ORDER ID IS THE INTENT'S REFERENCE.
+                     * ═══════════════════════════════════════════════════════════════════════════
+                     *
+                     * The return side cannot establish WHICH PLAN the money was for: it reads
+                     * `$request->plan_id`, a raw query-string integer the caller supplies, and the
+                     * gate is `$info->payment_status == "SUCCESS"` -- a property of the cashfree
+                     * ORDER, which says nothing about a plan. So paying once for the cheapest plan
+                     * and naming a dearer one on the first return succeeded.
+                     *
+                     * Cashfree makes this straightforward in a way Paytm did not: the order id is
+                     * **minted here, by this server**, sent in the server-to-server order
+                     * creation, echoed back by `return_url`'s `{order_id}` template, AND it is the
+                     * id the return then asks Cashfree's own settlements and payments APIs about.
+                     * So it is provider-attested by construction -- no new round trip, no new
+                     * contract. Using it as the intent reference binds the plan to the order
+                     * Cashfree actually processed.
+                     *
+                     * `newReference()` is NOT used here, deliberately: the reference has to be the
+                     * value Cashfree knows, and inventing a second identifier would leave the two
+                     * to drift.
+                     */
                     $orderID = strtoupper(str_replace('.', '', uniqid('', true)));
+
+                    $ssIntentReference = \App\Services\PlanPurchaseIntent::create([
+                        'provider' => 'Cashfree',
+                        'reference' => $orderID,
+                        'user_id' => $user->id ?? null,
+                        'plan_id' => $plan->id,
+                        'coupon_id' => isset($coupons) && $coupons ? $coupons->id : null,
+                        'coupon_code' => $request->coupon,
+                        'expected_amount' => (string) $get_amount,
+                        'currency' => !empty($payment_setting['CURRENCY_NAME']) ? $payment_setting['CURRENCY_NAME'] : 'USD',
+                    ]);
+
+                    if ($ssIntentReference === null) {
+                        /* FAIL CLOSED. Without the intent the return cannot tell which plan the
+                           money was for, which is the whole defect -- so the purchase does not
+                           start rather than completing unprotected. */
+                        \Illuminate\Support\Facades\Log::warning('Cashfree plan purchase refused: the purchase intent could not be recorded.', [
+                            'plan_id' => $plan->id ?? null,
+                            'user_id' => $user->id ?? null,
+                        ]);
+
+                        return redirect()->route('plan.index')->with('error', __('Transaction Unsuccesfull'));
+                    }
 
                     $headers = array(
                         "Content-Type: application/json",
@@ -201,6 +248,90 @@ class CashfreeController extends Controller
             $request['coupon_id'] = $coupons->id;
         }
 
+        /*
+         * ONE CASHFREE ORDER, ONE PLAN ACTIVATION. Same shape as Benefit: `plan_id` is a raw
+         * query-string integer (:190), the gate is `$info->payment_status == "SUCCESS"` -- a
+         * property of the cashfree ORDER, not of the plan -- and `txn_id` was recorded as ''
+         * (:244) with `$respons->cf_payment_id` in hand and discarded. Decided above the try,
+         * because the order id is what this method is about to ask cashfree about.
+         */
+        $cashfreeReference = $request->get('order_id');
+
+        $cashfreeReplay = $this->refusePlanActivationReplay('Cashfree', $cashfreeReference, $plan, $user);
+
+        if ($cashfreeReplay !== null) {
+            return $cashfreeReplay;
+        }
+
+        /*
+         * ═══════════════════════════════════════════════════════════════════════════════════════
+         * F229 -- THE PLAN COMES FROM THE INTENT, NOT FROM `$request->plan_id`.
+         * ═══════════════════════════════════════════════════════════════════════════════════════
+         *
+         * `consumeForPlanBinding()` rather than `verifyAndConsume()`, and the difference is
+         * documented at length on that method: it enforces the intent's existence, its purchaser,
+         * and one-consumption-per-reference, and it does **not** compare the captured amount.
+         *
+         * That is requirement 8 applied honestly rather than as a blanket refusal. The
+         * substitution vector is the PLAN, and binding the plan needs nothing about how Cashfree
+         * reports money. The amount comparison is a second, independent control that does need a
+         * verified response contract, and this project has none for Cashfree -- so it stays
+         * BLOCKED and is NOT guessed. The amount is in any case server-owned at initiation
+         * (`order_amount => $get_amount`, computed from `$plan->price` minus a server-resolved
+         * coupon and sent server-to-server), so a buyer cannot lower what Cashfree asks for.
+         *
+         * ORDER OF OPERATIONS: this runs AFTER the replay guard, exactly as Paytm does -- and the
+         * first version of this change put it before, which BROKE eight existing guard tests and
+         * was right to. `refusePlanActivationReplay()` answers a reference that has already
+         * activated a plan with its own refusal, and those semantics are tested by name. Putting
+         * the intent check first replaced that refusal with "no intent exists" for every spent
+         * reference -- a different answer to the same question, and a worse one, because the
+         * guard's same-buyer branch is what gives a buyer who paid the success they earned.
+         */
+        [$ssIntentState, $ssIntent, $ssIntentReason] = \App\Services\PlanPurchaseIntent::consumeForPlanBinding(
+            'Cashfree',
+            (string) $cashfreeReference,
+            $user->id ?? null,
+            $cashfreeReference
+        );
+
+        if ($ssIntentState !== \App\Services\PlanPurchaseIntent::VERIFIED) {
+            \App\Services\PlanPurchaseIntent::recordRefusal(
+                'Cashfree',
+                (string) $cashfreeReference,
+                $ssIntentState . ': ' . $ssIntentReason,
+                $cashfreeReference,
+                $user->id ?? null
+            );
+
+            \Illuminate\Support\Facades\Log::warning('Cashfree plan activation refused: the payment does not match a recorded purchase intent.', [
+                'state' => $ssIntentState,
+                'reason' => $ssIntentReason,
+                'user_id' => $user->id ?? null,
+            ]);
+
+            return redirect()->route('plan.index')->with('error', __('Transaction Unsuccesfull'));
+        }
+
+        /* THE PLAN THE MONEY WAS ACTUALLY FOR. Everything below reads `$plan`, so reassigning it
+           here is the fix -- the forgeable `$request->plan_id` no longer reaches the entitlement.
+           `$getAmount` is recomputed from it for the same reason. */
+        $plan = Plan::find($ssIntent->plan_id);
+
+        if (empty($plan)) {
+            \Illuminate\Support\Facades\Log::warning('Cashfree plan activation refused: the intent names a plan that no longer exists.', [
+                'intent_plan_id' => $ssIntent->plan_id,
+                'user_id' => $user->id ?? null,
+            ]);
+
+            return redirect()->route('plan.index')->with('error', __('Transaction Unsuccesfull'));
+        }
+
+        $couponCode = $ssIntent->coupon_code;
+        $getAmount = $this->serverOwnedPlanPrice($plan, $couponCode);
+        $coupons = $this->planCouponForRecording($couponCode);
+
+
         try {
             $client = new \GuzzleHttp\Client();
             $response = $client->request('GET', config('services.cashfree.url') . '/' . $request->get('order_id') . '/settlements', [
@@ -241,7 +372,20 @@ class CashfreeController extends Controller
                     $order->price_currency = !empty($payment_setting['CURRENCY_NAME']) ? $payment_setting['CURRENCY_NAME'] : 'USD';
                     $order->payment_type = __('Cashfree');
                     $order->payment_status = 'success';
-                    $order->txn_id = '';
+                    /*
+                     * THE RECORDED REFERENCE MUST BE THE ONE THE GUARD LOOKS UP. Upstream recorded
+                     * '' here; the first version of this fix recorded `$respons->cf_payment_id`,
+                     * which is a DIFFERENT value from the `order_id` the guard above keys on --
+                     * cashfree's own payment id versus the id this server minted at :139 and
+                     * published in the return URL at :150 as `?order_id={order_id}`. The guard
+                     * would then have looked for a row that is never written, and the Cashfree arm
+                     * of this change would have protected nothing while three tests passed on a
+                     * hand-seeded shape production never produces. Found by independent review.
+                     *
+                     * `order_id` is also the right choice on the merits: it is the value a
+                     * replayer presents, because it is the one in the URL they re-open.
+                     */
+                    $order->txn_id = (string) $cashfreeReference;
                     $order->receipt = '';
                     $order->user_id = $user->id;
                     $order->save();

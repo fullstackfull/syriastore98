@@ -21,18 +21,26 @@ class ProductLabelDataTable extends DataTable
      */
     public function dataTable(QueryBuilder $query): EloquentDataTable
     {
+        // Resolved ONCE, outside the per-row closure -- `isAbleTo()` is a permission lookup and
+        // asking it per row is an extra lookup on every row of every page.
+        $mayToggle = $this->mayToggle();
+
         $dataTable = (new EloquentDataTable($query))
             ->addIndexColumn()
             ->addColumn('action', function (ProductLabel $productlabel) {
                 return view('product_label.action', compact('productlabel'));
             })
-            ->editColumn('status', function (ProductLabel $productlabel) {
-                $status = '<div class="form-check form-switch">
+            ->editColumn('status', function (ProductLabel $productlabel) use ($mayToggle) {
+                $disabled = $mayToggle ? '' : ' disabled aria-disabled="true" title="'
+                    . e(__('You do not have permission to change this.')) . '"';
+
+                return '<div class="form-check form-switch">
                     <input type="checkbox" data-id="' . $productlabel->id . '" class="form-check-input status-index" name="status_"
-                    id="status_' . $productlabel->id . '" value="' . $productlabel->status . '" ' . ($productlabel->status ? 'checked' : '') . '>
-                    <label class="form-check-label" for="status_' . $productlabel->id . '"></label>
+                    id="status_' . $productlabel->id . '" value="' . $productlabel->status . '" ' . ($productlabel->status ? 'checked' : '') . $disabled . '>
+                    <label class="form-check-label" for="status_' . $productlabel->id . '">
+                        <span class="ss-visually-hidden">' . e(__('Enabled')) . '</span>
+                    </label>
                     </div>';
-                    return $status;
             })
             ->rawColumns(['action','status']);
         return $dataTable;
@@ -72,5 +80,27 @@ class ProductLabelDataTable extends DataTable
     protected function filename(): string
     {
         return 'ProductLabel_' . date('YmdHis');
+    }
+
+    /**
+     * Whether this caller may actually USE the toggle this table renders. P2-05-1.
+     *
+     * Same reasoning as `ProductBrandDataTable::mayToggle()`: the handler now requires
+     * `Edit Product Label`, and a switch that answers 403 is a control offered and then
+     * refused. DISABLED rather than hidden, because the VALUE is information a caller holding
+     * `Manage Product Label` may read.
+     *
+     * Operator first -- Laratrust has no super-admin bypass.
+     */
+    private function mayToggle(): bool
+    {
+        $user = auth()->user();
+
+        if ($user === null) {
+            return false;
+        }
+
+        return \App\Policies\UserPolicy::isOperator($user)
+            || $user->isAbleTo('Edit Product Label');
     }
 }

@@ -1,0 +1,49 @@
+Flutter CI — fullstackfull/StoreSyria_app98
+run 40735373693 ("CI", run_number 6, attempt 1)
+head_sha  7ef0b6b499e333a6eba0cf0642d89f872029ab98   <- the Phase 02 Flutter HEAD
+branch    claude/store-syria-p02-continuation-smlpwi
+event     pull_request (PR #4, draft)
+started   2026-10-28T17:24:12Z        conclusion: SUCCESS
+
+Read back from the GitHub API on 2026-10-30, not from a badge and not from a local run.
+
+JOB "Analyze and test"  (122982369107)  17:24:16 -> 17:27:23   SUCCESS
+  1 Set up job                                                          success
+  2 actions/checkout                                                    success
+  3 subosito/flutter-action                                             success
+  4 Record the toolchain actually used                                  success
+  5 The committed pubspec.lock is installable, and is what is used      success
+  6 No errors and no warnings                                           success
+  7 Informational issues must not grow                                  success
+  8 flutter test                                                        success  (17:26:13 -> 17:27:01)
+  9 The SDK's tracked-file rewrites are contained, not ignored          success
+
+JOB "Secrets and suppression hygiene"  (122982369647)  17:24:15 -> 17:24:21   SUCCESS
+  3 No signing material is tracked by git                               success
+  4 No new analyzer suppressions                                        success
+
+TOOLCHAIN, as the run recorded it:
+  Dart 3.13.5 • DevTools 2.60.0
+  Flutter 3.47.7 • channel stable
+
+THE flutter test SUMMARY LINE, extracted from the CI log itself:
+  00:37 +1283: All tests passed!
+
+  1283 passed.
+
+ZERO SKIPPED, ZERO FAILED -- and this is the limit the F159 row had left open.
+`flutter test` writes its running tally as `MM:SS +passed -failed ~skipped`. Across the whole
+499,880-character job log:
+
+  grep -oE '[0-9]{2}:[0-9]{2} \+[0-9]+ ~[0-9]+'   ->  no match   (nothing was skipped)
+  grep -oE '[0-9]{2}:[0-9]{2} \+[0-9]+ -[0-9]+'   ->  no match   (nothing failed)
+
+So the count is now a CI-extracted figure rather than the commit's own local measurement, and
+"zero scenarios skipped" is measured rather than unverified. The F159 row previously stated both
+of those as open limits, because the log API had returned only a capped tail.
+
+flutter analyze: "246 issues found. (ran in 20.7s)" -- all informational, since step 6 ("No errors
+and no warnings") passed and step 7 ("Informational issues must not grow") held the ratchet.
+
+The working tree after the build showed `M analysis_options.yaml` and then `Restored.`, which is
+the SDK's own analyzer migration and the documented behaviour of step 9, not a surprise.

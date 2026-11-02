@@ -60,45 +60,206 @@ if (!function_exists('getMenu')) {
     }
 }
 
-if (!function_exists('generateMenu')) {
-    function generateMenu($menuItems, $parent = null)
+if (!function_exists('menuTree')) {
+    /**
+     * The merchant / Super Admin navigation as DATA, for a view to render.
+     *
+     * This is the seam `docs/design-system/ADMIN-LAYOUT-ARCHITECTURE.md` §0
+     * asks for, and it is the thing that was blocking every navigation item in
+     * Phase 02: the sidebar was a hand-concatenated HTML string built in this
+     * file, so no Blade view and no stylesheet could reach it. Only the
+     * rendering moves. Nothing about WHO SEES WHAT changes.
+     *
+     * THE TWO GATES ARE NOT HERE, AND MUST NOT MOVE HERE. `App\Classes\Menu::add()`
+     * filters on module entitlement (`ActivatedModule()`) AND Laratrust
+     * `isAbleTo($item['permission'])` before an item ever reaches `$menuItems`.
+     * That is a security property, not a convenience: an item that bypasses
+     * `Menu::add()` bypasses both gates. This function receives what survived
+     * them and re-shapes it; it decides nothing.
+     *
+     * Ordering, the `mobilescreensetting` exclusion and the `#!` fallback href
+     * are reproduced exactly from the string builder this replaces.
+     *
+     * @param  array      $menuItems  the flat registry, post-gates
+     * @param  mixed      $parent     parent `name`, or null for the top level
+     * @return array<int, array{name:string,title:string,icon:?string,href:string,isTop:bool,children:array}>
+     */
+    function menuTree($menuItems, $parent = null)
     {
-        $html = '';
-
         $filteredItems = array_filter($menuItems, function ($item) use ($parent) {
             return $item['parent'] == $parent;
         });
         usort($filteredItems, function ($a, $b) {
             return $a['order'] - $b['order'];
         });
+
+        $nodes = [];
         foreach ($filteredItems as $item) {
-            if ($item['name'] == 'mobilescreensetting' && env('IS_MOBILE') != 'yes') {
+            if ($item['name'] == 'mobilescreensetting' && config('platform.is_mobile') != 'yes') {
                 continue;
             }
-            $hasChildren = hasChildren($menuItems, $item['name']);
-            if ($item['parent'] == null) {
-                $html .= '<li class="dash-item dash-hasmenu">';
-            } else {
-                $html .= '<li class="dash-item">';
-            }
-            $html .= '<a href="' . (!empty($item['route']) ? route($item['route']) : '#!') . '" class="dash-link">';
 
-            if ($item['parent'] == null) {
-                $html .= '<i class="ti ti-' . $item['icon'] . '"></i>
-                <span class="dash-mtext">';
-            }
-            $html .= __($item['title']) . '</span>';
-            if ($hasChildren) {
-                $html .= '<span class="dash-arrow"> <i data-feather="chevron-right"></i> </span> </a>';
-                $html .= '<ul class="dash-submenu">';
-                $html .= generateMenu($menuItems, $item['name']);
-                $html .= '</ul>';
-            } else {
-                $html .= '</a>';
-            }
-            $html .= '</li>';
+            $nodes[] = [
+                'name'     => $item['name'],
+                'title'    => __($item['title']),
+                'icon'     => $item['icon'] ?? null,
+                // route() is called here exactly where the string builder
+                // called it, so a missing route still throws in the same place
+                // rather than failing later inside a view.
+                'href'     => !empty($item['route']) ? route($item['route']) : '#!',
+                'isTop'    => $item['parent'] == null,
+                'children' => hasChildren($menuItems, $item['name'])
+                    ? menuTree($menuItems, $item['name'])
+                    : [],
+            ];
         }
-        return $html;
+
+        return $nodes;
+    }
+}
+
+if (!function_exists('generateMenu')) {
+    /**
+     * Unchanged signature, unchanged callers, unchanged DOM contract.
+     *
+     * `partision/sidebar.blade.php` still does `{!! getMenu() !!}`, and
+     * getSideMenu() still falls back to this, so every call site is untouched.
+     * What changed is that the markup now lives in a Blade partial a designer
+     * can read, instead of in string concatenation in a helper.
+     *
+     * The emitted DOM stays SELECTOR-COMPATIBLE and that is load-bearing: the
+     * inline sidebar search at layouts/app.blade.php:421-461 selects
+     * `.dash-navbar > .dash-item` with a DIRECT-CHILD combinator, so wrapping
+     * an item in any new element breaks search with no error at all. The
+     * classes `dash-item`, `dash-hasmenu`, `dash-link`, `dash-mtext` and
+     * `dash-submenu` are therefore fixed, as is the nesting depth.
+     *
+     * Parity is asserted by tests/Support/Security/bin/verify-menu-render-parity.php,
+     * which parses this renderer's output and the old string builder's output
+     * into DOM trees and compares them element by element.
+     */
+    function generateMenu($menuItems, $parent = null)
+    {
+        $nodes = menuTree($menuItems, $parent);
+
+        /* P2-01-11: zones. Three conditions, each for its own reason.
+         *
+         * 1. TOP LEVEL ONLY. A submenu is already a group; `$parent !== null`
+         *    means we are rendering one, so it stays a flat <li> list or the
+         *    nesting depth the sidebar search depends on changes.
+         *
+         * 2. MERCHANTS ONLY. config/merchant-navigation.php maps the 21
+         *    top-level entries CompanyMenuListener registers. The platform
+         *    operator's sidebar comes from SuperAdminMenuListener and shares
+         *    almost none of those names -- only `plan` and `settings` -- and
+         *    its landing entry is `dashboard`, not `admin_dashboard`. Zoning
+         *    it with the merchant map drew "Administration" (order 60) FIRST
+         *    and pushed the operator's own Dashboard, Users, Plan Request,
+         *    Country and Currency under a heading called "More" (order 900).
+         *    Not a leak, but wrong on every page the operator opens. A
+         *    super-admin map can be added later; until one exists the operator
+         *    keeps the flat list, which is what they have today.
+         *
+         * 3. config() DEFENSIVELY, because getSideMenu() can run where the
+         *    config repository is not bound. A missing config means the flat
+         *    list -- the pre-P2-01-11 behaviour, and the same thing the kill
+         *    switch produces.
+         */
+        $ssUser = function_exists('auth') ? auth()->user() : null;
+        $ssIsOperator = $ssUser && class_exists(\App\Policies\UserPolicy::class)
+            && \App\Policies\UserPolicy::isOperator($ssUser);
+
+        $zoned = $parent === null
+            && ! $ssIsOperator
+            && function_exists('config')
+            && (bool) config('merchant-navigation.zones_enabled', false);
+
+        if ($zoned) {
+            return view('partision.menu-zones', ['zones' => menuZones($nodes)])->render();
+        }
+
+        return view('partision.menu-tree', ['nodes' => $nodes])->render();
+    }
+}
+
+if (!function_exists('menuZones')) {
+    /**
+     * Group already-built top-level nodes into the zones of
+     * config/merchant-navigation.php. P2-01-11.
+     *
+     * DELIBERATELY SEPARATE FROM menuTree(). menuTree() and
+     * partision/menu-tree.blade.php are pinned by
+     * tests/Support/Security/bin/verify-menu-render-parity.php, which proves the
+     * Blade renderer emits the same DOM as the string builder it replaced.
+     * Folding grouping into menuTree() would make that proof compare a tree
+     * against a differently-shaped tree, and the guarantee would quietly become
+     * worthless. So this is a pure function over menuTree()'s OUTPUT: it
+     * reorders and labels, it never builds a node and never drops one.
+     *
+     * IT GRANTS NOTHING. Every node here already passed Menu::add()'s module
+     * and permission gates. An item whose gate refused it is not in $nodes, so
+     * no arrangement of this function can surface it.
+     *
+     * A ZONE WITH NO ITEMS IS NOT RETURNED. The gates run per item, so a
+     * narrowly-scoped employee can leave a whole zone empty -- and a heading
+     * over nothing reads as a loading failure. Same reasoning as the empty
+     * <ul> the arrow fix removed in P2-01-10.
+     *
+     * @param  array $nodes  top-level nodes from menuTree($items, null)
+     * @return array<int, array{key:string,title:?string,nodes:array}>
+     */
+    function menuZones(array $nodes)
+    {
+        $config    = function_exists('config') ? (array) config('merchant-navigation', []) : [];
+        $zoneDefs  = $config['zones'] ?? [];
+        $ungrouped = $config['ungrouped'] ?? [];
+
+        // name => zone key, built once rather than scanned per node.
+        $zoneOf = [];
+        foreach ($zoneDefs as $key => $def) {
+            foreach ($def['items'] ?? [] as $name) {
+                $zoneOf[$name] = $key;
+            }
+        }
+
+        $lead    = [];
+        $buckets = [];
+        foreach ($nodes as $node) {
+            if (in_array($node['name'], $ungrouped, true)) {
+                $lead[] = $node;
+                continue;
+            }
+            // An unmapped name lands in 'other' rather than vanishing.
+            $key = $zoneOf[$node['name']] ?? 'other';
+            $buckets[$key][] = $node;
+        }
+
+        // Zones in their declared order; an undeclared key sorts last.
+        uksort($buckets, function ($a, $b) use ($zoneDefs) {
+            $oa = $zoneDefs[$a]['order'] ?? PHP_INT_MAX;
+            $ob = $zoneDefs[$b]['order'] ?? PHP_INT_MAX;
+            return $oa === $ob ? strcmp($a, $b) : $oa - $ob;
+        });
+
+        $out = [];
+        if ($lead) {
+            // No title: the dashboard is where the merchant lands, not a
+            // category of work. The partial renders no heading for a null.
+            $out[] = ['key' => 'lead', 'title' => null, 'nodes' => $lead];
+        }
+        foreach ($buckets as $key => $bucket) {
+            if (!$bucket) {
+                continue;
+            }
+            $title = $zoneDefs[$key]['title'] ?? null;
+            $out[] = [
+                'key'   => $key,
+                'title' => $title === null ? null : __($title),
+                'nodes' => $bucket,
+            ];
+        }
+
+        return $out;
     }
 }
 
@@ -134,6 +295,144 @@ if (!function_exists('SetNumber')) {
         }
         $number_output = number_format($number, 2);
         return str_replace(',', '', $number_output);
+    }
+}
+
+if (!function_exists('paid_download_url')) {
+    /**
+     * F217 / D-29.6 — the entitlement-checked URL for a paid downloadable.
+     *
+     * **WHY THIS EXISTS, and it is a gap in my own F217 work rather than a new idea.** An
+     * independent audit found that F217 fixed THE MAIL and not THE PAGE. `downloadable_prodcut()`
+     * now mails a grant-protected route, but eight first-party storefront blade sites still
+     * rendered `href="{{ get_file($x->downloadable_product) }}"` on the buyer's own order and
+     * refund pages — and `get_file()`'s local limb is `url($path)`, the raw public URL. So the UI
+     * was handing out the unprotected link beside the protected one, and those anchors are not
+     * decoration: they are the element the download button's JS activates.
+     *
+     * Worse, the URL does not even have to be clicked to leak. It is in the page's HTML, so view
+     * source, a browser extension, a shared screenshot of devtools, or anything that scrapes the
+     * page gets a link that needs no order, no session and no entitlement — because
+     * `public/uploads` is a symlink to `../uploads` and `public/.htaccess` only routes to
+     * `index.php` when the requested file does NOT exist, so an existing file is served by the web
+     * server with PHP never running.
+     *
+     * **WHAT IT RETURNS.** The `paid.download` route carrying a `DownloadGrant` — an opaque
+     * server-held record bound to order + store + customer + the resolved path, with a TTL. Not a
+     * signed URL: `APP_KEY` is in git history and unrotated, so `URL::temporarySignedRoute` would
+     * be forgeable.
+     *
+     * **REMOTE STORAGE KEEPS `get_file()`,** the same branch the mail takes, and for the same
+     * measured reason: on wasabi or s3 the file was never in this application's document root, and
+     * `PaidDownloadController` serves local files only — `response()->download()` cannot serve an
+     * object in a bucket, so routing a remote-storage merchant through it would 404 every paid
+     * download they have ever sold. The residual there (an unexpiring bucket URL is still a
+     * guessable link) is recorded, not closed: closing it needs a signed temporary URL that cannot
+     * be verified without bucket credentials.
+     *
+     * @param  mixed   $order  an Order model, or the array `Order::order_detail()` returns
+     * @param  ?string $path   the stored `downloadable_product` path
+     * @return ?string         null when there is nothing to protect OR the viewer is not the
+     *                         signed-in buyer -- so a caller skips the link rather than
+     *                         rendering an unprotected one. See the predicate below.
+     */
+    function paid_download_url($order, $path)
+    {
+        $path = is_string($path) ? trim($path) : '';
+
+        if ($path === '' || empty($order)) {
+            return null;
+        }
+
+        $orderId = is_array($order) ? ($order['id'] ?? null) : ($order->id ?? null);
+
+        if (empty($orderId)) {
+            return null;
+        }
+
+        /*
+         * Remote storage: unchanged behaviour. See the docblock -- this is not a fallback for
+         * convenience, it is the only thing that works for a bucket-backed installation.
+         */
+        if (! \App\Services\DownloadGrant::servesFromLocalDocumentRoot()) {
+            return get_file($path);
+        }
+
+        try {
+            $store = \App\Models\Store::withoutGlobalScopes()->find(
+                is_array($order) ? ($order['store_id'] ?? null) : ($order->store_id ?? null)
+            );
+
+            if (! $store) {
+                return null;
+            }
+
+            $orderModel = is_array($order)
+                ? \App\Models\Order::withoutGlobalScopes()->find($orderId)
+                : $order;
+
+            if (! $orderModel) {
+                return null;
+            }
+
+            /*
+             * ===============================================================================
+             * THE SIGNED-IN BUYER ONLY, READ FROM THE ORDER ROW AND NOT FROM THE VIEW ARRAY.
+             * ===============================================================================
+             *
+             * THIS READ WAS `$order['customer_id']` AND THAT MADE THE FUNCTION RETURN NULL FOR
+             * EVERY BUYER. `Order::order_detail()` hand-builds its array key by key — `id`,
+             * `store_id`, `is_guest`, `order_id` and forty others — and **never sets
+             * `customer_id`**. So the comparison was `(int) 7 !== (int) null`, which is true, and
+             * all eight call sites rendered no link at all. I had removed the unsafe public URL and
+             * replaced it with nothing: a functional regression for the one person entitled to the
+             * file. Found by an independent review of my own change.
+             *
+             * The row is the authoritative source and it is already loaded here, so the comparison
+             * belongs after the load rather than before it. This is also the codebase's own rule --
+             * derive from the authenticated principal and the persisted row, never from data the
+             * caller handed in.
+             *
+             * WHY THE PREDICATE EXISTS AT ALL. Issuing a grant is handing over a capability, so it
+             * must not be minted on a page whose access control does not establish who is looking.
+             * One of the four pages it is called from is `OrderController::orderDetails` (route
+             * `{storeSlug?}/order/{id}`), which is reachable without a customer session and
+             * authorises with `decrypt()` plus a STORE predicate — and CLAUDE.md records that the
+             * encoding is not a control, because `APP_KEY` is in git history and unrotated.
+             *
+             * WHAT A GUEST GETS INSTEAD: no link, and the download BUTTON beside it is untouched.
+             * It posts to `AccountProfileController::downloadable_prodcut()`, which resolves the
+             * order through `ownedOrder()`'s `customer_id` predicate and MAILS the grant to the
+             * address on the order — a stronger proof of entitlement than a page anyone can open.
+             */
+            $signedInCustomerId = auth('customers')->id();
+
+            if (empty($signedInCustomerId)
+                || (int) $signedInCustomerId !== (int) ($orderModel->customer_id ?? 0)) {
+                return null;
+            }
+
+            return route('paid.download', [
+                'storeSlug' => $store->slug,
+                'order' => $orderId,
+                \App\Services\DownloadGrant::FIELD => \App\Services\DownloadGrant::issue(
+                    $orderModel,
+                    $path,
+                    $orderModel->customer_id
+                ),
+            ]);
+        } catch (\Throwable $theGrantCouldNotBeIssued) {
+            /*
+             * Fail to NO LINK rather than to the public URL. A missing download button is a support
+             * ticket; a public URL to paid goods is the defect this function exists to remove.
+             */
+            \Illuminate\Support\Facades\Log::warning('paid download url not issued', [
+                'order_id' => $orderId,
+                'reason' => $theGrantCouldNotBeIssued->getMessage(),
+            ]);
+
+            return null;
+        }
     }
 }
 
@@ -2054,13 +2353,42 @@ if (!function_exists('bulkDeleteCloneCheckboxColumn')) {
 
         // Check if the BulkDelete module is active
         if (module_is_active('BulkDelete')) {
-            // Add the checkbox column if the module is active
+            /*
+             * `ss-col-locked` IS LOAD-BEARING, and it is here because P2-03-1's
+             * column-visibility menu broke bulk delete without it. Found by independent review
+             * of that change and then reproduced in the running application.
+             *
+             * This column's `title` is MARKUP ONLY -- a bare select-all checkbox. Buttons 1.3.1
+             * builds each menu entry's label by stripping tags from `sTitle`
+             * (`buttons.colVis.min.js`, `_columnText`), so the label came out as the empty
+             * string and the menu's first entry was a blank row.
+             *
+             * MEASURED, with BulkDelete enabled on the dev instance through the production
+             * loader (the premise matters: with no `add_on_managers` row this column does not
+             * exist at all, which is why the slice's own browser checks never saw it):
+             *
+             *     menu entries        "", "Name", "Category", ... (11, one of them blank)
+             *     blank entry's box   146 x 0 px, its <a> 0 x 0   -- NOT mouse-clickable
+             *     tabindex            "0"                        -- but FOCUSABLE
+             *     activate it         .select-row 10 -> 0, #select-all gone
+             *     reload              still 0   (stateSave, stateDuration 0, no expiry)
+             *     Reset button        still 0   (Reset clears the SEARCH, not visibility)
+             *     reload after Reset  still 0
+             *
+             * So bulk delete became permanently unusable, and the only control that undoes it
+             * is an invisible zero-height item a pointer cannot reach -- reachable by keyboard
+             * alone, where it is also an unnamed focus stop that did not exist before the menu
+             * did. Locking the column removes the entry and the focus stop together.
+             *
+             * The empty `title` is left as it is: the blank HEADER CELL predates this and
+             * changing what that cell renders is a different change with different callers.
+             */
             return Column::computed('checkbox')
                 ->title('<input type="checkbox" id="select-all">')
                 ->orderable(false)
                 ->exportable(false)
                 ->printable(false)
-                ->addClass('text-left')
+                ->addClass('text-left ss-col-locked')
                 ->render('function() {
                     return \'<input type="checkbox" class="select-row" value="\' + this.id + \'">\';
                 }');
@@ -2088,7 +2416,18 @@ if (!function_exists('getSideMenu')) {
     {
         $user = auth()->user();
         $menu = new \App\Classes\Menu($user);
-        if ($user->type == 'super admin') {
+
+        /*
+         * ONE OPERATOR TEST FOR BOTH DECISIONS. This line was `$user->type == 'super admin'`
+         * while the gate below went through `UserPolicy::isOperator()`, so a row typed
+         * 'Super Admin' took the MERCHANT row set and then had the gate waved for it -- the two
+         * comparisons disagreeing about who the operator is, which is the pattern P1-SEC-11
+         * exists to end. Found by the independent review. Narrowing both to the helper is the
+         * safe direction: the helper is what every other gate in this phase asks.
+         */
+        $isOperator = \App\Policies\UserPolicy::isOperator($user);
+
+        if ($isOperator) {
             if (module_is_active('SidebarCustomization') && Schema::hasTable('side_menus_option')) {
                 $sortedModules = SideMenuOption::where('type', 'super admin')->orderBy('order')->get();
                 if ($sortedModules->isEmpty()) {
@@ -2125,9 +2464,50 @@ if (!function_exists('getSideMenu')) {
                 return generateMenu($menu->menu, null);
             }
         }
+        /*
+         * P2-SEC-F4. THE GATE THIS PATH NEVER HAD.
+         *
+         * `$menu->menu[]` below bypasses `App\Classes\Menu::add()`, which is the only place
+         * module entitlement and permission are checked for the navigation, and the two keys the
+         * row carries to say what it needs -- `module` and `permission` -- are structurally
+         * always null, because `side_menus_option` HAS NEITHER COLUMN. See the `Menu::$denied`
+         * docblock for that measurement. So the platform-authored rows (`created_by = 0`,
+         * `store_id = null`, selected at :2270) rendered for EVERY merchant and every staff
+         * member, whatever they hold and whatever their plan includes.
+         *
+         * The gate is recovered from the listeners rather than from a schema change. They are the
+         * authoritative `name => [module, permission]` map, `Menu::add()` already applies the
+         * decision, and `Menu::$denied` now records the refusals -- so a database row naming one
+         * of those entries honours the same answer. A row naming something the listeners do not
+         * know (a merchant's own external link) has no permission to apply and is governed by the
+         * route-existence check in `generateSideMenu()` instead; that is a real limit of this
+         * approach and is stated in the ledger rather than papered over.
+         *
+         * THE OPERATOR LIMB IS FIRST, which is this codebase's rule (the skill's §1, and
+         * FinancePermission records the reverse ordering causing a lockout). It is also what
+         * makes this change zero-regression for the principal who OWNS this screen: the operator
+         * configures the custom sidebar, holds no merchant role, and a permission with no row
+         * can be held by nobody -- so enforcing against them is a lockout, not a tightening. The
+         * finding's stated harm is "renders for every merchant", and merchants and staff are
+         * where this now bites.
+         */
+        /*
+         * BUILT ONLY FOR THE PRINCIPAL THAT CONSULTS IT. The operator short-circuits the gate
+         * below, so firing the event for them paid for every module listener's
+         * `module_is_active()` and `isAbleTo()` calls to produce a map nothing reads -- and the
+         * operator is the principal most likely to be on this code path. Found by the
+         * independent review.
+         */
+        $gate = null;
+
+        if (! $isOperator) {
+            $gate = new \App\Classes\Menu($user);
+            event(new \App\Events\CompanyMenuEvent($gate));
+        }
+
         foreach ($sortedModules as $item) {
             if (isset($item->is_enable) && $item->is_enable == 'on') {
-                $menu->menu[] = [
+                $row = [
                     'id' => $item->id,
                     'category' => $item->category,
                     'title' => $item->title,
@@ -2142,11 +2522,157 @@ if (!function_exists('getSideMenu')) {
                     'is_enable' => $item->is_enable ?? null,
                     'permission' => $item->permission ?? null,
                 ];
+
+                if ($gate !== null && ! sideMenuRowIsPermitted($row, $gate)) {
+                    continue;
+                }
+
+                $menu->menu[] = $row;
             }
         }
         return generateSideMenu($menu->menu, null);
     }
 }
+
+if (!function_exists('sideMenuRowIsPermitted')) {
+    /**
+     * P2-SEC-F4. Is this `side_menus_option` row one the caller is entitled to see?
+     *
+     * TWO INDEPENDENT QUESTIONS, because the row can answer only one of them today:
+     *
+     * 1. THE ROW'S OWN COLUMNS, applied when a deployment actually has them. Today it does not
+     *    -- neither the migration nor the production dump defines `module` or `permission` -- so
+     *    this limb is inert and exists so that adding the columns later makes the row's own
+     *    declaration authoritative without another change here. `Menu::permits()` is reused
+     *    rather than re-spelled.
+     *
+     * 2. THE LISTENER'S DECISION FOR THAT NAME, which is what actually gates anything today.
+     *    `$gate->denied` holds the names the listeners offered and the gate refused for THIS
+     *    user -- a module their plan omits, or a permission their role lacks. A row naming one
+     *    of them is refused here for the same reason.
+     *
+     * A name the listeners never offered is NOT refused: there is no permission on record for it
+     * and inventing one would hide a merchant's own custom links. `generateSideMenu()`'s
+     * route-existence check covers the module half of that case, since an inactive module
+     * registers no routes.
+     */
+    function sideMenuRowIsPermitted(array $row, \App\Classes\Menu $gate): bool
+    {
+        // Limb 1 -- only ask when the row actually declares something.
+        if (! empty($row['module']) || ! empty($row['permission'])) {
+            if (! $gate->permits($row)) {
+                return false;
+            }
+        }
+
+        // Limb 2 -- the listeners' answer for this name.
+        if (! empty($row['name']) && isset($gate->denied[$row['name']])) {
+            return false;
+        }
+
+        return true;
+    }
+}
+if (!function_exists('sideMenuIconSlug')) {
+    /**
+     * P2-SEC-F5. `icon` is a database-sourced string interpolated INSIDE a class attribute
+     * (`class="ti ti-<icon>"`), so escaping alone is the weaker control: an allowlist is exact
+     * here because the value is a Tabler icon slug and nothing else. Every icon in the restored
+     * production dump and in both seeders matches `[a-z0-9-]+` (`home`, `layout-2`,
+     * `message-circle`, `user`, `settings`), so this changes no shipping row.
+     */
+    function sideMenuIconSlug($icon): string
+    {
+        return preg_replace('/[^A-Za-z0-9-]/', '', (string) $icon) ?? '';
+    }
+}
+
+if (!function_exists('sideMenuHref')) {
+    /**
+     * P2-SEC-F4 / F5. Resolve a `side_menus_option` row's href, or NULL to drop the row.
+     *
+     * NULL means "this row names something that is not there", which is how a path whose table
+     * has no `module` column still enforces module entitlement: an add-on registers its routes
+     * only when `add_on_managers` holds its row, so `Route::has()` is a true reading of whether
+     * the module is active. Dropping the row is also strictly safer than the old behaviour,
+     * which called `route()` on the unregistered name and threw from inside the sidebar.
+     *
+     * The returned string is escaped by the CALLER with `e()`; what is checked here is the
+     * SCHEME, which escaping does not address -- `javascript:alert(1)` survives
+     * htmlspecialchars intact and still runs on click. `link_type = 'external'` is the one
+     * branch whose value is a free-text URL, and the module's own form offers `http://` and
+     * `https://` only (SideMenuOption::$hrefs), so anything else is outside what the UI can
+     * produce.
+     */
+    function sideMenuHref(array $item): ?string
+    {
+        if (! isset($item['link_type'])) {
+            return '#!';
+        }
+
+        switch ($item['link_type']) {
+            case 'internal':
+                // Unchanged, including the vendored oddity that the ternary's condition is
+                // always true because the concatenation always contains '/'. `url()` returns an
+                // application URL, so there is no scheme to validate.
+                return !empty((env('APP_URL')) . '/' . $item['route']) ? url((env('APP_URL')) . '/' . $item['route']) : '#';
+
+            case 'external':
+                if (! isset($item['route'])) {
+                    return '#';
+                }
+
+                $routeData = json_decode($item['route'], true);
+
+                if (! isset($routeData['href'][0]) || ! isset($routeData['type'][0])) {
+                    return '#';
+                }
+
+                $candidate = (string) $routeData['href'][0] . (string) $routeData['type'][0];
+
+                return sideMenuSafeExternalUrl($candidate);
+
+            case 'hash':
+                // `link` is not a key this array carries -- `getSideMenu()` maps the column to
+                // 'route' -- so this has always resolved to '#'. Left exactly as it was: making
+                // it read 'route' would turn a dead branch into a live one, which is a behaviour
+                // change this security fix has no business making.
+                return '#' . (isset($item['link']) ? $item['link'] : '');
+
+            case 'route':
+                if (empty($item['route'])) {
+                    return '#';
+                }
+
+                if (! \Illuminate\Support\Facades\Route::has($item['route'])) {
+                    return null;
+                }
+
+                return route($item['route']);
+        }
+
+        return '#!';
+    }
+}
+
+if (!function_exists('sideMenuSafeExternalUrl')) {
+    /**
+     * P2-SEC-F5. An http(s) URL, or '#'.
+     *
+     * Deliberately an ALLOWLIST of two schemes rather than a denylist of `javascript:` and
+     * `data:`, because a denylist loses to whitespace and entity tricks
+     * (`java\tscript:`, `JaVaScRiPt:`) that browsers still honour. A protocol-relative `//host`
+     * is also refused: it is not something the module's form can produce, and it silently
+     * inherits the page's scheme.
+     */
+    function sideMenuSafeExternalUrl(string $candidate): string
+    {
+        $scheme = strtolower((string) parse_url(trim($candidate), PHP_URL_SCHEME));
+
+        return in_array($scheme, ['http', 'https'], true) ? $candidate : '#';
+    }
+}
+
 if (!function_exists('generateSideMenu')) {
     function generateSideMenu($menuItems, $parent = null, $level = 0)
     {
@@ -2159,48 +2685,39 @@ if (!function_exists('generateSideMenu')) {
         });
         foreach ($filteredItems as $item) {
             if (isset($item['is_enable']) && $item['is_enable'] == 'on') {
-                if ($item['name'] == 'mobilescreensetting' && env('IS_MOBILE') != 'yes') {
+                if ($item['name'] == 'mobilescreensetting' && config('platform.is_mobile') != 'yes') {
                     continue;
                 }
-                $hasChildren = hasChildren($menuItems, $item['name']);
-                if ($item['parent'] == null) {
-                    $html .= '<li class="dash-item dash-hasmenu">';
-                } else {
-                    $html .= '<li class="dash-item sub-menu-lnk">';
-                }
-                $marginLeft = 10 * $level;
+                /*
+                 * P2-SEC-F4 (module entitlement) and P2-SEC-F5 (output escaping).
+                 *
+                 * RESOLVED BEFORE ANY MARKUP IS EMITTED, and that ordering is load-bearing. The
+                 * first version of this change resolved the href after the opening `<li>` and
+                 * `continue`d on a drop, which left a DANGLING UNCLOSED `<li>` in the sidebar for
+                 * every dropped row -- caught by
+                 * CustomSidebarAuthorizationTest::test_a_row_naming_an_unregistered_route_is_dropped_instead_of_throwing,
+                 * which asserts the whole output is empty rather than merely that the link is
+                 * absent. A `window_type` of `iframe` can also drop a row, so it is resolved here
+                 * too.
+                 *
+                 * `sideMenuHref()` returns null to mean SKIP THIS ROW, which is how module
+                 * entitlement is enforced for a path whose table carries no `module` column: an
+                 * add-on's provider is registered only when `add_on_managers` holds a row for it
+                 * (PackageServiceProvider::loadDynamicAddons), so an inactive module registers no
+                 * routes and `Route::has()` answers false for every row pointing at one.
+                 *
+                 * That also closes an availability defect, not only a disclosure one. The old
+                 * line was `route($item['route'])`, and `route()` THROWS RouteNotFoundException
+                 * for a name that is not registered -- from inside the sidebar, which every admin
+                 * page renders. Live production data holds rows naming `preorders.index`
+                 * (PreOrder) and `additionalcustomfields.index` (AdditionalCustomFields), so
+                 * turning either module off served HTTP 500 on every admin screen. Those row
+                 * values were read from the database dump committed to `main` -- the P1-SEC-40 /
+                 * #120 incident artifact, deliberately absent from this branch -- so the claim is
+                 * recorded here rather than resting on a file this branch can point at.
+                 */
+                $href = sideMenuHref($item);
 
-                $href = '#!';
-                if (isset($item['link_type'])) {
-                    switch ($item['link_type']) {
-                        case 'internal':
-                            $href = !empty((env('APP_URL')) . '/' . $item['route']) ? url((env('APP_URL')) . '/' . $item['route']) : '#';
-                            break;
-
-                        case 'external':
-                            if (isset($item['route'])) {
-                                $routeData = json_decode($item['route'], true);
-
-                                if (isset($routeData['href'][0]) && isset($routeData['type'][0])) {
-                                    $baseUrl = $routeData['href'][0];
-                                    $domain = $routeData['type'][0];
-                                    $href = $baseUrl . $domain;
-                                } else {
-                                    $href = '#';
-                                }
-                            } else {
-                                $href = '#';
-                            }
-                            break;
-
-                        case 'hash':
-                            $href = '#' . (isset($item['link']) ? $item['link'] : '');
-                            break;
-                        case 'route':
-                            $href = !empty($item['route']) ? route($item['route']) : '#';
-                            break;
-                    }
-                }
                 $target = '';
                 if (isset($item['window_type'])) {
                     switch ($item['window_type']) {
@@ -2213,16 +2730,91 @@ if (!function_exists('generateSideMenu')) {
                             break;
 
                         case 'iframe':
+                            /*
+                             * P2-SEC-F5, SECOND PASS. This branch used to run AFTER
+                             * `sideMenuHref()` and OVERWRITE its answer, which quietly undid
+                             * both controls for an iframe row: a row naming an unregistered
+                             * route was resurrected instead of dropped, and an `external` row's
+                             * scheme never reached `sideMenuSafeExternalUrl()`. Found by the
+                             * independent tenant/authz review of the first commit.
+                             *
+                             * `$href === null` is therefore honoured FIRST -- a row the
+                             * resolvers already refused stays refused, whatever its
+                             * `window_type`. Only then is the wrapper substituted, and only if
+                             * the wrapper route itself exists.
+                             *
+                             * The wrapper page embeds the row's own link as the frame `src`
+                             * (SidebarCustomization's super-admin/iframe.blade.php), so the
+                             * allowlist has to hold for the EMBEDDED url too, not just for the
+                             * wrapper uri. An iframe row whose link is not http(s) is dropped.
+                             */
+                            if ($href === null) {
+                                break;
+                            }
+
+                            if (! \Illuminate\Support\Facades\Route::has('sidemenubuilder.iframe')
+                                || sideMenuSafeExternalUrl((string) $href) === '#') {
+                                $href = null;
+                                break;
+                            }
+
                             $href = route("sidemenubuilder.iframe", $item['id']);
                             break;
                     }
                 }
-                $html .= '<a href="' . $href . '" class="dash-link" ' . $target . '>';
+
+                if ($href === null) {
+                    continue;
+                }
+
+                /*
+                 * P2-SEC-F4, THIRD PASS: RENDER THE CHILDREN FIRST, THEN DECIDE ON THE ARROW.
+                 *
+                 * This was `hasChildren($menuItems, $item['name'])`, which asks whether any ROW
+                 * names this one as its parent -- a question answered before the per-row drops
+                 * in this same loop. So a parent whose every child was dropped by the
+                 * route-existence check still rendered a `.dash-arrow` and an empty
+                 * `<ul class="dash-submenu">` holding nothing but the two collapse buttons. The
+                 * concrete case is the one this change's own docblock cites: with PreOrder
+                 * uninstalled, the `preorder` parent has `route => ''` (so it resolves to '#'
+                 * and is kept) while both its children are dropped.
+                 *
+                 * That is the empty-submenu-with-an-arrow defect P2-01-10 removed from the
+                 * listener-fed path, reintroduced here by the drop. Found by the independent
+                 * review, not by the tests -- so a test for it is added in the same change.
+                 *
+                 * Recursing first costs nothing: the recursion ran anyway whenever there WERE
+                 * children, and it is skipped entirely when `hasChildren` says there are none.
+                 */
+                $childHtml = hasChildren($menuItems, $item['name'])
+                    ? generateSideMenu($menuItems, $item['name'], $level + 1)
+                    : '';
+
+                $hasChildren = $childHtml !== '';
+
                 if ($item['parent'] == null) {
-                    $html .= ' <span class="dash-micon"><i class="ti ti-' . $item['icon'] . '"></i></span>
+                    $html .= '<li class="dash-item dash-hasmenu">';
+                } else {
+                    $html .= '<li class="dash-item sub-menu-lnk">';
+                }
+                $marginLeft = 10 * $level;
+
+                $html .= '<a href="' . e($href) . '" class="dash-link" ' . $target . '>';
+                if ($item['parent'] == null) {
+                    $html .= ' <span class="dash-micon"><i class="ti ti-' . sideMenuIconSlug($item['icon'] ?? '') . '"></i></span>
                     <span class="dash-mtext">';
                 }
-                $html .= __($item['title']) . '</span>';
+                /*
+                 * P2-SEC-F5. `__($item['title'])` was interpolated raw. `title` is a
+                 * database-sourced, operator- and merchant-editable string
+                 * (SidebarCustomization's SideMenuController and Company\SettingsController both
+                 * write it), and `__()` returns its INPUT unchanged when the key misses -- which
+                 * it does for every custom title -- so the row's bytes reached the document. The
+                 * platform-level rows are authored by the operator and render inside every
+                 * merchant's admin chrome, which is the stored-XSS shape. `generateMenu()`, the
+                 * listener-fed sibling this phase converted, already escapes.
+                 */
+                $html .= e(__($item['title'])) . '</span>';
                 $buttonHtml = '<div class="d-flex justify-content-between"><div><button type="button" class="collepse-menu-buttons collepse-btn-back btn btn-sm btn-secondary"><i class="ti ti-arrow-back"></i></button></div>
                 <div><button type="button" class="collepse-menu-buttons collepse-btn-close btn btn-sm btn-danger"><i class="ti ti-x"></i></button></div></div>';
 
@@ -2230,7 +2822,7 @@ if (!function_exists('generateSideMenu')) {
                     $html .= ' </a><span class="dash-arrow"> <i data-feather="chevron-right"></i> </span>';
                     $html .= '<ul class="dash-submenu sub-menu-dropdown">';
                     $html .= $buttonHtml;
-                    $html .= generateSideMenu($menuItems, $item['name'], $level + 1);
+                    $html .= $childHtml;
                     $html .= '</ul>';
                 } else {
                     $html .= '</a>';
@@ -2270,12 +2862,20 @@ if (! function_exists('buildDataTableColumn')) {
     {
         $columns = [];
 
-        // Always add the ID column (hidden)
+        /*
+         * Always add the ID column (hidden) -- and LOCKED out of the column-visibility menu
+         * (P2-03-1). It is hidden on purpose: it is the raw primary key, it is not what a
+         * merchant identifies a record by (that is `product_order_id` on an order, the name on
+         * a product), and the menu offered it as "Id" with no indication of what un-hiding it
+         * would put on screen. Measured: before this, the menu listed eleven entries and the
+         * first was that column.
+         */
         $columns[] = Column::make('id')
             ->searchable(false)
             ->visible(false)
             ->exportable(false)
-            ->printable(false);
+            ->printable(false)
+            ->addClass('ss-col-locked');
 
         $deleteColumn = bulkDeleteCloneCheckboxColumn();
         if ($deleteColumn) {
@@ -2331,11 +2931,32 @@ if (! function_exists('buildDataTableColumn')) {
 
         // Add the action column
         if ($action) {
+            /*
+             * TWO CLASSES, TWO DIFFERENT JOBS -- and they are deliberately not one class.
+             *
+             * `ss-col-locked` KEEPS THIS COLUMN OUT OF THE COLUMN-VISIBILITY MENU. The menu's
+             * `columns` selector is `:not(.ss-col-locked)`. A merchant who hid the actions
+             * column would be left unable to act on any row, with the control that would bring
+             * it back sitting in a menu they have no reason to reopen.
+             *
+             * `ss-col-pinned` STICKS IT TO THE TRAILING EDGE of the scroll (P2-03-1), so Edit
+             * and Delete are reachable without dragging the table sideways. Measured at 390px:
+             * 848 of the Arabic table's 1168 pixels are off-screen, 930 of the English table's
+             * 1250 -- and with this class removed, a real click on Edit at the table's starting
+             * scroll position navigated nowhere in all eight configurations, 1440px included.
+             * `inset-inline-end` means the trailing edge is the right in English and the left
+             * in Arabic with no second rule; the styling, and why the pinned cell's background
+             * is a custom property carrying a copy of a vendored colour rather than a design
+             * token, are in `public/css/store-syria-ds.css`.
+             *
+             * The hidden `id` column above is locked but NOT pinned: it is never rendered, so
+             * pinning it would stick nothing to anything.
+             */
             $columns[] = Column::computed('action')
                 ->exportable(false)
                 ->printable(false)
                 ->width(60)
-                ->title(__('Action'))->addClass('text-center');
+                ->title(__('Action'))->addClass('text-center ss-col-locked ss-col-pinned');
         }
 
         return $columns;
@@ -2343,6 +2964,75 @@ if (! function_exists('buildDataTableColumn')) {
 }
 
 if (! function_exists('buildDataTable')) {
+    /**
+     * P2-06-11 -- what a merchant sees when a list has nothing in it.
+     *
+     * THE GAP WAS MEASURED IN A BROWSER, not inferred. `buildDataTable()` already passed a
+     * `language` array -- paginate, lengthMenu, searchPlaceholder, search, info -- and omitted
+     * exactly the two keys that matter when a list is empty, so every one of the 67 tables fell
+     * back to DataTables' own defaults. Read off a live page, those were identical in both
+     * languages:
+     *
+     *     EN  emptyTable "No data available in table"  zeroRecords "No matching records found"
+     *     AR  emptyTable "No data available in table"  zeroRecords "No matching records found"
+     *
+     * Two defects in one omission: the message says only that there is nothing, and on a
+     * bilingual admin it was never translated.
+     *
+     * THE TWO CASES ARE DELIBERATELY DIFFERENT MESSAGES, and that is the whole design rather than
+     * a nicety. `emptyTable` means the table holds nothing at all; `zeroRecords` means a search or
+     * filter matched nothing. Telling a merchant with nine hundred products and a filter applied
+     * to "add your first product" is worse than saying nothing -- it reads as "your catalogue is
+     * gone". So the filtered message points at the way OUT, and a test forbids it from ever
+     * suggesting a record be created.
+     *
+     * BOTH KEYS MUST BE SET, AND THE REASON IS A FALLBACK IN DATATABLES CORE. Setting only
+     * `zeroRecords` does not leave `emptyTable` at the English default -- core copies one onto
+     * the other for backwards compatibility:
+     *
+     *     if (!a.sEmptyTable && d && "No data available in table" === b.sEmptyTable)
+     *         M(a, a, "sZeroRecords", "sEmptyTable")
+     *
+     * So an empty list would show the FILTERED message -- "Nothing matches your search or
+     * filters. Clear them to see everything again." -- to a merchant who has no filters and no
+     * records, which is the confusing inverse of the defect this fixes. Measured by removing the
+     * key and reading the rendered cell. Which key renders was also measured rather than assumed,
+     * with sentinel strings: `/coupon` (0 rows total) renders `emptyTable`, and `/product` with a
+     * non-matching search (51 total, 0 shown) renders `zeroRecords`.
+     *
+     * KEYED ON THE TABLE ID because `buildDataTable()` is generic and knows nothing else about
+     * the screen. A mapped list is named; anything unmapped still gets a usable message rather
+     * than the English default, which is the property that matters for the 60-odd tables not
+     * listed here (including the vendored ones, which this reaches without touching
+     * `packages/workdo/`).
+     *
+     * @return array{emptyTable: string, zeroRecords: string}
+     */
+    function dataTableEmptyState(string $tableId): array
+    {
+        $known = [
+            'product-table'  => [__('No products yet'), __('Add your first product with the button above.')],
+            'order-table'    => [__('No orders yet'), __('Orders appear here as soon as a customer buys something.')],
+            'customer-table' => [__('No customers yet'), __('Customers appear here once someone registers or places an order.')],
+            'category-table' => [__('No categories yet'), __('Add a category to group your products.')],
+            'coupon-table'   => [__('No coupons yet'), __('Create a coupon to offer a discount.')],
+        ];
+
+        [$title, $hint] = $known[$tableId] ?? [
+            __('Nothing here yet'),
+            __('Items appear here once you add them.'),
+        ];
+
+        /* ONE MESSAGE FOR THE FILTERED CASE, whatever the list, because the cause is the filter
+           rather than the screen -- and because the way out is the same everywhere: the filter
+           bar's own Clear control from P2-06-5. */
+        return [
+            'emptyTable' => $title . ' ' . $hint,
+            'zeroRecords' => __('Nothing matches your search or filters.') . ' '
+                . __('Clear them to see everything again.'),
+        ];
+    }
+
     function buildDataTable(string $tableId, $builder, array $columns)
     {
        $dataTable = $builder
@@ -2358,15 +3048,73 @@ if (! function_exists('buildDataTable')) {
                 'lengthMenu' => "_MENU_" . __('Entries Per Page'),
                 "searchPlaceholder" => __('Search...'),
                 "search" => "",
-                "info" => __("Showing")." _START_ ".__("to"). " _END_ ".__("of")." _TOTAL_ ".__("entries")
+                "info" => __("Showing")." _START_ ".__("to"). " _END_ ".__("of")." _TOTAL_ ".__("entries"),
+                // P2-06-11. Without these two, every table showed DataTables' English defaults --
+                // in Arabic too. See dataTableEmptyState() for why they are different messages.
+                "emptyTable" => dataTableEmptyState($tableId)['emptyTable'],
+                "zeroRecords" => dataTableEmptyState($tableId)['zeroRecords'],
             ])
             ->initComplete('function() {
                         var table = this;
+
+                        /* P2-06-6. THE KEYBOARD PATH FOR COLUMN REORDER, wired here because
+                           ColReorder 1.5.4 has none: measured, it binds `mousedown` and
+                           `touchstart` and contains zero occurrences of `keydown`, `tabindex`
+                           or `aria-`. Pointer-only is a WCAG 2.1.1 failure for the function
+                           itself, and 2.5.7 for requiring a drag with no alternative.
+
+                           The extension is vendored UNMODIFIED, with its licence, so the
+                           keyboard path is built on its own `colReorder.move()` API instead --
+                           one mover, two ways to reach it, and an upgrade stays a file swap.
+                           Guarded so a page that loads the design-system script without
+                           ColReorder (the theme and guest layouts) does not throw. */
+                        if (window.StoreSyriaDS && window.StoreSyriaDS.wireColumnReorderKeys) {
+                            window.StoreSyriaDS.wireColumnReorderKeys(table.api().table().node());
+                        }
 
                         var searchInput = $(\'#\'+table.api().table().container().id+\' label input[type="search"]\');
                         searchInput.removeClass(\'form-control form-control-sm\');
                         searchInput.addClass(\'dataTable-input\');
                         var select = $(table.api().table().container()).find(".dataTables_length select").removeClass(\'custom-select custom-select-sm form-control form-control-sm\').addClass(\'dataTable-selector\');
+
+                        /* P2-03-1. THE COLUMN-VISIBILITY BUTTON\'S ACCESSIBLE NAME.
+                           Buttons 1.3.1 renders it as an <a> wrapping a span and an
+                           `aria-hidden` icon, so without this its only name is `title` --
+                           which is the last-resort name source and the one this codebase has
+                           already been bitten by (F38/F39: Bootstrap\'s tooltip moves `title`
+                           into `data-bs-original-title` and blanks it). This button carries no
+                           `data-bs-toggle="tooltip"`, so its title survives today; an explicit
+                           `aria-label` means it does not have to.
+                           `aria-haspopup` says it opens a menu. `role="button"` is deliberately
+                           NOT set: it would make a screen reader promise Space activates the
+                           control, and Space does not fire click on an anchor. */
+                        $(table.api().table().container())
+                            .find(\'.ss-colvis\')
+                            .attr(\'aria-label\', function () {
+                                /* RETURNING undefined LEAVES THE ATTRIBUTE UNSET, which is what
+                                   a missing title should do. Returning an empty string would
+                                   set `aria-label=""`, and an explicitly empty label is WORSE
+                                   than none: it overrides the `title` and the text content a
+                                   screen reader would otherwise have fallen back to, turning a
+                                   weakly-named control into an unnamed one. */
+                                return $(this).attr(\'title\') || undefined;
+                            })
+                            .attr(\'aria-haspopup\', \'true\');
+
+                        /* P2-03-10. Apply the stored density, then name the toggle off its own
+                           `title` -- the same route the column button takes, and for the same
+                           measured reason (Buttons 1.3.1 drops `attr`). `aria-pressed` is set by
+                           `applyDensity` inside init, so the control is never announced as a
+                           toggle without a state. */
+                        if (window.StoreSyriaDS && window.StoreSyriaDS.tableDensity) {
+                            window.StoreSyriaDS.tableDensity.init(table.api());
+                        }
+
+                        $(table.api().table().container())
+                            .find(\'.ss-density\')
+                            .attr(\'aria-label\', function () {
+                                return $(this).attr(\'title\') || undefined;
+                            });
                     }');
 
         $exportButtonConfig = [];
@@ -2376,9 +3124,88 @@ if (! function_exists('buildDataTable')) {
             $bulkdeleteButtonConfig = bulkDeleteForm($type, $tableId);
         }
 
+        /*
+         * P2-03-1 / WS G2 -- THE COLUMN-VISIBILITY CONTROL, WHICH WAS LOADED AND UNUSED.
+         *
+         * `public/vendor/datatables/buttons.colVis.min.js` is already on every page that carries
+         * a DataTable -- measured in the running application: `$.fn.dataTable.ext.buttons.colvis`
+         * resolves, and the only buttons rendered were Reset and Reload. So the merchant had an
+         * eleven-column product table, no way to narrow it, and the extension that does exactly
+         * that sitting idle in the bundle.
+         *
+         * WHY IT BELONGS HERE. This helper builds all 68 DataTables (39 host, 29 vendored), so
+         * one addition reaches every merchant table and **no `packages/workdo/` file is touched**
+         * -- the same leverage P2-06-4 used for `stateSave`. And `stateSave` is what makes this a
+         * PREFERENCE rather than a per-visit toggle: the choice is already persisted per table,
+         * per device, with no expiry. Workstream G asks for "visible columns ... where
+         * supported"; this is the half that was missing.
+         *
+         * `columns: ':not(.ss-col-locked)'` keeps the actions column out of the menu: a merchant
+         * who hides it cannot act on any row and has no obvious way back.
+         *
+         * AND IT DOES NOT TOUCH EXPORT, which is the obvious worry and was checked rather than
+         * assumed. A DataTables export button defaults to the VISIBLE columns, so a hidden
+         * column would silently shrink the file -- but there is no DataTables export here:
+         * `$exportButtonConfig` is empty, and the Export control on these screens is the
+         * ImportExport module's own anchor to the server-side `product.export` route, which
+         * reads the model, not the table. Hiding a column changes what the merchant sees and
+         * nothing else.
+         */
+        $colvisButtonConfig = [
+            'extend' => 'colvis',
+            'text' => '<i class="ti ti-columns" aria-hidden="true"></i>',
+            'titleAttr' => __('Choose columns'),
+            'className' => 'btn btn-light-primary ss-colvis',
+            'columns' => ':not(.ss-col-locked)',
+            'collectionLayout' => 'fixed two-column ss-colvis-menu',
+            /*
+             * NO `attr` KEY HERE, and the reason is measured rather than remembered. This
+             * application bundles DataTables Buttons **1.3.1**, which accepts an `attr` config
+             * and silently drops it: added and rendered, the button came back with `aria-label`
+             * and `role` both null. (Later Buttons releases do honour it -- but the version
+             * here is the one that decides, and that is the one that was checked.) A config
+             * that looks like it sets an accessible name and does not is worse than none, so
+             * the name is set in `initComplete` instead, where it can be read off the DOM.
+             */
+        ];
+
+        /*
+         * P2-03-10 -- ROW DENSITY, the half of P2-03-1 that was not done.
+         *
+         * Here for the same reason the column menu is: this helper builds all 68 merchant tables,
+         * so one button reaches every one of them and no `packages/workdo/` file is touched to
+         * reach the vendored 29.
+         *
+         * A TOGGLE, NOT A MENU. There are exactly two densities, so a menu would be a list of two
+         * with an extra click and a popup to manage. The pressed state is carried by
+         * `aria-pressed`, which `StoreSyriaDS.tableDensity` keeps in step with the attribute it
+         * sets -- and the stylesheet draws it with an inset ring rather than a colour, so it reads
+         * as pressed against a merchant's own brand colour and under forced colours.
+         *
+         * `action` RATHER THAN A CLICK HANDLER BOUND LATER. Buttons owns this node and re-renders
+         * it on a redraw; a jQuery handler bound in `initComplete` would be lost the first time
+         * the table paged. The action is Buttons' own seam and survives that.
+         *
+         * NO `attr` KEY, and the reason is the measured one from P2-03-1: Buttons 1.3.1 accepts
+         * `attr` and silently drops it, so the accessible name is set in `initComplete` where it
+         * can be read back off the DOM.
+         */
+        $densityButtonConfig = [
+            'text' => '<i class="ti ti-line-height" aria-hidden="true"></i>',
+            'titleAttr' => __('Row density'),
+            'className' => 'btn btn-light-primary ss-density',
+            'action' => 'function (e, dt) {
+                if (window.StoreSyriaDS && window.StoreSyriaDS.tableDensity) {
+                    window.StoreSyriaDS.tableDensity.toggle(dt);
+                }
+            }',
+        ];
+
         $buttonsConfig = array_merge([
             $exportButtonConfig,
             $bulkdeleteButtonConfig,
+            $colvisButtonConfig,
+            $densityButtonConfig,
             [
                 'text' => '<i class="ti ti-arrow-back-up" data-bs-toggle="tooltip" title="'.__("Reset").'" data-bs-original-title="'.__("Reset").'"></i>',
                 'extend' => 'reset',
@@ -2391,7 +3218,122 @@ if (! function_exists('buildDataTable')) {
             ],
         ]);
 
+        /*
+         * P2-06-4 -- TABLE PREFERENCES, ON EVERY MERCHANT TABLE AT ONCE.
+         *
+         * This helper is what all 68 DataTables in the application are built by (39 host, 29 in
+         * vendored modules), so the preference lives here rather than being pasted into each one
+         * -- and no `packages/workdo/` file is touched to reach the vendored 29.
+         *
+         * `stateDuration => 0` is localStorage with NO expiry. The DataTables default is 7200,
+         * which expires the merchant's choice after two hours; `-1` would be sessionStorage,
+         * which loses it when the tab closes. Neither is a preference.
+         *
+         * AND THE SAVED STATE IS SANITISED BOTH WAYS. `stateSaveParams` on the way out,
+         * `stateLoadParams` on the way in -- the second is not redundant: a state written by an
+         * earlier build is already sitting in localStorage, and honouring its search term would
+         * be exactly the defect the sanitiser exists to prevent. What it strips is the search
+         * term and the page number; what survives is the row count, the sort and the column
+         * visibility. The rule itself is `StoreSyriaDS.sanitizeTableState` in
+         * `public/js/store-syria-ds.js`, which is where it is explained and tested.
+         *
+         * GUARDED, because this helper also builds tables on screens outside the admin layout
+         * (the theme and guest layouts do not load the design-system script). Without the guard
+         * those pages would throw on every state save, which DataTables does not catch.
+         */
+        $sanitizeState = 'function (settings, data) {
+            if (window.StoreSyriaDS && window.StoreSyriaDS.sanitizeTableState) {
+                window.StoreSyriaDS.sanitizeTableState(data);
+            }
+        }';
+
+        /*
+         * P2-03-10. Saving writes the live density onto the object DataTables is about to store,
+         * so that leg is the sanitiser PLUS one call. Restoring is NOT the mirror of it and must
+         * not be put on `stateLoadParams`.
+         *
+         * WHY `stateLoaded` AND NOT `stateLoadParams`, read out of the shipped
+         * `public/vendor/datatables/datatables.min.js` rather than assumed. The load path is:
+         *
+         *     g = A(a,"aoStateLoadParams","stateLoadParams",[a,b]);
+         *     if (-1===f.inArray(!1,g) && (g=a.iStateDuration,
+         *         !(0<g && b.time < +new Date-1E3*g || b.columns && h.length !== b.columns.length)))
+         *            { ...apply...; A(a,"aoStateLoaded","stateLoaded",[a,b]); }
+         *
+         * `stateLoadParams` fires BEFORE both acceptance checks, so stashing there restores a
+         * density out of state DataTables has decided to throw away -- a state whose column count
+         * no longer matches (the guard that stops a module being enabled applying the wrong
+         * column's visibility), or an expired one if `stateDuration` ever stops being 0. The
+         * column set and the page length would expire and the density would not.
+         *
+         * `stateLoaded` runs only on the accepted branch, and still before `initComplete`, which
+         * is where the value is applied. Found by independent review; the first version of this
+         * block claimed the two legs "are NOT symmetrical", and they only had to diverge because
+         * the restore was on the wrong hook. `stateLoadParams` goes back to the plain sanitiser.
+         */
+        $stateSaveParams = 'function (settings, data) {
+            if (window.StoreSyriaDS && window.StoreSyriaDS.sanitizeTableState) {
+                window.StoreSyriaDS.sanitizeTableState(data);
+            }
+            if (window.StoreSyriaDS && window.StoreSyriaDS.tableDensity) {
+                window.StoreSyriaDS.tableDensity.save(settings, data);
+            }
+        }';
+
+        $stateLoaded = 'function (settings, data) {
+            if (window.StoreSyriaDS && window.StoreSyriaDS.tableDensity) {
+                window.StoreSyriaDS.tableDensity.load(settings, data);
+            }
+        }';
+
+        /*
+         * P2-06-6 — COLUMN ORDER AS A SAVED PREFERENCE, with the columns that must not move
+         * held in place.
+         *
+         * IT RIDES `stateSave`, which is the whole reason this is a small change: ColReorder
+         * writes its order through DataTables' own `_fnStateSave`, so the preference persists in
+         * the mechanism P2-06-4 already built and inherits its guards -- including the
+         * `columns.length` check that makes DataTables DISCARD a saved state when the column set
+         * changes, so enabling a module cannot leave a table applying the wrong column's
+         * position. Nothing is added to `sanitizeTableState`: column order is presentation, the
+         * same class as visibility and sort, and carries no tenant data.
+         *
+         * THE LOCKED COLUMNS ARE HELD BY INDEX, and the counts come from how
+         * `buildDataTableColumns()` assembles them rather than from a guess:
+         *
+         *   index 0         the hidden `id` column, always first;
+         *   index 1         the bulk-delete checkbox, when the screen has one;
+         *   ...             the data columns;
+         *   LAST            `action`, always appended last.
+         *
+         * `iFixedColumnsRight => 1` is the one that matters. The action column is
+         * `ss-col-pinned`, which is `position: sticky; inset-inline-end: 0` -- it is pinned to
+         * the TRAILING EDGE. Dragged anywhere else it would still stick to that edge while
+         * sitting in the middle of the table, overlapping whatever scrolled under it, and the
+         * Edit and Delete controls that P2-03-1 measured as unreachable without the pin would
+         * be unreachable again. Holding it is not a nicety; it is the condition under which
+         * reordering is safe at all.
+         *
+         * `iFixedColumnsLeft` holds the hidden id (and the checkbox where there is one) for a
+         * duller reason: a hidden column has no header to drag, so letting it be a reorder
+         * target only creates index positions nothing can occupy.
+         *
+         * COUNTED FROM THE INDEX, NOT FROM THE SCREEN, which is why one value serves both
+         * directions: ColReorder's "right" is the END of the column array, and the action column
+         * is the last element whether the table paints left-to-right or right-to-left.
+         */
+        $fixedLeft = 1 + (bulkDeleteCloneCheckboxColumn() ? 1 : 0);
+
         $dataTable->parameters([
+            'colReorder' => [
+                'iFixedColumnsLeft' => $fixedLeft,
+                'iFixedColumnsRight' => 1,
+            ],
+            'stateSave' => true,
+            'stateDuration' => 0,
+            'stateSaveParams' => $stateSaveParams,
+            'stateLoadParams' => $sanitizeState,
+            'stateLoaded' => $stateLoaded,
             "dom" =>  "
         <'dataTable-top'<'dataTable-dropdown page-dropdown'l><'dataTable-botton table-btn dataTable-search tb-search  d-flex justify-content-end gap-1'Bf>>
         <'dataTable-container'<'col-sm-12'tr>>
@@ -2670,8 +3612,26 @@ if (! function_exists('buildCategoryTree')) {
         foreach ($categories as $category) {
             if ($category->parent_id == $parentId && ! isset($seen[$category->id])) {
                 $tree[] = [
+                    /*
+                     * P2-05-4. `$prefix` is deliberate markup -- `&nbsp;` per level, which is how
+                     * the parent-category select shows hierarchy -- and `$category->name` is
+                     * merchant input. The two were concatenated unescaped into a value that EIGHT
+                     * views print with `{!! !!}`: category/{create,edit}, testimonial/{create,edit},
+                     * product/{create,edit}, and product-review/{create,edit} in the vendored
+                     * ProductReview package. A category named `<img src=x onerror=...>` therefore
+                     * executed in every one of those forms, for every user of the store who opened
+                     * one -- the owner included. Same class as F98, reachable by anyone holding
+                     * `Create Product Category`.
+                     *
+                     * Escaped HERE rather than at the eight call sites because this is the only
+                     * place the two kinds of string are still distinguishable: escaping at the
+                     * point of printing would turn the indent into a literal "&nbsp;". It is also
+                     * the only fix that reaches the two vendored views, which must not be edited.
+                     * Checked before changing it: no consumer prints this value with `{{ }}` and
+                     * none re-escapes it, so none now double-encodes.
+                     */
                     'id' => $category->id,
-                    'name' => $prefix.$category->name,
+                    'name' => $prefix.e($category->name),
                 ];
                 $tree = array_merge($tree, buildCategoryTree($categories, $category->id, $prefix.'&nbsp;&nbsp;&nbsp;', $seen + [$category->id => true]));
             }

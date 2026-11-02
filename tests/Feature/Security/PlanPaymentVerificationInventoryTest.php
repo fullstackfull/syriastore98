@@ -126,15 +126,27 @@ class PlanPaymentVerificationInventoryTest extends TestCase
             // never looks at the answer, so it is on the disabled map instead. The outbound
             // call is not the property; requiring its result is.
             //
-            // A RESIDUAL WEAKNESS IS RECORDED, NOT HIDDEN. Flutterwave and Paystack gate on the
-            // verify call's envelope (`$response['status'] == 'success'`, `$result['status'] ==
-            // true`) rather than on the transaction state that the same response carries --
-            // Paystack's own handler reads `$result['data']['status']` as the payment status two
-            // lines later. So a reference from the caller's own FAILED or ABANDONED checkout may
-            // satisfy these gates. That is a narrowing of an existing verification, not a free
-            // activation of the kind the eleven had, and tightening a gate on a live integration
-            // needs the provider's documented response contract -- which this environment cannot
-            // reach. Left as-is deliberately; see the report and config/payments.php.
+            // A RESIDUAL WEAKNESS IS RECORDED, NOT HIDDEN -- AND THIS NOTE WAS STALE UNTIL
+            // 2026-10-31. It used to name Flutterwave AND Paystack together as gating on the
+            // verify call's envelope rather than on the transaction state the same response
+            // carries. PAYSTACK NO LONGER DOES: D-12/F87 rebuilt its gate as
+            // `paystackVerificationOutcome()` (PaystackPaymentController:103-124), which requires
+            // `$envelopeOk && $state === 'success'` reading `data.status`, a `hash_equals` match on
+            // `data.reference`, a captured-amount equality in minor units and a currency match
+            // (:441-454), plus a replay refusal across every shipped spelling of `payment_type`.
+            // Leaving Paystack's name here would have let the next reader think two handlers still
+            // shared a weakness that one of them had fixed.
+            //
+            // FLUTTERWAVE IS THE ONE THAT REMAINS, and it is now the only envelope-gated plan
+            // handler in the codebase: `FlutterwaveController:168` is
+            // `isset($response['status']) && $response['status'] == 'success'` -- the verify
+            // CALL's envelope -- while the transaction object it dereferences two lines later for
+            // `$paydata['amount']` (:206) and `$paydata['txid']` (:208) is never asked for its own
+            // `status` or `chargecode`. So a reference from the caller's own FAILED or ABANDONED
+            // checkout may satisfy the gate. Recorded as F231. Tightening it needs the provider's
+            // documented response contract, which this environment cannot reach -- the field
+            // names are the part that cannot be guessed safely, and guessing one that is absent
+            // would refuse every legitimate Flutterwave purchase.
             // -------------------------------------------------------------------------------
             'AuthorizeNet: SDK authCapture'      => ['AuthorizeNetPaymnetController', 'getResultCode() == "Ok"'],
             'Braintree: SDK sale'                => ['BraintreeController', '$gateway->transaction()->sale('],

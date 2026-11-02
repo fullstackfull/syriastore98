@@ -1,37 +1,43 @@
-<!--Email Notification Setting-->
-<div id="email-notification-settings" class="card">
+{{--
+    Email notifications, on the design system.
+
+    THE SAME EMPTY-LABEL PATTERN AS THE WHATSAPP ROWS, once per email template: the visible name
+    in a `<label>` with no `for`, beside a checkbox whose own associated label was empty. So
+    every toggle on the screen — one per template, which is a dozen or more on a real store —
+    had its name on screen and nowhere assistive technology would find it.
+
+    The toggles post under the template's numeric id, which is data rather than contract, so this
+    panel is not in `SettingsPanelContractTest`.
+--}}
+<div id="email-notification-settings" class="ss-card">
     {{ Form::model($setting, ['route' => ['update.email.statue'], 'method' => 'post']) }}
     @csrf
-    <div class="col-md-12">
-        <div class="card-header">
-            <div class="row">
-                <div class="col-lg-8 col-md-8 col-sm-8">
-                    <h5>{{ __('Email Notification Settings') }}</h5>
-                </div>
-            </div>
-        </div>
 
-        <div class="card-body">
+    <div class="ss-card__header">
+        <div class="ss-page-header__text">
+            <h2 class="ss-card__title">{{ __('Email Notification Settings') }}</h2>
+        </div>
+    </div>
+
+    <div class="ss-card__body">
+        <fieldset class="ss-field">
+            <legend class="ss-label">{{ __('Send an email when') }}</legend>
             <div class="row">
                 @foreach ($emailTemplates as $EmailTemplate)
-                <div class="col-lg-4 col-md-6 col-sm-6 form-group">
-                    <div class="list-group">
-                        <div class="list-group-item form-switch form-switch-right">
-                            <label class="form-label mb-0 ms-3">{{ $EmailTemplate->name }}</label>
-
-                            <input class="form-check-input" name='{{ $EmailTemplate->id }}' id="email_tempalte_{{ $EmailTemplate->template->id }}" type="checkbox" @if($EmailTemplate->template->is_active == 1) checked="checked" @endif type="checkbox" value="1" />
-                            <label class="form-check-label"
-                                for="email_tempalte_{{ $EmailTemplate->template->id }}"></label>
-                        </div>
+                    <div class="col-lg-4 col-md-6">
+                        <x-ss.switch :name="(string) $EmailTemplate->id"
+                                     :id="'email_template_' . $EmailTemplate->template->id"
+                                     value="1"
+                                     :label="$EmailTemplate->name"
+                                     :checked="$EmailTemplate->template->is_active == 1" />
                     </div>
-                </div>
                 @endforeach
             </div>
-        </div>
-        <div class="card-footer d-flex justify-content-end flex-wrap ">
-            <input type="submit" value="{{ __('Save Changes') }}" class="btn btn-print-invoice btn-badge btn-primary">
-        </div>
+        </fieldset>
+    </div>
+
+    <div class="ss-card__footer ss-card__footer--end">
+        <button type="submit" class="ss-btn ss-btn--primary btn-print-invoice">{{ __('Save Changes') }}</button>
     </div>
     {{ Form::close() }}
 </div>
-<!--End Email Notification Setting-->

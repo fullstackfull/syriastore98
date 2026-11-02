@@ -1,0 +1,45 @@
+HEAD_AT_LAUNCH=98d6828c84ba1a38796b9dde2837055de5261bc1
+DIRTY_AT_LAUNCH=0
+#115 /home/user/syriastore98/vendor/phpunit/phpunit/phpunit(104): PHPUnit\TextUI\Application->run()
+#116 {main}
+
+----------------------------------------------------------------------------------
+
+Attempt to read property "slug" on null (View: /home/user/syriastore98/resources/views/partision/header.blade.php) (View: /home/user/syriastore98/resources/views/partision/header.blade.php) (View: /home/user/syriastore98/resources/views/partision/header.blade.php)
+
+  at tests/Feature/ProfileTest.php:77
+     73▕         $response = $this
+     74▕             ->actingAs($user)
+     75▕             ->get('/profile');
+     76▕ 
+  ➜  77▕         $response->assertOk();
+     78▕     }
+     79▕ 
+     80▕     public function test_profile_information_can_be_updated(): void
+     81▕     {
+
+
+  Tests:    2 failed, 17 skipped, 7113 passed (35189 assertions)
+  Duration: 1614.87s
+
+FEATURE_EXIT=1
+KNOWN-OUTCOME GATE
+------------------------------------------------------------------------------
+junit log            : storage/logs/r3-junit.xml
+manifest             : .github/known-test-outcomes.json
+testcases observed   : 7132  (manifest floor 1000)
+failures observed    : 2  (manifest declares 2)
+errors observed      : 0  (always expected: 0)
+skips observed       : 17  (manifest declares 17)
+
+skip reasons parsed  : 17 from r3-teamcity.txt
+
+
+OK: the observed outcome set matches the manifest exactly -- 2 declared failures, 17 declared skips, 0 errors, and nothing undeclared.
+
+This is NOT a statement that the suite is green. It is a statement that the suite is
+failing and skipping exactly the tests the project has recorded, for the reasons it has
+recorded. Read .github/known-test-outcomes.json for what is still owed and to whom.
+ASSERT_EXIT=0
+HEAD_AT_FINISH=98d6828c84ba1a38796b9dde2837055de5261bc1
+DIRTY_AT_FINISH=0

@@ -27,13 +27,27 @@ class ProductAttributeDataTable extends DataTable
                 return view('attributes.action', compact('attribute'));
             })
             ->addColumn('terms', function (ProductAttribute $attribute) {
+                /*
+                 * P2-05-4. The option pills become `ss-chip ss-chip--static` -- theme-aware
+                 * tokens rather than the vendored `bg-light-primary` on a `border-primary`,
+                 * which is the pale-on-pale family P2-04-4 measured below AA. The existing
+                 * htmlspecialchars() stays: this cell is built by concatenation, not by Blade.
+                 *
+                 * The link gains an aria-label naming the ATTRIBUTE. "Configure terms" repeats
+                 * once per row, so a screen-reader user listing the links on this page heard the
+                 * same phrase N times with nothing to tell them apart.
+                 */
                 $termsHtml = '';
                 foreach ($attribute->attributeOptions as $option) {
-                    $termsHtml .= '<span class="badge bg-light-primary p-2 border border-primary rounded-5 mb-2 me-1">'
+                    $termsHtml .= '<span class="ss-chip ss-chip--static">'
                         . htmlspecialchars($option->terms, ENT_QUOTES, 'UTF-8') .
                         '</span>';
                 }
-                $termsHtml .= '<a class="text-primary f-w-600" href="' . route('product-attribute-option.show', [$attribute->id]) . '">' . __('Configure terms') . '</a>';
+
+                $termsHtml .= '<a class="ss-btn ss-btn--ghost ss-btn--sm" href="'
+                    . e(route('product-attribute-option.show', [$attribute->id])) . '" aria-label="'
+                    . e(__('Configure terms of :name', ['name' => $attribute->name])) . '">'
+                    . e(__('Configure terms')) . '</a>';
 
                 return $termsHtml;
             })

@@ -80,9 +80,40 @@ class ApiStoreOwnershipPredicateTest extends SecurityTestCase
     private const SITES_SCOPED_BY_ACTOR_ID = 1;
 
     /** @return array{0:\App\Models\User,1:\App\Models\Store,2:string} merchant, store, token */
+    /**
+     * P2-07-13 CONSEQUENCE, recorded rather than silently absorbed.
+     *
+     * Six `api/admin/*` handlers gained a permission gate on 2026-10-28, and this test's subject
+     * is the STORE PREDICATE rather than permissions: it asks whether the ownership check refuses
+     * the owner. A fixture merchant created by `makeTenant()` holds no Laratrust role at all, so
+     * without these grants the test would start failing for an orthogonal reason and would no
+     * longer be isolating what it was written to isolate.
+     *
+     * A REAL MERCHANT IS UNAFFECTED, which is why this is a fixture change and not a weakening:
+     * the shared global `admin` role carries all of these and is what every merchant is given for
+     * every store they create, and `Utility::addNewData()` tops it up on every web login.
+     * `AdminApiPermissionExposureTest::test_the_merchant_role_really_holds_every_permission_the_dashboard_gates_on`
+     * pins that premise.
+     */
+    private function grantGatedPermissions(\App\Models\User $merchant): void
+    {
+        foreach ([
+            'Manage Order',
+            'Manage Products',
+            'Manage Coupon',
+            'Manage Store Analytics',
+        ] as $permission) {
+            $this->grantPermission(\App\Models\User::find($merchant->id), $permission);
+        }
+    }
+
     private function tenantWithToken(): array
     {
         [$merchant, $store] = $this->makeTenant();
+
+        $this->grantGatedPermissions($merchant);
+
+        $merchant = \App\Models\User::find($merchant->id);
 
         return [$merchant, $store, $merchant->createToken('auth_token')->plainTextToken];
     }
@@ -364,7 +395,21 @@ class ApiStoreOwnershipPredicateTest extends SecurityTestCase
      * cross-tenant negative for this endpoint is in the table below -- an ATTACKER is refused
      * before reaching currency_rates, so that half is measurable today.
      */
-    public function test_the_top_orders_operator_path_is_blocked_behind_gate_f(): void
+    /**
+     * REWRITTEN 2026-11-02, EXACTLY AS THE PREVIOUS VERSION INSTRUCTED.
+     *
+     * It used to assert `500` and that the body contained the string `currency_rates`, with the
+     * message: *"Top_orders no longer dies on the undeclared `currency_rates` table. If GATE F has
+     * opened, re-run this endpoint as a platform operator and assert the real answer."* GATE F
+     * closed, the endpoint answers **200**, and this is that real answer.
+     *
+     * WHY THE OLD SHAPE WAS WEAK, and worth saying rather than quietly replacing. A `500` carrying
+     * a table name proves the request reached a query; it proves nothing about the operator's
+     * ENTITLEMENT to the store it named, which is what this file is about. The endpoint was dead
+     * for every caller, so the operator path and a cross-tenant path were indistinguishable: both
+     * produced the same crash. Asserting the payload is what separates them.
+     */
+    public function test_the_top_orders_operator_path_answers_for_the_named_store(): void
     {
         $admin = $this->makePlatformAdmin();
         $adminToken = $admin->createToken('auth_token')->plainTextToken;
@@ -374,14 +419,34 @@ class ApiStoreOwnershipPredicateTest extends SecurityTestCase
         $response = $this->withHeader('Authorization', 'Bearer ' . $adminToken)
             ->getJson('/api/admin/Top_orders?store_id=' . $store->id);
 
-        $this->assertSame(500, $response->getStatusCode());
-
-        $this->assertStringContainsString(
-            'currency_rates',
-            (string) $response->getContent(),
-            'Top_orders no longer dies on the undeclared `currency_rates` table. If GATE F has '
-            . 'opened, re-run this endpoint as a platform operator and assert the real answer.'
+        $this->assertSame(
+            200,
+            $response->getStatusCode(),
+            'A platform operator must now get a real answer from Top_orders. Body: '
+            . substr((string) $response->getContent(), 0, 300)
         );
+
+        $body = $response->json();
+
+        $this->assertSame(1, $body['status'] ?? null, 'the envelope must report success');
+
+        // THE PART THAT MATTERS: the answer is about the store the operator NAMED, and the
+        // endpoint says which store it answered for. A handler that silently fell back to the
+        // caller's own `current_store` would return a different id here while still answering 200.
+        $this->assertSame(
+            (int) $store->id,
+            (int) ($body['data']['store_id'] ?? 0),
+            'Top_orders answered for a different store than the operator named, so the store_id '
+            . 'parameter is not what selected the data.'
+        );
+
+        $this->assertSame($store->name, $body['data']['store_name'] ?? null);
+
+        // currency_rates is now readable, which is what the old 500 was about. The USD
+        // short-circuit means no rate row is needed for the default currency, and the endpoint
+        // reports the currency it priced with rather than leaving it to be guessed.
+        $this->assertArrayHasKey('currency_code', $body['data'] ?? []);
+        $this->assertArrayHasKey('top_orders', $body['data'] ?? []);
     }
 
     // -----------------------------------------------------------------------------------------

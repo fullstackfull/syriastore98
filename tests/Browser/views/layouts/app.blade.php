@@ -10,7 +10,7 @@
 </head>
 <body class="{{ in_array(app()->getLocale(), ['ar','he']) ? 'rtl' : '' }}">
 <div class="container-fluid py-3">
-  <ol class="breadcrumb">@yield('breadcrumb')</ol>
+  <ol class="ss-breadcrumb">@yield('breadcrumb')</ol>{{-- P2-01-14: the DS class, so this harness renders the items the real screens now emit. Not the <x-ss.breadcrumb> component: this standalone harness has no `dashboard` route for its Home link to resolve. --}}
   @yield('content')
 </div>
 <script src="/js/jquery-3.6.0.min.js"></script>

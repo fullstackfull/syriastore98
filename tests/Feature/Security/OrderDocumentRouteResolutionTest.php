@@ -338,6 +338,12 @@ class OrderDocumentRouteResolutionTest extends TestCase
             'shippinglabel', 'printinglabel', 'invoice_preview', 'order_view', 'order_receipt',
             'customerorder', 'order_refund', 'orderdetails', 'orderDetails', 'customerpayment',
             'order_detail', 'orderDetail',
+            // P2-04-5. Added WITH the handler, not after it. This list is a spelling, and a
+            // census keyed on a spelling misses whatever was not spelled -- four times in this
+            // project already (see the skill's section 7). A new order-document method name
+            // belongs here in the same commit that introduces it, or the census passes
+            // vacuously over it.
+            'order_preview',
         ];
 
         // Reasoned exemptions. Each says WHY, and each reason was VERIFIED by reading the handler

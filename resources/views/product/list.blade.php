@@ -8,7 +8,7 @@ $logo = asset(Storage::url('uploads/profile/'));
 $admin = getAdminAllSetting();
 @endphp
 @section('breadcrumb')
-<li class="breadcrumb-item" aria-current="page">{{ __('Product') }}</li>
+<li aria-current="page" class="ss-breadcrumb__item">{{ __('Product') }}</li>
 @endsection
 
 @section('action-button')

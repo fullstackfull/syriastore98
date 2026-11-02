@@ -10,7 +10,7 @@ use PHPUnit\Framework\TestCase;
  * =============================================================================================
  *
  * .github/scripts/assert-known-test-outcomes.php is what makes the Feature suite a BLOCKING CI
- * gate despite eight accepted failures and seventeen accepted skips. If it is wrong in the
+ * gate despite its accepted failures and skips. If it is wrong in the
  * permissive direction, the project is back to `continue-on-error: true` with extra steps -- a
  * gate-shaped thing that passes whatever happens. So it is exercised here against synthetic
  * JUnit logs with known verdicts, the same way
@@ -30,7 +30,9 @@ use PHPUnit\Framework\TestCase;
  *     separately.
  *
  * It also pins the REAL manifest against the REAL script: the committed
- * .github/known-test-outcomes.json must be valid, must declare exactly 8 failures and 17 skips,
+ * .github/known-test-outcomes.json must be valid, must declare exactly 2 failures and 1 skip
+ * (it was 8 and 17; six failures were FIXED on 2026-10-17 and sixteen GATE F skips were resolved
+ * on 2026-11-02, and the gate requires a resolved entry to be DELETED),
  * and a log built from it must pass. That is what stops the manifest and the checker drifting
  * apart without anything noticing.
  */
@@ -687,24 +689,24 @@ XML);
             'Tests\Feature\ProfileTest::test_profile_page_is_displayed',
         ];
 
+        // GATE F CLOSED ON 2026-11-02, so SIXTEEN of the seventeen entries that used to be in
+        // this list are gone. They are deleted from this list and from the manifest in the same
+        // commit, which is what the gate requires rather than permits: it asserts the declared set
+        // in BOTH directions, so a listed skip that stops skipping fails CI until the entry is
+        // removed. Deleting them is the opposite of rebaselining.
+        //
+        // What closed them: all 15 SCHEMA-01 tables and all 3 columns now have migrations whose
+        // structure was MEASURED from information_schema on a restored copy of the production dump
+        // and recorded in docs/GATE-F-VERIFIED-SCHEMA.md section 2. The seven financial skips
+        // became nine real tests in FinancialSurfaceCoverageTest (22 tests, 120 assertions, 0
+        // skips), and the nine conditional ones now run.
+        //
+        // THE ONE THAT REMAINS IS NOT GATE F. newsletters.user_id is an undeclared COLUMN whose
+        // type was never measured -- the verified-schema document covers the 15 tables and 3
+        // columns and not this one -- so declaring it would be exactly the guess GATE F exists to
+        // forbid. It stays skipped on purpose, and its manifest entry says what closing it takes.
         $expectedSkipIds = [
-            'Tests\Feature\Commerce\FinancialSurfaceCoverageTest::test_a_cross_currency_conversion_is_blocked',
-            'Tests\Feature\Commerce\FinancialSurfaceCoverageTest::test_creating_an_order_financial_record_is_blocked',
-            'Tests\Feature\Commerce\FinancialSurfaceCoverageTest::test_marking_a_financial_record_paid_is_blocked',
-            'Tests\Feature\Commerce\FinancialSurfaceCoverageTest::test_marking_a_financial_record_unpaid_is_blocked',
-            'Tests\Feature\Commerce\FinancialSurfaceCoverageTest::test_converting_a_stores_current_values_is_blocked',
-            'Tests\Feature\Commerce\FinancialSurfaceCoverageTest::test_wallet_and_withdrawal_authorization_is_blocked_and_not_owned_here',
-            'Tests\Feature\Commerce\FinancialSurfaceCoverageTest::test_delivery_earnings_writes_are_blocked',
             'Tests\Feature\Security\CustomerAccountBoundaryTest::test_an_anonymous_visitor_is_not_gated_out_of_newsletter_signup',
-            'Tests\Feature\Security\DeliverySyriaWebhookTest::test_a_valid_token_cannot_move_another_stores_order',
-            'Tests\Feature\Security\FinancePermissionTest::test_a_super_admin_can_approve_a_pending_withdrawal_on_a_fresh_database',
-            'Tests\Feature\Security\WithdrawalAuthorizationTest::test_a_view_only_user_cannot_change_a_withdrawals_state_end_to_end',
-            'Tests\Feature\Tenancy\CrossTenantModelIsolationTest::test_ownership_check_denies_the_other_tenant with data set "finance: wallets"',
-            'Tests\Feature\Tenancy\CrossTenantModelIsolationTest::test_ownership_check_denies_the_other_tenant with data set "finance: wallet ledger"',
-            'Tests\Feature\Tenancy\CrossTenantModelIsolationTest::test_ownership_check_denies_the_other_tenant with data set "finance: withdrawals"',
-            'Tests\Feature\Tenancy\ModelInitializationTest::test_query_actually_executes with data set "StoreWallet"',
-            'Tests\Feature\Tenancy\ModelInitializationTest::test_query_actually_executes with data set "StoreWalletTransaction"',
-            'Tests\Feature\Tenancy\ModelInitializationTest::test_query_actually_executes with data set "StoreWithdrawal"',
         ];
 
         $declaredFailures = array_keys($manifest['expected_failures']);
@@ -721,7 +723,8 @@ XML);
             "The committed manifest's accepted-failure SET is not the recorded one.\n"
             . "  ADDED to the manifest    : " . implode(', ', array_diff($declaredFailures, $expectedFailureIds)) . "\n"
             . "  REMOVED from the manifest: " . implode(', ', array_diff($expectedFailureIds, $declaredFailures)) . "\n"
-            . 'The MEASURED Feature baseline is 2 failures / 0 errors / 17 skips, down from 8: '
+            . 'The MEASURED Feature baseline is 2 failures / 0 errors / 1 skip -- 8 failures and '
+            . '17 skips originally: '
             . 'the six NEW-ADDON-SCHEMA-02 page renders were fixed in '
             . 'app/Providers/PackageServiceProvider.php and their entries deleted, leaving two '
             . 'real defects in app/. If an entry genuinely belongs here now, add it to BOTH this list '
@@ -736,9 +739,10 @@ XML);
             "The committed manifest's accepted-skip SET is not the recorded one.\n"
             . "  ADDED to the manifest    : " . implode(', ', array_diff($declaredSkips, $expectedSkipIds)) . "\n"
             . "  REMOVED from the manifest: " . implode(', ', array_diff($expectedSkipIds, $declaredSkips)) . "\n"
-            . 'All seventeen are blocked on an undeclared table; fifteen are GATE F money tables. '
-            . 'A skipped test is NOT a passed test, and a NEW skip is not something to park here '
-            . 'to get green.'
+            . 'ONE entry remains, blocked on the undeclared COLUMN newsletters.user_id. The '
+            . 'other sixteen were GATE F and were deleted on 2026-11-02 when the fifteen '
+            . 'tables gained measured migrations. A skipped test is NOT a passed test, and a '
+            . 'NEW skip is not something to park here to get green.'
         );
 
         // Every entry must carry its evidence. A bare name in this file would be an accepted

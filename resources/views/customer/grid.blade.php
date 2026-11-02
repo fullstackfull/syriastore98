@@ -5,7 +5,7 @@
 @endsection
 
 @section('breadcrumb')
-<li class="breadcrumb-item" aria-current="page">{{ __('Customer') }}</li>
+<li aria-current="page" class="ss-breadcrumb__item">{{ __('Customer') }}</li>
 @endsection
 
 @section('action-button')
@@ -119,6 +119,7 @@
                         @if ($customer->regiester_date != null)
                             <div class="form-check form-switch">
                                 <input class="form-check-input page-checkbox " id="{{ $customer->id }}"
+                                    aria-label="{{ __('Account status for :name', ['name' => $customer->name]) }}"
                                     type="checkbox" name="page_active" data-onstyle="success"
                                     data-offstyle="danger" data-toggle="toggle" data-on="off"
                                     data-off="on"
@@ -144,7 +145,12 @@
                 var customer_id = $(this).attr('id');
 
                 $.ajax({
-                    type: "GET",
+                    // P2-05-1. POST, not GET -- the SECOND caller of this route.
+                    // The index view was the one somebody was looking at; this grid view calls
+                    // the same route and would have gone on sending a GET. That is the F14
+                    // lesson in this phase's ledger, which is why the callers were censused by
+                    // route NAME across every view rather than fixed where they were noticed.
+                    type: "POST",
                     dataType: "json",
                     url: "{{ route('update.customer.status') }}",
                     data: {
