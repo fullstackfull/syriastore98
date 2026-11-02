@@ -753,6 +753,7 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
     {
         $discriminated = [];
         $foreignNamespace = [];
+        $foreignNamespaceSites = [];
         $notDiscriminated = [];
         $noSuchTable = [];
         $measuredTypes = [];
@@ -828,6 +829,7 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
 
             if ($isTextual) {
                 $foreignNamespace[$table] = count($info['unscoped']);
+                $foreignNamespaceSites[$table] = $info['unscoped'];
             } else {
                 $discriminated[$table] = count($info['unscoped']);
             }
@@ -1014,17 +1016,32 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // THESE STATEMENTS ARE COUNTED, NOT EXCUSED. All thirteen are named below, and the
             // reason each is not a Store Syria cross-tenant exposure is the same reason the
             // `customers` affiliate-code backfill in the list above is not one: the caller is not
-            // a tenant. Every one of the thirteen is inside a SCHEDULED CONSOLE COMMAND, reached
-            // by no HTTP route and by no authenticated principal.
+            // a tenant. Every one of the thirteen is inside a CONSOLE COMMAND, reached by no HTTP
+            // route and by no authenticated principal -- and the assertion below this list proves
+            // that mechanically rather than leaving it to this prose.
+            //
+            // ONE WORD IN THAT SENTENCE WAS WRONG WHEN FIRST WRITTEN, AND IT MATTERED: it said
+            // "SCHEDULED console command". `zid:process-events` IS scheduled
+            // (routes/console.php:9, `->everyMinute()`), but `zid:refresh` -- which owns both
+            // `zid_stores` sites -- is scheduled NOWHERE. That line is the only
+            // `Schedule::command` in the repository. So the `zid_stores` statements run only when
+            // somebody types the command, and citing a control that does not exist is exactly the
+            // error this census exists to prevent. Found by independent review.
             //
             // `zid_events` => 2 -- app/Console/Commands/ZidProcessEvents.php
             //     :47  ->whereNull('processed_at')->orderBy('id')->limit(200)->get()
             //     :57  ->where('id', $e->id)->update(['processed_at' => now()])
             //   The queue drain. :47 claims up to 200 unprocessed webhook events across every
             //   linked Zid merchant -- which is the command's purpose -- and :57 marks one
-            //   processed by primary key. The ingest that WRITES this table
-            //   (routes/web.php:1674) does carry `store_id` in the statement and is counted as
-            //   aware, so the write side is not in this list at all.
+            //   processed by primary key.
+            //
+            //   AND THE WRITE SIDE IS NOT IN THIS CENSUS AT ALL, which the first version of this
+            //   note got wrong by saying the ingest is "counted as aware". It is counted by
+            //   nothing: the ingest is `routes/web.php`, and BOTH scans in this class read only
+            //   `app/` and `packages/` (`foreach (['app', 'packages'] as $dir)`). `routes/` is
+            //   outside the population. What covers that statement instead is direct --
+            //   tests/Feature/Security/ZidWebhookSecretTest, eleven tests over the credential gate
+            //   and the destructive write behind it.
             'zid_events' => 2,
             // `zid_orders` => 9 -- all in app/Console/Commands/ZidProcessEvents.php
             //     :90   ->where('zid_order_id', $o['id'])->exists()
@@ -1033,9 +1050,11 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             //     :107  ->where('parcel_status','pending')->where('attempts','<',5)->limit(50)->get()
             //     :165, :174, :186, :203, :231  ->where('id', $order->id)->update([...])
             //   :90/:94/:96 are keyed on `zid_order_id`, which carries a GLOBAL unique key
-            //   (`zid_orders_zid_order_id_unique`), so it names exactly one row platform-wide --
-            //   the table itself refuses a collision, which is a stronger guarantee than a
-            //   predicate. :107 is the dispatch queue, deliberately platform-wide. The five
+            //   (`zid_orders_zid_order_id_unique`), so each names exactly one row platform-wide.
+            //   THAT IS A BOUND ON ROW COUNT AND NOT ON OWNERSHIP, and the first version of this
+            //   note overstated it as "a stronger guarantee than a predicate" -- corrected after
+            //   review. It means the statement cannot fan out; it says nothing about whose row it
+            //   reaches. :107 is the dispatch queue, deliberately platform-wide. The five
             //   remaining are status and error updates keyed on the primary key of a row :107 just
             //   returned.
             //   AND THE ONE THING THAT IS NOT IN THIS LIST: the two live HTTP sites,
@@ -1047,16 +1066,64 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // `zid_stores` => 2 -- app/Console/Commands/ZidRefreshTokens.php
             //     :14  $query = DB::table('zid_stores');            (every linked merchant)
             //     :36  ->where('id', $s->id)->update([... tokens ...])
-            //   The scheduled OAuth-token refresh. It MUST see every linked merchant or tokens
-            //   expire, and :36 writes one row by primary key. The two live reads --
-            //   Zid::store() at app/Services/Zid.php:11 and ZidOAuthController's updateOrInsert --
-            //   both carry `store_id` and are counted as aware.
+            //   The OAuth-token refresh. It MUST see every linked merchant or tokens expire, and
+            //   :36 writes one row by primary key. NOT SCHEDULED -- see the correction above:
+            //   `zid:refresh` appears in no `Schedule::command`, so nothing renews these tokens
+            //   automatically. That is a separate, already-recorded defect and is named here only
+            //   because this note used to assert the opposite.
+            //
+            //   THE OTHER FIVE SITES ON THIS TABLE ARE COUNTED AS AWARE, AND ONE OF THEM SHOULD
+            //   NOT BE -- stated because a count that hides a false negative is worse than a
+            //   bigger count. The five are Zid.php:11, Zid.php:25,
+            //   DeliverySyriaStatusController.php:174, ZidOAuthController.php:83 and
+            //   ZidProcessEvents.php:128. Four genuinely filter. `Zid.php:25` is
+            //       return DB::table('zid_stores')->pluck('store_id');
+            //   which reads EVERY linked merchant and is classified aware only because the column
+            //   NAME appears in the statement text -- this scanner tests for the substring
+            //   `store_id`, not for a predicate. It is the same shape as the `notify_users`
+            //   precedent recorded in the list above, in the opposite direction, and it is why
+            //   that note ends "a per-table count can only ever be a lower bound on the
+            //   exposure". The call is a platform-wide list by design (its own Arabic comment
+            //   reads "the numbers of all linked stores") and its one caller is the unscheduled
+            //   refresh command, so it is not an exposure -- but it is not evidence of scoping
+            //   either, and the census should not be read as saying it is.
             'zid_stores' => 2,
         ], $foreignNamespace, 'The set of tables whose `store_id` is NOT a Store Syria tenant '
             . 'discriminator changed. Do not resolve a failure here by adding a `store_id` '
             . 'predicate: in every measured case the column holds a foreign vendor\'s identifier, '
             . 'so such a predicate would be a correct-looking filter on the wrong namespace. '
             . 'Read the classification branch above first.');
+
+        // THE ONE PROPERTY THE BUCKET ABOVE RESTS ON, ASSERTED RATHER THAN WRITTEN DOWN.
+        //
+        // Every note in that list argues the same thing: these statements are not a Store Syria
+        // cross-tenant exposure because the caller is not a tenant -- each one is inside a console
+        // command, reached by no HTTP route and no authenticated principal. That is the load-bearing
+        // claim, and until now it lived only in a comment. Independent review asked for it to be
+        // machine-checked, and it was right to: the first version of that same comment asserted a
+        // SCHEDULE that does not exist.
+        //
+        // If a Zid statement ever appears in a controller, a middleware or a service reachable from
+        // a request, this fails -- and it should, because every "not an exposure" note above stops
+        // being true at that moment.
+        ksort($foreignNamespaceSites);
+
+        $outsideConsole = [];
+
+        foreach ($foreignNamespaceSites as $table => $sites) {
+            foreach ($sites as $site) {
+                if (! str_starts_with($site, 'app/Console/Commands/')) {
+                    $outsideConsole[] = $table . ' -> ' . $site;
+                }
+            }
+        }
+
+        $this->assertSame([], $outsideConsole, 'An unscoped statement on a foreign-namespace '
+            . '`store_id` table is NO LONGER inside a console command. Every "this is not an '
+            . 'exposure" note in the list above rests on exactly that -- the caller is a command, '
+            . 'not a tenant -- so each of those notes must be re-read before this assertion is '
+            . 'updated. Do not add a `store_id` predicate instead: the column holds Zid\'s own '
+            . 'merchant id.');
 
         $this->assertSame([
             // MEASURED, not assumed from the name. `currency` has a migration in
