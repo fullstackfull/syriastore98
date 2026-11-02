@@ -143,6 +143,50 @@ public function test(Request $request)
         '/'
     );
 
+    /*
+     * P1-SEC-45 -- THE OUTBOUND HOST IS JUDGED BEFORE THE STORE'S OTP SECRET IS SENT TO IT.
+     *
+     * `save()` validates `base_url` as `required|url`. THIS method validated only `phone`, and
+     * then took `$request->base_url` in preference to the stored row -- so a caller chose the
+     * host, and the body carried `secret => $apiSecret`, which defaults to the STORED
+     * `$integration->api_secret`.
+     *
+     * MEASURED before the fix, as a `staff` user holding no permission at all:
+     *     POST /otp-integration/test  base_url=http://169.254.169.254  phone=...
+     *     -> HTTP 200 {"success":true,"message":"Test SMS OTP sent successfully."}
+     *     -> outbound POST http://169.254.169.254/latest/meta-data/api/send/sms
+     *     -> with the store's api_secret in the body
+     * The handler also reflects the remote body (`$result['message']`) and `$e->getMessage()`,
+     * which makes it a semi-blind SSRF with error reflection on top of the credential leak.
+     *
+     * WHY IT IS WAVE 5. `routes/web.php` records that anonymously this route used to answer 500
+     * because `otp_integrations` was undeclared -- one of GATE F's fifteen. The fix taken then was
+     * to add `auth`; the caller-chosen-URL half was never closed, and the table now exists in
+     * every environment, so the handler reaches the HTTP call.
+     *
+     * THE GUARD IS THE ONE THIS CODEBASE ALREADY HAS, not a new one. `SafeWebhook::allows()` is
+     * the control P1-SEC-33 built for exactly this shape -- a merchant-configured URL becoming a
+     * network request -- and `WebhookController` already calls it on save. It judges through
+     * `SafeRemoteFetch::check`: http/https only, no credentials in the URL, no
+     * private/loopback/link-local/metadata address on ANY of the host's records, no numeric host
+     * spelling.
+     *
+     * The override is KEPT rather than removed, so a merchant can still test a URL before saving
+     * it; what changes is that an unroutable or internal one is refused before anything is sent.
+     */
+    if (! \App\Services\SafeWebhook::allows($baseUrl, 'POST')) {
+        \Log::warning('OTP test refused: the base URL is not a permitted outbound host.', [
+            'store_id' => $storeId,
+            'base_url' => $baseUrl,
+            'came_from_request' => $request->filled('base_url'),
+        ]);
+
+        return response()->json([
+            'success' => false,
+            'message' => __('That OTP provider address is not allowed. Use a public http or https URL.'),
+        ]);
+    }
+
     $otp = random_int(100000, 999999);
 
 

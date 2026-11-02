@@ -3214,7 +3214,31 @@ public function ViewProduct(Request $request)
 
         $productArray['price'] = $formatNumber($productArray['price'] ?? 0);
         $productArray['sale_price'] = $formatNumber($productArray['sale_price'] ?? 0);
-        $productArray['cost_price'] = $formatNumber($productArray['cost_price'] ?? 0);
+
+        /*
+         * P1-SEC-46 -- `cost_price` IS THE STORE'S MARGIN AND NEEDS THE SAME GATE ITS SIBLING HAS.
+         *
+         * `ProductList` serves this field behind `refuseWithoutPermission(['Manage Products'])`,
+         * and its own comment says why: "the store's margin, not just its catalogue". `ViewProduct`
+         * served it with NO permission check anywhere in the method. Tenant isolation held -- the
+         * query carries `->where('store_id', $store->id)` -- but the intra-tenant gate did not, so
+         * any token-holding principal in the store read it, including staff that `ProductList`
+         * refuses.
+         *
+         * It cost nothing until GATE F: `products.cost_price` was declared by no migration, so
+         * `?? 0` served `0.00` to everybody. The column arriving is what made the asymmetry matter.
+         *
+         * THE FIELD IS OMITTED RATHER THAN THE REQUEST REFUSED, deliberately. Adding a 403 here
+         * would change who may call `ViewProduct` at all, and the shipped Flutter app calls it --
+         * CLAUDE.md requires its contract to be preserved. Dropping one key narrows the disclosure
+         * without narrowing access, and the client reads `cost_price` with a null-safe default.
+         */
+        if ($this->refuseWithoutPermission(['Manage Products'], $store->id) === null) {
+            $productArray['cost_price'] = $formatNumber($productArray['cost_price'] ?? 0);
+        } else {
+            unset($productArray['cost_price']);
+        }
+
         $productArray['final_price'] = $formatNumber($productArray['final_price'] ?? $productArray['price'] ?? 0);
 
         // ✅ 4. إضافة كود العملة ورمزها للاستجابة

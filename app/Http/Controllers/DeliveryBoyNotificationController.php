@@ -78,8 +78,37 @@ public function registerDevice(Request $request)
             return $this->error(['message' => __('Unauthorized')], 401);
         }
 
+        /*
+         * P1-SEC-47 -- THE `exists:` RULE IS SCOPED TO THE AUTHENTICATED DRIVER.
+         *
+         * It was `exists:delivery_boy_notifications,id`, which looks at the WHOLE table. The
+         * lookup below is correctly derived from the authenticated principal
+         * (`->where('delivery_boy_id', $user->id)`), but the validator runs FIRST and
+         * `delivery_boy_notifications` has no `store_id` column and is not in
+         * `config/tenancy.php`'s `scoped_models`, so it saw every tenant's rows. The result was
+         * two distinguishable refusals:
+         *
+         *     a foreign but EXISTING id -> "Notification not found."
+         *     a NONEXISTENT id          -> "The selected notification id is invalid."
+         *
+         * which is a platform-wide existence oracle over sequential ids -- the same defect class
+         * as P1-SEC-10's 404-vs-403 on the DeliverySyria webhook, on a different table. It leaks
+         * row existence, and so notification volume and activity, not content.
+         *
+         * Unreachable until GATE F: before
+         * `2026_11_02_001200_create_delivery_boy_notifications_table.php` the `exists:` rule
+         * raised a QueryException and this endpoint answered 500 to every caller.
+         *
+         * Scoping the rule collapses both cases to one message. The `->first()` below already
+         * answered correctly on its own, so this changes no successful call.
+         */
         $validator = Validator::make($request->all(), [
-            'notification_id' => 'required|integer|exists:delivery_boy_notifications,id',
+            'notification_id' => [
+                'required',
+                'integer',
+                \Illuminate\Validation\Rule::exists('delivery_boy_notifications', 'id')
+                    ->where('delivery_boy_id', $user->id),
+            ],
         ]);
 
         if ($validator->fails()) {

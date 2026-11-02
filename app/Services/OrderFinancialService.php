@@ -205,9 +205,51 @@ class OrderFinancialService
                 continue;
             }
 
-            $product = Product::find($productId);
+            /*
+             * P1-SEC-44 -- THE PRODUCT MUST BELONG TO THE ORDER'S OWN STORE.
+             *
+             * This was `Product::find($productId)`, and `Product` is NOT in
+             * `config/tenancy.php`'s `scoped_models`, so `StoreScope::isActiveFor()`
+             * short-circuits and that call added NO predicate for any principal -- not a
+             * customer, not a merchant, not the operator. `$productId` comes out of
+             * `orders.product_json`, which is caller-influenced: this repository already records
+             * that a cart line naming another merchant's product reaches an order (the S19/S32
+             * cross-tenant stock drain).
+             *
+             * So another store's confidential `cost_price` was multiplied by the quantity the
+             * ordering store chose and written into THEIR `store_order_financials.product_cost`
+             * and `gross_profit`, which their own finance screen displays. Divide by the quantity
+             * and you have a competitor's exact unit cost.
+             *
+             * MEASURED before the fix: store B's product at `cost_price` 77.00, a store A order
+             * naming it with qty 2 -> store A's row carried `product_cost = 154`,
+             * `gross_profit = 46`.
+             *
+             * DOUBLY CREATED BY GATE F, which is why nothing saw it. Until 2026-11-02 the
+             * persistence threw (`store_order_financials` was declared by no migration) into
+             * `OrderObserver::created()`'s catch, AND `$product->cost_price` was null because
+             * `products.cost_price` was undeclared too -- `?? 0` made every cost zero. Both became
+             * real on the same day. No test produces a non-zero `product_cost` through this
+             * service at all.
+             *
+             * A FOREIGN LINE IS EXCLUDED AND LOGGED, not costed at zero. Both answers give a wrong
+             * figure, because the ORDER is wrong -- but a zero silently inflates gross profit,
+             * while a warning names the order and the product so the real defect is findable.
+             */
+            $product = Product::withoutGlobalScopes()
+                ->where('id', $productId)
+                ->where('store_id', $order->store_id)
+                ->first();
 
             if (!$product) {
+                \Log::warning('OrderFinancialService: an order line names a product that is not '
+                    . 'this order\'s own, so it is excluded from product_cost. The order itself is '
+                    . 'the defect -- see P1-SEC-44.', [
+                        'order_id' => $order->id,
+                        'order_store_id' => $order->store_id,
+                        'product_id' => $productId,
+                    ]);
+
                 continue;
             }
 

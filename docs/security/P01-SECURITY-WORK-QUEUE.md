@@ -4551,6 +4551,131 @@ altered on this path — that is the escalation, and it is deliberate.
 
 ---
 
+## S50 — Four more defects GATE F turned on, found by asking the opposite question — **P1-SEC-44, -45, -46, -47 ALL CLOSED**
+
+**Found by an independent completeness sweep, not by the suite, because the suite was green.** The
+four waves before this one were each found by running the tests. This one could not be: it asked
+*what did making these objects exist make the application DO?* Every finding was then re-measured
+through the real route before a line was changed.
+
+The shape is the same every time: **application code whose behaviour depended on a table being
+ABSENT.** A write that threw into a `catch`. A column that was always null, so `?? 0` hid it. A
+validator rule that raised a `QueryException`, so the endpoint answered 500 to everyone. Each of
+those is a control by accident, and GATE F removed all of them on one day.
+
+### P1-SEC-44 — one store's confidential `cost_price` read into another store's P&L. **S2 HIGH.**
+
+`OrderFinancialService::calculateProductCost()` resolved each order line with
+`Product::find($productId)`. `Product` is **not** in `config/tenancy.php`'s `scoped_models`, so
+`StoreScope::isActiveFor()` short-circuits and that call added **no predicate for any principal**.
+`$productId` comes out of `orders.product_json`, which is caller-influenced — this repository
+already records that a cart line naming another merchant's product reaches an order (the S19/S32
+cross-tenant stock drain).
+
+**MEASURED:** store B's product at `cost_price` 77.00; a store A order naming it with `qty 2` →
+store A's row carried `product_cost = 154`, `gross_profit = 46`. Divide by the quantity you chose
+and you have a competitor's exact unit cost, on your own finance screen.
+
+**Doubly created by GATE F**, which is why nothing saw it: until 2026-11-02 the persistence threw
+(`store_order_financials` undeclared) into `OrderObserver::created()`'s catch, **and**
+`products.cost_price` was undeclared so `?? 0` made every cost zero. No test produces a non-zero
+`product_cost` through the service at all — the one test that touches the figure says in terms
+*"the order has no priced line items, so product_cost is 0"*.
+
+**Fixed** by scoping the lookup to `$order->store_id`. A foreign line is **excluded and logged**,
+not costed at zero: both give a wrong figure because the ORDER is wrong, but a zero silently
+inflates gross profit while a warning names the order and the product.
+
+### P1-SEC-45 — the OTP test endpoint shipped the store's secret to a caller-chosen host. **S2 HIGH.**
+
+`OtpIntegrationController::test()` validated **only `phone`**, then preferred `$request->base_url`
+over the stored row while sending `secret => $integration->api_secret` in the body. Its sibling
+`save()` validates `base_url` as `required|url`; `test()` validated nothing.
+
+**MEASURED**, as a principal holding no permission at all:
+
+```
+POST /otp-integration/test   base_url=http://169.254.169.254   phone=…
+-> HTTP 200 {"success":true,"message":"Test SMS OTP sent successfully."}
+-> outbound POST http://169.254.169.254/latest/meta-data/api/send/sms
+-> with the store's api_secret in the body
+```
+
+The handler also reflects the remote body and `$e->getMessage()`, so it was a semi-blind SSRF with
+error reflection on top of the credential leak.
+
+**Wave 5, not a new hole.** `routes/web.php` records that anonymously this route used to answer 500
+because `otp_integrations` was one of GATE F's fifteen. The fix taken then was to add `auth`; the
+caller-chosen-URL half was never closed, and the table now exists in every environment.
+
+**Fixed with the guard this codebase already has** — `SafeWebhook::allows()`, built for exactly
+this shape by P1-SEC-33 and already called by `WebhookController` on save. It judges through
+`SafeRemoteFetch::check`: http/https only, no credentials in the URL, no
+private/loopback/link-local/metadata address on **any** of the host's records, no numeric host
+spelling. The override is **kept**, so a merchant can still test a URL before saving it; what
+changes is that an internal one is refused before anything is sent.
+
+**Still open and NOT changed here:** that route carries no permission check, only
+`['auth','xss','setlocate','verified']`. `routes/web.php` already records that as a deferred
+cross-agent dependency, and adding an authorization gate is a different decision from closing an
+SSRF.
+
+### P1-SEC-46 — `ViewProduct` served the store's margin with no permission check. **S3 MEDIUM.**
+
+`Api\DashboardController::ProductList` serves `cost_price` behind
+`refuseWithoutPermission(['Manage Products'])`, with its own comment giving the reason: *"the
+store's margin, not just its catalogue"*. `ViewProduct` served the same field with **no permission
+check anywhere in the method**. Tenant isolation held — the query carries
+`->where('store_id', $store->id)` — the intra-tenant gate did not, so staff that `ProductList`
+refuses read it.
+
+It cost nothing until `products.cost_price` was declared: `?? 0` served `0.00` to everybody.
+
+**Fixed by omitting the field, not by refusing the request.** A 403 would change who may call
+`ViewProduct` at all, and the shipped Flutter app calls it — `CLAUDE.md` requires that contract
+preserved. Dropping one key narrows the disclosure without narrowing access.
+
+### P1-SEC-47 — an existence oracle over `delivery_boy_notifications.id`. **S3 MEDIUM.**
+
+`markAsRead` validated `notification_id` with `exists:delivery_boy_notifications,id` — the **whole
+table** — before its correctly-scoped `->where('delivery_boy_id', $user->id)` lookup. The table has
+no `store_id` and is not in `scoped_models`, so the validator saw every tenant's rows:
+
+```
+a foreign but EXISTING id -> "Notification not found."
+a NONEXISTENT id          -> "The selected notification id is invalid."
+```
+
+Two distinguishable bodies: a platform-wide existence oracle over sequential ids, leaking
+notification volume and activity but not content. Same defect class as P1-SEC-10's 404-vs-403 on
+the DeliverySyria webhook, on a different table. Unreachable before GATE F — the rule raised a
+`QueryException` and the endpoint answered 500 to everybody.
+
+**Fixed** with `Rule::exists(...)->where('delivery_boy_id', $user->id)`. The scoped `->first()`
+already answered correctly, so no successful call changes.
+
+### Proof
+
+`tests/Feature/Security/GateFActivatedSurfacesTest` — **8 tests, 20 assertions**, every refusal
+paired with a positive control. Four mutations, each run, each hitting exactly one test: the
+unscoped `Product::find`, the removed `SafeWebhook` guard, the bare `exists:` rule, and the removed
+`cost_price` gate.
+
+**Two of those tests were passing for the wrong reason and the pairing is what caught it** — worth
+recording because it is the discipline, not the luck: the OTP refusal held while `sms_mode` and
+`sms_gateway` were unset, because the handler returns *"Invalid SMS mode."* before it ever reaches
+the HTTP call, so `Http::assertNothingSent()` would have held with or without the guard; and the
+`cost_price` refusal read `data` instead of `data.Product`, a level that never carries the key, so
+`assertArrayNotHasKey` was vacuous. Both were found by their own positive controls failing.
+
+### And one from the same sweep that is NOT fixed, because it cannot be from this side
+
+**`P1-SEC-43`** — one forged Zid webhook creating a real parcel at Delivery Syria on another
+merchant's account, with an attacker-chosen COD amount. **S1, OPEN, owner decision required before
+deployment.** See S49 above.
+
+---
+
 ## Cross-repository row, carried over
 
 **B8 — a merchant can read their own webhook secret and forge events for their own store.**
