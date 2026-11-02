@@ -1255,7 +1255,7 @@ the remaining work, not about the system being correct.
    | state | **OWNER-DEFERRED / OPEN** |
    | blocks `main` integration | **no**, by `D-35` |
    | blocks production deployment / real customer data | **YES** — must be reassessed first |
-   | remediation | PR #122, **OPEN and deliberately NOT MERGED** |
+   | remediation | PR #122 is **CLOSED and NOT MERGED** (checked 2026-11-02; `closed_at` 09:35:04Z, closed by the owner, not by this workstream). It was *partial* containment at best -- it removed the tracked file from the current tree and added a recurrence guard, and said in its own body that the blob *"remain[s] obtainable from old commits"*. With it closed, even that partial step is no longer proposed: the dump is still in `main`'s current tree, no guard yet refuses a tracked root-level SQL dump, and the history purge and exposure assessment remain outstanding. **Not reopened here** -- that is an owner decision. |
    | forbidden in this workstream | deleting the dump, rewriting history, rotating `APP_KEY`, changing DB credentials, any incident cleanup |
 
    **The owner's statement that the customer rows are test/demo data does not make every exposed

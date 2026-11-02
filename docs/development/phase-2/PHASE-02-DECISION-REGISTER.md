@@ -2955,15 +2955,37 @@ argued:
 - `git diff --name-status --diff-filter=A origin/main <merge-tree>` adds **no** `.sql`, `.dump`,
   `.pem`, `.key`, `.p12`, `.jks`, `.keystore` or `.env` file, which satisfies constraint 6.
 
-So the merge performs **no** #120 remediation and **no** #120 regression. Remediation remains
-entirely with PR #122, which is **not merged**.
+So the merge performs **no** #120 remediation and **no** #120 regression.
+
+### PR #122's state changed while this was being executed, and the change matters
+
+**Checked at 2026-11-02, after this entry was first written: PR #122 is now `closed`, `merged:
+false`, `closed_at` 09:35:04Z.** An earlier read in the same session returned `state: open`. It was
+closed **without being merged**, by the repository owner, and not by this workstream.
+
+Constraint 3 is satisfied either way — it was not merged here — but the *consequence* is different
+and is recorded rather than smoothed over. Its own description was explicit that merging it would
+have been **partial containment and not incident closure**: it removed the tracked file from the
+current tree and added a recurrence guard, while *"the sensitive blob and any exposed information
+remain obtainable from old commits"*. With it closed, even that partial containment is **not
+proposed any more**:
+
+- the dump is still in `main`'s current tree, reachable by `git clone` with no history archaeology;
+- no guard yet refuses a tracked root-level SQL dump, so the same upload could recur;
+- the history purge, the exposure assessment and the credential/data-response decisions were
+  already outstanding and remain so.
+
+**This workstream did not reopen it and will not.** Reopening, re-proposing or re-implementing that
+remediation is an owner decision, and constraint 5 says not to spend engineering time on #120 here.
+What this workstream owes is that the item stays **visible and OPEN**, which is what this entry and
+`PHASE-01-CLOSURE-EXECUTION.md` item 0 do.
 
 ### Status after this decision
 
 | item | state |
 |---|---|
 | **Issue #120 / `P1-SEC-40`** | **OWNER-DEFERRED / OPEN** — not fixed, not resolved, still a live exposure in `main`'s tree |
-| **PR #122** (dump removal + recurrence guard) | **OPEN, NOT MERGED**, left for a later owner decision |
+| **PR #122** (dump removal + recurrence guard) | **CLOSED, NOT MERGED** — see the note below. Not merged by this workstream, and not reopened by it either. |
 | **`APP_KEY` exposure** | **OPEN**, unrotated, tracked separately from the dump and not covered by the demo-data statement |
 | **`main` integration** | **UNBLOCKED** by this decision — and `main` integration is **NOT** production deployment |
 
