@@ -116,6 +116,29 @@ after any edit to a file carrying logged lines.
 
 ## 5. Verification — the integrated `main`
 
+**THE KNOWN-OUTCOME GATE ON `25cf8182`, the integrated `main` itself:**
+
+```
+Feature suite      7,519 passed, 2 failed, 1 skipped   (37,351 assertions)
+testcases observed 7,522
+failures           2   (manifest declares 2)
+errors             0   (always expected: 0)
+skips              1   (manifest declares 1)
+GATE EXIT          0
+```
+
+> "OK: the observed outcome set matches the manifest exactly -- 2 declared failures, 1 declared
+> skips, 0 errors, and nothing undeclared."
+>
+> "This is NOT a statement that the suite is green. It is a statement that the suite is failing and
+> skipping exactly the tests the project has recorded, for the reasons it has recorded."
+
+The two declared failures are `new users can register` (roles are not seeded by `RefreshDatabase`)
+and `profile page is displayed` (the Breeze Tailwind view on a registered route). Both are named in
+`.github/known-test-outcomes.json` with a stated root cause; neither is new, and the gate asserts
+the outcome set in BOTH directions, so an unexpectedly-passing declared failure would fail it too.
+
+
 Per-merge, every check was read before merging. On each of the three exception merges the state was
 **eight of nine green**, the single failure being the checklist:
 
