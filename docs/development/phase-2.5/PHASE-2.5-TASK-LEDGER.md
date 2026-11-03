@@ -167,6 +167,70 @@ assets; the tracked file was restored unchanged, and the committed diff does not
 
 ---
 
+## 1c. Wave D — the Flutter app's first slice
+
+| id | slice | status | evidence |
+|---|---|---|---|
+| **P2.5-D-01** | **Every shared button in the merchant app was under the minimum tap target.** | **DONE [2026-11-03]** | Flutter `claude/busy-edison-k0pjwa` **`e74164c4`** — `lib/view/widget/common_button.dart`, `test/a11y/tap_target_size_test.dart` (new, 6 tests) |
+
+Measured by **rendering each widget**, not by reading the literals: what a thumb meets is the box
+after `flutter_screenutil` has scaled it against this app's 360×800 design size, so the only
+honest number comes from `tester.getSize`.
+
+| line | widget | before | after |
+|---|---|---|---|
+| 45 | `CommonButton` | **42dp** | 48dp |
+| 107 | `CommonIconButton` | **43dp** | 48dp |
+| 163 | `SmallCommonIconButton` | **35dp** | **35dp painted, 48dp tap target** |
+| 226 | `CommonBorderButton` | **43dp** | 48dp |
+| 277 | `CommonIconBorderButton` | **43dp** | 48dp |
+| 334 | `CommonSocialButton` | **45dp** | 48dp |
+
+All six were below Material's `kMinInteractiveDimension`; five were also below Apple HIG's 44.
+The newer `AppButton` already uses 48, so this is an **internal inconsistency** as much as an
+accessibility gap. `SmallCommonIconButton` keeps its size and gains its target — the opposite
+decision from the other five, deliberately: extending the **hit area** fixes the defect and
+changes nothing a merchant sees.
+
+### The census was wrong twice before it was right
+
+1. The first pass reported *"three bad defaults, and no call site passes an explicit height"*.
+   **Both halves were wrong.** The height grep required the class name and `height:` on **one
+   line**, which almost never happens. Re-counted by balancing parens over each call: **8 of 15**
+   `CommonIconButton` sites and **6 of 16** `AppButton` sites do pass explicit heights, several
+   below 48 (`35`, `40.h`, `44.h`, `45.h`).
+2. A replace guarded by `count == 1` **refused**, because `height: height ?? 43` occurs **three**
+   times — which is how the other two under-sized widgets were found at all.
+
+**Raising the defaults does not reach the call sites that override them.** Recorded as the
+follow-up rather than quietly folded in.
+
+### A bite test embarrassed the first version of the test file
+
+Removing `HitTestBehavior.opaque` from the widget left **every assertion passing**. The `SizedBox`
+still measures 48, so a size assertion cannot tell a real hit area from a transparent one — the
+fix would have looked identical on screen *and in CI* while doing nothing. A test that **taps the
+margin** (inside the 48dp target, outside the 35dp painted box) and asserts the callback fired now
+catches it. Three bites, all failing as designed.
+
+### Writing the test found a second defect — recorded, not fixed
+
+`CommonIconButton`, `SmallCommonIconButton` and `CommonIconBorderButton` each declare
+`final String? iconData` and then do `iconData!` in build. **The signature says optional; the
+widget throws** `Null check operator used on a null value` when it is omitted, and the analyzer is
+silent because the type is nullable. The first report is a runtime crash in front of a merchant.
+Making it `required` is a signature change rather than accessible presentation, so it is a finding
+(**P2.5-F-06**).
+
+| gate | result |
+|---|---|
+| `flutter analyze` | **247 issues, 0 warnings, 0 errors** — unchanged from the pre-slice baseline |
+| `flutter test` | **1,373 passed** (6 new), run **alone**, after the Laravel Feature suite had finished, per the documented stall |
+
+**No brand colour, no business logic and no API contract is touched.**
+
+---
+
 ## 2. Documentation corrected because it was measured and found wrong
 
 Both are in files the owner's directive names as authoritative, so a wrong sentence in them
@@ -249,6 +313,6 @@ reserves. Wave D's first slice is to put the question, with these numbers, rathe
 
 ## 4. Not yet started
 
-Wave B (core merchant screens), Wave C (remaining merchant screens), Wave D (Flutter), Wave E
-(cross-platform quality). The screen-by-screen inventory that scopes them is
+Wave B beyond the dashboard card, Wave C (remaining merchant screens), the rest of Wave D, and
+Wave E (cross-platform quality). The screen-by-screen inventory that scopes them is
 [`PHASE-2.5-VERIFICATION-MATRIX.md`](PHASE-2.5-VERIFICATION-MATRIX.md).

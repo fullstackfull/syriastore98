@@ -114,6 +114,7 @@ directions, so an added entry would itself have failed it.
 
 | | |
 |---|---|
+| **Flutter — what IS verified** | `P2.5-D-01` is verified by **rendering each widget in the Flutter test harness** and reading `tester.getSize`, plus a behavioural test that taps the extended margin and asserts the callback fired. `flutter analyze` **247 issues / 0 warnings / 0 errors**; `flutter test` **1,373 passed**, run alone after the Laravel Feature suite finished. That is a real render, and it is **not** a device. |
 | **Flutter on a device** | **NOT POSSIBLE HERE.** No Android SDK, no release keystore, no emulator, no device — handoff blocker #6, still open. `flutter analyze` runs (**247 issues: 247 info, 0 warnings, 0 errors**, Flutter 3.47.7 / Dart 3.13.7) and `flutter test` can run. Anything requiring a rendered device frame is reported as unverified, not substituted. |
 | **every other merchant screen** | The audit that scopes them is still running; §1 covers one screen in four configurations. The A-01/A-02 rules are written against `.modal-content` and `.form-control`, which every host and module form shares, so the *expected* reach is far wider than one screen — **and that is a prediction, not a measurement**, until each screen has its own row here. |
 | **light mode** | Both rules are scoped to `html[data-ss-theme="dark"]`, so light mode is unreachable by them by construction. Asserted in the ratchet, not re-measured per screen. |
