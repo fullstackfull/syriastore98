@@ -407,7 +407,111 @@ for both disciplines.
 
 ---
 
-## 5. What this census does not cover
+## 5. THE HTTP-STATUS REGRESSION the owner caught, and how it was repaired
+
+> Owner direction, 2026-11-03: *"The previous implementation required both a successful HTTP
+> response and provider status 200. The new OtpTransport reads the provider's JSON status but loses
+> the actual HTTP status through `SafeWebhook::send()`. Preserve the original dual-success condition
+> without weakening DNS pinning, redirect refusal or authorization. Prefer a narrow,
+> backward-compatible transport result or an opt-in HTTP metadata API. Do not silently change the
+> semantics of other `SafeWebhook` callers."*
+
+### What was wrong
+
+The original condition at all three call sites was
+
+```php
+$response->successful() && ($result['status'] ?? null) == 200
+```
+
+— Laravel's HTTP-level 2xx **and** the provider's own `status` field. `SafeWebhook::send()` answers
+the body alone and the HTTP code died with the cURL handle, so the move kept the second test and
+dropped the first. **One case flipped from failure to success: a provider answering an HTTP error
+while its body claims `status: 200`.**
+
+That is not a hypothesis about a hostile provider; it is what a broken or half-deployed gateway
+looks like. The merchant would have been told the test OTP was sent, and the *customer-facing* flow
+would have told a shopper to wait for a code that never left.
+
+I disclosed this difference in a code comment at the time and left it in place, reasoning that the
+provider's documented `status` field was the real contract. **That was the wrong call** — the
+instruction had been to use the existing implementation, not to re-decide a success condition, and a
+behaviour change recorded in a comment is still a behaviour change.
+
+### The repair, and why it is shaped this way
+
+**`SafeWebhook::sendWithStatus()`** is new and opt-in:
+
+```php
+/** @return array{body: string|false, status: int|null}|null */
+public static function sendWithStatus(string $url, $payload, string $method): ?array
+```
+
+- **`send()` is unchanged in contract.** It is now a one-line projection of `sendWithStatus()`, so
+  the two cannot drift, and it still returns the body, `false`, or `null`. Its only other caller in
+  the application is `Utility::WebhookCall` (`Utility.php:2119`) — measured, the whole census is in
+  §1 — and `WebhookController` uses `allows()` only. Neither sees any difference.
+- **One `plan()`, so one set of protections.** The same `SafeRemoteFetch::check` judgement, the same
+  `CURLOPT_RESOLVE` pin, the same `CURLOPT_FOLLOWLOCATION => false`, the same protocol and timeout
+  bounds. The methods differ only in how much of the answer they hand back, which is what stops
+  this becoming a second, laxer path.
+- **`CURLINFO_RESPONSE_CODE` of `0` is reported as `null`, not as a status.** No HTTP response is
+  not a status code, and a caller comparing against a 2xx range must not read `0` as one.
+- **The test seam gained an additive shape**: `['body' => ..., 'status' => ...]`, recognised by the
+  presence of a `body` **key** rather than by being an array, so a seam returning an array body
+  cannot be misread as metadata. Every pre-existing seam returns a string or `false` — measured
+  across `WebhookSafetyTest`, `GateFActivatedSurfacesTest` and `OtpOutboundHardeningTest` — so none
+  changed behaviour.
+
+**`OtpTransport::succeeded()`** is the restored condition, in **one** place rather than copied into
+each branch — the previous version had it written out twice in two controllers, which is how one of
+them would eventually have been updated alone:
+
+```php
+outcome === ANSWERED  &&  http_status is 2xx  &&  provider status === 200
+```
+
+`successful()` is the whole 2xx range, not `== 200`, so 201/202/204 still succeed. An unknown HTTP
+status **fails closed**: the real transport always has one, so the only way it is absent is a seam
+that did not supply it, and a lenient fallback there would make every positive test pass without
+exercising the restored condition at all.
+
+### Evidence
+
+| assertion | cases |
+|---|---|
+| the regression itself — HTTP 500 + body claiming `status: 200` | 1, by name |
+| no non-2xx is a send | 400, 401, 403, 404, 429, 500, 502, 504, **302** (a redirect is never followed, so it arrives as itself) |
+| a legitimate 2xx still is | 200, 201, 202, 204, 299 |
+| HTTP 2xx + provider failure is not — and the provider's message still reaches the authenticated merchant | 1 |
+| unknown HTTP status fails closed | 1 |
+| `send()`'s contract: body / `false` / `null`, and nothing sent on refusal | 1 |
+| an array without a `body` key is a body, not metadata | 1 |
+| `succeeded()` directly, over the whole decision table | 14 rows |
+
+**Mutations**, each reverted byte-identically (`OtpTransport` md5 `4328dff7`, `SafeWebhook`
+`2aaf5614`):
+
+| mutation | result |
+|---|---|
+| drop the HTTP half again (the original regression) | **18 fail** |
+| narrow 2xx to exactly 200 (the over-correction) | **4 fail** |
+| drop the provider half (the mirror regression) | **1 fails** |
+| treat `0` as a successful status | **1 fails**, precisely that data set |
+| `SafeWebhook` reports `0` as a status rather than `null` | **passed silently** — see below |
+
+### One branch this suite does not cover, stated rather than implied
+
+The `0 → null` mapping lives on the **real cURL path**, which the suite never executes: every test
+goes through the transport seam. I mutated it to pass `0` through unchanged and the whole suite
+stayed green. What *is* asserted is the property that makes the mapping safe either way —
+`succeeded()` refuses both `0` and `null`, pinned by the decision table — so the mapping is
+defence-in-depth for the log and for any future range comparison, not the thing the success decision
+rests on. Saying so is better than letting the green suite imply coverage it does not have.
+
+---
+
+## 6. What this census does not cover
 
 - **`packages/workdo/` beyond the `webhook.site` grep.** 70 vendored modules were not read for
   outbound senders. The OTP `api_secret` census did cover `packages/`, so the *credential* question

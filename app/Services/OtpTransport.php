@@ -69,44 +69,110 @@ final class OtpTransport
     public const ANSWERED = 'answered';
 
     /**
+     * IS THIS A SUCCESSFUL SEND? Both halves, exactly as before P1-SEC-55.
+     *
+     * The original condition at both call sites was
+     * `$response->successful() && ($result['status'] ?? null) == 200` -- Laravel's HTTP-level 2xx
+     * AND the provider's own `status` field. Moving the sends onto `SafeWebhook::send()` kept the
+     * second and dropped the first, because that method answers the body alone. The owner caught
+     * it: a provider answering an HTTP error while its body claimed `status: 200` began to
+     * succeed where it had failed.
+     *
+     * Restored here rather than at the call sites so the two cannot disagree -- the previous
+     * version of this had the same condition written out twice in two controllers, which is how
+     * one of them would eventually have been updated alone.
+     *
+     * `http_status` is null when there was no HTTP response at all, and that is NOT success.
+     * `$response->successful()` could never see such a case (Guzzle would have thrown), so
+     * treating it as a failure is the faithful reading, and it fails CLOSED.
+     *
+     * @param  array{outcome: string, status: int|null, http_status: int|null, provider_message: string|null}  $sent
+     */
+    public static function succeeded(array $sent): bool
+    {
+        if (($sent['outcome'] ?? null) !== self::ANSWERED) {
+            return false;
+        }
+
+        $http = $sent['http_status'] ?? null;
+
+        // Laravel's `successful()` is exactly `status >= 200 && status < 300`.
+        if (! is_int($http) || $http < 200 || $http >= 300) {
+            return false;
+        }
+
+        return ($sent['status'] ?? null) === 200;
+    }
+
+    /**
      * @param  string  $baseUrl  the merchant-configured provider base, e.g. https://sms.example.com
      * @param  string  $path     the provider endpoint, e.g. /api/send/sms -- a literal, never user input
      * @param  array<int, array{name?: string, contents?: mixed}>  $multipart  Guzzle-shaped parts,
      *                                                             which is the shape both callers already build
-     * @return array{outcome: string, status: int|null, provider_message: string|null}
+     * @return array{outcome: string, status: int|null, http_status: int|null, provider_message: string|null}
      */
     public static function post(string $baseUrl, string $path, array $multipart): array
     {
         $url = rtrim($baseUrl, '/') . $path;
 
-        $response = SafeWebhook::send($url, self::fields($multipart), 'POST');
+        /*
+         * `sendWithStatus()` rather than `send()`, so the HTTP status survives. It is the SAME
+         * protected send -- one `plan()`, so the same `SafeRemoteFetch::check` judgement, the same
+         * `CURLOPT_RESOLVE` pin, the same `CURLOPT_FOLLOWLOCATION => false`. Only the amount of
+         * the answer handed back differs. `send()` keeps its old contract for its other caller.
+         */
+        $result = SafeWebhook::sendWithStatus($url, self::fields($multipart), 'POST');
 
-        if ($response === null) {
+        if ($result === null) {
             // Refused by SafeRemoteFetch::check. NOTHING was sent, so no secret left the server.
-            return ['outcome' => self::REFUSED, 'status' => null, 'provider_message' => null];
+            return self::outcome(self::REFUSED);
         }
+
+        $response = $result['body'];
+        $httpStatus = $result['status'];
 
         if ($response === false) {
             // cURL failed. The error text is NOT propagated: it is the thing that turned this
             // endpoint into a port scanner ("cURL error 7: ... port 6379 ... Connection refused").
-            return ['outcome' => self::FAILED, 'status' => null, 'provider_message' => null];
+            return self::outcome(self::FAILED, null, $httpStatus);
         }
 
         $decoded = json_decode((string) $response, true);
 
         if (! is_array($decoded)) {
             // A body that is not the provider's JSON contract is not a message to repeat. A
-            // remote service banner arrives exactly this way.
-            return ['outcome' => self::ANSWERED, 'status' => null, 'provider_message' => null];
+            // remote service banner arrives exactly this way. The HTTP status is still reported,
+            // because the caller's success test needs it and it carries no remote text.
+            return self::outcome(self::ANSWERED, null, $httpStatus);
         }
 
         $status = $decoded['status'] ?? null;
         $message = $decoded['message'] ?? null;
 
+        return self::outcome(
+            self::ANSWERED,
+            is_numeric($status) ? (int) $status : null,
+            $httpStatus,
+            is_string($message) ? $message : null
+        );
+    }
+
+    /**
+     * One builder for the result shape, so a new key cannot be added to three of four returns.
+     *
+     * @return array{outcome: string, status: int|null, http_status: int|null, provider_message: string|null}
+     */
+    private static function outcome(
+        string $outcome,
+        ?int $status = null,
+        ?int $httpStatus = null,
+        ?string $providerMessage = null
+    ): array {
         return [
-            'outcome' => self::ANSWERED,
-            'status' => is_numeric($status) ? (int) $status : null,
-            'provider_message' => is_string($message) ? $message : null,
+            'outcome' => $outcome,
+            'status' => $status,
+            'http_status' => $httpStatus,
+            'provider_message' => $providerMessage,
         ];
     }
 

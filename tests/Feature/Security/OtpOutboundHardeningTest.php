@@ -74,7 +74,10 @@ class OtpOutboundHardeningTest extends SecurityTestCase
         SafeWebhook::transportUsing(function (string $url, array $options) {
             $this->sent[] = [$url, $options];
 
-            return json_encode(['status' => 200, 'message' => 'queued']);
+            // `['body' => ..., 'status' => ...]` is SafeWebhook's opt-in metadata seam shape.
+            // `OtpTransport::succeeded()` needs HTTP 2xx *and* provider 200, so a seam that
+            // reports no HTTP status makes a positive case FAIL rather than pass leniently.
+            return ['body' => json_encode(['status' => 200, 'message' => 'queued']), 'status' => 200];
         });
     }
 
@@ -110,6 +113,316 @@ class OtpOutboundHardeningTest extends SecurityTestCase
     // ============================================================================================
     //  POSITIVE -- the feature still works, and the secret still reaches a permitted provider
     // ============================================================================================
+
+    /** Replaces the default seam with one that answers a given HTTP status and body. */
+    private function respondWith(?int $httpStatus, $body): void
+    {
+        SafeWebhook::transportUsing(function (string $url, array $options) use ($httpStatus, $body) {
+            $this->sent[] = [$url, $options];
+
+            if ($httpStatus === null) {
+                // The LEGACY seam shape: a bare body, reporting no HTTP status at all.
+                return $body;
+            }
+
+            return ['body' => $body, 'status' => $httpStatus];
+        });
+    }
+
+    /** Drives the merchant test endpoint as the store owner and returns the decoded JSON. */
+    private function driveMerchantTest(): array
+    {
+        [$merchant, $store] = $this->makeTenant();
+        $this->integration($store->id);
+
+        $response = $this->actingAs($merchant->fresh())
+            ->post('/otp-integration/test', ['phone' => '0100000000']);
+
+        $response->assertOk();
+
+        return (array) $response->json();
+    }
+
+    // ============================================================================================
+    //  THE HTTP-STATUS REGRESSION the owner caught, and the dual condition restored
+    // ============================================================================================
+
+    /**
+     * THE REGRESSION ITSELF: HTTP 500 carrying a body that claims `status: 200`.
+     *
+     * The original condition was `$response->successful() && ($result['status'] ?? null) == 200`.
+     * The first move onto `SafeWebhook::send()` kept the provider's field and lost the HTTP status,
+     * so THIS case flipped from failure to success -- a merchant would have been told the test OTP
+     * was sent when the provider had in fact returned a server error, and the customer-facing flow
+     * would have told a shopper to check for a code that never left.
+     *
+     * A provider that genuinely returns 500 while claiming success in its body is not a hypothesis
+     * about a hostile provider; it is what a broken or half-deployed gateway looks like.
+     */
+    public function test_an_http_error_with_a_body_claiming_status_200_is_not_a_successful_send(): void
+    {
+        $this->respondWith(500, json_encode(['status' => 200, 'message' => 'queued']));
+
+        $json = $this->driveMerchantTest();
+
+        $this->assertFalse(
+            $json['success'] ?? null,
+            'HTTP 500 WITH A BODY CLAIMING status:200 WAS REPORTED AS A SUCCESSFUL SEND. That is '
+            . 'the exact regression this round exists to correct: the original condition required '
+            . 'HTTP 2xx AND provider status 200, and dropping the first half made a server error '
+            . 'look like a delivered OTP.'
+        );
+
+        $this->assertCount(1, $this->sent,
+            'premise: the request must actually have been attempted, or this proves nothing about '
+            . 'the response handling.');
+    }
+
+    /**
+     * @dataProvider httpErrorStatuses
+     */
+    public function test_no_non_2xx_status_is_a_successful_send(int $status): void
+    {
+        $this->respondWith($status, json_encode(['status' => 200, 'message' => 'queued']));
+
+        $this->assertFalse(
+            $this->driveMerchantTest()['success'] ?? null,
+            "HTTP {$status} with provider status 200 was treated as a successful send."
+        );
+    }
+
+    public static function httpErrorStatuses(): array
+    {
+        return [
+            'bad request'       => [400],
+            'unauthorized -- a wrong api_secret looks like this' => [401],
+            'forbidden'         => [403],
+            'not found -- a wrong base_url path looks like this' => [404],
+            'rate limited'      => [429],
+            'server error'      => [500],
+            'bad gateway'       => [502],
+            'gateway timeout'   => [504],
+            // 3xx matters specifically: redirects are REFUSED (CURLOPT_FOLLOWLOCATION => false),
+            // so a provider answering 302 yields the redirect response itself. It is not 2xx and
+            // must not read as a send.
+            'redirect, which is never followed' => [302],
+        ];
+    }
+
+    /**
+     * THE POSITIVE HALF, across the 2xx range -- because "successful()" was never "== 200".
+     *
+     * Laravel's `$response->successful()` is `status >= 200 && status < 300`, so restoring the
+     * condition must not narrow it to 200 exactly. A provider answering 201 or 202 with
+     * `status: 200` in its body succeeded before P1-SEC-55 and must still succeed.
+     *
+     * @dataProvider successfulHttpStatuses
+     */
+    public function test_a_legitimate_2xx_response_is_still_a_successful_send(int $status): void
+    {
+        $this->respondWith($status, json_encode(['status' => 200, 'message' => 'queued']));
+
+        $this->assertTrue(
+            $this->driveMerchantTest()['success'] ?? null,
+            "HTTP {$status} with provider status 200 was REFUSED. Laravel's successful() is the "
+            . 'whole 2xx range, so restoring the HTTP half must not narrow it to exactly 200 -- '
+            . 'that would break every provider that answers 201 or 202.'
+        );
+    }
+
+    public static function successfulHttpStatuses(): array
+    {
+        return [
+            'ok'       => [200],
+            'created'  => [201],
+            'accepted' => [202],
+            'no content, which some gateways answer' => [204],
+            'the top of the range' => [299],
+        ];
+    }
+
+    /**
+     * THE OTHER HALF, unchanged: HTTP 2xx is not enough on its own.
+     *
+     * The provider's own `status` field is its documented contract, and a gateway that accepts the
+     * request and then reports a failure in the body answers HTTP 200. Dropping THIS half would be
+     * the mirror-image regression.
+     */
+    public function test_a_2xx_response_with_a_provider_failure_is_not_a_successful_send(): void
+    {
+        $this->respondWith(200, json_encode(['status' => 400, 'message' => 'insufficient credits']));
+
+        $json = $this->driveMerchantTest();
+
+        $this->assertFalse($json['success'] ?? null,
+            'HTTP 200 with provider status 400 was treated as a successful send.');
+
+        $this->assertSame(
+            'insufficient credits',
+            $json['message'] ?? null,
+            "the provider's own message is still surfaced to the authenticated, permission-checked "
+            . 'merchant -- that half of the behaviour is deliberate and must not be lost to the fix'
+        );
+    }
+
+    /**
+     * FAIL CLOSED when the HTTP status is unknown.
+     *
+     * The real transport always has a status (`CURLINFO_RESPONSE_CODE`), and `0` -- no HTTP
+     * response at all -- is reported as null rather than as a code, so a caller cannot read it as
+     * a 2xx. The only way a status is genuinely absent is a seam that does not supply one, and
+     * that must fail rather than pass: a lenient fallback here would make every positive test in
+     * this file pass without exercising the restored condition at all.
+     */
+    public function test_an_unknown_http_status_is_not_a_successful_send(): void
+    {
+        $this->respondWith(null, json_encode(['status' => 200, 'message' => 'queued']));
+
+        $this->assertFalse(
+            $this->driveMerchantTest()['success'] ?? null,
+            'A response with NO HTTP status was treated as successful. succeeded() must fail '
+            . 'closed, or a transport that cannot report a status silently bypasses the HTTP half.'
+        );
+    }
+
+    /**
+     * `send()`'s CONTRACT IS UNCHANGED, asserted directly rather than inferred.
+     *
+     * The owner's instruction was explicit: *"Do not silently change the semantics of other
+     * SafeWebhook callers."* The only other caller in the application is
+     * `Utility::WebhookCall` (Utility.php:2119), which expects the BODY, `false` on transport
+     * failure, and `null` on refusal. `send()` is now a projection of `sendWithStatus()`, so this
+     * pins that the projection did not change what it returns.
+     */
+    public function test_send_still_returns_only_the_body_and_sendWithStatus_adds_the_status(): void
+    {
+        $this->respondWith(201, 'a body came back');
+
+        $this->assertSame(
+            'a body came back',
+            SafeWebhook::send('https://sms.example.test/x', [], 'POST'),
+            'send() must still answer the BODY alone -- Utility::WebhookCall depends on it.'
+        );
+
+        $this->assertSame(
+            ['body' => 'a body came back', 'status' => 201],
+            SafeWebhook::sendWithStatus('https://sms.example.test/x', [], 'POST'),
+            'sendWithStatus() must answer the body AND the status.'
+        );
+
+        // Refusal: null from both, and nothing sent.
+        $before = count($this->sent);
+
+        $this->assertNull(
+            SafeWebhook::send('https://internal.example.test/x', [], 'POST'),
+            'send() must still answer null for a REFUSED destination.'
+        );
+        $this->assertNull(
+            SafeWebhook::sendWithStatus('https://internal.example.test/x', [], 'POST'),
+            'sendWithStatus() must answer null for a REFUSED destination.'
+        );
+        $this->assertCount($before, $this->sent, 'a refused destination must send nothing');
+
+        // Transport failure: false body, no status, through both.
+        $this->respondWith(null, false);
+
+        $this->assertFalse(
+            SafeWebhook::send('https://sms.example.test/x', [], 'POST'),
+            'send() must still answer false when the transport failed.'
+        );
+        $this->assertSame(
+            ['body' => false, 'status' => null],
+            SafeWebhook::sendWithStatus('https://sms.example.test/x', [], 'POST'),
+            'sendWithStatus() must report a transport failure as a false body with no status.'
+        );
+    }
+
+    /**
+     * `succeeded()` DIRECTLY, over the whole decision table -- including the cases the suite
+     * cannot reach through the real transport.
+     *
+     * WHY THIS IS HERE AND NOT INFERRED. `SafeWebhook::sendWithStatus()` maps cURL's
+     * `CURLINFO_RESPONSE_CODE` of `0` -- no HTTP response at all -- to `null` rather than to a
+     * status. That mapping lives on the real cURL path, which the suite never executes (every
+     * test goes through the transport seam), so **it is not covered by any test and saying so is
+     * better than implying it is**: I mutated it to pass `0` through unchanged and the whole suite
+     * stayed green.
+     *
+     * What IS asserted here is the property that makes the mapping safe either way: `succeeded()`
+     * refuses `0` and refuses `null`, so neither can become a success path. The mapping is
+     * defence-in-depth for the LOG and for any future caller comparing ranges, not the thing the
+     * success decision rests on.
+     *
+     * @dataProvider succeededDecisionTable
+     */
+    public function test_the_success_condition_is_both_halves_and_fails_closed(
+        bool $expected,
+        string $outcome,
+        ?int $providerStatus,
+        ?int $httpStatus,
+        string $why
+    ): void {
+        $this->assertSame(
+            $expected,
+            OtpTransport::succeeded([
+                'outcome' => $outcome,
+                'status' => $providerStatus,
+                'http_status' => $httpStatus,
+                'provider_message' => null,
+            ]),
+            $why
+        );
+    }
+
+    public static function succeededDecisionTable(): array
+    {
+        $ok = OtpTransport::ANSWERED;
+
+        return [
+            // both halves true
+            'HTTP 200 + provider 200' => [true,  $ok, 200, 200, 'the ordinary success'],
+            'HTTP 201 + provider 200' => [true,  $ok, 200, 201, '201 is within successful()'],
+            'HTTP 299 + provider 200' => [true,  $ok, 200, 299, 'the top of the 2xx range'],
+
+            // the HTTP half false -- the regression the owner caught
+            'HTTP 500 + provider 200' => [false, $ok, 200, 500, 'THE REGRESSION: a server error with a body claiming success'],
+            'HTTP 404 + provider 200' => [false, $ok, 200, 404, 'a wrong base_url path'],
+            'HTTP 302 + provider 200' => [false, $ok, 200, 302, 'a redirect, which is never followed'],
+            'HTTP 199 + provider 200' => [false, $ok, 200, 199, 'below the range'],
+            'HTTP 300 + provider 200' => [false, $ok, 200, 300, 'the boundary above the range'],
+
+            // the provider half false
+            'HTTP 200 + provider 400' => [false, $ok, 400, 200, 'the gateway accepted and then reported a failure'],
+            'HTTP 200 + provider null (non-JSON body)' => [false, $ok, null, 200, 'a service banner arrives this way'],
+
+            // fail closed where the status is unknown or there was no response
+            'HTTP null + provider 200' => [false, $ok, 200, null, 'no HTTP response is not a 2xx'],
+            'HTTP 0 + provider 200'    => [false, $ok, 200, 0,    'cURL reports 0 for no response; it must never read as success'],
+
+            // not an answer at all
+            'refused'  => [false, OtpTransport::REFUSED, 200, 200, 'nothing was sent, so nothing succeeded'],
+            'failed'   => [false, OtpTransport::FAILED,  200, 200, 'the transport failed'],
+        ];
+    }
+
+    /**
+     * A SEAM RETURNING AN ARRAY BODY IS NOT A STATUS REPORT.
+     *
+     * The metadata shape is recognised by the presence of a `body` KEY, not by being an array, so
+     * the additive seam contract cannot misread an existing seam's return value. This pins the
+     * disambiguation rule rather than leaving it as a comment.
+     */
+    public function test_an_array_without_a_body_key_is_treated_as_a_body_not_as_metadata(): void
+    {
+        SafeWebhook::transportUsing(fn () => ['status' => 500, 'not_a_body' => 'x']);
+
+        $this->assertSame(
+            ['body' => ['status' => 500, 'not_a_body' => 'x'], 'status' => null],
+            SafeWebhook::sendWithStatus('https://sms.example.test/x', [], 'POST'),
+            'an array WITHOUT a `body` key must be passed through as the body, so a seam that '
+            . 'happens to return an array is not reinterpreted as an HTTP status report.'
+        );
+    }
 
     public function test_a_permitted_provider_receives_the_send_pinned_and_unredirectable(): void
     {

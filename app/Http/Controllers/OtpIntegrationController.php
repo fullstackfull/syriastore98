@@ -549,20 +549,22 @@ $phone = $this->normalizePhone($request->phone);
             }
 
             /*
-             * ONE DELIBERATE DIFFERENCE FROM THE PREVIOUS CONDITION, stated rather than buried.
-             * It was `$response->successful() && ($result['status'] ?? null) == 200` -- the HTTP
-             * status AND the provider's own status field. `SafeWebhook::send()` returns the body
-             * only, so the HTTP code is not observable through it, and the provider's `status`
-             * field -- which IS its documented contract -- decides alone.
+             * [CORRECTED] BOTH HALVES OF THE ORIGINAL CONDITION, which an earlier version of this
+             * change dropped one of.
              *
-             * The two differ in exactly one case: a provider answering an HTTP error while its
-             * body claims `status: 200` now succeeds where it previously failed. Every other
-             * case is identical or stricter (a non-JSON body still fails, and a refused or
-             * failed transport cannot reach here as a success). If the owner wants the HTTP code
-             * back, the change is to `SafeWebhook`, not here -- and it was left untouched on
-             * purpose, because the direction was to use the existing implementation.
+             * It was `$response->successful() && ($result['status'] ?? null) == 200`. Moving the
+             * send onto `SafeWebhook::send()` kept the provider's `status` field and lost the HTTP
+             * status, because that method answers the body alone -- so a provider replying with an
+             * HTTP error while its body claimed `status: 200` began to SUCCEED. The owner caught
+             * it and asked for the dual condition back without weakening the pinning, the
+             * redirect refusal or the authorization.
+             *
+             * `OtpTransport::succeeded()` is that condition, in one place rather than copied into
+             * each branch, and it reads the HTTP status through the opt-in
+             * `SafeWebhook::sendWithStatus()` -- the same single `plan()`, so every protection is
+             * unchanged.
              */
-            if ($sent['outcome'] === OtpTransport::ANSWERED && $sent['status'] === 200) {
+            if (OtpTransport::succeeded($sent)) {
                 return response()->json([
                     'success' => true,
                     'message' => __('Test SMS OTP sent successfully.'),
@@ -643,7 +645,8 @@ $phone = $this->normalizePhone($request->phone);
                 ]);
             }
 
-            if ($sent['outcome'] === OtpTransport::ANSWERED && $sent['status'] === 200) {
+            // Both halves, same helper as the SMS branch above. See the note there.
+            if (OtpTransport::succeeded($sent)) {
                 return response()->json([
                     'success' => true,
                     'message' => __('Test WhatsApp OTP sent successfully.'),

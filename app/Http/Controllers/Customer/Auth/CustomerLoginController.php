@@ -347,7 +347,16 @@ $phone = $this->normalizePhone($customer->mobile);
          * because that caller is authenticated AND now permission-checked. This one gets one
          * fixed string, and the detail goes to the log.
          */
-        if ($sent['outcome'] !== OtpTransport::ANSWERED || $sent['status'] !== 200) {
+        /*
+         * [CORRECTED] BOTH HALVES. This was
+         * `!$response->successful() || ($result['status'] ?? null) != 200`, and the first move
+         * onto `SafeWebhook::send()` kept only the provider's own field -- so an HTTP error with a
+         * body claiming `status: 200` would have been treated as a sent OTP, and the customer
+         * would have been told to check for a code that never left. `OtpTransport::succeeded()`
+         * restores the HTTP 2xx test alongside it, in the same one place the merchant endpoint
+         * uses.
+         */
+        if (! OtpTransport::succeeded($sent)) {
 
             \Log::warning('Customer OTP send did not succeed.', [
                 'store_id' => $store->id,
@@ -355,6 +364,7 @@ $phone = $this->normalizePhone($customer->mobile);
                 'channel' => $integration->otp_channel,
                 'outcome' => $sent['outcome'],
                 'provider_status' => $sent['status'],
+                'http_status' => $sent['http_status'],
                 'provider_message' => $sent['provider_message'],
             ]);
 

@@ -249,7 +249,10 @@ class GateFActivatedSurfacesTest extends SecurityTestCase
         \App\Services\SafeWebhook::transportUsing(function (string $url, array $options) use (&$sent) {
             $sent[] = $url;
 
-            return json_encode(['status' => 200]);
+            // The metadata seam shape: an HTTP status alongside the body. The success test is
+            // `OtpTransport::succeeded()`, which requires HTTP 2xx AND provider status 200, so a
+            // seam that reports no status would make this positive case fail -- deliberately.
+            return ['body' => json_encode(['status' => 200]), 'status' => 200];
         });
 
         [$merchant, $store] = $this->makeTenant();
@@ -307,7 +310,7 @@ class GateFActivatedSurfacesTest extends SecurityTestCase
         \App\Services\SafeWebhook::transportUsing(function (string $url, array $options) use (&$sent) {
             $sent[] = $url;
 
-            return json_encode(['status' => 200, 'message' => 'queued']);
+            return ['body' => json_encode(['status' => 200, 'message' => 'queued']), 'status' => 200];
         });
 
         [$merchant, $store] = $this->makeTenant();
