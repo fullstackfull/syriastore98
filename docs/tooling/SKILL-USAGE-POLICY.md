@@ -104,8 +104,35 @@ A `SKILL.md` is instructions to an agent with shell and git access. Treat it as 
 | `verification-before-completion` | `.claude/skills/verification-before-completion/SKILL.md` | **yes** — vendored and committed, MIT, pinned |
 | protected-path hook | `.claude/hooks/guard-protected-paths.php` | **yes** — committed |
 | secret deny rules | `.claude/settings.json` | **yes** — committed |
-| `frontend-design` | the account | **no** — install-required |
-| `laravel-best-practices`, `ui-ux-pro-max`, `claude-automation-recommender` | **absent** | n/a — were never in the repository |
+| `frontend-design` | `.claude/skills/frontend-design/SKILL.md` | **yes** — committed (Phase 02, owner instruction); hash-pinned in `skills-lock.json` |
+| `ui-ux-pro-max` | `.claude/skills/ui-ux-pro-max/` (SKILL.md + `data/` + `scripts/`) | **yes** — committed (Phase 02, owner instruction) |
+| `design-system`, `ui-styling`, `design`, `brand`, `banner-design`, `slides` | `.claude/skills/<name>/` | **yes** — committed (Phase 02, owner instruction) |
+| `laravel-best-practices`, `claude-automation-recommender` | **absent** | n/a — were never in the repository |
+
+> **Corrected 2026-11-03 (Phase 2.5, ledger `P2.5-F-02`).** The two rows above used to read
+> "`frontend-design` | the account | **no** — install-required" and "`laravel-best-practices`,
+> `ui-ux-pro-max`, `claude-automation-recommender` | **absent** | n/a — were never in the
+> repository". Measured with `git ls-files .claude/skills/`: **eight** design skills are
+> committed, `ui-ux-pro-max` among them, and `CLAUDE.md` §6 has recorded that since Phase 02.
+> Only two of the three named candidates are genuinely absent.
+>
+> This mattered beyond tidiness. `D-39` makes `frontend-design`, `ui-ux-pro-max`, `design-system`
+> and `ui-styling` **mandatory** for Phase 2.5, and this file is the policy a session consults
+> before reaching for one; it was telling that session two of the four did not exist.
+>
+> **The control that should have caught it was passing vacuously.**
+> `ClaudeConfigurationTest::test_claude_md_does_not_depend_on_an_uncommitted_skill` searched the
+> whole of `CLAUDE.md` for the word "absent", so the sentence about `laravel-best-practices`
+> satisfied the assertion for every other name in its hand-kept list. Repaired in the same change:
+> it now derives the list from the filesystem (`.claude/skills/` **and** `.claude/agents/`) and
+> requires the disclaimer to sit within 220 characters of the mention it disclaims. Bitten by
+> deleting `ui-ux-pro-max` from the checkout — the old check passed, the repaired one fails and
+> names the skill.
+>
+> §3's nine hard prohibitions are unchanged, and the egress condition on these skills still
+> stands: they are **not** egress-free, and
+> `ClaudeConfigurationTest::test_the_design_skills_declare_every_external_host_they_reference`
+> fails CI on a new host.
 
 One tool from the candidate list is adopted — the superpowers three-skill subset above, as plain
 Markdown with no hook, credential, update path or egress. Every other candidate is rejected,

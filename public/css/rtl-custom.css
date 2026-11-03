@@ -4513,6 +4513,204 @@ html[data-ss-theme="dark"] body [data-ss-theme="light"] .ss-label {
     color: var(--ss-fg) !important;
 }
 
+/* =============================================================================================
+   P2.5-A-01 / ledger F126 — THE WHITE MODAL SURFACE IN DARK MODE, for every modal rather than
+   the ten views that could be marked by hand.
+   =============================================================================================
+
+   MEASURED TWICE, and the second measurement found something the first could not.
+
+   (a) Against the host's real dark-LTR stylesheet order with hand-written markup
+       (`measure-f126-cascade.cjs`, 26 surfaces):
+
+         modal .form-label / bare <label> / .ss-label   2.52:1
+         modal <p>                                      3.84:1
+         modal .form-text                               4.69:1  (passes)
+
+   (b) IN THE RUNNING APPLICATION, driving the real create-category modal
+       (`check-dark-form-surfaces-live.cjs`, both directions):
+
+         modal .modal-title                             1.00:1   WHITE ON WHITE
+
+   THE TITLE IS THE WORST CASE AND NOTHING HAD RECORDED IT. `style-dark.css:29442` carries
+   `h1,h2,h3,h4,h5,h6 { color: var(--bs-white) !important }` -- pure #ffffff, forced, on every
+   heading in the dark admin. On the dark page that is correct and deliberate. On this white
+   surface it means **every modal title in the admin was invisible**, not merely low-contrast,
+   and it had been measured at 3.84:1 by (a) because the static harness loads the four stylesheets
+   the layout names and the application loads TWENTY-FIVE. TEN of them land AFTER
+   `store-syria-ds.css`: flatpickr, summernote-bs4, emojionearea, calendar.css, two DataTables
+   sheets, a cross-origin Leaflet sheet Chromium refuses to expose, and three inline <style>
+   blocks (7, 1 and 184 rules). Counted off the running page, because the first draft of this
+   paragraph said "six" and was wrong by the four it had not looked at. A cascade harness settles
+   what the CSS says; only the running application settles what the page does.
+
+   WHY THE SURFACE IS WHITE AT ALL. `style-dark.css:6234` sets `--bs-modal-bg: #ffffff` and
+   `:6233` sets `--bs-modal-color:` to the EMPTY string, so `.modal-content`'s own
+   `color: var(--bs-modal-color)` is invalid at computed-value time and the foreground is
+   INHERITED instead. The inherited value is fine (`--bs-body-color: #293240`, 12.93:1 on white);
+   what lands on this surface and is not fine is the DARK-PAGE CHROME written for #22242c.
+
+   WHY NARROWING THE RULE ABOVE CANNOT FIX THIS, which is the thing the earlier note missed.
+   The host's own dark theme carries its OWN bare element selector --
+   `style-dark.css:29465`, `label { color: #808191 !important }` -- and `:29454` does the same
+   for `p:not([class^="ss-"])`. Narrowing custom.css's `html[...] body label` therefore does not
+   uncover a safe default; it uncovers the host's #808191, which is 3.84:1 on white. It is also
+   why #9DA3B4 reads WORSE than the host here while reading BETTER everywhere it was added for:
+   it is a lift, and a lift is the wrong direction on a light surface.
+
+   SO THE SURFACE IS NAMED INSTEAD OF THE ELEMENT. `.modal-content` is the one selector every
+   Bootstrap modal in the host and in all seventy vendored modules shares, and it is white in
+   dark mode in all of them: the only two dark-theme overrides of it,
+   `.notification-modal .modal-content` (:17098) and `.q-view-modal .modal-content` (:23371),
+   set geometry and borders only and leave `--bs-modal-bg` alone. Checked, because a dark modal
+   would have made this rule the defect.
+
+   SPECIFICITY, since every rule in play is `!important` and specificity is what decides:
+   (0,2,3) here beats custom.css's (0,1,3) above and style-dark.css's (0,0,1) and (0,2,1).
+   The values are DS LAYER-1 PRIMITIVES, which are declared once on `:root` and never re-themed,
+   so they keep their light-surface meaning inside a dark scope where `--ss-fg` would not. Each
+   carries its literal as a fallback: the design system is linked by the admin layout itself
+   (app.blade.php:225) so these resolve on every admin page, but custom.css is also served to
+   screens outside that layout, where an unresolved var() invalidates the whole declaration.
+
+   This changes no layout, no spacing and no brand colour: three foregrounds on one surface.
+   The ten views carrying `data-ss-theme="light"` are unaffected -- that escape resolves to
+   `--ss-fg` = grey-900, which is the same value this rule gives, so a marked modal and an
+   unmarked one now render identically instead of 16.06:1 and 2.52:1 apart.
+
+   STILL OPEN, measured here and deliberately NOT widened into this slice: a plain host `<p>`
+   on the host's DARK CARD (#292A33) is 3.71:1, from the same `:29454` rule. Fixing that means
+   lightening paragraph text across every dark surface in seventy modules, which needs its own
+   measurement pass over the light-surfaced containers in dark mode -- this modal is only the
+   first of them. Recorded as F126-b.
+   ============================================================================================= */
+
+/* Primary text on the white modal: the field labels, and the modal's own title.
+   The headings are in this list because of `style-dark.css:29442`, not for symmetry. */
+html[data-ss-theme="dark"] body .modal-content label,
+html[data-ss-theme="dark"] body .modal-content .form-label,
+html[data-ss-theme="dark"] body .modal-content .col-form-label,
+html[data-ss-theme="dark"] body .modal-content .ss-label,
+html[data-ss-theme="dark"] body .modal-content h1,
+html[data-ss-theme="dark"] body .modal-content h2,
+html[data-ss-theme="dark"] body .modal-content h3,
+html[data-ss-theme="dark"] body .modal-content h4,
+html[data-ss-theme="dark"] body .modal-content h5,
+html[data-ss-theme="dark"] body .modal-content h6,
+html[data-ss-theme="dark"] body .modal-content .modal-title {
+    color: var(--ss-grey-900, #1a2322) !important;   /* 16.06:1 on #ffffff */
+}
+
+/* Secondary text on the white modal: prose, hints and helper text. One value for the whole
+   tier, so the DS grey and Bootstrap's own #6c757d stop sitting next to each other. */
+html[data-ss-theme="dark"] body .modal-content p:not([class^="ss-"]):not([class*=" ss-"]),
+html[data-ss-theme="dark"] body .modal-content .form-text,
+html[data-ss-theme="dark"] body .modal-content small {
+    color: var(--ss-grey-600, #5b6665) !important;   /* 5.94:1 on #ffffff */
+}
+
+
+/* =============================================================================================
+   P2.5-A-02 / ledger F126-c — EVERY TEXT INPUT, SELECT AND TEXTAREA IN THE DARK ADMIN.
+   =============================================================================================
+
+   FOUND WHILE MEASURING F126 and it is the larger of the two. The modal labels F126 names are
+   ~60 forms; this is every form control on every screen in dark mode, including the ones inside
+   those modals, and it was below AA on all four surfaces measured:
+
+     MEASURED (Chromium, host dark stylesheet order; 26-surface run in
+     docs/development/phase-2.5/tools/measure-f126-cascade.cjs)
+
+       value text   #808191 on the field's own #292A33        3.71:1    need 4.5
+       value text   #808191 where the field sits on #22242c   4.03:1    need 4.5
+       placeholder  #6c757d on #292A33                        3.04:1    need 4.5
+
+   It is also the one surface in this slice that is wrong in BOTH themes' worth of markup at
+   once: the field is dark even when it sits on the white modal, so the modal fix above cannot
+   reach it and it needs its own rule.
+
+   The source is one declaration: `style-dark.css:2377` gives `.form-control`, `.custom-select`,
+   `.dataTable-selector` and `.dataTable-input` `color: #808191` on `background-color: #292A33`,
+   and `:2442` gives their placeholder `#6c757d`. Neither is `!important`, so this needs no
+   specificity contest -- custom.css simply loads later. `!important` is used anyway on the value
+   because `:2416` restates `#808191` for `:focus`, and a field that was legible until it was
+   focused would be the worse defect.
+
+   WHY NOT A BARE LIFT OF #808191, AND WHY NOT A SEMANTIC TOKEN EITHER. A lift clears AA but
+   leaves the admin with two different-looking inputs: the design system's own `.ss-input`
+   measures 11.10:1 in the same run, so a converted field and an unconverted one sit on the same
+   form looking like different controls, which is the inconsistency Phase 2.5 exists to remove.
+
+   The obvious next move is to point the host control at the design system's SEMANTIC tokens --
+   `var(--ss-fg)` and `var(--ss-fg-subtle)` -- so the two render identically. THAT WAS WRITTEN,
+   MEASURED, AND IT REGRESSED THE THING IT WAS MEANT TO FIX:
+
+       ESCAPED MODAL .form-control text   #1a2322 on #292A33   1.13:1   (from 3.71:1)
+
+   A semantic token re-themes with the nearest `data-ss-theme` scope. The host field's
+   `background-color: #292A33` comes from `style-dark.css` and does NOT -- it has no idea the
+   scope changed. So inside the ten views that carry `data-ss-theme="light"` the token resolved
+   to its LIGHT value, near-black, and painted it on a still-dark field. The rule was worse than
+   the defect, and only the 26-surface run said so.
+
+   THE RULE THIS LEAVES: match the token layer to the SURFACE, not to the component. This
+   surface is theme-independent, so its foreground must be too. LAYER-1 PRIMITIVES are declared
+   once on `:root` and never re-themed, which makes them the correct and only safe choice here --
+   the same reason A-01 above uses `--ss-grey-900` rather than `--ss-fg` on the white modal.
+
+       value        var(--ss-grey-100) -> #eef1f1   12.55:1 on #292A33, 13.63:1 on #22242c
+       placeholder  #9DA3B4 literal                  5.66:1 on #292A33,  6.14:1 on #22242c
+
+   The two keep a 2.39x luminance separation, so the placeholder still reads as clearly
+   subordinate to a typed value rather than as content -- the point of a placeholder, and the
+   reason it is not simply given the value's colour.
+
+   WHY THE PLACEHOLDER IS A LITERAL AND NOT A PRIMITIVE. The ramp has no step in the band this
+   needs: `--ss-grey-400` (#889392) measures **4.5039:1** on the field -- it passes by four
+   ten-thousandths, which is not a margin, and `--ss-grey-300` is 9.55:1 and loses the
+   hierarchy. #9DA3B4 is already this file's established "host hue, lifted" value from the F126
+   chrome block above, so reusing it adds no new colour to the palette rather than inventing one.
+
+   SCOPED TO DARK ONLY, like every rule in this block: custom.css is loaded in both themes, and
+   without the `data-ss-theme="dark"` hook these values would wash out the light admin. The
+   primitive carries its literal as a fallback. The design system is linked by the admin layout
+   itself (app.blade.php:225) so `--ss-grey-100` resolves on every admin page -- but custom.css
+   is also served to screens OUTSIDE that layout, where it does not, and an unresolved var()
+   makes the whole declaration invalid rather than merely unstyled.
+
+   NO GEOMETRY, NO BACKGROUND, NO BORDER: two foregrounds. The field keeps the host's own
+   surface, padding, radius and border, so no form reflows.
+   ============================================================================================= */
+
+html[data-ss-theme="dark"] body .form-control,
+html[data-ss-theme="dark"] body .custom-select,
+html[data-ss-theme="dark"] body .dataTable-selector,
+html[data-ss-theme="dark"] body .dataTable-input,
+html[data-ss-theme="dark"] body textarea.form-control,
+html[data-ss-theme="dark"] body .form-control:focus,
+html[data-ss-theme="dark"] body .custom-select:focus,
+html[data-ss-theme="dark"] body .dataTable-selector:focus,
+html[data-ss-theme="dark"] body .dataTable-input:focus {
+    color: var(--ss-grey-100, #eef1f1) !important;
+}
+
+html[data-ss-theme="dark"] body .form-control::placeholder,
+html[data-ss-theme="dark"] body .custom-select::placeholder,
+html[data-ss-theme="dark"] body .dataTable-selector::placeholder,
+html[data-ss-theme="dark"] body .dataTable-input::placeholder {
+    color: #9DA3B4 !important;
+    opacity: 1;            /* Firefox lowers placeholder opacity by default, which would undo the ratio. */
+}
+html[data-ss-theme="dark"] body .form-control::-moz-placeholder,
+html[data-ss-theme="dark"] body .custom-select::-moz-placeholder,
+html[data-ss-theme="dark"] body .dataTable-selector::-moz-placeholder,
+html[data-ss-theme="dark"] body .dataTable-input::-moz-placeholder {
+    color: #9DA3B4 !important;
+    opacity: 1;
+}
+/* end P2.5-A-02 — the two directions are compared byte for byte between this marker and the
+   P2.5-A-01 banner by Tests\Unit\Ui\DarkModalSurfaceContrastTest, so keep both markers. */
+
 
 /* The table body is the other 3.71:1 surface. Bootstrap drives it through a custom property
    rather than a colour declaration, so the property is what has to move. */
