@@ -488,7 +488,26 @@ jobs:
           # On a push there is no base ref to compare against, so this is skipped and the ceiling
           # behaves exactly as it did before.
           if [ -n "${GITHUB_BASE_REF:-}" ] && [ "$found" -ge "$AUDIT_CEILING" ]; then
-            git fetch --no-tags --depth=1 origin "$GITHUB_BASE_REF" >/dev/null 2>&1 || true
+            # THIS FETCH USED TO CARRY `--depth=1`, AND THAT BROKE TWO LATER GUARDS IN THIS
+            # SAME JOB. A `--depth=1` fetch plants a boundary in `.git/shallow`, which makes
+            # the whole repository shallow -- even though `actions/checkout` ran with
+            # `fetch-depth: 0` a few steps earlier. `guard-no-workdo-changes.sh` and
+            # `guard-no-new-root-uploads.sh` both compute a THREE-DOT diff, which needs a
+            # merge base; a cut graph has none, so `git diff` died with `no merge base`,
+            # their `|| true` turned that into an empty result, and both printed OK and
+            # exited 0 WHILE A VIOLATING CHANGE WOULD HAVE BEEN PRESENT. Measured in a
+            # synthetic repository and recorded in P01-SECURITY-WORK-QUEUE.md S52.
+            #
+            # It fired on EVERY pull request whose advisory count sat at the ceiling, which
+            # is the normal state (58 of 58 on 2026-11-02).
+            #
+            # Both guards now refuse rather than pass when the diff cannot be computed, so
+            # this is belt AND braces: the truncation is removed here, and a future one is
+            # caught there. The ref is normally already present from the depth-0 checkout,
+            # so this usually fetches nothing at all.
+            if ! git rev-parse --verify --quiet "origin/${GITHUB_BASE_REF}" >/dev/null 2>&1; then
+              git fetch --no-tags origin "$GITHUB_BASE_REF" >/dev/null 2>&1 || true
+            fi
             if ! git diff --quiet "origin/${GITHUB_BASE_REF}" -- composer.lock 2>/dev/null; then
               echo "::error::composer.lock CHANGED in this pull request and the advisory count is"
               echo "::error::$found, at or above the ceiling of $AUDIT_CEILING. The ceiling exists for"
@@ -525,8 +544,23 @@ jobs:
         # while leaving the two <env> lines looking correct.
         run: .github/scripts/guard-test-isolation.sh .
 
-      - name: Guard - no live .env in the checkout or the index
+      - name: Guard - the known .env exposure is reported, and no new one appeared
+        # NOT "no live .env in the checkout or the index", which is what this step was
+        # called until 2026-11-02. `.env` stopped being tracked, that phrasing became
+        # true, and the guard went silent on an exposure that is still reachable in
+        # history. This job checks out with fetch-depth: 0, so it is the one of the three
+        # call sites that can actually examine history and report the finding.
         run: .github/scripts/guard-no-env-files.sh .
+
+      - name: Guard - the attestation gate behaves as specified
+        # THE GATE'S OWN BEHAVIOUR IS RATCHETED, which is the lesson of P1-SEC-48 through
+        # -53: four controls in a row reported success without measuring anything, and the
+        # checklist gate was satisfied BY A SENTENCE SAYING IT WAS NOT. A property defended
+        # only by a comment is a property that will drift, so the twenty-five scenarios --
+        # positive, negative, quoted marker, denied marker, stale review, author
+        # self-approval, and every error path -- run here on every pull request. Offline,
+        # no network, about one second.
+        run: tests/Support/Security/bin/verify-attestation-gate-scenarios.sh .
 
       - name: Guard - GATE F money tables are still created by nothing
         # BLOCKING, and deliberately duplicated from
@@ -884,10 +918,16 @@ jobs:
           # absence can never be satisfied without overriding that decision.
           #
           # .github/scripts/guard-no-env-files.sh already encodes the right rule and PASSES in
-          # the `static` job: it emits an OPEN SECURITY RISK warning for the one known tracked
-          # file and exits 0, and exits 1 for ANY other live or tracked env file and for a
-          # .env written during the build. So a NEW secret still fails the build here; only the
-          # already-accepted one does not.
+          # the `static` job: it reports the one known, owner-deferred exposure and exits 0,
+          # and exits 1 for ANY other live or tracked env file and for a .env written during
+          # the build. So a NEW secret still fails the build here; only the already-accepted
+          # one does not.
+          #
+          # It used to say "the one known TRACKED file". That was the guard's expired premise:
+          # `.env` is no longer tracked, so the warning keyed on tracking stopped firing and
+          # the guard printed OK. It is now keyed on reachability in history. THIS job checks
+          # out at depth 1, so here it correctly reports that it could not examine history --
+          # the `static` job, at fetch-depth: 0, reports the finding itself.
           .github/scripts/guard-no-env-files.sh .
 
           # What actually keeps this run off real credentials is not the file's absence but

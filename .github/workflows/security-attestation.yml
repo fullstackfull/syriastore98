@@ -31,6 +31,11 @@ on:
 
 permissions:
   contents: read
+  # Added 2026-11-02 for the approval job below, which must READ this pull request's reviews.
+  # Read-only: nothing here may request, dismiss or submit a review. An automation that could
+  # submit a review could approve its own pull request, which is the entire thing this gate is
+  # built to make impossible.
+  pull-requests: read
 
 concurrency:
   # Keyed on the pull request, and separate from ci.yml's group so an edit can never cancel a
@@ -71,3 +76,71 @@ jobs:
         run: |
           printf '%s' "$PR_BODY" > /tmp/pr-body.txt
           .github/scripts/flag-sensitive-diff.sh "$BASE_SHA" /tmp/pr-body.txt
+
+  # ============================================================================================
+  # A SEPARATE JOB, AND THEREFORE A SEPARATE CHECK RUN, ON PURPOSE.
+  #
+  # Owner direction of 2026-11-02, items 4 and 5: an acknowledgement that records WHO gave it.
+  # It is its own check so branch protection can require it independently of the checklist --
+  # and so that when it is switched from `report` to `enforce`, nothing about the checklist's
+  # own verdict changes.
+  #
+  # IT IS NOT ENFORCING YET. Default mode is `report`, because enforcing today would produce a
+  # gate that CANNOT BE SATISFIED rather than a strict one: the automation and the owner are the
+  # same GitHub login in this repository, and GitHub refuses to let an author approve their own
+  # pull request. docs/security/HUMAN-REVIEW-GATE.md is item 7 -- how to separate them -- and
+  # names the one line to change here afterwards.
+  # ============================================================================================
+  approval:
+    name: "Security-sensitive diff: human approval"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Refuse to run as root
+        run: '[ "$(id -u)" != "0" ] || { echo "refusing to run as root"; exit 1; }'
+
+      # Only the scripts are needed; no history, no working tree.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Fetch this pull request's reviews
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # FETCHING IS SEPARATE FROM DECIDING. The decision script makes no network call, which
+          # is what lets every scenario -- stale review, self-approval, a failed fetch -- be
+          # executed offline by tests/Support/Security/bin/verify-attestation-gate-scenarios.sh.
+          #
+          # --paginate because the reviews API pages at 30 and a long-lived pull request can
+          # exceed that; without it a qualifying approval could sit on page 2 and be invisible.
+          #
+          # `--jq '.[]'` streams each review and `jq -s` slurps them back into ONE array. NOT
+          # `--slurp`: gh refuses it alongside `--jq` ("the `--slurp` option is not supported
+          # with `--jq` or `--template`"), which is how the first version of this step failed --
+          # gh printed its usage and the step died with exit 1. And NOT `--slurp` alone either:
+          # that yields a NESTED array, `[[...]]`, whose elements are pages rather than reviews,
+          # which the decision script would accept as a well-formed array and read as ZERO
+          # approvals. Both measured.
+          #
+          # A FAILED FETCH IS NOT AN ABSENCE OF APPROVALS. On failure this writes a deliberately
+          # non-array payload so the decision script produces its own clear "could not be
+          # evaluated" diagnostic and exits 2, instead of this step dying with a usage dump.
+          if ! gh api --paginate \
+                 "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews" \
+                 --jq '.[]' 2>/tmp/fetch-err.txt | jq -s '.' > /tmp/pr-reviews.json; then
+            echo "::warning::Fetching the reviews failed. The gate will report that it could not"
+            echo "::warning::be evaluated, which is not the same as reporting no approvals."
+            sed 's/^/  gh: /' /tmp/fetch-err.txt || true
+            printf '{"error":"the reviews fetch failed; see the step log"}\n' > /tmp/pr-reviews.json
+          fi
+          printf 'reviews fetched: %s\n' "$(jq 'if type == "array" then length else "FETCH FAILED" end' /tmp/pr-reviews.json)"
+
+      - name: Require a review approval from a non-author identity, at this head
+        env:
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          # `report` until the identities are separated. See the job comment and
+          # docs/security/HUMAN-REVIEW-GATE.md before changing this literal.
+          .github/scripts/assert-human-approval.sh "$PR_AUTHOR" "$PR_HEAD" /tmp/pr-reviews.json report
