@@ -204,7 +204,21 @@ class OrderLineImmutabilityTest extends SecurityTestCase
             'order_id' => $order->id,
         ]);
 
-        $response = $this->actingAs($merchant)->post($url, $payload);
+        /*
+         * `X-Requested-With: XMLHttpRequest` ADDED 2026-11-03 BY P2.5-R-05. Every endpoint in this
+         * dataProvider is called from the order screens by jQuery `$.ajax`, which sends this
+         * header; a bare `post()` sent neither it nor an `Accept`, so it stood in for a caller
+         * that does not exist. It became load-bearing when the status route grew a second,
+         * form-based caller and started answering `expectsJson()` callers with JSON and everyone
+         * else with a redirect -- at which point `$response->json()` at :223 would have failed
+         * before this test's own premise message could print.
+         *
+         * Both headers, not just the first: `Request::create()` injects a browser-like Accept, so
+         * `acceptsAnyContentType()` is false with X-Requested-With alone and `expectsJson()`
+         * stays false. Measured, not assumed.
+         */
+        $response = $this->actingAs($merchant)
+            ->post($url, $payload, ['X-Requested-With' => 'XMLHttpRequest', 'Accept' => '*/*']);
         $code = $response->getStatusCode();
 
         /* THE PREMISE: the handler ran. */

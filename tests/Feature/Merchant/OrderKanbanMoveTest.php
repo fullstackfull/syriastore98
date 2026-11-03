@@ -154,17 +154,52 @@ class OrderKanbanMoveTest extends SecurityTestCase
     //  THE REPAIR, END TO END — every offered move really moves the order
     // =============================================================================================
 
-    public function test_each_offered_move_changes_the_orders_delivery_status(): void
+    /**
+     * REWRITTEN AFTER REVIEW. The first version posted the four hardcoded words under the key
+     * `delivered` itself, so it never read the board and passed against the fully UNREPAIRED
+     * code — the handler already read `delivered`. It sat under a heading claiming it was end to
+     * end, which is the same "passes for the wrong reason" shape this project keeps meeting.
+     *
+     * It now takes BOTH the field name and the values out of the rendered board, so reverting
+     * fault 1 (the name) or fault 2 (the value) fails it.
+     */
+    public function test_each_move_the_board_offers_really_changes_the_order(): void
     {
-        foreach (self::WRITES as $word => $expected) {
+        $this->orderAt(0, 'KB-PARSE');
+        $html = $this->boardHtml();
+
+        /*
+         * ANCHORED ON `id="ss-move-`, NOT ON "the first select on the page". The first draft of
+         * this matched the FILTER BAR's status select — whose options are the numeric
+         * delivered_status values — and failed with "the board offers '4'". The board's move
+         * control is the one the card partial gives that id.
+         */
+        preg_match('/<select[^>]*id="ss-move-[^"]*"[^>]*>(.*?)<\/select>/s', $html, $sel);
+        $this->assertNotEmpty($sel, 'premise: the board renders a move select');
+
+        preg_match('/<select[^>]*id="ss-move-[^"]*"[^>]*name="([^"]+)"/', $html, $nameMatch);
+        if (empty($nameMatch)) {
+            preg_match('/<select[^>]*name="([^"]+)"[^>]*id="ss-move-/', $html, $nameMatch);
+        }
+        $this->assertNotEmpty($nameMatch, 'premise: the move select carries a name attribute');
+
+        $field = $nameMatch[1];
+        preg_match_all('/<option value="([^"]*)"/', $sel[1], $opts);
+        $offered = array_values(array_filter($opts[1]));
+        $this->assertNotEmpty($offered, 'premise: the select offers at least one move');
+
+        foreach ($offered as $word) {
             $order = $this->orderAt(0, 'KB-' . $word);
 
             $this->actingAs($this->merchant)
-                ->post(route('order.status.change', $order->id), ['delivered' => $word]);
+                ->post(route('order.status.change', $order->id), [$field => $word]);
 
-            $this->assertSame($expected,
+            $this->assertArrayHasKey($word, self::WRITES,
+                "the board offers '$word', which the writer has no branch for");
+            $this->assertSame(self::WRITES[$word],
                 (int) Order::withoutGlobalScopes()->find($order->id)->delivered_status,
-                "moving an order to '$word' did not write delivered_status");
+                "the board's own '$word' option, posted under the board's own field name "
+                . "'$field', did not change the order");
         }
     }
 
@@ -208,6 +243,31 @@ class OrderKanbanMoveTest extends SecurityTestCase
             ->assertJson(['status' => 'success', 'order_status' => 'Confirmed']);
     }
 
+    /**
+     * THE OTHER LIMB, and the one the shipped client actually uses.
+     *
+     * `expectsJson()` is `(ajax() && !pjax() && acceptsAnyContentType()) || wantsJson()`.
+     * `postJson` above satisfies the SECOND limb (`Accept: application/json`). jQuery's `$.ajax`
+     * with no `dataType` — which is what order/view.blade.php:858 is — satisfies the FIRST:
+     * `X-Requested-With: XMLHttpRequest` plus an accept-anything Accept. Without this case, a
+     * later narrowing to `if ($request->wantsJson())` would keep the test above green and break
+     * the detail page for every merchant.
+     *
+     * Both headers are needed to reproduce it, and that is not obvious: `Request::create()`
+     * injects a browser-like Accept, so with X-Requested-With alone `acceptsAnyContentType()` is
+     * false and the route redirects. Measured.
+     */
+    public function test_the_jquery_shaped_call_also_gets_json(): void
+    {
+        $order = $this->orderAt();
+
+        $this->actingAs($this->merchant)
+            ->post(route('order.status.change', $order->id), ['delivered' => 'confirmed'],
+                ['X-Requested-With' => 'XMLHttpRequest', 'Accept' => '*/*'])
+            ->assertOk()
+            ->assertJson(['status' => 'success', 'order_status' => 'Confirmed']);
+    }
+
     // =============================================================================================
     //  NEGATIVE CONTROLS — nothing about authorization, tenancy or money moved
     // =============================================================================================
@@ -221,8 +281,12 @@ class OrderKanbanMoveTest extends SecurityTestCase
         $outsider->save();
         $outsider = User::find($outsider->id);
 
+        // The RESPONSE as well as the database: asserting only that nothing changed would also
+        // pass if the endpoint 500'd for everyone, which is the classic shape of a control that
+        // proves nothing. The positive controls in this class show the endpoint works.
         $this->actingAs($outsider)
-            ->post(route('order.status.change', $order->id), ['delivered' => 'confirmed']);
+            ->post(route('order.status.change', $order->id), ['delivered' => 'confirmed'])
+            ->assertForbidden();
 
         $this->assertSame(0, (int) Order::withoutGlobalScopes()->find($order->id)->delivered_status,
             'a principal without Manage Order moved an order');
@@ -237,7 +301,8 @@ class OrderKanbanMoveTest extends SecurityTestCase
         ]);
 
         $this->actingAs($this->merchant)
-            ->post(route('order.status.change', $victim->id), ['delivered' => 'confirmed']);
+            ->post(route('order.status.change', $victim->id), ['delivered' => 'confirmed'])
+            ->assertForbidden();
 
         $this->assertSame(0, (int) Order::withoutGlobalScopes()->find($victim->id)->delivered_status,
             'a merchant moved another store\'s order');

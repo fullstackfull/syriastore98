@@ -1807,6 +1807,14 @@ public function store(Request $request)
      *
      * NOTHING ABOUT THE WRITE CHANGES HERE. This runs after `Order::order_status_change()` has
      * already returned; it only decides how to report what happened.
+     *
+     * THE NOT-FOUND LIMB AT :1647 DELIBERATELY DOES **NOT** COME THROUGH HERE, and that is not an
+     * oversight to tidy up later. `OrderStatusChangeOwnershipTest::test_an_absent_order_id_does
+     * _not_crash` posts plainly to a non-existent id and asserts `assertOk()` plus
+     * `assertJson(['status' => false])` on exactly that branch. Routing it through this method
+     * would turn that answer into a 302 and red the security suite. The board cannot reach it in
+     * practice — it renders live ids — so the cost of the inconsistency is a merchant who deletes
+     * an order in another tab and then clicks Move seeing raw JSON once.
      */
     private function statusChangeResponse(Request $request, array $return, bool $ok)
     {
