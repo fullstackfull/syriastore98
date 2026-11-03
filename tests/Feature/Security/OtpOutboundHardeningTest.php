@@ -143,6 +143,124 @@ class OtpOutboundHardeningTest extends SecurityTestCase
         return (array) $response->json();
     }
 
+    /**
+     * Drives the merchant test endpoint for the WHATSAPP channel and returns the decoded JSON.
+     *
+     * `whatsapp_account` IS LOAD-BEARING, exactly as `sms_mode`/`sms_gateway` are for the SMS
+     * branch: without it the handler returns "WhatsApp Account ID is missing." BEFORE reaching any
+     * send, so a negative assertion would hold with or without the control under test. The same
+     * trap the file documents for SMS, one branch over.
+     */
+    private function driveMerchantWhatsappTest(): array
+    {
+        [$merchant, $store] = $this->makeTenant();
+        $this->integration($store->id, [
+            'otp_channel' => 'whatsapp',
+            'whatsapp_enabled' => true,
+            'whatsapp_account' => 'fixture-wa-account',
+        ]);
+
+        $response = $this->actingAs($merchant->fresh())
+            ->post('/otp-integration/test', ['phone' => '0100000000']);
+
+        $response->assertOk();
+
+        return (array) $response->json();
+    }
+
+    // ============================================================================================
+    //  THE WHATSAPP MERCHANT PATH -- the second of the owner's "both merchant OTP test paths",
+    //  which had NO coverage at all until this round
+    // ============================================================================================
+
+    /**
+     * MEASURED BEFORE WRITING THIS: no test in the repository drove the WhatsApp branch.
+     * `grep -rn "otp_channel.*whatsapp" tests/Feature/Security/` found nothing in either OTP test
+     * file, so this branch had its own `OtpTransport::post()` call, its own endpoint path, its own
+     * field array, its own refusal log and its own copy of the success condition -- all unasserted.
+     * The owner's direction to retest *both* merchant paths is what surfaced it.
+     */
+    public function test_the_whatsapp_branch_sends_pinned_to_its_own_endpoint(): void
+    {
+        $json = $this->driveMerchantWhatsappTest();
+
+        $this->assertTrue($json['success'] ?? null, 'the WhatsApp test send was refused');
+        $this->assertCount(1, $this->sent, 'exactly one request');
+
+        [$url, $options] = $this->sent[0];
+
+        $this->assertSame(
+            'https://sms.example.test/api/send/whatsapp',
+            $url,
+            'the WhatsApp branch must request its OWN endpoint, and the COMPLETE url must be what '
+            . 'was judged -- the pre-P1-SEC-55 code judged the base and requested base+path.'
+        );
+
+        $this->assertFalse(
+            $options[CURLOPT_FOLLOWLOCATION],
+            'the WhatsApp branch must refuse redirects too -- a 307 preserves method and body, so '
+            . 'this is the limb that stops the secret being forwarded onward.'
+        );
+
+        $this->assertSame(
+            ['sms.example.test:443:93.184.216.34'],
+            $options[CURLOPT_RESOLVE],
+            'the connection must be pinned to the address that was judged'
+        );
+
+        $this->assertSame(
+            'the-stores-own-otp-secret',
+            $options[CURLOPT_POSTFIELDS]['secret'] ?? null,
+            "premise: the store's own secret must really be in the body, or the negative WhatsApp "
+            . 'cases below would prove nothing about protecting it'
+        );
+
+        $this->assertSame(
+            'fixture-wa-account',
+            $options[CURLOPT_POSTFIELDS]['account'] ?? null,
+            'the account field is part of the provider wire format and must survive the move off '
+            . 'Guzzle multipart'
+        );
+    }
+
+    /** The regression on the SECOND branch: its success condition is the same helper, so prove it. */
+    public function test_the_whatsapp_branch_also_refuses_an_http_error_claiming_status_200(): void
+    {
+        $this->respondWith(500, json_encode(['status' => 200, 'message' => 'queued']));
+
+        $this->assertFalse(
+            $this->driveMerchantWhatsappTest()['success'] ?? null,
+            'HTTP 500 with a body claiming status:200 was reported as a successful WhatsApp send. '
+            . 'Both branches call OtpTransport::succeeded(), and this is what stops one of them '
+            . 'being updated alone.'
+        );
+    }
+
+    /** And its destination guard: an internal address must send nothing from this branch either. */
+    public function test_the_whatsapp_branch_refuses_an_internal_destination(): void
+    {
+        [$merchant, $store] = $this->makeTenant();
+        $this->integration($store->id, [
+            'otp_channel' => 'whatsapp',
+            'whatsapp_enabled' => true,
+            'whatsapp_account' => 'fixture-wa-account',
+            'base_url' => 'https://internal.example.test',
+        ]);
+
+        $response = $this->actingAs($merchant->fresh())
+            ->post('/otp-integration/test', ['phone' => '0100000000']);
+
+        $response->assertOk();
+
+        $this->assertFalse($response->json('success'));
+        $this->assertCount(
+            0,
+            $this->sent,
+            "THE WHATSAPP BRANCH SENT THE STORE'S api_secret TO A NAME THAT RESOLVES INTO RFC1918 "
+            . 'SPACE. The SMS branch was guarded first and this one had no test at all.'
+        );
+    }
+
     // ============================================================================================
     //  THE HTTP-STATUS REGRESSION the owner caught, and the dual condition restored
     // ============================================================================================
