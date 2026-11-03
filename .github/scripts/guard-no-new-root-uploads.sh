@@ -43,7 +43,62 @@ if ! git rev-parse --verify --quiet "${BASE_REF}" >/dev/null; then
   exit 1
 fi
 
-ADDED="$(git diff --name-only --diff-filter=A "${BASE_REF}...HEAD" -- 'uploads/' || true)"
+
+# ------------------------------------------------------------------------------------------
+# A DIFF THAT CANNOT BE COMPUTED IS NOT AN EMPTY DIFF.
+#
+# The `rev-parse --verify` above is NOT sufficient, and believing it was is what made this
+# guard able to pass while a violating change was present. `--verify` succeeds for any
+# object PRESENT in the store, whether or not the graph can be walked to it. A three-dot
+# diff needs a MERGE BASE, and a truncated history has none -- git then says
+# `fatal: <base>...HEAD: no merge base`, the `|| true` below turned that into an empty
+# result, and an empty result reads as "nothing changed".
+#
+# MEASURED, in a synthetic repository, not reasoned about: with a full clone the diff
+# correctly names the violating file; after `git fetch --no-tags --depth=1 origin main` --
+# the exact command `ci.yml` ran one step earlier in this same job -- `rev-parse --verify`
+# STILL RESOLVES, `git merge-base` prints nothing, the diff dies with `no merge base`, and
+# the guard printed `OK` and exited 0. See docs/security/P01-SECURITY-WORK-QUEUE.md S52.
+#
+# So the merge base is now a PREMISE, checked and named, and the diff's exit status is
+# honoured instead of discarded.
+# ------------------------------------------------------------------------------------------
+# SAME THREE CORRECTIONS AS guard-no-workdo-changes.sh, for the same measured reasons; read the
+# long note there. In brief:
+#
+#   --no-renames   `--diff-filter=A` plus default rename detection meant a `git mv` INSIDE the
+#                  root `uploads/` tree created a NEW unauthenticated URL while this guard said
+#                  "OK: no file was added under uploads/." Measured: an R100 pair, exit 0. The
+#                  content is already in the repository so nothing new is disclosed, but a new
+#                  webserver-served path is exactly what this guard is for.
+#   stdout only    capturing `2>&1` turned git's warnings into phantom "added" paths and failed
+#                  clean trees. A defect introduced by the previous fix.
+#   the diff is    `git merge-base` prints nothing when there is no common ancestor, so the old
+#   the premise    "git said:" was always blank. The diff explains itself; ask it.
+if ! ADDED="$(git diff --no-renames --name-only --diff-filter=A "${BASE_REF}...HEAD" -- 'uploads/' 2>/dev/null)"; then
+  DIFF_ERR="$(git diff --no-renames --name-only --diff-filter=A "${BASE_REF}...HEAD" -- 'uploads/' 2>&1 >/dev/null || true)"
+  echo "::error::The diff against ${BASE_REF} could not be computed, so this guard could not be"
+  echo "::error::evaluated. git said: ${DIFF_ERR:-(nothing)}"
+  if ! git merge-base "${BASE_REF}" HEAD >/dev/null 2>&1; then
+    echo "::error::There is no merge base between ${BASE_REF} and HEAD."
+  fi
+  case "$(git rev-parse --is-shallow-repository 2>/dev/null || printf 'unknown')" in
+    true)
+      echo "::error::THE CLONE IS SHALLOW, so the history was truncated. Look for a"
+      echo "::error::\`git fetch --depth=...\` in an EARLIER STEP of this same job."
+      ;;
+    false)
+      echo "::error::The clone is NOT shallow, so this is not a truncation: the two histories"
+      echo "::error::are probably unrelated (a re-created branch, a force-push)."
+      ;;
+    *)
+      echo "::error::Whether the clone is shallow could NOT be determined, so the cause is"
+      echo "::error::unknown -- which is not the same as absent."
+      ;;
+  esac
+  echo "::error::A guard that cannot see the diff must not report success."
+  exit 1
+fi
 
 if [ -z "${ADDED}" ]; then
   echo "  OK: no file was added under uploads/."

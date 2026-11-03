@@ -10448,3 +10448,101 @@ Every victim read goes through `withoutGlobalScopes()`, every `Cachable` read-ba
 a `flushCache()`, and `assertReachedHandler()` fails any request that 405s — which it had to,
 because the first version POSTed to a `Route::resource` update that is PUT|PATCH, and every
 cross-tenant assertion was passing while the router rejected the request.
+
+---
+
+## CI controls that reported success without taking a measurement — three of them, and what each matrix measured (2026-11-02)
+
+Not a feature slice. Three controls that were **green and meaningless**, found in sequence, each by
+running the previous fix rather than by reading more code. Recorded here because the *method* is the
+transferable part: every one was caught by reading a control's **output**, never its exit code.
+
+### 1. `guard-no-env-files.sh` — eight branches, each executed
+
+The guard gated its `OPEN SECURITY RISK` warning on `.env` appearing in `git ls-files`. `.env`
+stopped being tracked, so the condition went false and the script printed
+`OK: no live .env in the checkout or the index`. That sentence was then quoted as a **passing
+release gate** in `PHASE-01-FINAL-DECISION-REPORT.md` and `PR3-ATTESTATION-S21.md`.
+
+| # | state driven | expected | measured |
+|---|---|---|---|
+| 1 | local, `.env` on disk untracked, history present | note + OPEN RISK, exit 0 | ✔ exit 0, note printed, warning fired |
+| 2 | CI shape, no `.env` on disk | OPEN RISK, exit 0 | ✔ exit 0 |
+| 3 | CI shape, a `.env` written by the build | **exit 1** | ✔ exit 1, *"a .env was written by the build"* |
+| 4 | CI shape, a **second** env file (`.env.local`) appears | **exit 1**, both named | ✔ exit 1, both entries listed |
+| 5 | a **real** `git clone --depth 1` | *could not be checked*, exit 0 | ✔ 1 commit cloned, `3c39c160` unresolvable |
+| 6 | no git directory at all | *could not be checked*, exit 0 | ✔ exit 0 |
+| 7 | the record points at a commit present but **without** `.env` | *needs a human*, exit 0 | ✔ stale-record branch |
+| 8 | the recorded blob differs from the one found | drift sub-warning | ✔ *"its CONTENTS changed"* |
+
+**The before-state was measured first, not deduced:** with the repository exactly as it stands and
+no `.env` on disk, the **old** script printed the `OK` line and exited 0; with a `.env` present it
+exited **1** calling it *"written by the build"* — a false alarm on every developer's working copy.
+
+### 2. Two BLOCKING guards — four states, two guards, old and new
+
+Found by reading one vague sentence in the rewritten `.env` guard's **first real CI run**. The
+`.env` guard was fine; `ci.yml:491` was not. Measured in a synthetic repository — a ten-commit
+`main`, a branch at `main~7` that modifies `packages/workdo/thing.txt` **and** adds
+`uploads/leak.jpg` — cut with the exact command CI ran:
+
+| state | `guard-no-workdo-changes` | `guard-no-new-root-uploads` |
+|---|---|---|
+| full history, violating change | old **exit 1** / new **exit 1** — identical, names the file | old **exit 1** / new **exit 1** — identical |
+| **graph cut by `git fetch --depth=1`** | **old exit 0 `OK: no changes`** / new **exit 1**, names *no merge base* **and** shallow | **old exit 0 `OK: no file was added`** / new **exit 1** |
+| full history, no violating change | old exit 0 / new exit 0 — no false alarm | old exit 0 / new exit 0 |
+| after `ci.yml`'s **new** fetch | n/a | clone stays non-shallow; the ref is already present so it fetches **nothing** |
+
+`git rev-parse --verify "${BASE}"` was confirmed to **still resolve** in the cut state — which is
+why each guard's own *"a guard that cannot see the diff must not report success"* check was no help.
+`--verify` asks whether the object is *present*, not whether the graph can be walked to it.
+
+**Why it fired on real runs rather than in theory:** the step prints
+`advisories found: 58 (ceiling 58)`, so its condition held, and `GITHUB_BASE_REF` is always set on
+a pull request. The fetch ran at `16:11:39.18`; the next guard ran at `16:11:39.69`.
+
+### 3. The Flutter translation ratchet — a declared exception that outlived its gap
+
+Flutter PR #6's CI failed on `the baselines are not stale` with `Actual: ['cost_price']`. The key
+was **declared** in `knownUntranslatedKeys`, so supplying copy made the declared entry stale. That
+is the ratchet's second half, and the same both-directions property the Laravel known-outcome gate
+asserts — **both failed the same way on the same day.**
+
+The failing test's own two regexes were replicated against `lib/` to reproduce it before fixing
+anything, then mutated in both directions:
+
+| probe | result |
+|---|---|
+| as committed, before the fix | `fixed = ['cost_price']` — CI's failure reproduced exactly |
+| after deleting the entry | all three directions empty |
+| mutation: re-add `cost_price` | `fixed` non-empty again ✔ |
+| mutation: delete a still-untranslated key (`stock_status`) | the **opposite** assertion fires ✔ |
+| the set vs `HEAD` minus one line | byte-identical; `git diff` shows exactly `-    'cost_price',` |
+
+The same replication measured the file header's five totals: **four were wrong** — en.dart 646 vs
+**676**, ar.dart 648 vs **678**, `.tr` keys used 527 vs **550**, neither-map 46 vs **44** — under a
+sentence claiming they had just been corrected. They drifted because **nothing asserts them**; the
+ratchet asserts *set* properties, and a count in a comment is not one. They were not given better
+numbers: the table is now a dated snapshot that says so.
+
+### Suite figures for the whole change
+
+| suite | result |
+|---|---|
+| Unit (Laravel), run twice across the change | **692 passed, 4,246 assertions** |
+| Feature tests that read the touched documents | **154 passed, 549 assertions** |
+| Feature tests that reference the touched guards | **107 passed, 371 assertions** |
+| Flutter `main` CI after PR #6 | both jobs success — `pubspec.lock` installable, 0 errors, 0 warnings, infos under the ratchet, `flutter test` passing |
+| `.github/known-test-outcomes.json` | **unmodified** |
+
+**No `flutter` toolchain exists in the authoring container** (`command -v flutter` finds nothing),
+so no local `flutter test`/`analyze` figure was claimed for the Flutter commits at any point. The
+PR's CI was the measurement.
+
+### The one sentence worth keeping
+
+**`|| true` on a measurement converts "I could not tell" into "nothing to report".** Wherever a
+control's passing condition is an *empty result*, the empty result has to be proved to be a
+measurement and not an error. The `.env` guard keyed success on an **absence**; these two keyed
+success on an **unchecked emptiness**; the translation baseline keyed success on a **declaration**
+nobody re-checked. Same family, three different disguises.

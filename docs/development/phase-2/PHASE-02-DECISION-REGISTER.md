@@ -3113,3 +3113,131 @@ PR #123 is merged and therefore finished; it cannot track the follow-up. Branch
 `claude/loving-noether-f4qxdt` was re-based onto `origin/main` (`a5a9d7a2`) **preserving** its one
 unmerged commit rather than discarding it, so `69fec16e` remains an ancestor and no history was
 rewritten and no force-push was used. Waves 3 and 4 sit on top. A new pull request carries them.
+
+---
+
+## D-37 — **THE FOLLOW-UP IS MERGED AND `main`'s OWN CI IS GREEN**; a further follow-up is open and unmerged (2026-11-02)
+
+**This entry records an act of mine, not of the owner's,** and the distinction matters: D-36
+records a merge the owner performed; this one I performed, under the authorisation in §9 of the
+owner's execution directive of 2026-11-02 — *"Do not stop at creating pull requests if the
+conditions have actually passed."* Every §9 condition was verified concretely before merging, and
+each is reproduced below with the value it was checked against, not as a claim that it was checked.
+
+### The merge, measured
+
+| | |
+|---|---|
+| pull request | [fullstackfull/syriastore98#124](https://github.com/fullstackfull/syriastore98/pull/124) |
+| head merged | `4c70f2c905faedf8629b036f788b9da731d83c6b` (local **==** remote, verified) |
+| base | `main` at `a5a9d7a25ce160519e7e249bf6fca53091666fb5` (D-36's merge commit) |
+| resulting merge commit | **`230d2e1271b96244330b23b62db58a1cfee38c5b`** |
+| `mergeable_state` at merge time | **`clean`** — not `unstable`, unlike D-36 |
+| CI on the proposed merge result | **all 8 checks `success`**, including both required `Tests` jobs and the merge-base regression gate |
+| conflicts | `git merge-tree` → **zero** conflicted paths |
+| the exposed dump | blob `d3d42e68` on **both** sides, byte-identical, untouched |
+| new credential-shaped files | **none** — no `.sql`, `.dump`, `.pem`, `.key`, `.p12`, `.jks`, `.keystore` or `.env` added |
+| new discoverable migrations | **none in the diff at all.** GATE F's 29-check / 0-failed MariaDB verification stands, and nothing in the migrations changed after it |
+| destructive operations | no workflow changed; nothing invokes `deploy.sh` or `artisan migrate` |
+| diff shape | 30 tests, 8 docs, 5 app, 2 `.github`, 1 `routes` |
+
+### `main`'s own CI is now GREEN, which is what D-36 said was required
+
+D-36 recorded **`main` CI GREEN: NO** at `a5a9d7a2`, with nine undeclared Feature failures and two
+undeclared skips. Run
+[41475644522](https://github.com/fullstackfull/syriastore98/actions/runs/41475644522) on
+`230d2e12`:
+
+| job | conclusion |
+|---|---|
+| Static checks (no vendor needed) | **success** |
+| Secret scan | **success** |
+| Is the PayHere blocker still there? (report) | **success** |
+| Tests (REQUIRED — real suites, clean install from `composer.lock`) | **success** |
+| Tests (REQUIRED — real suites, PayHere excluded and NOT fixed) | **success** |
+| Merge-base regression gate (new failures only) | `skipped` — it is a pull-request gate and does not run on a push to `main` |
+
+**Run conclusion: `success`.** The decisive step — *"The Feature outcome set must match the record
+— BLOCKING"* — succeeded in **both** required `Tests` jobs (steps 18 and 16 respectively). That is
+the known-outcome gate asserting the declared set in both directions and finding it satisfied.
+
+**Nothing was weakened to get there.** `.github/known-test-outcomes.json` is unmodified across
+both merges; no assertion was loosened, no test skipped or deleted. The nine failures and two skips
+were fixed, which is what D-36 said the remedy was.
+
+### What wave 5 was, and why it is the part worth reading
+
+Waves 1–4 are in D-36. Wave 5 is the one **nothing in the test suite reported**, and it was found
+only by asking the inverse question — not *"which tests broke when the fifteen tables arrived"* but
+*"what did making these objects exist make the APPLICATION DO"*. Seven live defects, every one of
+them application code whose behaviour depended on a table being **absent**:
+
+| id | defect |
+|---|---|
+| **P1-SEC-41** | a product name containing `application.uninstall` **destroyed a merchant's Zid OAuth credentials**, while the audit row the same handler had just written said `event = order.create` |
+| **P1-SEC-42** | a delivery commission paid **once per button click** — 3 submissions, 6.00 owed where 2.00 is correct, on the web **and** the Flutter admin API |
+| **P1-SEC-44** | an unscoped `Product::find()` put a **competitor's confidential `cost_price`** into this store's P&L (77.00 × qty 2 → `product_cost` 154) |
+| **P1-SEC-45** | the OTP test endpoint sent the store's `api_secret` to a **caller-chosen host** — measured reaching `169.254.169.254` with no permission held |
+| **P1-SEC-46** | `ViewProduct` served `cost_price` with **no permission check** |
+| **P1-SEC-47** | an **existence oracle** over `delivery_boy_notifications.id` |
+| **P1-SEC-43** | **NOT FIXED — see below.** Escalated, S1 |
+
+Two ratchets were added so this class cannot return quietly: no test may create a GATE F money
+table, and none may branch on whether one exists — in the Unit ledger **and** in the shell guard as
+property 6, because the PHPUnit twin runs only in a job gated behind `ALLOW_COMPOSER_INSTALL`. Both
+immediately caught a regression of my own, naming the file, line and table.
+
+Thirteen mutations were run, each hitting exactly its intended test.
+
+### P1-SEC-43 is OPEN, S1, and reserved to the owner
+
+One forged Zid webhook creates a **real** parcel at Delivery Syria on another merchant's account,
+with an attacker-chosen COD amount, behind a secret that is a **literal in
+`config/services.php`**. It is **pre-existing on `main`**; this work neither introduces nor worsens
+it, and it **cannot be fixed from this side**: the secret is platform-wide, and a predicate built
+from the caller's own payload is not a check — both halves come from the same request. Three
+remedies are set out in [`P01-SECURITY-WORK-QUEUE.md` §S49](../../security/P01-SECURITY-WORK-QUEUE.md),
+each of them the owner's to choose.
+
+**It gates deployment, not this merge.** That reading was stated twice before merging and no
+objection was received; it is recorded here so the distinction is not lost.
+
+### State, recorded separately as D-30 requires
+
+| state | value |
+|---|---|
+| **PHASE 02 ENGINEERING COMPLETE** | **YES** (D-34) |
+| **PHASE 02 ENGINEERING OWNER ACCEPTED** | **YES** (D-34) |
+| **MERGED TO MAIN** | **YES** — development integration. D-36 (owner, #123) and this entry (#124, mine under §9). Amends D-34's `NO` in this one respect and in no other. |
+| **`main` CI GREEN** | **YES at `230d2e12`** — measured, run 41475644522, conclusion `success`. This supersedes D-36's `NO at a5a9d7a2`, which was true of that commit and is not true of this one. |
+| **RELEASE READY** | **NO** |
+| **DEPLOYED** | **NO** |
+| **PHASE 02 CLOSED** | **NO** |
+
+### Two further follow-ups, opened after `main` went green — one merged, one open
+
+| pull request | state | carries |
+|---|---|---|
+| [StoreSyria_app98#6](https://github.com/fullstackfull/StoreSyria_app98/pull/6) | **MERGED, `94cdcdb0`, and Flutter `main`'s own CI is GREEN** on that commit (run 41482003708, conclusion `success`, both jobs) | **P1-SEC-46's client half.** The server now omits `cost_price` for a caller without `Manage Products`; Flutter `main` still rendered that row, and `formatPriceRaw(null)` returns an empty string, so a merchant saw a labelled blank reading as *"this product costs nothing"*. Found by checking the two repositories against each other after the server half merged — **not by either repository's own CI, neither of which can see the other.** Every §9 condition verified: `mergeable_state` clean, both CI jobs success across all 12 steps, `merge-tree` zero conflicts, 529 files on both sides, no credential-shaped file. **Its CI then caught F291** — `cost_price` was *declared* in `knownUntranslatedKeys`, so supplying copy made that declared entry stale, and the ratchet refused it in the same both-directions way the Laravel known-outcome gate does. |
+| [syriastore98#125](https://github.com/fullstackfull/syriastore98/pull/125) | **OPEN, not merged** | **F284–F291 / P1-SEC-48 and P1-SEC-49.** Began as the `.env` guard whose premise expired — it went silent and its silence was filed as a passing release gate in two Phase 01 attestations ([§S51](../../security/P01-SECURITY-WORK-QUEUE.md)). **Running that fix in real CI then exposed something worse** ([§S52](../../security/P01-SECURITY-WORK-QUEUE.md)): `ci.yml:491`'s `git fetch --depth=1` truncated history mid-job on every pull request at the advisory ceiling, and two **blocking** guards — `guard-no-workdo-changes.sh` and `guard-no-new-root-uploads.sh` — converted the resulting `fatal: no merge base` into `OK` through `\|\| true`. A change under `packages/workdo/` or a new root upload would have passed both. Measured in a synthetic repository, four states per guard, old and new. |
+
+**The second entry is the reason this register distinguishes "merged" from "verified".** A control
+that reports success because it could not take a measurement is indistinguishable from one that
+measured nothing wrong, and the only thing that separated them here was running the control and
+reading its output rather than its exit code.
+
+### What this entry does not do
+
+**It amends exactly two cells of D-36's table: `MERGED TO MAIN` and `main` CI GREEN.** D-36's text
+is not edited; the merge and the green run are events after it, and this is where they live.
+
+Every other restriction stands untouched: **D-30** (Phase 02 remains open), **D-31**, **D-32**,
+**D-33**, **D-34**'s remaining release blockers, and **D-35** — security incident #120 is
+**OWNER-DEFERRED / OPEN**, not fixed and not resolved; PR #122 stays closed and unmerged;
+`APP_KEY` stays unrotated and tracked separately from the dump; and the owner's demo-data statement
+does not establish that every exposed secret is harmless. P1-SEC-48 fixes the *detector* of that
+exposure and changes nothing about the exposure itself.
+
+**`main` integration is not production deployment.** No migration was applied to any production
+database, no payment gate was opened — `PAYTM_CALLBACK_ENABLED` remains disabled — and no
+previously deferred or accepted risk is reclassified as resolved by this entry.

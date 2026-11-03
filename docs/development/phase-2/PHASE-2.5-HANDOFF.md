@@ -23,7 +23,7 @@
 | which of them are tracked | [`PHASE-02-COVERAGE-AUDIT-2026-10-25.md`](PHASE-02-COVERAGE-AUDIT-2026-10-25.md) |
 | per-row status | [`PHASE-02-TASK-LEDGER.md`](PHASE-02-TASK-LEDGER.md) |
 | what was built and what was not | [`PHASE-02-HANDOFF.md`](PHASE-02-HANDOFF.md) §3b and the ledger's TODO rows |
-| every owner decision that governs it | [`PHASE-02-DECISION-REGISTER.md`](PHASE-02-DECISION-REGISTER.md) — `D-01`…`D-35` |
+| every owner decision that governs it | [`PHASE-02-DECISION-REGISTER.md`](PHASE-02-DECISION-REGISTER.md) — `D-01`…`D-37` (D-36 and D-37 are the two `main` merges and `main`'s own CI going green; read both before assuming anything about release state) |
 | the design system it must build on | `public/css/store-syria-ds.css`, `docs/design-system/README.md` |
 | the counter-intuitive facts of this codebase | `CLAUDE.md` §1 and `.claude/skills/store-syria-laravel-tenancy/` |
 
@@ -128,7 +128,7 @@ integration**, and `main` integration is **not** production deployment.
 | # | blocker | state | does it block a UI phase? |
 |---|---|---|---|
 | 1 | Phase 01 outstanding release gates | **OPEN** — two items closed 2026-11-02 (the D15-gated migrations; the larabug reading for a from-source install); the rest need a live server, a provider sandbox, a business fact or an owner decision | **no**, except where a screen displays a figure the business has not reconciled |
-| 2 | Security incident #120 (exposed database dump) | **OWNER-DEFERRED / OPEN** under `D-35` — not fixed, not resolved; PR #122 open and deliberately unmerged | **no** for development; **YES** before real customer data or any production claim |
+| 2 | Security incident #120 (exposed database dump) | **OWNER-DEFERRED / OPEN** under `D-35` — not fixed, not resolved; PR #122 is **`closed`, `merged: false`** and deliberately unmerged (measured 2026-11-02: `closed_at` 09:35:04Z, still a draft). This cell said *"open"* until 2026-11-02; #122's state changed during execution and the word was never updated. **The incident itself is OPEN regardless of the PR's state** — closing a remediation PR does not resolve the finding, which is precisely why the two are recorded separately | **no** for development; **YES** before real customer data or any production claim |
 | 3 | GATE F | **CLOSED 2026-11-02** | it **unblocks** financial UI work — see §3.1 |
 | 4 | Paytm callback activation | **OPEN** — `PAYTM_CALLBACK_ENABLED` stays shut pending authentic provider testing | **no**, unless a screen claims a plan is active |
 | 5 | Benefit and Flutterwave | **DEFERRED** under `D-33`, fail-closed, unchanged | **no** |
@@ -250,3 +250,47 @@ account** with an attacker-chosen COD amount. `P1-SEC-43`, S1, in
    docblock said, in advance, "when X happens this test must be rewritten, in the same commit, and
    do not weaken the assertion". Each of those tests then failed exactly as designed. That habit is
    the single cheapest control in this repository.
+
+---
+
+## 10. WHAT THE CI CONTROLS TAUGHT, added 2026-11-02 — the second warning section, and it is about the guards rather than the code
+
+§9 is about what happens when you make something *exist*. This one is about controls that were
+**green and meaningless**, and it belongs here because Phase 2.5 is a UI phase that will lean on
+this pipeline rather than read it.
+
+Three were found in one sequence, each by running the previous fix rather than by reading more
+code. Full detail in [`P01-SECURITY-WORK-QUEUE.md`](../../security/P01-SECURITY-WORK-QUEUE.md)
+§S51–S52 and the matrices in
+[`PHASE-02-TEST-EVIDENCE.md`](PHASE-02-TEST-EVIDENCE.md).
+
+| control | how it passed without measuring anything |
+|---|---|
+| `guard-no-env-files.sh` | Its `OPEN SECURITY RISK` warning was gated on `.env` being **tracked**. It stopped being tracked, the warning went silent, and the script printed `OK: no live .env in the checkout or the index` — **a sentence then quoted as a passing release gate in two Phase 01 attestations.** The exposure never changed; only what the script said about it did. |
+| `guard-no-workdo-changes.sh` and `guard-no-new-root-uploads.sh` | Both **blocking**. An earlier step in the same job ran `git fetch --depth=1`, which cut the graph; their three-dot diff died with `fatal: no merge base`; `\|\| true` turned that into an empty result; both printed `OK` and exited 0. **A change under `packages/workdo/` or a new root upload would have passed both.** Their own "a guard that cannot see the diff must not report success" check did not fire, because `git rev-parse --verify` succeeds for a *present* object whether or not the graph reaches it. |
+| the Flutter `knownUntranslatedKeys` baseline | A **declared** exception that outlived its gap. Supplying the copy made the declaration stale, and the ratchet correctly refused — but four of the five totals in that file's header were also wrong, by up to thirty keys, under a sentence claiming they had just been corrected. Nothing asserts those numbers. |
+
+### The four rules this leaves Phase 2.5
+
+1. **`|| true` on a measurement converts "I could not tell" into "nothing to report".** Wherever a
+   control's passing condition is an **empty result**, prove the emptiness is a measurement and not
+   an error. Check the command's exit status, and make the premise the result depends on — a merge
+   base, a resolvable ref, a readable history — an explicit, named check.
+2. **Read a control's output, not its exit code.** Every one of these three was caught by reading
+   what the guard *said*. All three were exiting 0, and two had git's own `fatal:` in the log one
+   line above their `OK`.
+3. **A control keyed on an absence will eventually pass because the world moved.** Key it on what
+   is positively true instead, and leave it **no branch that reports a clean bill of health while
+   the finding is open**. If the control cannot take its measurement, it must say *that* — "gone"
+   and "I could not look" must never print the same sentence.
+4. **A number in a comment that nothing asserts is not evidence, and will drift.** Do not replace a
+   drifted number with a fresher one; mark it a dated snapshot, say what actually enforces the
+   invariant, and say that nothing enforces the number. Two documents in this repository had their
+   totals "corrected" and then drifted again under the correction notice.
+
+**And one that is about this document rather than the code:** a paragraph written in §10 of the
+Arabic release report was false within the hour, because a pull request it described as open had
+been merged. The `.env` guard's `OK` took months to reach an attestation; that one took sixty
+minutes. **Any sentence here that states a state rather than a rule should be assumed stale and
+re-measured**, which is why every state in these documents now carries the command or run id that
+produced it.

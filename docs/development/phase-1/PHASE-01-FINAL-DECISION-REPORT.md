@@ -1161,7 +1161,7 @@ group 7) is what converts them into assertions, and why criterion A3 cannot be m
 | `guard-no-workdo-changes.sh` | **exit 0** — no changes under `packages/workdo/` outside first-party modules |
 | `guard-gate-f-containment.sh` | **exit 0** — 235 migration files scanned across both trees; **0 of the 6 money tables** created by any discoverable migration, all 6 still have a parked non-runnable draft |
 | `guard-test-isolation.sh` | **exit 0** — `phpunit.xml` pins the suite to sqlite `:memory:` |
-| `guard-no-env-files.sh` | **exit 0** — no live `.env` in the checkout or the index |
+| `guard-no-env-files.sh` | **exit 0** — no live `.env` in the checkout or the index. **[corrected 2026-11-02: that sentence was the guard's premise-expired SILENCE, not a clean result. `.env` had stopped being tracked, which switched off the guard's OPEN-RISK warning, and the script fell through to its `OK: no live .env ...` line. The exposure was and still is reachable at `3c39c160:.env` (blob `aa5c75b8`), an ancestor of `main`. The guard is now keyed on history reachability and has no clean-bill-of-health branch at all. This row is the reason that matters: a control that goes quiet gets its silence written into an attestation as proof of absence.]** |
 | `scan-secrets.sh` | **exit 0 — and that pass was worthless, which this table said at the time and CI then proved.** See H.7. |
 | `check-contrast.py` | **exit 0** — **all 40 pairs pass, light and dark**; the `auto` scope is identical to `dark` across 35 tokens |
 | `.github/known-test-outcomes.json` | **unmodified** (`git diff --stat` empty) |
