@@ -38,9 +38,15 @@
 
         // The transitions the EXISTING writer accepts, keyed by the value it expects. Not a new
         // vocabulary: `Order::order_status_change()` branches on exactly these strings.
+        // P2.5-R-05: `pickedup`, no underscore. `Order::order_status_change()` tests
+        // `$order_status == 'pickedup'`; `picked_up` matched no branch, so that one move went on
+        // silently doing nothing even after the field name was repaired -- the worse failure of
+        // the two, because three working options make the fourth look like the merchant's
+        // mistake. OrderKanbanMoveTest sweeps every option against the writer's vocabulary rather
+        // than listing four cases, so a fifth added later cannot slip past.
         $ssMoves = [
             'confirmed' => __('Confirmed'),
-            'picked_up' => __('Picked Up'),
+            'pickedup'  => __('Picked Up'),
             'shipped'   => __('Shipped'),
             'delivered' => __('Delivered'),
         ];

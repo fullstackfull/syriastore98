@@ -1778,12 +1778,46 @@ public function store(Request $request)
             $return['status'] = 'success';
             $return['order_status'] = ucfirst($data['order_status']) ?? '';
             $return['message'] = $responce['message'] . ((isset($msgs)) ? '<br> <span class="text-danger">' . $msgs . '</span>' : '');
-            return response()->json($return);
+
+            return $this->statusChangeResponse($request, $return, true);
         } else {
             $return['status'] = false;
             $return['message'] = $responce['message'];
+
+            return $this->statusChangeResponse($request, $return, false);
+        }
+    }
+
+    /**
+     * P2.5-R-05 -- answer this route in the shape the CALLER asked for.
+     *
+     * This handler has two callers and they are not alike. The order detail page calls it by AJAX
+     * (resources/views/order/view.blade.php:853) and reads `data.status` and `data.order_status`
+     * off the JSON to retitle its status button; that contract is shipped and must not move. The
+     * order board posts a plain form (order/partials/kanban-card.blade.php) -- and a plain form
+     * POST answered with `response()->json()` lands the merchant on a page of raw JSON at
+     * /order-status-change/<id> with no way back to the board. Measured in a browser before this
+     * was written.
+     *
+     * `expectsJson()` separates them exactly: jQuery sets `X-Requested-With: XMLHttpRequest` and
+     * accepts any content type, so the detail page still gets its JSON byte for byte, while a form
+     * submission is redirected back with a flash. `OrderKanbanMoveTest::
+     * test_the_detail_pages_ajax_contract_is_unchanged` is the control on that, and it fails if
+     * the redirect ever leaks into the AJAX path.
+     *
+     * NOTHING ABOUT THE WRITE CHANGES HERE. This runs after `Order::order_status_change()` has
+     * already returned; it only decides how to report what happened.
+     */
+    private function statusChangeResponse(Request $request, array $return, bool $ok)
+    {
+        if ($request->expectsJson()) {
             return response()->json($return);
         }
+
+        return redirect()->back()->with(
+            $ok ? 'success' : 'error',
+            strip_tags((string) ($return['message'] ?? ''))
+        );
     }
 
     public function order_payment_status(UpdateOrderPaymentStatusRequest $request)

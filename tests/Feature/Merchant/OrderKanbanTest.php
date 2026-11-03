@@ -268,15 +268,47 @@ class OrderKanbanTest extends SecurityTestCase
         }
     }
 
+    /**
+     * CORRECTED 2026-11-03 BY P2.5-R-05, and the correction is the whole lesson of this test.
+     *
+     * It used to assert the literal list `['confirmed', 'picked_up', 'shipped', 'delivered']`,
+     * with the message "`{$accepted}` is a transition `Order::order_status_change()` accepts".
+     * **It never asked the writer.** The writer tests `$order_status == 'pickedup'`, no
+     * underscore, so `picked_up` matched no branch — and this test asserted the opposite of the
+     * truth while its own name promised it had checked.
+     *
+     * It now READS the writer's branches out of the model and requires every option on the board
+     * to be one of them. A value the writer does not accept fails here whatever anyone believes
+     * about it.
+     */
     public function test_the_move_control_offers_only_transitions_the_existing_writer_accepts(): void
     {
         $this->orderAt(HomeController::ORDER_STATUS_PENDING, 'MOVE-2');
 
         $body = $this->html();
 
-        foreach (['confirmed', 'picked_up', 'shipped', 'delivered'] as $accepted) {
-            $this->assertStringContainsString('value="' . $accepted . '"', $body,
-                "`{$accepted}` is a transition `Order::order_status_change()` accepts");
+        // The vocabulary, read from `Order::order_status_change()` rather than restated here.
+        $model = file_get_contents(app_path('Models/Order.php'));
+        $writer = substr($model, strpos($model, 'public static function order_status_change'));
+        $writer = substr($writer, 0, 6000);
+        preg_match_all('/\$order_status\s*==\s*\x27([a-z_]+)\x27/', $writer, $m);
+        $accepts = array_values(array_unique($m[1]));
+
+        $this->assertContains('confirmed', $accepts,
+            'premise: the writer was located and its branches parsed');
+        $this->assertGreaterThanOrEqual(5, count($accepts),
+            'premise: the parse found the writer\'s full vocabulary, not a fragment of it');
+
+        preg_match('/<select[^>]+name="delivered"[^>]*>(.*?)<\/select>/s', $body, $sel);
+        $this->assertNotEmpty($sel, 'premise: the board renders a move select');
+        preg_match_all('/<option value="([^"]*)"/', $sel[1], $opts);
+        $offered = array_values(array_filter($opts[1]));
+
+        $this->assertNotEmpty($offered);
+        foreach ($offered as $value) {
+            $this->assertContains($value, $accepts,
+                "the board offers `{$value}`, which `Order::order_status_change()` matches no "
+                . 'branch for: the merchant picks it, the POST is authorised, and nothing happens');
         }
 
         /*
@@ -291,6 +323,14 @@ class OrderKanbanTest extends SecurityTestCase
         $this->assertStringNotContainsString('value="return"', $body);
     }
 
+    /**
+     * The premise moved from `name="order_status"` to `name="delivered"` with P2.5-R-05 — the
+     * board was sending a key the handler does not read, so every move was discarded.
+     *
+     * AND THE MISSING HALF IS ADDED. This test is named for a principal WITHOUT the permission
+     * and never had one: it asserted the control is present for a merchant who may move orders,
+     * then checked the label. The unpermitted case is the one the name promises.
+     */
     public function test_a_principal_without_the_permission_sees_no_move_control(): void
     {
         $this->orderAt(HomeController::ORDER_STATUS_PENDING, 'MOVE-3');
@@ -299,11 +339,39 @@ class OrderKanbanTest extends SecurityTestCase
         // independently of the screen -- the gate the census test demands for order actions.
         $body = $this->html();
 
-        $this->assertStringContainsString('name="order_status"', $body,
+        $this->assertStringContainsString('name="delivered"', $body,
             'premise: a permitted merchant does see the control');
 
         $this->assertStringContainsString('ss-visually-hidden', $body,
             'and its label names which order it moves, rather than seven identical selects');
+    }
+
+    /** The half the test above was named for. */
+    public function test_the_move_control_is_absent_for_a_principal_who_may_not_move_orders(): void
+    {
+        $this->orderAt(HomeController::ORDER_STATUS_PENDING, 'MOVE-4');
+
+        // `Show Order` reaches the board without carrying `Manage Order`.
+        $viewer = $this->makeStaff($this->merchant, ['name' => 'Read Only']);
+        $viewer->current_store = $this->store->id;
+        $viewer->save();
+        $viewer = User::find($viewer->id);
+        $this->grantPermission($viewer, 'Show Order');
+        $viewer = User::find($viewer->id);
+
+        $response = $this->board([], $viewer);
+
+        if ($response->status() !== 200) {
+            // The screen itself refuses this principal, which is a stronger answer than hiding
+            // the control. Either outcome satisfies the rule; both are recorded rather than one
+            // being assumed.
+            $response->assertRedirect();
+
+            return;
+        }
+
+        $this->assertStringNotContainsString('name="delivered"', $response->getContent(),
+            'a principal who may not move orders was shown the move control');
     }
 
     public function test_an_empty_board_says_so_once(): void
