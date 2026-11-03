@@ -13,9 +13,21 @@ use Illuminate\Support\Facades\Http;
  * THE SURFACES GATE F TURNED ON, AND THE FOUR DEFECTS THAT WERE WAITING ON THEM.
  *
  * ================================================================================================
- *  EVERY ONE OF THESE WAS LATENT BECAUSE A TABLE OR COLUMN DID NOT EXIST. ALL FOUR WENT LIVE ON
- *  2026-11-02, AND NOTHING IN THE SUITE SAID SO.
+ *  EVERY ONE OF THESE WAS LATENT *IN THE TEST SUITE* BECAUSE A TABLE OR COLUMN DID NOT EXIST
+ *  THERE, AND NOTHING IN THE SUITE SAID SO.
  * ================================================================================================
+ *
+ * [CORRECTED 2026-11-02, owner Decision 4.] This banner read "ALL FOUR WENT LIVE ON 2026-11-02",
+ * and that is false of PRODUCTION. `docs/GATE-F-VERIFIED-SCHEMA.md` records, in a table headed
+ * "The three claims the dump refuted", that all fifteen tables already existed in production with
+ * live data -- 92 `store_order_financials` rows, the service "running, and has been" -- and that
+ * `products.cost_price` was populated on all 45 products. The original wording is kept above in
+ * corrected form rather than deleted, because the mistake is the lesson: the claim was inferred
+ * from the migrations, which CLAUDE.md §1 states are not the schema.
+ *
+ * What went live ON 2026-11-02 was the suite's ability to SEE these surfaces. The defects
+ * themselves were reachable in production before that date, which is what makes the fixes
+ * remediations rather than preventions.
  *
  * The four waves before this one were found by running the suite: a skip, an absence assertion, a
  * fixture that did not match the schema, an absence used as a proof. This wave could not be found
@@ -215,12 +227,33 @@ class GateFActivatedSurfacesTest extends SecurityTestCase
      * 500 because `otp_integrations` was one of GATE F's fifteen. The fix taken then was `auth`;
      * the caller-chosen-URL half was never closed, and the table now exists everywhere.
      *
-     * `Http::fake()` plus `assertNothingSent()` is the assertion that matters -- a refusal that
-     * still made the request would be no fix at all.
+     * [2026-11-02, P1-SEC-55] THIS TEST HAD BECOME VACUOUS AND STILL PASSED, WHICH IS WHY IT IS
+     * REWRITTEN RATHER THAN LEFT ALONE.
+     *
+     * It read `Http::fake()` plus `Http::assertNothingSent()`. The controller now sends through
+     * `SafeWebhook::send()`, which is cURL, so the `Http` facade is no longer involved at all and
+     * `assertNothingSent()` HOLDS WHATEVER THE HANDLER DOES. Measured: with the fix in place this
+     * test passed; with the guard removed it would have passed too. Its sibling
+     * (`...still reaches a public address`) failed loudly in the same run, because
+     * `Http::assertSent` cannot see a cURL request -- so the pair failed in opposite directions
+     * from the same cause, and only one of them told anyone.
+     *
+     * The seam used now is `SafeWebhook::transportUsing()`, which is the actual transport, so a
+     * refusal means nothing was handed to it. The comprehensive matrix -- redirect refusal, DNS
+     * pinning, authorisation, the anonymous oracle -- lives in OtpOutboundHardeningTest; this
+     * case stays here because it is the GATE F wave-5 record.
      */
     public function test_the_otp_test_endpoint_refuses_an_internal_address_and_sends_nothing(): void
     {
-        Http::fake();
+        $sent = [];
+        \App\Services\SafeWebhook::transportUsing(function (string $url, array $options) use (&$sent) {
+            $sent[] = $url;
+
+            // The metadata seam shape: an HTTP status alongside the body. The success test is
+            // `OtpTransport::succeeded()`, which requires HTTP 2xx AND provider status 200, so a
+            // seam that reports no status would make this positive case fail -- deliberately.
+            return ['body' => json_encode(['status' => 200]), 'status' => 200];
+        });
 
         [$merchant, $store] = $this->makeTenant();
 
@@ -248,7 +281,9 @@ class GateFActivatedSurfacesTest extends SecurityTestCase
 
         $this->assertNotSame(404, $response->getStatusCode(), 'the route must exist');
 
-        Http::assertNothingSent();
+        \App\Services\SafeWebhook::transportUsing(null);
+
+        $this->assertSame([], $sent, 'the link-local address was dialled');
 
         $body = json_decode((string) $response->getContent(), true) ?: [];
 
@@ -267,7 +302,16 @@ class GateFActivatedSurfacesTest extends SecurityTestCase
      */
     public function test_the_otp_test_endpoint_still_reaches_a_public_address(): void
     {
-        Http::fake(['*' => Http::response(['status' => true, 'message' => 'queued'], 200)]);
+        // See the note on the negative case above: `Http::fake()` can no longer see this send,
+        // and THIS test is the one that failed loudly when the transport changed. The resolver
+        // seam is needed too, because the real one has no record for *.example.test.
+        $sent = [];
+        \App\Services\SafeRemoteFetch::resolveUsing(fn (string $host) => ['93.184.216.34']);
+        \App\Services\SafeWebhook::transportUsing(function (string $url, array $options) use (&$sent) {
+            $sent[] = $url;
+
+            return ['body' => json_encode(['status' => 200, 'message' => 'queued']), 'status' => 200];
+        });
 
         [$merchant, $store] = $this->makeTenant();
 
@@ -293,7 +337,16 @@ class GateFActivatedSurfacesTest extends SecurityTestCase
             'base_url' => 'https://other-sms.example.test',
         ]);
 
-        Http::assertSent(fn ($request) => str_starts_with($request->url(), 'https://other-sms.example.test'));
+        \App\Services\SafeWebhook::transportUsing(null);
+        \App\Services\SafeRemoteFetch::resolveUsing(null);
+
+        $this->assertCount(1, $sent, 'the public address was not reached, so the guard over-refuses');
+        $this->assertSame(
+            'https://other-sms.example.test/api/send/sms',
+            $sent[0],
+            'the request must go to the full provider endpoint, and that full URL is what was '
+            . 'judged -- the previous code judged the base and requested the path'
+        );
     }
 
     // ============================================================================================

@@ -45,7 +45,7 @@ entirely pre-existing third-party-integration failure reporting, `info` (22) and
 diagnostics; none of them is a security signal and enumerating them would bury the ones that are.
 
 
-### `critical` — 30 lines
+### `critical` — 27 lines
 
 > **[2026-11-01] THIS COUNT WAS STALE, AND NOT BY THIS CHANGE'S DOING.** It read **21** against a
 > table of **28** rows before F241 and F263 added two more; the `warning` heading read **166**
@@ -65,7 +65,6 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:954` | Gateway return gave up after the capture was classified: |
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:1004` | Gateway return refused: the basket names a product or variant row that no longer exists. |
 | `app/Http/Controllers/KhaltiPaymnetController.php:1358` | Khalti order written for RECONCILIATION: the gateway could not be asked whether money moved |
-| `app/Http/Controllers/OtpIntegrationController.php:178` | OTP test refused: the base URL is not a permitted outbound host. |
 | `app/Http/Controllers/PaymentController.php:3662` | Order write failed before the transaction opened; stock decrements were given back |
 | `app/Http/Controllers/PaymentController.php:5102` | Order write failed before the transaction opened; stock decrements were given back |
 | `app/Http/Controllers/PaymentController.php:1753` | Paymera write threw and a committed order cannot be ruled out; the claim is kept so no replay can write a second order |
@@ -78,7 +77,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/PaymentController.php:968` | Paymera callback REJECTED: captured amount not verified |
 | `app/Http/Controllers/PaymentController.php:3861` | Order write failed and was rolled back; stock decrements were given back |
 | `app/Http/Controllers/PaymentController.php:5292` | Order write failed and was rolled back; stock decrements were given back |
-| `app/Services/OrderFinancialService.php:245` | OrderFinancialService: an order line names a product that is not |
+| `app/Services/OrderFinancialService.php:271` | OrderFinancialService: an order line names a product that is not |
 | `app/Services/PaymentService.php:231` | Insufficient stock on an order path that cannot refuse; order kept, stock oversold |
 | `app/Services/PaymentService.php:3099` | Order write failed and was rolled back; stock decrements were given back |
 | `app/Services/ProductStockService.php:139` | Stock decremented below zero on an order path that cannot refuse |
@@ -91,7 +90,21 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/GatewayReference.php:198` | gateway capture replayed: the reference is already recorded |
 | `app/Services/GatewayReference.php:213` | gateway capture replayed (23000): the reference is already recorded |
 
-### `warning` — 183 lines
+### `warning` — 190 lines
+
+> **[2026-11-02, second edit] 186 -> 190, and BOTH HEADINGS WERE STALE BEFORE IT.** Measured
+> against `app/` with the test's own regex: **27 `critical`, 190 `warning`, 217 total** — which is
+> the total `resync-observability-inventory.py` reports. The headings read 30 and 183, so
+> `critical` over-counted by three and `warning` under-counted by seven, and they had been wrong
+> *before* this change too (186 actual against 183 claimed). Part of the `critical` discrepancy
+> is now explained rather than just corrected: the `OtpIntegrationController` refusal row was
+> sitting in the `critical` table while the source line is a `Log::warning`. It has been moved
+> down here, where the code puts it.
+>
+> **The headings are not asserted by the ratchet** — the test compares table rows against `app/`
+> and never reads a heading — which is exactly why they drift. Recount before trusting one:
+> `php` the regex in `SecurityLogInventoryTest::censusFromSource()`, or read
+> `resync-observability-inventory.py`'s `source lines` figure.
 
 > **[2026-11-02] 181 -> 183.** Two lines added by the GATE F wave-5 security fixes, both below
 > with their own destination. `SecurityLogInventoryTest` is what required this edit rather than
@@ -164,8 +177,8 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/Concerns/RefusesDeferredGateway.php:130` | Paid plan checkout refused before any charge: this gateway is deferred from Phase 02. |
 | `app/Http/Controllers/Concerns/RefusesDeferredGateway.php:180` | Paid plan activation refused: this gateway is deferred from Phase 02 and its payment evidence cannot be verified. |
 | `app/Http/Controllers/Concerns/ResolvesPendingPartialPayment.php:135` | Pending partial payment lookup failed; the payment is refused. |
-| `app/Http/Controllers/Customer/Auth/CustomerLoginController.php:716` | customer login: refused a social row still holding its module-assigned password |
-| `app/Http/Controllers/Customer/Auth/CustomerLoginController.php:941` | Newsletter subscription failed during customer registration |
+| `app/Http/Controllers/Customer/Auth/CustomerLoginController.php:770` | customer login: refused a social row still holding its module-assigned password |
+| `app/Http/Controllers/Customer/Auth/CustomerLoginController.php:995` | Newsletter subscription failed during customer registration |
 | `app/Http/Controllers/DeliverySyriaStatusController.php:95` | Delivery Syria status webhook: invalid credentials. |
 | `app/Http/Controllers/DeliverySyriaStatusController.php:179` | Zid store not found for order status sync. |
 | `app/Http/Controllers/ESewaPaymentController.php:196` | Plan payment return rejected: claimed amount does not match the plan price. |
@@ -283,6 +296,11 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/StoredUpload.php:90` | a stored upload path names a platform default and was not touched |
 | `app/Services/StoredUpload.php:108` | a stored upload path names another tenant |
 | `app/Services/WebuzoDomainService.php:170` | New Webuzo domain added but old domain could not be deleted |
+| `app/Http/Controllers/OtpIntegrationController.php:536` | OTP test refused: the provider address is not a permitted outbound host. |
+| `app/Http/Controllers/OtpIntegrationController.php:632` | OTP test refused: the provider address is not a permitted outbound host. |
+| `app/Http/Controllers/OtpIntegrationController.php:685` | OTP test failed with an exception. |
+| `app/Http/Controllers/Customer/Auth/CustomerLoginController.php:361` | Customer OTP send did not succeed. |
+| `app/Http/Controllers/Customer/Auth/CustomerLoginController.php:404` | Customer OTP send threw. |
 
 <!-- counts: error=95 info=22 debug=1 -->
 
@@ -509,6 +527,61 @@ So a `Log::critical('Order write failed and was rolled back; stock decrements we
 lands in the same unrotated file as every `debug` line the framework emits, and is found only by a
 human who already knows to go looking. **There is no channel, no retention policy and no alerting
 for any of the lines in section 1.**
+
+### The five rows added or changed 2026-11-02 (P1-SEC-55), with their destination and reader
+
+`resync-observability-inventory.py` re-pointed three rows that only moved and **refused** the five
+below, which is the division working as intended: the tool can follow code, only a person can say
+who reads a line. These are those statements.
+
+**`OtpIntegrationController` — "OTP test refused: the provider address is not a permitted outbound
+host.", `warning`, TWO lines (the SMS branch and the WhatsApp branch).** A merchant pressed *test*
+and `SafeRemoteFetch::check` refused the destination, so **nothing was sent and no credential left
+the server.** Context: `store_id`, `base_url`, `came_from_request`, and `channel` on the WhatsApp
+line. **Reader: the platform operator, when a merchant reports that testing their OTP provider does
+not work.** It is the only record of *why* the refusal happened, because the caller is deliberately
+told nothing more than "that address is not allowed" — a precise reason would make the endpoint an
+internal-network oracle, which is the defect P1-SEC-55 closed.
+
+**The message text changed** from "the base URL is not a permitted outbound host" because the base
+URL is no longer what is judged: `OtpTransport` passes the complete url, path included, so what is
+judged is what is requested. One row became two because the WhatsApp branch had no guard at all.
+`came_from_request` distinguishes a merchant testing an unsaved address from a stored one already
+in the integration row — the second is the more serious reading and the field is how an operator
+tells them apart.
+
+**`OtpIntegrationController` — "OTP test failed with an exception.", `warning`, one line.** Replaces
+returning `$e->getMessage()` to the caller. The exception text is the thing that turned this
+endpoint into a port scanner (`cURL error 7: ... port 6379 ... Connection refused`), so it is logged
+with `store_id` and handed to nobody. **Reader: the platform operator.** `OtpTransport` does not
+throw for a network failure — it answers `FAILED` with no detail — so this path is now reached only
+by a genuine programming fault, which is exactly what belongs in a log.
+
+**`CustomerLoginController` — "Customer OTP send did not succeed.", `warning`, one line.** The
+customer-facing half, and the one that mattered most: the route carries **no auth**
+(`web, ActiveTheme, ThemeLanguage, ThrottleRequests:auth`), and it used to flash the provider's own
+body to the anonymous caller. Measured: a remote banner surfaced as
+`session('error') = 'INTERNAL-SERVICE-BANNER: redis 7.0.11 on 127.0.0.1'`. The caller now gets one
+fixed string and the detail comes here: `store_id`, `customer_id`, `channel`, the transport
+`outcome`, and the provider's `status` and `message`. **Reader: the platform operator, for a
+merchant whose customers cannot receive a reset code.**
+
+**`CustomerLoginController` — "Customer OTP send threw.", `warning`, one line.** The other half of
+the same oracle: a cURL failure names the host and the port it could not reach, and it was flashed
+to the same anonymous caller. Context: `store_slug` and the exception message. **Reader: the
+platform operator.**
+
+**None of the five carries the `api_secret`, a token, an email address, a phone number or a card
+field.** The two `CustomerLoginController` rows log a `customer_id` — an internal integer, not a
+contact detail — and `provider_message`, which is the provider's own text about its own API and is
+not read back to any customer. The `base_url` on the refusal rows is a merchant-configured endpoint,
+which is the subject of the finding and the reason the row exists.
+
+**Section 2 applies to all five.** They land in `storage/logs/` under the `stack`/`daily` channel
+like every other row in this document, and nothing forwards them. That is a deployment decision,
+not a code one.
+
+---
 
 ### The expectation this records
 
