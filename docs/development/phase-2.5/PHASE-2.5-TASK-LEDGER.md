@@ -172,6 +172,33 @@ assets; the tracked file was restored unchanged, and the committed diff does not
 | id | slice | status | evidence |
 |---|---|---|---|
 | **P2.5-D-01** | **Every shared button in the merchant app was under the minimum tap target.** | **DONE [2026-11-03]** | Flutter `claude/busy-edison-k0pjwa` **`e74164c4`** — `lib/view/widget/common_button.dart`, `test/a11y/tap_target_size_test.dart` (new, 6 tests) |
+| **P2.5-D-02** | **The caret and focus ring were invisible on every dark text field** — `1.09:1`. The Flutter counterpart of `P2.5-A-02`, and found by the audit rather than by analogy. | **DONE [2026-11-03]** | Flutter **`881e2b5`** — `lib/view/new_widgets/app_txt_field.dart`, `test/a11y/field_focus_contrast_test.dart` (new, 4 tests) |
+
+### D-02 — measured in a real render, then fixed without choosing a brand
+
+`AppTextField` used one hardcoded `navyBlue` for **both** `cursorColor` and `focusedBorder`:
+
+| pairing | ratio | |
+|---|---|---|
+| `#172C4E` on `cSurface` `#213252` | **1.09:1** | the dark field |
+| `#172C4E` on `cCardBackground` `#18263F` | **1.09:1** | |
+| `#172C4E` on `cBackGround` `#0F1A2E` | **1.25:1** | |
+| `#172C4E` on white | 13.94:1 | light mode — correct, and unchanged |
+
+A caret and a focus indicator are **non-text UI components**, so WCAG 1.4.11 asks 3:1; focus
+visibility is also **WCAG 2.4.7**, the criterion that makes a form keyboard-operable at all.
+
+**The fix introduces no new colour, and that restraint is the point.** Both values already exist
+in the app's own themes — `LightThemeColor.cPrimary` is the same navy, `DarkThemeColor.cPrimary`
+is `#10AFC0` at 4.82:1 on the dark field. The widget now **reads the theme instead of a
+constant**, so light mode is byte-identical. The app's brand is an open question reserved to the
+owner; this reads one rather than deciding one — and the third bite test exists specifically to
+fail if a later change lets this slice touch light mode.
+
+| gate | result |
+|---|---|
+| `flutter analyze` | **247 issues, 0 warnings, 0 errors** — back to the exact pre-slice baseline; two `prefer_const` lints introduced by the new test were fixed rather than left to raise it |
+| `flutter test` | **1,377 passed** (4 new), run alone |
 
 Measured by **rendering each widget**, not by reading the literals: what a thumb meets is the box
 after `flutter_screenutil` has scaled it against this app's 360×800 design size, so the only
