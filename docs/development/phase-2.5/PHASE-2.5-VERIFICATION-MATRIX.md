@@ -29,6 +29,8 @@ or fixture, anywhere in this phase.**
 | 10 | **Order board** — the Move control | `GET /order-kanban` → `POST /order-status-change/{id}` | 1440×900 | en / ltr | light | merchant (`Manage Order`) | selected a move on a real card and **clicked Move** | before: **response 200, browser left on raw JSON, board unchanged**; after: **302**, back on `/order-kanban`, **Pending 1 → 0, Confirmed 1 → 2** | **driven, state change confirmed** | `tools/probe-kanban-move.cjs`; `P2.5-R-05` |
 | 11 | **Dashboard and category** under the new brand | `GET /dashboard`, `GET /category` | 1440×900 | en/ltr **and** ar/rtl | **light and dark** | merchant | full render; then every element's **computed** colour read and classified against the logo's hue band | `/dashboard`: **no off-brand chromatic colour** in either theme. `/category`: **one** — `#3ec9d6` at hue 185.1° on the vendored DataTables reset button | **8 rows clean; 1 off-brand colour recorded** | `tools/render-matrix.cjs`, `tools/find-offbrand-colours.cjs`; `P2.5-BR-01/02` |
 
+| 12 | **Order grid cards** — the customer name and the price | `GET /order-grid` | 1440×1000 | en / ltr | **dark and light** | merchant | read every `.text-dark` node's **computed** colour and the first opaque background above it | before: **1.11:1** on all 6 measured nodes (`rgb(28,35,47)` on `rgb(41,42,51)`); after: **12.39:1**. Light **unchanged** at 15.78:1 | **14 nodes on this screen, 9 more on `/customer-grid`, all lifted** | `tools/measure-grid-dark.cjs`; `P2.5-A-05` |
+
 ### What row 11 measures, since "the brand is applied" is easy to assert and hard to check
 
 `find-offbrand-colours.cjs` walks **every element** in the live page and reads `color`,
@@ -49,6 +51,7 @@ the tool being wrong, not the page.
 | # | surface | how it was verified | what it is **not** |
 |---|---|---|---|
 | F1 | the primary button, light and dark | the Flutter engine **rasterised** the widget and the test read the pixels back out of the frame (`RepaintBoundary.toImage()`), then classified the dominant chromatic colour's hue | **not a phone.** No Android SDK (`ANDROID_HOME` unset, no `adb`, no `emulator`), no attached device; `flutter devices` offers only Linux desktop and Chrome. `flutter build web` **fails** — dart2js aborts in `firebase_messaging_web-3.5.18`'s interop with `Type 'PromiseJsImpl' not found` — so there is no built app to screenshot either. |
+| F2 | `EmptyState` and `ErrorState`, light and dark | the widgets were **pumped** and the test read the `Text`'s and `Icon`'s resolved colour, then computed the ratio against the surface each is painted on | the same limitation. This reads the widget's resolved style rather than the frame — accurate here, because `style.color` *is* what gets painted, but it is a weaker instrument than F1's. |
 
 The test carries its own anti-vacuity control: it paints the retired host green `#10B77F` and
 requires the measurement to call it off-brand. Without that, an empty or all-grey capture would

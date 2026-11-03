@@ -357,13 +357,42 @@ reserves. Wave D's first slice is to put the question, with these numbers, rathe
 | **P2.5-R-02** | The customer **Apply** button did nothing, in two independent ways: the button's id never matched the handler's, and that handler wrote into `#service-filter-data`, which exists only in a vendored module. | reproduced in a browser (**0 requests on click**); repaired with a plain GET form and **no server change** — `CustomerDataTable::query()` already read all three parameters, and the controls were already named for them; 13 tests; **18 live checks** across en/ltr/light and ar/rtl/dark |
 | **P2.5-R-03** | The sixth filter option could never fire: the `<option>` value is `'Last active'`, the query tested `'Last Active'`. R-02 is what made it visible — five of six options worked and the sixth returned the full list with its controls still showing a filter. | found by the `tenant-authz-reviewer` pass on R-02; both spellings now accepted; **2 bites**; driven live, 3 rows → 2 |
 | **P2.5-R-04** | Six shared Flutter buttons declare `title` and `iconData` optional and then force-unwrap them — a caller taking the signature at its word gets *"Null check operator used on a null value"* at build time. | 9 tests reproduced it; repaired backward-compatibly (every existing call site passes both); the 48dp tap target from D-01 asserted to survive the icon-less branch |
-| Kanban **Move** | **not yet reproduced.** | — |
+| **P2.5-R-05** | The order board's **Move** button never moved anything. Three faults, all of them the board talking to the existing writer in the wrong words: the select was named `order_status` while the handler reads `$request->delivered`; the value `picked_up` against a writer testing `pickedup`; and a `response()->json()` on every path, which strands a plain form POST on raw JSON. | measured in a browser first — **200, raw JSON, board unchanged**; after: **302**, back on the board, **Pending 1 → 0, Confirmed 1 → 2**. 10 tests, **3 bites**. **No state-transition semantics changed** — `Order::order_status_change()`, its vocabulary, its cancel guard and its money handling are untouched, which is the carve-out the owner put on this one. |
 
-**The review of R-01/R-02 found more than it confirmed**, which is the point of running it: it
-caught R-03, and it caught four tests sitting under a banner that claimed they were end-to-end when
-they called the query builder directly and would have passed against the pre-repair code. Both were
-fixed in `P2.5-R-03`'s commit — the section retitled, and the HTTP-level test that actually fails on
-revert added.
+**Both reviews found more than they confirmed**, which is the point of running them.
+
+The R-01/R-02 review caught **R-03**, and caught four tests sitting under a banner claiming they
+were end-to-end when they called the query builder directly and would have passed against the
+pre-repair code. Both were fixed in `P2.5-R-03`'s commit.
+
+The R-05 review caught something worse: **two existing security tests that my redirect would have
+broken**, which would have redded the blocking known-outcome gate. `OrderStatusUnknownValueTest`
+and `OrderLineImmutabilityTest` both drive the status route with a bare `post()` and then read
+`$response->json()`; after R-05 a bare `post()` is a redirect, and `TestResponse::json()` fails
+before either test's own premise message can print. They now send what the **shipped caller** sends
+— `X-Requested-With: XMLHttpRequest` plus an accept-anything `Accept`, which is what
+`order/view.blade.php:858`'s jQuery call puts on the wire — so they are more faithful, not more
+permissive.
+
+**And the review's own one-line remedy was incomplete**, which is worth recording because it is the
+same lesson in miniature. It proposed the `X-Requested-With` header alone. Probed directly:
+
+| what the test sends | `ajax()` | `acceptsAnyContentType()` | `wantsJson()` | `expectsJson()` |
+|---|---|---|---|---|
+| bare `post()` | 0 | 0 | 0 | **0** |
+| `X-Requested-With` only | 1 | 0 | 0 | **0** |
+| `X-Requested-With` + `Accept: */*` | 1 | 1 | 0 | **1** |
+| `Accept: application/json` | 0 | 0 | 1 | **1** |
+
+`Request::create()` — what the test client builds — injects a *browser-like* `Accept`, so the
+header alone still redirects. Measured rather than taken on trust.
+
+It also caught a test **I** had written under the heading "end to end" that posted four hardcoded
+words under the key `delivered` and never read the board — so it passed against the fully
+unrepaired code. The same shape the previous review had just caught, in a file written after that
+lesson. It now parses both the field name and the option values out of the rendered board, anchored
+on `id="ss-move-"` because its first rewrite grabbed the filter bar's status select and reported
+"the board offers '4'".
 
 ### Recorded, not repaired — because repairing them changes behaviour the owner excluded
 
@@ -374,6 +403,13 @@ revert added.
 | **P2.5-F-09** | Its AOV branch tests `$AOV = $text_field_float` — an **assignment**, always truthy. |
 | **P2.5-F-10** | `ProductController::list()`/`index()` and `CustomerController::index()` test the permission **without the operator-first ordering** CLAUDE.md requires. It *refuses* rather than grants, so it is a lockout, not a hole — and the correct unit of change is all three at once, against the owner-settled position that the operator may read a merchant's catalogue but not write it. |
 | **P2.5-F-11** | `--color-customColor` is emitted into a `<style>` block with `<?= $color ?>`, **unescaped**, from a merchant-settable value. Same-tenant CSS injection into their own admin. Pre-existing; the new default path uses a literal constant. |
+
+### Accessibility blockers, from the verified inventory
+
+| slice | what | evidence |
+|---|---|---|
+| **P2.5-A-04** | **Every empty state in the Flutter merchant app was unreadable in light mode.** `EmptyState`'s message and icon were `Colors.grey.shade400` — **1.88:1** on the light background, against 4.5 and 3.0. `ErrorState`'s icon was **2.68:1**. The dark side was already fine, which is the usual shape: somebody checked one theme. | 7 tests, 2 bites. **17 merchant screens** route through these two widgets, so one file reaches every empty and error state in the app. |
+| **P2.5-A-05** | **The order price was 1.11:1 in dark mode.** `.text-dark` on the host's dark card: 14 nodes on `/order-grid`, 9 on `/customer-grid`, every one below 4.5:1. The merchant saw a heading and a blank space where the money is. | measured live, **1.11 → 12.39:1**, light unchanged at 15.78:1. Theme-scoped with a **white-modal guard**, because the host keeps `.modal-content` white in dark mode and a rule that forgets that trades one invisible text for another. 7 tests, 2 bites, both stylesheets. |
 
 ### Brand (`D-41`)
 
