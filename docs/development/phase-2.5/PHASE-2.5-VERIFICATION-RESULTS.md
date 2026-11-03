@@ -34,6 +34,13 @@ adversarial readers is a signal that the finding is genuinely ambiguous, not an 
 None of the ten is a blocker and none is in the repair package now being planned, so the
 adjudication settles the record rather than gating any work.
 
+**It is finished.** Five upheld, four refuted, one stale — and the later, better-informed run was
+right **four times out of ten**, which is the number worth keeping: *"the newer verdict wins"*
+would have given the wrong answer six times. The final counts are therefore **224 upheld, 66
+refuted or stale**, and the case-by-case record is in
+[`PHASE-2.5-ADJUDICATED-DISAGREEMENTS.md`](PHASE-2.5-ADJUDICATED-DISAGREEMENTS.md). One of the four
+refutations overturned a repair I had already written, tested and bitten — see §1 there.
+
 ---
 
 ## 2. The result
