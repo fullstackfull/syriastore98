@@ -41,40 +41,70 @@
             <div class="mt-2 " id="multiCollapseExample1">
                 <div class="card">
                     <div class="card-body">
+                        {{--
+                            P2.5-R-02 -- A PLAIN GET FORM, which is all this filter ever needed.
+
+                            `CustomerDataTable::query()` already implements every one of these
+                            five filters server-side, reading `field_name`, `selected_name` and
+                            `text_field` off the request -- and the three controls below were
+                            already named exactly that. The only missing piece was a <form> to
+                            submit them; there is even a dead `$('#frm_submit').on('submit')`
+                            handler further down this file waiting for one.
+
+                            What was here instead: an <a id="applyfilter"> with no handler (the
+                            script bound `#apply-button`), and behind that an AJAX block writing
+                            its answer into `#service-filter-data`, an element that exists only
+                            inside the vendored RewardClubPoint module. Measured in a browser:
+                            zero requests on click, and nothing on the page changed.
+
+                            This is the same pattern as the product list
+                            (product/partials/filters.blade.php) and it works for the same
+                            measured reason: yajra's `minifiedAjax()` points the table's ajax at
+                            the CURRENT url, so the filter rides the initial render AND every
+                            later draw, and the filtered list is a bookmarkable address.
+                        --}}
+                        <form method="GET" action="{{ route('customer.index') }}" id="frm_submit"
+                              role="search" aria-label="{{ __('Filter customers') }}">
                         <div class="row align-items-center m-0 gap-1 justify-content-end">
                             <div class="col-xl-3 col-lg-3 col-md-6 col-sm-12 col-12">
                                 <div class="btn-box">
-                                    {{ Form::select('field_name', $customer_field, isset($_GET['field_name'])?$_GET['field_name']:null, ['class' => 'form-control', 'id' => 'customer_field', 'placeholder' => __('Select Customer Fields')]) }}
+                                    <label class="visually-hidden" for="customer_field">{{ __('Select Customer Fields') }}</label>
+                                    {{ Form::select('field_name', $customer_field, request()->query('field_name'), ['class' => 'form-control', 'id' => 'customer_field', 'placeholder' => __('Select Customer Fields')]) }}
                                 </div>
                             </div>
-                            <div class="col-xl-3 col-lg-3 col-md-6 col-sm-12 col-12 select-container d-none">
-                                <div class="btn-box" id="select-container">
-                                {{ Form::hidden('select_value', null, ['id' => 'select-value']) }}
-                                </div>
+                            <div class="col-xl-3 col-lg-3 col-md-6 col-sm-12 col-12 select-container @if (! request()->filled('field_name')) d-none @endif">
+                                <div class="btn-box" id="select-container"></div>
                             </div>
-                            <div class="col-xl-3 col-lg-3 col-md-6 col-sm-12 col-12 text-field d-none">
-                                <div class="btn-box" id="text-field">
-                                {{ Form::hidden('text_value', null, ['id' => 'text-value']) }}
-                                </div>
+                            <div class="col-xl-3 col-lg-3 col-md-6 col-sm-12 col-12 text-field @if (! request()->filled('field_name')) d-none @endif">
+                                <div class="btn-box" id="text-field"></div>
                             </div>
                             <div class="m-0 p-0 col-auto">
                                 <div class="row">
                                     <div class="m-0 p-0 col-auto">
-                                        <a class="btn btn-sm btn-primary" data-bs-toggle="tooltip"
+                                        {{-- A real submit control. The old <a> could not be
+                                             activated by Enter or the space bar either, so this
+                                             also gives the filter a keyboard path. --}}
+                                        <button type="submit" class="btn btn-sm btn-primary" data-bs-toggle="tooltip"
                                             title="{{ __('Apply') }}" id="applyfilter"
                                             data-original-title="{{ __('apply') }}">
                                             <span class="btn-inner--icon"><i class="ti ti-search"></i></span>
-                                        </a>
-                                        <a href="#!" class="btn btn-sm btn-danger " data-bs-toggle="tooltip"
+                                            <span class="visually-hidden">{{ __('Apply') }}</span>
+                                        </button>
+                                        {{-- A LINK to the unfiltered address, not type="reset":
+                                             reset restores the form's INITIAL values, which on a
+                                             filtered page are the filters themselves. --}}
+                                        <a href="{{ route('customer.index') }}" class="btn btn-sm btn-danger " data-bs-toggle="tooltip"
                                             title="{{ __('Reset') }}" id="clearfilter"
                                             data-original-title="{{ __('Reset') }}">
                                             <span class="btn-inner--icon"><i
                                                     class="ti ti-trash-off text-white-off "></i></span>
+                                            <span class="visually-hidden">{{ __('Reset') }}</span>
                                         </a>
                                     </div>
                                 </div>
                             </div>
                         </div>
+                        </form>
                     </div>
                 </div>
             </div>
@@ -191,40 +221,39 @@
                 });
             });
 
-            $('#frm_submit').on('submit', function(event) {
-                event.preventDefault();
-                applyFilter();
-            });
+            /*
+             * P2.5-R-02. The submit and click handlers that used to live here are gone with the
+             * AJAX they called: the form above submits itself, and CustomerDataTable::query()
+             * does the filtering. What remains is the other half of a GET filter -- showing the
+             * merchant the filter that is in force.
+             *
+             * The operator and value controls are injected by the `change` handler above, so on
+             * a filtered page they do not exist yet. This replays that injection once and then
+             * puts the submitted values back, so a merchant who applied a filter and got a
+             * narrowed list can SEE which filter narrowed it, and can edit it rather than
+             * rebuilding it from the first select.
+             */
+            @if (request()->filled('field_name'))
+                (function restoreSubmittedFilter() {
+                    var operator = @json(request()->query('selected_name'));
+                    var value = @json(request()->query('text_field'));
 
-            $('#apply-button').on('click', function(event) {
-                event.preventDefault();
-                applyFilter();
-            });
+                    $(document).ajaxComplete(function onInjected(event, xhr, settings) {
+                        if (! settings.url || settings.url.indexOf(@json(route('customer.filter'))) !== 0) {
+                            return;
+                        }
+                        $(document).off('ajaxComplete', onInjected);
+                        if (operator) {
+                            $('#select-container select').val(operator);
+                        }
+                        if (value) {
+                            $('#text-field input').val(value);
+                        }
+                    });
 
-            // Function to apply the filter
-            function applyFilter() {
-                var selectedValue = $('#customer_field').val();
-                var select = $('#select-container select').val();
-                var TextValue = $('#text-field input').val();
-
-                var data = {
-                    'text_field': TextValue,
-                    'selected_name': select,
-                    'customer_field': selectedValue,
-                }
-
-                $.ajax({
-                    url: '{{route('customer.filter.data')}}',
-                    type: 'GET',
-                    data: data,
-                    context: this,
-                    success: function (data) {
-                        $('#loader').fadeOut();
-                        $('#service-filter-data').html('');
-                        $('#service-filter-data').html(data);
-                    }
-                });
-            }
+                    $('#customer_field').trigger('change');
+                })();
+            @endif
         });
     </script>
 @endpush
