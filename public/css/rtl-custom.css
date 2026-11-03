@@ -4711,6 +4711,51 @@ html[data-ss-theme="dark"] body .dataTable-input::-moz-placeholder {
 /* end P2.5-A-02 — the two directions are compared byte for byte between this marker and the
    P2.5-A-01 banner by Tests\Unit\Ui\DarkModalSurfaceContrastTest, so keep both markers. */
 
+/* =============================================================================================
+   P2.5-A-05 — `.text-dark` IN DARK MODE: 1.11:1, ON THE ORDER PRICE.
+   =============================================================================================
+
+   MEASURED IN THE RUNNING ADMIN, dark theme, 1440x1000, merchant session:
+
+     screen           .text-dark visible   below 4.5:1   inside a modal
+     /order-grid              14               14              0
+     /customer-grid            9                9              0
+     /dashboard, /order, /customer, /product, /category   none
+
+     foreground  rgb(28, 35, 47)      the Bootstrap utility, unchanged by the dark sheet
+     background  rgb(41, 42, 51)      the host's dark card
+     ratio       1.11:1
+
+   WHAT IS ACTUALLY INVISIBLE. On every order card: the customer name and the line that reads
+   `Price : $148,00`. On every customer card: the name, the email and the last-active date. The
+   merchant sees a card with a heading and a blank space where the money is.
+
+   `.text-dark` MEANS "DARK TEXT", so in a dark theme it is semantically wrong wherever the
+   surface is dark -- which is why this is scoped to the theme rather than patched per screen, and
+   why it is a `color` override rather than a markup change in two Blade files. The host's own
+   dark stylesheets never redefine the utility; measured, they leave it at the light value.
+
+   AND THE ONE PLACE IT IS STILL CORRECT IS GUARDED. The host keeps `.modal-content` WHITE in dark
+   mode -- the measurement behind P2.5-A-01 -- so dark text inside a modal is right and must not be
+   lifted. The second rule below is more specific and wins there. That ordering is the whole
+   lesson of F126: a dark-mode rule that forgets the white surfaces trades one invisible text for
+   another. No `.text-dark` was found inside a modal on the audited screens, but modals open on
+   demand and the guard costs one rule.
+
+     #eeeff1 on rgb(41, 42, 51)   12.39:1   (--ss-grey-100, the design system's dark foreground)
+     #1a1d23 on #ffffff           16.88:1   (--ss-grey-900, unchanged inside the white modal)
+*/
+html[data-ss-theme="dark"] body .text-dark {
+    color: var(--ss-grey-100, #eeeff1) !important;
+}
+
+html[data-ss-theme="dark"] body .modal-content .text-dark {
+    color: var(--ss-grey-900, #1a1d23) !important;
+}
+/* end P2.5-A-05 — compared byte for byte between the two stylesheets by
+   Tests\Unit\Ui\DarkModalSurfaceContrastTest, so keep both markers. */
+
+
 
 /* =============================================================================================
    P2.5-B-01 — THE MERCHANT'S OWN CARD ON THE DASHBOARD, AT THE ONE WIDTH IT BREAKS.
