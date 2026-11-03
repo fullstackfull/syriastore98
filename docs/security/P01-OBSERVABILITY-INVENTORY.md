@@ -194,12 +194,12 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/OrderController.php:1439` | Return approval skipped a line whose product is not in the order |
 | `app/Http/Controllers/OrderController.php:1473` | Return approval skipped a line whose variant does not belong to its product |
 | `app/Http/Controllers/OrderController.php:1588` | Order replacement refused. |
-| `app/Http/Controllers/OrderController.php:1912` | Customer cancellation endpoint refused a status it does not serve |
-| `app/Http/Controllers/OrderController.php:1982` | Order cancellation skipped a line with an unusable product id or quantity |
-| `app/Http/Controllers/OrderController.php:1997` | Order cancellation skipped a line whose product is not in the order |
-| `app/Http/Controllers/OrderController.php:2054` | Order cancellation skipped a line the stock record says never took stock out |
-| `app/Http/Controllers/OrderController.php:2098` | Order cancellation skipped a line whose variant does not belong to its product |
-| `app/Http/Controllers/OrderController.php:2340` | Order assignment refused: the delivery boy is not in a store this caller owns |
+| `app/Http/Controllers/OrderController.php:1954` | Customer cancellation endpoint refused a status it does not serve |
+| `app/Http/Controllers/OrderController.php:2024` | Order cancellation skipped a line with an unusable product id or quantity |
+| `app/Http/Controllers/OrderController.php:2039` | Order cancellation skipped a line whose product is not in the order |
+| `app/Http/Controllers/OrderController.php:2096` | Order cancellation skipped a line the stock record says never took stock out |
+| `app/Http/Controllers/OrderController.php:2140` | Order cancellation skipped a line whose variant does not belong to its product |
+| `app/Http/Controllers/OrderController.php:2382` | Order assignment refused: the delivery boy is not in a store this caller owns |
 | `app/Http/Controllers/OrderRefundController.php:180` | Refund transition refused: unrecognised current state |
 | `app/Http/Controllers/OrderRefundController.php:202` | Refund transition refused: illegal transition |
 | `app/Http/Controllers/OrderRefundController.php:416` | Refund cancellation refused: the record does not match the order |
