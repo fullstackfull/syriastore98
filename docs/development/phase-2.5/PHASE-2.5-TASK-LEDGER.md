@@ -435,6 +435,37 @@ have no such gap; they were driven in Chromium against the running application.
 
 ---
 
+## 3c. The gates, as executed on the integrated tree (2026-11-03)
+
+| gate | result |
+|---|---|
+| `php artisan test --testsuite=Unit` | **752 passed**, 4,852 assertions |
+| `php artisan test --testsuite=Contract` (the Flutter API contract) | **27 passed** |
+| `check-contrast.py` | **ALL 58 PAIRS PASS**, light and dark; auto scope identical to dark across 37 tokens |
+| `php artisan test --testsuite=Feature` | **7,550 passed**, 2 declared failures, 1 declared skip, **0 errors** |
+| `assert-known-test-outcomes.php` | *"OK: the observed outcome set matches the manifest exactly"* |
+| `flutter analyze` | **240 issues, 0 errors, 0 warnings** (baseline 247) |
+| `flutter test` | **1,416 passed** |
+
+**+31 Feature tests over the 7,519 baseline, and nothing was added to
+`.github/known-test-outcomes.json`.** The manifest still declares exactly the two failures and one
+skip it declared before this phase began.
+
+**The gate had to be run twice, and the first run earned its keep.** It caught one undeclared
+failure — `SecurityLogInventoryTest`, because `statusChangeResponse()` and its docblock added 42
+lines to `OrderController.php` and the observability inventory records every security log line by
+`file:line`. Six rows had stopped matching. Not a security regression; a uniform shift
+(`1912→1954`, `1982→2024`, `1997→2039`, `2054→2096`, `2098→2140`, `2340→2382`) repaired with the
+tool the failure message itself names, which **refuses to write when a line was added or deleted
+rather than moved** — 6 re-pointed, 211 unchanged, 217 source against 217 documented. Those counts
+are what prove it was a move.
+
+Everything committed after that run is documentation; `git diff --name-only f4ea81cb..HEAD`
+excluding `docs/` is empty, and the two suites that read a doc
+(`tests/Feature/DesignSystem`, `tests/Unit/Ci`) were re-run — **251 passed**.
+
+---
+
 ## 4. Not yet started
 
 Wave B beyond the dashboard card, Wave C (remaining merchant screens), the rest of Wave D, and
