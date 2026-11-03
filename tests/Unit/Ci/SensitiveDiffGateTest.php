@@ -103,6 +103,84 @@ final class SensitiveDiffGateTest extends TestCase
     }
 
     /**
+     * P1-SEC-56. THE CLASSIFIER DID NOT LOOK WHERE THIS CODEBASE KEEPS ITS DEFECTS.
+     *
+     * Measured 2026-11-02 against the pattern as it stood: PR #128 -- which adds an authorization
+     * gate to an OTP controller and moves an outbound send of a stored `api_secret` onto a pinned
+     * transport -- matched 0 of its 7 files, and the job log read `no security-sensitive paths in
+     * this diff.` The same pattern missed 0-of-7 on 2497f28e ("four live defects GATE F turned
+     * on") and 0-of-2 on d9a3fbc2 ("the shipping quote leaked another tenant's product price",
+     * which changed `app/Http/Controllers/Api/ApiController.php`).
+     *
+     * `app/Http/Controllers/`, `app/Services/` and `app/Models/` were simply not on the list,
+     * while `Policies/`, `Middleware/`, `routes/` and `config/` were. But CLAUDE.md's whole
+     * catalogue of this project's real defects is in controllers: the target derived from
+     * `$request->some_id` instead of the principal, the authorization check missing its
+     * operator-first clause, the `Product::find()` that is not scoped.
+     *
+     * The shell harness asserts all 27 surfaces in both directions. This is the same property in
+     * a second runner, on the one surface that matters most, so a pattern edit cannot go green
+     * here while the harness is skipped or vice versa.
+     *
+     * @dataProvider surfacesThatMustBeSensitive
+     */
+    public function test_the_surfaces_this_codebase_keeps_its_defects_on_are_sensitive(string $path): void
+    {
+        $this->commitFile($path);
+
+        [$code, $out] = $this->runGate('HEAD~1', '', 'enforce');
+
+        $this->assertSame(1, $code, "{$path} must be classified security-sensitive.\n{$out}");
+        $this->assertStringContainsString('SECURITY-SENSITIVE DIFF', $out);
+        $this->assertStringContainsString($path, $out);
+    }
+
+    public static function surfacesThatMustBeSensitive(): array
+    {
+        return [
+            'a controller -- where the authorization check is' => ['app/Http/Controllers/OtpIntegrationController.php'],
+            'the storefront API controller (d9a3fbc2)' => ['app/Http/Controllers/Api/ApiController.php'],
+            'a customer auth controller -- "Auth" was not on the list' => ['app/Http/Controllers/Customer/Auth/CustomerLoginController.php'],
+            'a FormRequest -- validation rules are a control' => ['app/Http/Requests/SomeRequest.php'],
+            'a service -- SafeWebhook, OtpTransport, the money services' => ['app/Services/OtpTransport.php'],
+            'a model -- global scopes, $hidden, casts' => ['app/Models/Product.php'],
+            'an observer -- what calls the financial service at all' => ['app/Observers/OrderObserver.php'],
+            'a security test -- weakening one is a security diff' => ['tests/Feature/Security/SomethingTest.php'],
+            'a tenancy test (83ae48d9)' => ['tests/Feature/Tenancy/SomethingTest.php'],
+            'the Flutter API contract' => ['tests/Contract/SomethingTest.php'],
+        ];
+    }
+
+    /**
+     * THE BOUND ON THE ABOVE, and it is load-bearing. Widening the classifier is only an
+     * improvement while a routine diff still clears it: if UI, copy, docs and assets started
+     * firing, the acknowledgement would become a reflex and the gate would mean nothing. These
+     * are the diffs this project produces in bulk.
+     *
+     * @dataProvider surfacesThatMustStayQuiet
+     */
+    public function test_an_ordinary_diff_is_still_not_security_sensitive(string $path): void
+    {
+        $this->commitFile($path);
+
+        [$code, $out] = $this->runGate('HEAD~1', '', 'enforce');
+
+        $this->assertSame(0, $code, "{$path} must NOT be classified security-sensitive.\n{$out}");
+        $this->assertStringContainsString('no security-sensitive paths', $out);
+    }
+
+    public static function surfacesThatMustStayQuiet(): array
+    {
+        return [
+            'a blade view' => ['resources/views/store/dashboard.blade.php'],
+            'an Arabic lang file' => ['lang/ar/messages.php'],
+            'the design-system stylesheet' => ['public/css/store-syria-ds.css'],
+            'a ledger document' => ['docs/development/phase-2/PHASE-02-TASK-LEDGER.md'],
+            'an ordinary commerce test' => ['tests/Feature/Commerce/SomethingTest.php'],
+        ];
+    }
+
+    /**
      * The property the whole control exists for. `enforce` is the pull-request mode.
      */
     public function test_enforce_mode_fails_a_sensitive_diff_with_no_acknowledgement(): void
@@ -166,15 +244,162 @@ final class SensitiveDiffGateTest extends TestCase
         );
     }
 
-    public function test_report_mode_still_honours_an_acknowledgement(): void
+    /**
+     * INVERTED ON 2026-11-02 BY OWNER DIRECTION (Decision 3, item 3). It used to be
+     * `test_report_mode_still_honours_an_acknowledgement`, and it asserted the opposite of what
+     * this now asserts. The old contract was not a mistake when written -- it was a mistake in
+     * what it trusted.
+     *
+     * `report` is the PUSH mode, and the acknowledgement file on a push is
+     * `git log --format=%B base..HEAD` -- THE COMMIT MESSAGES. A commit message is not a review:
+     * it is written by whoever wrote the code, before anyone reviewed it, and a reviewer cannot
+     * amend it without rewriting history.
+     *
+     * AND IT WAS EXPLOITED, BY ACCIDENT, WHICH IS WHY THE OWNER CHANGED THE CONTRACT. The commit
+     * that RECORDED the substring defect (P1-SEC-53) quoted the acknowledgement marker in its own
+     * message while explaining it. Measured against the real commit range: with that line present
+     * the script printed "Checklist acknowledged" and the `::warning` was SUPPRESSED; with the one
+     * line stripped, the warning fired as designed. A control that goes quiet because somebody
+     * documented it is the exact failure mode this file exists to prevent.
+     *
+     * So report mode now ignores the acknowledgement file ENTIRELY and always reports. The owner's
+     * words: "Stop treating pushed commit messages as proof of human review. In push/report mode,
+     * report the finding without falsely declaring acknowledgement."
+     *
+     * @see docs/security/HUMAN-REVIEW-GATE.md
+     */
+    public function test_report_mode_ignores_the_acknowledgement_file_entirely(): void
     {
         $this->commitFile('app/Policies/SomePolicy.php');
 
+        // A PERFECTLY VALID acknowledgement, on its own line. In enforce mode this would pass.
         [$code, $out] = $this->runGate('HEAD~1', "SECURITY-DIFF-REVIEW: completed\n", 'report');
 
-        $this->assertSame(0, $code, $out);
-        $this->assertStringContainsString('acknowledged', $out);
-        $this->assertStringNotContainsString('::warning::', $out);
+        $this->assertSame(0, $code, "report mode must still not block.\n{$out}");
+        $this->assertStringContainsString(
+            '::warning::',
+            $out,
+            'report mode must warn even when the ack file would have satisfied enforce mode: a '
+            . 'push has nothing a reviewer could have written.'
+        );
+        $this->assertStringNotContainsString(
+            'acknowledged',
+            $out,
+            'report mode must NOT declare an acknowledgement. The commit that recorded '
+            . 'P1-SEC-53 quoted the marker in its message and silenced this warning.'
+        );
+        $this->assertStringContainsString('REPORTED IS NOT SATISFIED', $out);
+    }
+
+    /**
+     * THE DEFECT THAT PROMPTED ALL OF THIS, as a test. The match was `grep -qF` -- a fixed-string
+     * SUBSTRING search over the whole body -- so an agent writing a warning that the checklist was
+     * NOT acknowledged, and quoting the marker inside that warning, SATISFIED THE GATE.
+     *
+     * Three check runs on one commit (acfa806b), with prose the only variable:
+     *     18:43:10Z  the push, body had no marker       failure
+     *     18:44:15Z  the description edit              SUCCESS, mergeable_state "clean"
+     *     19:30:03Z  the string removed                failure
+     *
+     * Owner direction, Decision 3, item 2: "Ensure quotation, negation and ordinary documentation
+     * do not satisfy the PR acknowledgement."
+     *
+     * @dataProvider nonAcknowledgements
+     */
+    public function test_the_marker_must_BE_a_line_not_appear_in_one(string $label, string $body): void
+    {
+        $this->commitFile('config/services.php');
+
+        [$code, $out] = $this->runGate('HEAD~1', $body, 'enforce');
+
+        $this->assertSame(1, $code, "{$label} must NOT acknowledge the checklist.\n{$out}");
+        $this->assertStringNotContainsString('acknowledged', $out, $label);
+    }
+
+    /** @return array<string, array{0:string,1:string}> */
+    public static function nonAcknowledgements(): array
+    {
+        $m = 'SECURITY-DIFF-REVIEW: completed';
+
+        return [
+            // The real one. A backticked mention inside a sentence.
+            'a backticked mention inside prose' => [
+                'a backticked mention inside prose',
+                "the acknowledgement line `{$m}` is absent, and I did not add it\n",
+            ],
+            // A sentence that DENIES the acknowledgement grants it, under a substring match.
+            'a sentence denying it' => [
+                'a sentence denying it',
+                "I have NOT written {$m} anywhere in this body\n",
+            ],
+            'a markdown blockquote' => [
+                'a markdown blockquote',
+                "> {$m}\n",
+            ],
+            'words after the marker' => [
+                'words after the marker',
+                "{$m} -- but only once a human has actually done it\n",
+            ],
+            'words before the marker' => [
+                'words before the marker',
+                "do not merge until someone writes {$m}\n",
+            ],
+            // FOUND BY THIS TEST, not by reading the script: anchoring alone still accepted a
+            // fenced block, because inside a fence the marker IS its own line -- and a fenced
+            // block is how anyone would DOCUMENT the marker. A pull request explaining this gate
+            // would have acknowledged itself.
+            'the marker inside a fenced block' => [
+                'the marker inside a fenced block',
+                "```\n{$m}\n```\n",
+            ],
+            'the marker inside a tilde fence' => [
+                'the marker inside a tilde fence',
+                "~~~\n{$m}\n~~~\n",
+            ],
+            'the marker inside a fence with an info string' => [
+                'the marker inside a fence with an info string',
+                "```text\n{$m}\n```\n",
+            ],
+            // Safe direction: an unterminated fence swallows the rest, so the gate stays red.
+            'the marker after an unterminated fence' => [
+                'the marker after an unterminated fence',
+                "```\nsome example\n\n{$m}\n",
+            ],
+        ];
+    }
+
+    /**
+     * THE POSITIVE CONTROL FOR THE ABOVE. Anchoring must not have made the gate unsatisfiable --
+     * a reviewer's standalone line still acknowledges it, indented or with CRLF endings, because
+     * GitHub pull-request bodies arrive with CRLF and a reviewer may indent.
+     *
+     * Without this, every assertion in test_the_marker_must_BE_a_line_not_appear_in_one would
+     * also pass against a gate that simply never acknowledges anything.
+     *
+     * @dataProvider realAcknowledgements
+     */
+    public function test_a_standalone_marker_line_still_acknowledges(string $label, string $body): void
+    {
+        $this->commitFile('config/services.php');
+
+        [$code, $out] = $this->runGate('HEAD~1', $body, 'enforce');
+
+        $this->assertSame(0, $code, "{$label} must acknowledge the checklist.\n{$out}");
+        $this->assertStringContainsString('acknowledged on its own line', $out, $label);
+    }
+
+    /** @return array<string, array{0:string,1:string}> */
+    public static function realAcknowledgements(): array
+    {
+        $m = 'SECURITY-DIFF-REVIEW: completed';
+
+        return [
+            'on its own line'            => ['on its own line', "answers above\n\n{$m}\n"],
+            'indented'                   => ['indented', "answers above\n\n    {$m}\n"],
+            'with CRLF line endings'     => ['with CRLF line endings', "answers above\r\n{$m}\r\n"],
+            'with trailing whitespace'   => ['with trailing whitespace', "{$m}   \n"],
+            'as the only line in a body' => ['as the only line in a body', "{$m}"],
+        ];
     }
 
     /**

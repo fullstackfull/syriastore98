@@ -138,12 +138,37 @@ final class SecurityAttestationWiringTest extends TestCase
      *
      * Asserted by the paths rather than by the pattern's text, so the pattern can be rewritten and
      * these still have to be covered.
+     *
+     * [2026-11-02, P1-SEC-56] AND THE EXTRACTION NOW HONOURS THAT SENTENCE, which it did not.
+     * It used to read the pattern with `preg_match("/^PATTERN='(.+)'$/m")` -- i.e. by assuming
+     * the source line is a single-quoted one-liner. So the docblock claimed independence from the
+     * pattern's text while the test depended on its exact spelling, and when P1-SEC-56 turned the
+     * one-liner into a commented array (each entry carrying the reason it exists, because a line
+     * of twenty-six alternations is a list nobody can audit) THIS TEST was what failed -- which
+     * is the system working, but for the wrong reason: the limiter surfaces were all still
+     * covered.
+     *
+     * It now asks BASH for the pattern the script actually builds. That is the value the gate
+     * uses, so a refactor of how it is assembled cannot break this test and a change to what it
+     * covers cannot slip past it.
      */
     public function test_the_pattern_covers_the_surfaces_the_limiters_live_on(): void
     {
-        $script = (string) file_get_contents(__DIR__ . '/../../../' . self::SCRIPT);
-        $this->assertSame(1, preg_match("/^PATTERN='(.+)'$/m", $script, $m), 'PATTERN is not a single-quoted one-liner any more');
-        $pattern = $m[1];
+        $script = realpath(__DIR__ . '/../../../' . self::SCRIPT);
+        $this->assertNotFalse($script, self::SCRIPT . ' is missing');
+
+        // Replay only the assignment block, then print the result. No part of the gate runs.
+        $cmd = sprintf(
+            'bash -c %s 2>/dev/null',
+            escapeshellarg(sprintf(
+                'eval "$(sed -n \'/^PATTERN_PARTS=(/,/^PATTERN=/p\' %s)"; printf %%s "$PATTERN"',
+                escapeshellarg($script)
+            ))
+        );
+        $pattern = trim((string) shell_exec($cmd));
+
+        $this->assertNotSame('', $pattern, 'could not read the pattern the gate actually builds');
+        $this->assertStringStartsWith('(', $pattern, "the gate's pattern is not an alternation: {$pattern}");
 
         $covered = [
             'packages/workdo/LynomiaChat/src/app/Providers/LynomiaChatServiceProvider.php' => 'every rate limiter in the integration',
@@ -152,6 +177,20 @@ final class SecurityAttestationWiringTest extends TestCase
             'packages/workdo/LynomiaChat/src/routes/web.php' => 'the throttle ordering',
             'packages/workdo/LynomiaChat/src/config/lynomia.php' => 'the budgets',
             'packages/workdo/LynomiaChat/src/database/migrations/2026_11_03_000100_add_commerce_activation_to_lynomia_store_links.php' => 'schema',
+
+            /*
+             * [2026-11-02] ADDED BECAUSE THIS LIST DID NOT ACTUALLY RATCHET THE ENTRY IT NAMES.
+             * Every path above also matches some OTHER alternative -- the provider via
+             * `Providers/`, `EventSignature` via `Signature`, the middleware via `Middleware/`,
+             * then `routes/`, `/config/`, `database/migrations/`. Measured: deleting
+             * `packages/workdo/LynomiaChat/src/app/` from the pattern left this test GREEN. That
+             * is faithful to the docblock -- the property is that the PATHS are covered, not which
+             * alternative covers them -- but it meant the integration's jobs and listeners, which
+             * nothing else matches, were unguarded by any assertion. A `src/app/Jobs/` path
+             * fails the moment that entry is removed.
+             */
+            'packages/workdo/LynomiaChat/src/app/Jobs/DeliverCommerceEvent.php' => 'the integration\'s own jobs, which no other alternative covers',
+            'packages/workdo/LynomiaChat/src/app/Listeners/SyncStore.php' => 'and its listeners',
         ];
 
         foreach ($covered as $path => $why) {
