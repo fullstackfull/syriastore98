@@ -3241,3 +3241,91 @@ exposure and changes nothing about the exposure itself.
 **`main` integration is not production deployment.** No migration was applied to any production
 database, no payment gate was opened — `PAYTM_CALLBACK_ENABLED` remains disabled — and no
 previously deferred or accepted risk is reclassified as resolved by this entry.
+
+---
+
+## D-38 — **PHASE 02 DEVELOPMENT INTEGRATION IS AUTHORIZED AND EXECUTED; PHASE 02 IS CLOSED FOR DEVELOPMENT** (owner, 2026-11-03)
+
+### The decision
+
+The owner authorized completing the Phase 02 development integration into Laravel `main`
+immediately, in a stated order, and explicitly accepted a **documented exception** to the
+outstanding human-checklist acknowledgement — while forbidding any of the shortcuts that would have
+made the exception dishonest.
+
+Verbatim, the operative parts:
+
+> "I authorize completing Phase 02 development integration into `main` now. I do not want to
+> configure branch protection, GitHub Rulesets, additional accounts or mandatory reviewer approvals
+> at this stage. For this development-only integration, I explicitly accept a documented owner
+> exception to the outstanding human-checklist acknowledgement. **Do not fabricate an approval,
+> change a failing gate to success, or claim independent review occurred.**"
+
+> "Record any intentionally unacknowledged human-checklist gate as an explicit owner-accepted
+> development integration exception. **Do not weaken the gate.**"
+
+> "If an actual technical failure or enforced GitHub restriction prevents a merge, stop that merge
+> and report the exact blocker rather than bypassing it."
+
+Also instructed and honoured: keep #120 owner-deferred; keep unresolved deployment security
+findings open; **do not** deploy, run production migrations, rotate credentials, activate payment
+providers, or change GitHub protection settings.
+
+### What was executed
+
+| # | PR | merge commit |
+|---|---|---|
+| 1 | #127 — retrospective review of #124 (documentary evidence) | **`8954df62`** |
+| 2 | #126 — gate hardening; P1-SEC-56 classifier widening | **`077d0583`** |
+| 3 | #125 — four CI controls that measured nothing (S51–S55) | **`56182568`** |
+| 4 | #128 — P1-SEC-55 OTP pinning, authorization, HTTP-status restored (S56) | **`25cf8182`** |
+
+**Final Laravel `main`: `25cf8182`.** Flutter `main`: `94cdcdb0`, unchanged and already complete.
+No open pull requests remain on either repository.
+
+Each branch was brought up to date against the new `main` before its merge and CI re-run against
+the real merge result; the one file two PRs both touched (`.github/workflows/ci.yml`) was verified
+directly afterwards rather than trusted to a clean textual merge.
+
+### The exception, bounded
+
+`Security-sensitive diff: human checklist` was RED on #126, #125 and #128. The gate was **not**
+weakened, edited or disabled; **no** acknowledgement marker was added to any body or commit
+message; **no** review was created; **no** independent human review of any of these diffs has
+occurred and none is claimed; **no** protection setting was changed. `main` being unprotected
+(P1-SEC-54 / S58) is the only reason a red check did not block — recorded, because the automation's
+credential reports `admin: true` and the restraint is otherwise indistinguishable from inability.
+
+The exception text is recorded in each of the three merge commits, attached to the merge it
+authorizes. Full detail: `docs/development/phase-2/PHASE-02-CLOSURE-RECORD.md`.
+
+**It is not a release approval, and it does not transfer.** A later integration needs its own
+authorization.
+
+### One blocker stopped a merge, as instructed
+
+#128's first attempt failed CI on head `c1406708` — both test jobs, a known-outcome gate failure on
+`SecurityLogInventoryTest`. It was **not** merged. The failure was reproduced locally, diagnosed as
+six stale line pointers in the observability inventory left by the preceding two commits, confirmed
+mechanical by the resync tool's own refusal semantics, fixed in `9cae4518`, re-run green, and only
+then merged. Cause recorded as a sequencing error in the engineering, not a defect in the reviewed
+code.
+
+### Status this decision does NOT change
+
+`RELEASE READY` **NO** · `DEPLOYED` **NO** · #120 **OWNER-DEFERRED / OPEN** · **P1-SEC-43 OPEN and
+DEPLOYMENT-BLOCKING** · P1-SEC-50, -53, -54, -57 **OPEN** · Paytm **DISABLED** · no production
+migration, deployment, credential or provider change · GitHub protection **UNCHANGED**.
+
+### Phase 02 closure, and what follows
+
+**Phase 02 is CLOSED FOR DEVELOPMENT** at `25cf8182`. Closed as a development integration — which
+is what was authorized — and not as a release: the deployment-blocking findings above stand, and no
+diff in this integration has had independent human review.
+
+The six-phase Master Product Plan is preserved; Phase 02 kept its original Merchant Experience
+scope for merchant web and Flutter, and nothing from Phase 2.5, 03 or 06 was absorbed into it.
+
+**Phase 2.5 — Premium Merchant Experience is the approved next stage, PREPARED AND NOT STARTED.**
+Its handoff is `PHASE-2.5-HANDOFF.md`, on `main` since `56182568`. No Phase 2.5 implementation
+exists.
