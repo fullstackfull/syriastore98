@@ -28,9 +28,11 @@ A finding judged against either premise was judged against a fiction. The second
 added the measured cascade position (25 stylesheets, this one 15th), and listed every Phase 2.5
 slice shipped since the audit so a fixed defect would be called stale rather than confirmed.
 
-**89 findings were judged by both runs. They disagreed on 8** — and those 8 are being adjudicated by
+**94 findings were judged by both runs. They disagreed on 10** — and those ten are being adjudicated by
 a third pass that reads the code rather than the two verdicts, because a disagreement between two
 adversarial readers is a signal that the finding is genuinely ambiguous, not an average to take.
+None of the ten is a blocker and none is in the repair package now being planned, so the
+adjudication settles the record rather than gating any work.
 
 ---
 
@@ -40,16 +42,24 @@ adversarial readers is a signal that the finding is genuinely ambiguous, not an 
 |---|---|---|---|---|
 | blocker | 19 | **15** | 4 | 21% |
 | high | 82 | **70** | 12 | 15% |
-| medium | 140 | **112** | 28 | 20% |
-| low | 49 | **34** | 15 | 31% |
-| **all** | **290** | **231** | **59** | **20%** |
+| medium | 140 | **111** | 29 | 21% |
+| low | 49 | **33** | 16 | 33% |
+| **all** | **290** | **229** | **61** | **21%** |
+
+> **Corrected after publication.** The first version of this table said 231/59. It was computed
+> from a snapshot taken while the second verification run was still going — 89 of its 94 verdicts
+> had landed. The last five moved two findings from upheld to refuted and added two disagreements.
+> **The blocker and high rows did not change**, which is why the conclusions below stand; the
+> medium, low and total rows did. Recording the correction rather than quietly restating the
+> numbers, because "I read the counter while it was still running" is the kind of error that
+> otherwise comes back as a contradiction nobody can date.
 
 **One finding in five did not survive.** That is the number that makes the other four worth acting
 on.
 
 ### Severity moved on verification more often than the verdict did
 
-**66 findings were downgraded and 11 upgraded.** The verifier was asked for a corrected severity
+**65 findings were downgraded and 10 upgraded.** The verifier was asked for a corrected severity
 whenever the finding was real but mis-stated, and it used that far more than it used outright
 refutation — which is the healthier outcome: most audit error is in the *weight* of a defect, not
 its existence.
@@ -64,8 +74,8 @@ include `kanban-unbounded-render`, `reports-export-anchor-as-button`, `staff-car
 |---|---|---|
 | orders | 33 | 3 |
 | catalogue | 26 | 7 |
-| flutter-screens | 26 | 6 |
 | customers | 24 | 1 |
+| flutter-screens | 24 | 8 |
 | products | 20 | 3 |
 | stock-finance | 20 | 5 |
 | staff-settings | 19 | 8 |
@@ -86,18 +96,19 @@ The area with the cleanest record is `customers` — 24 upheld against 1 refuted
 | category | upheld |
 |---|---|
 | **a11y** | **57** |
-| consistency | 27 |
+| consistency | 26 |
 | form-ux | 23 |
 | state-missing | 22 |
-| feedback | 20 |
+| feedback | 19 |
 | other | 19 |
 | contrast | 18 |
 | dark-mode | 10 |
 | rtl | 9 |
 | layout | 8 |
 
-**Accessibility and contrast together are 75 of the 231** — a third of everything that survived, and
-exactly the category the owner's decision says to prioritise.
+**Accessibility and contrast together are 75 of the 229** — a third of everything that survived, and
+exactly the category the owner's decision says to prioritise. That count did **not** move with the
+correction above.
 
 ---
 
@@ -125,10 +136,10 @@ can and cannot see.
 ## 4. What must not happen to this document
 
 **A refuted finding must not become an implementation task**, and a finding is not refuted because
-it is inconvenient. The 59 refusals each carry a reason naming what the verifier read; they are in
+it is inconvenient. The 61 refusals each carry a reason naming what the verifier read; they are in
 the run journals rather than restated here, because a refusal's value is its evidence and a summary
 of it is not evidence.
 
-**And a verdict is not permanent.** Three of the eight disagreements had the *later, better-informed*
+**And a verdict is not permanent.** Three of the ten disagreements had the *later, better-informed*
 run calling a finding real where the first had refuted it. Verification narrows uncertainty; it does
 not end it.
