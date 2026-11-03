@@ -336,6 +336,67 @@ A real `ThemeData` does exist (`lib/core/controller/setting_controller/theme_con
 **Not started, and not decided here.** Changing a brand colour is a material change the owner
 reserves. Wave D's first slice is to put the question, with these numbers, rather than to pick.
 
+> **Superseded 2026-11-03 by the owner's correction and by `D-41`.** The whole of the paragraph
+> above rests on the README's derivation, which it correctly flagged it could not re-measure
+> ("the logo file the README derives the gradient from is a live upload … **not in the
+> repository**"). The owner then supplied the real artwork, and it is **blue-to-cyan at
+> 189.4–218.9°**, not teal. So the direction of the gap is the opposite of what is recorded here:
+> **Flutter was already on the logo's hues and the web design system was the one that had
+> drifted.** The measurements are in [`PHASE-2.5-BRAND-AUDIT.md`](PHASE-2.5-BRAND-AUDIT.md). This
+> paragraph is kept because the caveat it raised is exactly what turned out to matter.
+
+---
+
+## 3b. Owner decisions D-40 and D-41 — repairs and the brand (2026-11-03)
+
+### Repairs (`D-40`)
+
+| slice | what it was | evidence |
+|---|---|---|
+| **P2.5-R-01** | `GET /product-list` was HTTP 500 for every merchant — `compact()` on `$filterCategories`, assigned nowhere in `ProductController::list()`. The screen was unreachable in every language, theme and width. | reproduced first; 7 tests; **3 bites**, each failing exactly its own test; rendered 200 in all four combinations |
+| **P2.5-R-02** | The customer **Apply** button did nothing, in two independent ways: the button's id never matched the handler's, and that handler wrote into `#service-filter-data`, which exists only in a vendored module. | reproduced in a browser (**0 requests on click**); repaired with a plain GET form and **no server change** — `CustomerDataTable::query()` already read all three parameters, and the controls were already named for them; 13 tests; **18 live checks** across en/ltr/light and ar/rtl/dark |
+| **P2.5-R-03** | The sixth filter option could never fire: the `<option>` value is `'Last active'`, the query tested `'Last Active'`. R-02 is what made it visible — five of six options worked and the sixth returned the full list with its controls still showing a filter. | found by the `tenant-authz-reviewer` pass on R-02; both spellings now accepted; **2 bites**; driven live, 3 rows → 2 |
+| **P2.5-R-04** | Six shared Flutter buttons declare `title` and `iconData` optional and then force-unwrap them — a caller taking the signature at its word gets *"Null check operator used on a null value"* at build time. | 9 tests reproduced it; repaired backward-compatibly (every existing call site passes both); the 48dp tap target from D-01 asserted to survive the icon-less branch |
+| Kanban **Move** | **not yet reproduced.** | — |
+
+**The review of R-01/R-02 found more than it confirmed**, which is the point of running it: it
+caught R-03, and it caught four tests sitting under a banner that claimed they were end-to-end when
+they called the query builder directly and would have passed against the pre-repair code. Both were
+fixed in `P2.5-R-03`'s commit — the section retitled, and the HTTP-level test that actually fails on
+revert added.
+
+### Recorded, not repaired — because repairing them changes behaviour the owner excluded
+
+| | |
+|---|---|
+| **P2.5-F-07** | `/customer-grid`'s Apply. `customer_grid_view()` is a bare `paginate(12)` with no filter handling at all, so wiring its button means **writing** server-side filtering that has never existed. A feature, not a repair. |
+| **P2.5-F-08** | `CustomerController::CustomFilterData()` has **no permission check at all**. Store-scoped, so no cross-tenant reach; an intra-tenant permission bypass, read-only, live. R-02 *reduced* its exposure by removing the last caller from the customer list. |
+| **P2.5-F-09** | Its AOV branch tests `$AOV = $text_field_float` — an **assignment**, always truthy. |
+| **P2.5-F-10** | `ProductController::list()`/`index()` and `CustomerController::index()` test the permission **without the operator-first ordering** CLAUDE.md requires. It *refuses* rather than grants, so it is a lockout, not a hole — and the correct unit of change is all three at once, against the owner-settled position that the operator may read a merchant's catalogue but not write it. |
+| **P2.5-F-11** | `--color-customColor` is emitted into a `<style>` block with `<?= $color ?>`, **unescaped**, from a merchant-settable value. Same-tenant CSS injection into their own admin. Pre-existing; the new default path uses a literal constant. |
+
+### Brand (`D-41`)
+
+| slice | what |
+|---|---|
+| **P2.5-BR-01** | The web token layer moves onto the logo's measured hues. **Not one component edited** — every `--ss-teal-*` reference lived inside the token blocks, so re-pointing layer 2 reached the whole system. Two consequences followed and were not optional: the **neutrals** (hue 168–180°, deliberately teal-biased) moved to 218° at unchanged lightness, and **informational** moved to indigo because it sat 10° from the new brand. |
+| **P2.5-BR-02** | The host chrome default. `theme-3` green beside a blue design system was **two identities on one page**, measured. Now `custom-color` + `StoreSyriaBrand::CHROME_DEFAULT` — the host's own mechanism, nothing vendored edited, white-labelling untouched. |
+| **P2.5-BR-03** | Flutter centralisation. `StoreSyriaBrand` mirrors the Laravel constants; `LightThemeColor.cPrimary` and `cAccent` align onto the anchors; `DarkThemeColor.cPrimary` — the app's **only** off-brand colour at 3.6° out — corrected to the same step the web uses. The 293 hardcoded literals are **deliberately untouched**. |
+
+**The audit inverted the expected direction of the work.** Five of Flutter's six brand colours were
+already inside the logo's gradient — `cBlue` is **0.4°** from the owner's blue anchor. The web ramp
+was 17.8° outside, because it had been derived, honestly and documented as such, from a **tenant's
+teal recolour** of the mark under `uploads/2/`. Full numbers:
+[`PHASE-2.5-BRAND-AUDIT.md`](PHASE-2.5-BRAND-AUDIT.md).
+
+### The one limitation worth stating twice
+
+There is **no on-device Flutter verification here and none is claimed**: no Android SDK, no
+emulator, no device, and `flutter build web` fails in `firebase_messaging_web`'s interop before
+anything can be screenshotted. What exists instead is a test that **reads pixels back out of a
+rasterised frame** — the engine's real output — with an anti-vacuity control. The Laravel screens
+have no such gap; they were driven in Chromium against the running application.
+
 ---
 
 ## 4. Not yet started
@@ -343,3 +404,7 @@ reserves. Wave D's first slice is to put the question, with these numbers, rathe
 Wave B beyond the dashboard card, Wave C (remaining merchant screens), the rest of Wave D, and
 Wave E (cross-platform quality). The screen-by-screen inventory that scopes them is
 [`PHASE-2.5-VERIFICATION-MATRIX.md`](PHASE-2.5-VERIFICATION-MATRIX.md).
+
+The Kanban **Move** repair from `D-40` is the next item, and the adversarial verification of the
+remaining 94 inventory findings is running — **refuted findings must not become implementation
+tasks**, so no further slice is scoped from the inventory until it lands.

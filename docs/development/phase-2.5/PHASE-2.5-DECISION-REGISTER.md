@@ -75,3 +75,113 @@ to that integration by its own terms. Any Phase 2.5 integration needs its own au
 The directive named `25cf8182` nowhere and `53971d4e` as the Laravel baseline; `D-38` named
 `25cf8182` as the integrated head. **Both are right**: `53971d4e` is the merge of PR #129, which
 landed the closure records after `D-38` was written. Checked rather than treated as a conflict.
+
+---
+
+## D-40 — **REPAIR EXISTING BROKEN MERCHANT FUNCTIONALITY, WITHIN BOUNDARIES** (owner, 2026-11-03)
+
+### The decision
+
+> "APPROVED, within the following boundaries. You may repair confirmed defects in existing
+> merchant-facing functionality discovered during Phase 2.5, when those defects prevent normal use,
+> visual verification, or accessibility."
+
+Named explicitly: `/product-list` returning HTTP 500; the Kanban **Move** action not performing its
+intended operation; the customer **Apply** filter control not functioning; the Flutter `iconData`
+null-handling / runtime crash.
+
+> "These are repairs to existing behavior, NOT authorization to invent new features."
+
+### The conditions, each of which is a gate on a repair landing
+
+Reproduce the defect before fixing it · confirm the existing intended behaviour · identify the root
+cause · preserve tenant isolation and authorization · **do not change business rules, financial
+calculations, or order transition rules** · preserve existing routes and Flutter API compatibility ·
+prefer backward-compatible repairs · add regression tests **with positive and negative controls** ·
+run the relevant existing security and contract tests · use the `tenant-authz-reviewer` for anything
+touching authorization, tenancy or order operations · **record each repair separately as a
+post-closure Phase 02 defect discovered during Phase 2.5**.
+
+For Kanban specifically: *"repair only the existing authorized action and UI integration. If
+restoring it requires changing order state-transition semantics, stop that specific change and
+report the owner decision required."*
+
+### And a condition on the inventory itself
+
+> "The 19 blocker findings in the inventory are NOT automatically accepted as verified defects.
+> Finish the adversarial verification. Refuted findings must not become implementation tasks."
+
+### What this does NOT authorize
+
+Reopening Phase 02 as a development phase, or absorbing unfinished feature development into
+Phase 2.5.
+
+### How it is being honoured
+
+| repair | status | evidence |
+|---|---|---|
+| `/product-list` 500 | **done** — `P2.5-R-01` | reproduced as `compact(): Undefined variable $filterCategories`; 7 tests; 3 bites; rendered 200 in 4 combinations |
+| customer **Apply** | **done** — `P2.5-R-02` | reproduced in a browser (0 requests on click); GET-form repair, no server change; 13 tests; 18 live checks in two directions |
+| the sixth filter option | **done** — `P2.5-R-03` | found by the tenant-authz review of R-02; `'Last active'` vs `'Last Active'`; 2 bites; driven live |
+| Flutter `iconData` | **done** — `P2.5-R-04` | 9 tests reproduced "Null check operator used on a null value"; repaired backward-compatibly |
+| Kanban **Move** | **open** | not yet reproduced |
+
+---
+
+## D-41 — **ONE BRAND ACROSS WEB AND FLUTTER, TAKEN FROM THE REAL LOGO** (owner, 2026-11-03)
+
+### The decision, and its correction the same day
+
+The owner first approved a single cross-platform identity built on the **existing Laravel design
+tokens**, naming `#097465` as the primary light-theme brand reference. Within the same session the
+owner **corrected that reference** after supplying the actual artwork:
+
+> "IMPORTANT: The logo is primarily a BLUE-TO-CYAN gradient, not a green-teal identity.
+> Approximate sampled colors: Brand blue: `#335DA8`. Brand cyan: `#0EAED1`. Black wordmark and
+> neutral white backgrounds. The previous instruction to adopt `#097465` as the definitive
+> cross-platform brand color must be reconsidered against this actual logo. Use the attached logo
+> as the visual source of truth."
+
+> "Audit existing Laravel and Flutter brand tokens, then establish one cohesive identity based on
+> the real logo. Do not blindly replace colors. Preserve accessibility, semantic status colors,
+> dark-mode contrast and existing functionality. Apply the unified branding gradually across
+> Laravel and Flutter, with rendered visual verification. **Do not redesign or replace the logo
+> itself.**"
+
+**`#097465` is therefore superseded as the brand reference** and `D-41` is the operative decision.
+The earlier wording is preserved above rather than deleted, because the correction is part of the
+record.
+
+### What the audit found, which inverted the expected direction of work
+
+Measured, not assumed — the method and the numbers are in
+[`PHASE-2.5-BRAND-AUDIT.md`](PHASE-2.5-BRAND-AUDIT.md):
+
+| | hue | inside the logo's 189.4–218.9° gradient? |
+|---|---|---|
+| web `--ss-brand` `#097465` | 171.6° | **no**, 17.8° outside |
+| web host chrome `theme-3` `#10B77F` | 159.9° | **no**, 29.5° outside |
+| Flutter `LightThemeColor.cBlue` `#2C57A2` | 218.1° | **yes** — 0.4° from the owner's blue |
+| Flutter `LightThemeColor.cAccent` `#00B4D8` | 190.0° | **yes** — 0.8° from the owner's cyan |
+| Flutter `LightThemeColor.cPrimary` `#172C4E` | 217.1° | **yes** |
+| Flutter `DarkThemeColor.cPrimary` `#10AFC0` | 185.8° | no, 3.6° outside — the app's only off-brand colour |
+
+**The Flutter app was already on the logo's hues; the web design system was the one that had
+drifted.** It had been derived — honestly, and documented as such — from
+`storage/app/public/uploads/2/*logoStore.svg`, which is an upload under **store id 2**: a tenant's
+own teal-green recolour of the same mark, measured at 167.2–197.5°.
+
+### How it is being honoured
+
+| | status | evidence |
+|---|---|---|
+| web token layer onto the logo's hues | **done** — `P2.5-BR-01` | 58/58 contrast pairs; 8 tests / 131 assertions, two of which decode the committed artwork; 3 bites |
+| web host chrome default | **done** — `P2.5-BR-02` | `custom-color` + `StoreSyriaBrand::CHROME_DEFAULT`; rendered in 4 combinations; off-brand scanner clean on `/dashboard` |
+| Flutter token centralisation | **done** — `P2.5-BR-03` | `StoreSyriaBrand` mirrors the Laravel constants; 13 tests; the one off-brand colour corrected |
+| the 293 hardcoded literals | **deliberately untouched** | the owner's "avoid a blind global replacement"; they are in the right hue family already |
+
+### Status this decision does NOT change
+
+Everything listed under `D-39` stands unchanged: `RELEASE READY` **NO**, `DEPLOYED` **NO**, #120
+**OWNER-DEFERRED / OPEN**, P1-SEC-43 **OPEN and DEPLOYMENT-BLOCKING**, Paytm **DISABLED**, no merge
+to `main`.
