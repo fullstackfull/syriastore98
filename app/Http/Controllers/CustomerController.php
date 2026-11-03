@@ -480,7 +480,10 @@ public function destroy(Customer $customer)
         }
 
         // Check for last active filtering
-        if ($requestData['customer_field'] == 'Last Active') {
+        // P2.5-R-03 -- the same 'Last active' / 'Last Active' mismatch as
+        // CustomerDataTable::query():164, fixed the same way and for the same reason. Left
+        // half-fixed it would be a second copy of a defect that has already cost one round.
+        if (in_array($requestData['customer_field'] ?? null, ['Last active', 'Last Active'], true)) {
             if (!empty($requestData['selected_name']) && !empty($requestData['text_field'])) {
                 $dateValue = $requestData['text_field'];
                 if ($requestData['selected_name'] === 'Before') {

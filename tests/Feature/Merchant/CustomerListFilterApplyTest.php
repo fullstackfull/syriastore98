@@ -178,8 +178,17 @@ class CustomerListFilterApplyTest extends SecurityTestCase
     }
 
     // =============================================================================================
-    //  THE FILTER ACTUALLY NARROWS — end to end, through the real screen
+    //  THE FILTER ACTUALLY NARROWS — AT THE QUERY, not through the screen
     // =============================================================================================
+    //
+    // RETITLED after review. These four drive CustomerDataTable::query() with a hand-built
+    // Request; they never touch the route, the view or the form, and query() is unchanged by this
+    // slice — so all four are green against the PRE-repair code and none of them is evidence that
+    // the repair works. They are kept because what they pin is worth pinning (the tenant predicate
+    // under a matching filter, and an unmatched filter returning nothing rather than everything),
+    // but calling them "end to end" was the exact kind of test that passes for the wrong reason
+    // this project keeps being bitten by. The HTTP-level test that DOES fail on revert is in the
+    // section after this one.
 
     public function test_applying_a_name_filter_narrows_the_list(): void
     {
@@ -248,5 +257,123 @@ class CustomerListFilterApplyTest extends SecurityTestCase
         $outsider = User::find($outsider->id);
 
         $this->actingAs($outsider)->get('/customer')->assertRedirect();
+    }
+
+    // =============================================================================================
+    //  THROUGH THE REAL HTTP PATH — the mechanism the whole repair rests on
+    // =============================================================================================
+
+    /**
+     * THE TEST THE SLICE WAS MISSING. The repair works only because yajra's `minifiedAjax()` sets
+     * the table's `ajax.url` to `url()->full()` — the CURRENT url, query string included — so the
+     * filter rides every later draw and not just the first render. That is a property of
+     * `buildDataTable()` (app/Helper/helper.php), not of this view: if anyone ever passes an
+     * explicit url to `minifiedAjax()`, the filter silently stops applying on every DataTable
+     * screen in the application and every other test in this file stays green.
+     *
+     * So this asserts the emitted configuration itself, through a real request.
+     */
+    public function test_the_rendered_table_carries_the_filter_in_its_own_ajax_url(): void
+    {
+        $this->customerIn($this->store, 'Rana', 'rana@example.test');
+
+        $html = $this->actingAs($this->merchant)
+            ->get('/customer?field_name=Name&selected_name=Includes&text_field=Rana')
+            ->assertOk()
+            ->getContent();
+
+        $this->assertMatchesRegularExpression(
+            '/"ajax"\s*:\s*\{[^}]*"url"\s*:\s*"[^"]*field_name=Name[^"]*"/',
+            $html,
+            'the DataTable\'s own ajax url no longer carries the filter, so the filter applies to '
+            . 'the first render and is dropped by every later draw — sorting, paging or searching '
+            . 'would silently restore the unfiltered list');
+    }
+
+    // =============================================================================================
+    //  P2.5-R-03 — the sixth filter option could never filter
+    // =============================================================================================
+
+    /**
+     * FOUND BY THE TENANT-AUTHZ REVIEW OF R-02, and it is R-02's own doing that made it matter.
+     *
+     * Customer::customer_field() offers the option value 'Last active' (lower-case a, Customer.php
+     * :282). CustomerDataTable::query() tested `== 'Last Active'` (capital A, :164). The two never
+     * matched, so selecting it rendered the Before/After/Equal operators and a date input — those
+     * come from CustomerController::CustomFilter(), which matches the lower-case spelling
+     * correctly at :433 and :446 — submitted them, and applied nothing.
+     *
+     * Before R-02 nobody could reach that: the Apply button did not work. After R-02 five of the
+     * six options filter and the sixth hands back the FULL LIST with its controls still showing a
+     * filter that is not in force. This project's own name for that is in TableFilterMemory: "the
+     * receipt lied". A rule that half-fires is worse than one that does not, because the result
+     * endorses it.
+     *
+     * The repair accepts BOTH spellings rather than renaming one, so a bookmark, a saved link or
+     * any caller that already sends 'Last Active' keeps working.
+     */
+    public function test_the_last_active_filter_applies_from_the_value_the_screen_submits(): void
+    {
+        $recent = $this->customerIn($this->store, 'Recent', 'recent@example.test');
+        $recent->forceFill(['last_active' => '2026-10-01 10:00:00'])->save();
+
+        $old = $this->customerIn($this->store, 'Ancient', 'ancient@example.test');
+        $old->forceFill(['last_active' => '2025-01-01 10:00:00'])->save();
+
+        $this->actingAs($this->merchant);
+        $request = Request::create('/customer', 'GET', [
+            'field_name' => 'Last active',      // exactly what the <option> submits
+            'selected_name' => 'After',
+            'text_field' => '2026-01-01',
+        ]);
+        $this->app->instance('request', $request);
+
+        $names = (new CustomerDataTable())->query(new Customer(), $request)
+            ->pluck('first_name')->all();
+
+        $this->assertSame(['Recent'], $names,
+            'selecting "Last active" and a date returned the unfiltered list: the screen submits '
+            . '"Last active" and the query tested for "Last Active"');
+    }
+
+    /** The old spelling still works, so nothing that already sends it breaks. */
+    public function test_the_previous_capitalised_spelling_still_applies(): void
+    {
+        $recent = $this->customerIn($this->store, 'Recent', 'recent@example.test');
+        $recent->forceFill(['last_active' => '2026-10-01 10:00:00'])->save();
+        $old = $this->customerIn($this->store, 'Ancient', 'ancient@example.test');
+        $old->forceFill(['last_active' => '2025-01-01 10:00:00'])->save();
+
+        $this->actingAs($this->merchant);
+        $request = Request::create('/customer', 'GET', [
+            'field_name' => 'Last Active', 'selected_name' => 'After', 'text_field' => '2026-01-01',
+        ]);
+        $this->app->instance('request', $request);
+
+        $this->assertSame(['Recent'],
+            (new CustomerDataTable())->query(new Customer(), $request)->pluck('first_name')->all());
+    }
+
+    /**
+     * NEGATIVE CONTROL on the repair: broadening the match must not make an UNRELATED field name
+     * fall into the date branch. If someone "fixes" a failure by matching loosely — str_contains,
+     * or a case-insensitive compare against a substring — this fails.
+     */
+    public function test_an_unrelated_field_name_does_not_reach_the_date_branch(): void
+    {
+        $recent = $this->customerIn($this->store, 'Recent', 'recent@example.test');
+        $recent->forceFill(['last_active' => '2026-10-01 10:00:00'])->save();
+        $old = $this->customerIn($this->store, 'Ancient', 'ancient@example.test');
+        $old->forceFill(['last_active' => '2025-01-01 10:00:00'])->save();
+
+        $this->actingAs($this->merchant);
+        $request = Request::create('/customer', 'GET', [
+            'field_name' => 'Last active seen by someone',
+            'selected_name' => 'After', 'text_field' => '2026-01-01',
+        ]);
+        $this->app->instance('request', $request);
+
+        $this->assertCount(2, (new CustomerDataTable())->query(new Customer(), $request)->get(),
+            'an unrecognised field name silently applied the last-active date filter');
     }
 }

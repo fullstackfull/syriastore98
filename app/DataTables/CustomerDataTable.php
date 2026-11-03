@@ -160,8 +160,26 @@ class CustomerDataTable extends DataTable
             }
         }
 
-        // Check for last active filtering
-        if (isset($requestData['field_name']) && $requestData['field_name'] == 'Last Active') {
+        /*
+         * P2.5-R-03 -- BOTH SPELLINGS, because the screen has only ever submitted one of them and
+         * it is not the one this line used to test for.
+         *
+         * Customer::customer_field() offers the option VALUE 'Last active' (lower-case a,
+         * Customer.php:282). This tested `== 'Last Active'`. The two never matched, so choosing
+         * that field rendered its Before/After/Equal operators and a date input --
+         * CustomerController::CustomFilter() matches the lower-case spelling correctly at :433 and
+         * :446, which is why the controls appear -- submitted them, and applied nothing. The
+         * merchant got the FULL LIST back with the controls still showing a filter that was not in
+         * force. Nobody could reach it until P2.5-R-02 made the Apply button work, which is how it
+         * was found.
+         *
+         * Matching both rather than renaming one keeps any bookmark or saved link that already
+         * carries 'Last Active' working. The comparison stays EXACT -- a loose match would pull
+         * unrelated field names into the date branch, which is asserted against in
+         * CustomerListFilterApplyTest::test_an_unrelated_field_name_does_not_reach_the_date_branch.
+         */
+        if (isset($requestData['field_name'])
+            && in_array($requestData['field_name'], ['Last active', 'Last Active'], true)) {
             if (!empty($requestData['selected_name']) && !empty($requestData['text_field'])) {
                 $dateValue = $requestData['text_field'];
                 if ($requestData['selected_name'] === 'Before') {
