@@ -23,6 +23,39 @@ or fixture, anywhere in this phase.**
 | 5 | the same screen | the same | 1440 | en / ltr | **light** | the same | full-page render, light stylesheet asserted | no change from the A-01/A-02 rules (dark-scoped) and B-01 applies in both themes as intended | **rendered and inspected** | `evidence/p2-5-b-01/dashboard-after-light-ltr.png` |
 | 6 | **Header greeting** (every page) | `GET /dashboard`, header partial | 1440 | **ar / rtl** and **en / ltr** | dark | merchant | read each child node's **rendered client rect**, not the source string | visual order `["!", "Amina Haddad", "مرحباً،"]` — correct RTL reading; English `["Hi,", "Amina Haddad", "!"]` | **both directions correct** | `evidence/p2-5-a-03/greeting-after-ar.png`, `…-en.png` |
 
+| 7 | **Product list** | `GET /product-list` | 1440×900 | en/ltr **and** ar/rtl | **light and dark** | merchant | navigated to it after sign-in; direction and dark stylesheet asserted per row | **before: HTTP 500 in all four**; the screen was unreachable, so no visual check of it had ever been possible | **4/4 rendered at 200** | `tools/render-matrix.cjs`; `P2.5-R-01` |
+| 8 | **Customer list filter** | `GET /customer` | 1440×900 | en/ltr light, ar/rtl dark | both | merchant | chose a field, an operator and a value, **clicked Apply**, read the row count, then **clicked Reset** | before: **0 requests on click**; after: url carries the filter, rows **3 → 1**, the remaining row is the one asked for, all three controls show the filter in force, Reset restores 3 | **18 checks, 0 failed** (9 per direction) | `tools/verify-customer-filter-live.cjs`; `P2.5-R-02` |
+| 9 | the same, the **Last active** option | the same | 1440×900 | en / ltr | light | merchant | chose *Last active · After · 2026-01-01* and clicked Apply | before: that option applied nothing and returned the full list; after: **3 → 2**, keeping the Sept and Oct 2026 customers and dropping the March 2025 one | **driven and measured** | `tools/probe-lastactive-filter.cjs`; `P2.5-R-03` |
+| 10 | **Order board** — the Move control | `GET /order-kanban` → `POST /order-status-change/{id}` | 1440×900 | en / ltr | light | merchant (`Manage Order`) | selected a move on a real card and **clicked Move** | before: **response 200, browser left on raw JSON, board unchanged**; after: **302**, back on `/order-kanban`, **Pending 1 → 0, Confirmed 1 → 2** | **driven, state change confirmed** | `tools/probe-kanban-move.cjs`; `P2.5-R-05` |
+| 11 | **Dashboard and category** under the new brand | `GET /dashboard`, `GET /category` | 1440×900 | en/ltr **and** ar/rtl | **light and dark** | merchant | full render; then every element's **computed** colour read and classified against the logo's hue band | `/dashboard`: **no off-brand chromatic colour** in either theme. `/category`: **one** — `#3ec9d6` at hue 185.1° on the vendored DataTables reset button | **8 rows clean; 1 off-brand colour recorded** | `tools/render-matrix.cjs`, `tools/find-offbrand-colours.cjs`; `P2.5-BR-01/02` |
+
+### What row 11 measures, since "the brand is applied" is easy to assert and hard to check
+
+`find-offbrand-colours.cjs` walks **every element** in the live page and reads `color`,
+`background-color`, four border colours, `outline-color` and `fill` from the **computed** style. A
+value is reported when it is chromatic (HSV saturation > 0.18, value > 0.12) and its hue falls
+outside the logo's measured 189.4–218.9° gradient — unless it is one of the four semantic status
+hues, which are listed separately rather than hidden, because a status hue appearing where no
+status is shown would itself be a defect.
+
+The design system's own neutral ramp is excluded **by value, not by threshold**: a near-black like
+`#1a1d23` still measures saturation 0.26, so no saturation floor can separate "a grey that leans
+blue" from "a colour". Listing the twenty-three neutrals is exact where a threshold would be a
+guess. That exclusion was added after the first run reported `#1a1d23` as off-brand 835 times —
+the tool being wrong, not the page.
+
+### The one Flutter row that is **not** on-device, stated as such
+
+| # | surface | how it was verified | what it is **not** |
+|---|---|---|---|
+| F1 | the primary button, light and dark | the Flutter engine **rasterised** the widget and the test read the pixels back out of the frame (`RepaintBoundary.toImage()`), then classified the dominant chromatic colour's hue | **not a phone.** No Android SDK (`ANDROID_HOME` unset, no `adb`, no `emulator`), no attached device; `flutter devices` offers only Linux desktop and Chrome. `flutter build web` **fails** — dart2js aborts in `firebase_messaging_web-3.5.18`'s interop with `Type 'PromiseJsImpl' not found` — so there is no built app to screenshot either. |
+
+The test carries its own anti-vacuity control: it paints the retired host green `#10B77F` and
+requires the measurement to call it off-brand. Without that, an empty or all-grey capture would
+satisfy every other assertion in the file.
+
+---
+
 Command, rows 1–2:
 
 ```bash
