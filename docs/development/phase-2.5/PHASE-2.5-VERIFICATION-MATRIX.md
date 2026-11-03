@@ -18,7 +18,12 @@ or fixture, anywhere in this phase.**
 | 1 | Category list → **Add Category** modal | `GET /category` → `GET /category/create` (ajax modal) | 1440×1000 | **en / ltr** | **dark** | merchant (`admin`, own tenant) | opened the real modal from the list's own button | 13 labels, 6 fields, title, select — **all ≥ 4.5:1**; `.modal-content` confirmed `#ffffff`; server confirmed to have sent `style-dark.css` | **10 checks, 0 failed** | `evidence/p2-5-a-01/modal-dark-ltr-en.png` |
 | 2 | the same screen | the same | 1440×1000 | **ar / rtl** | **dark** | the same | the same | identical readings; `dir="rtl"` asserted | **10 checks, 0 failed** | `evidence/p2-5-a-01/modal-dark-rtl-ar.png` |
 
-Command, both rows:
+| 3 | **Merchant dashboard** — the merchant's own card | `GET /dashboard` | **1440, 1280, 1024, 768, 390** | en / ltr | dark | merchant | measured each child's rendered geometry at all five widths | `.user-info` **87px → 332px**, greeting **9 lines → 3**; four other widths **byte-identical** | **5 widths measured, 1 fixed, 4 unchanged** | `evidence/p2-5-b-01/dashboard-before-dark-ltr.png`, `…-after-dark-ltr.png`, `usercard-after-1440.png` |
+| 4 | the same screen | the same | 1440 | **ar / rtl** | dark | the same | full-page render with the Arabic locale | stacked layout mirrors correctly; QR and actions centre | **rendered and inspected** | `evidence/p2-5-b-01/dashboard-after-dark-rtl-ar.png` |
+| 5 | the same screen | the same | 1440 | en / ltr | **light** | the same | full-page render, light stylesheet asserted | no change from the A-01/A-02 rules (dark-scoped) and B-01 applies in both themes as intended | **rendered and inspected** | `evidence/p2-5-b-01/dashboard-after-light-ltr.png` |
+| 6 | **Header greeting** (every page) | `GET /dashboard`, header partial | 1440 | **ar / rtl** and **en / ltr** | dark | merchant | read each child node's **rendered client rect**, not the source string | visual order `["!", "Amina Haddad", "مرحباً،"]` — correct RTL reading; English `["Hi,", "Amina Haddad", "!"]` | **both directions correct** | `evidence/p2-5-a-03/greeting-after-ar.png`, `…-en.png` |
+
+Command, rows 1–2:
 
 ```bash
 node docs/development/phase-2.5/tools/check-dark-form-surfaces-live.cjs

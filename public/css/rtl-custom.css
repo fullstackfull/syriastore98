@@ -4712,6 +4712,92 @@ html[data-ss-theme="dark"] body .dataTable-input::-moz-placeholder {
    P2.5-A-01 banner by Tests\Unit\Ui\DarkModalSurfaceContrastTest, so keep both markers. */
 
 
+/* =============================================================================================
+   P2.5-B-01 — THE MERCHANT'S OWN CARD ON THE DASHBOARD, AT THE ONE WIDTH IT BREAKS.
+   =============================================================================================
+
+   MEASURED IN THE RUNNING APPLICATION at five viewport widths, because this defect is invisible
+   at four of them and nobody testing at 1280px would ever see it:
+
+     viewport   .dashboard-card   .user-info   the greeting paragraph
+       1440px        366px            87px     NINE lines, one or two words each   <-- broken
+       1280px        985px           673px     1 line
+       1024px        984px           673px     1 line
+        768px        728px           449px     2 lines
+        390px        350px           316px     3 lines
+
+   WHY ONLY 1440. `col-xxl-4` engages at >=1400px and splits the row into thirds, so the card
+   becomes 366px wide on the WIDEST screens while staying ~985px on a 1280px laptop. Inside it,
+   `.card-content-info` is a flex row holding the avatar (70px), `.user-info`, and the store's QR
+   block (70px). The markup asks for the stacked layout with `flex-column flex-sm-row` -- but
+   Bootstrap breakpoints are VIEWPORT-based, and the viewport is 1440px, so the row layout wins
+   while the container is 332px. `.user-info` declares no minimum, so flex shrinks it to 87px.
+
+   THE CONDITION IS "WIDE VIEWPORT, NARROW CARD", AND THAT IS WHAT A CONTAINER QUERY SAYS.
+   A `min-inline-size` on `.user-info` would also clear the measurement, but it is a constant
+   tuned to today's grid: change `col-xxl-4` to `col-xxl-3` and it silently breaks again. The
+   container query asks the only question that actually matters -- how much room does this card
+   have -- so it stays correct at any card width, including ones that do not exist yet.
+
+   PROGRESSIVE BY CONSTRUCTION. A browser without `@container` support ignores the whole block
+   and renders exactly what it renders today; nothing is removed and no existing rule is edited.
+   `container-type: inline-size` establishes an inline-axis containment context only, so it does
+   not affect the card's height or its position in the grid.
+
+   30rem is the measured threshold, not a round number: the three children need
+   70 + 16 + ~250 + 16 + 70 = 422px to sit on one line without the paragraph dropping below a
+   readable measure, and 30rem (480px) is the first step of the spacing scale above that.
+   ============================================================================================= */
+
+/* THE CONTAINMENT GOES ON THE CARD, NOT ON THE FLEX ROW, and the difference is not cosmetic.
+   A container query CANNOT restyle its own container -- the container's size would then depend
+   on the result of a query about its size. The first version of this rule put
+   `container-type` on `.card-content-info` and then tried to set `flex-direction: column` on
+   `.card-content-info` inside the query. Measured: the paragraph went from 9 lines to 3, so the
+   rule LOOKED like it worked -- but `flex-direction` never applied at all. The improvement came
+   entirely from the `> *` rule, which does apply because the children are inside the container.
+   A rule that half-fires is worse than one that does not, because the measurement endorses it. */
+.dashboard-card {
+    container-type: inline-size;
+    container-name: ss-usercard;
+}
+
+@container ss-usercard (max-width: 30rem) {
+    /* The same shape the 390px breakpoint already produces and gets right -- stacked, centred --
+       now keyed on the card rather than on the window.
+
+       `!important` HERE IS NOT A SHORTCUT, it is the only weight that reaches. The markup is
+       `class="card-content-info d-flex gap-3 flex-wrap flex-column flex-sm-row"`, and every
+       Bootstrap flex utility carries `!important` by design -- `.flex-sm-row` resolves to
+       `flex-direction: row !important` at >=576px, which is exactly the viewport-keyed rule this
+       block exists to overrule. A plain declaration here computes to `row` and the measurement
+       says 87px, which is how the second draft of this rule was caught: the container was
+       correctly registered (`container-type: inline-size`, 366px, query matching) and the
+       declaration simply lost. Confirmed by reading `flexDirection` off the running element. */
+    .card-content-info {
+        flex-direction: column !important;
+        align-items: center !important;
+    }
+
+    /* The avatar and the QR block keep their own 70px; only the text column is told to take the
+       width, so stacking does not stretch two fixed-size images across the card. */
+    .card-content-info .user-info {
+        inline-size: 100%;
+        text-align: center;
+    }
+
+    .card-content-info > .d-flex {
+        inline-size: 100%;
+        flex-direction: column !important;
+        align-items: center !important;
+    }
+
+    .qr-code-wrp .code-img {
+        margin-inline: auto;
+    }
+}
+
+
 /* The table body is the other 3.71:1 surface. Bootstrap drives it through a custom property
    rather than a colour declaration, so the property is what has to move. */
 html[data-ss-theme="dark"] body .table {

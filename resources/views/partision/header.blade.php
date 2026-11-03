@@ -59,7 +59,20 @@ $theme_url = App\Http\Controllers\HomeController::getThemeUrl($store);
                                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
                             <span class="hide-mob">
                                 @if (!Auth::guest())
-                                {{ __('Hi, ') }}{{ !empty(Auth::user()) ? Auth::user()->name : '' }}!
+                                {{-- P2.5-A-03. THE NAME IS BIDI-ISOLATED, and the `!` is why.
+                                     Measured in the running Arabic admin: this rendered
+                                     `Amina Haddad!مرحبًا` -- the exclamation mark is a bidi-NEUTRAL
+                                     character, so in an RTL paragraph it resolves against the
+                                     paragraph direction rather than against the Latin run it
+                                     belongs to, and lands on the wrong side of the name. `<bdi>`
+                                     gives the name its own isolated embedding level, so the mark
+                                     stays with the greeting. It is the element form of the
+                                     `unicode-bidi: isolate` this design system already applies to
+                                     numbers, statuses and chart labels in eight places; the
+                                     merchant's own name was the one run nothing isolated.
+                                     A Latin name in an Arabic UI is the common case here, not an
+                                     edge case. --}}
+                                {{ __('Hi, ') }}<bdi>{{ !empty(Auth::user()) ? Auth::user()->name : '' }}</bdi>!
                                 @else
                                 {{ __('Guest') }}
                                 @endif

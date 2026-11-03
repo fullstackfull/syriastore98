@@ -94,6 +94,79 @@ have failed it on the other side.
 
 ---
 
+## 1b. Wave A / B — the second pair of slices
+
+| id | slice | status | evidence |
+|---|---|---|---|
+| **P2.5-A-03** | **The merchant's own name in the header, in an Arabic admin.** The greeting rendered `Amina Haddad!مرحبًا` — the `!` on the wrong side of the name, and no separator at all. On every page. | **DONE [2026-11-03]** | `resources/views/partision/header.blade.php`, `resources/lang/ar.json`, `tests/Unit/Ui/HeaderGreetingBidiTest.php` (new, 4 tests), `evidence/p2-5-a-03/` |
+| **P2.5-B-01** | **The merchant's own card on the dashboard, at the one width it breaks.** `.user-info` collapsed to **87px** at 1440px — nine lines of one or two words each, on the merchant's home screen. | **DONE [2026-11-03]** | `public/css/custom.css`, `public/css/rtl-custom.css`, `evidence/p2-5-b-01/` (4 screenshots) |
+
+### A-03 — measured by rendered position, not by source order
+
+Read off the running Arabic admin from each child node's client rect, because the source order was
+never in question and the **visual** order was:
+
+| | visual order, left to right |
+|---|---|
+| before | `["Amina Haddad", "!مرحبًا"]` |
+| after | `["!", "Amina Haddad", "مرحباً،"]` |
+
+Right-to-left, that second reading is the greeting, then the name, then the exclamation mark last —
+which is where it belongs. **Two independent defects, not one.** The `!` is a bidi-**neutral**
+character, so between a Latin run and the paragraph end it resolves against the **paragraph**
+direction; `<bdi>` gives the name its own isolated embedding level. And `ar.json` mapped the key
+`'Hi, '` — comma *and* trailing space — to `"مرحباً"` with **neither**, so the greeting ran straight
+into the name. The replacement uses the Arabic comma `،` (U+060C), not the Latin `,`.
+
+The premise is asserted from Unicode's own bidirectional class via `IntlChar::charDirection('!')`,
+so the reasoning survives a rewrite of the comments rather than living only in prose.
+
+### B-01 — a desktop-only defect that four of five widths hide
+
+| viewport | `.dashboard-card` | `.user-info` | the greeting paragraph |
+|---|---|---|---|
+| **1440px** | 366px | **87px → 332px** | **9 lines → 3** |
+| 1280px | 985px | 673px | 1 line — unchanged |
+| 1024px | 984px | 673px | 1 line — unchanged |
+| 768px | 728px | 449px | 2 lines — unchanged |
+| 390px | 350px | 316px | 3 lines — unchanged |
+
+`col-xxl-4` engages at ≥1400px and splits the row into thirds, so the card is **366px on the
+widest screens** and ~985px on a 1280px laptop. Inside it the markup asks for the stacked layout
+with `flex-column flex-sm-row` — but **Bootstrap breakpoints are viewport-based**, the viewport is
+1440px, and so the row layout wins while the container is 332px. Nobody testing at 1280px would
+ever see this.
+
+**The condition is "wide viewport, narrow card", and that is what a container query says.** A
+`min-inline-size` would also clear the measurement, but it is a constant tuned to today's grid:
+change `col-xxl-4` to `col-xxl-3` and it silently breaks again. A browser without `@container`
+renders exactly what it renders today, so the change is additive.
+
+### Two drafts of B-01 were wrong, and the measurement endorsed the first one anyway
+
+1. **`container-type` on the flex row itself.** The paragraph went 9 lines → 3, so it *looked*
+   correct — but **`flex-direction: column` never applied**: a container query cannot restyle its
+   own container. The whole improvement came from an incidental `> *` rule. **A rule that
+   half-fires is worse than one that does not, because the number endorses it.**
+2. **Containment moved to the card, and then nothing fired at all.** The container was correctly
+   registered (`inline-size`, 366px, query matching — confirmed by reading it off the element),
+   and the declaration simply **lost**: every Bootstrap flex utility carries `!important`, so
+   `.flex-sm-row` is `flex-direction: row !important`. Matching that weight is what finally moved
+   `flexDirection` to `column` in the running page.
+
+Both were caught by reading the computed value off the element rather than trusting that a rule
+with the right selector had taken effect.
+
+### One thing in the evidence that is an ENVIRONMENT artefact, said plainly
+
+The first `before` screenshots show broken avatar and product images. That is **not** a product
+defect: `public/storage` is committed as a **regular file** containing the original developer's
+absolute path (`/var/www/html/Product/EcommerceGo/main_file/storage/app/public`) — a symlink
+checked out as text. The `after` screenshots were retaken with a correct local symlink and real
+assets; the tracked file was restored unchanged, and the committed diff does not touch it.
+
+---
+
 ## 2. Documentation corrected because it was measured and found wrong
 
 Both are in files the owner's directive names as authoritative, so a wrong sentence in them
