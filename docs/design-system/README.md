@@ -148,8 +148,15 @@ white-labelling is unchanged.
 every computed colour outside the gradient that is not a semantic status, which is how "the brand is
 applied" is checked here rather than by looking at a screenshot.
 
-**Every foreground/background pair is machine-verified.** 40 pairs across light and dark are
+**Every foreground/background pair is machine-verified.** **58** pairs across light and dark are
 checked against WCAG 2.1 AA; see "Verification" below.
+
+> *Corrected 2026-11-03.* This said **40**, and the quoted output below said `ALL 40 PAIRS PASS`
+> over `identical (35 tokens)`. The checker has reported **58 pairs** and **37 tokens** since the
+> suite grew past Sprint 01, so both numbers had been stale for some time — a transcript pasted
+> once and never re-run. Found by an adversarial reviewer that cited the README as corroboration
+> for a finding and then discovered the README was the thing out of date. A quoted figure with no
+> date is a claim about a command nobody has executed lately.
 
 ### Typography
 
@@ -266,9 +273,9 @@ are the ones a browser actually computes; it also fails if the `auto` scope drif
 
 ```
 === AUTO SCOPE vs DARK SCOPE ===
-  identical (35 tokens)
+  identical (37 tokens)
 
-ALL 40 PAIRS PASS (light + dark)
+ALL 58 PAIRS PASS (light + dark)
 ```
 
 **Browser** — Chromium 141 (Playwright's browser revision 1194), against the real
