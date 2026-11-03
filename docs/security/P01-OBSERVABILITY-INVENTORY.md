@@ -177,8 +177,8 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/Concerns/RefusesDeferredGateway.php:130` | Paid plan checkout refused before any charge: this gateway is deferred from Phase 02. |
 | `app/Http/Controllers/Concerns/RefusesDeferredGateway.php:180` | Paid plan activation refused: this gateway is deferred from Phase 02 and its payment evidence cannot be verified. |
 | `app/Http/Controllers/Concerns/ResolvesPendingPartialPayment.php:135` | Pending partial payment lookup failed; the payment is refused. |
-| `app/Http/Controllers/Customer/Auth/CustomerLoginController.php:760` | customer login: refused a social row still holding its module-assigned password |
-| `app/Http/Controllers/Customer/Auth/CustomerLoginController.php:985` | Newsletter subscription failed during customer registration |
+| `app/Http/Controllers/Customer/Auth/CustomerLoginController.php:770` | customer login: refused a social row still holding its module-assigned password |
+| `app/Http/Controllers/Customer/Auth/CustomerLoginController.php:995` | Newsletter subscription failed during customer registration |
 | `app/Http/Controllers/DeliverySyriaStatusController.php:95` | Delivery Syria status webhook: invalid credentials. |
 | `app/Http/Controllers/DeliverySyriaStatusController.php:179` | Zid store not found for order status sync. |
 | `app/Http/Controllers/ESewaPaymentController.php:196` | Plan payment return rejected: claimed amount does not match the plan price. |
@@ -297,10 +297,10 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/StoredUpload.php:108` | a stored upload path names another tenant |
 | `app/Services/WebuzoDomainService.php:170` | New Webuzo domain added but old domain could not be deleted |
 | `app/Http/Controllers/OtpIntegrationController.php:536` | OTP test refused: the provider address is not a permitted outbound host. |
-| `app/Http/Controllers/OtpIntegrationController.php:630` | OTP test refused: the provider address is not a permitted outbound host. |
-| `app/Http/Controllers/OtpIntegrationController.php:682` | OTP test failed with an exception. |
-| `app/Http/Controllers/Customer/Auth/CustomerLoginController.php:352` | Customer OTP send did not succeed. |
-| `app/Http/Controllers/Customer/Auth/CustomerLoginController.php:394` | Customer OTP send threw. |
+| `app/Http/Controllers/OtpIntegrationController.php:632` | OTP test refused: the provider address is not a permitted outbound host. |
+| `app/Http/Controllers/OtpIntegrationController.php:685` | OTP test failed with an exception. |
+| `app/Http/Controllers/Customer/Auth/CustomerLoginController.php:361` | Customer OTP send did not succeed. |
+| `app/Http/Controllers/Customer/Auth/CustomerLoginController.php:404` | Customer OTP send threw. |
 
 <!-- counts: error=95 info=22 debug=1 -->
 
