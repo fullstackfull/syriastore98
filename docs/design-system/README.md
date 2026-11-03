@@ -123,13 +123,24 @@ bytes lay out correctly in both directions.
 
 Two host behaviours constrain anything written here:
 
-1. **LTR emits `dir="ltr"`** (`app.blade.php:68`). *Corrected 2026-11-03 (Phase 2.5): this said
-   LTR emits `dir=""` and that a `[dir="ltr"]` selector "will never match", and cited line 54.
-   Both halves were wrong. The real line is a ternary with no empty branch —
-   `dir="{{ ... ? 'rtl' : 'ltr' }}"` — so `[dir="ltr"]` **does** match, and `:not([dir="rtl"])`
-   is not needed to reach LTR. Measured by reading the attribute off the running admin
-   (`check-dark-form-surfaces-live.cjs` asserts it on every run, in both directions), which is
-   how the claim was caught; nothing in the suite was asserting it.*
+1. **It depends which layout the page uses, and the two disagree.**
+
+   | layout | serves | LTR emits |
+   |---|---|---|
+   | `layouts/app.blade.php:68` | the **merchant admin** | `dir="ltr"` |
+   | `layouts/main.blade.php:6` | the **storefront / guest** pages | `dir=""` |
+
+   So inside the admin — which is what this design system is for — **`[dir="ltr"]` does match**,
+   and `:not([dir="rtl"])` is not needed to reach LTR. On a guest or theme page that opts the
+   stylesheet in, it does not.
+
+   *Corrected 2026-11-03 (Phase 2.5), twice. This first said LTR emits `dir=""` and that a
+   `[dir="ltr"]` selector "will never match", citing line 54. That was measured against the
+   running admin and replaced with the `app.blade.php:68` behaviour — and the replacement was
+   **also** incomplete: `dir=""` is real, in `main.blade.php:6`, so the original sentence was
+   right about the wrong layout. Both lines are quoted above rather than summarised.
+   `check-dark-form-surfaces-live.cjs` asserts the admin's value on every run, in both
+   directions; nothing asserts the storefront's.*
 
    The guidance that followed from it is unchanged and still right, for a better reason:
    **write the default rule for LTR and override under `[dir="rtl"]`.** Not because the LTR
