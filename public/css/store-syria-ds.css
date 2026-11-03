@@ -57,7 +57,8 @@
    COLOR
    The brand ramp is built on the merchant's own logo (the bag/cart "S" mark,
    a 168-197° teal-green gradient whose median hue is 177°): the ramp sits at
-   172°, inside that gradient. No new brand identity is introduced here.
+   218.5°/190.8°, the two anchors measured in that gradient. No new brand
+   identity is introduced here and the logo itself is untouched.
    Every foreground/background pair used by these components is verified
    against WCAG 2.1 AA by tooling; see the acceptance report.
 
@@ -70,37 +71,116 @@
    -------------------------------------------------------------------------- */
 
 :root {
-    /* Brand — hue 172°, inside the Store Syria logo's 168-197° gradient. */
+    /* ======================================================================
+       BRAND — the Store Syria logo's own blue-to-cyan gradient (P2.5-BR-01).
+
+       MEASURED FROM THE LOGO, not chosen. The owner supplied the authoritative
+       mark on 2026-11-03; the same artwork is committed at
+       storage/app/public/uploads/19/48_1787227959_Logo-01 (1).png. Sampling its
+       30,235 chromatic pixels:
+
+           hue      189.4° .. 218.9°   (two dense bands, ~191° and ~217°)
+           #335DA8  hue 218.5°  the single most common chromatic colour, 3,713 px
+           #0EAED1  hue 190.8°  centre of the cyan band, 27% of pixels within 3°
+
+       Both match the owner's own sampled values exactly, so the ramps below are
+       anchored on them: --ss-blue-600 IS #335da8 and --ss-cyan-600 is within one
+       unit of #0eaed1. Every other step is the same hue at a different lightness.
+
+       WHY BLUE IS PRIMARY AND CYAN IS THE ACCENT. The wordmark's tagline is set
+       in the blue and the blue is the mark's dominant single colour — and only
+       the blue can carry a white label: at this hue a step light enough to feel
+       like the brand still clears 4.5:1 on white (#335da8 measures 6.42:1),
+       while the cyan does not reach 4.5:1 until it has darkened to a petrol
+       (#0EAED1 itself is 2.63:1). Cyan therefore does the work it is good at —
+       accents, dark-mode brand, the gradient — where its surface is dark.
+       ====================================================================== */
+    --ss-blue-50:  #f4f5f8;
+    --ss-blue-100: #e7ebf0;
+    --ss-blue-200: #d0d7e4;
+    --ss-blue-300: #aebcd6;
+    --ss-blue-400: #809ac9;
+    --ss-blue-500: #4f77c0;  /* 4.44:1 on white — lightest step clearing 3:1, focus ring */
+    --ss-blue-600: #335da8;  /* 6.42:1 on white — THE LOGO'S OWN BLUE, primary fill */
+    --ss-blue-700: #2f4f89;  /* 8.08:1 — hover */
+    --ss-blue-800: #29416b;  /* 10.18:1 — active */
+    --ss-blue-900: #223351;
+    --ss-blue-950: #182234;
+
+    --ss-cyan-50:  #f3f8fa;
+    --ss-cyan-100: #e4f1f3;
+    --ss-cyan-200: #c9e5eb;
+    --ss-cyan-300: #a0d7e3;  /* 9.82:1 on the host dark page — dark active */
+    --ss-cyan-400: #68cbe1;  /* 8.27:1 on the host dark page — dark hover, dark focus ring */
+    --ss-cyan-500: #2ac3e5;  /* 7.40:1 on the host dark page — dark brand */
+    --ss-cyan-600: #0eafd2;  /* THE LOGO'S OWN CYAN */
+    --ss-cyan-700: #138ba5;  /* 3.99:1 on white — accent bar, WCAG 1.4.11 non-text */
+    --ss-cyan-800: #146c80;  /* 6.02:1 on white */
+    --ss-cyan-900: #13525f;
+    --ss-cyan-950: #10353d;
+
+    /* RETIRED 2026-11-03 — the Sprint 01 brand ramp at hue 172°.
+       It was derived honestly from the wrong file: storage/app/public/uploads/2/
+       *logoStore.svg, a TENANT's upload under store id 2, whose embedded artwork
+       is a teal-green recolour of this same mark (measured hue 167.2–197.5°,
+       median 177.3°). The owner's correction of 2026-11-03 names the blue-cyan
+       original as the identity. Nothing points at these any more; they are kept
+       only so a per-store override or a merchant's hand-written Custom CSS that
+       names one still resolves to the colour it was written against. */
     --ss-teal-50:  #f3faf9;
     --ss-teal-100: #e2f5f3;
     --ss-teal-200: #c6eee9;
     --ss-teal-300: #9ce5db;
     --ss-teal-400: #62daca;
     --ss-teal-500: #1ad5bc;
-    --ss-teal-600: #0bb19b;  /* closest step to the logo itself */
-    --ss-teal-700: #08917f;  /* 3.91:1 on white — borders, focus ring */
-    --ss-teal-800: #097465;  /* 5.68:1 on white — primary fill */
+    --ss-teal-600: #0bb19b;
+    --ss-teal-700: #08917f;
+    --ss-teal-800: #097465;
     --ss-teal-900: #0a5a4f;
     --ss-teal-950: #073b34;
 
-    /* Neutrals — very slightly teal-biased so greys sit with the brand
-       instead of looking like a separate, colder palette. */
+    /* Neutrals — very slightly BLUE-biased so greys sit with the brand instead
+       of looking like a separate, colder palette.
+
+       RE-BIASED 2026-11-03 from hue 172° to 218°, the brand's hue. The principle
+       is the original one and it is the reason this cannot be left alone when the
+       brand moves: a neutral tuned to sit with a teal brand reads as green beside
+       a blue one. Measured before the change, every grey sat at hue 168–180° while
+       the HOST's own dark page (#22242c, assets/css/style-dark.css) sits at 228° —
+       so the dark cards were a different hue family from the page they float on,
+       and the screenshots showed it.
+
+       EACH STEP KEPT ITS HSL LIGHTNESS AND SATURATION; only the hue moved. That is
+       what makes this safe: the ramp's spacing, and every decision pinned to it, are
+       unchanged. Luminance still shifts a little because blue is the least luminous
+       channel — every step darkens slightly — so all 58 pairs were re-measured
+       rather than assumed, and all 58 still pass.
+
+       ONE CLAIM BELOW IS NOW WEAKER AND IS RESTATED RATHER THAN LEFT STANDING.
+       grey-400 and grey-500 were pinned as the LIGHTEST steps clearing 3:1 and
+       4.5:1 on white. On the blue hue they measure 3.38:1 and 5.05:1 — both clear
+       their thresholds with margin, so neither is the lightest step that would.
+       They are kept at this lightness because the ramp's spacing is what the rest
+       of the system is built on; the thresholds are met, which is what the rules
+       require, but "lightest" is no longer the right word for them. */
     --ss-grey-0:   #ffffff;
-    --ss-grey-25:  #fbfcfc;
-    --ss-grey-50:  #f6f8f8;
-    --ss-grey-100: #eef1f1;
-    --ss-grey-200: #dde3e2;
-    --ss-grey-300: #cdd5d4;
-    /* grey-400 and grey-500 are pinned by contrast, not by taste: 400 is the
-       lightest neutral that still clears 3:1 on white (WCAG 1.4.11, input
-       borders) and 500 the lightest that clears 4.5:1 (1.4.3, meta text). */
-    --ss-grey-400: #889392;
-    --ss-grey-500: #6b7675;
-    --ss-grey-600: #5b6665;
-    --ss-grey-700: #434d4c;
-    --ss-grey-800: #2b3433;
-    --ss-grey-900: #1a2322;
-    --ss-grey-950: #0b1f1c;
+    --ss-grey-25:  #fbfbfc;
+    --ss-grey-50:  #f6f7f8;
+    --ss-grey-100: #eeeff1;
+    --ss-grey-200: #dddfe3;
+    --ss-grey-300: #cdd0d5;
+    /* grey-400 and grey-500 are pinned by contrast, not by taste: 400 carries
+       input borders (WCAG 1.4.11, 3:1) and 500 carries meta text (1.4.3, 4.5:1).
+       On the 2026-11-03 blue hue they measure 3.38:1 and 5.05:1 on white. They
+       were the LIGHTEST steps meeting those thresholds on the old teal hue; on
+       blue they clear them with margin instead. See the note above the ramp. */
+    --ss-grey-400: #888c93;
+    --ss-grey-500: #6b6f76;
+    --ss-grey-600: #5b5f66;
+    --ss-grey-700: #43474d;
+    --ss-grey-800: #2b2e34;
+    --ss-grey-900: #1a1d23;
+    --ss-grey-950: #0b121f;
 
     /* Status hues. Each has a tinted background and a text colour chosen to
        clear 4.5:1 against that background, not against white. */
@@ -113,8 +193,15 @@
     --ss-red-50:    #fdeeee;
     --ss-red-700:   #b3261e;
     --ss-red-800:   #8c1d17;
-    --ss-blue-50:   #eaf2fb;
-    --ss-blue-800:  #15558f;
+    /* INFORMATIONAL — moved off blue on 2026-11-03, as a CONSEQUENCE of the brand
+       landing on the logo's blue. The owner's decision requires that "warning,
+       error, success and informational colors" stay semantically distinct, and
+       the old info pair sat at hue 208.5°, ten degrees from the new brand at
+       218.5° — two saturated blues that no merchant could be expected to tell
+       apart. Indigo keeps the cool, neutral-serious reading that "information"
+       wants and is 40° clear of the brand, 70°+ clear of every other status. */
+    --ss-indigo-50:  #f0eefb;
+    --ss-indigo-800: #3f3a8f;
 }
 
 /* --------------------------------------------------------------------------
@@ -159,10 +246,14 @@
     --ss-fg-onfill: var(--ss-grey-0);
 
     /* Brand */
-    --ss-brand:        var(--ss-teal-800);
-    --ss-brand-hover:  var(--ss-teal-900);
-    --ss-brand-active: var(--ss-teal-950);
-    --ss-brand-subtle: var(--ss-teal-50);
+    --ss-brand:        var(--ss-blue-600);
+    --ss-brand-hover:  var(--ss-blue-700);
+    --ss-brand-active: var(--ss-blue-800);
+    --ss-brand-subtle: var(--ss-blue-50);
+    /* The logo's actual character: its two anchors, in its own order. For a
+       surface or a rule, never for text — a gradient has no single contrast
+       ratio, so nothing readable may sit on it untested. */
+    --ss-brand-gradient: linear-gradient(135deg, var(--ss-blue-600) 0%, var(--ss-cyan-600) 100%);
     /* teal-700, not teal-600. This token existed from Sprint 01 but no
        component consumed it, so its value had never been through the contrast
        checker. Phase 02's workspace chip draws a 3px accent bar with it, which
@@ -170,10 +261,14 @@
        non-text threshold: teal-600 measures 2.70:1 on the white card surface
        and fails; teal-700 measures 3.91:1. A per-store override of this token
        is the one thing on the chip a merchant can change, and an override is
-       NOT verified, so the default has to be the safe one. */
-    --ss-brand-accent: var(--ss-teal-700);
+       NOT verified, so the default has to be the safe one.
+       2026-11-03: the same rule re-solved on the new ramp. cyan-600 (the logo's
+       own cyan) measures 2.60:1 on the white card and fails exactly as teal-600
+       did; cyan-700 measures 3.99:1 and passes. The threshold picked the step,
+       not taste — twice, on two different hues. */
+    --ss-brand-accent: var(--ss-cyan-700);
     --ss-on-brand:     #ffffff;
-    --ss-link:         var(--ss-teal-800);
+    --ss-link:         var(--ss-blue-600);
 
     /* Chart series. Series 1 points at --ss-brand rather than copying it, so it
        re-themes with the brand and a brand change cannot leave a chart behind.
@@ -187,7 +282,7 @@
     /* Borders */
     --ss-border:        var(--ss-grey-200);
     --ss-border-strong: var(--ss-grey-400);
-    --ss-border-brand:  var(--ss-teal-700);
+    --ss-border-brand:  var(--ss-blue-500);
 
     /* Status — `-bg` is the fill, `-fg` the text/icon on that fill. */
     --ss-success-bg: var(--ss-green-50);
@@ -196,8 +291,8 @@
     --ss-warning-fg: var(--ss-amber-900);
     --ss-danger-bg:  var(--ss-red-50);
     --ss-danger-fg:  var(--ss-red-800);
-    --ss-info-bg:    var(--ss-blue-50);
-    --ss-info-fg:    var(--ss-blue-800);
+    --ss-info-bg:    var(--ss-indigo-50);
+    --ss-info-fg:    var(--ss-indigo-800);
     --ss-neutral-bg: var(--ss-grey-100);
     --ss-neutral-fg: var(--ss-grey-700);
     --ss-danger:     var(--ss-red-700);
@@ -209,7 +304,7 @@
 
     /* Focus — a 2px ring plus a 1px offset halo, so it stays visible on both
        tinted and white surfaces. WCAG 2.4.11/2.4.13. */
-    --ss-focus-ring:   var(--ss-teal-700);
+    --ss-focus-ring:   var(--ss-blue-500);
     --ss-focus-width:  2px;
     --ss-focus-offset: 2px;
 
@@ -298,41 +393,46 @@
     /* Surfaces are tuned to the HOST's dark page (#22242c, assets/css/style-dark.css)
        rather than to --ss-bg: a card must sit above that page, a touch lighter, or it
        reads as a hole. Text, subtle text and borders were re-solved against them. */
-    --ss-bg:            #1b2523;
-    --ss-surface:       #263331;
-    --ss-surface-sunken: #1f2a28;
-    --ss-surface-hover: #2d3b39;
+    --ss-bg:            #1b1f25;
+    --ss-surface:       #262b33;
+    --ss-surface-sunken: #1f232a;
+    --ss-surface-hover: #2d323b;
 
-    --ss-fg:        #e8eded;
-    --ss-fg-muted:  #a7b2b1;
-    --ss-fg-subtle: #95a09e;
+    --ss-fg:        #e8eaed;
+    --ss-fg-muted:  #a7abb2;
+    --ss-fg-subtle: #9599a0;
     --ss-fg-onfill: var(--ss-grey-950);
 
-    --ss-brand:        var(--ss-teal-500);
-    --ss-brand-hover:  var(--ss-teal-400);
-    --ss-brand-active: var(--ss-teal-300);
-    --ss-brand-subtle: #0d2b27;
-    --ss-brand-accent: var(--ss-teal-400);
-    --ss-on-brand:     #04231f;
-    --ss-link:         var(--ss-teal-400);
+    /* DARK BRAND IS THE CYAN END, DERIVED NOT COPIED. #335da8 on this card
+       measures 2.11:1 — the light-mode brand is unreadable here, which is the
+       whole reason a dark variant exists. The cyan steps were solved against
+       the host's dark page (#22242c) and this card (#262b33). */
+    --ss-brand:        var(--ss-cyan-500);
+    --ss-brand-hover:  var(--ss-cyan-400);
+    --ss-brand-active: var(--ss-cyan-300);
+    --ss-brand-subtle: #0e2a33;
+    --ss-brand-accent: var(--ss-cyan-400);
+    --ss-on-brand:     #04222a;
+    --ss-link:         var(--ss-cyan-400);
+    --ss-brand-gradient: linear-gradient(135deg, var(--ss-blue-500) 0%, var(--ss-cyan-500) 100%);
 
-    --ss-border:        #364442;
-    --ss-border-strong: #7d8a88;  /* 3.66:1 on the dark card surface */
-    --ss-border-brand:  var(--ss-teal-500);
+    --ss-border:        #363b44;
+    --ss-border-strong: #7d828a;  /* 3.66:1 on the dark card surface */
+    --ss-border-brand:  var(--ss-cyan-500);
 
     --ss-success-bg: #102a1b; --ss-success-fg: #7fd6a0;
     --ss-warning-bg: #2c2109; --ss-warning-fg: #f0c674;
     --ss-danger-bg:  #2c1413; --ss-danger-fg:  #f3a9a4;
-    --ss-info-bg:    #10233a; --ss-info-fg:    #9cc6ef;
-    --ss-neutral-bg: #212c2a; --ss-neutral-fg: #c3cccb;
+    --ss-info-bg:    #1d1b3d; --ss-info-fg:    #b6b1ef;
+    --ss-neutral-bg: #21252c; --ss-neutral-fg: #c3c6cc;
     --ss-danger:     #f3a9a4;
     --ss-on-danger:  #3b0d0a;
 
-    /* Teal-500 is bright in dark mode, so series 2 lightens to match: the dark
+    /* The dark brand is bright, so series 2 lightens to match: the dark
        amber-800 would sink into the card. Same hue pair, re-solved. */
     --ss-chart-series-2: #f0c674;
 
-    --ss-focus-ring: var(--ss-teal-400);
+    --ss-focus-ring: var(--ss-cyan-400);
 
     --ss-shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.45);
     --ss-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.35);
@@ -342,33 +442,34 @@
 
 @media (prefers-color-scheme: dark) {
     [data-ss-theme="auto"] {
-        --ss-bg: #1b2523;
-        --ss-surface: #263331;
-        --ss-surface-sunken: #1f2a28;
-        --ss-surface-hover: #2d3b39;
-        --ss-fg: #e8eded;
-        --ss-fg-muted: #a7b2b1;
-        --ss-fg-subtle: #95a09e;
+        --ss-bg: #1b1f25;
+        --ss-surface: #262b33;
+        --ss-surface-sunken: #1f232a;
+        --ss-surface-hover: #2d323b;
+        --ss-fg: #e8eaed;
+        --ss-fg-muted: #a7abb2;
+        --ss-fg-subtle: #9599a0;
         --ss-fg-onfill: var(--ss-grey-950);
-        --ss-brand: var(--ss-teal-500);
-        --ss-brand-hover: var(--ss-teal-400);
-        --ss-brand-active: var(--ss-teal-300);
-        --ss-brand-subtle: #0d2b27;
-        --ss-brand-accent: var(--ss-teal-400);
-        --ss-on-brand: #04231f;
-        --ss-link: var(--ss-teal-400);
-        --ss-border: #364442;
-        --ss-border-strong: #7d8a88;
-        --ss-border-brand: var(--ss-teal-500);
+        --ss-brand: var(--ss-cyan-500);
+        --ss-brand-hover: var(--ss-cyan-400);
+        --ss-brand-active: var(--ss-cyan-300);
+        --ss-brand-subtle: #0e2a33;
+        --ss-brand-accent: var(--ss-cyan-400);
+        --ss-on-brand: #04222a;
+        --ss-link: var(--ss-cyan-400);
+        --ss-brand-gradient: linear-gradient(135deg, var(--ss-blue-500) 0%, var(--ss-cyan-500) 100%);
+        --ss-border: #363b44;
+        --ss-border-strong: #7d828a;
+        --ss-border-brand: var(--ss-cyan-500);
         --ss-success-bg: #102a1b; --ss-success-fg: #7fd6a0;
         --ss-warning-bg: #2c2109; --ss-warning-fg: #f0c674;
         --ss-danger-bg: #2c1413;  --ss-danger-fg: #f3a9a4;
-        --ss-info-bg: #10233a;    --ss-info-fg: #9cc6ef;
-        --ss-neutral-bg: #212c2a; --ss-neutral-fg: #c3cccb;
+        --ss-info-bg: #1d1b3d;    --ss-info-fg: #b6b1ef;
+        --ss-neutral-bg: #21252c; --ss-neutral-fg: #c3c6cc;
         --ss-danger: #f3a9a4;
         --ss-on-danger: #3b0d0a;
         --ss-chart-series-2: #f0c674;
-        --ss-focus-ring: var(--ss-teal-400);
+        --ss-focus-ring: var(--ss-cyan-400);
         --ss-shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.45);
         --ss-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.35);
         --ss-shadow-md: 0 2px 4px rgba(0, 0, 0, 0.45), 0 6px 16px rgba(0, 0, 0, 0.40);
@@ -1603,7 +1704,7 @@
 /* Period / qualifier. Never omitted, and never styled as decoration.
 
    --ss-fg-muted, NOT --ss-fg-subtle, and that is a measurement rather than a
-   preference: the stat grid sits on --ss-bg (#f6f8f8), not on the white card
+   preference: the stat grid sits on --ss-bg (#f6f7f8), not on the white card
    surface, and fg-subtle is the lightest neutral clearing 4.5:1 *on white*.
    On this background it measures 4.40:1 and fails. The hierarchy between the
    label and the period is carried by size and weight instead of by colour,
@@ -3099,7 +3200,7 @@ a.ss-setup__item:focus-visible {
 
    1. `var(--ss-surface)` -- WRONG IN DARK MODE. The host paints this card
       `#ffffff` in light, which the token matches, and `#292a33` in dark,
-      where the token is `#263331`. Different hues, so the token draws a
+      where the token is `#262b33`. Different hues, so the token draws a
       visibly off-colour band down every dark table: ledger F8 again.
    2. `background-color: inherit`, chained down from the card -- TRIED, AND IT
       DOES NOT REACH. `inherit` walks exactly one level, and DataTables
@@ -3447,12 +3548,12 @@ a.ss-setup__item:focus-visible {
 /* ---- ...and the one that sits on an ALWAYS-LIGHT surface ----
    MEASURED, not assumed: `.dropzone` computes `background-color: rgb(255, 255, 255)` in BOTH
    themes -- the host's dark stylesheet never themes that panel. So a hint inside it that uses the
-   theme-switching `--ss-fg-muted` becomes #a7b2b1 on white in dark mode, which the contrast probe
+   theme-switching `--ss-fg-muted` becomes #a7abb2 on white in dark mode, which the contrast probe
    read as **2.18:1** in ltr/dark and rtl/dark alike while the cover hint, on the real card, read a
    healthy 7.11:1. Same class, same token, two different surfaces -- the F8 lesson and the
    feed-timestamp lesson for the third time.
    `--ss-grey-600` is the fix because it is a PRIMITIVE: defined once at :root and never
-   redefined for dark, so it stays #5b6665 in every configuration, and that is 5.94:1 on white --
+   redefined for dark, so it stays #5b5f66 in every configuration, and that is 5.94:1 on white --
    exactly what light mode already measured. A hardcoded hex would do the same thing while hiding
    from the token audit; this does not.
    The panel ignoring dark mode was recorded separately as F76 and is NOW FIXED below, on the
@@ -3461,7 +3562,7 @@ a.ss-setup__item:focus-visible {
 
 /* ---- F76: the upload panel finally follows the theme, and the hint follows it back ----
    THE TWO ARE ONE FIX, which is why F76 waited. `--ss-grey-600` above is correct only while the
-   panel stays white; theming the panel without touching the hint would leave #5b6665 on #1f2a28,
+   panel stays white; theming the panel without touching the hint would leave #5b5f66 on #1f232a,
    MEASURED at **2.49:1** -- an AA failure introduced by fixing an appearance bug. That is the F8 /
    F68 / tab-rail lesson a fourth time: the token is not wrong, the SURFACE under it moved.
 
@@ -3757,7 +3858,7 @@ a.ss-setup__item:focus-visible {
 
    `--ss-fg-muted` RATHER THAN `--ss-fg`, because the register is right: the header carries
    secondary chrome -- icon links, a store name, a language code -- not body copy. The token is
-   `#5b6665` in light and `#a7b2b1` in dark, and it tracks the theme through `data-ss-theme`.
+   `#5b5f66` in light and `#a7abb2` in dark, and it tracks the theme through `data-ss-theme`.
 
    NO SURFACE, NO BORDER, NO SPACING IN THIS STEP. The theme paints the header's background and
    the sidebar beside it; moving one of them to a DS surface token and not the other would leave

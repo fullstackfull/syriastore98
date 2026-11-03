@@ -22,9 +22,26 @@
         $setting['SITE_RTL'] = 'off';
     }
 
+    /*
+     * P2.5-BR-02 -- the PLATFORM DEFAULT is the Store Syria brand, not theme-3.
+     *
+     * This branch is the one a store takes when it has never chosen a colour, which is every
+     * store until a merchant opens Brand Settings. It used to hand back `theme-3` (#10B77F, a
+     * green at hue 160 degrees) -- 29.5 degrees outside the logo's own 189.4-218.9 gradient. So
+     * the design system's components painted the brand blue while the sidebar, the active nav
+     * item and every .btn-primary beside them stayed green: two identities on one page, which is
+     * worse than either on its own. Measured in the running admin before and after.
+     *
+     * `custom-color` is the host's OWN mechanism for this -- public/css/custom-color.css drives
+     * 39 selectors off `--color-customColor`, the active sidebar item among them -- so nothing in
+     * packages/workdo/ or assets/css/ is edited to achieve it.
+     *
+     * A STORE THAT HAS PICKED A COLOUR IS UNAFFECTED. White-labelling is a product feature; the
+     * two branches below still read $setting['color'] and still win. Only the fallback moves.
+     */
     if (!isset($setting['color'])) {
-        $themeColor = 'theme-3';
-        $color = 'theme-3';
+        $themeColor = 'custom-color';
+        $color = \App\Support\Branding\StoreSyriaBrand::CHROME_DEFAULT;
     } elseif (isset($setting['color_flag']) && $setting['color_flag'] == 'true') {
         $themeColor = 'custom-color';
         $color = $setting['color'];

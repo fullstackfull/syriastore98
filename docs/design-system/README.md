@@ -1,6 +1,7 @@
 # Store Syria — Web Design System
 
-Phase 01 / Sprint 01 foundation. One stylesheet, opt-in per page, additive only.
+Phase 01 / Sprint 01 foundation, rebranded onto the real logo in Phase 2.5. One global stylesheet,
+additive only.
 
 - **Stylesheet:** `public/css/store-syria-ds.css`
 - **Gallery:** `docs/design-system/gallery.html` — open it from a checkout; it loads the real
@@ -80,21 +81,72 @@ Three layers. Components only ever read layer 2.
 
 ### Colour
 
-The brand ramp is built on the merchant's **own logo mark** (`uploads/2/*logoStore.svg`, a
-168-197° teal-green gradient with a median hue of 177°): the ramp sits at hue 172°, inside that
-gradient. No new brand identity was invented, and no logo was replaced.
+The brand ramp is built on the **Store Syria logo**, a blue-to-cyan gradient. The authoritative
+artwork is committed at `docs/design-system/brand/store-syria-logo-reference.png`, and the numbers
+below are measured from its 30,235 chromatic pixels rather than chosen:
 
-Two steps are pinned by contrast rather than by taste:
+| | |
+|---|---|
+| hue span | **189.4° – 218.9°**, in two dense bands around 191° and 217° |
+| `#335DA8` | hue 218.5° — the single most common chromatic colour, 3,644 pixels |
+| `#0EAED1` | hue 190.8° — the centre of the cyan band; 27% of pixels within 3° |
+
+Both reproduce the owner's own sampled values. `App\Support\Branding\StoreSyriaBrand` is the one
+place those two constants live, and the admin layout, this stylesheet and the Flutter admin all
+cite it. `tests/Unit/Ui/StoreSyriaBrandTokensTest.php` **opens that PNG at run time** and fails if a
+brand token leaves the gradient — the check that did not exist the first time round.
+
+**Blue is primary and cyan is the accent** because only the blue can carry a white label: at hue
+218° a step light enough to still feel like the brand clears 4.5:1 on white (`#335da8` measures
+6.42:1), while the cyan does not reach 4.5:1 until it has darkened to a petrol. Cyan therefore does
+the work its surface suits — accents, the dark-mode brand, the gradient.
+
+Steps pinned by contrast rather than by taste:
 
 | Token | Value | Why |
 |---|---|---|
-| `--ss-brand` | `#097465` (teal 800) | Lightest step clearing **4.5:1** against white, for button labels. |
-| `--ss-focus-ring` | `#08917f` (teal 700) | Lightest step clearing **3:1**, for non-text contrast (WCAG 1.4.11). |
-| `--ss-grey-400` | `#889392` | Lightest neutral clearing 3:1 on white — input borders. |
-| `--ss-grey-500` | `#6b7675` | Lightest neutral clearing 4.5:1 on white — meta text. |
+| `--ss-brand` | `#335da8` (blue 600) | The logo's own blue. **6.42:1** on white, for button labels. |
+| `--ss-focus-ring` | `#4f77c0` (blue 500) | **4.44:1** — clears the 3:1 non-text threshold (WCAG 1.4.11). |
+| `--ss-brand-accent` | `#138ba5` (cyan 700) | **3.99:1**. cyan-600 measures 2.60:1 and fails, exactly as teal-600 did. |
+| dark `--ss-brand` | `#2ac3e5` (cyan 500) | **7.40:1** on the host's dark page. Derived, not the light hex re-used. |
+| `--ss-grey-400` | `#888c93` | Input borders — 3.38:1 on white. |
+| `--ss-grey-500` | `#6b6f76` | Meta text — 5.05:1 on white. |
 
-The host's default theme (`theme-3` = `#10B77F`) is already in the same green-teal family, so the
-system sits naturally alongside the existing chrome.
+**The neutrals are blue-biased, and were re-biased with the brand.** Every grey sat at hue 168–180°
+to sit with the old teal; a grey tuned to a teal brand reads green beside a blue one. They moved to
+218° at unchanged HSL lightness and saturation, which also brought them into the same family as the
+host's own dark page (`#22242c`, hue 228°) that the dark cards float on.
+
+**Informational moved off blue.** It sat at hue 208.5°, ten degrees from the new brand — two
+saturated blues nobody could tell apart. It is now indigo (`#3f3a8f`), 40° clear of the brand and
+70°+ clear of every other status, which is what the owner's "keep status colours semantically
+distinct" requires once the brand lands on blue.
+
+> **Corrected 2026-11-03 (Phase 2.5).** This section used to say the ramp came from "the merchant's
+> **own logo mark** (`uploads/2/*logoStore.svg`, a 168-197° teal-green gradient with a median hue
+> of 177°)" at hue 172°. The derivation was sound and the source was wrong: that path is an upload
+> under **store id 2** — a tenant's own file, whose embedded artwork is a teal-green *recolour* of
+> this same mark (measured 167.2–197.5°, median 177.3°). The owner's correction of 2026-11-03 names
+> the blue-cyan original as the identity. The retired teal primitives are kept in the stylesheet,
+> consumed by nothing, so a per-store override or a merchant's Custom CSS naming one still resolves.
+>
+> The claim that `--ss-brand` and `--ss-focus-ring` were the *lightest* steps clearing their
+> thresholds was true on the teal hue and is **not** true on blue — they clear them with margin
+> instead. The ramp's spacing is what the rest of the system is built on, so the steps were kept and
+> the claim restated rather than the colours re-solved.
+
+**The host chrome follows the same brand.** A store that has chosen no colour of its own used to get
+`theme-3` (`#10B77F`, hue 160° — 29.5° outside the gradient), so design-system components painted
+blue while the sidebar and every `.btn-primary` beside them stayed green: two identities on one
+page, measured in the running admin. The layout's fallback is now `custom-color` plus
+`StoreSyriaBrand::CHROME_DEFAULT`, which is the host's **own** mechanism — `public/css/custom-color.css`
+drives 39 selectors off `--color-customColor`, the active sidebar item among them — so nothing in
+`packages/workdo/` or `assets/css/` is edited. A store that *has* chosen a colour still wins;
+white-labelling is unchanged.
+
+`docs/development/phase-2.5/tools/find-offbrand-colours.cjs` walks a rendered screen and reports
+every computed colour outside the gradient that is not a semantic status, which is how "the brand is
+applied" is checked here rather than by looking at a screenshot.
 
 **Every foreground/background pair is machine-verified.** 40 pairs across light and dark are
 checked against WCAG 2.1 AA; see "Verification" below.
