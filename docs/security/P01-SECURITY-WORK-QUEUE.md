@@ -5268,6 +5268,179 @@ engineering call.
 
 ---
 
+## S56 — The OTP secret left the server unpinned, on four sends, and anyone could trigger two of them — **P1-SEC-55 CLOSED; P1-SEC-57 OPEN (escalated)**
+
+**Merged into `main` as part of the owner-authorized Phase 02 development integration,
+2026-11-03: PR #128, merge commit `25cf8182`.** Branch head `9cae4518`.
+
+### What was wrong, measured
+
+**P01-SEC-45 guarded one of four sends, with the wrong half of a two-part control.**
+`SafeWebhook::allows()` is verdict-only — it is `plan() !== null`, a bool. It judged the host and
+returned, pinning nothing and handing the caller no pinned URL; the controller then issued its own
+`Http::asMultipart()->post()` with no `CURLOPT_RESOLVE` and no `allow_redirects => false`. Laravel
+sets no redirect options, so Guzzle follows up to five — **and a 307 preserves method and body.**
+
+Measured in the booted application with that exact idiom: a first hop answered
+`307 Location: <second hop>`, the client **followed** it, and delivered the identical 562-byte
+multipart body — **including the `secret` field** — to a second hop that `allows()` would itself
+have refused. DNS rebinding reached the same end by resolving the name twice. It also judged
+`$baseUrl` and then requested `$baseUrl . '/api/send/sms'`, so what was judged was not what was
+requested.
+
+**The guarded send was never the only send.** A census of `api_secret` across `app/` and
+`packages/` finds exactly four: two in `OtpIntegrationController::test()` and two in
+`CustomerLoginController::sendPasswordOtp()`. The latter two had no guard of any kind, and their
+route — `POST {storeSlug?}/forgot-password/otp/send` — carries **no auth**. So an unauthenticated
+POST made the platform send the store's own OTP secret to the stored address *and flashed the
+remote reply back*: a banner surfaced as
+`session('error') = 'INTERNAL-SERVICE-BANNER: redis 7.0.11 on 127.0.0.1'`, a refusal as
+`'cURL error 7: ... port 6379 ... Connection refused'`. An anonymous port and service oracle over
+the platform's own network. `throttle:auth` is not a mitigation: it keys on ip + `sha256(email)`
+and this route posts `mobile`.
+
+**No authorization on either OTP endpoint.**
+`grep -nE "isAbleTo|authorize\(|->can\(|@can|middleware\("` on `OtpIntegrationController` exited
+1 — zero hits. A `type = 'staff'` user holding **no permission at all** could POST
+`/otp-integration/test` with a `base_url` of their choosing and receive HTTP 200 while the
+**stored** `api_secret` was transmitted there — defeating the settings view, which renders that
+field as `type="password"` with no `value` precisely so it cannot be read back.
+
+### What closed it
+
+`app/Services/OtpTransport.php` is the one place a provider URL becomes a request. It calls
+`SafeWebhook::send()`/`sendWithStatus()` — judge through `SafeRemoteFetch::check`, **pin** via
+`CURLOPT_RESOLVE`, `CURLOPT_FOLLOWLOCATION => false` — on the **complete** url, path included. All
+four sends go through it. The provider wire format is unchanged: `CURLOPT_POSTFIELDS` with an array
+makes cURL build `multipart/form-data` with the same field names and values.
+
+Transport detail never leaves the class: `send()` answers `null` for a refusal and `false` for a
+cURL failure, neither carrying text a caller could surface, and the only message returned is the
+provider's own `message` field. The anonymous flow now gets one fixed string with the detail in the
+log; the merchant endpoint still shows the provider's message, because that caller is authenticated
+**and** permission-checked.
+
+Authorization delegates to `StoreSettingsAccess::permits()` — operator, then tenant owner by
+`creatorId() === id`, then `isAbleTo('Manage Setting')`. **An earlier draft named
+`Manage Store Setting`, which is the other screen's permission** (route `app-setting.index`);
+`StoreSettingsAccess`'s own docblock warns against exactly that, and S46's F5 row records the
+identical first-draft error being corrected once before. The `tenant-authz-reviewer` caught it
+before commit. `save1()` — an unrouted duplicate writer — is gated too, because the gate belongs to
+the action, not the route list.
+
+**The HTTP-status condition, restored at the owner's instruction (2026-11-03).** The original
+condition was `$response->successful() && ($result['status'] ?? null) == 200`; the first move onto
+`send()` kept the provider's field and lost the HTTP status, so a provider answering an HTTP error
+while its body claimed `status: 200` began to **succeed**. `SafeWebhook::sendWithStatus()` is a new
+opt-in method returning `{body, status}`; `send()`'s contract is unchanged for its only other
+caller (`Utility::WebhookCall`), and both share one `plan()`, so no second, laxer path exists.
+`OtpTransport::succeeded()` is the restored condition in one place: `ANSWERED && 2xx && provider
+200`, failing closed on an unknown status.
+
+### Evidence
+
+`tests/Feature/Security/OtpOutboundHardeningTest.php` — the positive send (pinned, full path,
+secret in the fields), redirect refusal, the DNS pin asserted by value and resolved exactly once,
+six refused destinations, the authorization matrix including *the other screen's permission is not
+enough*, the anonymous-oracle regression, the operator's store-1 fall-through, the refusal log
+carrying no credential, the HTTP-status decision table (14 rows), and **the WhatsApp merchant path,
+which had no test at all** before this round.
+
+Fifteen mutations across the round, each reverted byte-identically. Two passed silently and are
+recorded as uncovered rather than implied covered: `SafeWebhook`'s `0 → null` status mapping lives
+on the real cURL path, which the suite never executes.
+
+### What stays OPEN
+
+**P1-SEC-57 — `WoocomCategoryController.php:114` is judged but not pinned.**
+`ImportStoreUrl::woocommerceBase()` calls `check()` and then returns the **original** URL, so the
+HTTP client resolves the name a second time and follows redirects. The same `allows()` shape, lower
+severity: no credential is sent, and it is a **blind** SSRF (the handler assigns `$jsonData` and
+returns nothing — stated in the code's own P1-SEC-06 comment). **Escalated, not fixed**, with the
+one-line fix and a measured caveat in `docs/security/P1-SEC-55-OUTBOUND-SENDER-CENSUS.md` §2.
+
+**P1-SEC-44's historical half: answered NEGATIVE.** No existing `store_order_financials` row
+carries a foreign store's product cost. The only cross-store references (row 37, order 110 →
+products 5 and 6 of store 3) sit on a row whose `product_cost` is 0.00. The mechanism was present
+in real data with no payload. Nothing was modified, backfilled or recalculated. Reproducible:
+`tests/Support/Security/bin/verify-p1sec44-reconciliation-on-mysql.php`, exit 0.
+
+---
+
+## S57 — The sensitive-diff gate never looked at controllers, services or models — **P1-SEC-56 CLOSED**
+
+**Merged into `main` as PR #126, merge commit `077d0583`.** Branch head `457f98ea`.
+
+Found by watching this round's own pull request go green. `flag-sensitive-diff.sh` matched changed
+paths against one regular expression covering `config/`, `routes/`, `Middleware/`, `Policies/`,
+`Providers/`, `database/migrations/`, `.github/` and anything named after a secret or a role — and
+**not `app/Http/Controllers/`, `app/Services/` or `app/Models/`**. `Auth` was not on it; `Audit`
+was.
+
+| diff | what it did | matched |
+|---|---|---|
+| PR #128 | adds an authorization gate; moves an outbound `api_secret` send onto a pinned transport | **0 / 7** |
+| `2497f28e` (in PR #124) | *"four live defects GATE F turned on"* — the OTP SSRF guard and the cross-tenant cost leak among them | **0 / 7** |
+| `d9a3fbc2` | *"the shipping quote leaked another tenant's product price"*, in `Api/ApiController.php` | **0 / 2** |
+| `83ae48d9` | a tenancy-inventory change | **0 / 1** |
+
+PR #128's job log read, in full: `no security-sensitive paths in this diff.` One of its seven files
+is named `tests/Feature/Security/OtpOutboundHardeningTest.php`. **PR #124 tripped the gate only
+through its *other* commits** — migrations, `.github/`, `Policies/`; the security fixes themselves
+were invisible to it.
+
+`PATTERN` is now an array where every entry carries its reason, widened with `^app/Http/`,
+`^app/Services/`, `^app/Models/`, `^app/Support/`, `^app/Observers/`, `Auth`, and the
+security/tenancy/contract test directories. **The bound is asserted as explicitly as the
+widening** — 19 must-fire and 8 must-stay-quiet scenarios in the shell harness (58 passed, 0
+failed) plus 10 + 5 in a PHPUnit twin — because a classifier that fires on every diff makes the
+acknowledgement reflexive and therefore worthless. Four mutations, each reverted byte-identically.
+
+Proven on the real thing: after this merge, the widened gate run against PR #128's actual pull
+request body in `enforce` mode **exits 1**, naming the seven sensitive paths.
+
+Two defects in the *tests* were fixed in the same change: `SecurityAttestationWiringTest` read the
+pattern by parsing the source as a single-quoted one-liner while its docblock claimed independence
+from the pattern's text; and its six covered paths each also matched some *other* alternative, so
+deleting the entry it named left it green.
+
+---
+
+## S58 — `main` has no branch protection, so every gate in this repository is a report — **P1-SEC-54 OPEN, OWNER-DEFERRED (2026-11-03)**
+
+Measured three ways on 2026-11-02 and unchanged at the time of the Phase 02 integration:
+
+| probe | result |
+|---|---|
+| `gh api repos/.../branches/main --jq '.protected'` | **`false`** |
+| `gh api repos/.../rulesets` | **`[]`** |
+| `gh api repos/.../rules/branches/main` | **`[]`** |
+
+**Zero required status checks.** A red check has never blocked a merge; `mergeable_state:
+unstable` is information, not a refusal.
+
+**The owner has deferred this deliberately** (2026-11-03): *"I do not want to configure branch
+protection, GitHub Rulesets, additional accounts or mandatory reviewer approvals at this stage."*
+The exact manual checklist is in `docs/security/HUMAN-REVIEW-GATE.md` §4 and reproduced in
+`docs/development/phase-2/PHASE-02-INTEGRATION-READINESS-AR.md` §6.
+
+**No repository setting was changed by the automation**, although the credential it holds reports
+`admin: true` — recorded because the restraint is otherwise indistinguishable from inability.
+
+**Consequence for the Phase 02 integration:** the four merges of 2026-11-03 proceeded with
+`Security-sensitive diff: human checklist` RED on three of them, under an explicit owner-accepted
+development-integration exception recorded verbatim in each merge commit. The gate was not
+weakened, no acknowledgement marker was added anywhere, no review was created, and no independent
+human review of any of those diffs has occurred. See
+`docs/development/phase-2/PHASE-02-CLOSURE-RECORD.md`.
+
+**Still OPEN, and the blocking relationship is unchanged:** until `main` is protected and the
+automation's GitHub identity is separated from the pull-request author's, `Security-sensitive diff:
+human approval` must not be added to any required-checks list — it runs in `report` mode and reads
+`success` on a pull request with zero reviews.
+
+---
+
 ## Suggested package boundaries
 
 Keeping these apart is the point; each is independently reviewable and independently revertable.
