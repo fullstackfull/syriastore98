@@ -66,6 +66,22 @@ Headline readings, each from the run named above:
    nearest scope and the host field's background does not. **Match the token layer to the surface,
    not to the component.** The ratchet now forbids that token in these blocks by name.
 
+### The gates, with the run's own output
+
+| gate | result |
+|---|---|
+| design-system contrast | **58 pairs pass**, light + dark; auto scope identical to dark across 36 tokens |
+| `DarkModalSurfaceContrastTest` (new) | **12 passed, 128 assertions** |
+| `ClaudeConfigurationTest` | **76 passed, 618 assertions** |
+| Unit | **732 passed, 4,608 assertions** — was 721 before this slice; the 11 new tests are the whole difference |
+| Feature | **7,519 passed, 2 failed, 1 skipped, 0 errors**, 37,351 assertions, 2,283s |
+| **known-outcome gate** | **PASS** — `the observed outcome set matches the manifest exactly -- 2 declared failures, 1 declared skips, 0 errors, and nothing undeclared` |
+
+**That is the integrated-`main` baseline the directive cites, figure for figure** (7,519 / 2 / 1 / 0).
+It was re-measured rather than copied, as the directive required. **Nothing was added to the
+manifest** — the gate asserts the set in both directions, so an entry added to buy a pass would
+have failed it on the other side.
+
 ### Bite tests — every one failed exactly as designed, then passed again
 
 | mutation | result |

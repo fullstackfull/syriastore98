@@ -78,7 +78,30 @@ quietly regresses the sidebar is a worse outcome than the defect.
 | new ratchet | `php artisan test tests/Unit/Ui/DarkModalSurfaceContrastTest.php` | **11 passed, 58 assertions** |
 | `.claude` configuration | `php artisan test tests/Unit/Ci/ClaudeConfigurationTest.php` | **76 passed, 618 assertions** |
 | Unit suite | `php artisan test --testsuite=Unit` | **732 passed, 4,608 assertions** (721 before this slice; +11 new) |
-| Feature suite + known-outcome gate | see `PHASE-2.5-TASK-LEDGER.md` | recorded there with the run's own output |
+| Feature suite | `php artisan test --testsuite=Feature --log-junit … --log-teamcity …` | **7,519 passed, 2 failed, 1 skipped, 0 errors** (37,351 assertions, 2,283s) |
+| known-outcome gate | `php .github/scripts/assert-known-test-outcomes.php …` | **PASS** — 7,522 testcases observed; 2 failures observed / 2 declared; 1 skip / 1 declared; 0 errors |
+
+The gate's own words, quoted rather than paraphrased:
+
+```
+testcases observed   : 7522  (manifest floor 1000)
+failures observed    : 2  (manifest declares 2)
+errors observed      : 0  (always expected: 0)
+skips observed       : 1  (manifest declares 1)
+
+OK: the observed outcome set matches the manifest exactly -- 2 declared failures,
+1 declared skips, 0 errors, and nothing undeclared.
+
+This is NOT a statement that the suite is green. It is a statement that the suite is
+failing and skipping exactly the tests the project has recorded, for the reasons it has
+recorded.
+```
+
+**This matches the integrated-`main` baseline the owner's directive cites — 7,519 passed, 2
+declared failures, 1 declared skip, 0 unexpected errors — figure for figure.** The directive said
+to verify the current baseline rather than copy those numbers into a new report; verified, and
+they are unchanged. **Nothing was added to the manifest**: the gate asserts the set in both
+directions, so an added entry would itself have failed it.
 
 ---
 
