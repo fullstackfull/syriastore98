@@ -1744,24 +1744,135 @@ jobs:
         continue-on-error: true
         run: |
           set -euo pipefail
-          git worktree add --detach /tmp/base "${{ steps.base.outputs.sha }}"
+
+          # WHERE THE BASE WORKTREE LIVES, AND WHY IT IS NO LONGER A HARD-CODED /tmp/base.
+          # This step used to do `git worktree add --detach /tmp/base` and then
+          # `cp -al "$PWD/vendor" /tmp/base/vendor`. On the GitHub-hosted ubuntu runner /tmp and
+          # /home/runner/work are no longer the same filesystem, so EVERY link failed with
+          # "Invalid cross-device link" (EXDEV), the step exited 1 after about four seconds,
+          # base-junit.xml was never written, and the comparison step below exited 2 with
+          # "regression-gate: junit file not found" -- the gate stopped answering its one
+          # question. Nothing under .github/ had changed; the same job had run the base suite for
+          # 12m22s two days earlier. The bug is ASSUMING a shared filesystem, so the filesystem is
+          # now MEASURED at run time and this step prints which path it took and why.
+          #
+          # st_dev equality is the right predictor for hard-linkability -- it is also what makes
+          # btrfs subvolumes correctly fail the test. `stat -c` is GNU coreutils, like the `cp -al`
+          # this step has always used, so both assume the ubuntu runner this job is pinned to.
+          # Both ways of the device test being wrong are handled:
+          # if it says "different" where links would in fact have worked we merely pay for a copy,
+          # and if `cp -al` fails anyway that failure is reported and copied instead, never hidden.
+          SRC_VENDOR="$PWD/vendor"
+          WS="$(pwd -P)"
+          [ -d "$SRC_VENDOR" ] || {
+            echo "no vendor/ in the workspace -- the single shared install did not happen"
+            exit 1
+          }
+          SRC_DEV="$(stat -c %d "$SRC_VENDOR")"
+
+          # Candidate homes for the base worktree, best first; the first one on the vendor tree's
+          # own filesystem wins. RUNNER_TEMP is the runner's own scratch space and is cleaned up
+          # for us. The workspace's PARENT -- /home/runner/work/<repo> -- is the one that cannot
+          # plausibly be on another filesystem, since the workspace itself lives inside it, so it
+          # is the safety net for the day RUNNER_TEMP moves too. TMPDIR is only reached outside
+          # Actions. If NONE of them shares the filesystem, the first usable one is used with a
+          # real copy. Note that RUNNER_TEMP is NOT trusted to be same-device: it is tested.
+          set -- "$(dirname "$WS")" "${TMPDIR:-/tmp}"
+          if [ -n "${RUNNER_TEMP:-}" ]; then set -- "$RUNNER_TEMP" "$@"; fi
+          BASE_PARENT=""
+          for cand in "$@"; do
+            [ -n "$cand" ] || continue
+            mkdir -p "$cand" 2>/dev/null || { echo "candidate ${cand}: cannot create -- skipped"; continue; }
+            [ -w "$cand" ] || { echo "candidate ${cand}: not writable -- skipped"; continue; }
+            cand_dev="$(stat -c %d "$cand")"
+            [ -n "$BASE_PARENT" ] || BASE_PARENT="$cand"   # first usable one = where a copy would go
+            if [ "$cand_dev" = "$SRC_DEV" ]; then
+              BASE_PARENT="$cand"
+              echo "candidate ${cand}: device ${cand_dev} == vendor device ${SRC_DEV} -- hard links possible, chosen"
+              break
+            fi
+            echo "candidate ${cand}: device ${cand_dev} != vendor device ${SRC_DEV} -- hard links impossible here"
+          done
+          [ -n "$BASE_PARENT" ] || { echo "no writable directory for the base worktree"; exit 1; }
+
+          BASE_DIR="${BASE_PARENT}/storesyria-regression-base"
+          case "$BASE_DIR" in
+            /*/storesyria-regression-base) ;;
+            *) echo "refusing '${BASE_DIR}' as the base worktree path"; exit 1 ;;
+          esac
+          # It must NOT be inside the HEAD checkout: the whole point of the arrangement is that
+          # nothing in the base run resolves back into HEAD, and the assertion below checks it.
+          case "${BASE_DIR}/" in
+            "${WS}"/*) echo "base worktree '${BASE_DIR}' is inside the HEAD checkout '${WS}' -- refusing"; exit 1 ;;
+          esac
+          rm -rf "$BASE_DIR"
+          git worktree prune
+          git worktree add --detach "$BASE_DIR" "${{ steps.base.outputs.sha }}"
+          # Physical path: the assertion below compares string prefixes against paths PHP has
+          # already realpath-ed, so a symlinked RUNNER_TEMP would otherwise abort the step.
+          BASE_DIR="$(cd "$BASE_DIR" && pwd -P)"
+
           # HARD LINKS, NOT A SYMLINK. PHP resolves __DIR__ through symlinks, so a symlinked
           # vendor/ makes Composer's $baseDir (dirname(dirname(__DIR__))) point back at the HEAD
           # checkout -- and the "base" run then executes HEAD's app/ code with base's tests,
           # silently classifying a real app/ regression as inherited. Proven by resolving
           # App\Models\Order from the worktree: it returned the HEAD path. cp -al keeps it a real
           # directory (so $baseDir is the worktree) while sharing inodes, so it costs no disk.
-          cp -al "$PWD/vendor" /tmp/base/vendor
-          php -r 'require "/tmp/base/vendor/autoload.php";
-                  $f = (new ReflectionClass("App\\Models\\Order"))->getFileName();
-                  if (!str_starts_with($f, "/tmp/base/")) {
-                      fwrite(STDERR, "base worktree is loading $f -- aborting\n"); exit(1);
-                  }
-                  echo "base autoload verified: $f\n";'
-          mkdir -p /tmp/base/storage/logs /tmp/base/storage/framework/{cache,sessions,views} /tmp/base/bootstrap/cache
-          touch /tmp/base/storage/installed
-          cd /tmp/base
-          vendor/bin/phpunit --testsuite Feature --log-junit "$GITHUB_WORKSPACE/storage/logs/base-junit.xml" || true
+          #
+          # THE FALLBACK IS A REAL RECURSIVE COPY AND NEVER A SYMLINK. It keeps the property that
+          # matters -- $baseDir is the worktree, and the base revision's own composer.json and
+          # composer.lock sit beside the vendor tree it uses -- and pays disk and time for it.
+          # WHAT IT COSTS, measured in the dev container on a --prefer-dist-equivalent vendor tree
+          # of 1.4 GB / 48,577 files: `cp -a` took 8.6s and 1.4 GB of extra disk, against `cp -al`
+          # at 0.85s and no extra blocks at all. It is paid only when the two paths really are on
+          # different filesystems.
+          DST_DEV="$(stat -c %d "$BASE_DIR")"
+          echo "vendor source: ${SRC_VENDOR} (device ${SRC_DEV})"
+          echo "base worktree: ${BASE_DIR} (device ${DST_DEV})"
+          rm -rf "$BASE_DIR/vendor"
+          if [ "$SRC_DEV" = "$DST_DEV" ]; then
+            VENDOR_MODE="hard links"
+            if ! cp -al "$SRC_VENDOR" "$BASE_DIR/vendor"; then
+              echo "::error::cp -al failed although ${SRC_VENDOR} and ${BASE_DIR} are both on device ${SRC_DEV} -- read the cp errors above. Falling back to a real copy so the baseline is still produced."
+              rm -rf "$BASE_DIR/vendor"
+              cp -a "$SRC_VENDOR" "$BASE_DIR/vendor"
+              VENDOR_MODE="real copy (after an unexpected hard-link failure)"
+            fi
+          else
+            echo "::warning::${SRC_VENDOR} (device ${SRC_DEV}) and ${BASE_DIR} (device ${DST_DEV}) are on different filesystems, so hard links are impossible (EXDEV). Copying vendor/ instead -- correct, but it costs disk and one file-copy pass."
+            cp -a "$SRC_VENDOR" "$BASE_DIR/vendor"
+            VENDOR_MODE="real copy (cross-device)"
+          fi
+          [ -f "$BASE_DIR/vendor/autoload.php" ] || {
+            echo "${BASE_DIR}/vendor/autoload.php is missing after '${VENDOR_MODE}'"; exit 1; }
+          if [ "$VENDOR_MODE" = "hard links" ] \
+             && [ "$(stat -c %i "$SRC_VENDOR/autoload.php")" != "$(stat -c %i "$BASE_DIR/vendor/autoload.php")" ]; then
+            echo "::error::cp -al reported success but ${BASE_DIR}/vendor/autoload.php is a different inode from ${SRC_VENDOR}/autoload.php, so it is not a hard link. Re-doing it as a real copy."
+            rm -rf "$BASE_DIR/vendor"
+            cp -a "$SRC_VENDOR" "$BASE_DIR/vendor"
+            VENDOR_MODE="real copy (hard links did not stick)"
+          fi
+          echo "base worktree vendor/ materialised by: ${VENDOR_MODE}"
+
+          # THE ASSERTION THAT MAKES THE BASELINE TRUSTWORTHY -- parameterised on the chosen path,
+          # and now also asserting the negative: the file must come from the base worktree AND
+          # must not come from the HEAD checkout.
+          BASE_DIR="$BASE_DIR" WS="$WS" php -r '
+              $root = rtrim((string) getenv("BASE_DIR"), "/") . "/";
+              $head = rtrim((string) getenv("WS"), "/") . "/";
+              require $root . "vendor/autoload.php";
+              $f = (new ReflectionClass("App\\Models\\Order"))->getFileName();
+              if ($f === false || !str_starts_with($f, $root) || str_starts_with($f, $head)) {
+                  fwrite(STDERR, "base worktree is loading " . var_export($f, true)
+                      . " -- it must come from " . $root . " and never from the HEAD checkout "
+                      . $head . " -- aborting\n");
+                  exit(1);
+              }
+              echo "base autoload verified: $f\n";'
+          mkdir -p "$BASE_DIR"/storage/logs "$BASE_DIR"/storage/framework/{cache,sessions,views} "$BASE_DIR"/bootstrap/cache
+          touch "$BASE_DIR/storage/installed"
+          cd "$BASE_DIR"
+          vendor/bin/phpunit --testsuite Feature --log-junit "${GITHUB_WORKSPACE:-$WS}/storage/logs/base-junit.xml" || true
 
       - name: Compare failing test identities
         run: |
