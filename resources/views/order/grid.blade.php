@@ -121,14 +121,42 @@
                             @endif
                         </span>
                         <br>
-                        <span class="text-dark text-md"><b>{{__('Price')}} : </b>
-                        
-                        
-{{ order_currency_format_with_sym(($order->final_price ?? 0), $order->id) ?? SetNumberFormat($order->final_price) }}                        
-                        
-                        
-                        
-                        
+                        {{-- P2.5-DESIGN-C. THE `<span>` THAT STOOD HERE WAS NEVER CLOSED, and the
+                             previous slice had to design around it rather than fix it: the status
+                             badge is placed as the first child of `.user-img-wrp` precisely because
+                             anything after this span is auto-closed INSIDE it by the parser and
+                             inherits the dark-mode colour override on `.text-dark`.
+                             CONFIRMED IN THE RAW SERVER BYTES, not only in the source: the HTTP
+                             response for a card ends `$10.00` and then `</div>` with no `</span>`
+                             between them. Chromium recovers, so the DOM is not mis-nested -- which
+                             is exactly why it survived. It is closed now, and the badge's placement
+                             keeps its own reason (it reads first, before the customer).
+
+                             THE MONEY IS A FIGURE, NOT A SENTENCE. `Price : $10.00` was a label,
+                             a colon and a value in one body-text run. `.ss-num` is the design
+                             system's tabular-figure treatment -- equal-width digits so a column of
+                             cards aligns, and `unicode-bidi: isolate` so the figure stays one
+                             left-to-right run inside an Arabic line. The LIST has the same defect
+                             (OrderDataTable renders `final_price` as bare text with no wrapper and
+                             no class); this fixes the grid, and the list is recorded as its own
+                             slice rather than widened into here. --}}
+                        <span class="text-dark text-md ss-order-card__money">
+                            <b>{{ __('Price') }} : </b>
+                            <span class="ss-num">{{ order_currency_format_with_sym(($order->final_price ?? 0), $order->id) ?? SetNumberFormat($order->final_price) }}</span>
+                        </span>
+                        <br>
+                        {{-- THE DATE, which this card did not show at all. Both siblings do: the
+                             LIST has a `Date` column (`OrderDataTable::getColumns()`, rendered by
+                             `self::dateOrDash($item->order_date)`) and the board card carries one.
+                             An order grid with no date cannot be scanned.
+                             `dateOrDash()` IS THE EXISTING HELPER AND IS REUSED RATHER THAN
+                             REIMPLEMENTED: it renders a bare `-` for a missing date instead of the
+                             epoch, which is F19 -- a defect this project has already fixed once and
+                             must not reintroduce on a second screen. --}}
+                        <span class="text-dark text-md ss-order-card__date">
+                            <b>{{ __('Date') }} : </b>
+                            <span class="ss-num">{{ \App\DataTables\OrderDataTable::dateOrDash($order->order_date) }}</span>
+                        </span>
                     </div>
                 </div>
             </div>
