@@ -83,8 +83,8 @@ $admin = getAdminAllSetting();
             </div>
             <div class="card-body p-3">
                 <div class="row g-2 justify-content-between">
-                    <div class="col-auto"><span
-                            class="badge rounded-pill bg-success">{{ !empty($product->ProductData) ? $product->ProductData->name : '-' }}</span>
+                    <div class="col-auto"><x-ss.chip :interactive="false"
+                            :label="!empty($product->ProductData) ? $product->ProductData->name : '-'" />
                     </div>
                 </div>
                 <div class="card mb-0 mt-3">
@@ -114,17 +114,17 @@ $admin = getAdminAllSetting();
                                 <h6>
                                     @if ($product->track_stock == 0)
                                     @if ($product->stock_status == 'out_of_stock')
-                                    <span class="badge rounded-pill bg-danger">{{ __('Out of stock') }}</span>
+                                    <x-ss.status-badge tone="danger" :label="__('Out of stock')" />
                                     @elseif($product->stock_status == 'on_backorder')
-                                    <span class="badge rounded-pill bg-warning">{{__('On Backorder') }}</span>
+                                    <x-ss.status-badge tone="warning" :label="__('On Backorder')" />
                                     @else
-                                    <span class="badge rounded-pill bg-primary">{{ __('In stock') }}</span>
+                                    <x-ss.status-badge tone="success" :label="__('In stock')" />
                                     @endif
                                     @else
                                     @if ($product->product_stock <= (isset($settings['out_of_stock_threshold']) ? $settings['out_of_stock_threshold'] : 0))
-                                        <span class="badge rounded-pill bg-danger">{{ __('Out of stock') }}</span>
+                                        <x-ss.status-badge tone="danger" :label="__('Out of stock')" />
                                         @else
-                                        <span class="badge rounded-pill bg-primary">{{ __('In stock') }}</span>
+                                        <x-ss.status-badge tone="success" :label="__('In stock')" />
                                         @endif
                                         @endif
                                 </h6>
