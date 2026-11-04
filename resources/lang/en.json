@@ -3341,5 +3341,7 @@
     "Your account": "Your account",
     "Select store": "Select store",
     "Average order value": "Average order value",
-    "Average order value, before discounts": "Average order value, before discounts"
+    "Average order value, before discounts": "Average order value, before discounts",
+    "Actions for :name": "Actions for :name",
+    "Profile photo of :name": "Profile photo of :name"
 }
