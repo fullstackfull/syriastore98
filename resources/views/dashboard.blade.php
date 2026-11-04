@@ -714,7 +714,53 @@
                         $('#loader').fadeOut();
                     },
                     error: function (xhr, status, error) {
-                        // Handle error
+                        {{-- bysales-ajax-loader-stuck. The overlay is raised on every tab change
+                             but used to be released ONLY from success:, so any non-2xx or network
+                             failure stranded #loader — position:fixed, z-index:9999999, no
+                             pointer-events escape and no dismiss control (public/css/loader.css)
+                             — over a dashboard the merchant could no longer click.
+
+                             An ABORT is not a failure: it is the merchant navigating away, and
+                             public/js/loader.js raises the same overlay on beforeunload, so
+                             releasing it here would tear down the navigation scrim and park a red
+                             alert on a page that is leaving. 'error', 'timeout' and 'parsererror'
+                             fall through, which is the point of this handler.
+
+                             Wording is status-aware and reuses the three keys already translated
+                             in BOTH resources/lang/en.json and ar.json, matching the house
+                             precedent in resources/views/order/index.blade.php. No bespoke string:
+                             __() falls back to the key, and this view is scanned by no
+                             ArabicUiCoverageTest::SURFACES glob, so an untranslated sentence here
+                             would be announced in English by role="alert" to an Arabic
+                             screen-reader user and nothing in CI would notice (F259).
+
+                             xhr.responseJSON.message is deliberately NOT passed through: the
+                             precedent feeds it to a transient toast, whereas this alert persists
+                             in the card, and on 419 Laravel's body is "CSRF token mismatch.".
+
+                             Contrast measured with the WCAG 2.x formula, not assumed:
+                             --ss-danger-fg on --ss-danger-bg is #8c1d17 on #fdeeee = 8.09:1 light
+                             and #f3a9a4 on #2c1413 = 9.06:1 dark. Both clear AA and AAA, in both
+                             directions. .ss-alert__body is what escapes the host dark sheets'
+                             p:not([class^="ss-"]) { color:#808191 !important }, and
+                             .ss-alert__content carries min-width:0 so a long Arabic sentence
+                             cannot overflow the flex line. --}}
+                        if (status === 'abort') {
+                            return;
+                        }
+                        $('#loader').fadeOut();
+                        var message = (xhr.status === 403)
+                            ? @json(__('You are not allowed to do this.'))
+                            : ((xhr.status === 419 || xhr.status === 401)
+                                ? @json(__('Your session has expired. Please reload the page.'))
+                                : @json(__('Something went wrong. Please try again.')));
+                        $('#' + type + '-tab-data')
+                            .empty()
+                            .append($('<div/>', {
+                                'class': 'ss-alert ss-alert--danger',
+                                role: 'alert'
+                            }).append($('<div/>', { 'class': 'ss-alert__content' })
+                                .append($('<p/>', { 'class': 'ss-alert__body' }).text(message))));
                         console.error(error);
                     }
                 });
