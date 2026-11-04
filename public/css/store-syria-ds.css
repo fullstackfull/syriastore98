@@ -1809,18 +1809,37 @@
 
    Every cell states its own period (.ss-stat__period). A count with no period
    is the commonest way a dashboard misleads, so the period is part of the
-   component rather than something a page remembers to add. */
+   component rather than something a page remembers to add.
+
+   P2.5-DESIGN-D. THE HAIRLINES WERE INVISIBLE, SO THE DESIGN ABOVE WAS NOT THE
+   ONE BEING DELIVERED. `--ss-border` is the token for a line ON a card -- the
+   dashboard's stat grid sits on the PAGE, which is a different surface, and
+   the same colour measured 1.28:1 there in light and 1.38:1 in dark. At that
+   ratio the rules are not a quiet structure, they are nothing, and the four
+   figures read as text floating on the page. (The text itself was never the
+   problem: label 6.14 / value 16.15 / period 6.14 in light, 6.72 / 12.84 /
+   6.72 in dark -- all measured against the real PAINTED background, which is
+   the correction that produced this finding. My first pass read
+   `.dash-content`'s computed background, which is `rgba(0,0,0,0)`, and so
+   compared every colour against BLACK; it reported the light-mode value at
+   1.24:1 and would have sent me to fix text that was already fine.)
+
+   `--ss-border-strong` IS AN EXISTING TOKEN, NOT A NEW VALUE, and it is scoped
+   to this component rather than raised globally: a card's own border at this
+   strength would be loud, and `--ss-border` is correct there. This is the one
+   component whose rules carry the whole structure, because it deliberately has
+   no box. Driven by StatGridHairlineContrastTest. */
 .ss-stats {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
     gap: 0;
     margin-block: var(--ss-space-5);
-    border-block-start: 1px solid var(--ss-border);
+    border-block-start: 1px solid var(--ss-border-strong);
 }
 .ss-stat {
     padding: var(--ss-space-4) var(--ss-space-5);
-    border-block-end: 1px solid var(--ss-border);
-    border-inline-end: 1px solid var(--ss-border);
+    border-block-end: 1px solid var(--ss-border-strong);
+    border-inline-end: 1px solid var(--ss-border-strong);
     min-width: 0;
 }
 /* The inline-end hairline would double up against the page edge; logical
