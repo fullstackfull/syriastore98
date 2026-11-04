@@ -1242,3 +1242,76 @@ partial, and both are listed there as still open. The schedule is in
 Still outstanding and **not** waived: the Phase 01 release gates in
 `docs/development/phase-1/PHASE-01-CLOSURE-EXECUTION.md`, and security incident P1-SEC-40 (#120),
 which no UI work in this phase remediates.
+
+---
+
+# 4. PREMIUM DESIGN — the four packages shipped on 2026-11-04
+
+The owner's correction of 2026-11-04 required, per work package: *which design skills were applied,
+which principles influenced the implementation, which files and screens changed, actual
+before/after screenshots, and verification results.* That is this section. **It is a record of what
+shipped, not a claim that the Premium Merchant Experience objective is met** — §4.5 lists what has
+not been touched.
+
+Each package has its own evidence folder with the measurements and the screenshots; this table is
+the index, not a replacement for them.
+
+## 4.1 P2.5-TYPE — typography (`81a11798`, `a409b211`)
+
+| | |
+|---|---|
+| **Skills** | `frontend-design` (rejected three of four `ui-ux-pro-max` recommendations rather than adopting a generated palette); `ui-ux-pro-max` (CLI run; **rejected** its slate+green palette as colliding with D-41's blue/cyan, Glassmorphism as `accessibility risk: conditional` by its own output, and Fira Code headings as having **no Arabic coverage**; **kept** dashboard density, subtle motion, status-colour discipline, tabular figures); `design-system` (three-layer token discipline); `ui-styling` (theming and dark-mode only — its shadcn + Tailwind component library does not transfer to Blade + vendored Bootstrap) |
+| **Principle that decided it** | *one family, both scripts, equal-width digits by default.* IBM Plex Sans Arabic over Noto Sans Arabic + Inter, which is **42 KB cheaper** and was still rejected: Inter needs `tabular-nums` applied by hand, and this admin is money columns, order ids and stock counts |
+| **Files** | `public/css/store-syria-ds.css`; `public/fonts/store-syria/` (8 woff2, 257,368 B, OFL preserved byte-identical); the Google `@import` removed from four `public/assets/css/*.css` |
+| **Before** | Latin delivered by a **runtime Google Fonts `@import`** (5 external requests/page); **Arabic not delivered at all** — 279.8px against 279.0px for a deliberately bogus family, i.e. 0.3% apart |
+| **After** | external Google requests **NONE** on the admin; Arabic **9.1%** from no-font; digit-width spread **0** |
+| **Evidence** | `docs/design-system/TYPOGRAPHY-DECISION.md`, `docs/design-system/evidence/typography-2026-11-04/` — 52 before/after pairs, **all changed**, mean 13.92% |
+| **Correction it carries** | I reported "the admin loads no webfont at all". False — a vendored `@import` existed. And "external Google requests: NONE" was scoped to the **admin** without my saying so; eight views still fetch fonts at runtime |
+
+## 4.2 P2.5-DESIGN-B — the merchant shell (`d9b67341`, `589b729a`, `c3f90298`)
+
+| | |
+|---|---|
+| **Skills** | `ui-ux-pro-max` **priority order chose the work** — #1 Accessibility produced the named brand link and the focus ring the host never gave the first control in the tab order, #3 Performance replaced `time()` cache-busting with an mtime key, #5 Layout made the board's page overflow a defect rather than a quirk; `frontend-design`'s *"spend your boldness in one place"* kept the lockup the single bold element — and rejected a hand-drawn SVG mark in favour of the real artwork, because the brief says *the actual* identity |
+| **Files** | `public/assets/images/brand/` (6 assets from the owner's reference); `resources/views/partision/sidebar.blade.php`; `resources/views/layouts/guest.blade.php`; `resources/views/layouts/app.blade.php`; `public/css/store-syria-ds.css` |
+| **Before** | brand block **404, `naturalWidth 0`, a 0×0 box on every screen**; the login page had **no design system, no Arabic typeface, a broken logo, a `fonts.bunny.net` request, an empty `dir`, no `data-ss-theme`, and "Laravel" in the tab**; the order board pushed the document **+295px** sideways in both directions |
+| **After** | 32 of 32 admin pairs changed, mean 3.31%; login verified through **its own controls** in four genuinely different states, external requests NONE, no 4xx/5xx; `scrollWidth == viewport` on four screens |
+| **Evidence** | `docs/design-system/evidence/design-b-2026-11-04/` |
+| **What it also fixed** | **a regression I had shipped**: P2.5-TYPE spliced the `@font-face` block *inside* the stylesheet's opening comment, so every primitive colour token was **undefined in the browser on every page** for about an hour across seven commits — and because CI runs `Unit suite -- BLOCKING` first, **CI ran no Feature suite at all** in that window |
+
+## 4.3 P2.5-DESIGN-C — the order grid card (`4b89e9b8`)
+
+| | |
+|---|---|
+| **Principle** | *a card's subject should be the thing it is a card of.* Only half-delivered — see below |
+| **Files** | `resources/views/order/grid.blade.php`; `app/DataTables/OrderDataTable.php` (`dateOrDash()` made public) |
+| **Before** | **no date at all**, while both siblings show one; the price `<span>` **never closed** (confirmed in the raw server bytes); the money a text run with no wrapper and no class |
+| **After** | three properly-closed sibling spans; `.ss-num` tabular money; `Nov 4, 2026`; 21–28% of pixels changed in four combinations |
+| **Tests** | 11 new; **the bite reddens 6 of 11** |
+| **Honest limit** | **This is not the premium restructure.** The customer is still the title, the reference is still a filled button in the footer, and three fields the list shows are absent. **Fifteen test files pin this view's literal markup** — the map of every one, and what each costs to change, is the most useful thing the slice produced |
+| **Evidence** | `docs/design-system/evidence/design-c-2026-11-04/` |
+
+## 4.4 P2.5-DESIGN-D — the dashboard stat grid (`c2af6e12`)
+
+| | |
+|---|---|
+| **Principle** | *a stated design that is not visible is not the design being delivered* |
+| **Files** | `public/css/store-syria-ds.css` (scoped to `.ss-stats` / `.ss-stat`) |
+| **Before** | the hairlines that replace a card measured **1.28:1** light, **1.38:1** dark — invisible, so four figures read as text floating on the page |
+| **After** | **3.23:1 / 4.00:1**, clearing WCAG 1.4.11; `--ss-border-strong` is an **existing** token and the card is asserted **unchanged** |
+| **Tests** | 7, 46 assertions; **the bite reddens 3 of 7** after the contrast cases were rewritten to read the token the component actually declares |
+| **Evidence** | `docs/design-system/evidence/design-d-2026-11-04/` |
+
+## 4.5 What the Premium Design objective still does NOT cover
+
+Named in the owner's brief and **untouched**: **products**, **customers**, **finances**,
+**settings**, and the **Flutter** merchant application's visual pass. **Reports** has had only its
+money figures corrected (D-42.3) — and see `F-DESIGN-6`: its screens cannot be behaviourally tested
+in this suite at all.
+
+Partially covered: **orders** (the grid card's correctness half only; the board's overflow) and
+**dashboard** (the stat grid only — the sidebar's five group labels, four of which head a single
+item, are untouched, and so is the order-status chip row).
+
+**No work package in this section was visually verified on a device**, only in headless Chromium at
+1440×900 on one machine. No Arabic native-reader review has taken place.
