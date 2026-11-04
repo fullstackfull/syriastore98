@@ -466,6 +466,38 @@ excluding `docs/` is empty, and the two suites that read a doc
 
 ---
 
+## 3d. What a container restart cost, and the one line that prevents the next one
+
+The container was restarted mid-phase. **Everything that mattered survived** — both working trees
+clean at their pushed commits, the 8.8 GB vendor directory, the sqlite fixture, the Flutter SDK,
+every workflow journal including 63 cached agent results from a run that was killed at 73 of 110.
+The run was resumed from those by run id rather than re-paid for.
+
+**What did not survive was the dev server, and restarting it took four attempts** — each failure
+worth recording because none of them was in the repository:
+
+| attempt | what happened |
+|---|---|
+| 1 | backgrounded with the env passed inline. The process existed and never bound. |
+| 2 | `pkill -f "artisan serve"` **matched its own command line** and killed the shell running it. The same self-match trap that produced two wrong progress reports earlier in this phase; `ps -eo pid,args \| awk '$2=="php"'` avoids it. |
+| 3 | bound the port, then answered **500 on every route**. `/proc/<pid>/environ` showed the inline variables had not reached the process at all. |
+| 4 | with the env really set: still 500 — `no such table: sessions`. |
+
+That last one is the finding. **`.env` sets `SESSION_DRIVER=database`, and the p2dev fixture has
+133 tables of which `sessions` is not one**; no migration under `database/migrations/` creates it.
+Without `SESSION_DRIVER=file` every route 500s *including `/login`*, so the failure reads as a
+broken application rather than a missing dev setting.
+
+The pre-restart server had evidently been started that way and **nobody wrote it down**, so
+`docs/development/phase-2.5/tools/serve-dev.sh` now does, with each of the three variables carrying
+the reason it is there — including that `CACHE_STORE` must match what the harness scripts pass, or
+the Phase 02 §4 defect ("my own dark-mode screenshots were not dark") reproduces immediately.
+
+Verified end to end after committing it: `render-matrix.cjs` over `/dashboard` and `/order-grid`,
+**8 rows, 0 not clean**, premises passing in both directions and both themes.
+
+---
+
 ## 4. Not yet started
 
 Wave B beyond the dashboard card, Wave C (remaining merchant screens), the rest of Wave D, and
