@@ -2116,7 +2116,28 @@
     inset-block-start: 0.1875rem;
     inset-inline-start: 0.1875rem;
     width: 1.125rem; height: 1.125rem;
-    background: var(--ss-grey-0);
+    /* MEASURED, and the one value in this component that had to move. The knob's position is the
+       ONLY channel carrying the control's state (it is enclosed by the track in both states:
+       0.1875 + 1.125 + 0.1875 = 1.5rem and 1.1875 + 1.125 + 0.1875 = 2.5rem), so WCAG 2.1 1.4.11
+       asks 3:1 against the track it sits on. This was `var(--ss-grey-0)` — a layer-1 primitive
+       declared once as #ffffff and re-themed nowhere — which measured 2.09:1 against the dark ON
+       track (--ss-brand = --ss-cyan-500 #2ac3e5). A LIGHT KNOB IS ARITHMETICALLY IMPOSSIBLE THERE:
+       #2ac3e5 has L = 0.4518, so 3:1 demands L <= 0.0837, and white is the lightest colour there
+       is. Darkening the ON track instead is not available — that is the brand fill on 29 controls.
+       --ss-fg-onfill is the semantically exact token ("the thing that sits on a fill") and keeps
+       light byte-identical, since in light it IS var(--ss-grey-0) #ffffff:
+         light #ffffff on ON #335da8 6.42:1, on OFF --ss-grey-400 #888c93 3.38:1 (both unchanged);
+         dark  #0b121f on ON #2ac3e5 8.96:1, on OFF #888c93 5.55:1, vs the card #262b33 1.32:1.
+       NOT --ss-surface: in dark that is #262b33, the card's own hex, so the knob would be 1.00:1
+       against the card and would cease to be a shape under the :disabled group opacity below. And
+       --ss-surface is one of the eight tokens .dash-sidebar re-points in custom.css /
+       rtl-custom.css inside @media (max-width: 1024px) — a WIDTH gate, not a theme gate — where
+       --ss-brand is NOT re-pointed, so a knob reading it would be #263331 on the LIGHT brand
+       #335da8 = 2.04:1, worse than the defect. --ss-fg-onfill is absent from that set.
+       The OFF track above deliberately keeps var(--ss-grey-400): swapping it to
+       --ss-border-strong would drop dark OFF-track-against-card from 4.21:1 to 3.68:1 for nothing.
+       tests/Unit/Ui/SwitchKnobContrastTest.php computes every figure above from this sheet. */
+    background: var(--ss-fg-onfill);
     border-radius: var(--ss-radius-pill);
     transition: inset-inline-start var(--ss-duration-fast) var(--ss-ease);
 }
