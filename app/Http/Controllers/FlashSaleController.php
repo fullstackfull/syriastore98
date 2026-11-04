@@ -167,7 +167,7 @@ class FlashSaleController extends Controller
                 if ($validator->fails()) {
                     $messages = $validator->getMessageBag();
 
-                    return redirect()->back()->with('error', $messages->first());
+                    return redirect()->back()->with('error', implode(' ', $messages->all()));
                 }
             }
             $validator = \Validator::make(
@@ -180,7 +180,7 @@ class FlashSaleController extends Controller
             if ($validator->fails()) {
                 $messages = $validator->getMessageBag();
 
-                return redirect()->back()->with('error', $messages->first());
+                return redirect()->back()->with('error', implode(' ', $messages->all()));
             }
 
             $flashsale = new FlashSale();
@@ -409,7 +409,7 @@ class FlashSaleController extends Controller
                 if ($validator->fails()) {
                     $messages = $validator->getMessageBag();
 
-                    return redirect()->back()->with('error', $messages->first());
+                    return redirect()->back()->with('error', implode(' ', $messages->all()));
                 }
             }
             $validator = \Validator::make(
@@ -422,7 +422,7 @@ class FlashSaleController extends Controller
             if ($validator->fails()) {
                 $messages = $validator->getMessageBag();
 
-                return redirect()->back()->with('error', $messages->first());
+                return redirect()->back()->with('error', implode(' ', $messages->all()));
             }
             $flashsale = FlashSale::find($flashSale->id);
             $flashsale->name = $request->name;

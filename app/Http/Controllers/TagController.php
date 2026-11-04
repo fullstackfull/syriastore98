@@ -42,7 +42,7 @@ class TagController extends Controller
             if($validator->fails())
             {
                 $messages = $validator->getMessageBag();
-                return redirect()->back()->with('error', $messages->first());
+                return redirect()->back()->with('error', implode(' ', $messages->all()));
             }
             $slug = Tag::slugs($request->name);
             $tag = new Tag();
@@ -93,7 +93,7 @@ class TagController extends Controller
             if($validator->fails())
             {
                 $messages = $validator->getMessageBag();
-                return redirect()->back()->with('error', $messages->first());
+                return redirect()->back()->with('error', implode(' ', $messages->all()));
             }
             $tag->name  = $request->name;
             $tag->save();

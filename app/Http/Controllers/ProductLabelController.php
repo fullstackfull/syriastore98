@@ -43,7 +43,7 @@ class ProductLabelController extends Controller
             if($validator->fails())
             {
                 $messages = $validator->getMessageBag();
-                return redirect()->back()->with('error', $messages->first());
+                return redirect()->back()->with('error', implode(' ', $messages->all()));
             }
             $slug = ProductLabel::slugs($request->name);
 
@@ -93,7 +93,7 @@ class ProductLabelController extends Controller
             if($validator->fails())
             {
                 $messages = $validator->getMessageBag();
-                return redirect()->back()->with('error', $messages->first());
+                return redirect()->back()->with('error', implode(' ', $messages->all()));
             }
 
 

@@ -45,7 +45,7 @@ class ProductBrandController extends Controller
             if($validator->fails())
             {
                 $messages = $validator->getMessageBag();
-                return redirect()->back()->with('error', $messages->first());
+                return redirect()->back()->with('error', implode(' ', $messages->all()));
             }
             $slug = ProductBrand::slugs($request->name);
 
@@ -120,7 +120,7 @@ class ProductBrandController extends Controller
             if($validator->fails())
             {
                 $messages = $validator->getMessageBag();
-                return redirect()->back()->with('error', $messages->first());
+                return redirect()->back()->with('error', implode(' ', $messages->all()));
             }
 
             $url = null;
