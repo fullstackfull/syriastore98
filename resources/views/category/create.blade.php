@@ -82,7 +82,7 @@
                 <div class="image-upload bg-primary pointer w-100 logo_update"> <i
                         class="ti ti-upload px-1"></i>{{ __('Choose File Here') }}
                 </div>
-                <input type="file" class="form-control file d-none"
+                <input type="file" class="form-control file ss-visually-hidden"
                     name="image" id="upload_image"
                     data-filename="logo_update"
                     onchange="document.getElementById('categoryImage').src = window.URL.createObjectURL(this.files[0])">
@@ -103,7 +103,7 @@
                 <div class="image-upload bg-primary pointer w-100 logo_update"> <i
                         class="ti ti-upload px-1"></i>{{ __('Choose File Here') }}
                 </div>
-                <input type="file" class="form-control file d-none"
+                <input type="file" class="form-control file ss-visually-hidden"
                     name="icon_image" id="upload_icon_image"
                     data-filename="logo_update"
                     onchange="document.getElementById('categoryIcon').src = window.URL.createObjectURL(this.files[0])">

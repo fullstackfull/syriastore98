@@ -2,7 +2,7 @@
 {{Form::model($faq, array('route' => array('faqs.update', $faq->id), 'method' => 'PUT', 'enctype' => 'multipart/form-data')) }}
 <div id="kt_docs_repeater_basic" >
     <div class="form-group col-md-12">
-        {!! Form::label('', __('Topic'), ['class' => 'form-label']) !!}
+        {!! Form::label('topic', __('Topic'), ['class' => 'form-label']) !!}
         {!! Form::text('topic', null, ['class' => 'form-control']) !!}
     </div>
     <!--begin::Form group-->
@@ -13,12 +13,22 @@
                 <div data-repeater-item>
                     <div class="form-group row">
                         <div class="col-md-12">
-                            {!! Form::label('', __('Question'), ['class' => 'form-label']) !!}
-                            {!! Form::text('question', $item['question'], ['class' => 'form-control']) !!}
+                            {{-- NO id-BASED ASSOCIATION IS POSSIBLE INSIDE THE REPEATER.
+                                 public/js/repeater.js rewrites only `name` and contains no
+                                 `attr('id')` handling at all, so any id inside
+                                 `data-repeater-item` duplicates once per FAQ item at render and
+                                 again per clone at runtime -- `id="answer"` already did. A caption
+                                 <span> plus `aria-label` on the control needs no id, is carried by
+                                 every clone and collides with nothing. `d-block` on the span
+                                 because `.form-label`'s `margin-bottom` only applies to a
+                                 non-inline box, and the caption was a <label>
+                                 (`label { display: inline-block }`, style.css:445) until now. --}}
+                            <span class="form-label d-block">{{ __('Question') }}</span>
+                            {!! Form::text('question', $item['question'], ['class' => 'form-control', 'aria-label' => __('Question')]) !!}
                         </div>
                         <div class="col-md-12 mt-2">
-                            {!! Form::label('', __('Answer'), ['class' => 'form-label']) !!}
-                            {!! Form::textarea('answer', $item['answer'], ['id' => 'answer', 'rows' => 4, 'class'=>'form-control']) !!}
+                            <span class="form-label d-block">{{ __('Answer') }}</span>
+                            {!! Form::textarea('answer', $item['answer'], ['rows' => 4, 'class'=>'form-control', 'aria-label' => __('Answer')]) !!}
 
                         </div>
                         <div class="col-md-4">
@@ -33,12 +43,14 @@
             <div data-repeater-item>
                 <div class="form-group row">
                     <div class="col-md-12">
-                        {!! Form::label('', __('Question'), ['class' => 'form-label']) !!}
-                        {!! Form::text('question', null, ['class' => 'form-control']) !!}
+                        {{-- The @else branch — same shape as the @foreach above, and it has to be
+                             done too: only one branch runs per request. --}}
+                        <span class="form-label d-block">{{ __('Question') }}</span>
+                        {!! Form::text('question', null, ['class' => 'form-control', 'aria-label' => __('Question')]) !!}
                     </div>
                     <div class="col-md-12">
-                        {!! Form::label('', __('Answer'), ['class' => 'form-label']) !!}
-                        {!! Form::textarea('answer', null, ['id' => 'answer', 'rows' => 4, 'class'=>'form-control']) !!}
+                        <span class="form-label d-block">{{ __('Answer') }}</span>
+                        {!! Form::textarea('answer', null, ['rows' => 4, 'class'=>'form-control', 'aria-label' => __('Answer')]) !!}
 
                     </div>
                     <div class="col-md-4">

@@ -47,7 +47,7 @@
         <label for="upload_cover_image" class="image-upload bg-primary pointer w-100">
             <i class="px-1 ti ti-upload"></i> {{ __('Choose File Here') }}
         </label>
-        <input type="file" name="cover_image" id="upload_cover_image" class="d-none">
+        <input type="file" name="cover_image" id="upload_cover_image" class="ss-visually-hidden">
     </div>
 </div>
 
