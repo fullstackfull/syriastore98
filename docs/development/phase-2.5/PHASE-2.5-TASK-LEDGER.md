@@ -708,6 +708,63 @@ strict enough to catch a comment is a ratchet doing its job, and the note now sa
 
 ---
 
+## 3j. A correction to my own commit message, and one owner decision inside it (2026-11-04)
+
+Commit `54060d8e` says of the customer orders export: *"Both now use the copy that has been
+sitting in `public/js/jquery.table2excel.js` all along -- which is what `customer/grid.blade.php`
+and `customer/index.blade.php` already do, so this makes the four consistent rather than
+introducing anything."*
+
+**That is wrong in three ways**, and the commit is pushed, so it is corrected here rather than
+rewritten.
+
+1. **`customer/view.blade.php` did not get repointed. Its export control was REMOVED** -- the
+   `.csv` anchor and the whole `@push` block. The repair is a **deferral**, not a fix, and the
+   file says so in a comment I did not read closely enough before describing it.
+2. **The reason is not a dead CDN.** `#pc-dt-export` does resolve on that page, so the one-line
+   swap would have "worked". But `public/js/custom.js:12-15` builds a `simpleDatatables.DataTable`
+   on every `.dataTable` and discards the handle, `perPage` is 10, and `paginate()` empties the
+   tbody down to the visible page. So a working plugin would have exported **10 of N orders**,
+   named `Order_<n>.xlsx`, with nothing to say it was truncated. A silently truncated orders
+   export is worse than a visibly broken button. Exporting the whole list needs a server-side
+   route and belongs to Phase 04.
+3. **"Makes the four consistent" is false in both directions.** `customer/grid.blade.php` and
+   `customer/index.blade.php` contain **zero `<table>`** and zero `#pc-dt-export` while still
+   loading `table2excel` -- so their script tags are inert too. There was no consistent set of
+   four to join.
+
+I also nearly "corrected" the agent in the wrong direction: reading its comment quickly, I
+concluded it had the two files backwards, because the sentence naming `#woocom-customer-table` is
+about the WooCommerce **twin**, not about the file it sits in. It had both right. The measurement
+settled it, as it should.
+
+### THE OWNER DECISION, surfaced rather than shipped quietly
+
+**Removing the export anchor withdraws a merchant-facing capability.** This project has already
+recorded the governing principle, in `_variant-delete-dialog.blade.php`: *"the owner's condition
+is that a deletion be confirmed, not that a capability be withdrawn, and removing a control a
+merchant may be using is a product decision."* By that precedent this needed asking, and it
+shipped without being asked.
+
+The case for keeping it removed is strong -- the control was **actively destructive**
+(`$('.ignore').remove()` ran first, the throw killed the `reload()` that would have restored the
+Action column, so one click emptied every row's actions until a manual reload) and **no variant of
+it is correct** without a server-side route. But "strong case" is not the same as "mine to
+decide."
+
+**Three options, for the owner:**
+
+| | |
+|---|---|
+| **A. Keep it removed** (current state) | honest: no button, no truncated file, no destroyed column. The merchant loses an export they never actually had. |
+| **B. Restore the button, fix the order of operations** | export the visible 10 rows, labelled as the current page, with the `.ignore` removal moved after the call or replaced by a CSS-hidden clone. Small, honest, and limited. |
+| **C. Server-side export route** | the whole list, correct file type, permission-checked and tenant-scoped. This is the real feature and it is Phase 04 scope. |
+
+Pending that answer the state stays **A**, because it is the only one of the three that is not
+actively wrong today.
+
+---
+
 ## 4. Not yet started
 
 Wave C (remaining merchant screens), the rest of Wave D, and Wave E (cross-platform quality). The
