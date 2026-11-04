@@ -2198,6 +2198,58 @@
    the DS foreground and the DS weight rather than a heading utility. */
 .ss-text-strong { color: var(--ss-fg); font-weight: var(--ss-weight-medium); }
 
+/* P2.5-MONEY. A SIGNED MONEY FIGURE IN A LEDGER.
+   ------------------------------------------------------------------------------------------------
+   The merchant finance screen painted every amount with the host's `.text-success` /
+   `.text-danger` utilities. Measured on the surfaces those figures are really drawn on:
+
+       .text-success  #6FD943   1.80:1 on a white row      7.93:1 on the host dark card
+       .text-danger   #FF0000   4.00:1 on a white row      3.56:1 on the host dark card
+
+   1.80:1 is below even the 3:1 floor WCAG allows for non-text: the Credit column of a financial
+   ledger rendered as a row with no readable number in it.
+
+   TWO THINGS ABOUT THOSE NUMBERS ARE EASY TO GET WRONG, so they are written here rather than
+   rediscovered. `--bs-success-rgb: 111, 217, 67` is IDENTICAL in all four host sheets (style.css,
+   style-dark.css, style-rtl.css, rtl-style-dark.css, each at :51), so the success defect is
+   LIGHT-MODE ONLY -- a single hard-coded replacement colour would have regressed dark mode from
+   7.93:1. And the danger colour that renders is not the theme's #FF3A6E but plain `red`, because
+   `public/css/custom.css:195` and `rtl-custom.css:195` declare `.text-danger { color: red
+   !important }` and the layout loads custom.css after #main-style-link (app.blade.php:158-171) --
+   two author !important declarations of equal specificity, later wins.
+
+   WHY THIS IS A NEW CLASS AND NOT AN OVERRIDE OF THE HOST UTILITY. Both host utilities are
+   `!important` (style.css:9395 and :9410), and danger has a second !important in custom.css. So an
+   inline `style="color: var(--ss-success-fg)"` loses, and so does any plain `.ss-money--credit`
+   rule at any point in the cascade -- !important outranks specificity and source order alike.
+   The only ways through are to out-important the host on a selector it owns, which would repaint
+   `.text-success` in all 70 vendored WorkDo modules for a defect measured on one screen and would
+   fail DesignSystemStylesheetScopeTest's confinement property, or to take the class off the
+   markup. The markup is what changed. FinanceStatusBadgeContrastTest reached the same conclusion
+   for the `.badge bg-*` pills one column to the left.
+
+   NO !important HERE, DELIBERATELY. Nothing competes for these selectors; an !important would mean
+   somebody put the host class back on the span and papered over it.
+
+   DO NOT PUT THESE CLASSES ON A HEADING. `style-dark.css:29442` and `rtl-style-dark.css:29398`
+   declare `h1,h2,h3,h4,h5,h6 { color: var(--bs-white) !important; }`, and an !important on an
+   element selector beats an ordinary class rule however specific. The first version of this
+   repair put the tone on the Potential Profit `<h4>` and was a silent NO-OP IN DARK MODE --
+   Chromium reported rgb(255,255,255) with `.ss-money--credit` matched and losing -- while the
+   light theme, whose two sheets carry no such rule, looked repaired. Wrap the figure in a
+   `<span>` inside the heading instead. FinanceMoneyFigureContrastTest asserts this.
+
+   The colours are the DS status foregrounds, which already invert per theme -- 7.82:1 and 9.12:1
+   on a white row, 8.16:1 and 7.48:1 on the host dark card #292A33. `tabular-nums` is here because
+   a ledger column of proportional digits does not align; it changes no colour and no weight.
+
+   Asserted by Tests\Unit\Ui\FinanceMoneyFigureContrastTest, which computes every ratio above
+   from the token values parsed out of these stylesheets rather than trusting this comment. */
+.ss-money { font-variant-numeric: tabular-nums; }
+.ss-money--credit { color: var(--ss-success-fg); }
+.ss-money--debit  { color: var(--ss-danger-fg); }
+/* P2.5-MONEY end */
+
 /* ==========================================================================================
    P2-04-7 -- THE ORDER BOARD (Kanban).
 

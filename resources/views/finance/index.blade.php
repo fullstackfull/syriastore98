@@ -152,8 +152,21 @@
         <div class="card">
             <div class="card-body">
                 <div class="text-muted">{{ __('Potential Profit') }}</div>
-                <h4 class="mb-0 {{ $inventoryPotentialProfit >= 0 ? 'text-success' : 'text-danger' }}">
-                    {{ number_format($inventoryPotentialProfit, 2) }}
+                {{-- THE TONE IS ON THE SPAN, NOT ON THE <h4>, AND THAT IS NOT A STYLE CHOICE.
+                     `style-dark.css:29442` and `rtl-style-dark.css:29398` declare
+                     `h1,h2,h3,h4,h5,h6 { color: var(--bs-white) !important; }`. An !important on
+                     an element selector beats an ordinary class rule, so with the tone on the
+                     <h4> this figure rendered WHITE in dark mode -- measured in Chromium at
+                     rgb(255,255,255), 14.25:1, with `.ss-money--credit` matched and overridden.
+                     Readable, but the sign was no longer in the colour, and the repair was a
+                     silent no-op here while the light theme looked fixed. The two light sheets
+                     carry no such rule, which is why only dark mode was affected.
+                     A <span> is not a heading, so the host rule cannot reach it and the design
+                     system wins with no !important of its own. --}}
+                <h4 class="mb-0">
+                    <span class="ss-money {{ $inventoryPotentialProfit >= 0 ? 'ss-money--credit' : 'ss-money--debit' }}">
+                        {{ number_format($inventoryPotentialProfit, 2) }}
+                    </span>
                 </h4>
             </div>
         </div>
@@ -336,14 +349,14 @@
                                             </td>
                                             <td class="text-end">
                                                 @if($transaction->direction == 'credit')
-                                                    <span class="text-success fw-bold">+{{ number_format($transaction->amount, 2) }}</span>
+                                                    <span class="ss-money ss-money--credit fw-bold">+{{ number_format($transaction->amount, 2) }}</span>
                                                 @else
                                                     <span class="text-muted">-</span>
                                                 @endif
                                             </td>
                                             <td class="text-end">
                                                 @if($transaction->direction == 'debit')
-                                                    <span class="text-danger fw-bold">-{{ number_format($transaction->amount, 2) }}</span>
+                                                    <span class="ss-money ss-money--debit fw-bold">-{{ number_format($transaction->amount, 2) }}</span>
                                                 @else
                                                     <span class="text-muted">-</span>
                                                 @endif
@@ -403,16 +416,16 @@
                                         <tr>
                                             <td>#{{ $financial->order_id }}</td>
                                             <td>{{ number_format($financial->product_amount, 2) }}</td>
-                                            <td class="text-danger">-{{ number_format($financial->discount_amount, 2) }}</td>
+                                            <td class="ss-money ss-money--debit">-{{ number_format($financial->discount_amount, 2) }}</td>
                                             <td>{{ number_format($financial->tax_amount, 2) }}</td>
                                             <td>{{ number_format($financial->shipping_amount, 2) }}</td>
                                             <td><strong>{{ number_format($financial->customer_total, 2) }}</strong></td>
                                             <td>{{ number_format($financial->product_cost, 2) }}</td>
                                             <td>
                                                 @if($financial->gross_profit >= 0)
-                                                    <span class="text-success fw-bold">{{ number_format($financial->gross_profit, 2) }}</span>
+                                                    <span class="ss-money ss-money--credit fw-bold">{{ number_format($financial->gross_profit, 2) }}</span>
                                                 @else
-                                                    <span class="text-danger fw-bold">{{ number_format($financial->gross_profit, 2) }}</span>
+                                                    <span class="ss-money ss-money--debit fw-bold">{{ number_format($financial->gross_profit, 2) }}</span>
                                                 @endif
                                             </td>
                                             <td>{{ number_format($financial->paid_amount, 2) }}</td>
