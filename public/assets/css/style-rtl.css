@@ -13,8 +13,12 @@ File: style.css
    * Copyright 2011-2022 Twitter, Inc.
    * Licensed under MIT (https://github.com/twbs/bootstrap/blob/main/LICENSE)
    */
-@import url("https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;500;600;700&display=swap");
-
+/* P2.5-TYPE: the runtime Google Fonts @import that stood here is REMOVED.
+   It fetched Open Sans 400/500/600/700 from fonts.googleapis.com on every page load --
+   a blocking, render-delaying third-party request, and one that supplied NO Arabic, so the
+   Arabic half of this bilingual admin had no typeface at all. The family is now self-hosted
+   and script-subset in public/css/store-syria-ds.css, which app.blade.php:242 links
+   unconditionally. Owner requirement: no external Google Fonts request at runtime. */
 :root {
     --bs-blue: #51459d;
     --bs-indigo: #6610f2;

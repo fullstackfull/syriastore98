@@ -6,6 +6,11 @@
 *.md diff=markdown
 *.php diff=php
 
+# The upstream OFL licence text is kept BYTE-IDENTICAL to what IBM ships, CRLF included.
+# `* text=auto eol=lf` above would otherwise rewrite its line endings, and a licence file is the
+# one thing in this repository that should not be normalised on our way past it.
+public/fonts/store-syria/OFL.txt -text
+
 /.github export-ignore
 CHANGELOG.md export-ignore
 .styleci.yml export-ignore

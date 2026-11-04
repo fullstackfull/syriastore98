@@ -29,7 +29,134 @@
    WHY GLOBAL LOADING DOES NOT REGRESS A SCREEN THIS FILE NEVER TOUCHED — which
    was the whole reason for the original opt-in, and still matters: no selector
    here can match an element outside the design system. Every subject is an
-   `.ss-` class, except `:root`, the two `[data-ss-theme=...]` blocks (custom
+   `.ss-` class, except `
+/* ================================================================================================
+   P2.5-TYPE. THE TYPEFACE, SELF-HOSTED.  (owner decision: premium typography, 2026-11-04)
+   ------------------------------------------------------------------------------------------------
+   WHAT WAS HERE BEFORE, measured rather than assumed:
+
+     Latin   delivered -- Open Sans 400/500/600/700, but by a RUNTIME `@import` of
+             fonts.googleapis.com sitting at line 16 of all four host sheets. The live admin made
+             FIVE external requests to Google per page load (3 CSS, 2 woff2).
+     Arabic  NOT delivered at all. The stack named "Noto Sans Arabic", "Cairo" and "Tajawal", and
+             none of them resolved: each measured 489.2px for a test string, identical to a
+             deliberately bogus family name. Arabic therefore fell out of the stack to a system
+             font. Measured in Chromium against the live admin: the Arabic string rendered at
+             279.8px in "Open Sans" versus 279.0px with no font at all -- 0.3% apart, i.e. the same
+             thing. For contrast, Latin was 391.8px vs 327.7px, 19.6% apart, which is what a real
+             typeface difference looks like.
+
+   So the Arabic half of a bilingual product had no typeface, and the Latin half depended on a
+   third party at runtime.
+
+   WHY IBM PLEX SANS ARABIC, over Noto Sans Arabic + Inter. Both were installed and measured side
+   by side (docs/design-system/TYPOGRAPHY-DECISION.md carries the evidence and the screenshots):
+
+     * EQUAL-WIDTH DIGITS BY DEFAULT. Plex: digit width spread 0 at 40px. Inter: spread 9.563px
+       until `font-variant-numeric: tabular-nums` is applied, which does fix it (spread -> 0) but
+       only where somebody remembers. On an admin of money columns, order ids and quantities, the
+       family that is right by default beats the one that is right by discipline.
+     * ONE FAMILY, BOTH SCRIPTS, drawn as companions -- so Latin and Arabic cannot drift apart in
+       x-height or cap-height, and there is no second family's metrics to harmonise.
+     * Noto+Inter is genuinely cheaper -- 209.2 KB over 2 variable files against 251.3 KB over 8
+       static ones -- and that 42 KB is the price of the two properties above. Per page it is
+       narrower than it looks: `unicode-range` means an English session fetches only the four Latin
+       files, 77 KB.
+
+   SUBSETS AND unicode-range ARE LOAD-BEARING. Each face is declared twice, once for Latin and once
+   for Arabic, so a browser downloads only the scripts a page actually contains. Dropping the
+   ranges would make every English screen pay for 178 KB of Arabic it never renders.
+
+   `font-display: swap` on every face: text paints immediately in the fallback and reflows once,
+   which is the right trade for an admin where content matters more than the first frame's
+   typeface. The fallback chain after the family is still a real chain, not a decoration -- if the
+   woff2 fails, Arabic still has "Noto Sans Arabic"/"Cairo" to try before a system font.
+
+   Licence: SIL OFL 1.1, preserved verbatim at public/fonts/store-syria/OFL.txt
+   ("Copyright (c) 2017 IBM Corp. with Reserved Font Name 'Plex'"). 257,368 bytes shipped.
+   ================================================================================================ */
+@font-face {
+    font-family: "IBM Plex Sans Arabic";
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url("../fonts/store-syria/ibm-plex-sans-arabic-latin-400.woff2") format("woff2");
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+                   U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF,
+                   U+FFFD;
+}
+@font-face {
+    font-family: "IBM Plex Sans Arabic";
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url("../fonts/store-syria/ibm-plex-sans-arabic-arabic-400.woff2") format("woff2");
+    unicode-range: U+0600-06FF, U+0750-077F, U+0870-088E, U+0890-0891, U+0898-08E1,
+                   U+08E3-08FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF,
+                   U+FE70-FEFF;
+}
+@font-face {
+    font-family: "IBM Plex Sans Arabic";
+    font-style: normal;
+    font-weight: 500;
+    font-display: swap;
+    src: url("../fonts/store-syria/ibm-plex-sans-arabic-latin-500.woff2") format("woff2");
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+                   U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF,
+                   U+FFFD;
+}
+@font-face {
+    font-family: "IBM Plex Sans Arabic";
+    font-style: normal;
+    font-weight: 500;
+    font-display: swap;
+    src: url("../fonts/store-syria/ibm-plex-sans-arabic-arabic-500.woff2") format("woff2");
+    unicode-range: U+0600-06FF, U+0750-077F, U+0870-088E, U+0890-0891, U+0898-08E1,
+                   U+08E3-08FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF,
+                   U+FE70-FEFF;
+}
+@font-face {
+    font-family: "IBM Plex Sans Arabic";
+    font-style: normal;
+    font-weight: 600;
+    font-display: swap;
+    src: url("../fonts/store-syria/ibm-plex-sans-arabic-latin-600.woff2") format("woff2");
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+                   U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF,
+                   U+FFFD;
+}
+@font-face {
+    font-family: "IBM Plex Sans Arabic";
+    font-style: normal;
+    font-weight: 600;
+    font-display: swap;
+    src: url("../fonts/store-syria/ibm-plex-sans-arabic-arabic-600.woff2") format("woff2");
+    unicode-range: U+0600-06FF, U+0750-077F, U+0870-088E, U+0890-0891, U+0898-08E1,
+                   U+08E3-08FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF,
+                   U+FE70-FEFF;
+}
+@font-face {
+    font-family: "IBM Plex Sans Arabic";
+    font-style: normal;
+    font-weight: 700;
+    font-display: swap;
+    src: url("../fonts/store-syria/ibm-plex-sans-arabic-latin-700.woff2") format("woff2");
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+                   U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF,
+                   U+FFFD;
+}
+@font-face {
+    font-family: "IBM Plex Sans Arabic";
+    font-style: normal;
+    font-weight: 700;
+    font-display: swap;
+    src: url("../fonts/store-syria/ibm-plex-sans-arabic-arabic-700.woff2") format("woff2");
+    unicode-range: U+0600-06FF, U+0750-077F, U+0870-088E, U+0890-0891, U+0898-08E1,
+                   U+08E3-08FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF,
+                   U+FE70-FEFF;
+}
+
+:root`, the two `[data-ss-theme=...]` blocks (custom
    properties only), the keyframes, and `.ss-sort-list .ui-sortable-placeholder`
    at :833 — whose subject is jQuery UI's class but which is descendant-scoped
    under `.ss-sort-list` and so cannot fire outside a DS sort list. Nothing in
@@ -313,9 +440,17 @@
        downloaded and admin pages stay typographically consistent. Arabic
        families follow immediately, before any Latin fallback, so an Arabic
        glyph is never served out of a Latin font's substitution table. */
-    --ss-font-sans: var(--bs-body-font-family, "Open Sans"),
-                    "Noto Sans Arabic", "Cairo", "Tajawal",
-                    "Segoe UI", "DejaVu Sans", system-ui, -apple-system, sans-serif;
+    --ss-font-sans: "IBM Plex Sans Arabic",
+                    "Noto Sans Arabic", "Cairo", "Segoe UI",
+                    "DejaVu Sans", system-ui, -apple-system, sans-serif;
+
+    /* AND THE HOST'S OWN VARIABLE, so the family reaches everything Bootstrap styles rather than
+       only design-system components. This sheet is linked UNCONDITIONALLY at
+       layouts/app.blade.php:242, so one declaration here covers all 110 merchant views. (The
+       opt-in include at layouts/includes/store-syria-ds.blade.php is an ADDITIONAL mechanism used
+       by 6 views, not the delivery path -- measured, because reading it as the delivery path makes
+       the design system look like it reaches 6 screens instead of all of them.) */
+    --bs-body-font-family: var(--ss-font-sans);
     --ss-font-mono: "JetBrains Mono", "SFMono-Regular", Menlo, Consolas,
                     "DejaVu Sans Mono", monospace;
 
