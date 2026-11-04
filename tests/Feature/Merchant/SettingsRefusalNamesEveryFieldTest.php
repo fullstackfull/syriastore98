@@ -74,18 +74,39 @@ use Tests\Feature\Security\SecurityTestCase;
  * guard would start REFUSING posts that succeed today. It carries no refusal site, so it is
  * naturally out of this change; the test below pins it so that stays true.
  *
- * `customMassage` :1269 IS NOT REPAIRED, and the reason is a finding rather than a scope call.
- * Its only live route is `routes/customer.php:188`, inside a group carrying just
+ * `customMassage` WAS THE SECOND EXCLUSION AND IS NOW REPAIRED -- UPDATED 2026-11-04 (Phase 2.5,
+ * owner decision D2). This file previously recorded it as excluded, and recorded WHY: its only
+ * live route is `routes/customer.php:188`, inside a group carrying just
  * `[ActiveTheme::class, 'themelanguage']` -- NO `auth`, NO permission -- while `routes/web.php:1066`
- * holds a commented-out route to a different controller's method of the same name. Every sibling
- * handler in this file is gated on `StoreSettingsAccess::permits()`; this one is gated on nothing,
- * and it writes `settings` rows. It does not write for an ANONYMOUS caller only because
- * `Auth::user()->id` at :1289 throws first, before `updateOrCreate` reaches the database. So the
- * live exposure is that ANY authenticated `web` user -- a staff member with no Settings
- * permission -- can overwrite their own store's WhatsApp template. Same-tenant, authenticated,
- * no permission check. That is an authorization change to fix, which this slice is not authorised
- * to make, so it is escalated and the site is left alone. The test pins it untouched so the
- * exclusion is recorded rather than looking like an oversight.
+ * holds a commented-out route to `StoreController::customMassage`, a method that does not exist in
+ * that class. Every sibling handler here is gated on `StoreSettingsAccess::permits()`; that one was
+ * gated on nothing, and it writes `settings` rows. Repairing its refusal message first needed the
+ * refusal branch to be reachable only by a caller entitled to the screen, which was an
+ * authorization change the earlier slice was not authorised to make. It was escalated, and the
+ * owner approved it.
+ *
+ * WHAT CHANGED, AND WHAT THESE ASSERTIONS NOW SAY. The handler gained the same gate as its nine
+ * siblings -- `StoreSettingsAccess::permits(auth()->user())`, ahead of `session()->put()`, refusing
+ * with `redirect()->back()->with('error', __('Permission denied.'))` -- and, that done, its refusal
+ * site took the joined expression with the rest. So:
+ *
+ *   - the site is a REPAIRED one now, at :1278, and it is in `REPAIRED` below;
+ *   - the survivor list in `test_no_first_call_remains_on_a_repaired_handler` is EMPTY;
+ *   - `test_custommassage_is_gated_in_the_handler_not_on_its_route` replaces the old
+ *     "is untouched and its route really is ungated" case. Its route-middleware half is KEPT and
+ *     still asserts no `Authenticate`, because that is now a deliberate record of where the
+ *     protection lives rather than a description of a gap.
+ *
+ * THE OLD DOCBLOCK'S LINE NUMBER WAS WRONG and is corrected here: the `Auth::user()->id` that threw
+ * for an anonymous caller sat at :1287, not :1289 (:1289 was `'updated_at' => now()`). It is :1296
+ * after the gate. The anonymous 500 is why "no row was written" was already true on that path for
+ * the wrong reason, which is recorded in the new suite rather than here.
+ *
+ * The behaviour is driven -- anonymous, unpermitted staff, owner, permitted staff, cross-tenant,
+ * the platform operator, and the two-message refusal -- by
+ * `tests/Feature/Security/CustomMassageAuthorizationTest`, which also carries the reasoning for
+ * gating in the handler rather than on the route. This file deliberately does NOT add a row to
+ * `observableSites()` for it: the other cases here are left exactly as they were.
  */
 class SettingsRefusalNamesEveryFieldTest extends SecurityTestCase
 {
@@ -93,17 +114,26 @@ class SettingsRefusalNamesEveryFieldTest extends SecurityTestCase
 
     private const SOURCE = 'app/Http/Controllers/SettingController.php';
 
-    /** The nine repaired sites, by line, with the handler each sits in. */
+    /**
+     * The TEN repaired sites, by line, with the handler each sits in.
+     *
+     * RE-POINTED 2026-11-04. `customMassage`'s 9-line gate went in at :1257-:1265, so every site
+     * BELOW it in the file moved down by exactly 9 (measured, not assumed: 1319->1328, 1362->1371,
+     * 1432->1441, 1511->1520, 1667->1676). The four sites above :1255 are unmoved. This array is
+     * one of the `file:line` inventories the tenancy skill warns about -- an edit anywhere above a
+     * row breaks it, which is the most common way an unrelated change turns CI red here.
+     */
     private const REPAIRED = [
         585 => 'saveEmailSettings',
         692 => 'testSendMail',
         1092 => 'WoocommerceSettings',
         1160 => 'shopifySettings',
-        1319 => 'StockSettings',
-        1362 => 'WhatsappSettings',
-        1432 => 'whatsapp_notification_setting',
-        1511 => 'testSendwhatsappmassage',
-        1667 => 'TwilioSettings',
+        1278 => 'customMassage',
+        1328 => 'StockSettings',
+        1371 => 'WhatsappSettings',
+        1441 => 'whatsapp_notification_setting',
+        1520 => 'testSendwhatsappmassage',
+        1676 => 'TwilioSettings',
     ];
 
     private User $merchant;
@@ -150,9 +180,7 @@ class SettingsRefusalNamesEveryFieldTest extends SecurityTestCase
 
     public function test_no_first_call_remains_on_a_repaired_handler(): void
     {
-        // The whole file, so a tenth site appearing later is caught rather than ignored. The two
-        // deliberate survivors are named, with the reason, so this is a declared set and not a
-        // blanket count.
+        // The whole file, so an eleventh site appearing later is caught rather than ignored.
         $lines = explode("\n", $this->source());
         $survivors = [];
 
@@ -162,12 +190,17 @@ class SettingsRefusalNamesEveryFieldTest extends SecurityTestCase
             }
         }
 
+        // EMPTY SINCE 2026-11-04, and the reason is recorded rather than the entry simply deleted.
+        // The one survivor was `customMassage` at :1269, held back because reaching its refusal
+        // branch required the authorization gap described in the class docblock. The owner approved
+        // the gate (D2), the handler now refuses an anonymous and an unpermitted caller, and the
+        // site took the joined expression with the other nine. There is nothing left to exclude.
         $this->assertSame(
-            [1269],
+            [],
             $survivors,
-            'The only `$messages->first()` left in SettingController should be customMassage at '
-            . ':1269, excluded because its route carries no auth or permission (see the class '
-            . 'docblock). Found: ' . implode(', ', $survivors)
+            'A `$messages->first()` is back in SettingController. Every refusal site in this file '
+            . 'is repaired, so a new one is either a new handler that needs the joined expression '
+            . 'or a reverted repair. Found at: ' . implode(', ', $survivors)
         );
     }
 
@@ -191,18 +224,46 @@ class SettingsRefusalNamesEveryFieldTest extends SecurityTestCase
         );
     }
 
-    public function test_custommassage_is_untouched_and_its_route_really_is_ungated(): void
+    /**
+     * REPLACES `test_custommassage_is_untouched_and_its_route_really_is_ungated` (2026-11-04).
+     *
+     * Both of that case's claims were overtaken by owner decision D2: the site is no longer
+     * untouched, and the writer is no longer ungated. What is still true -- and is now a deliberate
+     * record rather than a gap -- is that the protection sits in the HANDLER and not on the route.
+     * This case asserts that pair, so the arrangement cannot be mistaken for an oversight again:
+     * the gate expression is in the handler, and the route still carries no `Authenticate`.
+     *
+     * The refusal itself is DRIVEN, over the real route, by
+     * `tests/Feature/Security/CustomMassageAuthorizationTest`; a source assertion alone would pass
+     * for a handler that never runs.
+     */
+    public function test_custommassage_is_gated_in_the_handler_not_on_its_route(): void
     {
         $lines = explode("\n", $this->source());
 
+        // The gate, inside customMassage and AHEAD of its session write, exactly as StockSettings
+        // does it. Sliced from the declaration so a copy of the expression elsewhere in the file
+        // cannot satisfy this.
+        $handler = implode("\n", array_slice($lines, 1254, 12));
+
         $this->assertStringContainsString(
-            '$messages->first()',
-            $lines[1268] ?? '',
-            'customMassage :1269 is deliberately NOT repaired; see the class docblock.'
+            'public function customMassage',
+            $handler,
+            'premise: customMassage still starts at :1255; re-point this slice if it moved.'
+        );
+        $this->assertStringContainsString(
+            'StoreSettingsAccess::permits(auth()->user())',
+            $handler,
+            'customMassage lost its authorization gate. Any authenticated web user -- staff with '
+            . 'no Settings permission included -- can then overwrite their store WhatsApp template.'
+        );
+        $this->assertStringContainsString(
+            "__('Permission denied.')",
+            $handler,
+            'customMassage must refuse the way its nine siblings do: a redirect carrying the '
+            . '`Permission denied.` flash, never a 401 (the Flutter app force-logs-out on any 401).'
         );
 
-        // The reason, asserted rather than described: the route exists, and it carries neither
-        // auth nor a permission.
         $route = collect(Route::getRoutes())->first(
             fn ($r) => str_contains((string) $r->getActionName(), 'SettingController@customMassage')
         );
@@ -215,8 +276,9 @@ class SettingsRefusalNamesEveryFieldTest extends SecurityTestCase
         $this->assertStringNotContainsString(
             'Authenticate',
             $flat,
-            'customMassage has gained an auth middleware. If that is deliberate, this exclusion '
-            . 'can be revisited and the site repaired with the rest.'
+            'customMassage has gained route-level auth. That is a TIGHTENING, not a defect -- but '
+            . 'it means this record is stale: update it, and check the storefront group in '
+            . 'routes/customer.php was not changed for every {storeSlug?} path along with it.'
         );
     }
 

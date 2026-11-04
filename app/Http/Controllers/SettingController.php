@@ -1254,6 +1254,15 @@ $u->save();
 
     public function customMassage(Request $request, $slug = null)
     {
+        // P1-SEC-27 (fourth pass). The tenth writer on the Settings screen, and the one that had NO check at all: its only live
+        // route is the storefront declaration at routes/customer.php:188, inside a group carrying just [ActiveTheme, themelanguage].
+        // Not an anonymous write only because `Auth::user()->id` below read a property on null first; the exposure was that ANY
+        // authenticated web user -- staff holding no Settings permission included -- could overwrite their own store's template.
+        // Same decision point and same refusal as the nine siblings, and `permits(null)` is false, so this one expression refuses
+        // the anonymous caller too. See CustomMassageAuthorizationTest for why the gate is here rather than on the route.
+        if (! \App\Services\StoreSettingsAccess::permits(auth()->user())) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
         session()->put(['setting_tab' => 'whatsapp_msg_setting']);
         $validator = \Validator::make(
             $request->all(),
@@ -1266,7 +1275,7 @@ $u->save();
         if ($validator->fails()) {
             $messages = $validator->getMessageBag();
 
-            return redirect()->back()->with('error', $messages->first());
+            return redirect()->back()->with('error', implode(' ', $messages->all()));
         }
         $post['whatsapp_item_variable'] = $request->whatsapp_item_variable;
         $post['whatsapp_content'] = $request->whatsapp_content;
