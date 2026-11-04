@@ -193,8 +193,26 @@ Gate     outcome set matches the manifest exactly -- nothing undeclared
 * **Headless Chromium on one machine at 1440×900.** No device matrix, no real handset.
 * **No Arabic native-reader review.** RTL correctness here is structural — direction, mirroring,
   clipping, font delivery — not editorial.
-* **`/order-reports` still answers 500 on its chart partial** (`/order-reports-chart`), before and
-  after. Pre-existing and separately tracked.
+* **`/order-reports` answers 500 on its chart partial** (`/order-reports-chart`), before and after
+  — **but this is a DEV-ENVIRONMENT artefact and merchants do not see it.** Diagnosed after this
+  document was first written, so the line is corrected rather than left to imply a broken screen:
+
+  ```
+  SQLSTATE[HY000]: General error: 1 no such function: MONTH (Connection: sqlite,
+    SQL: select orders.*,MONTH(order_date) as month,YEAR(order_date) as year from "orders" ...)
+  ```
+
+  `MONTH()` and `YEAR()` are **MySQL** functions. Production is MySQL; the dev server and the test
+  suite are SQLite, which has neither. `ReportController` and `HomeController` use them in
+  `selectRaw` at dozens of sites.
+
+  The real finding is the one underneath: **those screens cannot be behaviourally tested in this
+  project's own suite**, which runs SQLite `:memory:`. `ReportAuthorizationTest` does drive
+  `/order-reports-chart`, but its `refused()` helper returns true only for a 403 or a
+  redirect-with-error — so a **500 counts as "not refused"** and
+  `test_an_operator_whose_type_is_spelled_non_canonically_is_still_admitted` passes through it
+  without noticing. That test proves the gate let the request through; it cannot prove the operator
+  can use the screen, and no test in the suite can. Recorded as `F-DESIGN-6`.
 * The collapsed-rail mark is styled but **not driven** in these captures: the rail is a stored
   preference and the matrix does not toggle it.
 

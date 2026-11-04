@@ -339,3 +339,34 @@ for the D-42.1 change. Worth a small hardening slice.
 `tests/` contains no reference to `"Run the Feature suite"`, `base-junit` or `/tmp/base`. The gate's
 own breakage was therefore invisible to the suite, and a regression of the repair would be too.
 
+
+### F-DESIGN-6 — the report screens' SQL is MySQL-only, so an entire controller is untestable here
+
+`/order-reports-chart` answers **500 on the dev server and in the test suite**, and it is **not**
+broken for merchants:
+
+```
+SQLSTATE[HY000]: General error: 1 no such function: MONTH (Connection: sqlite,
+  SQL: select orders.*,MONTH(order_date) as month,YEAR(order_date) as year from "orders" ...)
+```
+
+`MONTH()`, `YEAR()` and `DATE()` are MySQL functions used in `selectRaw` at **dozens of sites** in
+`ReportController` and `HomeController`. Production is MySQL. The dev server and `phpunit.xml` are
+SQLite, which has none of them. CLAUDE.md already warns that *"SQLite's type affinity hides real
+MySQL defects"*; this is the mirror image — **SQLite manufactures a failure MySQL does not have**,
+which makes every dev screenshot of those screens unrepresentative.
+
+**THE CONSEQUENCE IS A TESTING HOLE, NOT A PRODUCTION DEFECT.** No Feature test can exercise what
+those handlers return, because the query cannot run at all. And the tests that *do* drive those
+routes pass straight through the 500: `ReportAuthorizationTest::refused()` returns true only for a
+`403` or a redirect carrying an error, so a 500 is "not refused" and
+`test_an_operator_whose_type_is_spelled_non_canonically_is_still_admitted` is green against a route
+that cannot answer. It proves the gate admitted the request; it cannot prove the screen works.
+`ChartMoneyPrecisionTest:55` already records the same obstacle for a sibling handler.
+
+**Adding `assertNotSame(500, …)` to those cases would redden them immediately**, which is why this
+is recorded rather than patched: the assertion would be correct and the suite could not satisfy it.
+The options are an owner decision, not an engineering one — port the date extraction to something
+portable (`whereYear`/`whereMonth`, or `strftime` vs `DATE_FORMAT` behind one helper), or run these
+specific tests against a real MySQL as
+`tests/Support/Security/bin/verify-sec13-migration-on-mysql.php` already does for the schema.
