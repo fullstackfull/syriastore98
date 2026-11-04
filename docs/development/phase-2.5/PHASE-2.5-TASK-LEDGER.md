@@ -765,18 +765,141 @@ actively wrong today.
 
 ---
 
+## 3k. The four waves landed: 24 of the 26 repairs shipped, as 13 commits (2026-11-04)
+
+The 13 thematic chains ran as scheduled, four waves, each wave pairwise file-disjoint. Twelve
+chains reported; the thirteenth (`kanban`) lost its report to a 700-character cap on one schema
+field after its work was already on disk, so its findings were recovered from its own transcript
+and then verified here from scratch rather than taken on trust.
+
+| Chain | Commit | Findings |
+|---|---|---|
+| finance | `fea4a7d1` | finance-controls-have-no-labels, finance-status-badges-below-aa, finance-validation-failure-is-silent |
+| header | `5d34cf9f` | header-icononly-name-lost-by-tooltip, header-triggers-nameless-below-992 |
+| primary | `a0a9b509` | primary-action-named-only-by-title |
+| shell | `59c030d9` | offcanvas-sidebar-stays-focusable, shell-skip-link-after-chrome |
+| modal | `811fab96` | validation-errors-lose-the-modal (**partial**) |
+| reports | `c18e752b` | reports-csv-header-untranslated, reports-export-anchor-as-button, reports-export-no-failure-feedback |
+| settings | `6ea2a800` | area-wide-no-withinput-witherrors, settings-no-error-or-loading-state, settings-tabs-not-keyboard-reachable |
+| catalogue | `ecbf0cf8` | catalogue-unassociated-labels, switch-no-accessible-name, upload-not-keyboard-reachable |
+| ds | `14d6b2a9` | ds-switch-knob-dark-16 |
+| gallery | `9b993c14` | gallery-image-actions-unnamed |
+| ordergrid | `7c7daa3f` | grid-card-icons-black, grid-row-actions-unnamed, grid-status-icon-colour-only |
+| kanban | `daf375da` | kanban-unbounded-render |
+| timeline | `8c349c04` | timeline-white-box-dark-mode |
+
+**Evidence, measured here and not quoted from the chains.** All 27 affected test files run
+independently: **331 tests, 0 failures**. On a combined revert of every source change with all
+tests kept, **26 of the 27 files go red — 148 of the 331 tests**. The one that stays green is
+`OrderPanelProductScopeTest`, whose change is a comment-only citation re-point with no behaviour
+to bite, which is what makes the other 26 a discriminating result rather than a blanket one.
+Restoration after the bite was byte-exact (identical patch digest).
+
+**The commits are a decomposition of one verified tree, and the decomposition is proved rather
+than asserted.** Five files — `custom.css`, its RTL twin, `store-syria-ds.css`, and the
+`en.json`/`ar.json` pair — carry hunks from three or four different chains, so no path-based split
+could attribute them. Every hunk was attributed to a chain by the `P2.5 <finding-id>` marker it
+carries, the tree was reset, and the 13 commits were replayed hunk by hunk; the rebuilt tree is
+then **byte-identical to the verified tree across all 82 files**. That check is the point: it is
+what rules out a hunk silently landing in the wrong commit or in none. It failed twice before it
+passed — once on a lang rebuild that read the working tree after the reset, once on an anchor
+match that skipped a line whose only difference was a trailing comma and so reproduced the right
+key set in the wrong order. Both were fixed and the replay redone, not argued away.
+
+**What the gates say.** Unit **1041 passed**, Contract **27 passed** (the Flutter API contract
+intact). The Feature suite and the known-outcome gate were re-run against the committed tree
+rather than the pre-commit tree, because the first Feature run was invalidated when the replay
+reset the tree underneath it.
+
+### Two repairs did NOT ship, and one of them changed nothing at all
+
+- **`withdrawal-native-confirm`** — nothing was changed. It needs 7 keys in both language files,
+  which another chain in the same wave owned; landing its markup alone would have shipped English
+  title/body/Confirm beside the shell's Arabic Cancel in a `dir=rtl` money dialog, and a half edit
+  breaks `TranslationFileIntegrityTest`. The defect is re-confirmed at `withdrawals.blade.php:166`
+  and `:200`. **Still open.**
+- **`validation-errors-lose-the-modal`** — shipped **partial and honestly inert**. Both category
+  validators carry exactly one rule, so joining all messages is byte-identical to taking the first
+  one there. The 18 sites that carry the real defect are in seven other controllers, headed by
+  `CouponController:82-92` (six required rules, one message — the only upheld WCAG 3.3.1 failure of
+  the set). **Still open.**
+
+### An integration defect the chains' own checks could not see
+
+`SubscriptionAuthorizationTest::test_the_web_edit_profile_path_takes_no_caller_supplied_user_id`
+read `substr($source, $start, 1600)` — a **fixed byte window** after `function editprofile`. The
+settings chain's added failure path pushed `$user_id = \Auth::guard()->user()->id;` to offset
+2211, so the test went red with no caller-supplied identifier anywhere in the method. It is not in
+`known-test-outcomes.json`, so it would have failed the gate in both directions.
+
+Found by running every test that reads flashed input or drives that route, which is a check no
+single chain could have made: each chain verified its own at-risk set, and this test was in
+nobody's. The window is now the whole method, bounded by the next declaration, with two premises
+pinning both ends — which **strengthens** the negative assertion, since it now covers every line
+of `editprofile` instead of its first two thirds. Bitten by injecting `$request->user_id` into the
+method: red, then green on removal.
+
+### `users.type` is now excluded from both flashed-input lists, not one
+
+`password_update` excluded `type` with a documented reason; `editprofile` did not, although both
+redirect back to `profile.blade.php:209`'s `Form::hidden('type', …)` and konekt's
+`getValueAttribute()` reads `old()` before the model value either way. `editprofile` persists only
+`name`, `email`, `mobile` and `profile_image` by explicit assignment — there is no `fill()` — so
+this was a **latent trap, not a live escalation**, and the new test's negative control reads the
+column straight from the table to say so. Bitten: removing the one word fails exactly that test
+and nothing else.
+
+### The independent authorization review: no blocker, and one of its findings refuted by measurement
+
+The `tenant-authz-reviewer` pass over the whole batch returned **CLEAR on all five areas it was
+asked about and no blocker**. On the question that mattered — whether the kanban rewrite keeps the
+only tenant predicate this screen has — it verified from the framework source that `toBase()` is
+`applyScopes()->getQuery()`, and that `clone`, `reorder()`, `select()` and `groupBy()` touch
+neither `wheres` nor `bindings['where']`, so `where('store_id', …)` and the `whereRaw('1 = 0')`
+refusal limb reach the aggregate and every bucket query. It also independently reached the
+`users.type` conclusion above.
+
+**One of its concerns is REFUTED, and the refutation is the useful part.** It read the two new
+settings failure paths, saw a three-name `except()` denylist on handlers that write every posted
+name into `settings`, and concluded that a post carrying `mail_password` which then failed the
+`store_slug` regex would write that plaintext into `_old_input`. Driven with the permission that
+matters, `mail_password` **is** still in the request after
+`StoreSettingsAccess::refusesRestrictedPost()` — that method only strips restricted names for a
+caller who *lacks* the Settings permission — and it **is** still in what the controller hands to
+`withInput()`. It is absent from `_old_input` anyway, because
+`App\Http\Middleware\FlashedCredentialScrubber`, appended to the `web` group at
+`bootstrap/app.php:54`, removes restricted names after the fact. The reviewer had no shell and so
+could not see the middleware stack.
+
+So **no controller change was made**: widening the denylist would have been a redundant second
+control wearing a repair's clothes. What was genuinely missing was cover — nothing asserted the
+scrubber reached these two new flash sites. That test now exists, and its bite is removing the
+scrubber from the middleware group, which makes `mail_password` land in `_old_input` exactly as the
+review predicted.
+
+### New rows out of that review, none of them shipped
+
+| Row | Where | Why it is a row and not a repair |
+|---|---|---|
+| NULL `delivered_status` is its own bucket | `OrderController::order_kanban_view` | `pluck()` keys the NULL group as `''` and `(int) ''` is `0`, Pending's key, so one group overwrites the other and `$bucket(0)`'s `= 0` matches no NULL row — those orders would appear in **no** column. **Not reproducible here**: the migration declares `integer('delivered_status')->default(0)`, NOT NULL, and `GATE-F-VERIFIED-SCHEMA.md` does not cover `orders`, so under the declared schema the condition cannot be created. Decision 1 requires reproducing a defect before repairing it, and changing which rows an order column shows on an unmeasured hypothesis is exactly what that rule is for. Settled by `SHOW COLUMNS FROM orders LIKE 'delivered_status'` plus `COUNT(*) WHERE delivered_status IS NULL`. |
+| A password change revokes no session or token | `UserController::password_update`, `updatePassword` | No `tokens()->delete()`, no `remember_token` rotation. The codebase does this correctly in three other places, so the omission is local. With no `config/sanctum.php` an admin-app token never expires, so a merchant changing their password after a suspected compromise leaves the attacker's token alive permanently. Pre-existing. |
+| `order_category_reports` renders another tenant's category name | `ReportController:1857`, `:1874-1960` | `Category::find()` on a caller-supplied `selectedCategory`; `Category` is deliberately outside `scoped_models`, so the lookup reaches every tenant. The sales figures stay honest (the orders are scoped) but a foreign category *name* reaches the chart and the exported CSV. The predicate for exactly this already exists at `CategoryController::categoryIsOutsideCurrentStore()`. Pre-existing. |
+| Three finance handlers lack the null-store guard their siblings have | `StoreFinanceController::index`, `requestWithdrawal`, `withdrawals` | `addBalance`/`deductBalance` refuse a null store explicitly; these do not, and `index()` *creates* a `StoreWallet` row with `store_id = NULL`, which `requestWithdrawal`'s `where('store_id', null)` then matches. Money cannot be extracted (the shared wallet starts at zero and the balance check refuses), but storeless principals from different tenants would share a wallet and see each other's withdrawal rows. Pre-existing; reviewer's confidence *probable*, not measured against a deployment. |
+| Operator sees finance and settings screens with no controls | `finance/index.blade.php`, `AppSettingController::index` | Bare `isAbleTo()` with no operator limb in the views while the controllers admit the operator — the shape-4 ordering this project already documents. Availability, not escalation. Pre-existing. |
+
+---
+
 ## 4. Not yet started
 
 Wave C (remaining merchant screens), the rest of Wave D, and Wave E (cross-platform quality). The
 screen-by-screen inventory that scopes them is
 [`PHASE-2.5-VERIFICATION-MATRIX.md`](PHASE-2.5-VERIFICATION-MATRIX.md).
 
-**26 of the 46 outstanding repairs are Laravel and densely file-coupled** — every one of them
-shares at least one file with another, through `public/css/custom.css` and its RTL twin, the
-`resources/lang/*.json` pair, and the shared report and finance views. They are scheduled as 13
-thematic chains across **four waves, each wave verified pairwise file-disjoint** before it runs,
-because the CSS and language files are read-modify-write and two agents appending to one would
-corrupt it. The schedule is in
+**Those 26 densely file-coupled Laravel repairs have now run** — 13 thematic chains across four
+pairwise file-disjoint waves, because the CSS and language files are read-modify-write and two
+agents appending to one would corrupt it. **24 of the 26 shipped** as the 13 commits tabled in
+§3k; `withdrawal-native-confirm` changed nothing and `validation-errors-lose-the-modal` shipped
+partial, and both are listed there as still open. The schedule is in
 `docs/development/phase-2.5/evidence/` alongside the rest of this round's evidence.
 
 Still outstanding and **not** waived: the Phase 01 release gates in
