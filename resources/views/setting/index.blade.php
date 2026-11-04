@@ -34,120 +34,120 @@ $activeTab = session()->get('setting_tab') ?? 'email_setting';
                 <div class="list-group list-group-flush app-seeting-tab" id="useradd-sidenav">
                     <ul class="nav nav-pills w-100  row store-setting-tab" id="pills-tab" role="tablist">
                         <li class="nav-item col-xxl-2 col-xl-3 col-md-4 col-sm-6  col-12 text-center" role="presentation">
-                            <a class="nav-link btn-sm f-w-600 {{ $activeTab == 'email_setting' ? 'active' : '' }}" data-url="{{ route('setting.form') }}" data-tab="email_setting" id="pills-home-tab" data-bs-toggle="pill" data-bs-target="#eco-1" type="button" role="tab" aria-controls="pills-home" aria-selected="{{ $activeTab == 'email_setting' ? 'true' : 'false' }}">
+                            <button class="nav-link btn-sm f-w-600 {{ $activeTab == 'email_setting' ? 'active' : '' }}" data-url="{{ route('setting.form') }}" data-tab="email_setting" id="pills-home-tab" data-bs-toggle="pill" data-bs-target="#eco-1" type="button" role="tab" aria-controls="pills-home" aria-selected="{{ $activeTab == 'email_setting' ? 'true' : 'false' }}">
                                 {{ __('Email Settings') }}
-                            </a>
+                            </button>
 
                         </li>
 
                         <li class="nav-item col-xxl-2 col-xl-3 col-md-4 col-sm-6  col-12 text-center" role="presentation">
-                            <a class="nav-link btn-sm f-w-600 {{ $activeTab == 'brand_setting' ? 'active' : '' }}" data-url="{{ route('setting.form') }}" data-tab="brand_setting" id="pills-brand-tab" data-bs-toggle="pill" data-bs-target="#eco-2" type="button" role="tab" aria-controls="pills-brand" aria-selected="{{ $activeTab == 'brand_setting' ? 'true' : 'false' }}">
+                            <button class="nav-link btn-sm f-w-600 {{ $activeTab == 'brand_setting' ? 'active' : '' }}" data-url="{{ route('setting.form') }}" data-tab="brand_setting" id="pills-brand-tab" data-bs-toggle="pill" data-bs-target="#eco-2" type="button" role="tab" aria-controls="pills-brand" aria-selected="{{ $activeTab == 'brand_setting' ? 'true' : 'false' }}">
                             {{ __('Brand Settings') }}
-                            </a>
+                            </button>
                         </li>
                         <li class="nav-item col-xxl-2 col-xl-3 col-md-4 col-sm-6  col-12 text-center" role="presentation">
-                            <a class="nav-link btn-sm f-w-600 {{ $activeTab == 'system_setting' ? 'active' : '' }}" data-url="{{ route('setting.form') }}" data-tab="system_setting" id="pills-system-tab" data-bs-toggle="pill" data-bs-target="#eco-3" type="button" role="tab" aria-controls="pills-system" aria-selected="{{ $activeTab == 'system_setting' ? 'true' : 'false' }}">
+                            <button class="nav-link btn-sm f-w-600 {{ $activeTab == 'system_setting' ? 'active' : '' }}" data-url="{{ route('setting.form') }}" data-tab="system_setting" id="pills-system-tab" data-bs-toggle="pill" data-bs-target="#eco-3" type="button" role="tab" aria-controls="pills-system" aria-selected="{{ $activeTab == 'system_setting' ? 'true' : 'false' }}">
                                 {{ __('System Settings') }}
-                            </a>
+                            </button>
                         </li>
 
                         <li class="nav-item col-xxl-2 col-xl-3 col-md-4 col-sm-6  col-12 text-center" role="presentation">
-                            <a class="nav-link btn-sm f-w-600 {{ $activeTab == 'payment_setting' ? 'active' : '' }}" data-url="{{ route('setting.form') }}" data-tab="payment_setting" id="pills-payment-tab" data-bs-toggle="pill" data-bs-target="#eco-5" type="button" role="tab" aria-controls="pills-payment" aria-selected="{{ $activeTab == 'payment_setting' ? 'true' : 'false' }}">
+                            <button class="nav-link btn-sm f-w-600 {{ $activeTab == 'payment_setting' ? 'active' : '' }}" data-url="{{ route('setting.form') }}" data-tab="payment_setting" id="pills-payment-tab" data-bs-toggle="pill" data-bs-target="#eco-5" type="button" role="tab" aria-controls="pills-payment" aria-selected="{{ $activeTab == 'payment_setting' ? 'true' : 'false' }}">
                                 {{ __('Payment Settings') }}
-                            </a>
+                            </button>
                         </li>
 
                         <li class="nav-item col-xxl-2 col-xl-3 col-md-4 col-sm-6  col-12 text-center" role="presentation">
-                            <a class="nav-link btn-sm f-w-600 {{ $activeTab == 'currency_setting' ? 'active' : '' }}" data-url="{{ route('setting.form') }}" data-tab="currency_setting" id="pills-currency-tab" data-bs-toggle="pill" data-bs-target="#eco-5" type="button" role="tab" aria-controls="pills-currency" aria-selected="{{ $activeTab == 'currency_setting' ? 'true' : 'false' }}">
+                            <button class="nav-link btn-sm f-w-600 {{ $activeTab == 'currency_setting' ? 'active' : '' }}" data-url="{{ route('setting.form') }}" data-tab="currency_setting" id="pills-currency-tab" data-bs-toggle="pill" data-bs-target="#eco-5" type="button" role="tab" aria-controls="pills-currency" aria-selected="{{ $activeTab == 'currency_setting' ? 'true' : 'false' }}">
                                 {{ __('Currency Settings') }}
-                            </a>
+                            </button>
                         </li>
 <li class="nav-item col-xxl-2 col-xl-3 col-md-4 col-sm-6 col-12 text-center" role="presentation">
-                        <a class="nav-link btn-sm f-w-600 {{ $activeTab == 'delivery_syria_setting' ? 'active' : '' }}" 
+                        <button class="nav-link btn-sm f-w-600 {{ $activeTab == 'delivery_syria_setting' ? 'active' : '' }}" 
                            data-tab="delivery_syria_setting" 
                            id="pills-delivery-tab" 
                            data-bs-toggle="pill" 
                            data-bs-target="#delivery-syria-content" 
                            type="button" role="tab" aria-selected="{{ $activeTab == 'delivery_syria_setting' ? 'true' : 'false' }}">
                            {{ __('Delivery Syria') }}
-                        </a>
+                        </button>
                     </li>
                         @if (auth()->user() && auth()->user()->type == 'super admin')
                         <li class="nav-item col-xxl-2 col-xl-3 col-md-4 col-sm-6  col-12 text-center" role="presentation">
-                            <a class="nav-link btn-sm f-w-600 {{ $activeTab == 'cookie_setting' ? 'active' : '' }}" data-url="{{ route('setting.form') }}" data-tab="cookie_setting" id="pills-cookie-tab" data-bs-toggle="pill" data-bs-target="#eco-5" type="button" role="tab" aria-controls="pills-cookie" aria-selected="{{ $activeTab == 'cookie_setting' ? 'true' : 'false' }}">
+                            <button class="nav-link btn-sm f-w-600 {{ $activeTab == 'cookie_setting' ? 'active' : '' }}" data-url="{{ route('setting.form') }}" data-tab="cookie_setting" id="pills-cookie-tab" data-bs-toggle="pill" data-bs-target="#eco-5" type="button" role="tab" aria-controls="pills-cookie" aria-selected="{{ $activeTab == 'cookie_setting' ? 'true' : 'false' }}">
                                 {{ __('Cookie Settings') }}
-                            </a>
+                            </button>
                         </li>
 
                         <li class="nav-item col-xxl-2 col-xl-3 col-md-4 col-sm-6  col-12 text-center" role="presentation">
-                            <a class="nav-link btn-sm f-w-600 {{ $activeTab == 'cache_setting' ? 'active' : '' }}" data-url="{{ route('setting.form') }}" data-tab="cache_setting" id="pills-cache-tab" data-bs-toggle="pill" data-bs-target="#eco-5" type="button" role="tab" aria-controls="pills-cache" aria-selected="{{ $activeTab == 'cache_setting' ? 'true' : 'false' }}">
+                            <button class="nav-link btn-sm f-w-600 {{ $activeTab == 'cache_setting' ? 'active' : '' }}" data-url="{{ route('setting.form') }}" data-tab="cache_setting" id="pills-cache-tab" data-bs-toggle="pill" data-bs-target="#eco-5" type="button" role="tab" aria-controls="pills-cache" aria-selected="{{ $activeTab == 'cache_setting' ? 'true' : 'false' }}">
                                 {{ __('Cache Settings') }}
-                            </a>
+                            </button>
                         </li>
 
                         <li class="nav-item col-xxl-2 col-xl-3 col-md-4 col-sm-6  col-12 text-center" role="presentation">
-                            <a class="nav-link btn-sm f-w-600 {{ $activeTab == 'storage_setting' ? 'active' : '' }}" data-url="{{ route('setting.form') }}" data-tab="storage_setting" id="pills-storage-tab" data-bs-toggle="pill" data-bs-target="#eco-5" type="button" role="tab" aria-controls="pills-storage" aria-selected="{{ $activeTab == 'storage_setting' ? 'true' : 'false' }}">
+                            <button class="nav-link btn-sm f-w-600 {{ $activeTab == 'storage_setting' ? 'active' : '' }}" data-url="{{ route('setting.form') }}" data-tab="storage_setting" id="pills-storage-tab" data-bs-toggle="pill" data-bs-target="#eco-5" type="button" role="tab" aria-controls="pills-storage" aria-selected="{{ $activeTab == 'storage_setting' ? 'true' : 'false' }}">
                                 {{ __('Storage Settings') }}
-                            </a>
+                            </button>
                         </li>
 
                         <li class="nav-item col-xxl-2 col-xl-3 col-md-4 col-sm-6  col-12 text-center" role="presentation">
-                            <a class="nav-link btn-sm f-w-600 {{ $activeTab == 'recaptcha_setting' ? 'active' : '' }}" data-url="{{ route('setting.form') }}" data-tab="recaptcha_setting" id="pills-recaptcha-tab" data-bs-toggle="pill" data-bs-target="#eco-5" type="button" role="tab" aria-controls="pills-recaptcha" aria-selected="{{ $activeTab == 'recaptcha_setting' ? 'true' : 'false' }}">
+                            <button class="nav-link btn-sm f-w-600 {{ $activeTab == 'recaptcha_setting' ? 'active' : '' }}" data-url="{{ route('setting.form') }}" data-tab="recaptcha_setting" id="pills-recaptcha-tab" data-bs-toggle="pill" data-bs-target="#eco-5" type="button" role="tab" aria-controls="pills-recaptcha" aria-selected="{{ $activeTab == 'recaptcha_setting' ? 'true' : 'false' }}">
                                 {{ __('ReCaptcha Settings') }}
-                            </a>
+                            </button>
                         </li>
 
                         <li class="nav-item col-xxl-2 col-xl-3 col-md-4 col-sm-6  col-12 text-center" role="presentation">
-                            <a class="nav-link btn-sm f-w-600 {{ $activeTab == 'chat_gpt_setting' ? 'active' : '' }}" data-url="{{ route('setting.form') }}" data-tab="chat_gpt_setting" id="pills-chatgpt-tab" data-bs-toggle="pill" data-bs-target="#eco-5" type="button" role="tab" aria-controls="pills-chatgpt" aria-selected="{{ $activeTab == 'chat_gpt_setting' ? 'true' : 'false' }}">
+                            <button class="nav-link btn-sm f-w-600 {{ $activeTab == 'chat_gpt_setting' ? 'active' : '' }}" data-url="{{ route('setting.form') }}" data-tab="chat_gpt_setting" id="pills-chatgpt-tab" data-bs-toggle="pill" data-bs-target="#eco-5" type="button" role="tab" aria-controls="pills-chatgpt" aria-selected="{{ $activeTab == 'chat_gpt_setting' ? 'true' : 'false' }}">
                                 {{ __('Chat GPT Key Settings') }}
-                            </a>
+                            </button>
                         </li>
 
                         <li class="nav-item col-xxl-2 col-xl-3 col-md-4 col-sm-6  col-12 text-center" role="presentation">
-                            <a class="nav-link btn-sm f-w-600 {{ $activeTab == 'style_setting' ? 'active' : '' }}" data-url="{{ route('setting.form') }}" data-tab="style_setting" id="pills-style-tab" data-bs-toggle="pill" data-bs-target="#eco-5" type="button" role="tab" aria-controls="pills-style" aria-selected="{{ $activeTab == 'style_setting' ? 'true' : 'false' }}">
+                            <button class="nav-link btn-sm f-w-600 {{ $activeTab == 'style_setting' ? 'active' : '' }}" data-url="{{ route('setting.form') }}" data-tab="style_setting" id="pills-style-tab" data-bs-toggle="pill" data-bs-target="#eco-5" type="button" role="tab" aria-controls="pills-style" aria-selected="{{ $activeTab == 'style_setting' ? 'true' : 'false' }}">
                                 {{ __('Style Settings') }}
-                            </a>
+                            </button>
                         </li>
                         <li class="nav-item col-xxl-2 col-xl-3 col-md-4 col-sm-6  col-12 text-center" role="presentation">
-                            <a class="nav-link btn-sm f-w-600 {{ $activeTab == 'seo_setting' ? 'active' : '' }}" data-url="{{ route('setting.form') }}" data-tab="seo_setting" id="pills-seo-tab" data-bs-toggle="pill" data-bs-target="#eco-5" type="button" role="tab" aria-controls="pills-seo" aria-selected="{{ $activeTab == 'seo_setting' ? 'true' : 'false' }}">
+                            <button class="nav-link btn-sm f-w-600 {{ $activeTab == 'seo_setting' ? 'active' : '' }}" data-url="{{ route('setting.form') }}" data-tab="seo_setting" id="pills-seo-tab" data-bs-toggle="pill" data-bs-target="#eco-5" type="button" role="tab" aria-controls="pills-seo" aria-selected="{{ $activeTab == 'seo_setting' ? 'true' : 'false' }}">
                                 {{ __('SEO Settings') }}
-                            </a>
+                            </button>
                         </li>
                         @endif
 
                         @if (auth()->user() && auth()->user()->type == 'admin')
                         <li class="nav-item col-xxl-2 col-xl-3 col-md-4 col-sm-6  col-12 text-center" role="presentation">
-                            <a class="nav-link btn-sm f-w-600 {{ $activeTab == 'email_notify_setting' ? 'active' : '' }}" data-url="{{ route('setting.form') }}" data-tab="email_notify_setting" id="pills-email_notify-tab" data-bs-toggle="pill" data-bs-target="#eco-4" type="button" role="tab" aria-controls="pills-email_notify" aria-selected="{{ $activeTab == 'email_notify_setting' ? 'true' : 'false' }}">
+                            <button class="nav-link btn-sm f-w-600 {{ $activeTab == 'email_notify_setting' ? 'active' : '' }}" data-url="{{ route('setting.form') }}" data-tab="email_notify_setting" id="pills-email_notify-tab" data-bs-toggle="pill" data-bs-target="#eco-4" type="button" role="tab" aria-controls="pills-email_notify" aria-selected="{{ $activeTab == 'email_notify_setting' ? 'true' : 'false' }}">
                                 {{ __('Email Notification Settings') }}
-                            </a>
+                            </button>
                         </li>
 
                         <li class="nav-item col-xxl-2 col-xl-3 col-md-4 col-sm-6  col-12 text-center" role="presentation">
-                            <a class="nav-link btn-sm f-w-600 {{ $activeTab == 'shopify_setting' ? 'active' : '' }}" data-url="{{ route('setting.form') }}" data-tab="shopify_setting" id="pills-shopify-tab" data-bs-toggle="pill" data-bs-target="#eco-4" type="button" role="tab" aria-controls="pills-shopify" aria-selected="{{ $activeTab == 'shopify_setting' ? 'true' : 'false' }}">
+                            <button class="nav-link btn-sm f-w-600 {{ $activeTab == 'shopify_setting' ? 'active' : '' }}" data-url="{{ route('setting.form') }}" data-tab="shopify_setting" id="pills-shopify-tab" data-bs-toggle="pill" data-bs-target="#eco-4" type="button" role="tab" aria-controls="pills-shopify" aria-selected="{{ $activeTab == 'shopify_setting' ? 'true' : 'false' }}">
                                 {{ __('Shopify Settings') }}
-                            </a>
+                            </button>
                         </li>
 
                         <li class="nav-item col-xxl-2 col-xl-3 col-md-4 col-sm-6  col-12 text-center" role="presentation">
-                            <a class="nav-link btn-sm f-w-600 {{ $activeTab == 'woocom_setting' ? 'active' : '' }}" data-url="{{ route('setting.form') }}" data-tab="woocom_setting" id="pills-woocom-tab" data-bs-toggle="pill" data-bs-target="#eco-4" type="button" role="tab" aria-controls="pills-woocom" aria-selected="{{ $activeTab == 'woocom_setting' ? 'true' : 'false' }}">
+                            <button class="nav-link btn-sm f-w-600 {{ $activeTab == 'woocom_setting' ? 'active' : '' }}" data-url="{{ route('setting.form') }}" data-tab="woocom_setting" id="pills-woocom-tab" data-bs-toggle="pill" data-bs-target="#eco-4" type="button" role="tab" aria-controls="pills-woocom" aria-selected="{{ $activeTab == 'woocom_setting' ? 'true' : 'false' }}">
                                 {{ __('Woocommerce Settings') }}
-                            </a>
+                            </button>
                         </li>
 
                         <li class="nav-item col-xxl-2 col-xl-3 col-md-4 col-sm-6  col-12 text-center" role="presentation">
-                            <a class="nav-link btn-sm f-w-600 {{ $activeTab == 'webhook_setting' ? 'active' : '' }}" data-url="{{ route('setting.form') }}" data-tab="webhook_setting" id="pills-webhook-tab" data-bs-toggle="pill" data-bs-target="#eco-6" type="button" role="tab" aria-controls="pills-webhook" aria-selected="{{ $activeTab == 'webhook_setting' ? 'true' : 'false' }}">
+                            <button class="nav-link btn-sm f-w-600 {{ $activeTab == 'webhook_setting' ? 'active' : '' }}" data-url="{{ route('setting.form') }}" data-tab="webhook_setting" id="pills-webhook-tab" data-bs-toggle="pill" data-bs-target="#eco-6" type="button" role="tab" aria-controls="pills-webhook" aria-selected="{{ $activeTab == 'webhook_setting' ? 'true' : 'false' }}">
                                 {{ __('Webhook Settings') }}
-                            </a>
+                            </button>
                         </li>
                         <li class="nav-item col-xxl-2 col-xl-3 col-md-4 col-sm-6  col-12 text-center" role="presentation">
-                            <a class="nav-link btn-sm f-w-600 {{ $activeTab == 'loyality_pro_setting' ? 'active' : '' }}" data-url="{{ route('setting.form') }}" data-tab="loyality_pro_setting" id="pills-loyality_pro-tab" data-bs-toggle="pill" data-bs-target="#eco-7" type="button" role="tab" aria-controls="pills-loyality_pro" aria-selected="{{ $activeTab == 'loyality_pro_setting' ? 'true' : 'false' }}">
+                            <button class="nav-link btn-sm f-w-600 {{ $activeTab == 'loyality_pro_setting' ? 'active' : '' }}" data-url="{{ route('setting.form') }}" data-tab="loyality_pro_setting" id="pills-loyality_pro-tab" data-bs-toggle="pill" data-bs-target="#eco-7" type="button" role="tab" aria-controls="pills-loyality_pro" aria-selected="{{ $activeTab == 'loyality_pro_setting' ? 'true' : 'false' }}">
                                 {{ __('Loyality Program Settings') }}
-                            </a>
+                            </button>
                         </li>
                         <li class="nav-item col-xxl-2 col-xl-3 col-md-4 col-sm-6  col-12 text-center" role="presentation">
-                            <a class="nav-link btn-sm f-w-600 {{ $activeTab == 'whatsapp_setting' ? 'active' : '' }}" data-url="{{ route('setting.form') }}" data-tab="whatsapp_setting" id="pills-whatsapp-tab" data-bs-toggle="pill" data-bs-target="#eco-8" type="button" role="tab" aria-controls="pills-whatsapp" aria-selected="{{ $activeTab == 'whatsapp_setting' ? 'true' : 'false' }}">
+                            <button class="nav-link btn-sm f-w-600 {{ $activeTab == 'whatsapp_setting' ? 'active' : '' }}" data-url="{{ route('setting.form') }}" data-tab="whatsapp_setting" id="pills-whatsapp-tab" data-bs-toggle="pill" data-bs-target="#eco-8" type="button" role="tab" aria-controls="pills-whatsapp" aria-selected="{{ $activeTab == 'whatsapp_setting' ? 'true' : 'false' }}">
                                 {{ __('Whatsapp Settings') }}
-                            </a>
+                            </button>
                         </li>
 
 
@@ -163,7 +163,7 @@ $activeTab = session()->get('setting_tab') ?? 'email_setting';
 
 
 <li class="nav-item col-xxl-2 col-xl-3 col-md-4 col-sm-6 col-12 text-center" role="presentation">
-    <a class="nav-link btn-sm f-w-600 {{ $activeTab == 'otp_setting' ? 'active' : '' }}"
+    <button class="nav-link btn-sm f-w-600 {{ $activeTab == 'otp_setting' ? 'active' : '' }}"
        data-url="{{ route('setting.form') }}"
        data-tab="otp_setting"
        id="pills-otp-tab"
@@ -172,7 +172,7 @@ $activeTab = session()->get('setting_tab') ?? 'email_setting';
        type="button"
        role="tab" aria-selected="{{ $activeTab == 'otp_setting' ? 'true' : 'false' }}">
         {{ __('LYNOMIA OTP') }}
-    </a>
+    </button>
 </li>
 
 
@@ -180,44 +180,44 @@ $activeTab = session()->get('setting_tab') ?? 'email_setting';
 
 
                         <li class="nav-item col-xxl-2 col-xl-3 col-md-4 col-sm-6  col-12 text-center" role="presentation">
-                            <a class="nav-link btn-sm f-w-600 {{ $activeTab == 'whatsapp_msg_setting' ? 'active' : '' }}" data-url="{{ route('setting.form') }}" data-tab="whatsapp_msg_setting" id="pills-contact-tab" data-bs-toggle="pill" data-bs-target="#eco-9" type="button" role="tab" aria-controls="pills-contact" aria-selected="{{ $activeTab == 'whatsapp_msg_setting' ? 'true' : 'false' }}">
+                            <button class="nav-link btn-sm f-w-600 {{ $activeTab == 'whatsapp_msg_setting' ? 'active' : '' }}" data-url="{{ route('setting.form') }}" data-tab="whatsapp_msg_setting" id="pills-contact-tab" data-bs-toggle="pill" data-bs-target="#eco-9" type="button" role="tab" aria-controls="pills-contact" aria-selected="{{ $activeTab == 'whatsapp_msg_setting' ? 'true' : 'false' }}">
                                 {{ __('Whatsapp Message Settings') }}
-                            </a>
+                            </button>
                         </li>
                         <li class="nav-item col-xxl-2 col-xl-3 col-md-4 col-sm-6  col-12 text-center" role="presentation">
-                            <a class="nav-link btn-sm f-w-600 {{ $activeTab == 'twilio_setting' ? 'active' : '' }}" data-url="{{ route('setting.form') }}" data-tab="twilio_setting" id="pills-twilio-tab" data-bs-toggle="pill" data-bs-target="#eco-twilio" type="button" role="tab" aria-controls="pills-twilio" aria-selected="{{ $activeTab == 'twilio_setting' ? 'true' : 'false' }}">
+                            <button class="nav-link btn-sm f-w-600 {{ $activeTab == 'twilio_setting' ? 'active' : '' }}" data-url="{{ route('setting.form') }}" data-tab="twilio_setting" id="pills-twilio-tab" data-bs-toggle="pill" data-bs-target="#eco-twilio" type="button" role="tab" aria-controls="pills-twilio" aria-selected="{{ $activeTab == 'twilio_setting' ? 'true' : 'false' }}">
                                 {{ __('Twilio Settings') }}
-                            </a>
+                            </button>
                         </li>
                         <li class="nav-item col-xxl-2 col-xl-3 col-md-4 col-sm-6  col-12 text-center" role="presentation">
-                            <a class="nav-link btn-sm f-w-600 {{ $activeTab == 'pixel_field_setting' ? 'active' : '' }}" data-url="{{ route('setting.form') }}" data-tab="pixel_field_setting" id="pills-pixel_field-tab" data-bs-toggle="pill" data-bs-target="#eco-pixel_field" type="button" role="tab" aria-controls="pills-pixel_field" aria-selected="{{ $activeTab == 'pixel_field_setting' ? 'true' : 'false' }}">
+                            <button class="nav-link btn-sm f-w-600 {{ $activeTab == 'pixel_field_setting' ? 'active' : '' }}" data-url="{{ route('setting.form') }}" data-tab="pixel_field_setting" id="pills-pixel_field-tab" data-bs-toggle="pill" data-bs-target="#eco-pixel_field" type="button" role="tab" aria-controls="pills-pixel_field" aria-selected="{{ $activeTab == 'pixel_field_setting' ? 'true' : 'false' }}">
                                 {{ __('Pixel Fields Settings') }}
-                            </a>
+                            </button>
                         </li>
                         <li class="nav-item col-xxl-2 col-xl-3 col-md-4 col-sm-6  col-12 text-center" role="presentation">
-                            <a class="nav-link btn-sm f-w-600 {{ $activeTab == 'stock_setting' ? 'active' : '' }}" data-url="{{ route('setting.form') }}" data-tab="stock_setting" id="pills-stock-tab" data-bs-toggle="pill" data-bs-target="#eco-stock" type="button" role="tab" aria-controls="pills-stock" aria-selected="{{ $activeTab == 'stock_setting' ? 'true' : 'false' }}">
+                            <button class="nav-link btn-sm f-w-600 {{ $activeTab == 'stock_setting' ? 'active' : '' }}" data-url="{{ route('setting.form') }}" data-tab="stock_setting" id="pills-stock-tab" data-bs-toggle="pill" data-bs-target="#eco-stock" type="button" role="tab" aria-controls="pills-stock" aria-selected="{{ $activeTab == 'stock_setting' ? 'true' : 'false' }}">
                             {{ __('Stock Settings') }}
-                            </a>
+                            </button>
                         </li>
                         <li class="nav-item col-xxl-2 col-xl-3 col-md-4 col-sm-6  col-12 text-center" role="presentation">
-                            <a class="nav-link btn-sm f-w-600 {{ $activeTab == 'tax_opt_setting' ? 'active' : '' }}" data-url="{{ route('setting.form') }}" data-tab="tax_opt_setting" id="pills-tax_opt-tab" data-bs-toggle="pill" data-bs-target="#eco-tax_opt" type="button" role="tab" aria-controls="pills-tax_opt" aria-selected="{{ $activeTab == 'tax_opt_setting' ? 'true' : 'false' }}">
+                            <button class="nav-link btn-sm f-w-600 {{ $activeTab == 'tax_opt_setting' ? 'active' : '' }}" data-url="{{ route('setting.form') }}" data-tab="tax_opt_setting" id="pills-tax_opt-tab" data-bs-toggle="pill" data-bs-target="#eco-tax_opt" type="button" role="tab" aria-controls="pills-tax_opt" aria-selected="{{ $activeTab == 'tax_opt_setting' ? 'true' : 'false' }}">
                             {{ __('Tax Option Settings') }}
-                            </a>
+                            </button>
                         </li>
                         <li class="nav-item col-xxl-2 col-xl-3 col-md-4 col-sm-6  col-12 text-center" role="presentation">
-                            <a class="nav-link btn-sm f-w-600 {{ $activeTab == 'pwa_setting' ? 'active' : '' }}" data-url="{{ route('setting.form') }}" data-tab="pwa_setting" id="pills-pwa-tab" data-bs-toggle="pill" data-bs-target="#eco-pwa" type="button" role="tab" aria-controls="pills-pwa" aria-selected="{{ $activeTab == 'pwa_setting' ? 'true' : 'false' }}">
+                            <button class="nav-link btn-sm f-w-600 {{ $activeTab == 'pwa_setting' ? 'active' : '' }}" data-url="{{ route('setting.form') }}" data-tab="pwa_setting" id="pills-pwa-tab" data-bs-toggle="pill" data-bs-target="#eco-pwa" type="button" role="tab" aria-controls="pills-pwa" aria-selected="{{ $activeTab == 'pwa_setting' ? 'true' : 'false' }}">
                             {{ __('PWA Settings') }}
-                            </a>
+                            </button>
                         </li>
                         <li class="nav-item col-xxl-2 col-xl-3 col-md-4 col-sm-6  col-12 text-center" role="presentation">
-                            <a class="nav-link btn-sm f-w-600 {{ $activeTab == 'refund_setting' ? 'active' : '' }}" data-url="{{ route('setting.form') }}" data-tab="refund_setting" id="pills-refund-tab" data-bs-toggle="pill" data-bs-target="#eco-refund" type="button" role="tab" aria-controls="pills-refund" aria-selected="{{ $activeTab == 'refund_setting' ? 'true' : 'false' }}">
+                            <button class="nav-link btn-sm f-w-600 {{ $activeTab == 'refund_setting' ? 'active' : '' }}" data-url="{{ route('setting.form') }}" data-tab="refund_setting" id="pills-refund-tab" data-bs-toggle="pill" data-bs-target="#eco-refund" type="button" role="tab" aria-controls="pills-refund" aria-selected="{{ $activeTab == 'refund_setting' ? 'true' : 'false' }}">
                             {{ __('Refund Settings') }}
-                            </a>
+                            </button>
                         </li>
                         <li class="nav-item col-xxl-2 col-xl-3 col-md-4 col-sm-6  col-12 text-center" role="presentation">
-                            <a class="nav-link btn-sm f-w-600 {{ $activeTab == 'whatsapp_notify_setting' ? 'active' : '' }}" data-url="{{ route('setting.form') }}" data-tab="whatsapp_notify_setting" id="pills-whatsapp_notify-tab" data-bs-toggle="pill" data-bs-target="#eco-whatsapp_notify" type="button" role="tab" aria-controls="pills-whatsapp_notify" aria-selected="{{ $activeTab == 'whatsapp_notify_setting' ? 'true' : 'false' }}">
+                            <button class="nav-link btn-sm f-w-600 {{ $activeTab == 'whatsapp_notify_setting' ? 'active' : '' }}" data-url="{{ route('setting.form') }}" data-tab="whatsapp_notify_setting" id="pills-whatsapp_notify-tab" data-bs-toggle="pill" data-bs-target="#eco-whatsapp_notify" type="button" role="tab" aria-controls="pills-whatsapp_notify" aria-selected="{{ $activeTab == 'whatsapp_notify_setting' ? 'true' : 'false' }}">
                             {{ __('WhatsApp Business API') }}
-                            </a>
+                            </button>
                         </li>
 
                         @stack('settingTab')
@@ -239,8 +239,19 @@ $activeTab = session()->get('setting_tab') ?? 'email_setting';
              AJAX wrote into one and `hide()`/`show()` moved one, while the second sat empty
              forever. The dead one is gone. --}}
         <div class="col-xl-12">
+            {{-- P2.5 settings-no-error-or-loading-state: `aria-busy` is declared at rest so the
+                 true/false toggle in beforeSend/complete is a state change rather than an
+                 attribute appearing from nowhere.
+
+                 DELIBERATELY NO `aria-live` HERE. This container's ENTIRE contents are replaced
+                 on every tab switch and the panes carry 22-25 form fields, so a polite live
+                 region would read the whole settings form aloud on each of 26 tabs -- a
+                 regression on the common path. The failure is already announced ASSERTIVELY by
+                 show_toastr, which public/js/custom.js routes through ss_announce_transient to
+                 #ss-live-region-assertive; and the tab change itself is already conveyed by
+                 role="tabpanel" plus the aria-labelledby that moves with the rail. --}}
             <div class="tab-content" id="pills-tabContent" role="tabpanel"
-                 aria-labelledby="pills-home-tab" tabindex="0">
+                 aria-labelledby="pills-home-tab" tabindex="0" aria-busy="false">
             </div>
         </div>
 
@@ -332,16 +343,81 @@ $activeTab = session()->get('setting_tab') ?? 'email_setting';
     getSettingForm(newTab, $(this).data('url'));
 });
 
+{{-- P2.5 settings-no-error-or-loading-state.
+
+     THIS WAS `success` ONLY, and the endpoint has TWO failure answers on TWO transports, which
+     is why the repair needs a guard in BOTH callbacks and not just an `error:` one:
+
+       - the explicit 403 from StoreSettingsAccess::permits() carries a status, so it reaches
+         jQuery's `error` callback -- and none was registered anywhere, so the refusal produced
+         no DOM change at all: the rail moved to the new tab while the panel still showed the
+         previous tab's form;
+       - the controller's `catch` returns with NO status argument, i.e. HTTP 200 with
+         data.content === null, so it reaches `success` and blanked the panel.
+
+     `result.data.content == null` rather than a falsiness check, on purpose: a legitimately
+     empty panel string must still render, which is the inverse defect.
+
+     The 403 renders the server's OWN localised message, because the endpoint always sends `msg`
+     and jQuery populates xhr.responseJSON for a JSON error response -- so no client-side
+     "not allowed" string is needed. The 419 arm IS reachable and is the everyday case on this
+     screen: 26 tabs, merchants leave it open while fetching credentials from elsewhere, and
+     $.ajaxSetup sends a page-load-time CSRF token that goes stale with the session. Laravel's
+     TokenMismatch body uses the key `message`, not `msg`, which is why it falls through to the
+     explicit arm.
+
+     EVERY COMMENT HERE IS A BLADE COMMENT, not a JS one. In a .blade.php, braces and
+     parenthesised directives inside `/* */` or `//` are LIVE CODE, and
+     tests/Unit/Ui/NoBladeExpressionInsideCodeCommentTest.php compiles this view.
+
+     No new CSS: .ss-skeleton / .ss-skeleton--line already exist in store-syria-ds.css, already
+     reverse under [dir="rtl"] and already have a dark-mode background -- which is exactly why
+     neither custom.css nor rtl-custom.css is touched. .ss-empty > .ss-empty__body >
+     p.ss-empty__title is the canonical nesting of components/ss/empty.blade.php. --}}
  function getSettingForm(tab_type, url) {
+    var $panel = $('#pills-tabContent');
     $.ajax({
         url: url,
         type: "POST",
         data: { tab_type: tab_type, _token: "{{ csrf_token() }}" },
+        beforeSend: function() {
+            $panel.attr('aria-busy', 'true').html(
+                '<div class="ss-card">'
+                + '<div class="ss-skeleton ss-skeleton--line"></div>'
+                + '<div class="ss-skeleton ss-skeleton--line"></div>'
+                + '<div class="ss-skeleton ss-skeleton--line"></div></div>');
+        },
         success: function(result) {
-            $('#pills-tabContent').html(result.data.content); // استبدال المحتوى بالكامل
+            if (!result || result.is_success === false
+                || result.data == null || result.data.content == null) {
+                settingFormFailed((result && result.msg)
+                    ? result.msg
+                    : '{{ __('Something went wrong. Please try again.') }}');
+                return;
+            }
+            $panel.html(result.data.content);
             reinitializeEventListeners();
+        },
+        error: function(xhr) {
+            settingFormFailed((xhr.responseJSON && xhr.responseJSON.msg)
+                ? xhr.responseJSON.msg
+                : (xhr.status === 419
+                    ? '{{ __('Your session has expired. Please reload the page.') }}'
+                    : '{{ __('Something went wrong. Please try again.') }}'));
+        },
+        complete: function() {
+            $panel.attr('aria-busy', 'false');
         }
     });
+}
+
+{{-- `.text(message)`, never `.html()`: the string comes from the server. --}}
+ function settingFormFailed(message) {
+    var $empty = $('<div class="ss-scope ss-empty"><div class="ss-empty__body">'
+                   + '<p class="ss-empty__title"></p></div></div>');
+    $empty.find('.ss-empty__title').text(message);
+    $('#pills-tabContent').empty().append($empty);
+    show_toastr('{{ __('Error') }}', message, 'error');
 }
 
     $(document).on('change', '#email_setting', function() {

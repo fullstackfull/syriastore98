@@ -579,7 +579,15 @@ $oldCustomDomainEnabled = ($settings['enable_domain'] ?? 'off') === 'on';
                 ]
             );
             if ($validator->fails()) {
-                return redirect()->back()->with('error', $validator->errors()->first());
+                // P2.5 area-wide-no-withinput-witherrors (CLASS A). The toast stays; the bag
+                // and the old input are added so the @error('store_slug') block already
+                // written into resources/views/AppSetting/index.blade.php:161 stops being
+                // dead markup. Never bare ->withInput(): see
+                // tests/Feature/Security/CredentialSinksTest.php:260.
+                return redirect()->back()
+                    ->with('error', $validator->errors()->first())
+                    ->withErrors($validator)
+                    ->withInput($request->except(['_token', 'password', 'password_confirmation']));
             }
 
             $store_slug_exists = Store::where('slug', $request->store_slug)->first();
@@ -1289,7 +1297,15 @@ if ($mayChangeRouting && $request->enable_domain === 'enable_subdomain') {
         );
         if ($validator->fails()) {
             $messages = $validator->getMessageBag();
-            return redirect()->back()->with('error', $messages->first());
+
+            // P2.5 area-wide-no-withinput-witherrors (CLASS A), same shape as the store_slug
+            // site above. ONLY the two validators in this controller that actually call
+            // fails() are touched -- :266, :336, :603 and :611 build a validator and never
+            // consult it, and activating any of them would refuse posts that succeed today.
+            return redirect()->back()
+                ->with('error', $messages->first())
+                ->withErrors($validator)
+                ->withInput($request->except(['_token', 'password', 'password_confirmation']));
         }
 
         $post['date_format'] = $request->date_format;

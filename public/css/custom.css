@@ -2493,8 +2493,61 @@ span.badge.rounded.p-2.m-1.px-3.bg-dark {
     color: #6c757d;
 }
 
-.nav-pills .nav-item a {
+.nav-pills .nav-item a,
+.nav-pills .nav-item button.nav-link {
     cursor: pointer;
+}
+
+/* P2.5 settings-tabs-not-keyboard-reachable. The 28 settings tabs were href-less, tabindex-less
+   <a role="tab"> elements: not focusable, not in the tab order, so 20 of a merchant's 21
+   settings panels were mouse-only (WCAG 2.1.1). They are now <button type="button">, which
+   fires click on both Enter and Space, so the delegate needs no change.
+
+   The swap is NOT inert, and these three declarations are the whole cost of it. Measured in
+   the shipped sheets, not assumed:
+     style.css:16251   .nav-pills button.nav-link { background:#f5f5f5; color:#000 }
+                       specificity (0,2,1) - DORMANT today, FIRES now, and it beats
+                       .nav-pills .nav-link (0,2,0, style.css:4444). Mirrored in
+                       style-dark.css:16254, style-rtl.css:16212, rtl-style-dark.css:16217.
+     style.css:28696   #useradd-sidenav .nav-pills .nav-link sets display:flex and height:100%
+                       and NO width. A block-level <a> fills its grid column; a form control
+                       shrink-wraps. This rail has no .nav-fill (unlike roles/create.blade.php),
+                       so without width:100% all 21 pills collapse to label width and jam
+                       against the inline-start edge.
+     custom-color.css:155  body.custom-color .nav-link { color: var(--color-customColor) }
+                       (0,2,0) LOSES to (0,2,1), which is why the brand colour has to be
+                       restated for the default chrome.
+
+   #060606 is restated deliberately: it is what the anchors compute today on a theme-1..theme-10
+   LIGHT chrome (style.css:4444). MEASURED in headless Chrome against the real sheets, with the
+   same values for the <a> before the swap and the <button> after it:
+     default custom-color, light:  rgb(51,93,168)  on rgb(255,255,255)  = 6.42:1   AA pass
+     theme-4, light:               rgb(6,6,6)      on rgb(255,255,255)  = 20.26:1  AAA pass
+     theme-4, dark:                rgb(20,83,136)  on rgb(41,42,51)     = 1.78:1   FAIL
+   The dark figure is PRE-EXISTING and this change neither causes nor cures it: a theme
+   declaration this rule does not reach governs the colour there, so the #060606 above is inert
+   in dark. Recorded as its own finding rather than silently altered inside a keyboard repair.
+   Width/background/colour parity with the pre-swap anchor was verified by measurement, as was
+   the collapse without these rules: 243.3px with them, 130.5px and 65.9px without.
+
+   No :focus rule is added. The governing declaration is the !important
+   .nav-link:hover, .nav-link:focus { background: var(--theme-color) !important;
+   color: var(--bs-white) !important } at style.css:16260 and its three mirrors - white on those
+   chrome colours measures 5.26:1 to 9.01:1, all passing, and a non-important companion could
+   not override it at any specificity.
+
+   Scoped by #useradd-sidenav so every other nav-pills rail in the admin is untouched. This
+   block is byte-identical in custom.css (LTR) and rtl-custom.css (Arabic) and sits AT the
+   existing cursor rule, outside the dark-mode sentinel blocks whose contents
+   DarkTextUtilityContrastTest and DarkModalSurfaceContrastTest police. */
+#useradd-sidenav .nav-pills button.nav-link {
+    width: 100%;
+    background: transparent;
+    color: #060606;
+}
+
+body.custom-color #useradd-sidenav .nav-pills button.nav-link {
+    color: var(--color-customColor);
 }
 
 

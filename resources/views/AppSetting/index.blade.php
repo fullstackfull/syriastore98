@@ -16,6 +16,15 @@
 
 @section('content')
 
+{{--
+    P2.5 area-wide-no-withinput-witherrors. Page-level, above the tab nav: the panes are
+    inline on this one page and every @error block in them shares the default bag, so there is
+    no form to attach a summary to. The existing app_setting_tab hidden field (:129/:301/:436)
+    already restores the failing pane, so the summary and the revived @error blocks land
+    together. The component is used, never copied, so its own @if ($errors->any()) guard keeps
+    a fresh page silent.
+--}}
+<x-ss.error-summary :errors="$errors" class="mb-3" />
 
 <link rel="stylesheet"
       href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
