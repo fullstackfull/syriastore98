@@ -56,7 +56,7 @@ $theme_url = App\Http\Controllers\HomeController::getThemeUrl($store);
                     <li class="dropdown dash-h-item drp-company">
                         <a class="dash-head-link dropdown-toggle arrow-none me-0" data-bs-toggle="dropdown" href="#"
                             role="button" aria-haspopup="false" aria-expanded="false">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+                                    <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
                             <span class="hide-mob">
                                 @if (!Auth::guest())
                                 {{-- P2.5-A-03. THE NAME IS BIDI-ISOLATED, and the `!` is why.
@@ -77,7 +77,40 @@ $theme_url = App\Http\Controllers\HomeController::getThemeUrl($store);
                                 {{ __('Guest') }}
                                 @endif
                             </span>
-                            <i class="ti ti-chevron-down drp-arrow nocolor hide-mob"></i>
+                            {{-- P2.5 header-triggers-nameless-below-992. THIS TRIGGER'S ONLY NAME
+                                 WAS THE GREETING SPAN ABOVE, AND THE THEME HIDES IT ON A PHONE:
+                                 `public/assets/css/style.css:17193` sets
+                                 `.dash-header .dash-h-item .hide-mob { display: none }` inside
+                                 `@media (max-width: 991px)`, mirrored once each in
+                                 `style-dark.css`, `style-rtl.css` and `rtl-style-dark.css`. The
+                                 chevron carries `hide-mob` too and the inline SVG has no `role`
+                                 and no `<title>` child, so below 992px the accessible name was
+                                 EMPTY and a screen reader announced bare "link" -- on every
+                                 merchant screen, because this header is the shared chrome.
+
+                                 A `.visually-hidden` SIBLING, NOT `aria-label` ON THE ANCHOR. An
+                                 `aria-label` overrides the visible text at 992px and up, so the
+                                 merchant's own name would leave the accessible name and this
+                                 would trade the old WCAG 2.5.3 failure for a new one.
+                                 `PageActionRegionContractTest` already writes that rule down.
+                                 Same idiom as the notification bell below.
+
+                                 IT ALSO NEEDED A CSS CHANGE, in BOTH custom sheets:
+                                 `custom.css` / `rtl-custom.css` hid every `span` inside
+                                 `.dash-head-link.dropdown-toggle` below 576px, and Bootstrap's
+                                 `.visually-hidden` declares no `display` for a `display: none`
+                                 to lose to -- so without
+                                 `span:not(.visually-hidden)` this span was itself
+                                 `display: none` on a 390px phone and the repair did nothing at
+                                 the width the row is about.
+
+                                 `aria-hidden` on the chevron and the SVG: the chevron is not
+                                 merely decorative in the name computation --
+                                 `tabler-icons.min.css` gives `.ti-chevron-down:before` the
+                                 content `"\ea5f"`, and generated content is part of AccName
+                                 step 2F. --}}
+                            <span class="visually-hidden">{{ __('Your account') }}</span>
+                            <i class="ti ti-chevron-down drp-arrow nocolor hide-mob" aria-hidden="true"></i>
                         </a>
                         <div class="dropdown-menu dash-h-dropdown">
 
@@ -129,8 +162,24 @@ $theme_url = App\Http\Controllers\HomeController::getThemeUrl($store);
                 <ul class="list-unstyled header-icon-list">                    
                     @if (auth()->user() && auth()->user()->type == 'super admin')
                     <li class="web-browse-icon">
+                        {{-- P2.5 header-icononly-name-lost-by-tooltip. `aria-label` ALONGSIDE
+                             `title`, not instead of it. Bootstrap 5.1.3's Tooltip constructor
+                             calls `_fixTitle()`, which moves `title` into
+                             `data-bs-original-title`, writes an `aria-label` only when the
+                             element has neither an `aria-label` NOR any `textContent`, and then
+                             sets `title=""` regardless. The newline and indentation before the
+                             inline SVG make `textContent` a truthy whitespace string, so that
+                             fallback never fired and the control shipped with `title=""`, no
+                             `aria-label`, and an SVG with no role and no `<title>` child: a
+                             screen reader announced bare "link". `title` stays because it is
+                             the name a sighted mouse user gets, and `_fixTitle()` reads
+                             `aria-label` before it would write one, so this survives the plugin.
+                             This control is operator-only (`type == 'super admin'` above), so
+                             strictly a Phase 06 surface -- one attribute, declared rather than
+                             slipped in, because leaving it would keep the operator a nameless
+                             control on every screen while its two neighbours are fixed. --}}
                         <a href="{{ url('config-cache') }}" data-bs-toggle="tooltip"
-                        title="{{ __('Clear Cache') }}" class="dash-head-link cust-btn">
+                        title="{{ __('Clear Cache') }}" aria-label="{{ __('Clear Cache') }}" class="dash-head-link cust-btn">
                             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
                                 <path id="_74846e5be5db5b666d3893933be03656"
                                     data-name="74846e5be5db5b666d3893933be03656"
@@ -191,14 +240,22 @@ $theme_url = App\Http\Controllers\HomeController::getThemeUrl($store);
                              the ADMIN page and can navigate it. It is the only `target="_blank"` in
                              this layout, so every admin screen carried it. Found while auditing the
                              order detail page's four. --}}
+                        {{-- `aria-label` alongside `title` -- see the Clear Cache control above for
+                             why `title` alone is not an accessible name here. The key is the
+                             EXISTING `Store Link`: `ArabicUiCoverageTest` scans this partial for
+                             `__()` keys absent from `ar.json`, and a better-worded label such as
+                             `Open storefront` would be a new key and a new failure. (ar.json
+                             renders it `وصلة التخزين`, which back-translates as "storage link" --
+                             a real mistranslation, but a copy change and a separate row.) --}}
                         <a href="{{ $theme_url ?? '#' }}" target="_blank" rel="noopener noreferrer" data-bs-toggle="tooltip"
-                        title="{{ __('Store Link') }}" class="dash-head-link cust-btn">
+                        title="{{ __('Store Link') }}" aria-label="{{ __('Store Link') }}" class="dash-head-link cust-btn">
                            <svg data-replit-metadata="client/src/components/icons/CustomIcons.tsx:36:4" data-component-name="svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#060606" stroke-width="2" class="w-4 h-4"><path data-replit-metadata="client/src/components/icons/CustomIcons.tsx:37:6" data-component-name="path" d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline data-replit-metadata="client/src/components/icons/CustomIcons.tsx:38:6" data-component-name="polyline" points="9,22 9,12 15,12 15,22"></polyline><path data-replit-metadata="client/src/components/icons/CustomIcons.tsx:39:6" data-component-name="path" d="m15 7 3 3-3 3M8 13l-3-3 3-3"></path></svg>
                         </a>
                     </li>
                     <li class="web-browse-icon">
+                        {{-- `aria-label` alongside `title`; existing key, see above. --}}
                         <a href="{{ route('pos.index') }}" data-bs-toggle="tooltip"
-                        title="{{ __('POS') }}" class="dash-head-link cust-btn h-100 ">
+                        title="{{ __('POS') }}" aria-label="{{ __('POS') }}" class="dash-head-link cust-btn h-100 ">
                            <svg data-replit-metadata="client/src/components/icons/CustomIcons.tsx:46:4" data-component-name="svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#060606" stroke-width="2" class="w-5 h-5 mr-3 text-primary"><rect data-replit-metadata="client/src/components/icons/CustomIcons.tsx:47:6" data-component-name="rect" x="2" y="4" width="20" height="16" rx="2"></rect><path data-replit-metadata="client/src/components/icons/CustomIcons.tsx:48:6" data-component-name="path" d="M7 15h10M7 11h4"></path><circle data-replit-metadata="client/src/components/icons/CustomIcons.tsx:49:6" data-component-name="circle" cx="18" cy="8" r="2"></circle></svg>
                         </a>
                     </li>
@@ -239,10 +296,36 @@ $theme_url = App\Http\Controllers\HomeController::getThemeUrl($store);
                         @endphp
                         <a class="dash-head-link arrow-none me-0 h-100 megamenu-btn"
                             data-bs-toggle="dropdown" href="#" role="button" aria-haspopup="false" aria-expanded="false"
-                            data-bs-placement="bottom" data-bs-original-title="Select Store">
+                            data-bs-placement="bottom">
                             <svg data-replit-metadata="client/src/components/icons/CustomIcons.tsx:24:4" data-component-name="svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#060606" stroke-width="2" class="w-4 h-4"><circle data-replit-metadata="client/src/components/icons/CustomIcons.tsx:25:6" data-component-name="circle" cx="13.5" cy="6.5" r=".5"></circle><circle data-replit-metadata="client/src/components/icons/CustomIcons.tsx:26:6" data-component-name="circle" cx="17.5" cy="10.5" r=".5"></circle><circle data-replit-metadata="client/src/components/icons/CustomIcons.tsx:27:6" data-component-name="circle" cx="8.5" cy="7.5" r=".5"></circle><circle data-replit-metadata="client/src/components/icons/CustomIcons.tsx:28:6" data-component-name="circle" cx="6.5" cy="12.5" r=".5"></circle><path data-replit-metadata="client/src/components/icons/CustomIcons.tsx:29:6" data-component-name="path" d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"></path></svg>
                             <span class="hide-mob">{{ ucfirst($store->name ?? '') }}</span>
-                            <i class="ti ti-chevron-down drp-arrow nocolor"></i>
+                            {{-- P2.5 header-triggers-nameless-below-992. THE WORSE HALF OF THE PAIR:
+                                 this trigger's name was not empty below 992px, it was GARBAGE. The
+                                 store-name span above carries `hide-mob`, which the theme sets to
+                                 `display: none` under 992px (style.css:17193 and its three
+                                 theme/direction mirrors), while this chevron carries neither
+                                 `hide-mob` nor `aria-hidden` -- and
+                                 `public/assets/fonts/tabler-icons.min.css` gives
+                                 `.ti-chevron-down:before` the content `"\ea5f"`. Generated content
+                                 is part of the accessible-name computation (AccName step 2F), so
+                                 the whole name was the single Private-Use codepoint U+EA5F:
+                                 silence on VoiceOver, garbage on a braille display. That is why
+                                 the test for this asserts the name EQUALS the expected string --
+                                 an "is the name empty" assertion PASSED while this was broken.
+
+                                 The `data-bs-original-title="Select Store"` that used to sit on the
+                                 anchor named nothing and was never read: it is not in the
+                                 accessible-name computation, and the only code that touches it is
+                                 Bootstrap's own Tooltip, which `dash.js:561` / `side-dash.js:620`
+                                 construct solely for `[data-bs-toggle="tooltip"]` -- this anchor's
+                                 toggle is `dropdown`. A dead attribute that read like a label, so
+                                 it is gone rather than left to be mistaken for the fix.
+
+                                 This anchor has no `dropdown-toggle` class, so unlike the account
+                                 trigger its hidden span needs no change to the 575px rule in
+                                 custom.css / rtl-custom.css. --}}
+                            <span class="visually-hidden">{{ __('Select store') }}</span>
+                            <i class="ti ti-chevron-down drp-arrow nocolor" aria-hidden="true"></i>
                         </a>
                         <div class="dropdown-menu dash-h-dropdown dropdown-menu-end px-2">
                             <input type="text" id="searchInput" class="form-control mb-2"

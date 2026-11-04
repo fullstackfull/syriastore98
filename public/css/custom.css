@@ -1406,8 +1406,26 @@ textarea {
         font-size: 25px;
     }
 
+    /* P2.5 header-triggers-nameless-below-992: `:not(.visually-hidden)` IS LOAD-BEARING.
+       The account trigger carries `dropdown-toggle`, and its screen-reader-only label is a
+       `span` inside it. Bootstrap's `.visually-hidden` (public/assets/css/style.css:8066)
+       declares position, width, height, padding, margin, overflow, clip, white-space and
+       border -- every one `!important` -- and NO `display`, so there is nothing for this
+       `display: none` to lose to. Without the exemption the hidden label was itself
+       display:none at 390px and the markup half of that repair did nothing at exactly the
+       width the row is about.
+
+       `.text-store` IS DELIBERATELY NOT EXEMPTED: that is Quick Add's visible label, and the
+       whole point of this rule is to keep real text out of 40x40 icon chrome on a phone.
+
+       THIS EDIT IS MIRRORED IN THE OTHER CUSTOM SHEET AND MUST STAY SO. layouts/app.blade.php
+       loads rtl-custom.css INSTEAD of custom.css for Arabic (158/166 against 162/170, in light
+       and dark both), so a change in one sheet reaches exactly half the merchants -- and a
+       screen-reader-only span whose utility rule is overridden does not fail quietly, it
+       becomes ordinary VISIBLE text. `HeaderDropdownTriggerNamesTest` asserts the two blocks
+       are byte-identical. */
     .dash-header .dash-head-link .text-store,
-    .dash-header .dash-head-link.dropdown-toggle span {
+    .dash-header .dash-head-link.dropdown-toggle span:not(.visually-hidden) {
         display: none;
     }
 

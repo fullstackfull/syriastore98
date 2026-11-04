@@ -3363,5 +3363,7 @@
     ":n notifications you have not read": ":n إشعارات لم تقرأها",
     "Open": "فتح",
     "Generating…": "جارٍ الإنشاء…",
-    "This could not be generated. Please try again.": "تعذّر الإنشاء. يرجى المحاولة مرة أخرى."
+    "This could not be generated. Please try again.": "تعذّر الإنشاء. يرجى المحاولة مرة أخرى.",
+    "Your account": "حسابك",
+    "Select store": "حدد المتجر"
 }

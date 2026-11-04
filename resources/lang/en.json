@@ -3332,5 +3332,7 @@
     ":n notifications you have not read": ":n notifications you have not read",
     "Open": "Open",
     "Generating…": "Generating…",
-    "This could not be generated. Please try again.": "This could not be generated. Please try again."
+    "This could not be generated. Please try again.": "This could not be generated. Please try again.",
+    "Your account": "Your account",
+    "Select store": "Select store"
 }
