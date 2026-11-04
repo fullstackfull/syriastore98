@@ -993,7 +993,22 @@
       }))
     }()
 
+    /* RE-ENTRANCY IS GUARDED BY `ssSaveInFlight`, NOT by `disabled`. `#submit-all` is an
+       `<a href="#">` (line 17), and the `disabled` CONTENT ATTRIBUTE IS NOT DEFINED FOR AN
+       ANCHOR -- nothing reads it. The jQuery handler below still fires on every click, and the
+       sticky action-bar Save reaches this same handler through `data-ss-click-proxy`, which
+       `StoreSyriaDS.wireClickProxy()` serves with an unconditional `target.click()` and no
+       disabled or aria-disabled test. Measured: the attribute is written at seven sites in this
+       file and read at none. Nothing downstream de-duplicates either -- `ProductController`'s
+       store rules carry no `unique` on name/slug/sku, `Product::slugs()` appends `-1` on
+       collision, and `products.slug` has no unique index -- so a second click persists a second
+       product, re-uploads the cover image and gallery, and is charged again against the tenant's
+       storage limit. Same latch and same reasoning as product/edit.blade.php. */
+    var ssSaveInFlight = false;
+
     $('#submit-all').on('click', function() {
+      if (ssSaveInFlight) { return; }
+
       $('#submit-all').attr('disabled', true);
       var fd = new FormData();
 
@@ -1053,6 +1068,25 @@
           show_toastr('Error', 'Please correct the error message before submitting the form.');
           return false;
         } else {
+          /* THE LATCH IS SET WHERE THE REQUEST IS ISSUED, NOT AT THE TOP OF THE HANDLER, AND
+             THAT IS A FIX RATHER THAN A STYLE CHOICE. Three exits sit between the entry check
+             and this request: the `return false` just above, and two unguarded dereferences that
+             can throw -- `document.getElementById('cover_image').files[0]` and the dropzone's
+             `getAcceptedFiles()`. Setting the latch early leaves every one of them wedged at
+             true for the life of the page, and Save then looks alive and does nothing, because
+             the disabled attribute on an anchor has never had an effect. Everything between the
+             check and here is synchronous, so no second click can interleave and the guard loses
+             nothing by being set later.
+
+             The scrim is raised here too: the four response callbacks below already called
+             `fadeOut()` and nothing ever showed it, so during a multipart upload the merchant had
+             no feedback at all -- which is what makes the second click natural. `.css` and not
+             `.fadeIn()`, because jQuery restores a div's default block display, which beats the
+             flex the loader wrapper needs for its spinner to centre. loader.css and its RTL twin
+             are linked per direction by the layout, so there is no stylesheet edit here. */
+          ssSaveInFlight = true;
+          $('#loader').css('display', 'flex');
+
           $.ajax({
             url: "{{ route('product.store') }}",
             headers: {
@@ -1063,9 +1097,18 @@
             processData: false,
             type: 'POST',
             success: function(data) {
+              ssSaveInFlight = false;
               $('#loader').fadeOut();
               if (data.flag == "success") {
                 $('#submit-all').attr('disabled', true);
+                /* RE-SET ACROSS THE NAVIGATION, deliberately unlike product/edit.blade.php, which clears
+                   once at the top of `success` and leaves it clear. This branch navigates, and a click
+                   landing in that window posts a SECOND create -- the duplicate this guard exists for.
+                   `#submit-all` is a focusable anchor, so Enter reaches the handler even under the scrim.
+                   Nothing between the top-of-callback clear and this line yields to the event loop. The
+                   clear still happens first so that a throw in show_toastr or applyFormErrors on the
+                   failure path below can never leave Save permanently dead. */
+                ssSaveInFlight = true;
 
                 /* P2-03-4 / F75. THE SUCCESS BRANCH NAVIGATES IMMEDIATELY AND SHOWED `data.msg`
                    NOWHERE, so the server's own warning -- "These images were not uploaded: ..." --
@@ -1076,6 +1119,15 @@
                    index.blade.php:67 and list.blade.php:169), so the same mechanism is used here
                    rather than a second one invented beside it. */
                 try { localStorage.setItem('success_msg', data.msg); } catch (e) { /* private mode */ }
+
+                /* A SAVE IS NOT A LOSS OF WORK, and the DS dirty tracker cannot know that here: it clears
+                   `data-ss-dirty` only on the form's `submit` event, which this editor never fires -- it
+                   posts a hand-built FormData by ajax. So the DS `beforeunload` armed the browser's
+                   leave-site dialog on EVERY successful create, while loader.js raised the full-viewport
+                   scrim on the same event with nothing left to lower it. A merchant who answered "stay" --
+                   the natural answer, having been shown no confirmation -- was left on a bricked page whose
+                   product already existed. Clearing the flag makes this navigation really end the page. */
+                $('#choice_form').attr('data-ss-dirty', 'false');
 
                 window.location.href = "{{ route('product.index') }}" + '?id=1';
 
@@ -1098,6 +1150,7 @@
               }
             },
             error: function(data) {
+              ssSaveInFlight = false;
               $('#loader').fadeOut();
               $('#submit-all').attr('disabled', false);
               // Dropzones.removeFile(file);
@@ -1110,6 +1163,11 @@
           });
         }
       } else {
+        /* The default branch -- the one that runs when CartQuantityControl is not enabled, i.e.
+           the ordinary case. Same latch-at-the-request-site reasoning as the branch above. */
+        ssSaveInFlight = true;
+        $('#loader').css('display', 'flex');
+
         $.ajax({
           url: "{{ route('product.store') }}",
           headers: {
@@ -1120,9 +1178,18 @@
           processData: false,
           type: 'POST',
           success: function(data) {
+            ssSaveInFlight = false;
             $('#loader').fadeOut();
             if (data.flag == "success") {
               $('#submit-all').attr('disabled', true);
+              /* RE-SET ACROSS THE NAVIGATION, deliberately unlike product/edit.blade.php, which clears
+                 once at the top of `success` and leaves it clear. This branch navigates, and a click
+                 landing in that window posts a SECOND create -- the duplicate this guard exists for.
+                 `#submit-all` is a focusable anchor, so Enter reaches the handler even under the scrim.
+                 Nothing between the top-of-callback clear and this line yields to the event loop. The
+                 clear still happens first so that a throw in show_toastr or applyFormErrors on the
+                 failure path below can never leave Save permanently dead. */
+              ssSaveInFlight = true;
               
 
               /* P2-03-4 / F75. THE DEFAULT SAVE PATH. There are TWO near-identical AJAX calls
@@ -1136,6 +1203,15 @@
                  likewise on the module-only branch, so by default an edit save showed the
                  merchant nothing either. Both defaults now carry the message. */
               try { localStorage.setItem('success_msg', data.msg); } catch (e) { /* private mode */ }
+              /* A SAVE IS NOT A LOSS OF WORK, and the DS dirty tracker cannot know that here: it clears
+                 `data-ss-dirty` only on the form's `submit` event, which this editor never fires -- it
+                 posts a hand-built FormData by ajax. So the DS `beforeunload` armed the browser's
+                 leave-site dialog on EVERY successful create, while loader.js raised the full-viewport
+                 scrim on the same event with nothing left to lower it. A merchant who answered "stay" --
+                 the natural answer, having been shown no confirmation -- was left on a bricked page whose
+                 product already existed. Clearing the flag makes this navigation really end the page. */
+              $('#choice_form').attr('data-ss-dirty', 'false');
+
               window.location.href = "{{ route('product.index') }}" + '?id=1';
 
             } else {
@@ -1157,6 +1233,7 @@
             }
           },
           error: function(data) {
+            ssSaveInFlight = false;
             $('#loader').fadeOut();
             $('#submit-all').attr('disabled', false);
             // Dropzones.removeFile(file);
