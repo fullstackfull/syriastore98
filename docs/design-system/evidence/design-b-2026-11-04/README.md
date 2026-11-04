@@ -142,6 +142,52 @@ After the fix, `/order-kanban`, `/dashboard`, `/product-list` and `/order-grid` 
 | `.ss-board__col { position: relative }` | the ratchet, **and** the live page: +295px returns in both directions |
 | the brand existence check | all four combinations back to `naturalWidth 0` |
 
+### A bite that lied to me, and the two corrections it forced
+
+I re-spliced the stylesheet by hand to test the two new structure guards, both stayed green, and I
+wrote that into their docblock as *"these two cases would not have caught it"*. **That was false.**
+My synthetic splice closed the opening comment, added a rule and then **re-opened** a comment —
+which is well-formed and nests nothing. The real splice did not re-open anything.
+
+Run against the bytes actually committed (`git show a160c2e0:public/css/store-syria-ds.css`,
+181,933 bytes), both guards **fail**:
+
+```
+test_no_comment_is_nested_or_unterminated
+    -> FAIL: a /* appears INSIDE the comment opened at line 1
+
+test_both_root_blocks_are_top_level_rules
+    -> selectors: [:root`, the two `[data-ss-theme=...]` blocks … ] (1830 chars)
+                  [:root, [data-ss-theme="light"]]
+    -> FAIL: assertContains(':root') — the PRIMITIVES block is not a top-level rule
+```
+
+So all three cases catch it. The docblock is corrected. **A bite that approximates the defect
+proves something about the approximation, not about the defect** — and `git show <sha>:<path>` was
+available the whole time.
+
+**The second correction: `ArabicUiCoverageTest` was never red on CI.** The commit message for
+P2.5-DESIGN-B implies the translation work repaired a red test. It did not. Measured: no commit
+between `81a11798` and `a160c2e0` touches `resources/lang/` at all, and `__('Store Syria')` does
+not exist at `a160c2e0` — **I introduced that string in this very commit**, which reddened the
+ratchet in my own working tree, and I fixed it before committing. CI's four red tests were only
+`DesignSystemStylesheetScopeTest` (1) and `FinanceMoneyFigureContrastTest` (3), all from the
+stylesheet splice.
+
+### What CI actually did while the stylesheet was broken
+
+Both required jobs run the **Unit suite as a blocking first step**. So from `81a11798` to
+`a160c2e0` — seven commits — `Unit suite -- BLOCKING` exited 1 and the Contract, Feature and
+known-outcome-gate steps were all **skipped**. CI did not run the Feature suite at all during that
+window; my local runs were the only thing exercising it. Verified green again at `d9b67341`:
+
+```
+Unit     Tests: 1079, Assertions: 9420            (no failures)
+Contract OK (27 tests, 92 assertions)
+Feature  Tests: 7959, Assertions: 42042, Failures: 2, Skipped: 1
+Gate     outcome set matches the manifest exactly -- nothing undeclared
+```
+
 ### Not verified
 
 * **Headless Chromium on one machine at 1440×900.** No device matrix, no real handset.

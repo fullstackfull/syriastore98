@@ -370,18 +370,35 @@ class DesignSystemStylesheetScopeTest extends TestCase
      * the design-system components fell back to it, so screenshots still rendered. What was lost
      * was the design system's own contrast-verified palette, silently, on every screen.
      *
-     * THESE TWO CASES WOULD NOT HAVE CAUGHT IT, AND SAYING SO IS THE POINT OF THIS PARAGRAPH.
-     * I added them believing they would, then BIT them by re-splicing the stylesheet the way
-     * P2.5-TYPE had: `test_every_selector_is_confined_by_a_design_system_token` above went RED and
-     * both of these stayed GREEN. The spliced file's comments are still well-formed -- nothing
-     * nests, nothing is unterminated -- and both `:root` rules still parse. The leak is a
-     * SELECTOR-shaped symptom, and the selector test is what sees it.
+     * THESE TWO CASES DO CATCH IT -- AND THE PARAGRAPH THAT STOOD HERE SAID THE OPPOSITE.
      *
-     * They are kept because they catch two neighbouring hazards that the selector test does not
-     * name: a comment that is never closed (which silently deletes the rest of the file), and a
-     * `:root` block that has stopped being a top-level rule (which is what the browser actually
-     * punished here, whatever the cause). Both are cheap, and both say what is wrong rather than
-     * printing prose and calling it a selector.
+     * I wrote, in a correction: "THESE TWO CASES WOULD NOT HAVE CAUGHT IT ... I BIT them by
+     * re-splicing the stylesheet the way P2.5-TYPE had: the selector test above went RED and both
+     * of these stayed GREEN." That was false, and it was false because MY BITE DID NOT REPRODUCE
+     * THE DEFECT. My synthetic splice closed the opening comment, added a rule, and then RE-OPENED
+     * a comment with `/* resumed` -- which is well-formed, nests nothing, and leaves both `:root`
+     * rules top-level. The real P2.5-TYPE splice did not re-open anything.
+     *
+     * MEASURED AGAINST THE BYTES ACTUALLY COMMITTED, `git show a160c2e0:public/css/store-syria-ds.css`
+     * (181,933 bytes), running each case's own logic:
+     *
+     *     test_no_comment_is_nested_or_unterminated
+     *         -> FAIL: a star-slash-open appears INSIDE the comment opened at line 1
+     *
+     *     test_both_root_blocks_are_top_level_rules
+     *         -> selectors found: 2
+     *            [:root`, the two `[data-ss-theme=...]` blocks (custom properties only), ... ] (1830 chars)
+     *            [:root, [data-ss-theme="light"]]
+     *         -> FAIL: assertContains(':root') -- the PRIMITIVES block is not a top-level rule
+     *
+     * Both RED at the broken commit, both GREEN at HEAD. So all three cases in this file catch the
+     * regression, and these two name the cause while the selector case prints the symptom.
+     *
+     * THE LESSON IS THE BITE, NOT THE TESTS. A bite that approximates the defect proves nothing
+     * about the defect; it proves something about the approximation. The cheap way to get this
+     * right was available throughout -- `git show <sha>:<path>` gives the real bytes -- and I used
+     * a hand-built imitation instead. That is the second time in this change that a measurement I
+     * trusted was of the wrong thing.
      */
     public function test_no_comment_is_nested_or_unterminated(): void
     {
