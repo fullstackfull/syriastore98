@@ -1074,6 +1074,18 @@ Facts each chain asserted that I re-measured rather than took:
 * `h4` and `.h4` are grouped in the same selector lists (`style.css:196-197`, `:248-249`), so
   `<h3 class="h4">` keeps the type scale the old `<h4>` had.
 
+**And one claim of the chain's that I measured and must downgrade.** Its `not_done` says
+"`ReportAuthorizationTest` still omits `/category-order-reports` and `/brand-order-reports`", which
+reads as an authorization gap on the two endpoints just hardened. It is not one. That class's
+`test_every_routed_report_action_is_mapped_and_gated()` **iterates the whole route table** and
+asserts `ReportPermission::class` is in `gatherRouteMiddleware()` for every route whose controller
+is `ReportController` — so both endpoints are gated, and proved gated, by a census rather than by
+an enumerated list. Verified: the enclosing group at `routes/web.php:411` carries only
+`['auth','xss','setlocate','verified']` and neither handler checks a permission itself, so the gate
+is entirely that middleware and the census is what holds it. What the two paths really are missing
+is a row in the class's per-path **data provider**, which buys a direct 403 assertion rather than a
+structural one. A smaller gap than the sentence implies, and recorded at its real size.
+
 ### The live verification — owner priority 2
 
 Full record, with every number and every caveat:
