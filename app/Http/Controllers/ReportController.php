@@ -1854,7 +1854,7 @@ class ReportController extends Controller
         $store_id = getStoreById(getCurrentStore());
         $currency = Utility::GetValueByName('CURRENCY');
         if ($request->chart_data == 'last-month') {
-            $selectedCategory = $request->selectedCategory;
+            $selectedCategory = $this->reportSelectionWithinCurrentStore(Category::class, $request->selectedCategory);
             $year = date('Y');
             $monthList = $this->yearMonth();
             $NetSaleTotal = [];
@@ -1930,7 +1930,7 @@ class ReportController extends Controller
             }
             $monthList = $month = $this->getLastMonthDatesFormatted();
         } elseif ($request->chart_data == 'this-month') {
-            $selectedCategory = $request->selectedCategory;
+            $selectedCategory = $this->reportSelectionWithinCurrentStore(Category::class, $request->selectedCategory);
             $year = date('Y');
             $monthList = $this->yearMonth();
             $NetSaleTotal = [];
@@ -2005,7 +2005,7 @@ class ReportController extends Controller
 
             $monthList = $month = $this->getCurrentMonthDates();
         } elseif ($request->chart_data == 'seven-day') {
-            $selectedCategory = $request->selectedCategory;
+            $selectedCategory = $this->reportSelectionWithinCurrentStore(Category::class, $request->selectedCategory);
             $year = date('Y');
             $NetSaleTotal = [];
             $currentDate = date('Y-m-d');
@@ -2088,7 +2088,7 @@ class ReportController extends Controller
             }
         } elseif ($request->chart_data == 'year') {
 
-            $selectedCategory = $request->selectedCategory;
+            $selectedCategory = $this->reportSelectionWithinCurrentStore(Category::class, $request->selectedCategory);
             $year = date('Y');
             $monthList = $this->yearMonth();
             $NetSaleTotal = [];
@@ -2183,7 +2183,7 @@ class ReportController extends Controller
                 $to_date = date('Y-m-d', strtotime($request->Date));
             }
 
-            $selectedCategory = $request->selectedCategory;
+            $selectedCategory = $this->reportSelectionWithinCurrentStore(Category::class, $request->selectedCategory);
             $year = date('Y');
             $NetSaleTotal = [];
 
@@ -2311,7 +2311,7 @@ class ReportController extends Controller
     {
         $store_id = getStoreById(getCurrentStore());
         $currency = Utility::GetValueByName('CURRENCY');
-        $selectedBrand = $request->selectedBrand;
+        $selectedBrand = $this->reportSelectionWithinCurrentStore(ProductBrand::class, $request->selectedBrand);
         $year = date('Y');
         $monthList = $this->yearMonth();
         $NetSaleTotal = [];
@@ -2458,7 +2458,7 @@ class ReportController extends Controller
             $NetSalesofbrand['All Brands'] = array_sum($allBrandsTotal);
             $monthList = $month = $this->getCurrentMonthDates();
         } elseif ($request->chart_data == 'year') {
-            $selectedBrand = $request->selectedBrand;
+            $selectedBrand = $this->reportSelectionWithinCurrentStore(ProductBrand::class, $request->selectedBrand);
             $year = date('Y');
             $monthList = $this->yearMonth(); // Assuming this method returns an array of month names or month start dates
             $NetSaleTotal = [];
@@ -2548,7 +2548,7 @@ class ReportController extends Controller
 
             $NetSalesofbrand['All Brands'] = array_sum($totalNetSalesAllBrands);
         } elseif ($request->chart_data == 'seven-day') {
-            $selectedBrand = $request->selectedBrand;
+            $selectedBrand = $this->reportSelectionWithinCurrentStore(ProductBrand::class, $request->selectedBrand);
             $currentDate = date('Y-m-d');
             $sevenDaysAgo = date('Y-m-d', strtotime('-7 days'));
 
@@ -2644,7 +2644,7 @@ class ReportController extends Controller
                 $to_date = date('Y-m-d', strtotime($request->Date));
             }
 
-            $selectedBrand = $request->selectedBrand;
+            $selectedBrand = $this->reportSelectionWithinCurrentStore(ProductBrand::class, $request->selectedBrand);
             $NetSaleTotal = [];
             $totalNetSalesAllBrands = [];
 
@@ -3510,5 +3510,108 @@ class ReportController extends Controller
             return view('reports.most_stock_action', compact('product'));
         })
             ->rawColumns(['action'])->make(true);
+    }
+    /**
+     * NARROW A REPORT CHART'S CALLER-SUPPLIED ID SELECTION TO THE CURRENT STORE, IN SQL.
+     * =============================================================================================
+     *
+     * WHY THIS EXISTS. `order_category_reports` and `order_brand_reports` take their selection
+     * straight off the query string and used to resolve each id with a bare `Category::find()` /
+     * `ProductBrand::find()` -- ten such calls per handler. Neither model filters by tenant:
+     * `Category` registers `App\Scopes\StoreScope` and carries `BelongsToStore`, but it is absent
+     * from `config/tenancy.php`'s `scoped_models`, so `StoreScope::isActiveFor()` short-circuits
+     * and the scope adds NO predicate for ANY principal; `ProductBrand` registers no global scope
+     * at all. So `find()` reached every tenant's rows and each resolved row's `name` became a
+     * chart series name -- in the `NetSaleTotal` JSON, in the rendered stat cards, and in the
+     * session `category_order_export` / `brand_order_export` replay. Resolving in SQL against
+     * `store_id` closes it: a foreign id does not come back, so there is no name and no series.
+     * Covered by `tests/Feature/Security/ReportCategoryBrandTenantScopeTest`.
+     *
+     * WHAT IT DELIBERATELY DOES NOT DO.
+     *
+     *   * It does not touch the money. Every period branch keeps its own
+     *     `Order::where('store_id', getCurrentStore())` -- which is what kept foreign FIGURES out
+     *     of reach throughout, and why this finding is a name disclosure and not a data breach.
+     *     This reads the same `getCurrentStore()`, so the two predicates cannot drift apart.
+     *   * It does not filter `status`. `find()` ignored it and so does this: the chart is an admin
+     *     screen and a merchant may legitimately chart a disabled category of their own. (The two
+     *     SELECTOR screens, `OrderSaleCategoryReport` and `OrderSaleBrandReport`, do filter
+     *     `status = 1`. That asymmetry is why the leak reached names that are not even public on
+     *     the victim's own storefront. Narrowing this read by status as well would not improve it
+     *     -- it would only remove a capability from the owner of the row.)
+     *   * It does not narrow the PLATFORM OPERATOR. A plain predicate would, and today the
+     *     operator may name any tenant's id (and sees zeros, because their order query is still
+     *     `getCurrentStore()`-scoped). That capability is worth nothing, but taking it away is an
+     *     AUTHORIZATION-POLICY change, which needs owner approval. So the operator keeps the same
+     *     exemption `CategoryController::categoryIsOutsideCurrentStore()` already grants, with the
+     *     same EXACT-CASE comparison -- which also fails SAFE: a non-canonical `'Super Admin'` is
+     *     treated as a merchant and narrowed, never exempted.
+     *
+     * THE RETURN TYPE IS LOAD-BEARING. DO NOT "SIMPLIFY" IT WITH `->all()`.
+     *   * An empty selection comes back UNCHANGED, so each caller's own `empty($selected)` default
+     *     (and, in the brand handler's first two branches, its `$selected ?? ...`) still fires, and
+     *     the "All Categories" / "All Brands" series -- which are decided from the RAW
+     *     `$request->selected*`, untouched here -- behave exactly as before.
+     *   * A selection that survives nothing comes back as an EMPTY COLLECTION, and `empty()` on an
+     *     object is always false in PHP. That is what preserves today's behaviour for a selection
+     *     resolving to no rows: an empty chart, NOT a silent fallback to every row this store owns.
+     *     Returning `[]` here would flip that, and a request naming only foreign ids would answer
+     *     with the caller's whole catalogue instead of nothing.
+     *
+     * It is at the END of the class, away from its nine call sites, on purpose:
+     * `tests/Feature/Tenancy/RawQueryTenancyInventoryTest` cites a line of this file by number and
+     * inserting anything above it would make that citation stale.
+     *
+     * @param  class-string<\Illuminate\Database\Eloquent\Model>  $model  Category or ProductBrand
+     * @param  mixed  $selected  whatever the request supplied
+     * @return mixed  the input unchanged, or a Collection of ids this store really owns
+     */
+    private function reportSelectionWithinCurrentStore(string $model, $selected)
+    {
+        // Nothing was selected, so there is nothing to narrow: hand it straight back and let the
+        // caller's own default run. Note `empty('0')` is true, which is also how the callers'
+        // existing defaults read a `selected*=0`, so that case is unchanged too.
+        if (empty($selected)) {
+            return $selected;
+        }
+
+        $actor = auth()->user();
+
+        if ($actor !== null && $actor->type === \App\Policies\UserPolicy::PLATFORM_ADMIN) {
+            return $selected;
+        }
+
+        $currentStore = getCurrentStore();
+
+        // AN UNRESOLVED TENANT IS OUTSIDE, NOT EVERYWHERE. `StoreScope` fails OPEN on a null
+        // tenant by design (`null_tenant => 'open'`), and a predicate whose whole job is to hold
+        // where the scope adds nothing must not inherit that.
+        if (empty($currentStore)) {
+            return collect();
+        }
+
+        // FILTER_VALIDATE_INT, not is_numeric: is_numeric accepts '5.9' and rejects '5abc', while
+        // MySQL coerces '5abc' to row 5 in a `WHERE id = ?` comparison. flatten() because a
+        // query string can nest arrays, and a nested array reaching whereIn() is a SQL error.
+        $ids = collect($selected)
+            ->flatten()
+            ->map(static fn ($id) => filter_var($id, FILTER_VALIDATE_INT))
+            ->reject(static fn ($id) => $id === false)
+            ->unique()
+            ->values()
+            ->all();
+
+        if ($ids === []) {
+            return collect();
+        }
+
+        $owned = $model::where('store_id', $currentStore)->whereIn('id', $ids)->pluck('id');
+
+        // Back in the CALLER'S order, not the database's. The callers push one `NetSaleTotal`
+        // series per id in iteration order, so returning `$owned` directly would silently
+        // re-order the chart legend for a merchant who picked their own categories in any order
+        // other than ascending id. intersect() keeps this collection's order, so a legitimate
+        // selection comes back byte-identical to what it was before this guard existed.
+        return collect($ids)->intersect($owned)->values();
     }
 }
