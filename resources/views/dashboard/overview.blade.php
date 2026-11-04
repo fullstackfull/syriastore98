@@ -227,7 +227,11 @@
                 <x-ss.attention-item
                     :count="$ssPendingOrders"
                     :text="trans_choice('order is waiting to be confirmed|orders are waiting to be confirmed', $ssPendingOrders)"
-                    :href="$ssMayOrders ? route('order.index') : null"
+                    {{-- AND THE LINK CARRIES THE FILTER, on the same rule as the low-stock row
+                         below: the count is `delivered_status = 0` and `?ss_status=0` applies
+                         exactly that, so the list really contains the orders just counted. No
+                         count argument is needed -- this whole item only renders above zero. --}}
+                    :href="$ssMayOrders ? route('order.index', ['ss_status' => \App\Http\Controllers\HomeController::ORDER_STATUS_PENDING]) : null"
                     :action="$ssMayOrders ? __('Review orders') : null" />
             @endif
 
@@ -277,7 +281,16 @@
                 <x-ss.attention-item
                     :count="$ssReturnOrders"
                     :text="trans_choice('order has been returned|orders have been returned', $ssReturnOrders)"
-                    :href="$ssMayOrders ? route('order.index') : null"
+                    {{-- `ss_status=3`, NOT `ss_return=1`. `$ssReturnOrders` is
+                         `delivered_status = ORDER_STATUS_RETURN`, the FULFILMENT status;
+                         `orders.return_status` is a separate column holding the return-REQUEST
+                         workflow (0 none, 1 request, 2 approve, 3 cancel). The order screen's own
+                         attention block links the request queue with `ss_return=1`; this count is
+                         the other column, and filtering it on `return_status` would land the
+                         merchant on a list that does not contain what was counted --
+                         `OrderAttentionCentreTest` records that mix-up being caught by
+                         measurement. --}}
+                    :href="$ssMayOrders ? route('order.index', ['ss_status' => \App\Http\Controllers\HomeController::ORDER_STATUS_RETURN]) : null"
                     :action="$ssMayOrders ? __('Review returns') : null" />
             @endif
         </x-ss.attention>
@@ -391,21 +404,66 @@
          that are not fulfilment states are labelled as what they are rather
          than quietly listed among the rest. --}}
     @php
-        $ssStatusHref = $ssMayOrders ? route('order.index') : null;
+        /* ONE HREF PER STATUS, not one href for all nine. This was
+           `$ssMayOrders ? route('order.index') : null` -- a single value handed to every chip,
+           under a note promising "Select a status to open that list". Nine counts, one
+           destination, and the destination was WORSE than the full list: `route('order.index')`
+           emits an EMPTY query string, `TableFilterMemory::shouldRestore()` is exactly
+           `$request->query() === []`, and `OrderController::index()` redirects on it to the
+           merchant's REMEMBERED filters -- so a merchant holding a remembered `ss_payment=Unpaid`
+           who clicked "Cancel Order (12)" landed on a list related to neither.
 
+           WHY A PRECISE LINK IS HONEST HERE, when the out-of-stock link above is deliberately
+           left vague: the two predicates are measurably the same one.
+           `HomeController::getOrderCounts()` counts
+           `where('store_id', getCurrentStore())->where('delivered_status', ORDER_STATUS_*)`, and
+           `OrderDataTable` applies `where('store_id', $storeId)` + `where('delivered_status',
+           (int) $status)` with no groupBy and no date default. Same store source, same column,
+           same constants. The stock count has no such agreement -- it includes untracked products
+           `ss_stock=out` cannot match -- which is why THAT link carries no filter and this one
+           does.
+
+           GATED ON PERMISSION AND ON COUNT. `$ssMayOrders` because a link the controller will
+           refuse is a dead link; `$n > 0` because a knowably empty list is not an affordance --
+           the chip still renders with its zero, so the partition the footer reconciles stays
+           whole, it just is not clickable.
+
+           WHAT THE QUERY STRING MUST NOT CARRY, each for its own reason:
+             - no `ss_apply`: `TableFilterMemory::remember()` writes ONLY on that key, so a chip
+               carrying it would make one dashboard click the merchant's permanent default for the
+               order screen;
+             - no `ss_clear`: that would forget filters the merchant set deliberately elsewhere;
+             - no `store_id`: `Order` is not in `config/tenancy.php`'s `scoped_models`, so
+               `OrderDataTable::query()`'s predicate derived from the PRINCIPAL is the only
+               isolation there is, and a tenant predicate built from caller-supplied input is this
+               codebase's most repeated defect. */
+        $ssStatusHref = fn (int $s, int $n) => ($ssMayOrders && $n > 0)
+            ? route('order.index', ['ss_status' => $s])
+            : null;
+
+        /* KEYED BY STATUS, and the LABEL IS NO LONGER REPEATED HERE. These rows used to carry a
+           second copy of the nine strings already in `$ssOrderLabels` above while discarding the
+           integer that identifies them -- so the one thing a per-chip href needs was thrown away
+           exactly where the row was built. `$ssOrderLabel` is the same closure the latest-orders
+           table uses, so the two surfaces still cannot disagree about what a 4 is, and the repair
+           adds no new `__()` string for Arabic to miss.
+
+           THE OUTER ARRAY STAYS A LIST. Keying it by status would read better and would silently
+           delete the whole non-fulfilment region, whose guard was positional. That guard is now
+           `array_sum(array_column(...))` for the same reason. */
         $ssFulfilment = [
-            ['label' => __('Pending'),         'count' => $ssPendingOrders],
-            ['label' => __('Confirmed Order'), 'count' => (int) ($confirmed_order ?? 0)],
-            ['label' => __('Picked Up'),       'count' => (int) ($picked_up_order ?? 0)],
-            ['label' => __('Order Shipped'),   'count' => (int) ($shipped_order ?? 0)],
-            ['label' => __('Order Delivered'), 'count' => (int) ($delivered_order ?? 0)],
-            ['label' => __('Order Return'),    'count' => $ssReturnOrders],
-            ['label' => __('Cancel Order'),    'count' => (int) ($cancel_order ?? 0)],
+            ['status' => \App\Http\Controllers\HomeController::ORDER_STATUS_PENDING,   'count' => $ssPendingOrders],
+            ['status' => \App\Http\Controllers\HomeController::ORDER_STATUS_CONFIRMED, 'count' => (int) ($confirmed_order ?? 0)],
+            ['status' => \App\Http\Controllers\HomeController::ORDER_STATUS_PICKED_UP, 'count' => (int) ($picked_up_order ?? 0)],
+            ['status' => \App\Http\Controllers\HomeController::ORDER_STATUS_SHIPPED,   'count' => (int) ($shipped_order ?? 0)],
+            ['status' => \App\Http\Controllers\HomeController::ORDER_STATUS_DELIVERED, 'count' => (int) ($delivered_order ?? 0)],
+            ['status' => \App\Http\Controllers\HomeController::ORDER_STATUS_RETURN,    'count' => $ssReturnOrders],
+            ['status' => \App\Http\Controllers\HomeController::ORDER_STATUS_CANCEL,    'count' => (int) ($cancel_order ?? 0)],
         ];
 
         $ssNotFulfilment = [
-            ['label' => __('Partially Paid'), 'count' => (int) ($partially_paid_order ?? 0)],
-            ['label' => __('Pre Order'),      'count' => (int) ($pre_order_order ?? 0)],
+            ['status' => \App\Http\Controllers\HomeController::ORDER_STATUS_PARTIALLY_PAID, 'count' => (int) ($partially_paid_order ?? 0)],
+            ['status' => \App\Http\Controllers\HomeController::ORDER_STATUS_PRE_ORDER,      'count' => (int) ($pre_order_order ?? 0)],
         ];
 
         $ssOther = (int) ($other_status_order ?? 0);
@@ -419,23 +477,29 @@
                class="mb-4">
         <div class="ss-chips">
             @foreach ($ssFulfilment as $ssRow)
-                <x-ss.chip :label="$ssRow['label']"
+                <x-ss.chip :label="$ssOrderLabel($ssRow['status'])"
                            :count="number_format($ssRow['count'])"
-                           :href="$ssStatusHref"
+                           :href="$ssStatusHref($ssRow['status'], $ssRow['count'])"
                            :interactive="false" />
             @endforeach
         </div>
 
-        @if ($ssNotFulfilment[0]['count'] > 0 || $ssNotFulfilment[1]['count'] > 0 || $ssOther > 0)
+        {{-- NOT POSITIONAL. This read `$ssNotFulfilment[0]['count'] > 0 || $ssNotFulfilment[1]...`,
+             which couples the visibility of this whole region to two array indices surviving every
+             later edit of the rows above. Nothing tested it, so reshaping those rows would have
+             deleted "Partially Paid", "Pre Order" and "Other" from every merchant's dashboard
+             silently, and only on the stores that actually have such orders. Same answer today
+             (every count is >= 0), no indices. --}}
+        @if (array_sum(array_column($ssNotFulfilment, 'count')) > 0 || $ssOther > 0)
             <p class="ss-section__note" style="margin-block-start: var(--ss-space-4);">
                 {{ __('Recorded in the same field, but not fulfilment states:') }}
             </p>
             <div class="ss-chips">
                 @foreach ($ssNotFulfilment as $ssRow)
                     @if ($ssRow['count'] > 0)
-                        <x-ss.chip :label="$ssRow['label']"
+                        <x-ss.chip :label="$ssOrderLabel($ssRow['status'])"
                                    :count="number_format($ssRow['count'])"
-                                   :href="$ssStatusHref"
+                                   :href="$ssStatusHref($ssRow['status'], $ssRow['count'])"
                                    :interactive="false" />
                     @endif
                 @endforeach
