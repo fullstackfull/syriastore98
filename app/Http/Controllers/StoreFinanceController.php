@@ -217,6 +217,162 @@ class StoreFinanceController extends Controller
         ], $status);
     }
 
+    /**
+     * OWNER DECISION 7 -- HAS THE CALLER ACTUALLY CHOSEN THE TENANT WHOSE MONEY THIS WOULD MOVE?
+     *
+     * The owner's words: *"An operator who has not explicitly selected a merchant must not create
+     * a wallet, credit a wallet, approve a payment, or perform a tenant-specific money operation
+     * merely because getCurrentStore() falls back to store ID 1."*
+     *
+     * WHAT WAS MEASURED, because the sibling null-store slice's "pure hardening" argument DOES NOT
+     * TRANSFER HERE and the difference is the whole finding. That slice was right that a NULL store
+     * moves nothing: `store_id` is `NOT NULL` in all three money tables, so `store_id IS NULL`
+     * matches no row and the matching INSERT cannot succeed. The operator's store is not NULL. It
+     * is the HARDCODED LITERAL 1. Driven through the real route against a store 1 owned by a
+     * DIFFERENT merchant (`tests/Feature/Security/OperatorImplicitStoreFinancialGuardTest`):
+     *
+     *     POST /finance/add-balance  amount=77.00, operator with current_store = NULL
+     *       -> 302 /finance, flash "Balance added successfully."
+     *       -> store_wallets.available_balance for store 1: 100.00 -> 177.00
+     *       -> store_wallet_transactions: 0 rows -> 1 row, type manual_deposit
+     *
+     * A COMPLETED CROSS-TENANT CREDIT of another merchant's wallet by a principal who named no
+     * merchant. No null, no refused insert, no exception -- the money simply landed in whoever
+     * owns store 1. This is not low-severity hardening.
+     *
+     * THE DISTINCTION IS NOT AVAILABLE FROM `getCurrentStore()`'s RETURN VALUE, and that is why
+     * the column is read instead. An operator who CHOSE store 1 and an operator who chose NOTHING
+     * both see `1` come back, so a comparison against 1 would have broken the authorized case --
+     * which is the owner's second requirement, not an edge case.
+     *
+     * WHY READING THE COLUMN IS RELIABLE, which was the owner's STOP CONDITION:
+     *
+     *   1. `getCurrentStore()` (helper.php:758-782) reaches the literal 1 on exactly one branch:
+     *      `empty($user->current_store)` AND `$user->type == 'super admin'`. Nothing else returns
+     *      that value, so the fallback is a function of this column plus the type.
+     *   2. THIS GUARD USES THE IDENTICAL `empty()` TEST ON THE IDENTICAL COLUMN off the same
+     *      authenticated user, so the guard and the helper cannot disagree about whether the
+     *      fallback was taken. That is load-bearing rather than tidy: `empty()` is also false-y for
+     *      `0` and `'0'`, and because the helper uses the same test, such a value is "unset" to
+     *      BOTH -- the guard refuses exactly the inputs for which the helper defaults.
+     *   3. Nothing writes a sentinel into the column. All nine persisted writes assign a real
+     *      `Store->id` (`Api\DashboardController:4860/:5039/:5111`,
+     *      `Auth\RegisteredUserController:147/:284`, `StoreController:297/:715/:869`,
+     *      `UserController:161/:802`), and the migration declares it
+     *      `unsignedBigInteger()->nullable()` with no default, so a fresh operator is NULL.
+     *      THE ONE NON-NUMERIC ASSIGNMENT IS NOT A WRITE: `UserController:190` sets
+     *      `current_store` to a store NAME to shape `json_encode($user)` for a webhook, AFTER
+     *      `$user->save()` at :168, and the method returns a redirect with no further save. If
+     *      anyone ever adds a save there the column would hold a name, `empty()` would be false,
+     *      and `getCurrentStore()` would return the name -- so this guard would stop refusing at
+     *      exactly the point the helper stopped defaulting. That hazard is the helper's; it is
+     *      reported rather than fixed here, because the owner excluded rewriting the helper.
+     *
+     * THE SHAPE IS COPIED FROM `unreconciledCaptures()` IN THIS SAME FILE rather than invented.
+     * That handler already refuses this principal, for the reason stated there -- a money REVIEW
+     * must not silently default to an arbitrary tenant -- and consistency with an existing in-repo
+     * decision beats a new mechanism.
+     *
+     * THE OPERATOR TEST IS `UserPolicy::isOperator`, AND THAT IS A CORRECTION TO THIS SLICE'S OWN
+     * FIRST DRAFT, which carried `strtolower(trim((string) $caller->type)) === 'super admin'`
+     * copied from `unreconciledCaptures`. `OperatorCheckCensusTest` records a MEASURED defect of
+     * exactly that shape: `OrderController::fileExport` used the shared helper while
+     * `mayUseOrderScreen` carried its own `strtolower(trim(...))`, and for `users.type` =
+     * `' super admin'` the two ANSWERED DIFFERENTLY -- the order screen admitting a principal the
+     * document guard refused. P1-SEC-11 criterion 3 exists to end that: *"the operator is defined
+     * once: normalised comparison, one helper"*. A ninth hand-rolled spelling beside the helper is
+     * the defect, not extra safety.
+     *
+     * AND `rtrim` LOSES NOTHING HERE, which is the part worth checking rather than assuming.
+     * `rtrim(' ')` is what MySQL's PAD SPACE collation actually treats as equal, so the helper
+     * agrees with `User::where('type', 'super admin')` and with every SQL-side operator check;
+     * `trim` would have claimed `' super admin'` is the operator while the ENGINE says it is not.
+     * The guard is still a strict SUPERSET of the fallback condition: PHP's `==` between two
+     * non-numeric strings is a plain string comparison, so `getCurrentStore()`'s
+     * `$user->type == 'super admin'` is true for the exact literal and nothing else -- and
+     * `isOperator('super admin')` is true for that literal. SO EVERY INPUT THAT REACHES THE
+     * FALLBACK IS REFUSED.
+     *
+     * THE EXTRA REFUSALS ARE A SET, NOT ONE CASE, and this paragraph understated them until an
+     * independent review measured it: `isOperator()` LOWERCASES as well as rtrims, so `Super
+     * Admin`, `SUPER ADMIN` and `Super Admin ` are operators to the guard, while `helper.php`'s
+     * `$user->type == 'super admin'` admits none of them. For every one of those the helper falls
+     * through to the user's OWN store (or to null, which the `empty($storeId)` guard above already
+     * refuses), so the guard refuses a caller the helper would have resolved correctly.
+     *
+     * THE GUARD IS STILL THE RIGHT SIDE OF THAT DISAGREEMENT. On MySQL's `utf8mb4_unicode_ci` --
+     * case- and accent-insensitive, PAD SPACE -- those rows ARE the operator to every SQL query in
+     * this codebase, so `isOperator()` agrees with the engine and the helper's `==` is the
+     * component that is out of step. Refusing a row the database calls an operator is fail-closed;
+     * admitting it would not be. Reaching it also needs a hand-edited `users.type`: the only
+     * writers are `'admin'`, `'customer'`, the seeder's exact `'super admin'`, and role names
+     * gated by `RolePolicy::RESERVED_NAMES` -- AND a granted finance permission, because such a
+     * row fails `AuthServiceProvider:117`'s strict `===` operator limb and reaches these handlers
+     * only on the delegated `isAbleTo()` limb.
+     *
+     * `Services\MerchantQuickActions:143` already pairs the same helper with the same
+     * `empty($user->current_store)` for the same question.
+     *
+     * `unreconciledCaptures` STILL CARRIES THE OLD SPELLING and is deliberately left alone: it is
+     * outside this decision's scope, converting it would change a refusal boundary the owner did
+     * not authorise touching, and it is reported instead. Note that NEITHER spelling is counted by
+     * `OperatorCheckCensusTest::PATTERNS`, whose three PCREs require `type` immediately followed by
+     * the operator -- `type)) === 'super admin'` does not match. That is census-failure mode 1 from
+     * the project skill (keyed on spelling) and is reported, not silently relied upon.
+     *
+     * NOT A MERCHANT'S PROBLEM. `getCurrentStore()` falls through to
+     * `Store::where('created_by', $user->id)->first()` for a non-operator, so a merchant with no
+     * selection resolves THEIR OWN single tenant -- a legitimate implicit resolution that the
+     * owner's "normal merchant -> unchanged" requires this guard to leave alone. The operator limb
+     * is therefore part of the predicate and not a convenience.
+     */
+    private function operatorHasChosenNoStore(): bool
+    {
+        $caller = auth()->user();
+
+        return $caller !== null
+            && \App\Policies\UserPolicy::isOperator($caller)
+            && empty($caller->current_store);
+    }
+
+    /**
+     * THE ONE REFUSAL, so eight handlers cannot drift apart in message or in logging.
+     *
+     * The caller passes its OWN redirect target, because each of these handlers already has a
+     * settled one and the null-store slice's reasoning for each still applies: `index()` must
+     * terminate at `dashboard` (`back()` loops there, because Laravel 11's
+     * `StartSession::storeCurrentUrl()` sets the previous URL on every GET with a matched route
+     * including one that answers a redirect, and `finance.index` IS that handler); the three
+     * mutators that answer `route('finance.index')` keep it; and the four that answer `back()`
+     * keep that. A refused POST's `back()` resolves to the last GET, so it cannot loop.
+     *
+     * THE MESSAGE IS THIS CONTROLLER'S EXISTING `__('No store is selected.')`, reused rather than
+     * replaced, for two reasons. It is literally the condition -- for an operator who has chosen
+     * nothing, no store IS selected -- and it is already translated in `resources/lang/ar.json`,
+     * where a newly invented string would not be. A more directive wording ("choose a merchant
+     * first") would need an `ar.json` entry owned by the open finance-translation task, so it is
+     * reported rather than taken. NOTE that `approveWithdrawal`, `rejectWithdrawal` and
+     * `payWithdrawal` phrase their own PRE-EXISTING null-store refusal as
+     * `__('No store selected.')` -- a different string, and one with NO Arabic translation
+     * (measured). That is left exactly as it was; this guard answers with the translated form.
+     *
+     * IT IS LOGGED. A platform operator attempting a money write against an unchosen tenant is
+     * precisely the event the security log inventory exists for, and this file already sets that
+     * precedent in `refuseDuplicateWalletChange()`. One log site, so one inventory row.
+     */
+    private function refuseUnchosenOperatorStore(
+        string $handler,
+        \Illuminate\Http\RedirectResponse $redirect
+    ): \Illuminate\Http\RedirectResponse {
+        Log::warning('Financial action refused: operator has selected no merchant store', [
+            'handler' => $handler,
+            'user_id' => auth()->id(),
+            'fallback_store_id' => getCurrentStore(),
+        ]);
+
+        return $redirect->with('error', __('No store is selected.'));
+    }
+
     public function updateFinancialPaymentStatus(Request $request, $id)
     {
         if (!$this->canFinance('Edit Finance Payment Status')) {
@@ -243,6 +399,17 @@ class StoreFinanceController extends Controller
             return redirect()
                 ->back()
                 ->with('error', __('No store is selected.'));
+        }
+
+        // OWNER DECISION 7. "Approve a payment" is named in the decision verbatim, and that is
+        // what marking a financial paid is: OrderFinancialService::markFinancialAsPaid() moves
+        // store_wallets.total_income and available_balance for the tenant the id belongs to.
+        // `back()` is this handler's own refusal shape, used by its two others.
+        if ($this->operatorHasChosenNoStore()) {
+            return $this->refuseUnchosenOperatorStore(
+                'updateFinancialPaymentStatus',
+                redirect()->back()
+            );
         }
 
         $financial = DB::table('store_order_financials')
@@ -534,6 +701,29 @@ class StoreFinanceController extends Controller
                 ->with('error', __('No store is selected.'));
         }
 
+        /*
+         * OWNER DECISION 7 -- AND THIS HANDLER IS A WRITE, WHICH IS EASY TO MISS ON A DASHBOARD.
+         *
+         * The lazy `StoreWallet::create()` a few lines below is the FIRST thing the owner's
+         * decision names: *"must not create a wallet"*. So an operator who has chosen no merchant
+         * opening /finance was creating a wallet row for whoever owns store 1.
+         *
+         * THIS SUPERSEDES THE PARAGRAPH ABOVE that reads "THE OPERATOR IS NOT AFFECTED, AND THAT
+         * IS A DECISION RATHER THAN AN OVERSIGHT ... Refusing it would REMOVE a capability that
+         * works, which is an owner decision and is escalated rather than taken here." That
+         * escalation is what produced owner decision 7, and the owner decided to refuse. The
+         * paragraph is kept rather than deleted because it records why the earlier slice stopped
+         * where it did, and because its reading of the severity was WRONG in a way worth keeping
+         * visible: "store 1's wallet is created for them today and still is" treated the fallback
+         * as harmless, when store 1 belongs to a merchant who did not ask for it.
+         *
+         * `dashboard` is this handler's own target, for the reason given above: `back()` loops
+         * here and `finance.index` IS this handler.
+         */
+        if ($this->operatorHasChosenNoStore()) {
+            return $this->refuseUnchosenOperatorStore('index', redirect()->route('dashboard'));
+        }
+
         $currencyCode = Setting::where('store_id', $storeId)
             ->where('name', 'defult_currancy')
             ->value('value') ?? 'USD';
@@ -798,6 +988,23 @@ class StoreFinanceController extends Controller
                 ->with('error', __('No store is selected.'));
         }
 
+        /*
+         * OWNER DECISION 7 -- *"must not ... credit a wallet"*, named verbatim. THIS IS THE PATH
+         * THAT WAS MEASURED MOVING MONEY: 100.00 -> 177.00 on another merchant's wallet.
+         *
+         * BEFORE THE CLAIM, DELIBERATELY. `Cache::add()` below is a put-if-absent that is released
+         * only on a path which wrote nothing, so taking it first and then refusing would burn a
+         * 60-second idempotency claim on a request that did nothing -- and the operator's genuine
+         * retry, after choosing a merchant, would be refused as a duplicate of a credit that never
+         * happened. The F270 note below has the full argument for why that release rule matters.
+         */
+        if ($this->operatorHasChosenNoStore()) {
+            return $this->refuseUnchosenOperatorStore(
+                'addBalance',
+                redirect()->route('finance.index')
+            );
+        }
+
         $walletClaim = $this->walletChangeFingerprint(
             'credit',
             $storeId,
@@ -910,6 +1117,18 @@ class StoreFinanceController extends Controller
             return redirect()
                 ->route('finance.index')
                 ->with('error', __('No store is selected.'));
+        }
+
+        /*
+         * OWNER DECISION 7 -- a debit of another merchant's wallet is squarely the decision's
+         * *"tenant-specific money operation"*. Before the claim, for the reason given in
+         * addBalance: a refused request must not burn the idempotency claim.
+         */
+        if ($this->operatorHasChosenNoStore()) {
+            return $this->refuseUnchosenOperatorStore(
+                'deductBalance',
+                redirect()->route('finance.index')
+            );
         }
 
         $walletClaim = $this->walletChangeFingerprint(
@@ -1051,6 +1270,19 @@ class StoreFinanceController extends Controller
             return redirect()
                 ->route('finance.index')
                 ->with('error', __('No store is selected.'));
+        }
+
+        /*
+         * OWNER DECISION 7. This writes THREE rows for the resolved tenant -- it moves
+         * `available_balance` into `withdrawal_pending_balance`, inserts a `store_withdrawals` row
+         * and inserts a `withdrawal_request` ledger row -- so it is a *"tenant-specific money
+         * operation"* under any reading. `route('finance.index')` is this handler's own target.
+         */
+        if ($this->operatorHasChosenNoStore()) {
+            return $this->refuseUnchosenOperatorStore(
+                'requestWithdrawal',
+                redirect()->route('finance.index')
+            );
         }
 
         try {
@@ -1225,6 +1457,25 @@ class StoreFinanceController extends Controller
             return redirect()->back()->with('error', __('No store selected.'));
         }
 
+        /*
+         * OWNER DECISION 7. Approving a withdrawal is the clearest reading of the decision's
+         * *"approve a payment"*: it moves the withdrawal to `approved` and completes the
+         * `withdrawal_request` ledger row, which is what makes it payable.
+         *
+         * `financeStoreId()` is NOT a second control against this principal: it is
+         * `getCurrentStore()` with `empty()` mapped to null, so it answers 1 for an operator who
+         * chose nothing and `=== null` is false. The existing
+         * `->where('store_id', $storeId)` predicate is likewise no help -- it faithfully scopes to
+         * the FALLBACK tenant. `back()` is this handler's own refusal shape, and a refused POST's
+         * `back()` resolves to the last GET, so it cannot loop.
+         */
+        if ($this->operatorHasChosenNoStore()) {
+            return $this->refuseUnchosenOperatorStore(
+                'approveWithdrawal',
+                redirect()->back()
+            );
+        }
+
         try {
 
             DB::transaction(function () use (
@@ -1311,6 +1562,29 @@ class StoreFinanceController extends Controller
 
         if ($storeId === null) {
             return redirect()->back()->with('error', __('No store selected.'));
+        }
+
+        /*
+         * OWNER DECISION 7. A rejection RESTORES the amount to the tenant's `available_balance`
+         * and releases its `withdrawal_pending_balance`, so it moves money just as surely as an
+         * approval does.
+         *
+         * THIS IS THE ONLY ONE OF THE EIGHT PLACED BEFORE ITS VALIDATOR, and an earlier draft of
+         * this comment claimed the opposite -- "for the same reason the other seven sit as early
+         * as they do". MEASURED: `updateFinancialPaymentStatus` (:365 before :391), `addBalance`
+         * (:953 before :984), `deductBalance` (:1090 before :1110) and `requestWithdrawal` (:1227
+         * before :1264) all validate FIRST; `index`, `approveWithdrawal` and `payWithdrawal` have
+         * no validator at all. The ordering here is still deliberate -- a refusal that cannot name
+         * the tenant should not first argue about the shape of an admin note -- but it is a
+         * difference from its siblings rather than a symmetry with them. The one observable
+         * consequence: a refused caller who posts an over-500-character `admin_note` now sees the
+         * store refusal instead of a validation error.
+         */
+        if ($this->operatorHasChosenNoStore()) {
+            return $this->refuseUnchosenOperatorStore(
+                'rejectWithdrawal',
+                redirect()->back()
+            );
         }
 
         $request->validate([
@@ -1489,6 +1763,18 @@ class StoreFinanceController extends Controller
 
         if ($storeId === null) {
             return redirect()->back()->with('error', __('No store selected.'));
+        }
+
+        /*
+         * OWNER DECISION 7. This is the handler that actually pays money OUT: it draws the
+         * tenant's `withdrawal_pending_balance` down and writes the `withdrawal_paid` ledger row.
+         * The last place an unchosen tenant should be acceptable.
+         */
+        if ($this->operatorHasChosenNoStore()) {
+            return $this->refuseUnchosenOperatorStore(
+                'payWithdrawal',
+                redirect()->back()
+            );
         }
 
         try {
