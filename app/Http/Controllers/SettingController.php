@@ -582,7 +582,7 @@ $u->save();
         // If validation fails, redirect back with the first error message
         if ($validator->fails()) {
             $messages = $validator->getMessageBag();
-            return redirect()->back()->with('error', $messages->first());
+            return redirect()->back()->with('error', implode(' ', $messages->all()));
         }
 
         // Prepare data for database insertion/update
@@ -689,7 +689,7 @@ $u->save();
             return response()->json(
                 [
                     'is_success' => false,
-                    'message' => $messages->first(),
+                    'message' => implode(' ', $messages->all()),
                 ]
             );
         }
@@ -1089,7 +1089,7 @@ $u->save();
             );
             if ($validator->fails()) {
                 $messages = $validator->getMessageBag();
-                return redirect()->back()->with('error', $messages->first());
+                return redirect()->back()->with('error', implode(' ', $messages->all()));
             }
         }
 
@@ -1157,7 +1157,7 @@ $u->save();
             );
             if ($validator->fails()) {
                 $messages = $validator->getMessageBag();
-                return redirect()->back()->with('error', $messages->first());
+                return redirect()->back()->with('error', implode(' ', $messages->all()));
             }
         }
 
@@ -1316,7 +1316,7 @@ $u->save();
         );
         if ($validator->fails()) {
             $messages = $validator->getMessageBag();
-            return redirect()->back()->with('error', $messages->first());
+            return redirect()->back()->with('error', implode(' ', $messages->all()));
         }
 
         $post['low_stock_threshold'] = $request->low_stock_threshold;
@@ -1359,7 +1359,7 @@ $u->save();
             );
             if ($validator->fails()) {
                 $messages = $validator->getMessageBag();
-                return redirect()->back()->with('error', $messages->first());
+                return redirect()->back()->with('error', implode(' ', $messages->all()));
             }
         }
 
@@ -1429,7 +1429,7 @@ $u->save();
         );
         if ($validator->fails()) {
             $messages = $validator->getMessageBag();
-            return redirect()->back()->with('error', $messages->first());
+            return redirect()->back()->with('error', implode(' ', $messages->all()));
         }
 
         $post['whatsapp_phone_number_id'] = $request->whatsapp_phone_number_id;
@@ -1508,7 +1508,7 @@ $u->save();
         );
         if ($validator->fails()) {
             $messages = $validator->getMessageBag();
-            return redirect()->back()->with('error', $messages->first());
+            return redirect()->back()->with('error', implode(' ', $messages->all()));
         }
 
         /*
@@ -1664,7 +1664,7 @@ $u->save();
             );
             if ($validator->fails()) {
                 $messages = $validator->getMessageBag();
-                return redirect()->back()->with('error', $messages->first());
+                return redirect()->back()->with('error', implode(' ', $messages->all()));
             }
         }
 
