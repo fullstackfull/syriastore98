@@ -3808,6 +3808,46 @@ body.custom-color .nex-prev-btn-wrp .btn {
     color: #000000;
 }
 
+/* P2.5-GRID-ICONS start
+   resources/views/order/grid.blade.php, the card's Show and Edit controls. In dark mode they
+   inherit the unguarded `color: #000000` of the rule immediately above, which at 0-3-1 / 0-2-1
+   beats the host dark sheet's own rescue rule `.btn i { color: var(--bs-white) }`
+   (public/assets/css/style-dark.css:19635-19638, 0-1-1, and carrying no `!important`). Both
+   controls are transparent buttons (`--bs-btn-bg: transparent`, style-dark.css:3446) over the
+   host's dark card (`--bs-card-bg: #292A33`, style-dark.css:5006, painted :5015), so #000000
+   paints on #292A33 and measures 1.47:1 against WCAG 1.4.11's 3:1. The rule above is CORRECT in
+   light mode -- #000000 on the white card is 21:1 -- so it is left untouched and this block only
+   adds a dark-mode override.
+
+   SCOPED ON `.border`, WHICH IS WHAT SEPARATES THE UNFILLED CARD CONTROLS FROM THE FILLED PAIR.
+   Show, Edit and Delete carry `border`; the conditional return Approve/Cancel pair does not. The
+   filled pair must NOT be released to a light foreground: `.btn-primary` is
+   `background-color: var(--theme-color)` (style-dark.css:3535-3538) and `--theme-color` is one of
+   ten host presets or `var(--color-customColor)`, which the layout now selects by default. Across
+   those presets the safe foreground flips direction -- #000000 is 8.42:1 on the gold preset
+   #c0a145 but 2.33:1 on the grey #48494b -- so no unguarded value is safe there. That is a
+   SEPARATE defect: it needs `--ss-onbrand`, which custom.css already derives from the chosen
+   fill by script, not this rule.
+
+   NO `!important`, DELIBERATELY. `.text-danger` is `!important` (style-dark.css:9414-9417, with
+   `--bs-danger-rgb: 255, 58, 110` at :54), so the Delete icon keeps #FF3A6E = 4.13:1 on the card,
+   which already clears 3:1. An `!important` here would outrank it and flatten the
+   destructive-action signal to the same grey as Show and Edit: the ratio would improve while the
+   meaning was destroyed.
+
+   `.border` IS A BOOTSTRAP LAYOUT UTILITY, NOT A SEMANTIC MARKER. If this grid is ever converted
+   to the `.ss-btn` classes resources/views/order/action.blade.php already uses, DELETE this block
+   and the rule above it from BOTH sheets rather than re-pointing the selector.
+
+   Asserted by Tests\Unit\Ui\GridCardIconContrastTest, which also pins this block as a TOP-LEVEL
+   rule: inserted one line earlier, inside the declaration above, it would nest and match nothing
+   while every text-matching assertion still passed. */
+html[data-ss-theme="dark"] body .order-card .btn.border i,
+html[data-ss-theme="dark"] body .order-card .btn.border:hover i {
+    color: var(--ss-fg, #e8eaed);           /* #e8eaed on #292A33 = 11.83:1 */
+}
+/* P2.5-GRID-ICONS end */
+
 .product-grid .card .card-header .card-header-right {
     right: 16px !important;
     top: 25px !important;

@@ -1208,7 +1208,7 @@ Route::get(
     // themes references this route (`grep -rn "order.view\|order-view" themes/`
     // returns nothing). Every caller is an admin screen or DataTable --
     // app/DataTables/OrderDataTable.php:31, resources/views/order/action.blade.php:20,
-    // resources/views/order/grid.blade.php:89,112, resources/views/dashboard.blade.php:364,
+    // resources/views/order/grid.blade.php:136,161, resources/views/dashboard.blade.php:364,
     // resources/views/customer/view.blade.php:44,185, plus four workdo admin packages.
     //
     // `themelanguage` is added here so the effective middleware is what was
@@ -1467,12 +1467,12 @@ Route::get(
   //        order.receipt      resources/views/order/view.blade.php:31 (the admin
   //                           order screen that order_view itself renders)
   //        order.order_view   resources/views/order/action.blade.php:13,
-  //                           resources/views/order/grid.blade.php:105,
+  //                           resources/views/order/grid.blade.php:154,
   //                           packages/workdo/PreOrder/.../preorder/action.blade.php:19
   //        order.return       resources/views/order/view.blade.php:635 (admin AJAX)
   //        order.return.request
   //                           resources/views/order/index.blade.php:56,
-  //                           resources/views/order/grid.blade.php:153,
+  //                           resources/views/order/grid.blade.php:215,
   //                           packages/workdo/AuctionProduct/.../auctionorder/index.blade.php:37,
   //                           packages/workdo/PreOrder/.../preorder/index.blade.php:37
   //   3. The customer-facing order flow is a SEPARATE set of routes in

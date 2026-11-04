@@ -31,46 +31,83 @@
 <div class="row mb-4 d-flex order-card-wrp">
     @foreach ($orders as $order)
     @php
-        $btn_class = 'fa fa-check-circle text-warning';
+        /* THE STATUS LABEL. It is rendered as a labelled design-system badge in the card header
+           below, so the status is now VISIBLE TEXT. It used to be the hue of an icon and nothing
+           else: Cancel was `fa fa-check text-danger` and Comfirmed `fa fa-check text-primary` --
+           the SAME glyph, separated by a colour utility, which is WCAG 1.4.1. On the `theme-5`
+           preset the merchant's own --theme-color is #b9406b, 5.5 hue-degrees from text-danger,
+           so the two were not merely colour-dependent but the same colour; and measured in the
+           running dark admin the Comfirmed glyph was #335DA8 on the #292A33 card = 2.22:1, under
+           WCAG 1.4.11's 3:1 as well.
+
+           THE LAST THREE BRANCHES ARE NEW AND WERE NOT OPTIONAL. delivered_status 7
+           (Partially Paid) and 8 (Pre Order) -- both real values the host stores in this column --
+           and a bare 3 with no return_status of 1, 2 or 3 had NO branch, so all three fell
+           through to the initialiser above and were labelled "Pending". A tooltip nobody triggers
+           hides a wrong label; a badge shows it. Every mapping here is pinned by
+           Tests\Unit\Ui\OrderGridStatusLabelTest, which EVALUATES this block rather than
+           reading it, because the mapping is the whole risk of making the label visible.
+
+           THE THREE RETURN SUB-STATES KEEP THREE DISTINCT LABELS. They share ONE tone (danger,
+           from App\Support\OrderStatusTone, the same table the order list and the board already
+           agree on) and that is deliberate -- but the Approve/Cancel buttons below render only for
+           return_status == 1, so one shared LABEL would leave a card reading "Return" with two
+           approve buttons on it and no way to tell it from a settled return.
+
+           `$btn_class` IS GONE. It existed only to colour the glyph in the anchor the badge
+           replaces, and nothing else in this view read it. The tone comes from OrderStatusTone now.
+
+           `Comfirmed` is the host's own misspelling and tests/Feature/ApiContract/
+           OrderStatusTextTest pins it for the API. Correcting it HERE only would make the web and
+           the API disagree, so it stays until all four surfaces change together. */
         $title = __('Pending');
         if ($order->delivered_status == 0) {
-        $btn_class = 'fa fa-check-circle text-warning';
-        $title = __('Pending');
+            $title = __('Pending');
         } elseif ($order->delivered_status == 1) {
-        $btn_class = 'ti ti-checks text-secondary';
-        $title = __('Delivered');
+            $title = __('Delivered');
         } elseif ($order->delivered_status == 2) {
-        $btn_class = 'fa fa-check text-danger';
-        $title = __('Cancel');
+            $title = __('Cancel');
         } elseif ($order->delivered_status == 4) {
-        $btn_class = 'fa fa-check text-primary';
-        $title = __('Comfirmed');
+            $title = __('Comfirmed');
         } elseif ($order->delivered_status == 5) {
-        $btn_class = 'fa fa-truck text-info';
-        $title = __('Picked Up');
-        }elseif ($order->delivered_status == 6) {
-            $btn_class = 'fa fa-spinner text-success';
+            $title = __('Picked Up');
+        } elseif ($order->delivered_status == 6) {
             $title = __('Shipped');
-        }elseif ($order->delivered_status == 3 && $order->return_status == 1) {
-            $btn_class = 'ti ti-truck-return text-secondary';
+        } elseif ($order->delivered_status == 3 && $order->return_status == 1) {
             $title = __('Return request processing');
-        }elseif ($order->delivered_status == 3 && $order->return_status == 2) {
-            $btn_class = 'fa fa-undo text-success';
+        } elseif ($order->delivered_status == 3 && $order->return_status == 2) {
             $title = __('Return');
-        }elseif ($order->delivered_status == 3 && $order->return_status == 3) {
-            $btn_class = 'fa fa-close text-danger';
+        } elseif ($order->delivered_status == 3 && $order->return_status == 3) {
             $title = __('Return cancelled');
+        } elseif ($order->delivered_status == 3) {
+            $title = __('Return');
+        } elseif ($order->delivered_status == 7) {
+            $title = __('Partially Paid');
+        } elseif ($order->delivered_status == 8) {
+            $title = __('Pre Order');
         }
     @endphp
     <div class="col-xxl-3 col-xl-4 col-sm-6 col-12 d-flex">
         <div class="card user-card order-card border mb-0">
             <div class="card-header p-3  border-bottom h-100">
                 <div class="user-img-wrp d-flex gap-3 align-items-center">
-                    <div class="user-image rounded border-2 border border-primary">
-                        <a class="dropdown-item" href="#" data-value="confirmed" title="{{ $title }}">
-                            <i class="{{ $btn_class }} h-100 w-100" ></i>
-                        </a>
-                    </div>
+                    {{-- THE STATUS, as the design system's badge: a label a merchant can read,
+                         plus a tone, plus a dot. It replaces a 45x45 box holding an inert
+                         `<a href="#">` that no handler in the admin was bound to and that no
+                         dropdown enclosed -- a status label wearing a control's clothes, which is
+                         the same defect the order LIST had and settled by using spans. The badge
+                         is a `<span>`, so nothing focusable is reintroduced here.
+
+                         IT IS THE FIRST CHILD OF `.user-img-wrp` ON PURPOSE. The second child's
+                         first span is never closed before the row's `</div>`, so anything placed
+                         after it is auto-closed INSIDE that span and inherits the dark-mode
+                         override P2.5-A-05 puts on it. Asserted by OrderGridStatusLabelTest.
+
+                         `.ss-badge` is unscoped in store-syria-ds.css and its tone tokens are
+                         declared on `:root`, so this needs no `.ss-scope` wrapper; the sheet is
+                         linked by layouts/app.blade.php on every page. DsBadge escapes the label,
+                         which is why the unescaped echo is correct here. --}}
+                    {!! \App\Support\OrderStatusTone::badge((int) $order->delivered_status, $title) !!}
                     <div class="user-content">
                         <span class="text-dark text-md">
                             @if ($order->is_guest == 1) 
@@ -103,32 +140,47 @@
                 <div class="bottom-icons d-flex flex-wrap align-items-center">
                     @if ($order->delivered_status == 3 && $order->return_status == 1)
                         <a href="#" class="btn btn-sm btn-primary return_request me-2" data-id="{{ $order->id }}" data-status="2" data-bs-toggle="tooltip"
-                            title="{{ __('Approve') }}">
-                            <i class="ti ti-check"></i>
+                            title="{{ __('Approve') }}"
+                            aria-label="{{ __('Approve the return of order :id', ['id' => $order->product_order_id]) }}">
+                            <i class="ti ti-check" aria-hidden="true"></i>
                         </a>
                         <a href="#" class="btn btn-sm btn-danger return_request me-2" data-id="{{ $order->id }}" data-status="3" data-bs-toggle="tooltip"
-                            title="{{ __('Cancel') }}">
-                            <i class="ti ti-circle-x"></i>
+                            title="{{ __('Cancel') }}"
+                            aria-label="{{ __('Reject the return of order :id', ['id' => $order->product_order_id]) }}">
+                            <i class="ti ti-circle-x" aria-hidden="true"></i>
                         </a>
                     @endif
                     <a href="javascript:void(0)"
                         data-url="{{ route('order.order_view', \Illuminate\Support\Facades\Crypt::encrypt($order->id)) }}" data-size="lg"
                         data-ajax-popup="true" data-title="{{ __('Order') }}    #{{ $order->product_order_id }}"
-                        class="x-3 btn btn-sm border me-2" data-bs-toggle="tooltip"
-                        data-original-title="{{ __('Show') }}" data-bs-toggle="tooltip"
-                        title="{{ __('Show') }}">
-                        <i class="ti ti-eye"></i>
+                        class="btn btn-sm border me-2" data-bs-toggle="tooltip"
+                        title="{{ __('Show') }}"
+                        aria-label="{{ __('Show order :id', ['id' => $order->product_order_id]) }}">
+                        <i class="ti ti-eye" aria-hidden="true"></i>
                     </a>
                     <a href="{{ route('order.view', \Illuminate\Support\Facades\Crypt::encrypt($order->id)) }}"
                         class="btn btn-sm border me-2" data-bs-toggle="tooltip"
-                        title="{{ __('Edit') }}">
-                        <i class="ti ti-pencil"></i>
+                        title="{{ __('Edit') }}"
+                        aria-label="{{ __('Edit order :id', ['id' => $order->product_order_id]) }}">
+                        <i class="ti ti-pencil" aria-hidden="true"></i>
                     </a>
                     {!! Form::open(['method' => 'DELETE', 'route' => ['order.destroy', $order->id], 'class' => 'd-inline']) !!}
+                    {{-- `aria-label` MUST STAY LAST ON THIS BUTTON, AFTER `data-confirm`.
+                         Tests\Unit\Ui\ConfirmationDialogContractTest scans every merchant view
+                         with /<[^>]*\bshow_confirm\b[^>]*>/. The aria-label below contains
+                         `['id' => ...]`, i.e. a `>`, so moving it ahead of `data-confirm` makes
+                         that character class stop mid-attribute and the test then reports this
+                         button as carrying no translated confirmation message -- which is false.
+                         A `>` inside a Blade expression silently truncating a `[^>]*` scanner has
+                         already cost this repo two missed fields (see
+                         Tests\Unit\Ui\SettingsCredentialExposureTest). Pinned directly by
+                         Tests\Unit\Ui\OrderGridRowActionNamesTest, which fails at this cause
+                         instead of letting it surface as a false i18n failure. --}}
                     <button type="button" class="btn btn-sm border show_confirm" data-bs-toggle="tooltip" data-confirm="{{ __('Are You Sure?') }}"
                         data-text="{{ __('This action can not be undone. Do you want to continue?') }}" data-text-yes="{{ __('Yes') }}" data-text-no="{{ __('No') }}"
-                        title="{{ __('Delete') }}">
-                        <i class="ti ti-trash text-danger"></i>
+                        title="{{ __('Delete') }}"
+                        aria-label="{{ __('Delete order :id', ['id' => $order->product_order_id]) }}">
+                        <i class="ti ti-trash text-danger" aria-hidden="true"></i>
                     </button>
                     {!! Form::close() !!}
                 </div>
