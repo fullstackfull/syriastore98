@@ -29,7 +29,7 @@
     $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold');
 @endphp
 @section('content')
-    <div class="row pt-4">
+    <div class="row pt-4" id="ss-product-show">
         <div class="col-md-12">
             <div class="row">
                 <div class="col-lg-4 col-md-6 col-12">
@@ -631,8 +631,9 @@
 
         `.attribute_combination` above is filled with the SAME `attribute_combinations_data`
         partial the editor uses, and that partial's per-variant trash button is fully functional
-        here: the `$('input').attr('readonly', true)` sweep in this file's script runs before the
-        async injection and never touches an `<a>` anyway. So without this include the read-only
+        here: the `ssLockProductShow()` lock in this file's script re-runs after each async
+        injection, but it selects only inputs, textareas and selects and never touches an `<a>`.
+        So without this include the read-only
         screen would keep the bare one-click delete the editor just lost, and the owner's condition
         -- a visible explicit confirmation before EVERY permitted delete -- would hold on one
         screen and not the other.
@@ -645,9 +646,59 @@
     <script src="{{ asset('js/repeater.js') }}"></script>
     <script src="{{ asset('assets/css/summernote/summernote-bs4.js') }}"></script>
     <script>
+        /* P2.5 F-show-readonly: the Choices-backed selects must be disabled BEFORE custom.js
+           builds them, so this statement is deliberately at script TOP LEVEL rather than inside
+           the ready callback below. public/js/custom.js is loaded at
+           partision/footerlink.blade.php:64 (layouts/app.blade.php:626) and only REGISTERS a
+           ready handler, so its comman_function() runs first among ready callbacks; a top-level
+           statement in this pushed block runs before any of them, and the content was parsed at
+           layouts/app.blade.php:531.
+
+           Why it has to be this early: custom.js:168 constructs
+           new Choices(element, {editItems: true, removeItemButton: true}) for every
+           [data-role="tagsinput"] select, and Choices reads the state ONCE, at construction --
+           public/assets/js/plugins/choices.min.js ends its init with
+           (!this.config.addItems || this.passedElement.element.hasAttribute("disabled")) &&
+           this.disable() -- and that file contains zero MutationObserver. So disabling the select
+           after init changes nothing about the rendered widget. attr(), not prop(), because the
+           library's check is hasAttribute(). Choices' own disable() removes every listener and
+           leaves the chips visible and readable, needs no CSS, and is direction-independent. */
+        $('#ss-product-show').find('select[data-role="tagsinput"]').attr('disabled', 'disabled');
+
+        /* The read-only lock for this screen, declared at top level because the AJAX success
+           callbacks that re-run it live in a later <script> block and only share global scope.
+           It is scoped to #ss-product-show: the document-wide input-and-select sweep this
+           replaced also reached the shared chrome -- the sidebar search and the command-palette
+           input, both already in the DOM -- and killed the sidebar nav filter plus its palette
+           fallback on this route only. */
+        function ssLockProductShow() {
+            var $scope = $('#ss-product-show');
+
+            /* readonly is not a content attribute of <select>, a checkbox or a radio, and no CSS
+               compensates -- the only [readonly] rule in the design system is prefixed .ss-input
+               and these are un-prefixed Bootstrap controls. So those get disabled instead.
+               `disabled` does not change `checked`, so the three checked readers in this file are
+               unaffected, and nothing here is ever submitted: this view has no form at all. */
+            $scope.find('input, textarea').attr('readonly', true);
+            $scope.find('select, input[type=checkbox], input[type=radio], input[type=file]')
+                .prop('disabled', true);
+
+            /* The three summernote-simple-product textareas (:350, :354, :358) are hidden by
+               custom.js:217 and replaced with a contenteditable sibling carrying a full toolbar
+               including codeview, so readonly on the textarea is a measured no-op.
+               summernote('disable') is in the vendored build and is what actually locks them.
+               custom.js's ready callback runs before this one so the instance exists; the data()
+               guard covers the case where it does not. */
+            $scope.find('.summernote-simple-product').each(function() {
+                if ($(this).data('summernote')) {
+                    $(this).summernote('disable');
+                    $(this).next('.note-editor').find('.note-toolbar').hide();
+                }
+            });
+        }
+
         $(document).ready(function() {
-            $('input').attr('readonly', true);
-            $('select').attr('readonly', true);
+            ssLockProductShow();
             attribute_option_data();
             type();
 
@@ -759,6 +810,7 @@
                 success: function(data) {
                     $('#loader').fadeOut();
                     $('.attribute_combination').html(data);
+                    ssLockProductShow();
                     if (data.length > 1) {
                         $('#quantity').hide();
                     } else {
@@ -778,6 +830,7 @@
                 success: function(data) {
                     $('#loader').fadeOut();
                     $('.attribute_combination').html(data);
+                    ssLockProductShow();
                     if (data.length > 1) {
                         $('#quantity').hide();
                     } else {
