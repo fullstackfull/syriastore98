@@ -97,18 +97,34 @@ class StoreFinanceController extends Controller
      * Routed through the `finance` gate (AuthServiceProvider), NOT through
      * User::isAbleTo() directly. The difference is the whole point:
      *
-     *   isAbleTo('Add Finance Balance')  -- false for EVERY user on a database
-     *                                       built from source, because
-     *                                       Utility::addNewData() never creates
-     *                                       any permission row containing
-     *                                       "Finance", and Laratrust has no
-     *                                       super-admin bypass.
+     *   isAbleTo('Add Finance Balance')  -- false for EVERY user who has not been
+     *                                       GRANTED the permission, the platform
+     *                                       operator included, because Laratrust
+     *                                       resolves strictly through the
+     *                                       role/permission pivot tables and has
+     *                                       no super-admin bypass.
      *   Gate::allows('finance', $p)      -- true for a super admin regardless of
-     *                                       seeding, and the normal Laratrust
-     *                                       answer for everyone else.
+     *                                       seeding or grant, and the normal
+     *                                       Laratrust answer for everyone else.
      *
-     * Verified by execution on a fresh sqlite schema: isAbleTo() returned false
-     * for a super admin on all six finance names while this gate returned true.
+     * CORRECTED 2026-11-04 (finance null-store guard slice). The first line used
+     * to read "false for EVERY user on a database built from source, because
+     * Utility::addNewData() never creates any permission row containing
+     * 'Finance'". THAT IS NO LONGER TRUE: addNewData() now seeds all six finance
+     * names (the FINANCE block in its $arrPermissions; measured:
+     * `grep -c -i finance app/Models/Utility.php` === 18). The rows are created
+     * and granted to no role by design, so the CONCLUSION survives -- an
+     * ungranted user, operator included, is still denied by isAbleTo() -- but the
+     * REASON has changed from "the row cannot exist" to "the row exists and is
+     * not granted". That distinction is load-bearing: the old wording said the
+     * delegated limb was unreachable on any from-source database, which is a
+     * written reason not to test the one principal who can hold a finance
+     * permission and resolve no store. See AuthServiceProvider's `finance` gate
+     * for the same correction and for which copies of it remain uncorrected.
+     *
+     * The operator half was verified by execution on a fresh sqlite schema:
+     * isAbleTo() returned false for a super admin on all six finance names while
+     * this gate returned true.
      */
     protected function canFinance(string $permission): bool
     {
@@ -131,7 +147,9 @@ class StoreFinanceController extends Controller
      * names were gated on while none was seeded, so every finance mutator was
      * 403 for every user including the platform operator. A seventh unseeded
      * name would recreate that lockout for delegated users. Of the six seeded
-     * names (Utility.php:2881-2886) it is the only one denoting a change to a
+     * names (the FINANCE block in Utility::addNewData()'s $arrPermissions -- named
+     * rather than cited by line, because the old "Utility.php:2881-2886" here had
+     * drifted to :3001-3006 by 2026-11-04) it is the only one denoting a change to a
      * finance record's payment state, which is precisely what approving,
      * rejecting and paying a withdrawal is.
      *
@@ -210,6 +228,22 @@ class StoreFinanceController extends Controller
         ]);
 
         $storeId = getCurrentStore();
+
+        /*
+         * Same guard and the same reasoning as index(), which carries the full account.
+         *
+         * THIS HANDLER ALREADY REFUSED a storeless caller, so what changes is only the
+         * DIAGNOSIS. `where('store_id', null)` compiles to `store_id IS NULL`, and
+         * `store_order_financials.store_id` is NOT NULL, so no row matched and the answer was
+         * `__('Financial record not found.')` below -- measured. That message blames the RECORD
+         * for a condition of the SESSION and sends a merchant looking for an order that is
+         * perfectly present. `back()` is how this handler's two other refusals answer.
+         */
+        if (empty($storeId)) {
+            return redirect()
+                ->back()
+                ->with('error', __('No store is selected.'));
+        }
 
         $financial = DB::table('store_order_financials')
             ->where('id', $id)
@@ -424,6 +458,81 @@ class StoreFinanceController extends Controller
         }
 
         $storeId = getCurrentStore();
+
+        /*
+         * NO STORE, NO DASHBOARD. THE ACCOUNT FOR ALL FOUR OF THESE GUARDS LIVES HERE.
+         *
+         * Six handlers on this controller already refuse a principal for whom `getCurrentStore()`
+         * answers nothing -- addBalance and deductBalance under the F270 rationale,
+         * approveWithdrawal / rejectWithdrawal / payWithdrawal through `financeStoreId()`, and
+         * unreconciledCaptures. Four did not: this one, requestWithdrawal(), withdrawals() and
+         * updateFinancialPaymentStatus(). The shape is copied from addBalance rather than
+         * invented, and each of the four answers the way that handler's OWN existing refusals
+         * answer, which is already true of all six siblings.
+         *
+         * WHAT WAS REALLY WRONG, AND WHAT WAS NOT. `store_id` is NOT NULL in `store_wallets`,
+         * `store_withdrawals` AND `store_order_financials` -- the measured production structure in
+         * `App\Support\Database\GateFProductionSchema::DDL`, reconciled against a restored copy of
+         * the production dump. So `where('store_id', null)`, which compiles to `store_id IS NULL`,
+         * matches NO ROW IN ANY TENANT, there is no shared null-store wallet to credit, and the
+         * matching INSERT cannot succeed at all. Nothing was disclosed and no money could move:
+         * this is HARDENING, and an exposure read into it would be wrong.
+         *
+         * What it actually was, measured by driving each handler with a delegated principal who
+         * holds a real Finance permission row and resolves no store
+         * (tests/Feature/Security/FinanceNullStoreGuardTest):
+         *
+         *   here                            HTTP 500. The lazy `StoreWallet::create()` below
+         *                                   violates NOT NULL, so the finance dashboard was an
+         *                                   error page.
+         *   requestWithdrawal()             flashed the raw ModelNotFoundException text, naming
+         *                                   `App\Models\StoreWallet` to the user.
+         *   withdrawals()                   an empty result set -- see the note there.
+         *   updateFinancialPaymentStatus()  refused, but blamed the record.
+         *
+         * IT IS A PURE GUARD: it refuses only requests that already fail, because the insert it
+         * stands in front of is one the database rejects. THE LAZY CREATE ITSELF IS DELIBERATELY
+         * LEFT for a RESOLVED store, whose wallet may predate StoreController's own
+         * `firstOrCreate` (:179-191, :336); that path is untouched and a positive control pins it.
+         *
+         * THE OPERATOR IS NOT AFFECTED, AND THAT IS A DECISION RATHER THAN AN OVERSIGHT.
+         * `getCurrentStore()` (helper.php:767-781) returns the HARDCODED LITERAL 1 for a
+         * 'super admin' whose `current_store` is empty, so such an operator never reaches this
+         * branch: store 1's wallet is created for them today and still is. Refusing it would
+         * REMOVE a capability that works, which is an owner decision and is escalated rather than
+         * taken here. unreconciledCaptures DOES refuse that case, for a reason stated there -- a
+         * money REVIEW must not silently default to an arbitrary tenant -- and the asymmetry is
+         * intentional.
+         *
+         * WHY THE TARGET IS `dashboard` AND NOT addBalance's `finance.index` OR the siblings'
+         * `back()`. THIS HANDLER *IS* finance.index, so addBalance's target is a redirect to
+         * itself. And `back()` -- the shape approveWithdrawal, rejectWithdrawal, payWithdrawal and
+         * unreconciledCaptures all use -- IS A LOOP HERE, which is not obvious and was nearly
+         * shipped: Laravel 11's `StartSession::storeCurrentUrl()` (:200-209) sets the previous URL
+         * on EVERY GET with a matched route, INCLUDING ONE THAT ANSWERS A REDIRECT, so for a
+         * merchant whose last page was /finance -- the common case, since losing a store happens
+         * after using it -- `back()` returns /finance and the two bounce forever. A 302 chain is
+         * worse than the 500 it replaces, so the target has to be a route outside this surface.
+         *
+         * With this handler terminating at /dashboard, withdrawals() and requestWithdrawal() can
+         * keep their own `route('finance.index')` and updateFinancialPaymentStatus() its `back()`:
+         * every finance refusal now ends here, and here ends outside finance.
+         *
+         * HONEST ABOUT WHAT THE MERCHANT THEN SEES, because the dashboard is NOT a working page
+         * for this principal either: `/dashboard` is itself a 500 for a storeless caller --
+         * measured -- because `partision/header.blade.php` hands the resolved store to
+         * `HomeController::getThemeUrl()`, which reads `$store->slug` on null. THE SHARED CHROME
+         * IS BROKEN FOR EVERY MERCHANT SCREEN A STORELESS PRINCIPAL OPENS, and that is reported
+         * separately; it is not finance's to fix and this guard does not claim to. What this guard
+         * does buy is real and bounded: no impossible INSERT against a money table, no
+         * exception text on screen, no silently empty money list, and a flash message that names
+         * the true condition for the moment the chrome is repaired.
+         */
+        if (empty($storeId)) {
+            return redirect()
+                ->route('dashboard')
+                ->with('error', __('No store is selected.'));
+        }
 
         $currencyCode = Setting::where('store_id', $storeId)
             ->where('name', 'defult_currancy')
@@ -926,6 +1035,24 @@ class StoreFinanceController extends Controller
 
         $storeId = getCurrentStore();
 
+        /*
+         * Same guard and the same reasoning as index(), which carries the full account.
+         *
+         * Without it the `StoreWallet::where('store_id', $storeId)->lockForUpdate()
+         * ->firstOrFail()` below threw a ModelNotFoundException into this handler's own
+         * `catch (\Exception $e)`, which flashes `$e->getMessage()` -- so the merchant was shown
+         * `No query results for model [App\Models\StoreWallet].`, an internal class name on a
+         * money screen. Measured, not inferred.
+         *
+         * `route('finance.index')` is addBalance's target verbatim, and is where this handler's
+         * permission refusal above already sends a caller.
+         */
+        if (empty($storeId)) {
+            return redirect()
+                ->route('finance.index')
+                ->with('error', __('No store is selected.'));
+        }
+
         try {
 
             DB::transaction(function () use (
@@ -1044,6 +1171,30 @@ class StoreFinanceController extends Controller
         }
 
         $storeId = getCurrentStore();
+
+        /*
+         * Same guard and the same reasoning as index(), which carries the full account. THIS IS
+         * THE ONE HANDLER WHOSE BEHAVIOUR ACTUALLY CHANGES, and the reason to change it is
+         * already written a few hundred lines above: `store_withdrawals.store_id` is NOT NULL, so
+         * the `store_id IS NULL` predicate matched nothing and the query answered an EMPTY LIST --
+         * "the worst possible wrong answer on this page: it is the one that makes a reviewer stop
+         * looking" (unreconciledCaptures). A storeless caller now gets a refusal that names the
+         * condition they can act on.
+         *
+         * AND A CORRECTION TO THE REVIEW THIS CAME FROM, which described the pre-guard answer as
+         * `200` with that empty table. The QUERY returned nothing, but THE PAGE never reached 200:
+         * `partision/header.blade.php` resolves the current store and hands it to
+         * `HomeController::getThemeUrl()`, which reads `$store->slug` -- null here -- so the real
+         * answer was a 500 out of the shared chrome. That chrome defect is not finance's and is
+         * reported separately; it affects every merchant screen a storeless principal opens.
+         * Refusing here is right under either reading, and both are strictly worse than a
+         * refusal.
+         */
+        if (empty($storeId)) {
+            return redirect()
+                ->route('finance.index')
+                ->with('error', __('No store is selected.'));
+        }
 
         $withdrawals = StoreWithdrawal::with(
                 'wallet'
