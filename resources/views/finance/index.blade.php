@@ -208,7 +208,7 @@
                             {{-- الصف الأول: البحث الذكي --}}
                             <div class="row align-items-end g-3 mb-3">
                                 <div class="col-md-3">
-                                    <label class="form-label fw-bold text-muted smart-search-label">
+                                    <label class="form-label fw-bold text-muted smart-search-label" for="searchField">
                                         <i class="ti ti-filter me-1"></i> {{ __('Search By Field') }}
                                     </label>
                                     <select name="search_field" id="searchField" class="form-select">
@@ -227,7 +227,7 @@
                                 </div>
 
                                 <div class="col-md-7" id="searchValueContainer" style="display: {{ request('search_field') ? 'block' : 'none' }};">
-                                    <label class="form-label fw-bold text-muted smart-search-label">
+                                    <label class="form-label fw-bold text-muted smart-search-label" for="searchValue">
                                         <i class="ti ti-pencil me-1"></i> {{ __('Search Value') }}
                                     </label>
                                     <div id="searchInputContainer">
@@ -245,16 +245,16 @@
                             {{-- الصف الثاني: الفلاتر القديمة (محفوظة كما هي) --}}
                             <div class="row align-items-end g-3">
                                 <div class="col-md-3">
-                                    <label class="form-label fw-bold">{{ __('From Date') }}</label>
-                                    <input type="date" name="from_date" class="form-control" value="{{ request('from_date') }}">
+                                    <label class="form-label fw-bold" for="financeFromDate">{{ __('From Date') }}</label>
+                                    <input type="date" name="from_date" id="financeFromDate" class="form-control" value="{{ request('from_date') }}">
                                 </div>
                                 <div class="col-md-3">
-                                    <label class="form-label fw-bold">{{ __('To Date') }}</label>
-                                    <input type="date" name="to_date" class="form-control" value="{{ request('to_date') }}">
+                                    <label class="form-label fw-bold" for="financeToDate">{{ __('To Date') }}</label>
+                                    <input type="date" name="to_date" id="financeToDate" class="form-control" value="{{ request('to_date') }}">
                                 </div>
                                 <div class="col-md-2">
-                                    <label class="form-label fw-bold">{{ __('Type') }}</label>
-                                    <select name="type" class="form-control">
+                                    <label class="form-label fw-bold" for="financeType">{{ __('Type') }}</label>
+                                    <select name="type" id="financeType" class="form-control">
                                         <option value="">{{ __('All') }}</option>
                                         <option value="sale" {{ request('type') == 'sale' ? 'selected' : '' }}>{{ __('Sale') }}</option>
                                         <option value="manual_deposit" {{ request('type') == 'manual_deposit' ? 'selected' : '' }}>{{ __('Deposit') }}</option>
@@ -265,8 +265,8 @@
                                     </select>
                                 </div>
                                 <div class="col-md-2">
-                                    <label class="form-label fw-bold">{{ __('Status') }}</label>
-                                    <select name="status" class="form-control">
+                                    <label class="form-label fw-bold" for="financeStatus">{{ __('Status') }}</label>
+                                    <select name="status" id="financeStatus" class="form-control">
                                         <option value="">{{ __('All') }}</option>
                                         <option value="completed" {{ request('status') == 'completed' ? 'selected' : '' }}>{{ __('Completed') }}</option>
                                         <option value="pending" {{ request('status') == 'pending' ? 'selected' : '' }}>{{ __('Pending') }}</option>
@@ -313,9 +313,9 @@
                                             <td class="text-nowrap fw-bold text-muted">#{{ $transaction->id }}</td>
                                             <td class="text-nowrap">{{ optional($transaction->created_at)->format('Y-m-d H:i') }}</td>
                                             <td>
-                                                <span class="badge bg-light text-dark border">
-                                                    {{ ucwords(str_replace('_', ' ', $transaction->type)) }}
-                                                </span>
+                                                {{-- A TYPE, not a status, so this is the DS chip and not x-ss.status-badge: status-badge.blade.php:3-5 states the dot IS the status signal. The old `badge bg-light text-dark border` measured 1.09:1 in dark mode -- `.bg-light` keeps its near-white #f8f9fa fill while the shipped A-05 block lifts `.text-dark` to #eeeff1 outside `.modal-content`. `.ss-chip` keeps the border (store-syria-ds.css:2058) at 8.12:1 light / 8.98:1 dark. --}}
+                                                <x-ss.chip :interactive="false"
+                                                    :label="ucwords(str_replace('_', ' ', $transaction->type))" />
                                             </td>
                                             <td>
                                                 {{ $transaction->description ?? '-' }}
@@ -352,11 +352,11 @@
                                             <td class="text-end fw-bold">{{ number_format($transaction->balance_after, 2) }}</td>
                                             <td class="text-center">
                                                 @if($transaction->status == 'completed')
-                                                    <span class="badge bg-success bg-opacity-10 text-success">{{ __('Completed') }}</span>
+                                                    <x-ss.status-badge tone="success" :label="__('Completed')" />
                                                 @elseif($transaction->status == 'pending')
-                                                    <span class="badge bg-warning bg-opacity-10 text-warning">{{ __('Pending') }}</span>
+                                                    <x-ss.status-badge tone="warning" :label="__('Pending')" />
                                                 @else
-                                                    <span class="badge bg-danger bg-opacity-10 text-danger">{{ __('Cancelled') }}</span>
+                                                    <x-ss.status-badge tone="danger" :label="__('Cancelled')" />
                                                 @endif
                                             </td>
                                         </tr>
@@ -432,9 +432,9 @@
                                                     </form>
                                                 @else
                                                     @if($financial->payment_status === 'paid')
-                                                        <span class="badge bg-success bg-opacity-10 text-success">{{ __('Received') }}</span>
+                                                        <x-ss.status-badge tone="success" :label="__('Received')" />
                                                     @else
-                                                        <span class="badge bg-danger bg-opacity-10 text-danger">{{ __('Not Received') }}</span>
+                                                        <x-ss.status-badge tone="danger" :label="__('Not Received')" />
                                                     @endif
                                                 @endif
                                             </td>
@@ -456,13 +456,13 @@
     </div>
 </div>
 
-{{-- ==================== MODALS ==================== --}}
+{{-- ==================== MODALS ==================== All three carry data-ss-theme="light" on their .modal-content, and it is load-bearing rather than tidy: the host keeps --bs-modal-bg #ffffff even in dark mode (pinned in BOTH dark sheets by DarkModalSurfaceContrastTest::test_the_host_still_carries_the_three_rules_this_slice_exists_to_beat), so a design-system token inside one resolves its DARK value onto white. store-syria-ds.css:3902-3905 restyles .invalid-feedback unconfined and dark --ss-danger is #f3a9a4 = 1.91:1 on white, while the light --ss-red-700 #b3261e is 6.54:1 and the focus ring goes from #68cbe1 1.87:1 to #4f77c0 4.44:1. Same idiom and same measured reason as category/create:49, users/create:23, attributes/create:19. The maxlength values below are copied from the server rules (StoreFinanceController 671/791/916), not chosen. --}}
 
 {{-- ✅ Modal: Add Balance --}}
 @if(auth()->user()->isAbleTo('Add Finance Balance'))
 <div class="modal fade" id="addBalanceModal" tabindex="-1">
     <div class="modal-dialog">
-        <div class="modal-content">
+        <div class="modal-content" data-ss-theme="light">
             <form method="POST" action="{{ route('finance.add.balance') }}">
                 @csrf
                 <div class="modal-header">
@@ -471,12 +471,12 @@
                 </div>
                 <div class="modal-body">
                     <div class="mb-3">
-                        <label class="form-label">{{ __('Amount') }}</label>
-                        <input type="number" name="amount" class="form-control" min="0.01" step="0.01" required>
+                        <label class="form-label" for="addBalanceAmount">{{ __('Amount') }}</label>
+                        <input type="number" name="amount" id="addBalanceAmount" class="form-control" min="0.01" step="0.01" required>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label">{{ __('Reason / Description') }}</label>
-                        <textarea name="description" class="form-control" rows="3" required></textarea>
+                        <label class="form-label" for="addBalanceDescription">{{ __('Reason / Description') }}</label>
+                        <textarea name="description" id="addBalanceDescription" class="form-control" rows="3" maxlength="255" required></textarea>
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -493,7 +493,7 @@
 @if(auth()->user()->isAbleTo('Deduct Finance Balance'))
 <div class="modal fade" id="deductBalanceModal" tabindex="-1">
     <div class="modal-dialog">
-        <div class="modal-content">
+        <div class="modal-content" data-ss-theme="light">
             <form method="POST" action="{{ route('finance.deduct.balance') }}">
                 @csrf
                 <div class="modal-header">
@@ -505,12 +505,12 @@
                         {{ __('Available balance:') }} <strong>{{ number_format($wallet->available_balance, 2) }}</strong>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label">{{ __('Amount') }}</label>
-                        <input type="number" name="amount" class="form-control" min="0.01" max="{{ $wallet->available_balance }}" step="0.01" required>
+                        <label class="form-label" for="deductBalanceAmount">{{ __('Amount') }}</label>
+                        <input type="number" name="amount" id="deductBalanceAmount" class="form-control" min="0.01" max="{{ $wallet->available_balance }}" step="0.01" required>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label">{{ __('Reason / Description') }}</label>
-                        <textarea name="description" class="form-control" rows="3" required></textarea>
+                        <label class="form-label" for="deductBalanceDescription">{{ __('Reason / Description') }}</label>
+                        <textarea name="description" id="deductBalanceDescription" class="form-control" rows="3" maxlength="255" required></textarea>
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -527,7 +527,7 @@
 @if(auth()->user()->isAbleTo('Request Finance Withdrawal'))
 <div class="modal fade" id="withdrawalModal" tabindex="-1">
     <div class="modal-dialog">
-        <div class="modal-content">
+        <div class="modal-content" data-ss-theme="light">
             <form method="POST" action="{{ route('finance.withdrawal.request') }}">
                 @csrf
                 <div class="modal-header">
@@ -539,12 +539,12 @@
                         {{ __('Available Balance') }}: <strong>{{ number_format($wallet->available_balance, 2) }}</strong>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label">{{ __('Amount') }}</label>
-                        <input type="number" name="amount" class="form-control" min="0.01" max="{{ $wallet->available_balance }}" step="0.01" required>
+                        <label class="form-label" for="withdrawalAmount">{{ __('Amount') }}</label>
+                        <input type="number" name="amount" id="withdrawalAmount" class="form-control" min="0.01" max="{{ $wallet->available_balance }}" step="0.01" required>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label">{{ __('Payment Method') }}</label>
-                        <select name="payment_method" class="form-control" required>
+                        <label class="form-label" for="withdrawalPaymentMethod">{{ __('Payment Method') }}</label>
+                        <select name="payment_method" id="withdrawalPaymentMethod" class="form-control" required>
                             <option value="">{{ __('Select') }}</option>
                             <option value="bank">{{ __('Bank Transfer') }}</option>
                             <option value="cash">{{ __('Cash') }}</option>
@@ -552,12 +552,12 @@
                         </select>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label">{{ __('Payment Details') }}</label>
-                        <textarea name="payment_details" class="form-control" rows="3" required></textarea>
+                        <label class="form-label" for="withdrawalPaymentDetails">{{ __('Payment Details') }}</label>
+                        <textarea name="payment_details" id="withdrawalPaymentDetails" class="form-control" rows="3" maxlength="2000" required></textarea>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label">{{ __('Note') }}</label>
-                        <textarea name="store_note" class="form-control" rows="2"></textarea>
+                        <label class="form-label" for="withdrawalNote">{{ __('Note') }}</label>
+                        <textarea name="store_note" id="withdrawalNote" class="form-control" rows="2" maxlength="500"></textarea>
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -596,15 +596,16 @@ document.addEventListener('DOMContentLoaded', function() {
 
         searchValueContainer.style.display = 'block';
         searchButtonContainer.style.display = 'block';
+        {{-- Seven mutually exclusive branches write into #searchInputContainer, which the line below clears first, so only one control named `search_value` is ever in the DOM. Each template therefore carries the SAME literal id="searchValue" -- the target of the label on the Search Value column -- and seven copies in this source are not a duplicate-id bug. FinanceControlLabellingTest asserts the two counts stay equal, so an eighth branch cannot be added without one. --}}
         searchInputContainer.innerHTML = '';
 
         if (selectedField === 'id') {
-            searchInputContainer.innerHTML = `<input type="number" name="search_value" class="form-control" placeholder="{{ __('Enter Transaction ID...') }}" value="${currentSearchValue || ''}" min="1">`;
+            searchInputContainer.innerHTML = `<input type="number" name="search_value" id="searchValue" class="form-control" placeholder="{{ __('Enter Transaction ID...') }}" value="${currentSearchValue || ''}" min="1">`;
         } else if (selectedField === 'created_at') {
-            searchInputContainer.innerHTML = `<input type="date" name="search_value" class="form-control" value="${currentSearchValue || ''}">`;
+            searchInputContainer.innerHTML = `<input type="date" name="search_value" id="searchValue" class="form-control" value="${currentSearchValue || ''}">`;
         } else if (selectedField === 'type') {
             searchInputContainer.innerHTML = `
-                <select name="search_value" class="form-select">
+                <select name="search_value" id="searchValue" class="form-select">
                     <option value="">{{ __('All Types') }}</option>
                     <option value="sale" ${currentSearchValue === 'sale' ? 'selected' : ''}>{{ __('Sale') }}</option>
                     <option value="manual_deposit" ${currentSearchValue === 'manual_deposit' ? 'selected' : ''}>{{ __('Deposit') }}</option>
@@ -618,14 +619,14 @@ document.addEventListener('DOMContentLoaded', function() {
                     <option value="adjustment" ${currentSearchValue === 'adjustment' ? 'selected' : ''}>{{ __('Adjustment') }}</option>
                 </select>`;
         } else if (selectedField === 'description') {
-            searchInputContainer.innerHTML = `<input type="text" name="search_value" class="form-control" placeholder="{{ __('Enter description...') }}" value="${currentSearchValue || ''}">`;
+            searchInputContainer.innerHTML = `<input type="text" name="search_value" id="searchValue" class="form-control" placeholder="{{ __('Enter description...') }}" value="${currentSearchValue || ''}">`;
         } else if (selectedField === 'currency_code') {
-            searchInputContainer.innerHTML = `<input type="text" name="search_value" class="form-control" placeholder="{{ __('e.g., USD, SYP, EUR') }}" value="${currentSearchValue || ''}" style="text-transform: uppercase;">`;
+            searchInputContainer.innerHTML = `<input type="text" name="search_value" id="searchValue" class="form-control" placeholder="{{ __('e.g., USD, SYP, EUR') }}" value="${currentSearchValue || ''}" style="text-transform: uppercase;">`;
         } else if (selectedField === 'credit' || selectedField === 'debit' || selectedField === 'balance_before' || selectedField === 'balance_after') {
-            searchInputContainer.innerHTML = `<input type="number" name="search_value" class="form-control" placeholder="{{ __('Enter amount...') }}" value="${currentSearchValue || ''}" min="0" step="0.01">`;
+            searchInputContainer.innerHTML = `<input type="number" name="search_value" id="searchValue" class="form-control" placeholder="{{ __('Enter amount...') }}" value="${currentSearchValue || ''}" min="0" step="0.01">`;
         } else if (selectedField === 'status') {
             searchInputContainer.innerHTML = `
-                <select name="search_value" class="form-select">
+                <select name="search_value" id="searchValue" class="form-select">
                     <option value="">{{ __('All Statuses') }}</option>
                     <option value="completed" ${currentSearchValue === 'completed' ? 'selected' : ''}>{{ __('Completed') }}</option>
                     <option value="pending" ${currentSearchValue === 'pending' ? 'selected' : ''}>{{ __('Pending') }}</option>

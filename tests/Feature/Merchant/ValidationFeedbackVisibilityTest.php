@@ -323,4 +323,283 @@ class ValidationFeedbackVisibilityTest extends SecurityTestCase
         $this->assertStringNotContainsString('ss-errorsummary', $body,
             'a form the merchant has not submitted yet is showing an error summary');
     }
+
+    // =============================================================================================
+    //  4. P2.5 finance-validation-failure-is-silent — THE SAME DEFECT ON THE MONEY SCREEN
+    // =============================================================================================
+
+    /*
+     * WHAT WAS MEASURED. `grep -E '@error|old\(|error-summary|\$errors'` over the 647 lines of
+     * resources/views/finance/index.blade.php returned ZERO matches, while
+     * StoreFinanceController::addBalance (:671), deductBalance (:791) and requestWithdrawal (:916)
+     * each call `$request->validate()`. A ValidationException redirects back to /finance with the
+     * bag populated, and the view reads none of it. The layout's only flash renderers are
+     * `Session::has('success')` (layouts/app.blade.php:760) and `Session::has('error')` (:773) --
+     * a ValidationException populates NEITHER -- and resources/views/layouts/includes/alerts.blade.php,
+     * the one partial that would toast `session('errors')`, is included nowhere (repo-wide grep:
+     * zero hits, and it must stay that way: it interpolates each message UNESCAPED into a
+     * single-quoted JS literal at :8, the P1-SEC-22(b) sink that app.blade.php:762-767 records as
+     * deliberately fixed).
+     *
+     * WHAT LANDS HERE, AND WHAT DOES NOT. The full repair -- validateWithBag in three handlers,
+     * nine rewritten controls, three bag-scoped summaries, a modal-reopen script -- is a four-part
+     * change on the money surface and is DEFERRED to its own slice. Two measurements decided that:
+     *
+     *   (a) THE REACHABLE SET IS FOUR FIELDS. Every server rule on these three forms except four
+     *       string `max:` rules is already browser-enforced: `amount` is
+     *       `type="number" required min="0.01" step="0.01"` (and `max` on two of the three) against
+     *       `required|numeric|min:0.01`; `payment_method` is a required select with three fixed
+     *       values against `required|string|max:100`; the free-text controls are all `required`.
+     *       So the only demonstrated trigger is an over-length paste into `description` (max:255),
+     *       `payment_details` (max:2000) or `store_note` (max:500) -- and `maxlength` closes all
+     *       four, which is WCAG 3.3.3 (Error Suggestion) rather than a workaround.
+     *
+     *   (b) THE OBVIOUS @error REPAIR DEFEATS ITSELF IN DARK MODE, so it must not be rushed.
+     *       public/css/store-syria-ds.css:3902-3905 already restyles `.invalid-feedback`
+     *       unconfined, and under `[data-ss-theme="dark"]` `--ss-danger` is `#f3a9a4` (:428) --
+     *       1.91:1 on the WHITE modal the host keeps in dark mode. That is pinned, not assumed, by
+     *       DarkModalSurfaceContrastTest (`--bs-modal-bg: #ffffff` in both dark sheets,
+     *       MODAL_BG = [255,255,255]). So nine `.invalid-feedback` messages inside those three
+     *       modals would still tell a dark-mode merchant nothing, and NO test would have gone red.
+     *       `data-ss-theme="light"` on each `.modal-content` is the one-attribute cure, with ten
+     *       in-repo precedents (category/create:49, users/create:23, users/edit:14, users/reset:14,
+     *       attributes/create:19, attribute_option/create:19 ...), and it lands NOW so the deferred
+     *       slice cannot ship the 1.91:1 version by default.
+     *
+     * finance/index.blade.php is deliberately NOT added to AFFECTED_VIEWS: :184 holds the
+     * `invalid-feedback` count as an EQUALITY, a literal standing in for a property, and this
+     * change renders no `invalid-feedback` at all. The silence is pinned explicitly instead, so the
+     * bag slice inherits a FAILING test to turn green rather than a passing one.
+     */
+
+    /** The four free-text controls, their server rule, and the cap the markup must carry. */
+    private const FINANCE_TEXT_CAPS = [
+        'addBalanceDescription' => 255,
+        'deductBalanceDescription' => 255,
+        'withdrawalPaymentDetails' => 2000,
+        'withdrawalNote' => 500,
+    ];
+
+    private function financeMerchant(): User
+    {
+        [$merchant] = $this->makeTenant();
+
+        foreach ([
+            'View Finance Dashboard', 'Add Finance Balance',
+            'Deduct Finance Balance', 'Request Finance Withdrawal',
+        ] as $name) {
+            \App\Models\Permission::firstOrCreate(['name' => $name], ['display_name' => $name]);
+            $this->grantPermission(User::find($merchant->id), $name);
+        }
+
+        \Illuminate\Support\Facades\Cache::forget('admin_details');
+
+        return User::find($merchant->id);
+    }
+
+    /**
+     * WCAG 2.x contrast, computed rather than quoted — the same shape DarkModalSurfaceContrastTest
+     * uses, repeated here because that file is not this chain's to edit.
+     */
+    private function contrast(array $a, array $b): float
+    {
+        $luminance = function (array $rgb): float {
+            $channel = function (int $v): float {
+                $c = $v / 255;
+
+                return $c <= 0.03928 ? $c / 12.92 : (($c + 0.055) / 1.055) ** 2.4;
+            };
+
+            return 0.2126 * $channel($rgb[0]) + 0.7152 * $channel($rgb[1]) + 0.0722 * $channel($rgb[2]);
+        };
+
+        $la = $luminance($a);
+        $lb = $luminance($b);
+
+        return (max($la, $lb) + 0.05) / (min($la, $lb) + 0.05);
+    }
+
+    /**
+     * STEP 1 — the 3.3.3 caps, copied from the rules and not chosen.
+     *
+     * With these the only demonstrated route to the silent redirect is unreachable from the UI.
+     */
+    public function test_the_finance_money_modals_cap_free_text_at_the_server_limit(): void
+    {
+        $source = $this->source('resources/views/finance/index.blade.php');
+        $controller = (string) file_get_contents(base_path('app/Http/Controllers/StoreFinanceController.php'));
+
+        /* THE PREMISE: the caps really are the server's own numbers. */
+        $this->assertStringContainsString("'required|string|max:255'", $controller,
+            'the description rule is no longer max:255, so the maxlength asserted below no longer '
+            . 'mirrors the server and would truncate at the wrong length');
+        $this->assertStringContainsString("'required|string|max:2000'", $controller,
+            'the payment_details rule is no longer max:2000');
+        $this->assertStringContainsString("'nullable|string|max:500'", $controller,
+            'the store_note rule is no longer max:500');
+
+        foreach (self::FINANCE_TEXT_CAPS as $id => $cap) {
+            $this->assertMatchesRegularExpression(
+                '/<textarea[^>]*\bid="' . preg_quote($id, '/') . '"[^>]*\bmaxlength="' . $cap . '"/',
+                $source,
+                "the {$id} textarea carries no maxlength=\"{$cap}\", so a longer paste is accepted "
+                . 'by the browser, refused by the server, and the merchant is redirected back to '
+                . 'a form that looks exactly as they left it and says nothing (WCAG 2.1 A 3.3.1, '
+                . 'AA 3.3.3)'
+            );
+        }
+    }
+
+    /**
+     * STEP 2 — name the surface. The host keeps `.modal-content` WHITE in dark mode, so every
+     * design-system token inside one resolves its DARK value onto white.
+     */
+    public function test_the_three_finance_money_modals_name_the_white_modal_surface(): void
+    {
+        $source = $this->source('resources/views/finance/index.blade.php');
+
+        $this->assertSame(3, substr_count($source, '<div class="modal-content" data-ss-theme="light">'),
+            'the three finance money modals do not all carry data-ss-theme="light" on their '
+            . '.modal-content. The host paints that surface WHITE even in dark mode (pinned by '
+            . 'DarkModalSurfaceContrastTest), so --ss-danger resolves to #f3a9a4 at 1.91:1 on it '
+            . 'and any validation message placed inside would be unreadable. The attribute is '
+            . 'anchored on the closing `>` here on purpose: a `[^>]*` match would be satisfied by '
+            . 'the attribute landing on some other element.');
+
+        /* And no bare `.modal-content` is left behind in this file. */
+        $this->assertSame(0, substr_count($source, '<div class="modal-content">'),
+            'a finance modal still has an unnamed .modal-content surface');
+    }
+
+    /**
+     * AND THE REASON FOR STEP 2, MEASURED. Without this the attribute above is a decoration
+     * nobody can justify; with it, a reviewer who deletes it has a number to argue against.
+     */
+    public function test_the_dark_danger_token_is_below_aa_on_the_white_modal_and_the_light_one_is_not(): void
+    {
+        $ds = (string) file_get_contents(base_path('public/css/store-syria-ds.css'));
+
+        $this->assertStringContainsString('--ss-danger:     #f3a9a4', $ds,
+            'the dark --ss-danger is no longer #f3a9a4, so the ratio below describes a token that '
+            . 'has moved');
+        $this->assertStringContainsString('--ss-red-700:   #b3261e', $ds,
+            'the light --ss-red-700 is no longer #b3261e');
+        $this->assertStringContainsString('.invalid-feedback,', $ds,
+            'the design system no longer restyles .invalid-feedback, so the dark-mode hazard this '
+            . 'attribute guards against may no longer exist — re-measure before trusting it');
+
+        /* The host modal really is white in dark mode. */
+        foreach (['public/assets/css/style-dark.css', 'public/assets/css/rtl-style-dark.css'] as $sheet) {
+            $this->assertMatchesRegularExpression('/--bs-modal-bg:\s*#ffffff/i',
+                (string) file_get_contents(base_path($sheet)),
+                "{$sheet} no longer keeps the modal surface white in dark mode");
+        }
+
+        $white = [255, 255, 255];
+
+        /* Measured here: 1.91:1. */
+        $darkDanger = $this->contrast([243, 169, 164], $white);
+        $this->assertLessThan(4.5, $darkDanger,
+            'the dark --ss-danger now passes AA on the white modal, so data-ss-theme="light" is '
+            . 'no longer needed on these three modals (measured: ' . round($darkDanger, 2) . ':1)');
+
+        /* Measured here: 6.54:1 — what the attribute restores. */
+        $lightDanger = $this->contrast([179, 38, 30], $white);
+        $this->assertGreaterThanOrEqual(4.5, $lightDanger,
+            'the light --ss-red-700 does not pass AA on the white modal, so the guard does not '
+            . 'fix anything (measured: ' . round($lightDanger, 2) . ':1)');
+
+        /* And the focus ring, which the deferred slice will move into these modals.
+           Measured: dark --ss-cyan-400 1.87:1, below SC 1.4.11's 3:1; light --ss-blue-500 4.44:1. */
+        $this->assertLessThan(3.0, $this->contrast([104, 203, 225], $white),
+            'the dark focus ring now clears 3:1 on white');
+        $this->assertGreaterThanOrEqual(3.0, $this->contrast([79, 119, 192], $white),
+            'the light focus ring no longer clears 3:1 on white');
+    }
+
+    /**
+     * STEP 3(b) — THE SILENCE, PINNED. This is the test the deferred bag slice must turn green.
+     *
+     * It drives the one trigger that is reachable without a hand-crafted POST and asserts what the
+     * merchant is shown today: nothing. Written as an assertion rather than a comment so the slice
+     * cannot inherit a passing test, and so nobody can claim the defect was fixed while /finance
+     * still renders no summary and no mark.
+     */
+    public function test_a_refused_finance_description_is_still_answered_with_silence(): void
+    {
+        $merchant = $this->financeMerchant();
+
+        /* THE PREMISE. A 403 or a 302 to login satisfies "no balance was added" for free. */
+        $form = $this->actingAs($merchant)->get(route('finance.index'));
+        $this->assertSame(200, $form->getStatusCode(),
+            'the finance dashboard did not render for this fixture: '
+            . substr((string) $form->getContent(), 0, 300));
+
+        $refused = $this->actingAs($merchant)
+            ->from(route('finance.index'))
+            ->post(route('finance.add.balance'), [
+                'amount' => '10.00',
+                'description' => str_repeat('a', 300),   // server rule is max:255
+            ]);
+
+        $refused->assertSessionHasErrors('description');
+
+        $body = (string) $this->actingAs($merchant)->get(route('finance.index'))->getContent();
+
+        $this->assertStringNotContainsString('ss-errorsummary', $body,
+            'POSITIVE NEWS, AND THIS ASSERTION MUST THEN BE INVERTED: /finance now renders an '
+            . 'error summary, so the deferred bag slice has landed. Rewrite this case to assert '
+            . 'the summary is scoped to the addBalance bag and that the DEDUCT modal carries '
+            . 'neither a summary nor an is-invalid mark nor a prefilled amount.');
+        $this->assertStringNotContainsString('is-invalid', $body,
+            'POSITIVE NEWS, AND THIS ASSERTION MUST THEN BE INVERTED: a finance control now '
+            . 'carries is-invalid. See the message above.');
+
+        /* AND THE MAXLENGTH IS WHAT MAKES THAT SILENCE UNREACHABLE FROM THE UI. */
+        $this->assertStringContainsString('maxlength="255"', $body,
+            'the rendered Add Balance modal does not cap the description, so a merchant can still '
+            . 'reach the silent redirect this case pins by pasting 300 characters');
+    }
+
+    /**
+     * NEGATIVE CONTROL — THE GATES AND THE API ARE UNTOUCHED.
+     *
+     * A merchant lacking a money permission must receive zero markup for that modal, including
+     * zero `data-ss-theme` attribute and zero maxlength; and the two Flutter wallet endpoints keep
+     * their OWN plain `->validate()` calls and the ApiResponser shape (the shipped app force-logs
+     * out on any 401, so a status change there is a user-visible regression).
+     */
+    public function test_the_permission_gates_and_the_flutter_wallet_validators_are_untouched(): void
+    {
+        [$merchant] = $this->makeTenant();
+        \App\Models\Permission::firstOrCreate(
+            ['name' => 'View Finance Dashboard'], ['display_name' => 'View Finance Dashboard']
+        );
+        $this->grantPermission(User::find($merchant->id), 'View Finance Dashboard');
+        \Illuminate\Support\Facades\Cache::forget('admin_details');
+
+        $body = (string) $this->actingAs(User::find($merchant->id))
+            ->get(route('finance.index'))->getContent();
+
+        $this->assertStringNotContainsString('data-ss-theme="light"', $body,
+            'a merchant holding none of the money permissions received a finance modal surface');
+        $this->assertStringNotContainsString('maxlength="2000"', $body,
+            'a merchant holding none of the money permissions received the withdrawal modal');
+
+        $controller = (string) file_get_contents(base_path('app/Http/Controllers/StoreFinanceController.php'));
+
+        $this->assertSame(0, substr_count($controller, 'validateWithBag'),
+            'validateWithBag has landed in StoreFinanceController, which is the DEFERRED slice. '
+            . 'When it does, it must leave addBalanceApi and deductBalanceApi on plain '
+            . '->validate() and on the ApiResponser 200-with-status-0 shape, and it must pass '
+            . 'fieldIds for EVERY key in ALL THREE bags — the withdrawal bag has four.');
+
+        /* The orphaned partial must stay orphaned: it interpolates messages unescaped into a
+           single-quoted JS literal (P1-SEC-22(b)). */
+        $layout = (string) file_get_contents(base_path('resources/views/layouts/app.blade.php'));
+        $this->assertStringNotContainsString('includes.alerts', $layout,
+            'resources/views/layouts/includes/alerts.blade.php has been wired into the layout. It '
+            . 'double-reports on the four views that already render x-ss.error-summary AND it is '
+            . 'the unescaped-single-quote injection sink app.blade.php:762-767 records as fixed.');
+    }
 }

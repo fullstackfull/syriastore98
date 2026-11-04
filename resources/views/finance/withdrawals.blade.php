@@ -125,33 +125,23 @@
 
                                 @if($withdrawal->status === 'pending')
 
-                                    <span class="badge bg-warning">
-                                        {{ __('Pending') }}
-                                    </span>
+                                    <x-ss.status-badge tone="warning" :label="__('Pending')" />
 
                                 @elseif($withdrawal->status === 'approved')
 
-                                    <span class="badge bg-info">
-                                        {{ __('Approved') }}
-                                    </span>
+                                    <x-ss.status-badge tone="info" :label="__('Approved')" />
 
                                 @elseif($withdrawal->status === 'paid')
 
-                                    <span class="badge bg-success">
-                                        {{ __('Paid') }}
-                                    </span>
+                                    <x-ss.status-badge tone="success" :label="__('Paid')" />
 
                                 @elseif($withdrawal->status === 'rejected')
 
-                                    <span class="badge bg-danger">
-                                        {{ __('Rejected') }}
-                                    </span>
+                                    <x-ss.status-badge tone="danger" :label="__('Rejected')" />
 
                                 @elseif($withdrawal->status === 'cancelled')
 
-                                    <span class="badge bg-secondary">
-                                        {{ __('Cancelled') }}
-                                    </span>
+                                    <x-ss.status-badge tone="neutral" :label="__('Cancelled')" />
 
                                 @endif
 
@@ -290,12 +280,13 @@
 
                                                         <div class="mb-3">
 
-                                                            <label class="form-label">
+                                                            <label class="form-label" for="rejectAdminNote{{ $withdrawal->id }}">
                                                                 {{ __('Admin Note') }}
                                                             </label>
 
                                                             <textarea
                                                                 name="admin_note"
+                                                                id="rejectAdminNote{{ $withdrawal->id }}"
                                                                 class="form-control"
                                                                 rows="3"
                                                                 placeholder="{{ __('Reason for rejection') }}"
