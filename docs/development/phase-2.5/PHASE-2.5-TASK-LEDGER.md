@@ -498,12 +498,161 @@ Verified end to end after committing it: `render-matrix.cjs` over `/dashboard` a
 
 ---
 
+## 3e. The adversarial verification landed, and it refuted nothing new (2026-11-04)
+
+The run the previous section left "still running" has finished. **55 verified blocker/high
+findings went in; 50 came back with a repair plan and 45 of those were adversarially challenged**
+— 59 challenges in all, because five findings were challenged twice.
+
+| verdict | count |
+|---|---|
+| `ship_with_changes` | 56 |
+| `do_not_ship` | 3 |
+| plain `ship` | **0** |
+
+**Not one plan survived unamended.** That number is the most useful thing the round produced: a
+repair plan written from a correct root cause was still wrong often enough that shipping any of
+them as drafted would have been a mistake 100% of the time.
+
+### The three refusals are all STALE, and all three defend work already shipped
+
+`appbar-back-control-tiny-and-unnamed`, `field-label-not-programmatically-associated` and
+`flutter-statuspill-tint-contrast` were refused because the finding had already been repaired —
+and in each case the challenger went on to show that the *investigator's* alternative plan would
+have **regressed the shipped fix**. Each re-derived the governing mechanism from the SDK without
+access to the reasoning that produced the fix:
+
+- `preferredSize` is a **hard cap**, not a hint — `Scaffold` wraps the slot in
+  `ConstrainedBox(maxHeight:)`, so `BoxConstraints(minHeight: 48)` enforced against a 30dp cap
+  clamps the *minimum* down. The proposed `IconButton` would have measured 48 wide and 30 tall,
+  silently, passing only where a status-bar inset happens to supply the headroom.
+- `textField: true` on a wrapper over a `TextFormField` is **refused by two independent SDK
+  checks** (`hasConflictingFlags` at `semantics.dart:1640`, and `_hasExplicitRole` at
+  `:6721-6726`), so the merge the plan depended on never happens and the label lands on a phantom
+  node. The repair would have been inert.
+- Threading `required bool isDark` into `statusPill` is a **hard compile error** against the two
+  call sites in the shipped test, which would have taken down the eight measured ratios, the
+  premise test and both raster tests.
+
+So: **zero findings were refuted into non-work.** The owner's instruction that refuted findings
+must not become implementation tasks is satisfied with nothing to discard.
+
+### Five findings have no plan at all, because their investigator died
+
+`customer-grid-text-dark-dark-mode`, `finance-credit-amount-1-8-to-1`, `staff-card-grid-a11y`,
+`status-pill-contrast-and-size` and `toast-never-announced` lost their agent to a tool error
+before it could return. Of those, `status-pill-contrast-and-size` is **already repaired** (it is
+the same defect as `flutter-statuspill-tint-contrast`, shipped as A-09) and
+`customer-grid-text-dark-dark-mode` reads as **stale**, repaired by the shipped A-05 slice in CSS
+rather than in markup — which is why re-reading the Blade file still shows the original. The
+remaining three are real and still unplanned. They are tracked here rather than quietly dropped.
+
+---
+
+## 3f. Repairs shipped since the verification landed (2026-11-04)
+
+All in `StoreSyria_app98`, branch `claude/busy-edison-k0pjwa`. Every one: failing test first, the
+**amended** repair applied over the draft, bite-tested, then the full suite and the analyzer.
+`flutter test` **1472 passed / 0 failed**; `flutter analyze` **240 issues, 0 errors, 0 warnings** —
+the pre-existing baseline, below the 248 CI ratchet.
+
+| id | commit | what was actually wrong |
+|---|---|---|
+| `login-grey-text-contrast` → **A-11** | `5ca737f` | all three muted lines on the login card at **2.68:1** |
+| `flutter-nav-labels-stale-after-language-switch` → **B-11** | `13cb05a` | the five bottom-nav labels kept the language the merchant just left |
+| `three-screens-untranslated-english` → **B-12 slice one** | `6baa7fd` | 87 hard-coded English strings; **9** converted, 72 sent to the owner as copy |
+
+### Each of the three was changed materially by its challenge
+
+- **A-11** — the draft used `Theme.of(context).hintColor`, which paints the *same two values* and
+  would have passed any test, while silently coupling body prose to the channel
+  `dropdown_hint_contrast_test.dart:152-159` pins as the **dropdown hint** colour. It also
+  deferred the third identical grey to a separate row, which would have closed a row named for
+  this defect while the screen still painted it. Both corrected; the third grey is in the commit,
+  and a bite test proves the suite *specifically* catches its absence.
+- **B-11** — the draft's test plan was unimplementable three ways over. The worst was
+  self-concealing: `Get.updateLocale` trips `assert(inTest)` and then
+  `assert(schedulerPhase == idle)` in the test binding, **across an asynchronous gap**, so the two
+  switch cases "failed on the label comparison" exactly as the real defect would. Had the repair
+  landed on that test file, those cases would have begun failing on the binding instead of
+  passing. Caught by running the bite rather than trusting the red.
+- **B-12** — the draft would have converted all 87 sites and **invented 34 Arabic strings**. But
+  `'key'.tr` renders **the raw identifier** when the key is missing, so converting a site whose
+  Arabic does not exist replaces readable English with `store_loyalty_program` — worse than the
+  defect. Only sites whose key already has copy in *both* maps, and whose existing English is
+  **byte-identical** to the literal replaced, were converted.
+
+### The byte-identical clause earned its keep immediately
+
+Three candidates that looked convertible were held back by it, each measured:
+
+| literal in the view | the key's existing English | why it was NOT converted |
+|---|---|---|
+| `Created At` | `Created at` | a case change to the **English** screen |
+| `Status:` | `Status` | drops the colon from the **English** screen |
+| `Email` | `Email Address` | a different string entirely |
+
+Without that clause all three would have shipped as silent English copy changes dressed as
+translations.
+
+---
+
+## 3g. Blocked on the owner — copy, not engineering
+
+Two items are genuinely waiting on the owner, and neither is an engineering question.
+
+1. **`docs/development/phase-2.5/COPY-DECK-UNTRANSLATED-SCREENS.md`** (in the Flutter repo) — 72
+   rows of Arabic copy, each quoted **verbatim from source** with its file and line, generated
+   from the source rather than retyped. Three of its rows are decisions rather than translations:
+   the hard-coded `$1000` in the loyalty label while the API carries a bare `reward_point`; the
+   nine `Mail *:` SMTP labels on a form that writes live mail credentials, where a loose
+   translation yields a silently broken mail configuration; and `WhatsApp`, which `ar.dart:616`
+   already transliterates while the other four brand names stay Latin.
+2. **`OrderRefundController::refundDenied()`** passes **bare English literals**, unwrapped by
+   `__()` — `'Permission denied.'`, `'Refund request not found.'`, `'This refund request is
+   already being restocked.'` and the rest. These messages were **discarded entirely** before the
+   refund repair, so this is a *new* exposure created by fixing a worse one: a merchant now reads
+   an accurate refusal in English instead of seeing nothing at all. Net improvement, real gap,
+   its own row.
+
+Worth distinguishing: Laravel's `__()` falls back to **the key**, so a missing Arabic translation
+renders readable English. Flutter's `.tr` falls back to **the identifier**. The same omission is
+cosmetic on the web and a defect in the app, which is why only the Flutter half is gated on copy.
+
+---
+
+## 3h. A scheduling bug of my own, which silently discarded 11 of 13 repairs
+
+The Laravel batch was orchestrated as a two-stage pipeline: challenge-if-needed, then repair. Only
+the two groups that *had* something to challenge ever reached the repair stage. The other eleven
+reported no error and no work.
+
+The cause was mine: the pass-through branch of stage one returned a bare `null`, and the harness
+**drops an item whose stage yields `null`** and skips its remaining stages. The two groups that
+worked were exactly the two that returned a real agent instead. Fixed by returning `{ ch: null }`
+and resuming the run, so the four completed agents replayed from cache and only the dropped
+eleven ran live.
+
+It is recorded because it is the second time in this phase that a *harness* fault was reported as
+a clean completion — the first was the 12 agents lost to an oversized JSON payload. A workflow
+that returns "done" is not evidence that it did the work; the agent count is.
+
+---
+
 ## 4. Not yet started
 
-Wave B beyond the dashboard card, Wave C (remaining merchant screens), the rest of Wave D, and
-Wave E (cross-platform quality). The screen-by-screen inventory that scopes them is
+Wave C (remaining merchant screens), the rest of Wave D, and Wave E (cross-platform quality). The
+screen-by-screen inventory that scopes them is
 [`PHASE-2.5-VERIFICATION-MATRIX.md`](PHASE-2.5-VERIFICATION-MATRIX.md).
 
-The Kanban **Move** repair from `D-40` is the next item, and the adversarial verification of the
-remaining 94 inventory findings is running — **refuted findings must not become implementation
-tasks**, so no further slice is scoped from the inventory until it lands.
+**26 of the 46 outstanding repairs are Laravel and densely file-coupled** — every one of them
+shares at least one file with another, through `public/css/custom.css` and its RTL twin, the
+`resources/lang/*.json` pair, and the shared report and finance views. They are scheduled as 13
+thematic chains across **four waves, each wave verified pairwise file-disjoint** before it runs,
+because the CSS and language files are read-modify-write and two agents appending to one would
+corrupt it. The schedule is in
+`docs/development/phase-2.5/evidence/` alongside the rest of this round's evidence.
+
+Still outstanding and **not** waived: the Phase 01 release gates in
+`docs/development/phase-1/PHASE-01-CLOSURE-EXECUTION.md`, and security incident P1-SEC-40 (#120),
+which no UI work in this phase remediates.
