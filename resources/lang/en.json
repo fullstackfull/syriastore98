@@ -3334,5 +3334,7 @@
     "Generating…": "Generating…",
     "This could not be generated. Please try again.": "This could not be generated. Please try again.",
     "Your account": "Your account",
-    "Select store": "Select store"
+    "Select store": "Select store",
+    "Average order value": "Average order value",
+    "Average order value, before discounts": "Average order value, before discounts"
 }

@@ -3365,5 +3365,7 @@
     "Generating…": "جارٍ الإنشاء…",
     "This could not be generated. Please try again.": "تعذّر الإنشاء. يرجى المحاولة مرة أخرى.",
     "Your account": "حسابك",
-    "Select store": "حدد المتجر"
+    "Select store": "حدد المتجر",
+    "Average order value": "متوسط قيمة الطلب",
+    "Average order value, before discounts": "متوسط قيمة الطلب قبل الخصومات"
 }

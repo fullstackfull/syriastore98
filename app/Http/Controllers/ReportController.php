@@ -458,14 +458,28 @@ class ReportController extends Controller
         return $month;
     }
 
+    /*
+     * EVERY KEY DEFAULTS TO AN EMPTY ARRAY, and that is the whole repair here. This method read
+     * `Session::get(...)` and indexed it immediately, so on a session that had never fetched a
+     * chart -- the ordinary state of a bookmarked or deep-linked report -- `null['monthList']`
+     * raised E_WARNING, HandleExceptions turned it into an ErrorException, and a merchant admin
+     * route answered HTTP 500. No merchant admin route should.
+     *
+     * AN ARRAY, not the `''` that category_order_export used to return: the six views now test
+     * these series with `Array.isArray`, which is false for a string. And NOT a 403 and NOT a
+     * redirect carrying session('error') -- ReportAuthorizationTest defines refusal as exactly
+     * those two shapes and asserts these six exports are not refused for the owner or the
+     * operator, so a guard of that shape would flip 12 assertions. The status stays 200, the key
+     * set is unchanged, and the client decides what an empty period means.
+     */
     public function export(Request $request)
     {
-        $requests_data = Session::get('return');
-        $return['monthList'] = $requests_data['monthList'];
-        $return['userTotal'] = $requests_data['userTotal'];
-        $return['registerTotal'] = $requests_data['registerTotal'];
-        $return['guest'] = $requests_data['guestTotal'];
-        $return['newguestTotal'] = $requests_data['newguestTotal'];
+        $requests_data = Session::get('return') ?? [];
+        $return['monthList'] = $requests_data['monthList'] ?? [];
+        $return['userTotal'] = $requests_data['userTotal'] ?? [];
+        $return['registerTotal'] = $requests_data['registerTotal'] ?? [];
+        $return['guest'] = $requests_data['guestTotal'] ?? [];
+        $return['newguestTotal'] = $requests_data['newguestTotal'] ?? [];
         return response()->json($return);
     }
 
@@ -916,30 +930,30 @@ class ReportController extends Controller
     public function order_report_export(Request $request)
     {
 
-        $requests_data = Session::get('order_line_chart_report');
-        $return['monthList'] = $requests_data['monthList'];
-        $return['TotalOrderCount'] = $requests_data['TotalOrderCount'];
-        $return['NetSaleTotal'] = $requests_data['NetSaleTotal'];
-        $return['AverageNetSales'] = $requests_data['AverageNetSales'];
-        $return['GrossSaleTotal'] = $requests_data['GrossSaleTotal'];
-        $return['AverageGrossSales'] = $requests_data['AverageGrossSales'];
-        $return['PurchasedItemTotal'] = $requests_data['PurchasedItemTotal'];
-        $return['ShippingTotal'] = $requests_data['ShippingTotal'];
-        $return['CouponTotal'] = $requests_data['CouponTotal'];
+        $requests_data = Session::get('order_line_chart_report') ?? [];
+        $return['monthList'] = $requests_data['monthList'] ?? [];
+        $return['TotalOrderCount'] = $requests_data['TotalOrderCount'] ?? [];
+        $return['NetSaleTotal'] = $requests_data['NetSaleTotal'] ?? [];
+        $return['AverageNetSales'] = $requests_data['AverageNetSales'] ?? [];
+        $return['GrossSaleTotal'] = $requests_data['GrossSaleTotal'] ?? [];
+        $return['AverageGrossSales'] = $requests_data['AverageGrossSales'] ?? [];
+        $return['PurchasedItemTotal'] = $requests_data['PurchasedItemTotal'] ?? [];
+        $return['ShippingTotal'] = $requests_data['ShippingTotal'] ?? [];
+        $return['CouponTotal'] = $requests_data['CouponTotal'] ?? [];
         return response()->json($return);
     }
 
     public function order_bar_report_export(Request $request)
     {
 
-        $requests_data = Session::get('order_bar_chart_report');
-        $return['monthList'] = $requests_data['monthList'];
-        $return['NetSaleTotal'] = $requests_data['NetSaleTotal'];
-        $return['AverageNetSales'] = $requests_data['AverageNetSales'];
-        $return['GrossSaleTotal'] = $requests_data['GrossSaleTotal'];
-        $return['AverageGrossSales'] = $requests_data['AverageGrossSales'];
-        $return['ShippingTotal'] = $requests_data['ShippingTotal'];
-        $return['CouponTotal'] = $requests_data['CouponTotal'];
+        $requests_data = Session::get('order_bar_chart_report') ?? [];
+        $return['monthList'] = $requests_data['monthList'] ?? [];
+        $return['NetSaleTotal'] = $requests_data['NetSaleTotal'] ?? [];
+        $return['AverageNetSales'] = $requests_data['AverageNetSales'] ?? [];
+        $return['GrossSaleTotal'] = $requests_data['GrossSaleTotal'] ?? [];
+        $return['AverageGrossSales'] = $requests_data['AverageGrossSales'] ?? [];
+        $return['ShippingTotal'] = $requests_data['ShippingTotal'] ?? [];
+        $return['CouponTotal'] = $requests_data['CouponTotal'] ?? [];
         return response()->json($return);
     }
 
@@ -1821,10 +1835,10 @@ class ReportController extends Controller
     public function product_order_export(Request $request)
     {
 
-        $requests_data = Session::get('product_order_report');
-        $return['monthList'] = $requests_data['monthList'];
-        $return['NetSaleTotal'] = $requests_data['NetSaleTotal'];
-        $return['PurchasedItemTotal'] = $requests_data['PurchasedItemTotal'];
+        $requests_data = Session::get('product_order_report') ?? [];
+        $return['monthList'] = $requests_data['monthList'] ?? [];
+        $return['NetSaleTotal'] = $requests_data['NetSaleTotal'] ?? [];
+        $return['PurchasedItemTotal'] = $requests_data['PurchasedItemTotal'] ?? [];
         return response()->json($return);
     }
 
@@ -2274,9 +2288,9 @@ class ReportController extends Controller
 
     public function category_order_export(Request $request)
     {
-        $requests_data = Session::get('category_order_report');
-        $return['monthList'] = $requests_data['monthList'] ?? '';
-        $return['NetSaleTotal'] = $requests_data['NetSaleTotal'] ?? '';
+        $requests_data = Session::get('category_order_report') ?? [];
+        $return['monthList'] = $requests_data['monthList'] ?? [];
+        $return['NetSaleTotal'] = $requests_data['NetSaleTotal'] ?? [];
         return response()->json($return);
     }
 
@@ -2731,10 +2745,10 @@ class ReportController extends Controller
 
     public function brand_order_export(Request $request)
     {
-        $requests_data = Session::get('brand_order_report');
+        $requests_data = Session::get('brand_order_report') ?? [];
         $return = [
-            'monthList' => $requests_data['monthList'],
-            'NetSaleTotal' => $requests_data['NetSaleTotal']
+            'monthList' => $requests_data['monthList'] ?? [],
+            'NetSaleTotal' => $requests_data['NetSaleTotal'] ?? []
         ];
         return response()->json($return);
     }
