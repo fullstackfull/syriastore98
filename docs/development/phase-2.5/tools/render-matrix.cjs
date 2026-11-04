@@ -109,8 +109,15 @@ function setState(theme, dir, lang) {
         await page.screenshot({ path: path.join(OUT, key + '.png'), fullPage: false }).catch(() => {});
       }
 
+      // REQUESTED AND OBSERVED ARE SEPARATE FIELDS. This read `{...combo, dir: state.htmlDir}`,
+      // where the spread supplies combo.dir and the next key OVERWRITES it with the observed
+      // direction -- so the table's `dir` and `docdir` columns printed the same value while
+      // appearing to compare what was asked for against what came back. The premise check above
+      // was unaffected (it reads combo.dir directly), but the human-readable evidence was not
+      // showing what it claimed to show.
       rows.push({
-        path: p, ...combo, status,
+        path: p, lang: combo.lang, theme: combo.theme, status,
+        wantDir: combo.dir,
         dir: state.htmlDir, ssTheme: state.ssTheme,
         sheet: (state.mainStyle || '').split('/').pop(),
         title: (state.title || '').trim().slice(0, 48),
@@ -124,20 +131,28 @@ function setState(theme, dir, lang) {
 
   await browser.close();
 
+  // THE EVIDENCE IS WRITTEN BEFORE IT IS FORMATTED. This file used to be written after the print
+  // loop, so a formatting error destroyed a completed run: 72 screenshots survived and the JSON
+  // did not, because `r.dir.padEnd()` threw on a page that exposes no dir attribute. A tool whose
+  // only job is to record what happened must not be able to lose the record while printing it.
+  fs.writeFileSync(path.join(OUT, 'render-matrix.json'), JSON.stringify(rows, null, 1));
+
   let bad = 0;
-  console.log('\npath                 lang dir  theme  HTTP  docdir ss-theme  premise  title');
+  console.log('\npath                 lang want obs  theme  HTTP  ss-theme  premise  title');
   console.log('-'.repeat(108));
   for (const r of rows) {
     const flag = r.premiseFail.length ? 'PREMISE-FAIL' : (r.status === 200 ? 'ok' : 'HTTP ' + r.status);
     if (r.premiseFail.length || r.status !== 200) bad++;
+    // Every cell goes through pad(), which stringifies first: a null `dir` is a READING (the page
+    // exposed no dir attribute), not a reason to lose the whole report.
+    const pad = (v, n) => String(v === null || v === undefined ? '-' : v).padEnd(n);
     console.log(
-      `${r.path.padEnd(20)} ${r.lang.padEnd(4)} ${r.dir.padEnd(4)} ${r.theme.padEnd(6)} ${String(r.status).padEnd(5)} ` +
-      `${String(r.dir).padEnd(6)} ${String(r.ssTheme).padEnd(9)} ${flag.padEnd(12)} ${r.title}`
+      `${pad(r.path, 20)} ${pad(r.lang, 4)} ${pad(r.wantDir, 4)} ${pad(r.dir, 4)} ${pad(r.theme, 6)} ` +
+      `${pad(r.status, 5)} ${pad(r.ssTheme, 9)} ${pad(flag, 12)} ${r.title}`
     );
     if (r.premiseFail.length) console.log(`${' '.repeat(22)}-> ${r.premiseFail.join('; ')}`);
     if (r.consoleErrors.length) console.log(`${' '.repeat(22)}console: ${r.consoleErrors.join(' | ')}`);
   }
-  fs.writeFileSync(path.join(OUT, 'render-matrix.json'), JSON.stringify(rows, null, 1));
   console.log(`\n${rows.length} rows, ${bad} not clean. screenshots+json in ${OUT}`);
   process.exit(bad ? 1 : 0);
 })();

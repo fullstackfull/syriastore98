@@ -974,6 +974,70 @@ refusing posts that succeed today — a business-rule change wearing a repair's 
 
 ---
 
+## 3m. Ledger-to-git reconciliation (2026-11-04)
+
+Owner priority: *"Reconcile the task ledger with the latest commits, including the withdrawal
+translations and validation-error fixes."*
+
+**The gap this closes.** Sections 3e-3l describe the work narratively and §3k tables the thirteen
+wave commits by sha, but the FIRST batch of fifteen was recorded in prose only. Measured: of the
+34 commits on this branch since `d7fbbefe`, **18 carried no sha anywhere in this ledger**, so no
+one could check the ledger against git mechanically. The index below is the whole range, in commit
+order, and it is generated from the commit bodies rather than retyped — the `findings` column is
+each commit's own `Findings:` trailer where it has one, and fifteen of them do.
+
+| # | commit | findings / purpose | subject |
+|---|---|---|---|
+| 1 | `b7b4b120` | *(see subject)* | Phase 2.5 ledger: the verification as it actually landed, and two blocked items |
+| 2 | `fdd0a35e` | *(see subject)* | P2.5: release the dashboard's blocking overlay when a sales-tab fetch fails |
+| 3 | `99da4408` | *(see subject)* | P2.5: the read-only product view was never read-only, and its lock broke the sidebar |
+| 4 | `ac1fe882` | *(see subject)* | P2.5: refund refusals were silent, and its four actions were indistinguishable |
+| 5 | `4c37f008` | *(see subject)* | P2.5: act on the authorization review — two wrong comments and three new rows |
+| 6 | `2aea9559` | *(see subject)* | P2.5: the cart and wishlist glyphs were pinned white by a global SVG rule |
+| 7 | `54060d8e` | *(see subject)* | P2.5: the customer export deleted a column then failed from a dead CDN |
+| 8 | `c6b7b5c3` | *(see subject)* | P2.5: the product Save button could be fired twice and create two products |
+| 9 | `ed06d292` | *(see subject)* | P2.5: the order note labels pointed at nothing and two selects had no name |
+| 10 | `f2132cb0` | *(see subject)* | P2.5: the product grid's stock badges were unreadable, one of them on both themes |
+| 11 | `d5b4f667` | *(see subject)* | P2.5: the product-question status badge was white on the merchant's own theme colour |
+| 12 | `3b764f20` | *(see subject)* | P2.5: the refund status badges were all below AA, and the column was not searchable |
+| 13 | `c79dec10` | *(see subject)* | P2.5: nine dashboard status chips all linked to the same unfiltered order list |
+| 14 | `c83f8e46` | *(see subject)* | P2.5: admin error toasts destroyed themselves after 4 seconds |
+| 15 | `17e4e385` | *(see subject)* | P2.5: every variant field in the three combination partials was unnamed |
+| 16 | `5512539f` | *(see subject)* | Correct my own commit message on the customer export, and surface the decision in it |
+| 17 | `fea4a7d1` | finance-controls-have-no-labels, finance-status-badges-below-aa, finance-validation-failure-is-silent | P2.5: the finance screens' labels named nothing, two pills were below AA, and the money modals refused input silently |
+| 18 | `5d34cf9f` | header-icononly-name-lost-by-tooltip, header-triggers-nameless-below-992 | P2.5: three header icons announced "link", and both dropdown triggers lost their name on a phone |
+| 19 | `a0a9b509` | primary-action-named-only-by-title | P2.5: the primary action on seven list screens was named only by its tooltip |
+| 20 | `59c030d9` | offcanvas-sidebar-stays-focusable, shell-skip-link-after-chrome | P2.5: the collapsed sidebar kept its links in the tab order, and the skip link landed under the fixed chrome |
+| 21 | `811fab96` | validation-errors-lose-the-modal (partial) | P2.5: a refused category named only the first failing field (PARTIAL -- 18 of 20 sites remain) |
+| 22 | `c18e752b` | reports-csv-header-untranslated, reports-export-anchor-as-button, reports-export-no-failure-feedback | P2.5: the report exports shipped English CSV headers, an anchor pretending to be a button, and no failure path |
+| 23 | `6ea2a800` | area-wide-no-withinput-witherrors, settings-no-error-or-loading-state, settings-tabs-not-keyboard-reachable | P2.5: a refused profile lost everything typed, the settings tabs were unreachable by keyboard, and a failed tab fetch said nothing |
+| 24 | `ecbf0cf8` | catalogue-unassociated-labels, switch-no-accessible-name, upload-not-keyboard-reachable | P2.5: every field caption in the catalogue and marketing modals named nothing, the switches had no name, and the uploads were mouse-only |
+| 25 | `14d6b2a9` | ds-switch-knob-dark-16 | P2.5: the design-system switch knob was 2.09:1 against its own ON track in dark mode |
+| 26 | `9b993c14` | gallery-image-actions-unnamed | P2.5: the product gallery's delete and download controls had no accessible name |
+| 27 | `7c7daa3f` | grid-card-icons-black, grid-row-actions-unnamed, grid-status-icon-colour-only | P2.5: the order grid's card icons were near-black in dark mode, its row actions were unnamed, and its status was colour-only |
+| 28 | `daf375da` | kanban-unbounded-render | P2.5: the order board fetched every matching order and drew a card for each |
+| 29 | `8c349c04` | timeline-white-box-dark-mode | P2.5: the customer activity timeline stayed a white card in the dark admin |
+| 30 | `432c7498` | *(see subject)* | P2.5: record the four waves, the review's refuted concern, and five rows that did not ship |
+| 31 | `3ec1bb62` | *(see subject)* | P2.5: the owner's seven-item report, in Arabic, with the gate result it was waiting on |
+| 32 | `fc25f3b0` | withdrawal-native-confirm (translation half; conversion half escalated) | P2.5: the two confirmation dialogs on the withdrawals money screen were English in Arabic |
+| 33 | `eb4cc19e` | validation-errors-lose-the-modal (the 18 real sites; the earlier partial covered only the two inert CategoryController ones) | P2.5: a refused catalogue form named one failing field and threw the rest away |
+| 34 | `59fb2f58` | *(see subject)* | P2.5: record the last two repairs, the Arabic ratchet's blind spot, and four new rows |
+
+**What the reconciliation found, beyond the missing shas:**
+
+- Every repair commit is accounted for and none describes work that is not in the tree. The two
+  commits whose subject says PARTIAL (`811fab96`) or escalated (`fc25f3b0`) are the two that really
+  are partial, and both are listed as still open in §3k and §3l respectively.
+- `5512539f` is a correction to an earlier commit *message*, not a repair, and is labelled as such
+  here so it is not counted as a thirty-fifth repair.
+- Four commits are documentation (`b7b4b120`, `432c7498`, `3ec1bb62`, `59fb2f58`); the rest change
+  code or tests.
+- §4 of this ledger described the 26 wave repairs as *scheduled* long after they had landed. That
+  was corrected when §3k was written, and this index is what makes the same staleness visible next
+  time: a row with no commit is unfinished work, and a commit with no row is an unrecorded change.
+
+---
+
 ## 4. Not yet started
 
 Wave C (remaining merchant screens), the rest of Wave D, and Wave E (cross-platform quality). The
