@@ -464,24 +464,43 @@
         })();
     </script>
 
-    @include('partision.sidebar')
-
-    @include('partision.header')
-
     {{--
         WS A7 / B6 -- THE SKIP LINK, and it is the first focusable element on every merchant
         screen. `.ss-skip-link` has existed in the design system since the beginning
-        (public/css/store-syria-ds.css:1462, commented "first focusable element on a page,
+        (public/css/store-syria-ds.css:1585, commented "first focusable element on a page,
         invisible until focused") and was rendered by NOTHING -- a repo-wide search for call sites
         found zero. So a keyboard user reached the main content only by tabbing through the whole
         sidebar, on all ~150 merchant screens.
 
-        It goes here, immediately before the content container, because that is where it has to be
-        in the tab order: after nothing. `#ss-main` carries `tabindex="-1"` so the browser moves
-        focus there rather than only scrolling, which is the half of a skip link that is usually
-        missed.
+        IT GOES HERE, BEFORE BOTH CHROME INCLUDES, and the first version of this got it wrong: it
+        sat below them, which is why it had to be MOVED rather than merely written. There is no
+        positive `tabindex` in this layout or in the sidebar, header and workspace-chip partials, so
+        tab order IS dom order -- a link emitted after the two includes is reached only after the
+        brand link, the workspace chip, the sidebar search, the rail toggle, every
+        entitlement-gated anchor from `getMenu()` and the header's 25 focusables. It skipped
+        nothing.
+
+        BUT NOT FIRST CHILD OF <body>: the two inline scripts above must stay first-in-body, and
+        for a reason stated at each of them -- the rail-restore runs before paint so the sidebar
+        does not snap, and the on-brand label colour is read off this BODY element. Neither is
+        focusable, so neither costs a Tab stop. "Before the chrome" is the requirement; "first
+        child" is not.
+
+        AND IT HAD TO BE PAINTED IN FRONT, which is the half a markup move alone would have got
+        wrong. `.ss-skip-link` is absolute in the root stacking context and the chrome is fixed at
+        z-index 1026 in the same context, so at the old `--ss-z-sticky` (1020) the first Tab would
+        have focused an element behind an opaque #1c232f panel -- no visible focus indicator at all,
+        in either direction, since `inset-inline-start` mirrors exactly as the fixed sidebar does.
+        `--ss-z-skip-link` (store-syria-ds.css) is the token that clears it.
+
+        `#ss-main` carries `tabindex="-1"` so the browser moves focus there rather than only
+        scrolling, which is the half of a skip link that is usually missed.
     --}}
     <a class="ss-skip-link" href="#ss-main">{{ __('Skip to main content') }}</a>
+
+    @include('partision.sidebar')
+
+    @include('partision.header')
 
     <!-- [ Main Content ] start -->
     <div class="dash-container">

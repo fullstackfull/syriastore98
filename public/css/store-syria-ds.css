@@ -374,6 +374,14 @@
 
     --ss-z-dropdown: 1000;
     --ss-z-sticky:   1020;
+    /* The skip link is absolute in the ROOT stacking context and the host chrome is fixed in the
+       same context: `.dash-sidebar` and `.dash-mob-header` at 1026, `.dash-header` at 1025. So the
+       skip link needs its own value above the chrome -- it cannot ride on --ss-z-sticky, whose
+       other consumer is `.ss-actionbar`, and raising that token would float the sticky action bar
+       over dropdowns and the modal backdrop. 1030 clears the chrome and stays BELOW the backdrops
+       (1040, and the command palette's calc(dialog - 1) = 1049), so every overlay relationship is
+       exactly what it was. */
+    --ss-z-skip-link: 1030;
     --ss-z-backdrop: 1040;
     --ss-z-dialog:   1050;
 }
@@ -1586,7 +1594,7 @@
     position: absolute;
     inset-inline-start: var(--ss-space-4);
     inset-block-start: -100px;
-    z-index: var(--ss-z-sticky);
+    z-index: var(--ss-z-skip-link);
     padding: var(--ss-space-3) var(--ss-space-4);
     background: var(--ss-surface);
     color: var(--ss-link);
