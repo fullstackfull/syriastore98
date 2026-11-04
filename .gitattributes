@@ -11,6 +11,13 @@
 # one thing in this repository that should not be normalised on our way past it.
 public/fonts/store-syria/OFL.txt -text
 
+# P2.5-DESIGN-B. The brand artwork, for the same reason the licence above carries `-text`:
+# `* text=auto eol=lf` decides binary-ness by heuristic, and these are the product's identity --
+# a single misdetected file is a corrupted logo on every screen. VERIFIED before pinning it, so
+# this is belt-and-braces rather than a repair: every file's byte size in the index already
+# matched its size on disk, so `text=auto` had classified all six correctly.
+public/assets/images/brand/** -text
+
 /.github export-ignore
 CHANGELOG.md export-ignore
 .styleci.yml export-ignore

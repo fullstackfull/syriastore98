@@ -248,3 +248,83 @@ Everything under `D-39` stands: `RELEASE READY` **NO**, `DEPLOYED` **NO**, #120
 **OWNER-DEFERRED / OPEN**, P1-SEC-43 **OPEN and DEPLOYMENT-BLOCKING**, Paytm **DISABLED**, no merge
 to `main`. Phase 2.5 is **not** complete, and D-42.5 means the human checklist on #130 stays
 unacknowledged until a person reviews it.
+
+---
+
+## Findings raised while executing D-42 and the Premium Design packages — for the owner
+
+Recorded 2026-11-04. **None of these is fixed**; each is either outside an authorisation or needs a
+decision. They are listed so they are tracked rather than mentioned once in a commit message.
+
+### F-D42-1 — the unselected operator loses the finance dashboard, and lands on a page that 500s
+
+D-42.7 refuses `StoreFinanceController::index()` for an operator who has chosen no merchant, because
+the handler lazily `StoreWallet::create()`s for the fallback tenant and "must not create a wallet"
+is the decision's first clause. Everything else in that handler is a **read**. The refusal redirects
+to `dashboard`, which **answers 500** for that principal (`HomeController:224` writes undeclared
+`users.total_user` / `total_orders` / `total_plan`) — measured, and asserted in the test so the
+reading is recorded rather than assumed.
+
+A narrower option exists and was **not** taken: skip the lazy create and render the read from an
+unsaved `StoreWallet`. That is a larger change than the decision authorises. **Owner call.**
+
+### F-D42-2 — `StoreFinanceController::withdrawals()` still serves store 1's payout details
+
+The one remaining handler in that file whose tenant comes from the fallback. It is a **read**, so it
+sits outside decision 7's enumerated write paths and was deliberately left alone — but what it reads
+is another merchant's withdrawal rows including `payment_details`, which is free text that holds
+bank and IBAN data. Pinned as a deliberate exclusion in the test rather than left silent.
+
+### F-D42-3 — `CurrencyRateController::update` is reachable on the same fallback
+
+`app/Http/Controllers/CurrencyRateController.php:29-31` scopes on `getCurrentStore()`, and its
+permission check (`StoreSettingsAccess::permits`) admits the operator. So an operator who has chosen
+no merchant can rewrite **store 1's FX rate**, which is the multiplier every later conversion uses.
+Not one of the money tables, so outside D-42.7's scope; money-adjacent rather than a money write.
+
+### F-D42-4 — `OrderController::order_payment_status` credits a wallet with no store selection
+
+`OrderController:1831-1849` → `OrderPolicy::updatePaymentStatus` → the platform-admin limb returns
+true before any store test → `OrderObserver` → `OrderFinancialService::markFinancialAsPaid` writes
+`store_wallets`, `store_wallet_transactions` and `store_order_financials` for **the order's** store.
+A different shape from D-42.7: the tenant comes from the order the caller names, not from the store-1
+fallback, so it is outside *"merely because `getCurrentStore()` falls back"*. The surface is not
+closed by that decision. **Owner call.**
+
+### F-DESIGN-1 — eight views still fetch a font from Google at runtime
+
+P2.5-TYPE removed the runtime Google `@import` from the four admin sheets and reported *"external
+Google font requests: NONE"*. **That was measured on the admin screens only and I did not state the
+scope.** `layouts/guest.blade.php` (bunny.net) is fixed in P2.5-DESIGN-B; eight remain, listed with
+their phases in `docs/design-system/TYPOGRAPHY-DECISION.md`. One of them is Phase 02 scope:
+`order/shippinglabel.blade.php`, which a merchant prints.
+
+### F-DESIGN-2 — the login page's language and theme follow the PLATFORM, not the visitor
+
+`layouts/guest.blade.php` reads `getSuperAdminAllSetting()`, so a Syrian merchant sees whatever
+language and theme the platform operator set until they use the page's own switcher. It is WorkDo's
+design and no defect was introduced, but it means the default first impression for an Arabic
+merchant is an English page. **Owner call**, since changing it is a behaviour change.
+
+It also invalidated a measurement of mine: my first login capture used
+`set-admin-preview-state.php`, which writes the **merchant's** row, and so produced the same English
+light page four times while reporting four combinations. Corrected by driving
+`/change-languages/<code>` and the super admin's `cust_darklayout`.
+
+### F-DESIGN-3 — `CLAUDE.md` §3's test counts are badly stale
+
+It says the Unit suite is 339 tests; measured today it is **1079**. It says Contract is 26;
+measured **27**. §3 does warn that counts drift, but 339 → 1079 is not drift.
+
+### F-DESIGN-4 — no workflow linter anywhere in CI
+
+Nothing under `.github/` runs `actionlint`, `yamllint` or `bash -n`, so a YAML or shell error in a
+workflow is discovered only when the job runs. The only pre-run checks available are a YAML parse
+(which `tests/Unit/Ci/RequiredGateWiringTest` does) and `bash -n`, both of which were run by hand
+for the D-42.1 change. Worth a small hardening slice.
+
+### F-DESIGN-5 — nothing in the suite asserts on the regression gate's step body
+
+`tests/` contains no reference to `"Run the Feature suite"`, `base-junit` or `/tmp/base`. The gate's
+own breakage was therefore invisible to the suite, and a regression of the repair would be too.
+

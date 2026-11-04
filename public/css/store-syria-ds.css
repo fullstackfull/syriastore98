@@ -30,6 +30,41 @@
    was the whole reason for the original opt-in, and still matters: no selector
    here can match an element outside the design system. Every subject is an
    `.ss-` class, except `
+:root`, the two `[data-ss-theme=...]` blocks (custom
+   properties only), the keyframes, and `.ss-sort-list .ui-sortable-placeholder`
+   at :833 — whose subject is jQuery UI's class but which is descendant-scoped
+   under `.ss-sort-list` and so cannot fire outside a DS sort list. Nothing in
+   the application uses an `.ss-` class. The enumeration is spelled out in the
+   comment at layouts/app.blade.php where the link lives.
+
+   KEEP IT TRUE. The standing rule — never style a bare element selector — is
+   what makes global loading safe. It is no longer a style preference.
+
+   NAMING
+   Every custom property is `--ss-*` and every class is `.ss-*`. Nothing here
+   can collide with Bootstrap, custom.css, rtl-custom.css or custom-color.css.
+   This stylesheet never styles a bare element selector, so adding the <link>
+   to a page cannot restyle existing markup — only elements that explicitly
+   carry an `ss-` class are affected.
+
+   RTL
+   There is no `-rtl` counterpart to this file and there must never be one.
+   Every directional rule uses CSS logical properties (margin-inline-*,
+   padding-inline-*, border-inline-*, inset-inline-*, text-align: start/end),
+   so the same bytes lay out correctly under `dir="rtl"` and `dir="ltr"`.
+   The existing 84 KB custom.css / rtl-custom.css mirrored pair is the pattern
+   this replaces going forward; it is left untouched.
+
+   COLOR
+   The brand ramp is built on the merchant's own logo (the bag/cart "S" mark,
+   a 168-197° teal-green gradient whose median hue is 177°): the ramp sits at
+   218.5°/190.8°, the two anchors measured in that gradient. No new brand
+   identity is introduced here and the logo itself is untouched.
+   Every foreground/background pair used by these components is verified
+   against WCAG 2.1 AA by tooling; see the acceptance report.
+
+   ========================================================================== */
+
 /* ================================================================================================
    P2.5-TYPE. THE TYPEFACE, SELF-HOSTED.  (owner decision: premium typography, 2026-11-04)
    ------------------------------------------------------------------------------------------------
@@ -155,41 +190,6 @@
                    U+08E3-08FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF,
                    U+FE70-FEFF;
 }
-
-:root`, the two `[data-ss-theme=...]` blocks (custom
-   properties only), the keyframes, and `.ss-sort-list .ui-sortable-placeholder`
-   at :833 — whose subject is jQuery UI's class but which is descendant-scoped
-   under `.ss-sort-list` and so cannot fire outside a DS sort list. Nothing in
-   the application uses an `.ss-` class. The enumeration is spelled out in the
-   comment at layouts/app.blade.php where the link lives.
-
-   KEEP IT TRUE. The standing rule — never style a bare element selector — is
-   what makes global loading safe. It is no longer a style preference.
-
-   NAMING
-   Every custom property is `--ss-*` and every class is `.ss-*`. Nothing here
-   can collide with Bootstrap, custom.css, rtl-custom.css or custom-color.css.
-   This stylesheet never styles a bare element selector, so adding the <link>
-   to a page cannot restyle existing markup — only elements that explicitly
-   carry an `ss-` class are affected.
-
-   RTL
-   There is no `-rtl` counterpart to this file and there must never be one.
-   Every directional rule uses CSS logical properties (margin-inline-*,
-   padding-inline-*, border-inline-*, inset-inline-*, text-align: start/end),
-   so the same bytes lay out correctly under `dir="rtl"` and `dir="ltr"`.
-   The existing 84 KB custom.css / rtl-custom.css mirrored pair is the pattern
-   this replaces going forward; it is left untouched.
-
-   COLOR
-   The brand ramp is built on the merchant's own logo (the bag/cart "S" mark,
-   a 168-197° teal-green gradient whose median hue is 177°): the ramp sits at
-   218.5°/190.8°, the two anchors measured in that gradient. No new brand
-   identity is introduced here and the logo itself is untouched.
-   Every foreground/background pair used by these components is verified
-   against WCAG 2.1 AA by tooling; see the acceptance report.
-
-   ========================================================================== */
 
 /* --------------------------------------------------------------------------
    LAYER 1 — PRIMITIVES
@@ -1713,7 +1713,14 @@
 /* ---- Utilities ---- */
 
 /* Visually hidden but available to screen readers — used for table captions,
-   live-region status text and icon-only button labels. */
+   live-region status text and icon-only button labels.
+
+   IT NEEDS A POSITIONED ANCESTOR INSIDE ANY SCROLL CONTAINER IT SITS IN. `position: absolute`
+   with `auto` offsets resolves against the nearest POSITIONED ancestor, and an absolutely
+   positioned box is not clipped by an ancestor's `overflow` unless that ancestor is its containing
+   block. On the order board that let 57 of these escape a horizontally scrolling region and widen
+   the whole document by 295px -- `.ss-board__col` now carries `position: relative` for exactly
+   that reason. Any new scrolling component holding one of these needs the same. */
 .ss-visually-hidden {
     position: absolute !important;
     width: 1px; height: 1px;
@@ -2417,7 +2424,33 @@
    constraint above has nothing to resolve against. */
 .ss-board-wrap { min-width: 0; max-width: 100%; overflow: hidden; }
 
+/* P2.5-DESIGN-B. `position: relative` HERE IS WHAT STOPS THE WHOLE PAGE SCROLLING SIDEWAYS, and
+   the cause is not the one it looks like.
+   MEASURED on /order-kanban at a 1440px viewport, in BOTH directions (it is not an RTL defect,
+   although the Arabic screenshot is where it was first seen -- the page sat scrolled right, the
+   sidebar was off-screen and every heading was clipped):
+
+       document scrollWidth 1735 against a 1440 viewport      -- +295px
+       .ss-board        rect 1145, clientWidth 1145, scrollWidth 2008, overflow-x auto
+                        -> the board itself scrolls correctly and clips its own columns
+       .dash-container  clientWidth 1185, scrollWidth 1480     -- the overflow starts HERE
+       hiding .ss-board              -> 1480 drops to 1185
+       hiding .ss-board__card-move   -> 1480 drops to 1185
+       hiding .ss-select inside it   -> no change
+
+   The escapee is the move control's VISUALLY HIDDEN LABEL. `.ss-visually-hidden` is
+   `position: absolute` with `auto` offsets, so it sits at its static position relative to the
+   nearest POSITIONED ancestor -- and the board, the columns and the cards were all
+   `position: static`, so its offsetParent was `.dash-container`, outside the scroll container.
+   An absolutely positioned box is not clipped by an ancestor's `overflow` unless that ancestor is
+   its containing block. 57 such labels; the furthest had a right edge at 1735px, which IS the
+   document width.
+
+   `contain: paint` on `.ss-board` also fixes it and was rejected: it would clip focus rings and
+   any deliberate overflow with it. A positioning context costs nothing and is what the box
+   actually needed. Driven by tests/Feature/DesignSystem/KanbanDoesNotOverflowTest. */
 .ss-board__col {
+    position: relative;
     display: flex;
     flex-direction: column;
     gap: var(--ss-space-2);
@@ -2744,6 +2777,115 @@
        saw it; the checker verifies tokens against DS surfaces.
        grey-600 measures 5.65:1 on #f8f9fd and 5.94:1 on white. */
     color: var(--ss-fg-muted);
+}
+
+/* ---- Brand block (P2.5-DESIGN-B) ----
+   The top of the sidebar, on every screen, in both themes.
+
+   WHAT IT REPLACES. The markup asked for `/storage/uploads/logo/logo-dark.png`, which does not
+   exist and answered 404 -- MEASURED on four screens, the <img> reporting naturalWidth 0 and a
+   0x0 box. The first 75px of the sidebar was empty on every page. A store that has never uploaded
+   a logo is the normal state of a new tenant, so this was the default experience and not an edge
+   case.
+
+   WHY TWO LOCKUPS IN THE MARKUP AND A CSS SWAP, rather than one chosen in Blade: `data-ss-theme`
+   is also set CLIENT-SIDE by store-syria-ds.js when the merchant toggles the theme, so a
+   server-rendered choice would be stale until the next page load. Both are emitted, each ~10 KB,
+   and `content-visibility` is not used because the hidden one must still be decoded instantly on
+   a toggle.
+
+   THE MARK IS A SEPARATE FILE rather than the lockup scaled down. A 280px-wide lockup rendered at
+   40px is an unreadable smear; the collapsed rail gets the bag/cart "S" alone, which is what the
+   mark is for.
+
+   A MERCHANT'S OWN UPLOAD IS UNTOUCHED by all of this -- it renders as the single `.logo-lg` it
+   always did, and the host sheet's `.minimenu .m-header .logo-lg { display: none }` still hides it
+   in the rail. There is no small version of a tenant's logo to show there, and inventing one by
+   scaling would be worse than the gap. */
+.ss-brandmark {
+    display: flex;
+    align-items: center;
+    gap: var(--ss-space-3);
+    min-block-size: 44px;          /* the 44x44 target floor, met by the link itself */
+    border-radius: var(--ss-radius-md);
+}
+
+/* The focus ring the host sheet never gave the first control in the tab order. */
+.ss-brandmark:focus-visible {
+    outline: var(--ss-focus-width) solid var(--ss-focus-ring);
+    outline-offset: var(--ss-focus-offset);
+}
+
+/* TWO HOST RULES HAD TO BE BEATEN, AND THEY NEEDED DIFFERENT ANSWERS. Measured on the login
+   page, where the lockup first rendered in a 61x20 box:
+
+     custom.css:629  `.brand_icon { width: 100% !important }`   -- only `!important` outranks
+                      `!important`, whatever the specificity, so `inline-size` carries one.
+     custom.css:722  `.navbar-brand img { height: 20px }`       -- (0,1,1), which simply outranks
+                      a bare `.ss-brandmark__lockup` at (0,1,0). The parent class makes this rule
+                      (0,2,0) and no `!important` is needed. Specificity, not force, wherever
+                      force is avoidable.
+
+   The 28px step on narrow screens is the host's own idea, kept: `custom.css:1026` drops the brand
+   to 15px under 576px. 15px is too small for a lockup with a tagline in it -- the tagline becomes
+   a grey smear -- so the mark-only treatment would be better there, which is a later slice. */
+.ss-brandmark .ss-brandmark__lockup {
+    block-size: 38px;
+}
+
+@media (max-width: 575.98px) {
+    .ss-brandmark .ss-brandmark__lockup {
+        block-size: 28px;
+    }
+}
+
+.ss-brandmark__lockup {
+    inline-size: auto !important;
+    block-size: 38px;
+    max-inline-size: 100%;
+    object-fit: contain;
+    object-position: left center;
+}
+
+[dir="rtl"] .ss-brandmark__lockup {
+    object-position: right center;
+}
+
+/* THE THEME SWAP. Default is the light artwork; the dark variant appears only under an explicit
+   dark theme, which is how every other component in this file is written -- see the DARK MODE
+   section's note on why `prefers-color-scheme` alone is not the signal here. */
+.ss-brandmark__lockup--dark,
+.ss-brandmark__mark {
+    display: none;
+}
+
+[data-ss-theme="dark"] .ss-brandmark__lockup--light {
+    display: none;
+}
+
+[data-ss-theme="dark"] .ss-brandmark__lockup--dark {
+    display: inline-block;
+}
+
+/* THE COLLAPSED RAIL. `body.minimenu` is the host's own class (public/assets/js/dash.js:87), not a
+   new one, and this file loads after the host sheet so these win without !important. */
+.minimenu .ss-brandmark {
+    justify-content: center;
+}
+
+/* This one declaration hides BOTH lockups in the rail. It is the same specificity (0,2,0) as the
+   dark-theme swap above and comes after it, so it wins without a second selector -- and the
+   obvious-looking `.minimenu [data-ss-theme="dark"]` would be DEAD anyway: `data-ss-theme` is on
+   <html> (layouts/app.blade.php:86) and `minimenu` is on <body>, so html can never be a
+   descendant of body. */
+.minimenu .ss-brandmark__lockup {
+    display: none;
+}
+
+.minimenu .ss-brandmark__mark {
+    display: inline-block;
+    inline-size: auto;
+    block-size: 34px;
 }
 
 /* ---- Bar chart (P2-02-8) ----

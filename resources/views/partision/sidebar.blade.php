@@ -2,6 +2,55 @@
 $logo = asset(Storage::url('uploads/logo/'));
 $company_logo = \App\Models\Utility::GetLogo();
 $company_logo = get_file($company_logo);
+
+/* P2.5-DESIGN-B. THE BRAND BLOCK RENDERED NOTHING, AND IT IS THE FIRST THING ON EVERY SCREEN.
+   -------------------------------------------------------------------------------------------
+   MEASURED on the running admin, on all four screens probed: the <img> resolved to
+   `/storage/uploads/logo/logo-dark.png`, which answered 404, and the element reported
+   naturalWidth 0, naturalHeight 0 and a 0x0 box. So the top of the sidebar was ~75px of nothing
+   on every page, in both themes -- not a faint logo, no logo.
+
+   Three separate defects sat in one line of markup:
+
+     1. THE FALLBACK FILE DOES NOT EXIST. `Utility::GetLogo()` reads the merchant's `logo_dark` /
+        `logo_light` SETTING, and a store that has never uploaded one gets a path to a file that
+        was never shipped. That is the normal state of a new tenant.
+     2. `?timestamp=' . time()` ON EVERY REQUEST. A fresh query string each page load means the
+        browser can never reuse the logo -- the one image that appears on every screen was the one
+        guaranteed to be re-fetched. The merchant's own upload still needs busting when it changes,
+        so it keeps a cache key, but one derived from the FILE rather than from the clock.
+     3. `alt=""` ON THE ONLY CONTENT OF A LINK. An image-only link with an empty alt has no
+        accessible name at all, so the first control in the tab order announced as nothing. The
+        link is named here and the images stay decorative, which is the correct pairing -- naming
+        both would announce it twice.
+
+   THE FALLBACK IS THE REAL STORE SYRIA LOCKUP, from docs/design-system/brand (owner decision
+   D-41: "the actual blue/cyan logo identity"). Light and dark variants are both emitted and CSS
+   picks one, rather than Blade picking from `$setting['cust_darklayout']`: the theme can also be
+   switched client-side by store-syria-ds.js, and a server-rendered choice would be stale until
+   the next page load. The collapsed rail shows the mark alone -- see .ss-brandmark in
+   store-syria-ds.css. */
+/* "HAS THE MERCHANT UPLOADED A LOGO" IS NOT "IS THE SETTING NON-EMPTY", and the first draft of
+   this block got that wrong -- it tested `! empty($company_logo)` and still rendered the 404.
+   `get_file()` returns `url($path)` for local storage with NO existence check, so a store whose
+   `logo_dark` setting names a file that was never uploaded gets a perfectly well-formed URL to
+   nothing. That is exactly the dev tenant's state, and the probe caught it: all four
+   combinations still showed naturalWidth 0.
+   So the local file is stat-ed. Remote storage (s3 / wasabi) cannot be stat-ed from here and is
+   trusted: a merchant configured for remote storage whose settings name a logo has one. */
+$ssHasOwnLogo = false;
+$ssBrandBust = null;
+if (! empty($company_logo)) {
+    $ssBrandHost = parse_url($company_logo, PHP_URL_HOST);
+
+    if (empty($ssBrandHost) || $ssBrandHost === request()->getHost()) {
+        $ssBrandFile = public_path(ltrim((string) parse_url($company_logo, PHP_URL_PATH), '/'));
+        $ssHasOwnLogo = is_file($ssBrandFile);
+        $ssBrandBust = $ssHasOwnLogo ? filemtime($ssBrandFile) : null;
+    } else {
+        $ssHasOwnLogo = true;
+    }
+}
 @endphp
 <!-- [ Pre-loader ] start -->
 <div class="loader-bg">
@@ -19,10 +68,24 @@ $company_logo = get_file($company_logo);
         @endif
         <div class="navbar-wrapper">
             <div class="m-header">
-                <a href="{{ route('dashboard') }}" class="b-brand">
-                    <!-- ========   change your logo hear   ============ -->
-                    <img src="{{ isset($company_logo) && !empty($company_logo) ? $company_logo . '?timestamp=' . time() : $logo . '/logo-dark.svg' . '?timestamp=' . time() }}"
-                        alt="" class="logo logo-lg" />
+                <a href="{{ route('dashboard') }}" class="b-brand ss-brandmark"
+                   aria-label="{{ __('Store Syria') }} — {{ __('Dashboard') }}">
+                    @if ($ssHasOwnLogo)
+                        {{-- The merchant's own upload still wins, and still busts its cache when it
+                             changes -- on the file's mtime rather than on the clock. --}}
+                        <img src="{{ $company_logo }}{{ $ssBrandBust ? '?v=' . $ssBrandBust : '' }}"
+                             alt="" class="logo logo-lg" />
+                    @else
+                        <img src="{{ asset('assets/images/brand/store-syria-lockup.png') }}"
+                             alt="" width="280" height="92" decoding="async"
+                             class="logo logo-lg ss-brandmark__lockup ss-brandmark__lockup--light" />
+                        <img src="{{ asset('assets/images/brand/store-syria-lockup-dark.png') }}"
+                             alt="" width="280" height="92" decoding="async"
+                             class="logo logo-lg ss-brandmark__lockup ss-brandmark__lockup--dark" />
+                        <img src="{{ asset('assets/images/brand/store-syria-mark.png') }}"
+                             alt="" width="40" height="56" decoding="async"
+                             class="ss-brandmark__mark" />
+                    @endif
                 </a>
             </div>
 

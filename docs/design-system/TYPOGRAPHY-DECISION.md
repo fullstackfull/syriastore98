@@ -115,7 +115,7 @@ file in passing. **257,368 bytes** shipped, counted.
 ### Live, after the change
 
 ```
-external Google font requests : NONE
+external Google font requests : NONE  <- ON THE MERCHANT ADMIN SCREENS. See the correction below.
 self-hosted woff2 served      : all 8
 body font-family              : "IBM Plex Sans Arabic", "Noto Sans Arabic", Cairo, … (chain intact)
 Arabic vs no-font             : 253.6 vs 279.0  ->  9.1% apart   (was 0.3%)
@@ -130,6 +130,25 @@ digit width spread at 40px    : 0
 in `evidence/typography-2026-11-04/pixel-diff.md`; side-by-side composites for eight screens in the
 same folder. The render matrix asserts the direction and the stylesheet per row, so a pair is never
 light-vs-light or ltr-vs-ltr by accident.
+
+### A correction to the line above: "NONE" was scoped to the admin, and I did not say so
+
+Measured after this document was written, while the P2.5-DESIGN-B work drove the **login** page:
+`layouts/guest.blade.php` linked **`fonts.bunny.net`** — a Google Fonts mirror — on every load, and
+did not link `store-syria-ds.css` at all, so the login screen had neither the typeface nor the
+design system. That one is **fixed** in P2.5-DESIGN-B.
+
+Eight more views still link an external font host at runtime. None is an admin screen, which is why
+the measurement above did not see them, but "NONE" without a stated scope was a wider claim than
+the evidence:
+
+| view | host | phase |
+|---|---|---|
+| `order/shippinglabel.blade.php` | Google Fonts (Lato) | **02 — merchant prints these. Open.** |
+| `plans/request`, `plans/cybersourcerequest`, `plans/Braintreepayment` | Google Fonts | 06 (SaaS plans). Open. |
+| `payment/authorizenet`, `midtras/payment` | Google Fonts | 04 (payment). Open. |
+| `front_end/layouts/app` | Google Fonts (Poppins) | 03 (storefront). Out of this phase. |
+| `marketplace/marketplace` | Google Fonts (Overpass) | 06 (marketplace). Out of this phase. |
 
 ### What is NOT verified
 

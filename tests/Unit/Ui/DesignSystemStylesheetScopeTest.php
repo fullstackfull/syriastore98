@@ -346,4 +346,93 @@ class DesignSystemStylesheetScopeTest extends TestCase
 
         return array_values(array_unique($selectors));
     }
+
+    /**
+     * THE FILE'S COMMENTS MUST BE WELL-FORMED, AND THIS EXISTS BECAUSE THEY WERE NOT.
+     * =============================================================================================
+     *
+     * P2.5-TYPE added eight `@font-face` rules and a long explanatory comment, and spliced them
+     * INTO THE MIDDLE OF THE FILE'S OPENING COMMENT -- after
+     * "Every subject is an `.ss-` class, except `" and before ":root`, the two ...". CSS comments
+     * do not nest, so the opening comment ended at the star-slash of the inserted one, the eight
+     * `@font-face` rules were real CSS (they worked), and THE REST OF THE ORIGINAL COMMENT became
+     * a selector.
+     *
+     * WHAT THAT COST, MEASURED IN CHROMIUM ON THE RUNNING ADMIN. An invalid selector makes the
+     * browser discard the whole rule, and the rule that followed that prose was the PRIMITIVES
+     * BLOCK. Every primitive colour token was therefore undefined on every page:
+     *
+     *     --ss-green-800  (EMPTY)      --ss-blue-600  (EMPTY)
+     *     --ss-red-800    (EMPTY)      --ss-grey-900  (EMPTY)
+     *     --ss-brand      (EMPTY)
+     *
+     * It did not look broken, which is the point: the host WorkDo sheet supplies most colours and
+     * the design-system components fell back to it, so screenshots still rendered. What was lost
+     * was the design system's own contrast-verified palette, silently, on every screen.
+     *
+     * THESE TWO CASES WOULD NOT HAVE CAUGHT IT, AND SAYING SO IS THE POINT OF THIS PARAGRAPH.
+     * I added them believing they would, then BIT them by re-splicing the stylesheet the way
+     * P2.5-TYPE had: `test_every_selector_is_confined_by_a_design_system_token` above went RED and
+     * both of these stayed GREEN. The spliced file's comments are still well-formed -- nothing
+     * nests, nothing is unterminated -- and both `:root` rules still parse. The leak is a
+     * SELECTOR-shaped symptom, and the selector test is what sees it.
+     *
+     * They are kept because they catch two neighbouring hazards that the selector test does not
+     * name: a comment that is never closed (which silently deletes the rest of the file), and a
+     * `:root` block that has stopped being a top-level rule (which is what the browser actually
+     * punished here, whatever the cause). Both are cheap, and both say what is wrong rather than
+     * printing prose and calling it a selector.
+     */
+    public function test_no_comment_is_nested_or_unterminated(): void
+    {
+        $css = $this->stylesheet();
+        $offset = 0;
+
+        while (($open = strpos($css, '/*', $offset)) !== false) {
+            $line = substr_count($css, "\n", 0, $open) + 1;
+            $close = strpos($css, '*/', $open + 2);
+
+            $this->assertNotFalse(
+                $close,
+                "the comment opened at line {$line} is never closed, so the rest of the "
+                . 'stylesheet is a comment'
+            );
+
+            $this->assertStringNotContainsString(
+                '/*',
+                substr($css, $open + 2, $close - $open - 2),
+                "a `/*` appears INSIDE the comment opened at line {$line}. CSS comments do not "
+                . 'nest: the outer one ends at the inner one\'s star-slash, and everything after '
+                . 'is parsed as CSS. This is how every primitive colour token was dropped.'
+            );
+
+            $offset = $close + 2;
+        }
+    }
+
+    /** The two `:root` rules must both survive as top-level rules, which is the thing that broke. */
+    public function test_both_root_blocks_are_top_level_rules(): void
+    {
+        $stripped = (string) preg_replace('#/\*.*?\*/#s', '', $this->stylesheet());
+
+        preg_match_all('/(^|\})\s*(:root[^{}]*)\{/m', $stripped, $m);
+        $selectors = array_map(
+            static fn ($s) => trim((string) preg_replace('/\s+/', ' ', $s)),
+            $m[2]
+        );
+
+        $this->assertContains(
+            ':root',
+            $selectors,
+            'the PRIMITIVES block must be a top-level `:root` rule. If it is not, the browser has '
+            . 'attached it to whatever text precedes it and will discard the whole thing. '
+            . 'Found: ' . json_encode($selectors)
+        );
+        $this->assertContains(
+            ':root, [data-ss-theme="light"]',
+            $selectors,
+            'and the semantic layer must still be its own top-level rule. Found: '
+            . json_encode($selectors)
+        );
+    }
 }

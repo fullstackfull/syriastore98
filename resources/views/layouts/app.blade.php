@@ -113,8 +113,31 @@
     <title>{{ isset($setting['title_text']) ? $setting['title_text'] : config('platform.brand_name') }} - @yield('page-title') </title>
 
     <link rel="stylesheet" href="{{ asset('assets/css/plugins/select2.min.css') }}">
-    <!-- Favicon icon -->
-    <link rel="icon" href="{{ isset($setting['favicon']) ? get_file($setting['favicon']) . '?timestamp=' . time() : asset(Storage::url('uploads/logo/favicon.png')) . '?timestamp=' . time() }}" type="image/x-icon" />
+    {{-- P2.5-DESIGN-B. The fallback was `uploads/logo/favicon.png`, which does not exist, so the
+         browser tab carried no icon at all -- MEASURED as a 404 on every admin screen. The shipped
+         Store Syria mark takes its place. `?timestamp=' . time()` is gone with it: a favicon
+         re-fetched on every page load is the one request a browser should never have to make
+         twice. A merchant's own upload still busts its cache, on the FILE's mtime; and it is
+         stat-ed first, because `get_file()` returns a well-formed URL whether or not the file is
+         there. --}}
+    @php
+        $ssFavicon = isset($setting['favicon']) ? get_file($setting['favicon']) : null;
+        $ssFaviconFile = $ssFavicon
+            ? public_path(ltrim((string) parse_url($ssFavicon, PHP_URL_PATH), '/'))
+            : null;
+        $ssFaviconHost = $ssFavicon ? parse_url($ssFavicon, PHP_URL_HOST) : null;
+        $ssHasFavicon = $ssFavicon && (
+            (! empty($ssFaviconHost) && $ssFaviconHost !== request()->getHost())
+            || is_file($ssFaviconFile)
+        );
+        $ssFaviconBust = ($ssHasFavicon && $ssFaviconFile && is_file($ssFaviconFile))
+            ? '?v=' . filemtime($ssFaviconFile)
+            : '';
+    @endphp
+    <link rel="icon" type="image/png" sizes="64x64"
+          href="{{ $ssHasFavicon ? $ssFavicon . $ssFaviconBust : asset('assets/images/brand/store-syria-favicon-64.png') }}" />
+    <link rel="apple-touch-icon" sizes="180x180"
+          href="{{ $ssHasFavicon ? $ssFavicon . $ssFaviconBust : asset('assets/images/brand/store-syria-touch-icon.png') }}" />
 
     <!-- notification css -->
     <link rel="stylesheet" href="{{ asset('assets/css/plugins/notifier.css') }}">
