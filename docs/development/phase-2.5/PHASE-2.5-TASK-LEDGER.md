@@ -1038,6 +1038,90 @@ each commit's own `Findings:` trailer where it has one, and fifteen of them do.
 
 ---
 
+## 3n. The two tenant guards, the two unplanned findings, and the live verification (2026-11-04)
+
+Owner priorities 2, 3 and 4 of the continuation directive. Four repairs, each produced by an
+isolated chain and then **verified and bitten by me** rather than accepted on report.
+
+### What the four chains did, and what I confirmed myself
+
+| repair | my verification | my bite |
+|---|---|---|
+| report chart category/brand name disclosure | 57 tests / 528 assertions green | guard neutralised → **31 red** |
+| the four storeless finance handlers | 11 tests / 129 assertions green | four guards neutralised → **5 red** |
+| the ledger money tones | measured live in Chromium, all four combinations | — (unit test, 20 cases) |
+| the staff card's accessible names | read from Chromium's AX tree, **both languages** | — (unit test, 14 cases) |
+
+Facts each chain asserted that I re-measured rather than took:
+
+* `Category` and `ProductBrand` are **absent from `config/tenancy.php`'s `scoped_models`** (11
+  entries; `Customer` is in it, `Product` is not) — so `StoreScope` adds no predicate for any
+  principal and `find()` reached every tenant's rows. Both tables carry `store_id`.
+* The operator exemption uses `$actor->type === UserPolicy::PLATFORM_ADMIN` with
+  `PLATFORM_ADMIN = 'super admin'` — **character-for-character the predicate
+  `CategoryController::categoryIsOutsideCurrentStore()` already uses**, exact-case so a
+  non-canonical `'Super Admin'` is narrowed rather than exempted.
+* `HEAD` of `ReportController.php` already ended **without a trailing newline**, so the
+  `\ No newline at end of file` marker in the diff is pre-existing, not introduced.
+* `grep -c -i finance app/Models/Utility.php` = **18**, so the comment that claimed "ZERO
+  occurrences" was genuinely stale and the correction is right. `getCurrentStore()`
+  (`helper.php:774-775`) does return the **hardcoded literal 1** for an operator with an empty
+  `current_store`, which is why the operator limb is an owner decision and not an oversight.
+* `--bs-success-rgb: 111, 217, 67` is **identical in all four host sheets**, so the success defect
+  was light-mode only and one hard-coded replacement colour would have *regressed* dark mode from
+  7.93:1. `.text-danger` really is overridden to plain `red` by `custom.css:196` and
+  `rtl-custom.css:196`, which load after `#main-style-link`.
+* `h4` and `.h4` are grouped in the same selector lists (`style.css:196-197`, `:248-249`), so
+  `<h3 class="h4">` keeps the type scale the old `<h4>` had.
+
+### The live verification — owner priority 2
+
+Full record, with every number and every caveat:
+[`evidence/LIVE-VERIFICATION-2026-11-04.md`](evidence/LIVE-VERIFICATION-2026-11-04.md).
+Screenshots and tool output: `evidence/live-2026-11-04/`.
+
+The first pass was **weaker than it read**, in two ways both caused by concurrency, and both are
+now closed: the contrast numbers came from an **intercepted** stylesheet with **injected** markup,
+and the accessible names were measured in **Arabic only**. `tools/verify-money-and-staff-live.cjs`
+drives the real preference state and measures the real page; `tools/probe-p25-interactions.cjs`
+drives the interactions (18 checks, 0 failed). Headline readings: credit **1.80:1 → 7.82:1** light
+and **7.93:1 → 8.16:1** dark; debit **4.00:1 → 9.12:1** light and **3.56:1 → 7.48:1** dark; the
+kebab `"U+E89A" len=1` → named from `aria-label` in both languages; the capped column renders
+**exactly 50** of **55** and links to the true total, with 8 uncapped columns correctly silent.
+
+**The withdrawal confirmation is still a native synchronous `confirm()`**, by owner instruction,
+and the probe is written so that finding no dialog FAILS — a conversion to an async SweetAlert
+would be caught, not missed.
+
+Two readings this pass produced and had to **throw away**, both recorded in the tools so the next
+person does not repeat them: counting `[class*="board__card"]` is a substring match that also
+catches the card's three children, so a correct cap of 50 reported **251**; and filtering the AX
+tree by `role === 'image'` returns the chrome's deliberately `alt=""` logo, which made the avatar
+repair look like it had failed until a per-node query proved all three named `from=attribute:alt`.
+
+### To seed the money rows, three fixture facts
+
+`store_order_financials.order_id` carries a **FOREIGN KEY to `orders(id)`** (measured:
+`SQLSTATE[23000]`), and `OrderObserver` → `OrderFinancialService` **already writes one row per
+order** — 55 of them, every money column `0`. So the seeder **updates two** rather than inserting,
+and gives one a profit and one a loss, because a column of zeros renders only the credit branch
+(`0 >= 0`) and would leave the debit tone unmeasured. That is precisely the gap that had made the
+earlier measurement inject its own markup.
+
+### New rows out of this round, none of them shipped
+
+| row | what | why not now |
+|---|---|---|
+| `report-chart-intval-truncation` | `array_map('intval', ...)` in **five** chart-fragment callers truncates every fractional money figure; `bar-chart.blade.php:67` already casts, so the wrapper is redundant **and** destructive. Reported by the chain on seven-day; **confirmed independently** here on this-year, where the table's first row reads `يناير \| 1`. | touches **displayed money**. A display truncation is not a change of financial policy, but on a money figure that is the owner's call to confirm. |
+| `dead-apexcharts-initialiser` | five report views run `new ApexCharts(document.querySelector(".traffic-chart"))` and **each mentions `traffic-chart` exactly once — that line**. No container exists; `<x-ss.bar-chart>` replaced it and uses no ApexCharts (`grep -c -i apex` = 0). Uncaught `Element not found` on every load. **Severity low, measured**: the throw is inside an IIFE that is the last statement of the AJAX `success` callback, and `$('#loader').fadeOut()` runs at its top, so nothing user-visible is lost. | the regression gate was already running against this tree; a fifth change would have invalidated it. |
+| `public-assets-404` | four views load `asset('public/assets/js/plugins/apexcharts.min.js')`; the document root **is** `public/`, so every chart screen requests a 404 alongside the working copy. Vestigial, since the component needs no ApexCharts. | same. |
+| `report-chart-n+1` | the 20 `find()` calls the guard replaced per-branch remain as 20 reads. | out of scope; a pure guard removes none, and the chain corrected its own brief on this. |
+| `storeless-chrome-500` | `/dashboard` and every merchant screen 500 for a principal who resolves no store: `partision/header.blade.php` hands the null store to `HomeController::getThemeUrl()`, which reads `$store->slug` at `:610`/`:612`. The declared-failure note for `ProfileTest` names `:367`/`:369`, which have drifted. | not finance's to fix; the finance guards refuse before reaching it and do not claim otherwise. |
+| `operator-wrong-tenant-default` | `getCurrentStore()` serves the literal store **1** to an operator with an empty `current_store`. | **owner decision** — removing it takes away a capability that works today. |
+
+
+---
+
 ## 4. Not yet started
 
 Wave C (remaining merchant screens), the rest of Wave D, and Wave E (cross-platform quality). The
