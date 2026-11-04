@@ -185,3 +185,66 @@ own teal-green recolour of the same mark, measured at 167.2–197.5°.
 Everything listed under `D-39` stands unchanged: `RELEASE READY` **NO**, `DEPLOYED` **NO**, #120
 **OWNER-DEFERRED / OPEN**, P1-SEC-43 **OPEN and DEPLOYMENT-BLOCKING**, Paytm **DISABLED**, no merge
 to `main`.
+
+---
+
+## D-42 — **SEVEN FOLLOW-UP REPAIRS AUTHORIZED FOR DEVELOPMENT ONLY** (owner, 2026-11-04)
+
+The owner's follow-up decisions, taken after reading the Phase 2.5 evidence and the two pull
+requests. **Development only.** `RELEASE READY` stays **NO**, `DEPLOYED` stays **NO**, and no
+production deployment, database migration, payment activation, secret rotation, security-gate
+bypass or automatic merge is authorized.
+
+| | decision | scope the owner set |
+|---|---|---|
+| **D-42.1** | CI merge-base regression gate | **APPROVED**, as a **separate small PR**, kept out of #130. Verify hard-link support rather than assume it; a correct file-copy fallback otherwise; never resolve PHP paths back into the HEAD checkout; **prove it on real GitHub Actions**. "Do not hide errors, skip the baseline, weaken assertions or force a successful exit." |
+| **D-42.2** | the ungated settings writer | **APPROVED**, using the **existing** merchant settings policy. No new permission model, no WorkDo behaviour change. Also *investigate and report* `WebhookController` and `PixelFieldsController` without silently widening authorization. |
+| **D-42.3** | money display accuracy | **APPROVED** for **display only**. Explicitly not stored amounts, calculations, wallet balances, settlement, payments or conversion rates. Faithful representation, not silent rounding. |
+| **D-42.4** | `CurrencyController` | **APPROVED AS A NARROW EXCEPTION ONLY** — see below. |
+| **D-42.5** | the security checklist | **NOT a bypass.** "Do NOT create or simulate a human security acknowledgement." A focused security-review summary is required instead; the acknowledgement must follow genuine human review. No merge of #130, #7 or the CI PR without a later explicit integration authorization. |
+| **D-42.6** | Flutter `commonToast` | **APPROVED** as an isolated, backward-compatible repair of the **shared mechanism**, not 275 call sites. Reproduce on the real GetX 4.7.3 / Flutter 3.47.7 shape, with **no artificial outer Overlay** masking it. Correct the test that treated the failure as expected **without weakening assertions**. Report any device-verification limitation explicitly. |
+| **D-42.7** | the operator's implicit store 1 | **APPROVED** as a narrow financial safety guard: fail closed on the identified financial write paths when no explicit merchant selection exists. Do **not** globally rewrite `getCurrentStore()`. **Owner's own stop condition:** if an explicit choice cannot be reliably distinguished from the fallback, stop and report the blocker. |
+
+### D-42.4 in full, because it is the one that closes rather than opens work
+
+The owner: *"Keep the two already verified CurrencyController validation-message corrections **if
+they are strictly presentation-only** and preserve existing Super Admin permissions and behavior.
+Record them as a limited post-closure defect correction, not as authorization to begin Phase 06.
+No additional Super Admin redesign, currency policy change or feature development is authorized."*
+
+**The condition is met, and it is measured rather than asserted.** The entire change to
+`app/Http/Controllers/CurrencyController.php` across this branch is:
+
+```
+ app/Http/Controllers/CurrencyController.php | 4 ++--
+```
+
+two lines, each the same flash-message expression, at `:51` in `store()` and `:104` in `update()`:
+
+```php
+-  return redirect()->back()->with('error', $messages->first());
++  return redirect()->back()->with('error', implode(' ', $messages->all()));
+```
+
+Counted over the diff, the number of changed lines touching `isAbleTo`, `permits`, `type`,
+`super admin`, `store_id`, `Validator::make` or any validation rule is **zero**. The
+`isAbleTo('Create currency')` and `isAbleTo('Edit currency')` guards sit **above** the change and
+are untouched, as is every rule in both validators. Same flash key, same 302, same session shape.
+
+**Why it was out of surface in the first place, also measured:** `'Create currency'` sits in
+`Utility.php`'s `$superadminNewPermission` and **not** in the company list; `index()` additionally
+demands `type == 'super admin'`; and the `currency` table has no `store_id`. So currency
+administration is a **platform-operator** surface — Phase 06 by the approved plan — and the two
+sites were repaired before that was established.
+
+**Recorded, therefore, as a limited post-closure defect correction and nothing more.** It is not
+authorization to begin Phase 06, not a currency-policy change, and not a Super Admin redesign. The
+two sites are covered by `tests/Feature/Merchant/CommerceSettingsRefusalNamesEveryFieldTest.php`,
+driven and individually bitten.
+
+### Status this decision does NOT change
+
+Everything under `D-39` stands: `RELEASE READY` **NO**, `DEPLOYED` **NO**, #120
+**OWNER-DEFERRED / OPEN**, P1-SEC-43 **OPEN and DEPLOYMENT-BLOCKING**, Paytm **DISABLED**, no merge
+to `main`. Phase 2.5 is **not** complete, and D-42.5 means the human checklist on #130 stays
+unacknowledged until a person reviews it.
