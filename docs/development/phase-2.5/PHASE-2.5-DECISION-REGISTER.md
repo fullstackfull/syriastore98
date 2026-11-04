@@ -311,10 +311,21 @@ It also invalidated a measurement of mine: my first login capture used
 light page four times while reporting four combinations. Corrected by driving
 `/change-languages/<code>` and the super admin's `cust_darklayout`.
 
-### F-DESIGN-3 — `CLAUDE.md` §3's test counts are badly stale
+### F-DESIGN-3 — `CLAUDE.md` §3's test counts were badly stale, and the Unit suite is a CI GATE
 
-It says the Unit suite is 339 tests; measured today it is **1079**. It says Contract is 26;
-measured **27**. §3 does warn that counts drift, but 339 → 1079 is not drift.
+It said the Unit suite is 339 tests; measured it is **1079**. Contract said 26; measured **27**.
+§3 warns that counts drift, but 339 → 1079 is not drift. **Corrected** — and the correction had to
+be made at zero net lines, because `ClaudeConfigurationTest` holds `CLAUDE.md` under 300 lines
+deliberately and the file was at 298.
+
+**The fact behind the correction matters more than the numbers.** Both required CI jobs run
+`Unit suite -- BLOCKING` and `Contract suite -- BLOCKING` *before* Feature, so one red Unit test
+marks the Contract, Feature and known-outcome-gate steps `skipped` — **CI then runs no Feature
+suite at all.** That is what happened across the seven commits `81a11798..a160c2e0` on 2026-11-04:
+four Unit failures from a malformed comment in `public/css/store-syria-ds.css`, an hour of red
+required jobs, and no Feature coverage behind them, while the author was running Feature locally
+and not Unit. The full account is in
+`docs/design-system/evidence/design-b-2026-11-04/README.md`.
 
 ### F-DESIGN-4 — no workflow linter anywhere in CI
 
