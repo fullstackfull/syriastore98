@@ -889,6 +889,91 @@ review predicted.
 
 ---
 
+## 3l. The last two open repairs closed, and the gap that let one of them ship (2026-11-04)
+
+Both repairs left open by the four waves are now closed, as `fc25f3b0` and `eb4cc19e`.
+Measuring them first changed one of them completely.
+
+### `withdrawal-native-confirm` was a TRANSLATION defect, not the conversion the plan assumed
+
+The plan called for 7 new keys and a markup conversion. What is actually wrong is narrower and
+worse: `withdrawals.blade.php:166` and `:200` wrap their `confirm()` text in `__()`, but neither
+string was a key in **either** language file — both counts measured 0 in both. So `__()` fell back
+to the key and an Arabic merchant approving a withdrawal, or marking one paid, got an **English**
+browser dialog on a money action. The two POS dialogs are translated (1 and 1), so it was exactly
+the two money ones.
+
+**And `ConfirmationDialogContractTest` — the test that froze these four dialogs — asserted the
+opposite.** Its docblock read *"All four are translated, so they are an inconsistency rather than a
+defect"*, and that sentence was the stated justification for freezing the count instead of
+converting them. It was false for half its subject. A frozen count whose reason is wrong is worse
+than no comment, so the sentence is corrected in place, naming what it replaces, and the freeze now
+has a second half that asserts whatever stays frozen resolves to a real key in both shipped
+locales. A count alone could never have caught this. `RAW_DIALOGS` stays 4 and `RAW_DIALOG_FILES`
+stays 2; neither was lowered.
+
+**THE CONVERSION HALF IS AN OWNER DECISION AND WAS NOT TAKEN.** `onclick="return confirm(...)"` is
+synchronous and blocks the form submit; the shared SweetAlert handler is asynchronous. Changing
+that on a path that approves a withdrawal and marks it paid changes submit semantics on a money
+path, which Decision 1 does not authorise autonomously — and this same test already recorded it as
+an outstanding scope decision. `withdrawals.blade.php` is untouched.
+
+### The structural gap that let it ship, which is the more useful finding
+
+`ArabicUiCoverageTest::SURFACES` — the ratchet whose whole job is "every Phase 02 surface string has
+an Arabic translation" — scans `resources/views/product/*`, `order/*`, `customer/*` and
+`components/ss/*`. It does **not** scan `finance/`. So nothing was checking Arabic coverage on the
+merchant's money screens, which is why two untranslated money dialogs could sit behind a test that
+declared them translated. Measured, not inferred.
+
+Extending that list is not a one-liner, which is why it is a row and not a fix in this commit:
+**12 more strings on the withdrawals screen alone have no Arabic** (all measured 0/0) — Payment
+Details, Requested At, Store Note, Admin Note, Approved, Rejected, Mark as Paid, No actions
+available, Reject Withdrawal, Reason for rejection, *"The amount will be returned to the store
+available balance."*, *"No withdrawal requests found."* Adding `finance/` to `SURFACES` reddens
+immediately until those are translated.
+
+**One hazard to carry into that work:** these strings are interpolated into
+`onclick="return confirm('…')"`, and Blade's `{{ }}` escapes an apostrophe to `&#039;`, which
+terminates the JS string literal. A translation on this screen must be apostrophe-free. Both Arabic
+values added here are, and both use U+061F as all 31 existing Arabic question values do.
+
+### `validation-errors-lose-the-modal` — the 18 real sites, and how many actually change anything
+
+All 18 remaining sites across seven controllers now join every message: measured 18 `first()` and 0
+`all()` before, 0 and 18 after — Coupon 4, FlashSale 4, Faq 2, Testimonial 2, ProductBrand 2, Tag 2,
+ProductLabel 2.
+
+**8 of the 18 change observable behaviour; the other 10 are inert** because their validator carries
+a single rule, so joining is byte-identical to taking the first message. Recording that is not
+modesty — a commit claiming 18 behaviour changes would be claiming ten it cannot demonstrate, and
+the bite proves the split: reverting all seven controllers fails 7 of the 15 new tests, and the 8
+that still pass are the inert ones.
+
+**A measured correction to the premise I handed the implementer.** "Single rule" is the right test
+for inertness but would have misclassified four sites: `discount_amount` is
+`required|numeric|min:1|max:100` — four rules — and it genuinely emits two messages for a
+101-character non-numeric value, because `Validator::getSize()` falls back to string **length** when
+the value is not numeric, so `numeric` and `max` both fire. The split is 8/10, not the 2/16 a
+one-rule count would have produced. The six-rule validator is at `CouponController:81-91` with its
+refusal at `:96`, not the `:82-92` I cited.
+
+**The trap avoided, whose twin bit the settings chain:** every one of the 18 was verified to sit
+inside a live `$validator->fails()` branch before being touched, and `Validator::make(` equals
+`->fails()` in all seven files, so no dormant validator was woken. Activating one would start
+refusing posts that succeed today — a business-rule change wearing a repair's clothes.
+
+### New rows from these two chains, none of them shipped
+
+| Row | Where | What was measured |
+|---|---|---|
+| **A valid post answers 500** | `ProductBrandController::store:78`, `ProductLabelController::store:53` | Both assign `$request->status` **unconditionally**, while the `update()` paths at `:152` and `:102` guard it with `isset()`. `status` is `tinyInteger('status')->default(1)` — NOT NULL — and brand also has `is_popular`. So a *valid* post that omits the field writes null and the request 500s. The asymmetry between `store()` and `update()` in the same file is the evidence. Not repaired: it is a defect in its own right, outside the message-widening this chain owned. |
+| **Coupon uniqueness is not store-scoped** | `CouponController:85`, `:90` | `unique:coupons,coupon_name` and `unique:coupons,coupon_code` with no tenant scoping, so one merchant cannot use a code another store already uses, and the refusal message discloses that some other tenant holds it — a cross-tenant existence oracle, and a functional coupling between tenants. Whether codes *should* be globally unique is a business rule, so this is an owner question, not a repair. |
+| **A permission gate sits below its own read** | `CouponController:384` vs the `isAbleTo('Edit Coupon')` gate at `:387` | Pre-existing and already documented at `:356-360`; the message widening adds no new field name there. Recorded, unchanged. |
+| **194 `messages->first()` remain** | 45 other files under `app/` | The seven controllers in this chain are done; the pattern is far wider. Counted, not estimated. A sweep is its own work package, and most of it is outside Phase 2.5's merchant surfaces. |
+
+---
+
 ## 4. Not yet started
 
 Wave C (remaining merchant screens), the rest of Wave D, and Wave E (cross-platform quality). The
