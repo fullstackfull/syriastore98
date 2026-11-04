@@ -1526,14 +1526,14 @@ if (!function_exists('currency_format_with_sym')) {
         $number = explode('.', $price);
         $length = strlen(trim($number[0]));
 
-        if ($length > 3) {
-            $decimal_separator = isset($company_settings['decimal_separator']) && $company_settings['decimal_separator'] === 'dot' ? '.' : ',';
-            $thousand_separator = isset($company_settings['thousand_separator']) && $company_settings['thousand_separator'] === 'dot' ? '.' : ',';
-        } else {
-            $decimal_separator = isset($company_settings['decimal_separator']) && $company_settings['decimal_separator'] === 'dot' ? '.' : ',';
-
-            $thousand_separator = isset($company_settings['thousand_separator'])  && $company_settings['thousand_separator'] === 'dot' ? '.' : ',';
-        }
+        /* D-42.3. ONE DEFAULT FOR ALL FOUR FORMATTERS -- see App\Support\Money\CurrencySeparators.
+           The two limbs of the `if ($length > 3)` above computed the IDENTICAL pair, so the branch
+           decided nothing; it is gone with the duplication. The old default was a comma for BOTH
+           roles, which rendered an unset store's 1162.50 as `1,162,50` -- the same character twice,
+           a figure that cannot be read back. MEASURED on the running admin's dashboard and on every
+           card of /order-grid. A STORED preference is read exactly as it was. */
+        [$decimal_separator, $thousand_separator] =
+            \App\Support\Money\CurrencySeparators::charsFromSettings($company_settings);
         if (isset($company_settings['site_currency_symbol_position'])) {
             $symbol_position = $company_settings['site_currency_symbol_position'];
         }
@@ -2219,14 +2219,15 @@ if (!function_exists('default_currency_format_with_sym')) {
         $format = '1';
         $number = explode('.', $price);
         $length = strlen(trim($number[0]));
-        if ($length > 3) {
-            $decimal_separator = isset($company_settings['decimal_separator']) && $company_settings['decimal_separator'] === 'dot' ? '.' : ',';
-            $thousand_separator = isset($company_settings['thousand_separator']) && $company_settings['thousand_separator'] === 'dot' ? '.' : ',';
-        } else {
-            $decimal_separator = isset($company_settings['decimal_separator']) == 'dot' ? '.' : ',';
-
-            $thousand_separator = isset($company_settings['thousand_separator']) == 'dot' ? '.' : ',';
-        }
+        /* D-42.3, the same one default -- and this function had a SECOND defect of its own that
+           routing through the shared resolver removes. Its `else` limb read
+           `isset($company_settings['decimal_separator']) == 'dot'`: `isset()` is a bool, PHP casts
+           the string side when comparing a bool with a string, and `'dot'` is truthy -- so that
+           limb answered "dot whenever the row exists", ignoring the merchant's actual choice. A
+           store that chose a comma decimal got a dot here and a comma from the other three
+           formatters. Both limbs computed the same pair anyway, so the branch is gone with it. */
+        [$decimal_separator, $thousand_separator] =
+            \App\Support\Money\CurrencySeparators::charsFromSettings($company_settings);
         if (isset($company_settings['site_currency_symbol_position'])) {
             $symbol_position = $company_settings['site_currency_symbol_position'];
         }
@@ -2291,13 +2292,9 @@ if (!function_exists('order_currency_format_with_sym')) {
         $length = strlen(trim($number[0] ?? '0'));
 
         // نفس منطق الدالة الأصلية بالضبط (كلا الفرعين متطابقين، محافظين على نفس البنية)
-        if ($length > 3) {
-            $decimal_separator = isset($company_settings['decimal_separator']) && $company_settings['decimal_separator'] === 'dot' ? '.' : ',';
-            $thousand_separator = isset($company_settings['thousand_separator']) && $company_settings['thousand_separator'] === 'dot' ? '.' : ',';
-        } else {
-            $decimal_separator = isset($company_settings['decimal_separator']) && $company_settings['decimal_separator'] === 'dot' ? '.' : ',';
-            $thousand_separator = isset($company_settings['thousand_separator']) && $company_settings['thousand_separator'] === 'dot' ? '.' : ',';
-        }
+        /* D-42.3, the same one default. Both limbs computed the identical pair here too. */
+        [$decimal_separator, $thousand_separator] =
+            \App\Support\Money\CurrencySeparators::charsFromSettings($company_settings);
 
         if (isset($company_settings['site_currency_symbol_position'])) {
             $symbol_position = $company_settings['site_currency_symbol_position'];

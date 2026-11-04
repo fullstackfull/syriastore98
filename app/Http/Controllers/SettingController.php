@@ -1865,14 +1865,17 @@ if ($newCurrency !== 'USD' && (float) $currencyRate->rate_per_usd <= 1) {
         $length = strlen(trim($number[0]));
         $currency_symbol = explode('-', $request->defult_currancy);
 
-        if ($length > 3) {
-
-            $decimal_separator  = (isset($request->decimal_separator) && $request->decimal_separator == 'dot') ? '.' : ',';
-            $thousand_separator = (isset($request->thousand_separator) && $request->thousand_separator == 'dot') ? '.' : ',';
-        } else {
-            $decimal_separator  = (isset($request->decimal_separator) &&  $request->decimal_separator == 'dot')  ? '.' : ',';
-            $thousand_separator = (isset($request->thousand_separator) &&  $request->thousand_separator == 'dot') ? '.' : ',';
-        }
+        /* D-42.3. THE LIVE PREVIEW ON THE CURRENCY SCREEN MUST SHOW WHAT THE STORE WILL ACTUALLY
+           DO, so it resolves through the same one default as the four formatters -- see
+           App\Support\Money\CurrencySeparators. It read from `$request` rather than from the
+           stored settings, which is right (it previews the unsaved selection), but it carried its
+           own copy of the defaulting, so before a merchant had ever saved it previewed
+           `$10,000,00` -- the same character for both roles. Both limbs computed the identical
+           pair, so the branch is gone with the duplication. */
+        [$decimal_separator, $thousand_separator] = \App\Support\Money\CurrencySeparators::chars(
+            $request->decimal_separator,
+            $request->thousand_separator
+        );
 
         if (isset($request->site_currency_symbol_position) && $request->site_currency_symbol_position == "post") {
             $symbol_position = 'post';
