@@ -2274,8 +2274,25 @@ class ReportController extends Controller
         }
         $html = '';
         [$periodLabel] = $this->chartPeriodLabels($request);
+
+        /* D-42.3. THE CHART'S ACCESSIBLE TABLE GETS THE PER-PERIOD MONEY TOTAL, NOT THE APEXCHARTS
+           SERIES LIST. `$NetSaleTotal` is `[['name' => 'Shirts', 'data' => [...]], ...]` -- one entry
+           per CATEGORY against `$monthList`, which is one entry per PERIOD -- so a numeric chart
+           component cannot read it: `intval()` of a non-empty array is 1, and every row of that table
+           read `1` whatever the money was (MEASURED on /category-order-reports). `<x-ss.bar-chart>` now
+           refuses the shape and shows its empty state instead of a false amount, and this line is what
+           gives it the real figures.
+           NOTHING IS CALCULATED HERE. Each of the five period branches ALREADY sums the per-category
+           series into a per-period total and then never passes it; only the NAME differs -- `year` calls
+           it `$totalNetSalesAllCategories` and the other four `$allCategoriesTotal` (measured, not
+           assumed). This resolves whichever one the branch that ran defined. Exactly one branch runs per
+           request, so the chain cannot pick up a stale value. `$return['NetSaleTotal']` below is
+           deliberately UNCHANGED: the browser's ApexCharts series and anything reading this response
+           see precisely what they saw before. */
+        $netSeries = $allCategoriesTotal ?? ($totalNetSalesAllCategories ?? []);
+
         $html = view('reports.order_category_chart', compact('currency', 'NetSalesofcategory', 'periodLabel')
-            + ['labels' => $monthList ?? [], 'netSeries' => $NetSaleTotal ?? []])->render();
+            + ['labels' => $monthList ?? [], 'netSeries' => $netSeries])->render();
 
         $return['html'] = $html;
 
@@ -2515,7 +2532,26 @@ class ReportController extends Controller
                     $NetSalesofbrand[$brand->name] = array_sum($brandNetSales[$brand->name]);
 
                     $brandNetSales[$brand->name][$index] = $totalNetSales;
-                    $totalNetSalesAllBrands[$index] += $totalNetSales;
+                    /* D-42.3. `$totalNetSalesAllBrands[$index] += $totalNetSales;` STOOD HERE AND
+                       MADE THE YEAR VIEW'S "All Brands" FIGURE EXACTLY DOUBLE. The loop below
+                       already walks `$brandNetSales` and array_maps every brand's series onto
+                       `$totalNetSalesAllBrands`, so this line added the same money a second time.
+                       MEASURED on /brand-order-reports?chart_data=year with ONE order worth
+                       1234.56: the aggregate read 2,469.12.
+
+                       THIS BRANCH WAS THE ONLY ONE WITH BOTH ADDS -- measured across all five:
+                       last-month, this-month, seven-day and the custom range each have only the
+                       post-loop array_map, and each reads correctly. Removing the line here is
+                       what makes `year` agree with its four siblings, which is why it is the one
+                       removed rather than the loop below.
+
+                       IT WAS ALREADY WRONG ON THE SCREEN, before anything in this change: the
+                       doubled array is what `$NetSaleTotal[]['All Brands']` carries to the
+                       browser's ApexCharts and what `$NetSalesofbrand['All Brands']` sums for the
+                       card. The accessible table printed `1` in every row, which is what hid it.
+                       So the visible year chart stops being double as well -- an existing figure
+                       becoming accurate, which is the whole of this authorisation. No stored
+                       amount, wallet, settlement, payment or conversion rate is touched. */
 
                     if (!isset($NetSalesOfBrand[$brand->name])) {
                         $NetSalesOfBrand[$brand->name] = 0;
@@ -2729,8 +2765,16 @@ class ReportController extends Controller
             $monthList = $dayList; // Use dayList to represent the selected date range
         }
         [$periodLabel] = $this->chartPeriodLabels($request);
+
+        /* D-42.3, the same repair as `order_category_reports` and for the same reason: `$NetSaleTotal`
+           is a per-BRAND ApexCharts series list, the chart's table is per-PERIOD, and the cast that
+           bridged them printed `1`. The per-period total is already computed in all five branches --
+           `$allBrandsTotal` in two, `$totalNetSalesAllBrands` in three (measured) -- and was never
+           passed. Nothing is calculated here; `$return['NetSaleTotal']` is unchanged. */
+        $netSeries = $allBrandsTotal ?? ($totalNetSalesAllBrands ?? []);
+
         $html = view('reports.order_brand_chart', compact('currency', 'NetSalesofbrand', 'periodLabel')
-            + ['labels' => $monthList ?? [], 'netSeries' => $NetSaleTotal ?? []])->render();
+            + ['labels' => $monthList ?? [], 'netSeries' => $netSeries])->render();
 
         $return = [
             'html' => $html,

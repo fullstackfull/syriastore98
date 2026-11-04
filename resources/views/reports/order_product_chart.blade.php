@@ -18,8 +18,20 @@
                 second vocabulary for the same number.
             --}}
             <x-ss.stats>
+                {{-- D-42.3. THE RAW FLOAT WAS BEING PRINTED. This read
+                     `$currency . (!empty($Totalsale) ? $Totalsale : '0.00')`, and `$Totalsale`
+                     is accumulated in the handler as `+= (float) $product['final_price']`. PHP
+                     echoes a float with its trailing zeroes gone — MEASURED, `0.1 + 0.2` echoes
+                     as `0.3` — so thirty cents read `$0.3` and 59.90 read `$59.9`, beside a
+                     chart whose money column is formatted properly.
+
+                     `number_format($x, 2)` is this project's money rule: the finance screen uses
+                     it throughout, and `order_category_chart` and `order_brand_chart` already
+                     use it for this very quantity. Those two were right all along; this card was
+                     the odd one out. `(float)` first, because the existing tests for this
+                     partial pass a pre-formatted STRING and number_format refuses one. --}}
                 <x-ss.stat :label="__('Order value')"
-                           :value="$currency . (!empty($Totalsale) ? $Totalsale : '0.00')"
+                           :value="$currency . number_format((float) ($Totalsale ?? 0), 2)"
                            :period="$periodLabel"
                            :hint="__('The total value of items ordered. This is not payments received, and not profit.')" />
 
@@ -33,14 +45,24 @@
     <div class="col-xxl-12">
         {{-- The series the handler already returned to the browser now reach the view too, so
              the chart ships its numbers as a real table rather than being an ApexCharts
-             container with nothing behind it. Values are rounded to whole units: the table is
-             read, and two decimal places of order value per day is noise, not precision. --}}
+             container with nothing behind it.
+
+             D-42.3. THE ROUNDING THIS COMMENT USED TO DEFEND WAS WRONG, and it was the live
+             defect on this screen: "Values are rounded to whole units: the table is read, and
+             two decimal places of order value per day is noise, not precision." Two decimal
+             places of a money figure are not noise, they are the figure — MEASURED on the real
+             route `/product-order-reports`, an order worth 1234.56 rendered as `1,234`.
+
+             THE TWO SERIES ARE DIFFERENT KINDS and are formatted differently: series A is
+             money and keeps two places; series B is a count of units and keeps none, because
+             "1.00 items ordered" would be a new defect in place of the old one. --}}
         <x-ss.card :title="__('Product Sales Summary')"
                    :note="__('Order value over the selected period.')">
             <x-ss.bar-chart
                 :labels="$labels ?? []"
-                :values="array_map('intval', $netSeries ?? [])"
-                :values2="array_map('intval', $itemSeries ?? [])"
+                :values="$netSeries ?? []"
+                :values2="$itemSeries ?? []"
+                :value-decimals="2"
                 :title="__('Product Sales Summary')"
                 :value-label="__('Order value')"
                 :value-label2="__('Items ordered')"
