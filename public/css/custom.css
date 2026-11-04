@@ -5159,3 +5159,90 @@ html[data-ss-theme="dark"] body .card-body dl.row dd {
 html:not([data-ss-theme="dark"]) body .dash-header .text-primary {
     color: var(--ss-brand-ontext, var(--theme-color)) !important;
 }
+
+
+/* =============================================================================================
+   P2.5-A-06. THE CUSTOMER ACTIVITY TIMELINE IN DARK MODE.
+
+   `.my-custom-timeline .tl-box` is declared `background: #ffffff` above in this file -- and, byte
+   for byte, in the VENDORED dark sheets too (assets/css/style-dark.css:28010,
+   assets/css/rtl-style-dark.css:27965). The host theme never themed the component. So on
+   /customer/{id}/timeline in dark mode every log entry is a white card on the host's #22242c page,
+   immediately beside four `.card` siblings on the same view that do render `--bs-card-bg: #292A33`
+   (style-dark.css:5006, consumed :5015, with `--bs-card-border-width: 0px` at :4998).
+
+   THIS IS A CONSISTENCY DEFECT, NOT AN ACCESSIBILITY ONE, and the arithmetic is recorded so the
+   row cannot be credited as a contrast fix. Computed with the WCAG formula in
+   Tests\Unit\Ui\DarkTimelineSurfaceContrastTest, which also re-derives every number below:
+
+     TODAY   #293240 on #ffffff                12.93:1   the entry text -- fully legible
+             #505050 on #ffffff                 8.06:1   the timestamp -- fully legible
+
+   WHICH IS WHY THE BACKGROUND ALONE IS A TRAP. `--bs-body-color: #293240` is byte-identical at
+   line 71 of style.css AND style-dark.css, i.e. the dark theme never re-inks body text, so
+   painting only the surface turns a readable off-theme card into an unreadable on-theme one:
+
+     BACKGROUND ONLY   #293240 on #292A33         1.10:1
+                       #505050 on #292A33         1.77:1
+
+     REPAIRED          #eeeff1 on #292A33        12.39:1   the entry text
+                       #9DA3B4 on #292A33         5.66:1   the timestamp
+                       #1a1d23 on #E0FFF5        15.91:1   the log-type chip (see below)
+
+   THE CHIP GUARD IS MANDATORY, not caution. `.tl-btn` declares no colour in any of the four
+   sheets, so an ink on the box INHERITS into the pastel chips: #eeeff1 measures 1.08:1 on the
+   #E0FFF5 licence fill -- the only variant this view renders, 14 times -- and 1.08-1.15:1 on the
+   other three. Guarded with #1a1d23 they read 15.31-16.07:1.
+
+   THE INK IS A LAYER-1 PRIMITIVE DELIBERATELY. `var(--ss-fg)` and `var(--ss-fg-muted)` re-theme
+   inside a `data-ss-theme="light"` container -- a wrapper this project has already added to
+   several views -- while the #292A33 painted here does not. The selector's hook is `html`, so it
+   keeps matching while a nearer light scope flips the ink: measured, `--ss-grey-900` on this
+   #292A33 is 1.18:1. That is the regression the dark-modal slice measured at 1.13:1 and now
+   ratchets against; the same ban is re-asserted over this block.
+
+   EVERY SELECTOR NAMES `.my-custom-timeline`, because `.tl-btn` and `.time` are SHARED leaf
+   classes. `.tl-btn` is in six views, one of them the merchant admin order detail page
+   (resources/views/order/view.blade.php:619), where the shipped P2-04-6 rule above inks it in the
+   OPPOSITE direction; `.time` is in seven. The chip guard is written `.tl-box .tl-btn` rather than
+   bare so it cannot reach either. `my-custom-timeline` itself is in exactly one view, so the blast
+   radius is that one screen, and the test asserts the census so a future reuse is noticed.
+
+   THE RAIL AND THE NODE. #3E3F4A is the host's own dark border (style-dark.css:20175), applied to
+   the rail, to the connector stub and to the node's 3px ring -- the ring matters because the node
+   sets BOTH a fill and a `border: 3px solid #DBDBDB` above, so re-filling it alone would leave a
+   light-grey ring on a now-dark rail. These are decorative structure, not text and not a control,
+   so no AA threshold applies to them; they are matched to the host's border rather than invented.
+
+   LIGHT MODE IS UNREACHABLE BY CONSTRUCTION: this file is served in BOTH themes
+   (layouts/app.blade.php), so every selector carries the `data-ss-theme="dark"` hook the layout
+   publishes on <html>. The pink date pills are NOT re-inked -- they declare their own
+   `color: #ffffff` above and are immune to inheritance. Their own contrast failure is real, in
+   BOTH themes, and is a separate row that this change must not be credited with.
+   ============================================================================================= */
+
+html[data-ss-theme="dark"] body .my-custom-timeline .tl-box {
+    background: #292A33;
+    color: var(--ss-grey-100, #eeeff1);
+}
+
+html[data-ss-theme="dark"] body .my-custom-timeline .tl-box .time-wrapper .time {
+    color: #9DA3B4;
+}
+
+html[data-ss-theme="dark"] body .my-custom-timeline .tl-box .tl-btn {
+    color: var(--ss-grey-900, #1a1d23);
+}
+
+html[data-ss-theme="dark"] body .my-custom-timeline .timeline:before,
+html[data-ss-theme="dark"] body .my-custom-timeline .support-time::before {
+    background: #3E3F4A;
+}
+
+html[data-ss-theme="dark"] body .my-custom-timeline .support-time::after {
+    background-color: #292A33;
+    border-color: #3E3F4A;
+}
+
+/* end P2.5-A-06 -- the two directions are compared byte for byte between these markers by
+   Tests\Unit\Ui\DarkTimelineSurfaceContrastTest, so keep both. */
