@@ -459,14 +459,28 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                                                         class="w-100">
                                                     <div
                                                         class="position-absolute text-center top-50 end-0 start-0 pb-3">
+                                                        {{-- P2.5 `gallery-image-actions-unnamed`. Both anchors are icon-only and the
+                                                             sibling <img> is alt="", so neither had ANY accessible name: a screen
+                                                             reader announced the Download control as its own href and the Delete
+                                                             control as the bare word "link" (WCAG 2.1 SC 4.1.2). The attribute that
+                                                             looked like a name, `data-original-title`, is BOOTSTRAP 4's name -- BS5
+                                                             writes `data-bs-original-title` -- and the app's only tooltip
+                                                             constructors (assets/js/dash.js:561, side-dash.js:620) both select
+                                                             `[data-bs-toggle="tooltip"]`, which these anchors never carried, so it
+                                                             was inert markup and is dropped here. `$loop->iteration` is load-bearing:
+                                                             `$product->name` alone names all N tiles identically. The class, the
+                                                             `name`, `data-id` and the `delete_img_<id>` wrapper are UNCHANGED -- the
+                                                             delete is bound at `.deleteRecord` further down this file. --}}
                                                         <a href="{{ get_file($file->image_path) }}"
-                                                            download="" data-original-title="{{ __('Download') }}"
-                                                            class="btn btn-sm btn-primary me-2"><i
-                                                                class="ti ti-download"></i></a>
+                                                            download=""
+                                                            class="btn btn-sm btn-primary me-2"
+                                                            aria-label="{{ __('Download image :n of :name', ['n' => $loop->iteration, 'name' => $product->name]) }}"><i
+                                                                class="ti ti-download" aria-hidden="true"></i></a>
                                                         <a href="javascript::void(0)"
                                                             class="btn btn-sm btn-danger deleteRecord"
-                                                            name="deleteRecord" data-id="{{ $file->id }}"><i
-                                                                class="ti ti-trash"></i></a>
+                                                            name="deleteRecord" data-id="{{ $file->id }}"
+                                                            aria-label="{{ __('Delete image :n of :name', ['n' => $loop->iteration, 'name' => $product->name]) }}"><i
+                                                                class="ti ti-trash" aria-hidden="true"></i></a>
                                                     </div>
                                                 </div>
                                             </div>
