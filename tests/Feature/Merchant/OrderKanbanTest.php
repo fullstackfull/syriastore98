@@ -426,4 +426,318 @@ class OrderKanbanTest extends SecurityTestCase
             'the board link drops the active filter, so a merchant filtering to unpaid orders '
             . 'and switching view is shown every order they have');
     }
+
+    // =======================================================================================
+    //  THE BOARD IS BOUNDED  (P2.5 kanban-unbounded-render)
+    // =======================================================================================
+
+    /*
+     * WHAT THESE CASES PIN, and nothing pinned it before them. `order_kanban_view` fetched the
+     * WHOLE filtered result set -- `$orders = $query->get()` with no `limit` anywhere upstream or
+     * downstream -- and rendered one `<article class="ss-board__card">` per order, each card
+     * lazy-loading `CustomerData` and calling `order_currency_format_with_sym()`, which itself
+     * does `Order::find()` and `getAdminAllSetting()`. So N orders cost ~4N round trips and the
+     * one screen whose purpose is "nothing has been missed" is also the one that stops rendering
+     * first.
+     *
+     * THE CAP IS ONLY HALF AN ANSWER AND THE OTHER HALF IS THE HEADER. A merchant who cannot
+     * feel a truncation is worse off than one looking at a slow board, so the column header must
+     * keep the TRUE count (a grouped `COUNT(*)`, not the capped collection) and offer a link to
+     * the rest. Every case below asserts one of those two halves.
+     */
+
+    private function cardCount(string $body): int
+    {
+        return substr_count($body, '<article class="ss-board__card">');
+    }
+
+    /** The href of the first overflow link, or null. */
+    private function moreHref(string $body): ?string
+    {
+        return preg_match('/<a class="ss-board__more" href="([^"]+)"/', $body, $m) ? $m[1] : null;
+    }
+
+    public function test_a_column_larger_than_the_cap_renders_at_most_the_cap(): void
+    {
+        for ($i = 1; $i <= 55; $i++) {
+            $this->orderAt(HomeController::ORDER_STATUS_PENDING, 'BULK-' . $i);
+        }
+
+        $this->assertSame(55, Order::withoutGlobalScopes()->where('store_id', $this->store->id)->count(),
+            'premise: 55 orders really are in the table for this store');
+
+        $body = $this->html();
+
+        $this->assertSame(50, $this->cardCount($body),
+            'THE BOARD RENDERED EVERY MATCHING ORDER. One card is ~4 database round trips and one '
+            . 'Crypt::encrypt(), so an unbounded fetch does not render slowly at volume -- it '
+            . 'exhausts memory, and a board that will not load shows ZERO orders.');
+    }
+
+    /**
+     * THE HALF THAT MAKES THE CAP HONEST. A truncation the merchant cannot see is how a real
+     * order gets forgotten, so the header number must come from a grouped COUNT(*) over the whole
+     * filtered set, not from the capped collection it is rendering beside.
+     */
+    public function test_the_column_header_still_reports_the_true_count_and_offers_the_rest(): void
+    {
+        for ($i = 1; $i <= 55; $i++) {
+            $this->orderAt(HomeController::ORDER_STATUS_PENDING, 'TRUE-' . $i);
+        }
+
+        $body = $this->html();
+
+        $this->assertStringContainsString('<span class="ss-board__count">55</span>', $body,
+            'the header reports the number of cards it drew rather than the number of orders '
+            . 'there are, so a capped column claims the cap IS the merchant\'s whole pipeline');
+
+        $this->assertStringContainsString('aria-label="Pending (55)"', $body,
+            'and a screen reader is told the same true number');
+
+        $this->assertNotNull($this->moreHref($body),
+            'a capped column offers no way to the orders it is not showing');
+    }
+
+    /**
+     * NEGATIVE CONTROL -- THE LINK MUST NOT WIDEN OR REWRITE WHAT THE MERCHANT CHOSE. It carries
+     * the board's own active filters (or "See all 55 Pending" from an Unpaid board silently shows
+     * paid ones too) and it must NOT carry `TableFilterMemory::APPLY`: `OrderController::index()`
+     * calls `TableFilterMemory::remember()`, which writes the session filter memory only when
+     * that key is present, and the board is reached as `route('order.kanban', request()->query())`
+     * -- so a naive `array_merge(request()->query(), ...)` would OVERWRITE the merchant's
+     * remembered order filters with a status they never picked.
+     */
+    public function test_the_overflow_link_keeps_the_active_filters_and_drops_the_memory_keys(): void
+    {
+        for ($i = 1; $i <= 55; $i++) {
+            $this->orderAt(HomeController::ORDER_STATUS_PENDING, 'KEEP-' . $i);
+        }
+
+        $body = $this->html(['ss_payment' => 'Unpaid', \App\Services\TableFilterMemory::APPLY => '1']);
+
+        $href = $this->moreHref($body);
+
+        $this->assertNotNull($href, 'premise: the capped column offered the link');
+
+        $this->assertStringContainsString('ss_payment=Unpaid', $href,
+            'the link widens the screen past what the merchant filtered for');
+        $this->assertStringContainsString('ss_status=' . HomeController::ORDER_STATUS_PENDING, $href,
+            'the link must narrow the list to the column it came from');
+        $this->assertStringNotContainsString(\App\Services\TableFilterMemory::APPLY, $href,
+            'the link carries the filter-memory APPLY key, so following it REWRITES the '
+            . 'merchant\'s remembered order filters with a status they never chose');
+    }
+
+    /**
+     * NEGATIVE CONTROL -- THE CAP TOOK NOTHING AWAY. A column under the cap still renders every
+     * one of its orders and offers no overflow link, so the control above cannot be satisfied by
+     * a board that truncates everything or links everywhere.
+     */
+    public function test_a_column_under_the_cap_renders_all_of_it_and_offers_no_overflow_link(): void
+    {
+        foreach (['SMALL-1', 'SMALL-2', 'SMALL-3'] as $ref) {
+            $this->orderAt(HomeController::ORDER_STATUS_PENDING, $ref);
+        }
+
+        $body = $this->html();
+
+        $this->assertSame(3, $this->cardCount($body));
+        $this->assertStringContainsString('SMALL-3', $body);
+        $this->assertStringContainsString('<span class="ss-board__count">3</span>', $body);
+        $this->assertNull($this->moreHref($body),
+            'a column that is showing everything it has must not offer "see all"');
+    }
+
+    /**
+     * NEGATIVE CONTROL -- `ssTotal` MUST KEEP COUNTING THE ASIDE AND UNKNOWN STATUSES. This is
+     * the most likely way to get the rewrite wrong and it fails somewhere that reads as
+     * unrelated: a grouped count summed over only the seven pipeline statuses gives a store whose
+     * orders are all Partially Paid `$ssTotal === 0`, kanban.blade.php takes its empty branch,
+     * and the board element is never emitted at all.
+     */
+    public function test_a_store_whose_only_orders_are_not_stages_still_gets_a_board(): void
+    {
+        $this->orderAt(HomeController::ORDER_STATUS_PARTIALLY_PAID, 'ONLY-PARTIAL');
+
+        $body = $this->html();
+
+        $this->assertStringContainsString('aria-label="Order board"', $body,
+            '$ssTotal counted only the pipeline statuses, so a store with nothing but a payment '
+            . 'state was told it has no orders');
+        $this->assertStringNotContainsString('No orders match these filters.', $body);
+        $this->assertStringContainsString('ONLY-PARTIAL', $body);
+    }
+
+    /** The aside is bounded and counted by the same rule as a pipeline column. */
+    public function test_the_aside_is_capped_and_reports_its_true_count(): void
+    {
+        for ($i = 1; $i <= 55; $i++) {
+            $this->orderAt(HomeController::ORDER_STATUS_PRE_ORDER, 'ASIDE-' . $i);
+        }
+
+        $body = $this->html();
+
+        $this->assertSame(50, $this->cardCount($body),
+            'the aside renders every order it has, which is the same unbounded fetch one '
+            . 'presentation layer further down');
+        $this->assertStringContainsString('<span class="ss-board__count">55</span>', $body);
+    }
+
+    /**
+     * NEGATIVE CONTROL -- EVERY BUCKET QUERY MUST BE A CLONE OF THE FILTERED BUILDER. `Order` is
+     * in no `scoped_models` list and registers no `StoreScope`, so `OrderDataTable::query()`'s
+     * `where('store_id', ...)` is the ONLY isolation on this screen. A per-status fetch rebuilt
+     * from `Order::query()` loses it; one that mutates `$query` in the loop instead of cloning
+     * accumulates nine contradictory predicates and renders every column after the first empty,
+     * which looks exactly like a working cap.
+     */
+    public function test_a_capped_board_still_shows_no_other_tenants_orders_in_any_column(): void
+    {
+        $this->orderAt(HomeController::ORDER_STATUS_PENDING, 'MINE-BULK');
+        $this->orderAt(HomeController::ORDER_STATUS_SHIPPED, 'MINE-SHIPPED');
+        $this->orderAt(HomeController::ORDER_STATUS_PRE_ORDER, 'MINE-PREORDER');
+
+        $otherOwner = $this->makeMerchant();
+        $otherStore = $this->makeStore($otherOwner);
+
+        foreach ([
+            HomeController::ORDER_STATUS_PENDING,
+            HomeController::ORDER_STATUS_SHIPPED,
+            HomeController::ORDER_STATUS_PRE_ORDER,
+        ] as $i => $status) {
+            $this->makeOrder($otherStore, [
+                'product_order_id' => 'FOREIGN-BULK-' . $i,
+                'delivered_status' => $status,
+            ]);
+        }
+
+        $body = $this->html();
+
+        // Every column after the first still renders, so a mutated builder cannot pass here.
+        $this->assertStringContainsString('MINE-BULK', $body, 'premise: the first column rendered');
+        $this->assertStringContainsString('MINE-SHIPPED', $body,
+            'a later pipeline column rendered empty: the per-status predicate was stacked onto '
+            . 'one shared builder rather than onto a clone');
+        $this->assertStringContainsString('MINE-PREORDER', $body);
+
+        foreach (['FOREIGN-BULK-0', 'FOREIGN-BULK-1', 'FOREIGN-BULK-2'] as $foreign) {
+            $this->assertStringNotContainsString($foreign, $body);
+        }
+    }
+
+    // =======================================================================================
+    //  THE OVERFLOW LINK'S COLOUR, COMPUTED RATHER THAN BELIEVED
+    // =======================================================================================
+
+    private function rgb(string $hex): array
+    {
+        $hex = ltrim($hex, '#');
+
+        return [hexdec(substr($hex, 0, 2)), hexdec(substr($hex, 2, 2)), hexdec(substr($hex, 4, 2))];
+    }
+
+    private function luminance(array $rgb): float
+    {
+        $c = array_map(static function ($v) {
+            $v /= 255;
+
+            return $v <= 0.03928 ? $v / 12.92 : (($v + 0.055) / 1.055) ** 2.4;
+        }, $rgb);
+
+        return 0.2126 * $c[0] + 0.7152 * $c[1] + 0.0722 * $c[2];
+    }
+
+    private function contrastRatio(string $fg, string $bg): float
+    {
+        $a = $this->luminance($this->rgb($fg));
+        $b = $this->luminance($this->rgb($bg));
+
+        return (max($a, $b) + 0.05) / (min($a, $b) + 0.05);
+    }
+
+    /**
+     * `.ss-board__more` IS NEW COLOUR ON A SURFACE NOTHING ELSE ON THE BOARD USES. The existing
+     * `.ss-board__card-id` is brand-on-card; this link is brand on the COLUMN's sunken background,
+     * and at `--ss-text-sm` (13px) it is small text, so it needs 4.5:1 in both directions.
+     *
+     * The ratios are COMPUTED HERE, not quoted from the stylesheet comment, and the token chain is
+     * re-read from the file so the numbers cannot go stale silently:
+     *   light  --ss-brand -> --ss-blue-600 #335da8  on  --ss-surface-sunken -> --ss-grey-100 #eeeff1
+     *   dark   --ss-brand -> --ss-cyan-500 #2ac3e5  on  --ss-surface-sunken            #1f232a
+     * Both surfaces are fully opaque, so there is nothing to composite over.
+     */
+    public function test_the_overflow_link_meets_the_contrast_floor_on_the_column_surface(): void
+    {
+        $css = file_get_contents(public_path('css/store-syria-ds.css'));
+
+        $this->assertStringContainsString('.ss-board__more {', $css, 'premise: the rule exists');
+        $this->assertMatchesRegularExpression('/\.ss-board__more\s*\{[^}]*color:\s*var\(--ss-brand\)/', $css,
+            'the link must take its colour from the brand token, which is the chain measured below');
+
+        // PREMISE ON THE TOKEN CHAIN. Without these, the two ratios are assertions about numbers
+        // this test invented rather than about what a merchant's browser resolves.
+        foreach ([
+            '--ss-blue-600: #335da8',
+            '--ss-grey-100: #eeeff1',
+            '--ss-cyan-500: #2ac3e5',
+            '--ss-surface-sunken: var(--ss-grey-100)',
+            '--ss-surface-sunken: #1f232a',
+        ] as $declaration) {
+            $this->assertStringContainsString($declaration, $css,
+                "the measured ratios assume `{$declaration}`, which is no longer in the stylesheet");
+        }
+
+        $light = $this->contrastRatio('#335da8', '#eeeff1');
+        $dark = $this->contrastRatio('#2ac3e5', '#1f232a');
+
+        $this->assertSame(5.58, round($light, 2), 'light mode: brand on the sunken column surface');
+        $this->assertSame(7.53, round($dark, 2), 'dark mode: brand on the sunken column surface');
+
+        $this->assertGreaterThanOrEqual(4.5, $light);
+        $this->assertGreaterThanOrEqual(4.5, $dark);
+
+        // NEGATIVE CONTROL ON THE INSTRUMENT: if the maths could not see a failing pair, the two
+        // assertions above would pass for a stylesheet that had gone white-on-white.
+        $this->assertLessThan(4.5, $this->contrastRatio('#eeeff1', '#ffffff'),
+            'premise: contrastRatio() can actually fail something');
+    }
+
+    /**
+     * THE ONE THING A GREEN SUITE CANNOT SEE, so it is asserted on the SQL instead of trusted.
+     *
+     * `OrderDataTable::query()` applies `orderBy('created_at', 'desc')`. Carried into the grouped
+     * `COUNT(*)` that now produces the column headers, that is a non-aggregated column in the
+     * ORDER BY of a GROUP BY query: SQLite -- which is what phpunit.xml runs -- accepts it
+     * silently, and MySQL under ONLY_FULL_GROUP_BY, which is what production runs, REFUSES it with
+     * SQLSTATE 42000. So a green Feature run proves nothing here and the clause is dropped by
+     * `reorder()` in the controller.
+     *
+     * This asserts the shape of the emitted SQL under the MySQL grammar rather than the presence
+     * of the word `reorder` in the source, so a rewrite that loses the drop any other way fails
+     * here too.
+     */
+    public function test_the_grouped_count_emits_no_order_by_for_only_full_group_by(): void
+    {
+        $this->actingAs($this->merchant);
+
+        $query = (new \App\DataTables\OrderDataTable())->query(new Order());
+
+        $this->assertStringContainsStringIgnoringCase('order by', $query->toSql(),
+            'premise: the DataTable really does install the ORDER BY that MySQL would refuse');
+
+        $sql = (clone $query)->toBase()->reorder()
+            ->select('delivered_status', \Illuminate\Support\Facades\DB::raw('count(*) as c'))
+            ->groupBy('delivered_status')
+            ->toSql();
+
+        $this->assertStringContainsStringIgnoringCase('group by', $sql, 'premise: it is a grouped count');
+        $this->assertStringNotContainsStringIgnoringCase('order by', $sql,
+            'the grouped COUNT(*) still carries `order by created_at desc`: ONLY_FULL_GROUP_BY '
+            . 'refuses a non-aggregated ORDER BY column, so the board would 500 on production '
+            . 'MySQL while every test here stayed green on SQLite');
+
+        // And the store predicate is still in it, because a clone that dropped the only tenant
+        // check would also pass the two assertions above.
+        $this->assertStringContainsString('store_id', $sql);
+    }
 }

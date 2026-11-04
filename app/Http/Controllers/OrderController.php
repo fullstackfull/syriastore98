@@ -2553,6 +2553,14 @@ public function store(Request $request)
     }
 
     /**
+     * HOW MANY CARDS ONE COLUMN MAY DRAW. Not a tuning knob: it is the point past which the
+     * board stops being a glance and becomes a list the merchant already has, and the header
+     * keeps the true count beside a link to the rest so the truncation is visible rather than
+     * silent.
+     */
+    private const BOARD_COLUMN_CAP = 50;
+
+    /**
      * P2-04-7 / WS E — THE ORDER BOARD (Kanban).
      *
      * A PRESENTATION OF THE EXISTING DATA AND NOTHING ELSE. Three things it deliberately does not
@@ -2594,9 +2602,32 @@ public function store(Request $request)
          */
         $query = (new \App\DataTables\OrderDataTable())
             ->query(new Order())
-            ->with('ShippingMethod');
+            ->with(['CustomerData']);
 
-        $orders = $query->get();
+        /*
+         * THE COUNTS ARE AN AGGREGATE AND THE CARDS ARE CAPPED, and the two halves are separate
+         * on purpose.
+         *
+         * THIS USED TO BE `$orders = $query->get()` -- the WHOLE filtered result set, with no
+         * `limit` anywhere: `OrderDataTable::query()` adds only an eager load, an `orderBy` and
+         * the store predicate, and `applyFilters()` adds only `where` limbs. Each row then drew
+         * one card, and a card is not cheap: `CustomerData` lazy-loaded, `Order::find()` and
+         * `getAdminAllSetting()` inside `order_currency_format_with_sym()`, plus a
+         * `Crypt::encrypt()`. So N orders cost ~4N round trips on the one screen a busy merchant
+         * leaves open, and at volume it does not render slowly -- it exhausts memory, and a board
+         * that will not load shows ZERO orders.
+         *
+         * `toBase()->reorder()` IS LOAD-BEARING, not tidying. `query()` applies
+         * `orderBy('created_at', 'desc')`; carried into a GROUP BY that is accepted by SQLite --
+         * which is what the suite runs -- and REFUSED by MySQL under ONLY_FULL_GROUP_BY, which is
+         * what production runs. A green Feature run cannot see that, so the clause is dropped
+         * here rather than relied upon to be harmless.
+         */
+        $counts = (clone $query)->toBase()->reorder()
+            ->select('delivered_status', DB::raw('count(*) as c'))
+            ->groupBy('delivered_status')
+            ->pluck('c', 'delivered_status')
+            ->mapWithKeys(fn ($c, $s) => [(int) $s => (int) $c]);
 
         $pipeline = [
             HomeController::ORDER_STATUS_PENDING,
@@ -2614,18 +2645,34 @@ public function store(Request $request)
             HomeController::ORDER_STATUS_PRE_ORDER,
         ];
 
-        $grouped = $orders->groupBy(fn (Order $o) => (int) $o->delivered_status);
+        /*
+         * ONE BOUNDED QUERY PER NON-EMPTY BUCKET.
+         *
+         * `clone $query`, NEVER a mutated `$query`, and not `Order::query()` either. `Order` is in
+         * no `scoped_models` list and registers no `StoreScope`, so the `where('store_id', ...)`
+         * (and the `whereRaw('1 = 0')` refusal limb) that `OrderDataTable::query()` installed is
+         * the ONLY thing keeping another merchant's orders off this board -- a rebuilt builder
+         * loses it, and a mutated one stacks nine contradictory `delivered_status` predicates so
+         * every column after the first renders empty, which looks exactly like a working cap.
+         *
+         * GUARDED ON THE AGGREGATE so an empty column costs no query at all: the typical board is
+         * five orders in two statuses, and firing nine bucket queries at it would turn one query
+         * into ten to fix a problem it does not have.
+         */
+        $bucket = fn (int $status) => ($counts[$status] ?? 0) === 0
+            ? collect()
+            : (clone $query)->where('delivered_status', $status)->limit(self::BOARD_COLUMN_CAP)->get();
 
         $columns = [];
 
         foreach ($pipeline as $status) {
-            $columns[$status] = $grouped->get($status, collect());
+            $columns[$status] = $bucket($status);
         }
 
         $aside = [];
 
         foreach ($notStages as $status) {
-            $aside[$status] = $grouped->get($status, collect());
+            $aside[$status] = $bucket($status);
         }
 
         /*
@@ -2634,11 +2681,17 @@ public function store(Request $request)
          * at -- the same failure mode as a filter offering 0..6. They go to the aside with their
          * raw value named, which is visible and reportable rather than invisible.
          */
-        foreach ($grouped->keys() as $status) {
+        /*
+         * AND THE AGGREGATE IS THE DISCOVERY MECHANISM. Iterating a fixed list of nine known
+         * statuses would never ask about `delivered_status = 99`, and that order would vanish --
+         * which is the failure this loop exists to prevent, so the cap must not reintroduce it by
+         * the back door. `$counts->keys()` is every value the table actually holds.
+         */
+        foreach ($counts->keys() as $status) {
             $status = (int) $status;
 
             if (! in_array($status, $pipeline, true) && ! array_key_exists($status, $aside)) {
-                $aside[$status] = $grouped->get($status, collect());
+                $aside[$status] = $bucket($status);
             }
         }
 
@@ -2646,7 +2699,12 @@ public function store(Request $request)
             'ssColumns' => $columns,
             'ssAside' => $aside,
             'ssPipeline' => $pipeline,
-            'ssTotal' => $orders->count(),
+            // The TRUE counts, so a capped column cannot claim the cap is the whole pipeline.
+            'ssCounts' => $counts,
+            // Every status, including the aside and any unknown one: summing only the seven
+            // pipeline statuses would tell a store whose orders are all Partially Paid that it
+            // has none, and the view's empty branch would then suppress the board entirely.
+            'ssTotal' => (int) $counts->sum(),
         ] + $this->orderAttentionCounts());
     }
 

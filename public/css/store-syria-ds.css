@@ -2262,7 +2262,43 @@
     font-variant-numeric: tabular-nums;
 }
 
-.ss-board__cards { display: flex; flex-direction: column; gap: var(--ss-space-2); }
+/* THE OVERFLOW LINK, in the column header beside the count. A column is capped at
+   OrderController::BOARD_COLUMN_CAP cards, so this is the only thing that keeps the truncation
+   visible -- it is deliberately in the header rather than under the cards, because
+   `.ss-board__cards` below is its own scroll container and a signal fifty cards down an internal
+   scroller is invisible exactly when it matters.
+
+   MEASURED, not assumed: --ss-brand on --ss-surface-sunken (the column's own opaque background,
+   so there is nothing to composite) is #335da8 on #eeeff1 = 5.58:1 in light and #2ac3e5 on
+   #1f232a = 7.53:1 in dark, both clear of 4.5:1 for 13px text. Asserted in
+   OrderKanbanTest::test_the_overflow_link_meets_the_contrast_floor_on_the_column_surface.
+   No physical properties, so no RTL counterpart is needed -- and `grep -c ss-board` is 0 in both
+   public/css/custom.css and public/css/rtl-custom.css, so the board has no host-stylesheet twin
+   to mirror this into. */
+.ss-board__more {
+    font-size: var(--ss-text-sm);
+    color: var(--ss-brand);
+    text-decoration: underline;
+    white-space: nowrap;
+}
+
+/* BOUNDED IN BLOCK SIZE TOO. Fifty cards is still ~3000px, and `.ss-board` scrolls on
+   `overflow-x` only, so without this the tallest column sets the whole row's height and scrolls
+   its own header -- and its count -- off the screen. `max-height`/`overflow-y` are physical in
+   name only: neither flips with writing direction, which is why
+   DesignSystemStylesheetScopeTest's PHYSICAL_TO_LOGICAL list does not carry them.
+
+   The sibling `position: sticky` header that was drafted alongside this is DELIBERATELY NOT HERE:
+   `.ss-board__head` is a SIBLING of this scroll container, not a descendant, so it could never
+   stick within the column, and the opaque background such a rule needs would have bought the F8
+   off-colour band risk for no reader at all. */
+.ss-board__cards {
+    display: flex;
+    flex-direction: column;
+    gap: var(--ss-space-2);
+    max-height: 70vh;
+    overflow-y: auto;
+}
 
 .ss-board__none {
     margin: 0;
