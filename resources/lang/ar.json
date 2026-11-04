@@ -3352,6 +3352,8 @@
     "Needs follow-up": "يحتاج متابعة",
     "Nothing on this page changes an order, a payment status or stock. Settling one of these requires confirmation from the payment provider.": "لا شيء في هذه الصفحة يغيّر طلباً أو حالة دفع أو مخزوناً، وتسوية أي منها تتطلب تأكيداً من مزوّد الدفع.",
     "No store is selected, so collected payments cannot be reviewed.": "لم يُحدَّد أي متجر، لذلك لا يمكن مراجعة المدفوعات المحصَّلة.",
+    "Approve this withdrawal request?": "هل تريد الموافقة على طلب السحب هذا؟",
+    "Confirm that this withdrawal has been paid?": "هل تؤكد أن هذا السحب قد تم دفعه؟",
     "product is out of stock|products are out of stock": "{0} منتجات نفدت من المخزون|{1} منتج نفد من المخزون|{2} منتجان نفدا من المخزون|[3,10] منتجات نفدت من المخزون|[11,99] منتجًا نفد من المخزون|[100,*] منتج نفد من المخزون",
     "This order is already being created. Please wait a moment and check your orders.": "هذا الطلب قيد الإنشاء بالفعل. يُرجى الانتظار لحظة ثم مراجعة طلباتك.",
     "Skip to main content": "الانتقال إلى المحتوى الرئيسي",
