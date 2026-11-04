@@ -455,9 +455,31 @@ class ProductShowReadOnlyLockTest extends SecurityTestCase
     public function test_the_variant_delete_affordances_are_deliberately_left_live(): void
     {
         /*
-         * F184 / D-28c: the per-variant trash button and the image-remove control are anchors,
-         * outside every selector the locker uses, and the owner's confirmation dialog is the
-         * control there. Pinned so the next reader does not "finish" the repair by locking them.
+         * F184 / D-28c: both trash affordances on this screen are anchors, outside every selector
+         * the locker uses, so the lock deliberately leaves them alone. Pinned so the next reader
+         * does not "finish" the repair by locking them.
+         *
+         * CORRECTED after independent review -- the two are NOT in the same state, and an earlier
+         * version of this comment claimed both were live and both governed by the dialog:
+         *
+         *   - the per-variant trash button IS governed by the dialog. Its delegated handler ships
+         *     inside `attribute_combinations_data.blade.php` itself, so it is live wherever that
+         *     partial is injected. On THIS route the panel renders EMPTY -- the view posts
+         *     `$('#choice_form').serialize()` and no `id="choice_form"` exists anywhere in
+         *     resources/views, so no id reaches the endpoint and `Product::find(null)` is empty.
+         *     Measured by this file's own test at the attribute_combination_data endpoint. So it
+         *     is LATENT here, and the dialog include is defensive.
+         *
+         *   - the product-image trash button (`.deleteRecord`, show.blade.php:267) is INERT on
+         *     this screen. Its only two bindings are `product/create.blade.php:773` (direct) and
+         *     `product/edit.blade.php:987` (delegated but inside edit's own pushed script), and
+         *     neither script loads on `show`. There is no global binding -- grepped across
+         *     public/ and resources/views/. Clicking it here does nothing, and the `<a>` has no
+         *     href. It is therefore NOT governed by the confirmation dialog, because there is
+         *     nothing to confirm.
+         *
+         * The assertions below do not depend on either state, which is exactly why the wrong
+         * prose survived: nothing failed.
          */
         $source = $this->raw();
 

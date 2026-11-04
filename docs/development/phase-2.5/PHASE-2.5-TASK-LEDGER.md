@@ -639,6 +639,75 @@ that returns "done" is not evidence that it did the work; the agent count is.
 
 ---
 
+## 3i. Independent authorization review of the refund and product-show repairs (2026-11-04)
+
+Run per CLAUDE.md's standing rule for any change touching an order. **Verdict: safe as committed,
+no blocker** — neither change introduces an authorization, tenancy, state-transition or money
+defect, and both are strictly narrowing or neutral on reachability. It traced `refund_status` to
+every writer (four literals, no request value reaches the column) and confirmed all five AJAX
+routes carry their own operator-first permission check *and* a store predicate, so **no route's
+only protection was the hidden button**.
+
+Two findings are worth more than their severity, and both are recorded as their own rows rather
+than folded into a shipped repair.
+
+### Three authored 500 messages are now unreachable, and they are the ones that matter
+
+`refundDenied()` writes `'The stock could not be restored. Nothing was changed.'`,
+`'The refund could not be cancelled. Nothing was changed.'` and `'The refund could not be
+recorded. Nothing was changed.'` at HTTP 500. The new handler trusts the server body only for
+403/404/409/422 — deliberately, because trusting a 500 body would surface Laravel's
+`"CSRF token mismatch."` and, under `APP_DEBUG=true`, a raw exception message. That suppression is
+the security-positive half of the design. But on a money path *"Nothing was changed"* is the
+sentence the merchant needs, and they now get the generic fallback instead.
+
+This is **not a regression** — four of the five calls showed nothing at all before, and the fifth
+showed its own hard-coded string — but it is an unrealised opportunity, and the status code cannot
+distinguish an authored refusal from a framework crash. The honest fix is for `refundDenied()` to
+**mark its own responses** (a flag in the JSON) so the client can trust an authored body at any
+status. That changes a controller on a money path, so it is its own row, not a drive-by.
+
+### The read-only product screen can still create an attribute option
+
+`show.blade.php`'s "Add Attribute Option" anchor carries `data-ajax-popup="true"`, which
+`public/js/custom.js:35` binds with a **document-level delegated handler**, and the modal it opens
+is appended *outside* `#ss-product-show` — so the new lock can never reach it. Server-side it is
+properly gated (`Create Attributes Option` plus an ownership check plus a `store_id` stamped from
+`getCurrentStore()`), so this is a **read-only-screen honesty problem, not an authorization hole**.
+Hiding the one anchor is the fix. Its own row.
+
+Also recorded as hardening, not a defect: the page needs `Show Order` while the handlers need
+`Manage Order Refund Request`, so a colleague with only `Show Order` sees four live-looking
+controls and now receives a **visible** 403 where they previously got silence. That is the repair
+working. Gating the bar at render time on the handler's permission is the honest fix and is
+deliberately out of scope for a P2.5 repair.
+
+### Two prose errors the review caught, corrected in this commit
+
+The review found documentation that was simply wrong, in a place where **nothing failed** — which
+is why it survived. Both trash affordances on the read-only screen were described as live and both
+as governed by the confirmation dialog. Measured:
+
+| affordance | real state on `show` | why |
+|---|---|---|
+| per-variant trash button | **latent** | its delegated handler ships inside the injected partial, so the mechanism is live — but the panel renders EMPTY here, because the view posts `$('#choice_form').serialize()` and no `id="choice_form"` exists anywhere in `resources/views`, so `Product::find(null)` returns nothing |
+| product-image trash button | **inert** | `.deleteRecord` is bound only at `product/create.blade.php:773` and `product/edit.blade.php:987`, neither of which loads on `show`; grepped across `public/` and `resources/views/` for a global binding — there is none |
+
+So the dialog governs one of them and has nothing to confirm on the other. Corrected in
+`_variant-delete-dialog.blade.php` and in the Feature test's docblock, with the measurement
+attached. The same comment had also gone stale on the lock itself, still describing the
+document-wide `$('input')` sweep this phase replaced.
+
+### And a guard that caught its own documentation
+
+Annotating the two retained `localStorage` writes ("write retained, reader deleted") **failed the
+test suite**: the note quoted the old reader call verbatim, and
+`test_no_browser_global_localstorage_key_decides_what_the_merchant_can_reach` scans the raw source
+for that literal with no comment stripping. Reworded rather than loosening the scan — a ratchet
+strict enough to catch a comment is a ratchet doing its job, and the note now says so in place.
+
+---
+
 ## 4. Not yet started
 
 Wave C (remaining merchant screens), the rest of Wave D, and Wave E (cross-platform quality). The

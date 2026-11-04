@@ -423,6 +423,19 @@
                 success: function(response) {
                     $('#loader').fadeOut();
                     $('#manage-button').hide();
+                    /* WRITE RETAINED, READER DELETED. Nothing reads this key any more. The
+                       reader that used to hide #manage-button from it is gone, because the key is
+                       browser-global rather than per-refund -- one merchant's click changed what
+                       they saw on every OTHER refund, and clearing site data restored buttons for
+                       work already done. Visibility is now decided solely by the server-rendered
+                       `refund_status` pass. The write is left in place because removing it is a
+                       behaviour change to a money path for no gain: dead state, not a live
+                       dependency. Do not go looking for the consumer.
+
+                       This note deliberately does NOT quote the old reader call. The guard at
+                       RefundActionBarHierarchyTest::test_no_browser_global_localstorage_key_decides_what_the_merchant_can_reach
+                       scans the raw source for that literal with no comment stripping, so quoting
+                       it here fails the test -- which is the guard working, not a flaw in it. */
                     localStorage.setItem('manageButtonClicked', 'true');
                     show_toastr('Success', response.message, 'success');
                 },
@@ -517,6 +530,10 @@
                         $('#loader').fadeOut();
                         if (response.status === 'Refunded') {
                             $('#refund-amount').hide();
+                            /* WRITE RETAINED, READER DELETED -- same as the note on the
+                               manage-stock key above. The reader that hid #refund-amount from
+                               this key is gone; `refund_status` governs it now. Dead state,
+                               deliberately left. */
                             localStorage.setItem('refundedClicked', 'true');
                             show_toastr('Success', response.message, 'success');
                         } else {

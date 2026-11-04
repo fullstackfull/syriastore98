@@ -3,17 +3,32 @@
     BUTTON.
     =============================================================================================
 
-    THREE SCREENS RENDER THE VARIANT PANELS AND ALL THREE HAVE LIVE TRASH BUTTONS: the product
-    editor (`product/edit.blade.php`), the READ-ONLY product view (`product/show.blade.php`), and
-    the vendored **AuctionProduct** module's edit screen, which calls the same two first-party
-    routes (`products.attribute_combination_data` / `..._edit`) and so renders the same two
-    partials. `show.blade.php`'s `$('input').attr('readonly', true)` sweep runs before that
-    injection and never touches an `<a>`, so the delete has always been live on a screen the
-    merchant opens to look rather than to change.
+    THREE SCREENS RENDER THE VARIANT PANELS: the product editor (`product/edit.blade.php`), the
+    READ-ONLY product view (`product/show.blade.php`), and the vendored **AuctionProduct** module's
+    edit screen, which calls the same two first-party routes
+    (`products.attribute_combination_data` / `..._edit`) and so renders the same two partials.
+    The trash button's delegated handler ships inside `attribute_combinations_data.blade.php`
+    itself, which is why it is live wherever that partial is injected and why this dialog has to
+    be shared rather than pushed from one screen.
 
-    (The read-only screen's live delete is recorded as an observation rather than removed: the
-    owner's condition is that a deletion be confirmed, not that a capability be withdrawn, and
-    removing a control a merchant may be using is a product decision.)
+    CORRECTED after independent review. An earlier version of this comment said all three screens
+    "have LIVE trash buttons" and that `show.blade.php`'s delete "has always been live". That
+    overstates the read-only screen. On that route the panel renders **EMPTY**: the view posts
+    `$('#choice_form').serialize()`, no `id="choice_form"` exists anywhere in `resources/views`,
+    so no id reaches the endpoint and `Product::find(null)` returns nothing. Measured by
+    `tests/Feature/Merchant/ProductShowReadOnlyLockTest.php` against the real endpoint. So on
+    `show` the variant delete is **LATENT, not live**, and this include is defensive -- correct to
+    keep, because the panel would become populated the moment that id is wired up or a module
+    pushes into one of the four `@stack` hooks inside the locked scope.
+
+    Also corrected: that comment described `show.blade.php`'s lock as the old document-wide
+    `$('input').attr('readonly', true)` sweep. It is now `ssLockProductShow()`, scoped to
+    `#ss-product-show` and re-run after each async injection -- it still never touches an `<a>`,
+    so this dialog remains the control for the trash button either way.
+
+    (The read-only screen keeping a delete capability at all is recorded as an observation rather
+    than removed: the owner's condition is that a deletion be confirmed, not that a capability be
+    withdrawn, and removing a control a merchant may be using is a product decision.)
 
     WHY THIS IS INLINE AND IDEMPOTENT RATHER THAN `@push`ed, AND IT IS THE REVIEW'S CORRECTION.
     ---------------------------------------------------------------------------------------------
