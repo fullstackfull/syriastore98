@@ -113,7 +113,7 @@ class StoreController extends Controller
     if ($validator->fails()) {
         $messages = $validator->getMessageBag();
 
-        return redirect()->back()->with('error', $messages->first());
+        return redirect()->back()->with('error', implode(' ', $messages->all()));
     }
 
     /*
@@ -475,7 +475,7 @@ foreach ($defaultCurrencies as $currency) {
             if ($validator->fails()) {
                 $messages = $validator->getMessageBag();
 
-                return redirect()->back()->with('error', $messages->first());
+                return redirect()->back()->with('error', implode(' ', $messages->all()));
             }
             $slug = User::slugs($request->storename);
 
@@ -548,7 +548,7 @@ foreach ($defaultCurrencies as $currency) {
             );
             if ($validator->fails()) {
                 $messages = $validator->getMessageBag();
-                return redirect()->back()->with('error', $messages->first());
+                return redirect()->back()->with('error', implode(' ', $messages->all()));
             }
             $enable_storelink = Utility::GetValueByName('enable_storelink', $store->id);
             $enable_domain = Utility::GetValueByName('enable_domain', $store->id);

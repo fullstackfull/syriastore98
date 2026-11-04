@@ -93,7 +93,7 @@ class UserController extends Controller
             if ($validator->fails()) {
                 $messages = $validator->getMessageBag();
 
-                return redirect()->back()->with('error', $messages->first());
+                return redirect()->back()->with('error', implode(' ', $messages->all()));
             }
 
             $user = \Auth::user();

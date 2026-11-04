@@ -1303,7 +1303,7 @@ if ($mayChangeRouting && $request->enable_domain === 'enable_subdomain') {
             // fails() are touched -- :266, :336, :603 and :611 build a validator and never
             // consult it, and activating any of them would refuse posts that succeed today.
             return redirect()->back()
-                ->with('error', $messages->first())
+                ->with('error', implode(' ', $messages->all()))
                 ->withErrors($validator)
                 ->withInput($request->except(['_token', 'password', 'password_confirmation']));
         }

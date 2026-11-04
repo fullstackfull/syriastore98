@@ -61,7 +61,7 @@ class BlogController extends Controller
             if($validator->fails())
             {
                 $messages = $validator->getMessageBag();
-                return redirect()->back()->with('error', $messages->first());
+                return redirect()->back()->with('error', implode(' ', $messages->all()));
             }
             $dir        = 'uploads/' . getCurrentStore();
             if($request->cover_image) {
@@ -144,7 +144,7 @@ class BlogController extends Controller
             if($validator->fails())
             {
                 $messages = $validator->getMessageBag();
-                return redirect()->back()->with('error', $messages->first());
+                return redirect()->back()->with('error', implode(' ', $messages->all()));
             }
 
             $blog = Blog::find($id);

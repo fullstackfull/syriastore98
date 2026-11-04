@@ -55,7 +55,7 @@ class PixelFieldsController extends Controller
 
         if ($validator->fails()) {
             $messages = $validator->getMessageBag();
-            return redirect()->back()->with('error', $messages->first());
+            return redirect()->back()->with('error', implode(' ', $messages->all()));
         }
 
         $pixel_fields = new PixelFields();
@@ -113,7 +113,7 @@ class PixelFieldsController extends Controller
 
         if ($validator->fails()) {
             $messages = $validator->getMessageBag();
-            return redirect()->back()->with('error', $messages->first());
+            return redirect()->back()->with('error', implode(' ', $messages->all()));
         }
 
         $pixelFields->platform = $request->platform;

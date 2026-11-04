@@ -44,7 +44,7 @@ class WebhookController extends Controller
 
         if ($validator->fails()) {
             $messages = $validator->getMessageBag();
-            return redirect()->back()->with('error', $messages->first());
+            return redirect()->back()->with('error', implode(' ', $messages->all()));
         }
 
         // P1-SEC-33: the address and method are judged now by the same rule the sender applies, so a refusal is visible to the merchant here
@@ -98,7 +98,7 @@ class WebhookController extends Controller
         );
         if ($validator->fails()) {
             $messages = $validator->getMessageBag();
-            return redirect()->back()->with('error', $messages->first());
+            return redirect()->back()->with('error', implode(' ', $messages->all()));
         }
 
         if (! \App\Services\SafeWebhook::allows((string) $request->webbbook_url, (string) $request->method)) {

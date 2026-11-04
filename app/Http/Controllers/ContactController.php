@@ -115,7 +115,7 @@ class ContactController extends Controller
             if($validator->fails())
             {
                 $messages = $validator->getMessageBag();
-                return redirect()->back()->with('error', $messages->first());
+                return redirect()->back()->with('error', implode(' ', $messages->all()));
             }
             $contact->first_name     = $request->first_name;
             $contact->last_name      = $request->last_name;
