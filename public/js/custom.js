@@ -292,6 +292,53 @@ function ss_announce_transient(message, assertive) {
     window.setTimeout(function () { region.textContent = String(message); }, 50);
 }
 
+/**
+ * MAY AN ERROR TOAST BE DESTROYED ON A TIMER HERE? Not in the merchant admin, and yes everywhere
+ * else -- and the asymmetry is the point.
+ *
+ * `notifier.js` ends `show()` in `timeout > 0 && setTimeout(function(){hide(ntfId)}, timeout)`,
+ * and `hide()` strips ` shown` and then `removeChild`s the node 600ms later. So a 4000ms timeout
+ * DESTROYS the message, and `layouts/app.blade.php` has already run `Session::forget('error')` in
+ * the same render that emitted it -- a merchant who looked away loses the reason their save
+ * failed for good, and a reload does not bring it back. WCAG 2.2.1 exempts a time limit only
+ * above 20 hours or when it is adjustable; 4000ms is neither.
+ *
+ * BUT THIS FILE IS NOT ADMIN-ONLY, which is why the fix is gated rather than unconditional. Five
+ * live surfaces pull `public/js/custom.js` with NO `show_toastr` of their own -- `payment/
+ * whatsapp`, `payment/telegram`, `payment/khalti`, `DPO/pay` and the vendored `LandingPage` public
+ * layout. Making errors permanent for all of them would change customer checkout and the public
+ * website, which this slice does not authorise. `#commanModelOver` is declared by
+ * `resources/views/layouts/app.blade.php` and by no other loader of this file, so it is the
+ * admin-chrome signal; `window.ss_persist_errors` overrides it either way for a surface that
+ * wants to opt in or out explicitly.
+ */
+function ss_errors_persist() {
+    if (window.ss_persist_errors === true) { return true; }
+    if (window.ss_persist_errors === false) { return false; }
+
+    return !!document.getElementById('commanModelOver');
+}
+
+/**
+ * THE CAP IS NOT OPTIONAL ONCE ERRORS PERSIST. `notifier.css` gives `.notifier-container` no
+ * `max-height` and no `overflow`, and each `.notifier` is `min-height:62px;margin-bottom:12px`, so
+ * a merchant retrying a failing save a dozen times builds a fixed column taller than the viewport
+ * whose lowest toasts cannot be reached -- and the only dismiss control is a 16x16
+ * `.notifier-close` whose whole content is `innerHTML = "&times;"`.
+ *
+ * REMOVED SYNCHRONOUSLY, NOT THROUGH `notifier.hide()`, for two measured reasons: the plugin only
+ * assigns the node its id 100ms after creation, so an id-based hide silently no-ops on rapid-fire;
+ * and `hide()` queues a `removeChild` 600ms later that would throw against a null `parentNode` if
+ * the user had already clicked close in the meantime.
+ */
+function ss_cap_error_stack(keep) {
+    var stack = document.querySelectorAll('.notifier-container .notifier.danger');
+
+    for (var k = 0; k < stack.length - keep; k++) {
+        if (stack[k].parentNode) { stack[k].parentNode.removeChild(stack[k]); }
+    }
+}
+
 function show_toastr(title, message, type) {
     var o, i;
     var icon = '';
@@ -301,7 +348,9 @@ function show_toastr(title, message, type) {
         notifier.show('Success', message, 'success', site_url + '/public/assets/images/notification/ok-48.png', 4000);
     } else {
         cls = 'danger';
-        notifier.show('Error', message, 'danger', site_url + '/public/assets/images/notification/high_priority-48.png', 4000);
+        var persist = ss_errors_persist();
+        if (persist) { ss_cap_error_stack(3); }
+        notifier.show('Error', message, 'danger', site_url + '/public/assets/images/notification/high_priority-48.png', persist ? 0 : 4000);
     }
 
     // The toast is visual only; this is the same message for anyone who cannot see it.
