@@ -1134,6 +1134,98 @@ earlier measurement inject its own markup.
 
 ---
 
+## 3o. The validation-refusal sweep the owner asked NOT to be a sweep (2026-11-04)
+
+Owner priority 6: *"Do not blindly change all 194 remaining `messages->first()` sites. Verify the
+actual defect and handle only justified cases."*
+
+### The census I was carrying was wrong, so it was re-measured
+
+| | |
+|---|---|
+| **213** | sites under `app/` (not 194) |
+| **121** | under `Api/` or `*ApiController` — the Flutter contract. Public API compatibility, owner escalation only. **Untouched.** |
+| **43** | of the 92 web sites are **single-field**: the join is byte-identical to `first()` for every possible request. Not a defect. |
+| **49** | real candidates, classified by **running `Validator::make` and counting the bag**, never by counting rule keys |
+| **34** | repaired (25 + 9), in two commits |
+
+A blind sweep of 213 would have been mostly wasted or harmful edits — which is what the owner's
+instruction was protecting against, and the measurement bears it out.
+
+### Six census errors of mine, every one found by measurement
+
+1. **`AppSettingController`.** I recorded `:588 ThemeSettings, 3 fields`. That line is
+   `$validator->errors()->first()` — a *different expression*, max **one** message, already
+   carrying `withErrors`+`withInput`. The file's real `$messages->first()` is at **:1306**, which my
+   regex missed because it conflated the two forms and attributed a nearby validator's field count
+   to the wrong site.
+2. **`StoreController::store()`** is observable only on its **super-admin** branch: `store()` picks
+   its validator by `users.type` and the merchant branch carries one rule.
+3. **`ShippingZoneController:118` is 2 messages, not 4** — two of the four rule keys are `nullable`
+   and can never produce a message.
+4. **"CLAUDE.md records two password sites."** **It does not.** That claim was unsupported and I
+   should not have put it in a brief. The real ones (`StoreController:750`,
+   `UserController:386/429/493`) were found by measurement and *are* excluded: their two messages
+   restate each other. A test pins both that they are untouched and that they really do duplicate.
+5. **Ten settings sites, not nine** — `:1362` was missing.
+6. **`shopifySettings` is observable at 2, not inert** — and **a test caught this one**, not
+   inspection. My scratch parse read the rule array out of the source and stopped at the P1-SEC-06
+   comment sitting inside it. Driven, the bag is 2.
+
+### Two traps that would have broken working code
+
+**Four of the nine settings validators are CONDITIONAL**, wrapped in
+`if (isset($request->X_setting_enabled) && … == 'on')`. A test posting `[]` never reaches them — so
+it fails for the wrong reason, or, had it asserted the *absence* of an error, **passes vacuously**.
+Every driven row now carries exactly the payload that reaches its validator.
+
+**Two dormant-validator files.** `AppSettingController` builds 6 and consults 2;
+`SettingController` builds **12** and consults **11**, the dormant one being `CookieSettings`
+(`:741`, whose next `fails()` at `:860` belongs to `RecaptchaSetting`'s validator at `:859`).
+Giving either a guard would start **refusing posts that succeed today**. Both are pinned by count.
+
+### One inclusion and one exclusion, both flagged rather than buried
+
+**`CurrencyController` :51/:104 are a PLATFORM OPERATOR surface, not a merchant one** —
+`'Create currency'` sits in `Utility.php`'s `$superadminNewPermission` and not in the company list,
+`index()` demands `type == 'super admin'`, and `currency` has no `store_id`. Phase 06 territory by
+the approved plan; repaired before that was established, and correct, driven and bitten. The scope
+call is the owner's and the record says so rather than letting it pass as merchant scope.
+
+**`SettingController::customMassage` :1269 is NOT repaired, and the reason is a security finding.**
+It writes `settings` rows, and its only live route is `routes/customer.php:188`, in a group
+carrying just `[ActiveTheme, 'themelanguage']` — **no auth, no permission** — while
+`routes/web.php:1066` holds a commented-out route to a different controller's method of the same
+name. Every sibling here is gated on `StoreSettingsAccess::permits()`; this one on nothing. It is
+not an *anonymous* write only because `Auth::user()->id` at `:1289` throws before `updateOrCreate`
+reaches the database. The live exposure: **any authenticated `web` user — a staff member with no
+Settings permission — can overwrite their own store's WhatsApp template.** Adding a gate is an
+authorization change, so it is escalated. The test pins the site untouched **and** asserts its route
+still carries no `Authenticate` middleware, so adding a gate reddens it and the site can then be
+repaired with the rest.
+
+### And a process failure of mine worth recording
+
+**Two of the five chains were discarded by schema caps I set on their own report fields** —
+`census_corrections` at 1600 and `repair_plan` at 1200, overflowed by 51 and 8 characters. One
+chain's work survived on disk with its report lost; the other (the settings group, the
+highest-value one) died before touching anything and was redone by hand. This is the **second**
+time in this session a cap destroyed completed work. The lesson is not "raise the cap" but **do not
+cap a prose field that carries corrections** — the corrections are the most valuable thing a chain
+returns, and they are exactly what overflows.
+
+### My own bites, over and above the per-group ones
+
+Reverting **all 25** of the first batch at once reddens **32 of 56**; reverting the **9** settings
+expressions reddens **10 of 14**. Restoring greens both. The cases that stay green are the
+deliberate controls, and they were green *before* each fix too.
+
+Measured shape of the first batch: **15 files, 25 insertions, 25 deletions, all 25 added lines are
+the one expression, and zero changed lines are anything else.**
+
+
+---
+
 ## 4. Not yet started
 
 Wave C (remaining merchant screens), the rest of Wave D, and Wave E (cross-platform quality). The
