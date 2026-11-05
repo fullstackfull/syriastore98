@@ -66,14 +66,22 @@ use RecursiveIteratorIterator;
 class ModalSurfaceAccessibilityTest extends TestCase
 {
     /**
-     * LOWERED 127 -> 21 BY WAVE 26, which is what the ratchet asked for. 106 of the 127 sites now
-     * name the control they describe; the 21 that remain are the ones an analyser must not guess
-     * at -- a label with no `Form::` control before the next label, which means either raw HTML
-     * or a control GROUP that needs a fieldset or an aria-label rather than a `for`.
+     * LOWERED 127 -> 21 -> 18 BY WAVE 26. 109 of the 127 sites now name the control they describe.
+     *
+     * THE 18 THAT REMAIN WERE READ, not left as a residue, and they split three ways:
+     *   - GROUP CAPTIONS that are `<label>` but name no single control -- "Stock Management" over
+     *     a pair of fields, "Shipping" over a checkbox that already has its own label, "Theme"
+     *     over a search box and a picker. The repair is a `<fieldset><legend>` or a labelled
+     *     group, NOT a `for`, and that is a markup decision rather than a rename.
+     *   - product/create:111 "Tax Status", which this repository ALREADY records as P3-06: its
+     *     control's id is `tax_id` and duplicates the tax multiselect above it, so a `for` would
+     *     name the wrong element. Deliberately untouched, with the reason in the view itself.
+     *   - the wishlist Status switches, raw markup where a hidden input and a checkbox share
+     *     `name="status"` and only one carries an id. SwitchAccessibleNameTest pins those two.
      *
      * It may fall further. It must never rise.
      */
-    private const EMPTY_LABEL_CEILING = 21;
+    private const EMPTY_LABEL_CEILING = 18;
 
     public function test_the_permission_grid_meets_the_target_minimum(): void
     {

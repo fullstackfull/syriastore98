@@ -25,14 +25,6 @@
  },
  {
   "file": "resources/views/product/create.blade.php",
-  "line": 77,
-  "caption": "Tags",
-  "controls": [],
-  "verdict": "AMBIGUOUS",
-  "why": "no control found before the next label"
- },
- {
-  "file": "resources/views/product/create.blade.php",
   "line": 111,
   "caption": "Tax Status",
   "controls": [],
@@ -57,14 +49,6 @@
  },
  {
   "file": "resources/views/product/edit.blade.php",
-  "line": 133,
-  "caption": "Tags",
-  "controls": [],
-  "verdict": "AMBIGUOUS",
-  "why": "no control found before the next label"
- },
- {
-  "file": "resources/views/product/edit.blade.php",
   "line": 247,
   "caption": "Stock Management",
   "controls": [],
@@ -75,14 +59,6 @@
   "file": "resources/views/product/edit.blade.php",
   "line": 252,
   "caption": "Stock Management",
-  "controls": [],
-  "verdict": "AMBIGUOUS",
-  "why": "no control found before the next label"
- },
- {
-  "file": "resources/views/product/show.blade.php",
-  "line": 109,
-  "caption": "Tags",
   "controls": [],
   "verdict": "AMBIGUOUS",
   "why": "no control found before the next label"
