@@ -497,3 +497,60 @@ ever relies on it. Recorded with the evidence so the decision can be taken delib
 stays, its copy needs the translator and a proofread; if it goes, the include and the partial go
 together.
 
+
+### F-DESIGN-10 — the red `composer audit` step is MASKING NINE OTHER CI GUARDS, which have not run since it went red
+
+This is a consequence of `composer audit must not grow` that the earlier write-ups of that failure
+— including the PR comment on #130 — described only as a count. It is not.
+
+A GitHub Actions step defaults to `if: success()`, so **every step after the first failure in a
+job is skipped.** `composer audit must not grow` is step **7 of 18** in `Static checks (no vendor
+needed)`. Measured on job `127006559585` (`9ad85b3b`):
+
+```
+success  composer audit (locked set, no install)
+failure  composer audit must not grow          <- step 7
+skipped  Guard - test-database isolation is intact
+skipped  Guard - the known .env exposure is reported, and no new one appeared
+skipped  Guard - the attestation gate behaves as specified
+skipped  Guard - GATE F money tables are still created by nothing
+skipped  Guard - packages/workdo/ is unmodified
+skipped  Guard - no NEW user upload is committed to the repository root
+skipped  php -l on changed PHP files
+skipped  php -l on EVERY tracked PHP file
+skipped  Design-system token contrast must stay WCAG-conformant
+skipped  Cross-repo API contract - the shipped Flutter app must not be broken
+skipped  Admin API auth coverage must not regress
+```
+
+**Two of the eleven are covered elsewhere and nine are not.** Checked step-by-step across every
+job of a completed run (`41952725436`):
+
+| step | also runs in |
+|---|---|
+| `Guard - test-database isolation is intact` | both `Tests` jobs |
+| `Guard - GATE F money tables are still created by nothing` | one `Tests` job |
+| **the other nine** | **nowhere else in the workflow** |
+
+So since the advisory count passed the ceiling, **no commit has been checked** by: the `.env`
+exposure guard, the attestation-gate guard, **`packages/workdo/` is unmodified**, **no new user
+upload is committed to the repository root**, either `php -l` pass, the **design-system token
+contrast** gate, the **cross-repo Flutter API contract** check, or **admin API auth coverage must
+not regress**.
+
+Several of those are the controls this project built specifically to protect itself, and two of
+them — the vendored-code guard and the uploads guard — were themselves repaired in #125 precisely
+because they had been *reporting success without measuring anything*. They are now not reporting
+at all.
+
+**It applies to `main` too.** `composer.lock` is byte-identical on both (blob
+`27f8d118e08cd75ada473444f72c5c64b1bd52a3`), so a run on `main` today fails at the same step and
+skips the same nine. `main`'s last CI run was 2026-11-03, before the advisories were published, so
+this has never been visible there.
+
+**Not changed here.** The remedies are the owner's: raise `AUDIT_CEILING` (forbidden by a standing
+directive — it was *lowered* 70→58 for that reason), update the lock, or make this step
+non-blocking / move it last so a growing external database cannot mask nine internal guards. The
+last of those is the only one that removes the masking without touching either the ceiling or the
+lock, and it is a workflow change outside this phase's authorisation.
+
