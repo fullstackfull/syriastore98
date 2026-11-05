@@ -3098,7 +3098,13 @@ if (! function_exists('buildDataTable')) {
                  * inline-start side in both directions, so the semantic word is correct in Arabic
                  * even where the glyph is not.
                  */
-                "paginate" => [
+                /* P2.5-WAVE-8. The translation EXISTED and was not being asked for: ar.json:931
+               carries "Processing": "المعالجة", but with no `processing` entry here DataTables
+               falls back to its own built-in English, so every Arabic page said "Processing...".
+               The ellipsis is appended rather than translated -- it is punctuation, and putting
+               it inside the key would have needed a second entry in both files to say nothing. */
+            "processing" => __('Processing') . '...',
+            "paginate" => [
                     "next" => '<i class="ti ti-chevron-right"></i><span class="ss-visually-hidden">' . __('Next') . '</span>',
                     "previous" => '<i class="ti ti-chevron-left"></i><span class="ss-visually-hidden">' . __('Previous') . '</span>'
                 ],
