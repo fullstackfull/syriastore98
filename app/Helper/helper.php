@@ -3112,6 +3112,29 @@ if (! function_exists('buildDataTable')) {
                 "searchPlaceholder" => __('Search...'),
                 "search" => "",
                 "info" => __("Showing")." _START_ ".__("to"). " _END_ ".__("of")." _TOTAL_ ".__("entries"),
+
+                /* P2.5-WAVE-9. `info` ALONE IS NOT THE INFO LINE. DataTables swaps in a different
+                   key depending on the state of the table, and only one of the three was ever
+                   translated. Measured on the Arabic build:
+
+                       /product  32 rows   sInfo        -> "تظهر 1 إلى 10 من 32 إدخالات"   correct
+                       /coupon    0 rows   sInfoEmpty   -> "Showing 0 to 0 of 0 entries"   ENGLISH
+                       any search           sInfoFiltered -> "(filtered from _MAX_ ...)"   ENGLISH
+
+                   `infoEmpty` is what an EMPTY list shows -- which is the first screen a new
+                   merchant ever sees -- and `infoFiltered` is appended the moment anyone types in
+                   the search box. Both were falling through to the library's built-in English on
+                   a fully Arabic page. `infoEmpty` needs no new translation at all: it is the
+                   same four keys with literal zeroes. */
+                "infoEmpty" => __("Showing")." 0 ".__("to")." 0 ".__("of")." 0 ".__("entries"),
+                "infoFiltered" => "(".__("filtered from")." _MAX_ ".__("total entries").")",
+
+                /* AND `loadingRecords` DEFAULTS TO `zeroRecords` IN DATATABLES ITSELF, which with
+                   P2.5-WAVE-2's richer empty state means a table that is still LOADING announces
+                   "Nothing matches your search or filters. Clear them to see everything again."
+                   -- a filter result, stated before any result exists. Measured: sLoadingRecords
+                   carried the zeroRecords markup verbatim. */
+                "loadingRecords" => __("Loading")."...",
                 // P2-06-11. Without these two, every table showed DataTables' English defaults --
                 // in Arabic too. See dataTableEmptyState() for why they are different messages.
                 "emptyTable" => dataTableEmptyState($tableId)['emptyTable'],
