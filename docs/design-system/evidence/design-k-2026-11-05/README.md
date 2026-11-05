@@ -84,10 +84,26 @@ The refusal was right: **12 switches were measured and some hundreds were not.**
 `.ss-dt-card-body .form-switch .form-check-input` — the design system's own table card, which is
 the container all 12 sit in.
 
-**What that leaves, stated rather than implied.** The same three screens hold **27** switches in
-total; **15** live in filter panels that are closed at rest. Those keep the host's `em` sizing and
-will measure 28 × 17.5 when their panel is opened. They were not measured in that state and are
-**not fixed here**.
+**What that leaves — and the first version of this section got it wrong twice.** It said the
+remaining 15 switches "live in filter panels that are closed at rest". They do not. They are
+**five** switches in `partision/settingPopup.blade.php`, a notification modal that
+`layouts/app.blade.php:669` includes on **every** admin page — counted three times because three
+screens were scanned.
+
+Forced open and measured under the full SC 2.5.8 rule:
+
+| switch | size | nearest other target | conforms |
+|---|---|---:|---|
+| 1 | 28 × 17.5 | 66.6px | **yes**, spacing exception |
+| 2 | 28 × 17.5 | 9.9px | no |
+| 3 | 28 × 17.5 | 32.1px | **yes**, spacing exception |
+| 4 | 28 × 17.5 | 0px | no |
+| 5 | 28 × 17.5 | 43.3px | **yes**, spacing exception |
+
+**The remainder is two, not fifteen.** And nothing can open the modal: no `data-bs-target`, `href`
+or `data-target` anywhere points at `#notification-modal` — not in `resources/views/`, not in
+first-party JS, not in the rendered DOM, and not in the 70 vendored modules. Those two targets are
+unreachable. Recorded as **F-DESIGN-9**, not fixed.
 
 ## 7. Tests
 

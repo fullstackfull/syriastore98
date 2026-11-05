@@ -1875,10 +1875,22 @@
    right: 12 switches were measured and some hundreds were not. `.ss-dt-card-body` is the
    container the measured ones sit in, and it covers all 12.
 
-   WHAT THAT LEAVES, stated rather than implied: the same three screens hold 27 switches in total,
-   and 15 of them live in filter panels that are closed at rest. Those keep the host's `em` sizing
-   and will measure 28 x 17.5 when their panel is opened. They were NOT measured in that state and
-   are therefore not fixed here.
+   WHAT THAT LEAVES, measured rather than guessed -- AND THE FIRST VERSION OF THIS PARAGRAPH GOT
+   IT WRONG TWICE. It said the remaining 15 switches "live in filter panels that are closed at
+   rest". They do not. They are five switches in `partision/settingPopup.blade.php`, a notification
+   modal that `layouts/app.blade.php:669` includes on EVERY admin page, counted three times
+   because three screens were scanned.
+
+   Forced open and measured under the full SC 2.5.8 rule, THREE OF THE FIVE CONFORM through the
+   spacing exception (66.6px, 32.1px and 43.3px of clearance) and TWO DO NOT (9.9px and 0px). So
+   the remainder is two, not fifteen.
+
+   AND NOTHING CAN OPEN IT. No `data-bs-target`, `href` or `data-target` anywhere points at
+   `#notification-modal` -- not in `resources/views/`, not in first-party JS, not in the rendered
+   DOM, and not in the 70 vendored modules (the only `packages/` hits are two LandingPage
+   stylesheets). It is dead chrome, and those two targets are unreachable. Recorded as F-DESIGN-9
+   rather than fixed, because sizing a control nobody can reach is polish on something that should
+   probably not be shipped at all.
 
    Ratchet: SwitchTargetSizeTest. Conformance measured by the SC 2.5.8 probe, which implements the
    size, spacing and inline exceptions rather than a bare size threshold. */

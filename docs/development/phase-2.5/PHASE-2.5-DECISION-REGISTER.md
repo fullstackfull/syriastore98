@@ -464,3 +464,36 @@ stray words. The census is now clip-aware, as `audit-merchant-screens.cjs` alrea
 **Not changed:** nothing in the repository. The fixture is gitignored and was corrected locally so
 future measurement sees the whole application.
 
+
+### F-DESIGN-9 — a notification modal nobody can open ships on every admin page, in untranslated English with a typo
+
+Found while closing a gap P2.5-DESIGN-K had recorded about itself.
+
+**`layouts/app.blade.php:669` includes `partision/settingPopup.blade.php` on every admin page.** It
+renders `#notification-modal`: a heading reading `settings` (lowercase, no translator call), five
+`.form-switch` toggles with **no `name`, no form and no handler**, and body copy reading *"you get
+lettest content at a time when data will updated"* — untranslated, ungrammatical, and misspelt.
+
+**Nothing can open it.** No `data-bs-target`, `href` or `data-target` anywhere points at
+`#notification-modal`:
+
+| searched | result |
+|---|---|
+| `resources/views/` (excluding the partial itself) | **0** |
+| first-party JS (`public/js/`, `public/custom/`) | **0** |
+| the rendered DOM on `/dashboard` | **0 triggers**, modal present |
+| inline `<script>` content on the page | **no reference** |
+| the 70 vendored modules | only two LandingPage **stylesheets**; no trigger |
+
+**What it costs today:** markup and five controls in the accessibility tree on every admin page,
+and three untranslated English strings that an Arabic merchant would see if it ever opened. Two of
+its five toggles would fail WCAG 2.2 SC 2.5.8 if reachable (measured with the modal forced open:
+three conform through the spacing exception at 66.6px / 32.1px / 43.3px, two do not at 9.9px and
+0px).
+
+**Not removed here.** Deleting an include from the shared admin layout is a change to the merchant
+shell, and "no trigger exists today" is an argument for removal rather than a proof that nothing
+ever relies on it. Recorded with the evidence so the decision can be taken deliberately. If it
+stays, its copy needs the translator and a proofread; if it goes, the include and the partial go
+together.
+

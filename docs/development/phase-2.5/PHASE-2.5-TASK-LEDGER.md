@@ -1385,7 +1385,7 @@ the index, not a replacement for them.
 | **Cause is the unit** | Bootstrap sizes the switch in `em`, so it tracks the **local** font size; this admin's base is 14px, and 1.25em of 14px is 17.5px. On a 16px page the same declaration gives 20px — still short — so the unit had to change as well as the value |
 | **Measured by injection BEFORE it was written** | three candidates on the live page: row height stays **55.4px** and table width stays **1168px** for every one, so the switch grows into space the row already had. `40 x 25` keeps Bootstrap's 1.6:1 proportion (square would read as a checkbox) and leaves a pixel over the floor |
 | **Scoped after a guard refused it** | unscoped it reached every switch in all 70 vendored modules; `DesignSystemStylesheetScopeTest` refused it and was right — 12 measured, hundreds not. Now `.ss-dt-card-body …`, which covers all 12 |
-| **Recorded, not fixed** | the same screens hold 27 switches; **15 sit in closed filter panels**, keep the `em` sizing, and were not measured in the open state |
+| **Recorded, not fixed (corrected)** | the first note said 15 switches sit in "closed filter panels". Wrong twice: they are **five** switches in `partision/settingPopup.blade.php`, a notification modal included on every admin page and counted three times. Forced open, **3 of 5 conform** via the spacing exception and **2 do not** — so the remainder is **two**. And **nothing anywhere can open the modal**: F-DESIGN-9 |
 | **Tests** | 4 cases, four bites each reddening appropriately |
 | **Evidence** | `docs/design-system/evidence/design-k-2026-11-05/` |
 
