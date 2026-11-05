@@ -10,10 +10,10 @@ hand-maintained matrix is precisely how that happens.
 | state | count | of 295 |
 |---|---:|---:|
 | PREMIUM VERIFIED | 0 | 0.0% |
-| REDESIGNED AND VERIFIED | 5 | 1.7% |
+| REDESIGNED AND VERIFIED | 8 | 2.7% |
 | BLOCKED | 9 | 3.1% |
 | OUT OF SCOPE | 1 | 0.3% |
-| PENDING | 280 | 94.9% |
+| PENDING | 277 | 93.9% |
 | **total** | **295** | |
 
 **PENDING is not one of the directive's four states, and that is the point.** The four
@@ -40,7 +40,7 @@ screens and exactly three of them have been looked at. The other ~97 stay PENDIN
 | ORDERS | 17 | 0 | 1 | 3 | 0 | 13 |
 | PRODUCTS | 16 | 0 | 1 | 1 | 0 | 14 |
 | Merchant admin NAVIGATION SHELL | 13 | 0 | 0 | 0 | 0 | 13 |
-| Stock/inventory reporting + finance/wallet/payout screens | 13 | 0 | 0 | 0 | 0 | 13 |
+| Stock/inventory reporting + finance/wallet/payout screens | 13 | 0 | 3 | 0 | 0 | 10 |
 | Merchant dashboard and KPI presentation | 9 | 0 | 1 | 0 | 1 | 7 |
 
 ## Every surface
@@ -380,14 +380,14 @@ actually been done to it since. They are different questions and the matrix keep
 | Out Of Stock — row payload | ``GET /stock-report/out-stock (stockReport.outOfStock) — routes` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
 | Most Stocked — row payload | ``GET /stock-report/most-stocked (stockReport.mostStocked) — ro` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
 | Stock Settings panel | ``POST stock-settings (stock.settings) — routes/web.php:842 (re` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Finance dashboard | ``GET /finance (finance.index) — routes/web.php:208`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
+| Finance dashboard | ``GET /finance (finance.index) — routes/web.php:208`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-WAVE-10 + #12; four captures under evidence/wave-10/ |
 | Add Balance modal | ``POST /finance/add-balance (finance.add.balance) — routes/web.` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Deduct Balance modal | ``POST /finance/deduct-balance (finance.deduct.balance) — route` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Request Withdrawal modal | ``POST /finance/withdrawal/request (finance.withdrawal.request)` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
-| Withdrawal queue | ``GET /finance/withdrawals (finance.withdrawals) — routes/web.p` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
+| Withdrawal queue | ``GET /finance/withdrawals (finance.withdrawals) — routes/web.p` | deficient | **REDESIGNED AND VERIFIED** | P2.5-WAVE-10 + #12; four captures under evidence/wave-10/ |
 | Withdrawal approve / pay / reject | ``POST /finance/withdrawals/{id}/approve\` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Order payment-status update (inline) | ``POST /finance/order-financials/{id}/payment-status (finance.o` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Payments Awaiting Review (unreconciled captures) | ``GET /finance/unreconciled-captures (finance.unreconciled.capt` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Payments Awaiting Review (unreconciled captures) | ``GET /finance/unreconciled-captures (finance.unreconciled.capt` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-WAVE-10; four captures under evidence/wave-10/ |
 
 ### Merchant dashboard and KPI presentation
 

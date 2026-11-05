@@ -42,6 +42,13 @@ VERIFIED = {
     'Customer list':              ('REDESIGNED AND VERIFIED', 'wave-1', '_customer__', 'P2.5-WAVE-1'),
     'Merchant dashboard (page shell)': ('REDESIGNED AND VERIFIED', 'wave-3b', '_dashboard__', 'P2.5-WAVE-3 + 3b'),
     'Coupon list':                ('REDESIGNED AND VERIFIED', 'wave-2', '_coupon-empty__', 'P2.5-WAVE-2'),
+    # P2.5-WAVE-10 redesigned the finance tables onto .ss-table and #12 translated the
+    # 45 untranslated finance strings; all three PAGES captured in four combos under
+    # evidence/wave-10/after. The Add/Deduct/Request modals and the inline payment-status
+    # control are NOT separately rendered, so they stay PENDING rather than be claimed here.
+    'Finance dashboard':          ('REDESIGNED AND VERIFIED', 'wave-10', '_finance__', 'P2.5-WAVE-10 + #12'),
+    'Withdrawal queue':           ('REDESIGNED AND VERIFIED', 'wave-10', '_finance_withdrawals__', 'P2.5-WAVE-10 + #12'),
+    'Payments Awaiting Review (unreconciled captures)': ('REDESIGNED AND VERIFIED', 'wave-10', '_finance_unreconciled_captures__', 'P2.5-WAVE-10'),
 }
 
 # Surfaces that are out of the Phase 2.5 merchant scope by the approved phase plan.
