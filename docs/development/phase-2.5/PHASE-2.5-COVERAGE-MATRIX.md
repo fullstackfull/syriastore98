@@ -10,10 +10,10 @@ hand-maintained matrix is precisely how that happens.
 | state | count | of 295 |
 |---|---:|---:|
 | PREMIUM VERIFIED | 0 | 0.0% |
-| REDESIGNED AND VERIFIED | 10 | 3.4% |
+| REDESIGNED AND VERIFIED | 12 | 4.1% |
 | BLOCKED | 9 | 3.1% |
 | OUT OF SCOPE | 1 | 0.3% |
-| PENDING | 275 | 93.2% |
+| PENDING | 273 | 92.5% |
 | **total** | **295** | |
 
 **PENDING is not one of the directive's four states, and that is the point.** The four
@@ -32,7 +32,7 @@ screens and exactly three of them have been looked at. The other ~97 stay PENDIN
 |---|---:|---:|---:|---:|---:|---:|
 | Flutter merchant admin app | 51 | 0 | 0 | 0 | 0 | 51 |
 | CATALOGUE taxonomy | 38 | 0 | 1 | 0 | 0 | 37 |
-| Staff/Roles/Permissions + Merchant Settings & Integrations | 38 | 0 | 0 | 1 | 0 | 37 |
+| Staff/Roles/Permissions + Merchant Settings & Integrations | 38 | 0 | 2 | 1 | 0 | 35 |
 | Phase 2.5 Wave A | 30 | 0 | 0 | 0 | 0 | 30 |
 | Reports/Analytics presentation, Notifications, and the con | 26 | 0 | 0 | 1 | 0 | 25 |
 | Flutter merchant/employee admin app | 24 | 0 | 0 | 3 | 0 | 21 |
@@ -173,8 +173,8 @@ actually been done to it since. They are different questions and the matrix keep
 | Own profile (WorkDo) | ``GET /profile`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
 | Breeze profile (orphan) | ``GET /profile/edit`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Roles list | ``GET /roles`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
-| Create role (xl modal, permission matrix) | ``GET /roles/create -> POST /roles`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
-| Edit role (xl modal, permission matrix) | ``GET /roles/{id}/edit -> PUT /roles/{id}`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
+| Create role (xl modal, permission matrix) | ``GET /roles/create -> POST /roles`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-WAVE-12; four captures under evidence/wave-12/ |
+| Edit role (xl modal, permission matrix) | ``GET /roles/{id}/edit -> PUT /roles/{id}`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-WAVE-12; four captures under evidence/wave-12/ |
 | Shipping classes / zones / methods | ``GET /shipping, /shipping-zone, /shipping-method (+ free-shipp` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Taxes and tax methods | ``GET /taxes, /taxes/{id}, /taxes-method/create/{tax_option_id}` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Webhooks (create/edit modals) | ``GET /webhook/create, /webhook/{id}/edit -> POST\` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |

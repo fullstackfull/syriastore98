@@ -55,6 +55,11 @@ VERIFIED = {
     # a separate inventory surface, so it earns no row here though it is in evidence/wave-11.
     'Order detail':               ('REDESIGNED AND VERIFIED', 'wave-11', 'order-view__', 'P2.5-WAVE-11', 'order-view'),
     'Refund detail / decision screen': ('REDESIGNED AND VERIFIED', 'wave-11', 'refund-detail__', 'P2.5-WAVE-11'),
+    # P2.5-WAVE-12 wrapped the two role-permission matrix modals onto .ss-table, verified by
+    # probe-wave12-roles.cjs (create via the static /roles button, edit via the roles DataTable
+    # row action). Both names are unique, so no route needle is needed.
+    'Create role (xl modal, permission matrix)': ('REDESIGNED AND VERIFIED', 'wave-12', 'role-create-modal__', 'P2.5-WAVE-12'),
+    'Edit role (xl modal, permission matrix)':   ('REDESIGNED AND VERIFIED', 'wave-12', 'role-edit-modal__', 'P2.5-WAVE-12'),
 }
 
 # Surfaces that are out of the Phase 2.5 merchant scope by the approved phase plan.
