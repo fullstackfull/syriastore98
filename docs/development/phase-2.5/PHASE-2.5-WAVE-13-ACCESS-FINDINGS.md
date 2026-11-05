@@ -63,9 +63,33 @@ own-element rules declare only custom properties (`--ss-dt-card-bg`, `--ss-dt-to
 `--ss-dt-ident-*`, `--ss-dt-head-*`, `--ss-dt-rule`, `--ss-dt-empty-*`), with 47 descendant rules
 consuming them. So the treatment is correct; only the access is missing.
 
-## Next
+## RESOLVED, same day
 
-1. Grant `Show Customer` to the dev role, re-render `customer.show`, then wrap row 7.
-2. Identify the real route for `email_templates/index.blade.php`, then wrap row 11.
-3. Re-scope rows 9 and 10 to Phase 06 in the work-list.
-4. Row 8 (`store/view-storelinks`, a modal with no `.card-body`) still needs a modal-drive capture.
+**Row 7 is DONE.** `tools/grant-dev-screen-permissions.php` (the general form of the finance grant
+tool) granted `Show Customer` to the dev role; `/customer/1` then answered **HTTP 200 titled
+"Orders" / "الطلبات"** instead of the dashboard, and the table was wrapped into
+`.ss-dt-card-body` -- the wrapper now matches `components/datatable.blade.php:37` exactly. All four
+combinations captured in `evidence/wave-13/`, 0 not clean. The Arabic RTL-dark capture shows the
+full Wave-1 treatment arriving at once: sorted header band, row rules, design-system status chips,
+brand-blue order identifiers, aligned money and the pinned action column.
+
+**Row 11 is a DEAD VIEW and is struck, not deferred.** `EmailTemplateController` returns
+`view('email_templates.show', ...)` at :37 and :56 and nowhere else; a tree-wide search for
+`email_templates.index` / `email_templates/index` outside `vendor/` returns **zero** hits, and no
+`@include`/`@extends` pulls it in. `resources/views/email_templates/index.blade.php` is therefore
+unreachable -- the same category as the `product/sku_combinations_edit.blade.php` exclusion §2
+already records. Wrapping it would style a screen no merchant can open.
+
+(The HTTP 500 above stands on its own as a finding about `email_templates.show`, which IS reachable:
+`EmailTemplate::first()` is null-dereferenced on an empty table and carries no store predicate.)
+
+## Still next
+
+1. Row 8 (`store/view-storelinks`, a modal with no `.card-body`) needs a modal-drive capture -- and
+   the dev role holds neither `Manage Store` nor `Show Store`, so its entry points need checking
+   first, exactly as row 7 did.
+2. Re-scope rows 9 and 10 to Phase 06 in the work-list.
+3. Decide whether the `email_templates.show` null guard is in scope for a later wave.
+
+**Net: of the five rows this wave was scoped to, one was implemented, one is dead, two are Phase 06,
+and one remains.** The work-list's §2 count of "20 merchant tables" is therefore an overcount.

@@ -60,6 +60,10 @@ VERIFIED = {
     # row action). Both names are unique, so no route needle is needed.
     'Create role (xl modal, permission matrix)': ('REDESIGNED AND VERIFIED', 'wave-12', 'role-create-modal__', 'P2.5-WAVE-12'),
     'Edit role (xl modal, permission matrix)':   ('REDESIGNED AND VERIFIED', 'wave-12', 'role-edit-modal__', 'P2.5-WAVE-12'),
+    # P2.5-WAVE-13. A live DataTable, so the treatment is .ss-dt-card-body (the Wave-1 scope),
+    # not .ss-table. Reaching it needed a fixture permission grant -- the dev role had
+    # Manage Customer but not Show Customer, so it had been REDIRECTING to the dashboard.
+    'Customer orders (reached by the cart icon)': ('REDESIGNED AND VERIFIED', 'wave-13', '_customer_1__', 'P2.5-WAVE-13'),
 }
 
 # Surfaces that are out of the Phase 2.5 merchant scope by the approved phase plan.
