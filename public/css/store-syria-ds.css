@@ -1823,6 +1823,43 @@
     color: var(--ss-fg-muted) !important;
 }
 
+/* ---- P2.5-WAVE-17a: the same button, inside the white modal ----------------------------------
+
+   THE RULE ABOVE IS RIGHT WHERE IT WAS MEASURED AND WRONG ONE LAYER IN. `data-ss-theme` sits on
+   <html>, so it also reaches inside the modal -- and P2.5-A-01/A-02 deliberately left the modal
+   WHITE in dark mode, because the vendored style-dark.css keeps `--bs-modal-bg: #ffffff` (:6238)
+   and re-theming a surface 70 modules share was out of scope.
+
+   The host's secondary fill is a TINT, `rgba(108,117,125,.25)` (style-dark.css:3546), so it takes
+   the colour of whatever is underneath. On the dark page it composites to rgb(53,56,64) and
+   #a7abb2 clears it at 5.09:1. On the white modal it composites to rgb(218,221,223) and the same
+   ink measures 1.69:1 -- MEASURED on four real modals in four combinations by
+   docs/development/phase-2.5/tools/measure-modal-footer-buttons.cjs, against 12.37:1 for the very
+   same button on the light page. The dark theme makes this control worse than no theming at all.
+
+   WHY IT NAMES `.modal-content` AND NOT JUST THE THEME. Applying the light ink unconditionally in
+   dark fixes the modal and destroys both dark grounds: 1.56:1 on the card, 1.44:1 on the page.
+   The surface has to be named, which is the rule A-02's docblock already stated.
+
+   WHY A LAYER-1 PRIMITIVE AND NOT `--ss-fg`. The modal is a LIGHT surface inside a DARK scope, so
+   a semantic token resolves to the dark value exactly where the light one is wanted: 1.13:1, worse
+   than the defect. `--ss-grey-900` never re-themes. A-02 paid for this lesson once already.
+
+   ALL THREE MODAL SHAPES WERE CHECKED, not just the default one. The host styles two variants --
+   `.notification-modal .modal-content` (style-dark.css:17102) and `.q-view-modal .modal-content`
+   (:23375) -- and READ IN FULL both set only geometry (min-height, radius, border, shadow). Neither
+   touches `background`, so both inherit the same white `--bs-modal-bg` and this rule is right on
+   all three. If a variant is ever given a DARK fill, exclude it here: the ink below would invert
+   the defect rather than fix it.
+
+   Ratchet: Tests\Unit\Ui\ModalFooterButtonContrastTest, which recomputes every figure above from
+   the two colours and forbids both simplifications by name. */
+[data-ss-theme="dark"] .modal-content .btn-secondary,
+[data-ss-theme="dark"] .modal-content .btn-secondary:not(:hover):not(:focus):not(:active) {
+    color: var(--ss-grey-900) !important;
+}
+/* end P2.5-WAVE-17a */
+
 /* The danger fill composites to a mid mauve, so a LIGHT text clears it where `--ss-danger-fg`
    -- designed for the much darker `--ss-danger-bg` -- would not. */
 [data-ss-theme="dark"] .btn-danger,

@@ -151,7 +151,21 @@ class ProductAttributeOptionController extends Controller
     /**
      * Display the specified resource.
      */
-    public function show(ProductAttributeOption $productAttributeOption , $id)
+    /**
+     * `$id` DEFAULTS TO NULL BECAUSE THE ROUTE DECLARES IT OPTIONAL.  P2.5-WAVE-17
+     *
+     * routes/web.php:986 is `attribute-option/{id?}`. Without the default, a bare
+     * /attribute-option threw ArgumentCountError and answered HTTP 500 with a stack trace --
+     * measured on the running server against 200 for /attribute-option/1.
+     *
+     * No refusal logic is added here: `ownedAttribute()` already returns null for an empty id, so
+     * the request falls into the existing `denied()` branch below. Nothing links to the bare form
+     * (ProductAttributeDataTable.php:48 always passes an attribute id), so this changes no journey.
+     *
+     * `$productAttributeOption` is unused by attribute_option/index.blade.php but stays in the
+     * signature: `compact()` below passes it to the view, and the view is vendored markup.
+     */
+    public function show(ProductAttributeOption $productAttributeOption , $id = null)
     {
         if (!auth()->user() || !auth()->user()->isAbleTo('Manage Attributes Option')) {
             return $this->denied();

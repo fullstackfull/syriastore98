@@ -24,7 +24,6 @@
     <div class="col-xl-12">
         <x-datatable :dataTable="$dataTable" />
     </div>
-    </div>
 </div>
 @endsection
 

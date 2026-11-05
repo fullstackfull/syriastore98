@@ -61,7 +61,6 @@
     <x-datatable :dataTable="$dataTable" />
     </div>
 </div>
-</div>
 @endsection
 
 @push('custom-script')

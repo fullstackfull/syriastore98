@@ -55,6 +55,5 @@
     <input type="button" value="{{__('Cancel')}}" class="btn btn-secondary btn-badge" data-bs-dismiss="modal">
     <input type="submit" value="{{__('Create')}}" class="btn btn-primary btn-badge mx-1">
 </div>
-</div>
 {!! Form::close() !!}
 

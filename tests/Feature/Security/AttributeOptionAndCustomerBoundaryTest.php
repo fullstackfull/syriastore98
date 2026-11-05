@@ -228,6 +228,37 @@ class AttributeOptionAndCustomerBoundaryTest extends SecurityTestCase
     // P01B-SEC-1 -- THE LEGITIMATE FLOWS MUST SURVIVE
     // ===================================================================================
 
+    /**
+     * P2.5-WAVE-17. The route declares the id OPTIONAL -- `attribute-option/{id?}`, web.php:986 --
+     * while `show(ProductAttributeOption $productAttributeOption, $id)` required it, so the bare
+     * URL threw ArgumentCountError and answered HTTP 500. MEASURED on the running dev server:
+     * /attribute-option 500, /attribute-option/1 and /2 both 200.
+     *
+     * Nothing links to the bare form (ProductAttributeDataTable.php:48 is the only caller and it
+     * always passes $attribute->id), so this is a typed URL rather than a broken journey -- but a
+     * 500 on a declared route is still a 500, and a stack trace on a merchant's screen is the
+     * worst of the available answers.
+     *
+     * `ownedAttribute()` ALREADY returns null for an empty id, so the refusal path existed and the
+     * parameter default is all that was missing. Asserted as a redirect, not as a 200: a request
+     * naming no attribute has nothing to show, and this controller's own convention is to refuse
+     * rather than distinguish "no id" from "not yours".
+     */
+    public function test_the_bare_attribute_option_url_refuses_instead_of_throwing(): void
+    {
+        [$owner] = $this->tenantWithAttribute('own');
+        $this->grantAttributePermissions($owner);
+
+        $this->actingAs($owner)
+            ->get('/attribute-option')
+            ->assertStatus(302)
+            // The status ALONE would also be satisfied by a middleware redirect, so if the sibling
+            // test below ever regressed this one would start passing without reaching the handler.
+            // `denied()` is the only thing on this path that flashes `error`, so asserting the key
+            // pins the assertion to the controller. Raised by the tenant-authz review of this change.
+            ->assertSessionHas('error');
+    }
+
     public function test_a_merchant_can_still_read_and_reorder_their_own_attribute_options(): void
     {
         [$owner, $store, $attribute, $option] = $this->tenantWithAttribute('own');
