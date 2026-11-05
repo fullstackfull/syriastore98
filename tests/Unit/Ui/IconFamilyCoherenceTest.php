@@ -52,12 +52,32 @@ class IconFamilyCoherenceTest extends TestCase
 
     /** MEASURED 2026-11-05. Lower these as the convergence lands; never raise them. */
     private const CEILING_FONTAWESOME_FILES = 46;
-    private const CEILING_FEATHER_FILES = 3;
-    private const CEILING_MIXED_FILES = 20;
+    private const CEILING_FEATHER_FILES = 0;
+    private const CEILING_MIXED_FILES = 18;
 
     private function root(): string
     {
         return dirname(__DIR__, 3);
+    }
+
+    /**
+     * Blade comments stripped, because a comment that QUOTES markup is not markup.
+     *
+     * P2.5-WAVE-4b retired the last Feather icon and the census still reported one file --
+     * `users/index.blade.php`, whose `{{-- ... --}}` block quotes the exact string
+     * `<i class="feather icon-more-vertical">` while explaining why that icon's CSS-generated
+     * content was computing as the control's accessible name. The markup was gone; the
+     * explanation of why it had to go was not, and the detector could not tell them apart.
+     *
+     * This is the FIFTH time in this project that prose has been counted as code -- a test
+     * matching the literal `a.btn` inside its own comment, a magic window anchored on heading
+     * text, a `#E9D5E7` assertion failing on the comment describing #E9D5E7, a `//` inside a
+     * string eating a line. Documentation that names the thing it forbids is normal and good;
+     * a detector that cannot see the difference is the defect.
+     */
+    private function withoutBladeComments(string $src): string
+    {
+        return (string) preg_replace('/\{\{--.*?--\}\}/s', '', $src);
     }
 
     /** @return array<string, list<string>> family => files */
@@ -77,7 +97,7 @@ class IconFamilyCoherenceTest extends TestCase
                     continue 2;
                 }
             }
-            $src = (string) file_get_contents($file->getPathname());
+            $src = $this->withoutBladeComments((string) file_get_contents($file->getPathname()));
             foreach (self::FAMILIES as $family => $pattern) {
                 if (preg_match($pattern, $src) === 1) {
                     $out[$family][] = $rel;

@@ -96,7 +96,12 @@ $logo = asset(Storage::url('uploads/profile/'));
                                 <button type="button" class="btn dropdown-toggle" data-bs-toggle="dropdown"
                                     aria-haspopup="true" aria-expanded="false"
                                     aria-label="{{ __('Actions for :name', ['name' => $user->name]) }}">
-                                    <i class="feather icon-more-vertical" aria-hidden="true"></i>
+                                    {{-- P2.5-WAVE-4b. The glyph is now `ti ti-dots-vertical`: this was the LAST Feather
+                                         icon in the merchant admin, and Feather is retired. The family changed;
+                                         the defect above did NOT go away with it -- Tabler draws its glyphs the
+                                         same way, through CSS `content`, so `aria-hidden` here and the
+                                         `aria-label` on the button are still what gives this control a name. --}}
+                                    <i class="ti ti-dots-vertical" aria-hidden="true"></i>
                                 </button>
                                 <div class="dropdown-menu dropdown-menu-end">
                                     @permission('Edit User')

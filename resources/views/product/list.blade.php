@@ -58,7 +58,7 @@ $admin = getAdminAllSetting();
                     <div class="btn-group card-option">
                         <button type="button" class="btn dropdown-toggle" data-bs-toggle="dropdown"
                             aria-haspopup="true" aria-expanded="false" aria-label="{{ __('More actions') }}">
-                            <i class="feather icon-more-vertical"></i>
+                            <i class="ti ti-dots-vertical" aria-hidden="true"></i>
                         </button>
                         <div class="dropdown-menu dropdown-menu-end">
                             <a class="dropdown-item"
