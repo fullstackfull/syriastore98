@@ -119,7 +119,7 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                                 </div>
                             </div>
                             <div class="col-sm-6 col-12">
-                                <label class="form-label">{{ __('Category') }}</label><span class="text-danger">*</span>
+                                <label for="category_id" class="form-label">{{ __('Category') }}</label><span class="text-danger">*</span>
                                 <select name="category_id" class="form-control" data-role="tagsinput" id="category_id">
                                     <option value="">{{ __('Select Category') }}</option>
                                     @foreach ($categoryTree as $cat)

@@ -1,0 +1,695 @@
+[
+ {
+  "file": "resources/views/AppSetting/index.blade.php",
+  "line": 382,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "Meta Image",
+  "target": null,
+  "why": "no control with an id within 8 lines"
+ },
+ {
+  "file": "resources/views/AppSetting/mobile_content.blade.php",
+  "line": 306,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "{{ $field['field_name'] }}",
+  "target": null,
+  "why": "no control with an id within 8 lines"
+ },
+ {
+  "file": "resources/views/AppSetting/mobile_content.blade.php",
+  "line": 336,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "{{ $field['field_name'] }}",
+  "target": null,
+  "why": "no control with an id within 8 lines"
+ },
+ {
+  "file": "resources/views/AppSetting/mobile_content.blade.php",
+  "line": 376,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "{{ $field['field_name'] }}",
+  "target": null,
+  "why": "the control carries no id of its own"
+ },
+ {
+  "file": "resources/views/AppSetting/mobile_content.blade.php",
+  "line": 392,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "{{ $field['field_name'] }}",
+  "target": null,
+  "why": "the control carries no id of its own"
+ },
+ {
+  "file": "resources/views/AppSetting/mobile_content.blade.php",
+  "line": 412,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "{{ $field['field_name'] }}",
+  "target": null,
+  "why": "the control carries no id of its own"
+ },
+ {
+  "file": "resources/views/AppSetting/mobile_content.blade.php",
+  "line": 444,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "{{ $field['field_name'] }}",
+  "target": null,
+  "why": "no control with an id within 8 lines"
+ },
+ {
+  "file": "resources/views/AppSetting/mobile_content.blade.php",
+  "line": 490,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "{{ $field['field_name'] }}",
+  "target": null,
+  "why": "the control carries no id of its own"
+ },
+ {
+  "file": "resources/views/AppSetting/mobile_content.blade.php",
+  "line": 680,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "{{ $product_banner_field['fi",
+  "target": null,
+  "why": "no control with an id within 8 lines"
+ },
+ {
+  "file": "resources/views/AppSetting/mobile_content.blade.php",
+  "line": 715,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "{{ $product_banner_field['fi",
+  "target": null,
+  "why": "no control with an id within 8 lines"
+ },
+ {
+  "file": "resources/views/AppSetting/mobile_content.blade.php",
+  "line": 767,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "{{ $product_banner_field['fi",
+  "target": null,
+  "why": "the control carries no id of its own"
+ },
+ {
+  "file": "resources/views/AppSetting/mobile_content.blade.php",
+  "line": 781,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "{{ $product_banner_field['fi",
+  "target": null,
+  "why": "the control carries no id of its own"
+ },
+ {
+  "file": "resources/views/AppSetting/mobile_content.blade.php",
+  "line": 800,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "{{ $product_banner_field['fi",
+  "target": null,
+  "why": "the control carries no id of its own"
+ },
+ {
+  "file": "resources/views/AppSetting/mobile_content.blade.php",
+  "line": 834,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "{{ $product_banner_field['fi",
+  "target": null,
+  "why": "no control with an id within 8 lines"
+ },
+ {
+  "file": "resources/views/AppSetting/mobile_content.blade.php",
+  "line": 879,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "{{ $product_banner_field['fi",
+  "target": null,
+  "why": "the control carries no id of its own"
+ },
+ {
+  "file": "resources/views/AppSetting/mobile_content.blade.php",
+  "line": 994,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "{{ $field['field_name'] }}",
+  "target": null,
+  "why": "the control carries no id of its own"
+ },
+ {
+  "file": "resources/views/AppSetting/mobile_content.blade.php",
+  "line": 1008,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "{{ $field['field_name'] }}",
+  "target": null,
+  "why": "the control carries no id of its own"
+ },
+ {
+  "file": "resources/views/AppSetting/mobile_content.blade.php",
+  "line": 1020,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "{{ $field['field_name'] }}",
+  "target": null,
+  "why": "the control carries no id of its own"
+ },
+ {
+  "file": "resources/views/AppSetting/mobile_content.blade.php",
+  "line": 1045,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "{{ $field['field_name'] }}",
+  "target": null,
+  "why": "the control carries no id of its own"
+ },
+ {
+  "file": "resources/views/AppSetting/mobile_content.blade.php",
+  "line": 1063,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "{{ $field['field_name'] }}",
+  "target": null,
+  "why": "the control carries no id of its own"
+ },
+ {
+  "file": "resources/views/AppSetting/mobile_content.blade.php",
+  "line": 1081,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "{{ $field['field_name'] }}",
+  "target": null,
+  "why": "the control carries no id of its own"
+ },
+ {
+  "file": "resources/views/auth/forgot-password.blade.php",
+  "line": 45,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "Email",
+  "target": null,
+  "why": "no control with an id within 8 lines"
+ },
+ {
+  "file": "resources/views/components/input-label.blade.php",
+  "line": 3,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "merge(['class' => 'block fon",
+  "target": null,
+  "why": "no control with an id within 8 lines"
+ },
+ {
+  "file": "resources/views/finance/withdrawals.blade.php",
+  "line": 283,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "Admin Note",
+  "target": null,
+  "why": "the control carries no id of its own"
+ },
+ {
+  "file": "resources/views/generate.blade.php",
+  "line": 13,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "id }}\">\n                    ",
+  "target": null,
+  "why": "no control with an id within 8 lines"
+ },
+ {
+  "file": "resources/views/language/index.blade.php",
+  "line": 141,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "{{$fileName}}.{{$label}}.{{$",
+  "target": null,
+  "why": "the control carries no id of its own"
+ },
+ {
+  "file": "resources/views/language/index.blade.php",
+  "line": 149,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "{{$fileName}}.{{$label}}.{{$",
+  "target": null,
+  "why": "the control carries no id of its own"
+ },
+ {
+  "file": "resources/views/language/index.blade.php",
+  "line": 158,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "{{$fileName}}.{{$label}}.{{$",
+  "target": null,
+  "why": "the control carries no id of its own"
+ },
+ {
+  "file": "resources/views/language/index.blade.php",
+  "line": 167,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "{{$fileName}}.{{$label}}.{{$",
+  "target": null,
+  "why": "the control carries no id of its own"
+ },
+ {
+  "file": "resources/views/language/index.blade.php",
+  "line": 176,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "{{$fileName}}.{{$label}}",
+  "target": null,
+  "why": "the control carries no id of its own"
+ },
+ {
+  "file": "resources/views/menu/item-nest.blade.php",
+  "line": 22,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "Link Text",
+  "target": "linkText_{{ $item->id }}",
+  "why": "ok"
+ },
+ {
+  "file": "resources/views/menu/item-nest.blade.php",
+  "line": 27,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "URL",
+  "target": "url_{{ $item->id }}",
+  "why": "ok"
+ },
+ {
+  "file": "resources/views/menu/item-nest.blade.php",
+  "line": 31,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "Icon",
+  "target": "iconSelect_{{ $item->id }}",
+  "why": "ok"
+ },
+ {
+  "file": "resources/views/menu/item-nest.blade.php",
+  "line": 53,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "Open in a new tab",
+  "target": null,
+  "why": "no control with an id within 8 lines"
+ },
+ {
+  "file": "resources/views/menu/item-nest.blade.php",
+  "line": 70,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "Icon",
+  "target": "iconSelect_{{ $item->id }}",
+  "why": "ok"
+ },
+ {
+  "file": "resources/views/menu/item-nest.blade.php",
+  "line": 92,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "Open in a new tab",
+  "target": null,
+  "why": "no control with an id within 8 lines"
+ },
+ {
+  "file": "resources/views/order/createOrder.blade.php",
+  "line": 109,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "Product",
+  "target": null,
+  "why": "the control carries no id of its own"
+ },
+ {
+  "file": "resources/views/order/createOrder.blade.php",
+  "line": 121,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "Quantity",
+  "target": null,
+  "why": "the control carries no id of its own"
+ },
+ {
+  "file": "resources/views/order/createOrder.blade.php",
+  "line": 125,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "Price",
+  "target": null,
+  "why": "the control carries no id of its own"
+ },
+ {
+  "file": "resources/views/order/createOrder.blade.php",
+  "line": 129,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "Subtotal",
+  "target": null,
+  "why": "the control carries no id of its own"
+ },
+ {
+  "file": "resources/views/order/createOrder.blade.php",
+  "line": 367,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "Product",
+  "target": null,
+  "why": "the control carries no id of its own"
+ },
+ {
+  "file": "resources/views/order/createOrder.blade.php",
+  "line": 378,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "Quantity",
+  "target": null,
+  "why": "the control carries no id of its own"
+ },
+ {
+  "file": "resources/views/order/createOrder.blade.php",
+  "line": 382,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "Price",
+  "target": null,
+  "why": "the control carries no id of its own"
+ },
+ {
+  "file": "resources/views/order/createOrder.blade.php",
+  "line": 386,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "Subtotal",
+  "target": null,
+  "why": "the control carries no id of its own"
+ },
+ {
+  "file": "resources/views/order/partials/kanban-card.blade.php",
+  "line": 55,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "id }}\">\n                    ",
+  "target": null,
+  "why": "no control with an id within 8 lines"
+ },
+ {
+  "file": "resources/views/order/refund_details.blade.php",
+  "line": 144,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "Refund Shipping Amount",
+  "target": null,
+  "why": "the control carries no id of its own"
+ },
+ {
+  "file": "resources/views/product/create.blade.php",
+  "line": 211,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "<small>Disabled in <a\n      ",
+  "target": null,
+  "why": "no control with an id within 8 lines"
+ },
+ {
+  "file": "resources/views/product/create.blade.php",
+  "line": 540,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "",
+  "target": null,
+  "why": "no control with an id within 8 lines"
+ },
+ {
+  "file": "resources/views/product/edit.blade.php",
+  "line": 253,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "Disabled in",
+  "target": null,
+  "why": "no control with an id within 8 lines"
+ },
+ {
+  "file": "resources/views/product/edit.blade.php",
+  "line": 760,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "",
+  "target": null,
+  "why": "no control with an id within 8 lines"
+ },
+ {
+  "file": "resources/views/product/edit.blade.php",
+  "line": 785,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "",
+  "target": null,
+  "why": "no control with an id within 8 lines"
+ },
+ {
+  "file": "resources/views/product/show.blade.php",
+  "line": 165,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "Disabled in",
+  "target": null,
+  "why": "no control with an id within 8 lines"
+ },
+ {
+  "file": "resources/views/product/sku_combinations_edit.blade.php",
+  "line": 7,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "Variant",
+  "target": null,
+  "why": "another label comes first — this is a group caption"
+ },
+ {
+  "file": "resources/views/product/sku_combinations_edit.blade.php",
+  "line": 10,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "Variant Price",
+  "target": null,
+  "why": "another label comes first — this is a group caption"
+ },
+ {
+  "file": "resources/views/product/sku_combinations_edit.blade.php",
+  "line": 13,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "SKU",
+  "target": null,
+  "why": "another label comes first — this is a group caption"
+ },
+ {
+  "file": "resources/views/product/sku_combinations_edit.blade.php",
+  "line": 16,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "Stock",
+  "target": null,
+  "why": "another label comes first — this is a group caption"
+ },
+ {
+  "file": "resources/views/product/sku_combinations_edit.blade.php",
+  "line": 19,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "Default ",
+  "target": null,
+  "why": "no control with an id within 8 lines"
+ },
+ {
+  "file": "resources/views/product/sku_combinations_edit.blade.php",
+  "line": 46,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "{{ $str }}",
+  "target": null,
+  "why": "the control carries no id of its own"
+ },
+ {
+  "file": "resources/views/shipping_method/edit.blade.php",
+  "line": 27,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "shipping class cost",
+  "target": null,
+  "why": "no control with an id within 8 lines"
+ },
+ {
+  "file": "resources/views/shipping_method/edit.blade.php",
+  "line": 41,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "No shipping class cost",
+  "target": null,
+  "why": "the control carries no id of its own"
+ },
+ {
+  "file": "resources/views/shippingzone/create.blade.php",
+  "line": 11,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "Country",
+  "target": null,
+  "why": "the control carries no id of its own"
+ },
+ {
+  "file": "resources/views/shippingzone/create.blade.php",
+  "line": 16,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "State",
+  "target": null,
+  "why": "the control carries no id of its own"
+ },
+ {
+  "file": "resources/views/shippingzone/edit.blade.php",
+  "line": 21,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "Country",
+  "target": null,
+  "why": "the control carries no id of its own"
+ },
+ {
+  "file": "resources/views/shippingzone/edit.blade.php",
+  "line": 26,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "State",
+  "target": null,
+  "why": "the control carries no id of its own"
+ },
+ {
+  "file": "resources/views/store/view-storelinks.blade.php",
+  "line": 18,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "id}}\">",
+  "target": "myInput_{{ $store->slug }}",
+  "why": "ok"
+ },
+ {
+  "file": "resources/views/support/edit.blade.php",
+  "line": 142,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "Attachments",
+  "target": null,
+  "why": "another label comes first — this is a group caption"
+ },
+ {
+  "file": "resources/views/support/edit.blade.php",
+  "line": 143,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "You can select multiple files",
+  "target": null,
+  "why": "another label comes first — this is a group caption"
+ },
+ {
+  "file": "resources/views/taxes-method/create.blade.php",
+  "line": 13,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "Country",
+  "target": null,
+  "why": "the control carries no id of its own"
+ },
+ {
+  "file": "resources/views/taxes-method/create.blade.php",
+  "line": 19,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "State",
+  "target": null,
+  "why": "the control carries no id of its own"
+ },
+ {
+  "file": "resources/views/taxes-method/create.blade.php",
+  "line": 29,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "City",
+  "target": null,
+  "why": "the control carries no id of its own"
+ },
+ {
+  "file": "resources/views/taxes-method/edit.blade.php",
+  "line": 13,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "Country",
+  "target": null,
+  "why": "the control carries no id of its own"
+ },
+ {
+  "file": "resources/views/taxes-method/edit.blade.php",
+  "line": 20,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "State",
+  "target": null,
+  "why": "the control carries no id of its own"
+ },
+ {
+  "file": "resources/views/taxes-method/edit.blade.php",
+  "line": 30,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "City",
+  "target": null,
+  "why": "the control carries no id of its own"
+ },
+ {
+  "file": "resources/views/theme_customize/customize.blade.php",
+  "line": 177,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "{{ $fields['label'] }}",
+  "target": null,
+  "why": "another label comes first — this is a group caption"
+ },
+ {
+  "file": "resources/views/theme_customize/customize.blade.php",
+  "line": 464,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "Icon",
+  "target": null,
+  "why": "the control carries no id of its own"
+ },
+ {
+  "file": "resources/views/users/user_info.blade.php",
+  "line": 106,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "id }}\">{{ __('Enable store :",
+  "target": null,
+  "why": "no control with an id within 8 lines"
+ },
+ {
+  "file": "resources/views/users/user_info.blade.php",
+  "line": 154,
+  "wraps_a_control": false,
+  "area": "merchant",
+  "caption": "id }}\">{{ __('Enable login f",
+  "target": null,
+  "why": "no control with an id within 8 lines"
+ }
+]
