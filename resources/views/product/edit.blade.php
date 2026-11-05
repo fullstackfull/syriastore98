@@ -103,12 +103,12 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                         <div class="row row-gap">
                             <div class="col-12">
                                 <input type="hidden" name="id" value="{{ $product->id }}">
-                                {!! Form::label('', __('Name'), ['class' => 'form-label']) !!}<span
+                                {!! Form::label('name', __('Name'), ['class' => 'form-label']) !!}<span
                                     class="text-danger">*</span>
                                 {!! Form::text('name', null, ['class' => 'form-control name']) !!}
                             </div>
                             <div class="col-12 parmalink ">
-                                {!! Form::label('', __('parmalink'), ['class' => 'form-label col-md-3']) !!}
+                                {!! Form::label('slug', __('parmalink'), ['class' => 'form-label col-md-3']) !!}
                                 <div class="d-flex flex-wrap gap-3">
                                     <input class="input-group-text col-12" readonly id="basic-addon2"
                                         value="{{ $link }}">
@@ -160,26 +160,26 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                                     </select>
                                 </div>
                                 <div class="col-md-6 col-12">
-                                    {!! Form::label('', __('Tax Status'), ['class' => 'form-label']) !!}
+                                    {!! Form::label('tax_id', __('Tax Status'), ['class' => 'form-label']) !!}
                                     {!! Form::select('tax_status', $Tax_status, null, [ 'class' => 'form-control',
                                     'data-role' => 'tagsinput', 'id' => 'tax_id', ]) !!}   {{-- duplicate id: F68, see create.blade.php --}}
                                 </div>
                                 <div class=" col-sm-6 col-12" data_val='0'>
-                                    {!! Form::label('', __('Brand'), ['class' => 'form-label']) !!}
+                                    {!! Form::label('brand-dropdown', __('Brand'), ['class' => 'form-label']) !!}
                                     <span>
                                         {!! Form::select('brand_id', $brands, null, [ 'class' => 'form-control',
                                         'data-role' => 'tagsinput', 'id' => 'brand-dropdown', ]) !!}
                                     </span>
                                 </div>
                                 <div class=" col-sm-6 col-12" data_val='0'>
-                                    {!! Form::label('', __('Label'), ['class' => 'form-label']) !!}
+                                    {!! Form::label('label-dropdown', __('Label'), ['class' => 'form-label']) !!}
                                     <span>
                                         {!! Form::select('label_id', $labels, null, [ 'class' => 'form-control',
                                         'data-role' => 'tagsinput', 'id' => 'label-dropdown', ]) !!}
                                     </span>
                                 </div>
                                 <div class="col-sm-6 col-12">
-                                    {!! Form::label('', __('Shipping'), ['class' => 'form-label']) !!}
+                                    {!! Form::label('shipping_id', __('Shipping'), ['class' => 'form-label']) !!}
                                     {!! Form::select('shipping_id', $Shipping, null, [
                                     'class' => 'form-control',
                                     'data-role' => 'tagsinput',
@@ -187,7 +187,7 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                                     ]) !!}
                                 </div>
                                 <div class="col-sm-6 col-12 product-weight">
-                                    {!! Form::label('', __('Weight(Kg)'), ['class' => 'form-label ']) !!}
+                                    {!! Form::label('product_weight', __('Weight(Kg)'), ['class' => 'form-label ']) !!}
                                     {!! Form::number('product_weight', null, ['class' => 'form-control', 'min' => '0',
                                     'step' => '0.01', 'aria-describedby' => 'product_weight-help']) !!}
                                     <x-ss.field-help for="product_weight">{{ __('Used to work out shipping. Leave blank if your shipping does not depend on weight.') }}</x-ss.field-help>
@@ -196,13 +196,13 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                               </x-ss.advanced-fields>
                             </div>
                             <div class="col-md-6 col-12 product_price product-weight">
-                                {!! Form::label('', __('Price'), ['class' => 'form-label']) !!}<span
+                                {!! Form::label('price', __('Price'), ['class' => 'form-label']) !!}<span
                                     class="text-danger">*</span>
                                 {!! Form::number('price', null, ['class' => 'form-control', 'min' => '0', 'step' =>
                                 '0.01']) !!}
                             </div>
                             <div class="col-md-6 col-12 product-weight">
-                                {!! Form::label('', __('Sale Price'), ['class' => 'form-label']) !!}<!--<span
+                                {!! Form::label('sale_price', __('Sale Price'), ['class' => 'form-label']) !!}<!--<span
                                     class="text-danger">*</span>-->
                                 {!! Form::number('sale_price', null, ['class' => 'form-control', 'min' => '0',
                                 'step' => '0.01', 'aria-describedby' => 'sale_price-help']) !!}
@@ -211,7 +211,7 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                         </div>
                  
                               <div class="col-md-6 col-12 product-weight">
-    {!! Form::label('', __('Cost Price'), ['class' => 'form-label']) !!}
+    {!! Form::label('cost_price', __('Cost Price'), ['class' => 'form-label']) !!}
     <span class="text-danger">*</span>
     {!! Form::number('cost_price', null, [
         'class' => 'form-control',
@@ -290,12 +290,12 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                             @if ($stock_management == 'on')
                                 <div class="row row-gap" id="options">
                                     <div class="col-md-6 col-12 product_stock">
-                                        {!! Form::label('', __('Stock'), ['class' => 'form-label']) !!}
+                                        {!! Form::label('product_stock', __('Stock'), ['class' => 'form-label']) !!}
                                         {!! Form::number('product_stock', null, ['class' => 'form-control
                                             productStock']) !!}
                                     </div>
                                     <div class="col-md-6 col-12">
-                                        {!! Form::label('', __('Low stock threshold'), ['class' => 'form-label']) !!}
+                                        {!! Form::label('low_stock_threshold', __('Low stock threshold'), ['class' => 'form-label']) !!}
                                         {!! Form::number('low_stock_threshold', $low_stock_threshold, ['class' =>
                                         'form-control', 'min' => '0', 'aria-describedby' => 'low_stock_threshold-help']) !!}
                                         <x-ss.field-help for="low_stock_threshold">{{ __('The product list shows Low stock at or below this number. Leave 0 to use the store default.') }}</x-ss.field-help>
@@ -582,7 +582,7 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                         <div class="card-body p-3 pb-0 ">
                             <div class="row row-gap">
                                 <div class="col-md-12">
-                                    {!! Form::label('', __('Product Attribute'), ['class' => 'form-label']) !!}
+                                    {!! Form::label('attribute_id', __('Product Attribute'), ['class' => 'form-label']) !!}
                                     {!! Form::select('attribute_id[]', $ProductAttribute, $get_datas, [ 'class' =>
                                     'form-control product_attribute attribute_id', 'multiple' => 'multiple', 'data-role'
                                     => 'tagsinput', 'id' => 'attribute_id', ]) !!}
@@ -746,12 +746,12 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                             <div data-repeater-item class="mt-1">
                                 <div class="row">
                                     <div class="col-md-6">
-                                        {!! Form::label('', __('Custom Field'), ['class' => 'form-label']) !!}
+                                        {!! Form::label('custom_field', __('Custom Field'), ['class' => 'form-label']) !!}
                                         {!! Form::text('custom_field', $item['custom_field'], ['class' =>
                                         'form-control', 'placeholder' => __('Enter Custom Field')]) !!}
                                     </div>
                                     <div class="col-md-5">
-                                        {!! Form::label('', __('Custom Value'), ['class' => 'form-label']) !!}
+                                        {!! Form::label('answer', __('Custom Value'), ['class' => 'form-label']) !!}
                                         {!! Form::text('custom_value', $item['custom_value'], [ 'id' =>
                                         'answer', 'rows' => 4, 'class' => 'form-control', 'placeholder' =>
                                         __('Enter Custom Value') ]) !!}
@@ -771,12 +771,12 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                             <div data-repeater-item class="mt-1">
                                 <div class="row">
                                     <div class="col-md-6">
-                                        {!! Form::label('', __('Field'), ['class' => 'form-label']) !!}
+                                        {!! Form::label('custom_field', __('Field'), ['class' => 'form-label']) !!}
                                         {!! Form::text('custom_field', null, ['class' => 'form-control',
                                         'placeholder' => __('Enter Custom Field')]) !!}
                                     </div>
                                     <div class="col-md-5">
-                                        {!! Form::label('', __('Value'), ['class' => 'form-label']) !!}
+                                        {!! Form::label('answer', __('Value'), ['class' => 'form-label']) !!}
                                         {!! Form::text('custom_value', null, ['id' => 'answer', 'rows' => 2,
                                         'class' => 'form-control','placeholder' => __('Enter Custom Value')])
                                         !!}

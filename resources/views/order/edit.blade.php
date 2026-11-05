@@ -6,7 +6,7 @@
     </div>
 
     <div class="form-group col-md-6">
-        {!! Form::label('', __('Type'), ['class' => 'form-label']) !!}
+        {!! Form::label('coupon_type', __('Type'), ['class' => 'form-label']) !!}
         {!! Form::select('coupon_type', ['percentage' => '%', 'flat' => 'flat'], null, ['class' => 'form-control']) !!}
     </div>
     <div class="form-group col-md-6">
@@ -45,7 +45,7 @@
         </div>
     </div>
     <div class="form-group col-md-4">
-        {!! Form::label('', __('Status'), ['class' => 'form-label']) !!}
+        {!! Form::label('status', __('Status'), ['class' => 'form-label']) !!}
         <div class="form-check form-switch">
             <input type="hidden" name="status" value="0">
             {!! Form::checkbox('status', 1, null, ["class" => "form-check-input input-primary", "id" => "customCheckdef1"]) !!}

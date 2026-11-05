@@ -7,19 +7,19 @@
 <div class="row">
     @if($shippingzone->zone_name != 'Locations not covered by your other zones')
         <div class="form-group col-md-12">
-            {!! Form::label('', __('Name'), ['class' => 'form-label']) !!}
+            {!! Form::label('zone_name', __('Name'), ['class' => 'form-label']) !!}
             {!! Form::text('zone_name', null, ['class' => 'form-control', "required"=>true]) !!}
         </div>
     @else
         <div class="form-group col-md-12">
-            {!! Form::label('', __('Name'), ['class' => 'form-label']) !!}
+            {!! Form::label('zone_name', __('Name'), ['class' => 'form-label']) !!}
             {!! Form::text('zone_name' , null, ['class' => 'form-control','readonly']) !!}
         </div>
     @endif
     @if($shippingzone->zone_name != 'Locations not covered by your other zones')
         <div class="form-group list_height_css col-md-12">
             <label>{{ __('Country') }}</label>
-            {!! Form::label('', __('Name'), ['class' => 'form-label']) !!}
+            {!! Form::label('country_id', __('Name'), ['class' => 'form-label']) !!}
             {!! Form::select('country_id', $country_option, null, ["class"=>"form-control country_change", "required"=>false]) !!}
         </div>
         <div class="form-group list_height_css col-md-12">

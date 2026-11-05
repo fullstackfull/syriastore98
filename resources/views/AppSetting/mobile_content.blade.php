@@ -134,7 +134,7 @@
                                     <div class="row">
                                         <div class="col-sm-4">
                                             <div class="form-group">
-                                                {!! Form::label('', __('Date Format'), ['class' => 'form-label']) !!}
+                                                {!! Form::label('date_formate', __('Date Format'), ['class' => 'form-label']) !!}
                                                 {!! Form::select('date_format', ['d M, Y' => date('d M, Y'), 'Y-m-d' => date('Y-m-d')], $date_format, [
                                                     'data-role' => 'tagsinput',
                                                     'id' => 'date_formate',
@@ -175,7 +175,7 @@
                                 <div class="card-body p-4">
                                     <div class="row">
                                         <div class="col-lg-9 col-md-8 col-sm-8 form-group">
-                                            {!! Form::label('', __('FCM Key'), ['class' => 'form-label']) !!}
+                                            {!! Form::label('fcm_Key', __('FCM Key'), ['class' => 'form-label']) !!}
                                             {!! Form::text('fcm_Key', $fcm_Key, ['class' => 'form-control', 'placeholder' => 'Enter FCM Key']) !!}
                                         </div>
                                     </div>

@@ -1,26 +1,26 @@
 {{Form::model($review, array('route' => array('review.update', $review->id), 'method' => 'PUT', 'enctype' => 'multipart/form-data')) }}
 <div class="row">
     <div class="form-group col-md-12">
-        {!! Form::label('', __('User'), ['class' => 'form-label']) !!}
+        {!! Form::label('user_id', __('User'), ['class' => 'form-label']) !!}
         {!! Form::select('user_id', $users, null, ['class' => 'form-control', 'data-role' => 'tagsinput', 'id' => 'user_id']) !!}
     </div>
     <div class="form-group  col-md-12">
-        {!! Form::label('', __('Description'), ['class' => 'form-label']) !!}
+        {!! Form::label('description', __('Description'), ['class' => 'form-label']) !!}
         {!! Form::textarea('description', null, ['class' => 'form-control autogrow', 'rows' => '3']) !!}
     </div>
     <div class="form-group  col-md-6">
-        {!! Form::label('', __('Category'), ['class' => 'form-label']) !!}
+        {!! Form::label('category_id', __('Category'), ['class' => 'form-label']) !!}
         {!! Form::select('category_id', $main_categorys, null, ['class' => 'form-control', 'data-role' => 'tagsinput', 'id' => 'category_id']) !!}
     </div>
 
     <div class="form-group  col-md-6 product_id_div" data_val='{{ $review->product_id }}'>
-        {!! Form::label('', __('Product'), ['class' => 'form-label']) !!}
+        {!! Form::label('product_id', __('Product'), ['class' => 'form-label']) !!}
         <span>
             {!! Form::select('product_id', [], null, ['class' => 'form-control', 'data-role' => 'tagsinput', 'id' => 'product_id']) !!}
         </span>
     </div>
     <div class="form-group  col-md-6">
-        {!! Form::label('', __('Rating'), ['class' => 'form-label']) !!}
+        {!! Form::label('rating_no', __('Rating'), ['class' => 'form-label']) !!}
         {!! Form::select('rating_no', ['1' => 1,'2' => 2,'3' => 3,'4' => 4,'5' => 5,], null, ['class' => 'form-control', 'data-role' => 'tagsinput', 'id' => 'rating_no']) !!}
     </div>
 

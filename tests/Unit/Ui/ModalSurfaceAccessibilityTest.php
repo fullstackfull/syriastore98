@@ -39,17 +39,41 @@ use RecursiveIteratorIterator;
  *    and `<input type="button">` -- which ARE named, by their `value`. A census without that
  *    exclusion over-reports by two per modal, a third of the total.
  *
- * AND THE CENSUS THE THREE REPAIRS CAME OUT OF, pinned below so it cannot grow: 127 real
- * `Form::label('')` call sites across 24 merchant views, plus 108 `<label>` tags with no `for`.
- * That is Wave 26's work; this test holds the line until then.
+ * AND THE CENSUS THE THREE REPAIRS CAME OUT OF, pinned below: it was 127 real `Form::label('')`
+ * call sites across 25 merchant views. WAVE 26 TOOK IT TO 21.
+ *
+ * MEASURED on /product/create across that repair, which is the only way the figure means
+ * anything -- a count of source edits proves nothing about a rendered page:
+ *
+ *                         before   after
+ *     labels                  57      57
+ *     resolving to a control  41      53
+ *     for="" (naming nothing) 15       3
+ *     dangling for=           1        1   (pre-existing: `sub_images` has no control at all)
+ *
+ * AND THE FIRST RUN OF THAT REPAIR WAS WRONG, which the same measurement caught: dangling went
+ * 1 -> 4. The analyser read `'id' => ...` only on the control's FIRST line, so three multi-line
+ * selects whose explicit ids differ from their names (brand_id -> `brand-dropdown`, label_id ->
+ * `label-dropdown`, tax_status -> `tax_id`) were given a `for` pointing at nothing. Widening the
+ * window to the whole call found 32 such sites rather than 13 -- so 19 of 106 edits had the
+ * wrong target. All 106 were reverted and re-applied from a clean base.
+ *
+ * RECORDED, NOT FIXED: /product/create and /product/edit carry SIX duplicate element ids
+ * (`tax_id` twice, `preview_type` twice, `backColorPicker` three times). Measured identical
+ * before and after this work, so it is pre-existing -- but a duplicate id makes `for` ambiguous
+ * and belongs in whatever slice owns those screens.
  */
 class ModalSurfaceAccessibilityTest extends TestCase
 {
     /**
-     * The measured census at the time of Wave 25. It may FALL -- Wave 26 exists to make it fall --
-     * but it must never rise, which is what this asserts.
+     * LOWERED 127 -> 21 BY WAVE 26, which is what the ratchet asked for. 106 of the 127 sites now
+     * name the control they describe; the 21 that remain are the ones an analyser must not guess
+     * at -- a label with no `Form::` control before the next label, which means either raw HTML
+     * or a control GROUP that needs a fieldset or an aria-label rather than a `for`.
+     *
+     * It may fall further. It must never rise.
      */
-    private const EMPTY_LABEL_CEILING = 127;
+    private const EMPTY_LABEL_CEILING = 21;
 
     public function test_the_permission_grid_meets_the_target_minimum(): void
     {

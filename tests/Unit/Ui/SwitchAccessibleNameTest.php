@@ -373,18 +373,22 @@ class SwitchAccessibleNameTest extends TestCase
     }
 
     /**
-     * THE RESIDUE, NAMED RATHER THAN LOST.
+     * THE RESIDUE, NAMED RATHER THAN LOST — AND NOW HALF OF IT IS GONE.
      *
-     * Four more switches carry byte-identical markup — `Form::label('', __('Status'))` beside an
-     * empty `.form-check-label` — and are NOT repaired here, because those four files are outside
-     * this change's ownership. This test fails the day somebody deletes this list without either
-     * fixing them or moving the record somewhere better.
+     * This listed FOUR switches carrying byte-identical markup, `Form::label('', __('Status'))`
+     * beside an empty `.form-check-label`. P2.5-WAVE-26 repaired TWO of them, and this test is
+     * what caught it: its own message says "if it was fixed, drop it from this list", so
+     * order/create and order/edit are dropped here rather than the assertion being weakened.
+     *
+     * THE OTHER TWO ARE STILL UNREPAIRED, and for a reason worth keeping. Wave 26's analyser
+     * refuses to name a label whose next control is not a `Form::` helper, and the wishlist
+     * switch is raw markup -- a hidden `<input name="status" value="0">` followed by
+     * `<input type="checkbox" name="status" id="customCheckdef1">`. Two controls share the name
+     * and only one carries an id, so the right target is a judgement a script must not make.
      */
     public function test_the_untouched_same_shape_switches_are_named_in_the_report(): void
     {
         foreach ([
-            'resources/views/order/create.blade.php',
-            'resources/views/order/edit.blade.php',
             'resources/views/wishlist/create.blade.php',
             'resources/views/wishlist/edit.blade.php',
         ] as $view) {

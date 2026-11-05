@@ -39,13 +39,13 @@
                             <div class="row">
                                 <input type="hidden" name="id" value="{{ $product->id }}">
                                 <div class="form-group col-12">
-                                    {!! Form::label('', __('Name'), ['class' => 'form-label']) !!}
+                                    {!! Form::label('name', __('Name'), ['class' => 'form-label']) !!}
                                     {!! Form::text('name', $product->name, ['class' => 'form-control name']) !!}
                                 </div>
                             </div>
                             <div class="row">
                                 <div class="form-group col-12 parmalink ">
-                                    {!! Form::label('', __('Permalink'), ['class' => 'form-label col-md-3']) !!}
+                                    {!! Form::label('slug', __('Permalink'), ['class' => 'form-label col-md-3']) !!}
                                     <div class="d-flex flex-wrap gap-3">
                                         <span class="input-group-text col-12" id="basic-addon2">{{ $link }}</span>
                                         {!! Form::text('slug', $product->slug, ['class' => 'form-control slug col-12']) !!}
@@ -54,7 +54,7 @@
                             </div>
                             <div class="row">
                                 <div class="form-group col-12">
-                                    {!! Form::label('', __('Category'), ['class' => 'form-label']) !!}
+                                    {!! Form::label('category_id', __('Category'), ['class' => 'form-label']) !!}
                                     {!! Form::select('category_id', $Category, $product->category_id, [
                                         'class' => 'form-control',
                                         'data-role' => 'tagsinput',
@@ -76,7 +76,7 @@
 
                                 </div>
                                 <div class="form-group col-md-6 col-12">
-                                    {!! Form::label('', __('Tax Status'), ['class' => 'form-label']) !!}
+                                    {!! Form::label('tax_id', __('Tax Status'), ['class' => 'form-label']) !!}
                                     {!! Form::select('tax_status', $Tax_status, $product->tax_status, [
                                         'class' => 'form-control',
                                         'data-role' => 'tagsinput',
@@ -86,7 +86,7 @@
                             </div>
                             <div class="row">
                                 <div class="form-group  col-12" data_val='0'>
-                                    {!! Form::label('', __('Brand'), ['class' => 'form-label']) !!}
+                                    {!! Form::label('brand-dropdown', __('Brand'), ['class' => 'form-label']) !!}
                                     {!! Form::select('brand_id', $brands, $product->brand_id, [
                                         'class' => 'form-control',
                                         'data-role' => 'tagsinput',
@@ -96,7 +96,7 @@
                             </div>
                             <div class="row">
                                 <div class="form-group  col-12" data_val='0'>
-                                    {!! Form::label('', __('Label'), ['class' => 'form-label']) !!}
+                                    {!! Form::label('label-dropdown', __('Label'), ['class' => 'form-label']) !!}
                                     {!! Form::select('label_id', $labels, $product->label_id, [
                                         'class' => 'form-control',
                                         'data-role' => 'tagsinput',
@@ -118,7 +118,7 @@
                             </div>
                             <div class="row">
                                 <div class="form-group col-12">
-                                    {!! Form::label('', __('Shipping'), ['class' => 'form-label']) !!}
+                                    {!! Form::label('shipping_id', __('Shipping'), ['class' => 'form-label']) !!}
                                     {!! Form::select('shipping_id', $Shipping, $product->shipping_id, [
                                         'class' => 'form-control',
                                         'data-role' => 'tagsinput',
@@ -129,17 +129,17 @@
 
                             <div class="row">
                                 <div class="form-group col-12 product-weight">
-                                    {!! Form::label('', __('Weight(Kg)'), ['class' => 'form-label ']) !!}
+                                    {!! Form::label('product_weight', __('Weight(Kg)'), ['class' => 'form-label ']) !!}
                                     {!! Form::number('product_weight',  $product->product_weight, ['class' => 'form-control', 'min' => '0', 'step' => '0.01']) !!}
                                 </div>
                             </div>
                             <div class="row product-price-div">
                                 <div class="form-group col-md-6 col-12 product_price">
-                                    {!! Form::label('', __('Price'), ['class' => 'form-label']) !!}
+                                    {!! Form::label('price', __('Price'), ['class' => 'form-label']) !!}
                                     {!! Form::number('price',  $product->price, ['class' => 'form-control', 'min' => '0', 'step' => '0.01']) !!}
                                 </div>
                                 <div class="form-group col-md-6 col-12">
-                                    {!! Form::label('', __('Sale Price'), ['class' => 'form-label']) !!}
+                                    {!! Form::label('sale_price', __('Sale Price'), ['class' => 'form-label']) !!}
                                     {!! Form::number('sale_price',  $product->sale_price, ['class' => 'form-control', 'min' => '0', 'step' => '0.01']) !!}
                                 </div>
                             </div>
@@ -149,7 +149,7 @@
                                 <div class="row">
                                     @if ($stock_management == 'on')
                                         <div class="form-group col-md-6 col-12">
-                                            {!! Form::label('', __('Stock Management'), ['class' => 'form-label']) !!}
+                                            {!! Form::label('enable_product_stock', __('Stock Management'), ['class' => 'form-label']) !!}
                                             <div class="form-check form-switch">
                                                 <input type="hidden" name="track_stock" value="0">
                                                 {!! Form::checkbox('track_stock', 1, $product->track_stock, [
@@ -203,11 +203,11 @@
                                 @if ($stock_management == 'on')
                                     <div class="row" id="options">
                                         <div class="form-group col-md-6 col-12 product_stock">
-                                            {!! Form::label('', __('Stock'), ['class' => 'form-label']) !!}
+                                            {!! Form::label('product_stock', __('Stock'), ['class' => 'form-label']) !!}
                                             {!! Form::number('product_stock', $product->product_stock, ['class' => 'form-control productStock']) !!}
                                         </div>
                                         <div class="form-group col-md-6 col-12">
-                                            {!! Form::label('', __('Low stock threshold'), ['class' => 'form-label']) !!}
+                                            {!! Form::label('low_stock_threshold', __('Low stock threshold'), ['class' => 'form-label']) !!}
                                             {!! Form::number('low_stock_threshold', $low_stock_threshold, ['class' => 'form-control', 'min' => '0']) !!}
                                         </div>
                                         <div class="col-12 mb-3">
@@ -415,7 +415,7 @@
                                 <div class="card-body">
                                     <div class="row">
                                         <div class="form-group col-md-12">
-                                            {!! Form::label('', __('Product Attribute'), ['class' => 'form-label']) !!}
+                                            {!! Form::label('attribute_id', __('Product Attribute'), ['class' => 'form-label']) !!}
                                             {!! Form::select('attribute_id[]', $ProductAttribute, $get_datas, [
                                                 'class' => 'form-control product_attribute attribute_id',
                                                 'multiple' => 'multiple',
@@ -557,11 +557,11 @@
                                                                 <div data-repeater-item>
                                                                     <div class="form-group row">
                                                                         <div class="col-md-6">
-                                                                            {!! Form::label('', __('Custom Field'), ['class' => 'form-label']) !!}
+                                                                            {!! Form::label('custom_field', __('Custom Field'), ['class' => 'form-label']) !!}
                                                                             {!! Form::text('custom_field', $item['custom_field'], ['class' => 'form-control']) !!}
                                                                         </div>
                                                                         <div class="col-md-6">
-                                                                            {!! Form::label('', __('Custom Value'), ['class' => 'form-label']) !!}
+                                                                            {!! Form::label('answer', __('Custom Value'), ['class' => 'form-label']) !!}
                                                                             {!! Form::text('custom_value', $item['custom_value'], [
                                                                                 'id' => 'answer',
                                                                                 'rows' => 4,
@@ -582,11 +582,11 @@
                                                             <div data-repeater-item>
                                                                 <div class="form-group row">
                                                                     <div class="col-md-6">
-                                                                        {!! Form::label('', __('Custom Field'), ['class' => 'form-label']) !!}
+                                                                        {!! Form::label('custom_field', __('Custom Field'), ['class' => 'form-label']) !!}
                                                                         {!! Form::text('custom_field', null, ['class' => 'form-control']) !!}
                                                                     </div>
                                                                     <div class="col-md-6">
-                                                                        {!! Form::label('', __('Custom Value'), ['class' => 'form-label']) !!}
+                                                                        {!! Form::label('answer', __('Custom Value'), ['class' => 'form-label']) !!}
                                                                         {!! Form::text('custom_value', null, ['id' => 'answer', 'rows' => 2, 'class' => 'form-control']) !!}
 
                                                                     </div>

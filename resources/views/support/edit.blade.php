@@ -135,7 +135,7 @@
                             @csrf
                             <div class="card-body">
                                 <div class="form-group col-md-7">
-                                    {!! Form::label('', __('Description'), ['class' => 'form-label']) !!}
+                                    {!! Form::label('description', __('Description'), ['class' => 'form-label']) !!}
                                     {!! Form::textarea('reply_description', old('reply_description'), ['class' => 'form-control  summernote-simple-product', 'rows' => 1, 'id' => 'description']) !!}
                                 </div>
                                 <div class="form-group file-group mb-5 col-md-7">

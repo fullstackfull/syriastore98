@@ -10,11 +10,11 @@
 
 <div class="row">
     <div class="form-group col-md-12">
-        {!! Form::label('', __('Name'), ['class' => 'form-label']) !!}
+        {!! Form::label('name', __('Name'), ['class' => 'form-label']) !!}
         {!! Form::text('name', null, ['class' => 'form-control']) !!}
     </div>
     <div class="form-group col-md-12">
-        {!! Form::label('', __('Description'), ['class' => 'form-label']) !!}
+        {!! Form::label('description', __('Description'), ['class' => 'form-label']) !!}
         {!! Form::textarea('description', null, ['class' => 'form-control autogrow', 'rows' => '3']) !!}
     </div>
 
