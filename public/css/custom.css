@@ -1882,7 +1882,7 @@ img.refund-image {
 .my-custom-timeline .tl-box .end-date {
     font-size: 10px;
     padding: 3px;
-    background: #FF3A6E;
+    background: #DB325F;
     color: #ffffff;
     border-radius: 3px;
     -webkit-border-radius: 3px;
@@ -1970,23 +1970,23 @@ img.refund-image {
 }
 
 .register-timeline {
-    background: #4CAF50 !important;
+    background: #3A853D !important;
 }
 
 .last-login-timeline {
-    background: #607D8B !important;
+    background: #5E7A88 !important;
 }
 
 .wishlist-timeline {
-    background: #32d7a2 !important;
+    background: #1F8564 !important;
 }
 
 .dlt-wishlist-timeline {
-    background: #9E9E9E !important;
+    background: #767676 !important;
 }
 
 .add-cart-timeline {
-    background: #FFC107 !important;
+    background: #947004 !important;
 }
 
 .dlt-cart-timeline {
@@ -1994,7 +1994,7 @@ img.refund-image {
 }
 
 .order-timeline {
-    background: #2196F3 !important;
+    background: #1B79C5 !important;
 }
 
 .report-filter {
