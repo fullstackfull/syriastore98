@@ -302,7 +302,7 @@ class ReportExportControlContractTest extends TestCase
          * if a rule appears, the swap is no longer visually inert and needs a render check.
          */
         foreach (['public/css/custom.css', 'public/css/rtl-custom.css', 'public/css/store-syria-ds.css'] as $sheet) {
-            $css = (string) file_get_contents(base_path($sheet));
+            $css = $this->sheetWithoutComments($sheet);
 
             $this->assertDoesNotMatchRegularExpression(
                 '/(^|[\s,>+~{])(a|button)?\.btn-icon\b/m',
@@ -341,7 +341,7 @@ class ReportExportControlContractTest extends TestCase
             'public/css/custom.css',
             'public/css/rtl-custom.css',
         ] as $sheet) {
-            $css = (string) file_get_contents(base_path($sheet));
+            $css = $this->sheetWithoutComments($sheet);
 
             preg_match_all('/[^{}();\n]*\ba\.btn[a-z-]*\b[^{}]*(?=\{)/', $css, $matches);
 
@@ -430,6 +430,24 @@ class ReportExportControlContractTest extends TestCase
      * HELPERS
      * ---------------------------------------------------------------------------------------
      */
+
+    /**
+     * A stylesheet WITH ITS COMMENTS STRIPPED, because the two selector scans below read CSS as
+     * text and a comment is not a rule.
+     *
+     * MEASURED: `custom.css` acquired a block comment containing the words "an `a.btn` that DOES
+     * need the lift" — prose explaining why one selector is written as it is — and the anchor
+     * scan matched it, ran on to the next `{`, and reported a 900-character blob of English as an
+     * unscoped rule. The guard was right to exist and was reading the wrong text. Stripping
+     * comments is also what makes the scans HONEST in the other direction: a rule that is
+     * commented out is not a rule, and should not satisfy or trip either check.
+     */
+    private function sheetWithoutComments(string $relative): string
+    {
+        $css = (string) file_get_contents(base_path($relative));
+
+        return (string) preg_replace('#/\*.*?\*/#s', '', $css);
+    }
 
     /** The `@section('action-button')` body, comments stripped. */
     private function actionRegion(string $relative): string

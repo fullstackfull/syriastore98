@@ -5147,10 +5147,19 @@ html[data-ss-theme="dark"] body .card-body dl.row dd {
    LIGHT MODE ONLY, AND THAT IS A MEASURED CORRECTION RATHER THAN CAUTION. `--ss-brand-ontext` is
    darkened against the LIGHT page (`PAGE = [249,250,251]` in layouts/app.blade.php), so on a dark
    surface it is the wrong direction entirely: applying it unconditionally took the header's dark
-   mode from 0 failures to 2, at 2.72:1. The BRIGHT brand colour is already compliant there --
-   rgb(16,183,127) on rgb(38,47,63) measures 5.34:1 -- so dark mode needs no change and must not
-   get one. `data-ss-theme` is set server-side on <html> (layouts/app.blade.php:69), which is the
-   project's own theme indicator and what the design system already keys off.
+   mode from 0 failures to 2, at 2.72:1. `data-ss-theme` is set server-side on <html>
+   (layouts/app.blade.php:69), which is the project's own theme indicator and what the design
+   system already keys off.
+
+   >> CORRECTED 2026-11-05 (P2.5-DESIGN-G). This paragraph used to end "The BRIGHT brand colour is
+   >> already compliant there -- rgb(16,183,127) on rgb(38,47,63) measures 5.34:1 -- so dark mode
+   >> needs no change and must not get one." THAT IS TRUE OF WHAT IT MEASURED AND FALSE IN
+   >> GENERAL. It measured the DEFAULT theme-3 green. A brand that is already dark exits the
+   >> darkening loop on its first test and comes back unchanged, so on a dark page it is simply
+   >> the brand colour: Store Syria's own #335da8 measures 2.22:1, and 34 of 35 brand-as-text
+   >> sites failed in dark across six screens. The reasoning above was right -- this token must
+   >> not be applied in dark -- and only its conclusion was over-general. The dark case now has
+   >> its OWN token, `--ss-brand-ontext-dark`, at the foot of this file.
    (The P2-A-03 (b) breadcrumb rule above has the same shape and has not been measured on a dark
    surface; it is left alone here because F158 says to fix the sites that actually failed, and the
    breadcrumb is not one this measurement covered.)
@@ -5246,3 +5255,80 @@ html[data-ss-theme="dark"] body .my-custom-timeline .support-time::after {
 
 /* end P2.5-A-06 -- the two directions are compared byte for byte between these markers by
    Tests\Unit\Ui\DarkTimelineSurfaceContrastTest, so keep both. */
+
+
+/* =============================================================================================
+   P2.5-DESIGN-G. THE MERCHANT'S BRAND COLOUR USED AS TEXT, ON THE DARK PAGE.
+
+   MEASURED across /dashboard /finance /customer /order /product-list /setting, reading
+   `--theme-color` off the live body rather than nominating a colour
+   (docs/development/phase-2.5/tools/find-brand-text-failures.cjs):
+
+       light     0 of 44 brand-as-text sites fail AA
+       dark     34 of 35 fail                      <- /setting contributes 20: its whole tab rail
+
+   Store Syria's own `#335da8` measures 2.22:1 on the card surface `rgb(41,42,51)`; the pagination
+   control measures 2.41:1 on the page.
+
+   THE NOTE AT P2-A-03 ABOVE SAYS DARK NEEDS NO CHANGE. It was right about what it measured and
+   wrong to generalise: `--ss-brand-ontext` is darkened against a hard-coded LIGHT page, so for a
+   BRIGHT brand (theme-3 `#10B77F`, the default, 5.34:1) dark really is already compliant -- and
+   for a brand that is already dark the loop exits on its first test and hands back the brand
+   unchanged. This product ships `#335da8`. That note is corrected in place, not deleted.
+
+   `--ss-brand-ontext-dark` IS THE SAME MECHANISM POINTING THE OTHER WAY, computed once in
+   layouts/app.blade.php: the merchant's own colour LIFTED TOWARDS WHITE only until it clears
+   4.5:1 on the card surface. NO BRAND COLOUR CHANGES -- every fill, border and badge keeps the
+   merchant's exact value, and a colour-picker choice goes through the same arithmetic as the ten
+   presets. BrandTextOnDarkContrastTest runs that arithmetic over all eleven and asserts each one
+   both clears AA and keeps its hue.
+
+   The fallback is `--theme-color`, i.e. today's appearance if the script is blocked -- the same
+   choice the light half makes, for the same reason.
+
+   THE FOUR SELECTORS ARE THE ONES THAT MEASURED FAILING, not a sweep of everything brand-coloured.
+   `!important` because `.text-primary` is a Bootstrap utility and carries it. */
+html[data-ss-theme="dark"] body .text-primary,
+html[data-ss-theme="dark"] body .btn-outline-primary,
+html[data-ss-theme="dark"] body .nav-link:not(.active),
+html[data-ss-theme="dark"] body .nex-prev-btn-wrp .btn,
+html[data-ss-theme="dark"] body .dash-content a:not(.btn):not(.ss-btn):not(.nav-link) {
+    color: var(--ss-brand-ontext-dark, var(--theme-color)) !important;
+}
+
+/* THE PLAIN-ANCHOR ARM IS SCOPED THREE TIMES OVER, and every exclusion is a regression the
+   measurement caught rather than a precaution. A bare `a` rule repaints (a) every FILLED
+   `.btn-primary`, whose white label is already 6.42:1 and is handled by `--ss-onbrand`, (b) the
+   ACTIVE SIDEBAR LINK, white on the brand fill for the same reason, and (c) -- the one I actually
+   shipped for a minute -- `.ss-btn`, THE DESIGN SYSTEM'S OWN BUTTON CLASS, which is not `.btn`
+   and so slipped straight through `:not(.btn)`. That put rgb(120,148,198) on the cyan fill of the
+   primary call to action on two screens: "Add Product" and "Create Order", at 1.47:1. It was
+   white before. `.dash-content` keeps the rule inside the content column, away from the rail. The
+   pagination control is an `a.btn` that DOES need the lift and gets it from its own arm above.
+
+   ---------------------------------------------------------------------------------------------
+   AND THE COLOUR FOLLOWS THE SURFACE, NOT THE THEME.
+
+   `/finance` renders `.card-header.bg-white` INSIDE a dark `.card`: a white strip in dark mode,
+   hard-coded in the markup. The brand colour on it was 6.42:1 and correct, and the rule above
+   took it to 3.07:1 -- a fix that made one site worse while fixing thirty-four. So the light
+   token is restored on any light island, which is not a special case but the actual rule: the
+   text colour is chosen by the surface underneath it.
+
+   The white strip itself is a separate defect and is NOT fixed here -- it is a light surface
+   appearing in dark mode, which belongs with the other dark-mode surface work, not with the
+   brand-colour mechanism. Recorded, not absorbed.
+
+   `:not(.active)` ON BOTH NAV ARMS, AND IT IS THE THIRD REGRESSION THIS RULE CAUSED. An ACTIVE
+   tab sits on the BRAND FILL, not on the page and not on the white strip, so its label is white
+   via `--ss-onbrand`. Both arms hit it anyway and the undo arm won: the finance tab came out as
+   rgb(51,93,168) on rgb(51,93,168), THE SAME COLOUR TWICE, 1:1 -- worse than anything this
+   package set out to fix, on a tab that was correct at HEAD. Three regressions from three
+   selectors that each looked specific enough: `.btn` missed `.ss-btn`, the theme missed a white
+   island inside it, and the surface missed the one state that has a fill of its own. */
+html[data-ss-theme="dark"] body .bg-white .nav-link:not(.active),
+html[data-ss-theme="dark"] body .bg-white .text-primary,
+html[data-ss-theme="dark"] body .bg-white .btn-outline-primary,
+html[data-ss-theme="dark"] body .bg-white a:not(.btn):not(.ss-btn) {
+    color: var(--ss-brand-ontext, var(--theme-color)) !important;
+}

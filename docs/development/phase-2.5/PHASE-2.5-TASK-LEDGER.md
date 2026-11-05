@@ -1314,16 +1314,36 @@ the index, not a replacement for them.
 | **Evidence** | `docs/design-system/evidence/design-e-2026-11-05/` — before/after strips at 2x, both themes |
 | **Corrected in flight** | I measured dark first and wrote the package as dark-only; injecting all eight variants showed **light is the worse theme**. Two false sentences from that draft shipped in `cf496ca3` and are repaired here, along with two vacuous test passes |
 
-## 4.6 What the Premium Design objective still does NOT cover
+## 4.6 P2.5-DESIGN-G — the merchant's brand colour used as TEXT, on the dark page
+
+| | |
+|---|---|
+| **Principle** | *the text colour follows the SURFACE, not the theme* |
+| **Files** | `resources/views/layouts/app.blade.php` (the derivation), `public/css/custom.css` **and** `public/css/rtl-custom.css` (both delivery paths) |
+| **Before** | light **0 of 44** brand-as-text sites fail AA; dark **34 of 35** — `/setting` contributes 20, its entire tab rail, at 2.22:1 |
+| **After** | dark **0**; light unchanged at 0. Whole-screen low-contrast findings in dark **26 → 17**; light identical to HEAD on all six screens |
+| **Mechanism** | `--ss-brand-ontext-dark` — the merchant's **own** colour lifted towards white only until AA, the mirror of the existing light token. No brand colour changes. Derived per merchant, so the colour picker is covered by the same arithmetic as the ten presets |
+| **Tests** | 30, 170 assertions. The test **runs the algorithm** over all eleven brands rather than describing it. Six bites: the block, the token, each of the three exclusions, the surface constant, the direction |
+| **Evidence** | `docs/design-system/evidence/design-g-2026-11-05/` — includes an **ar-RTL** pair, which is what proves `rtl-custom.css` got the fix |
+| **Absorbs** | P2.5-DESIGN-H. The pagination control is not a shape bug: `.nex-prev-btn-wrp .btn { background: transparent }` is the host's **deliberate** ghost-button design, filled on hover. Only its text contrast failed, and it failed for this reason |
+| **Three regressions, each measured and each now a test** | `.ss-btn` (the design system's own button class is not `.btn`) put 1.47:1 on the primary CTA; the dark token on `/finance`'s hard-coded white card header took 6.42:1 to 3.07:1; and an **active** tab, which sits on the brand fill, came out 1:1 — the same colour twice, worse than the defect, on a tab that was correct at HEAD |
+| **Corrected** | a note in both sheets said dark "needs no change and must not get one". It measured the **default theme-3 green** (5.34:1) and was right about it; a brand that is already dark exits the darkening loop unchanged. Corrected in place |
+| **Repaired a pre-existing guard** | `ReportExportControlContractTest`'s anchor scan read **raw CSS**, matched the words ``an `a.btn` `` inside a new block comment, and reported 900 characters of prose as an unscoped rule. It now strips comments; bitten three ways |
+
+## 4.7 What the Premium Design objective still does NOT cover
 
 Named in the owner's brief and **untouched**: **products**, **customers**, **settings**, and the
 **Flutter** merchant application's visual pass. **Reports** has had only its money figures
 corrected (D-42.3) — and see `F-DESIGN-6`: its screens cannot be behaviourally tested in this suite
 at all.
 
-**Finances** is no longer untouched but is not covered either: P2.5-DESIGN-E repaired the
-button contrast *visible on* `/finance`, which is a cross-cutting stylesheet fix that happens to
-land there. The screen's own layout, hierarchy and typography have had no design pass.
+**Finances** and **settings** are no longer untouched but are not covered either: P2.5-DESIGN-E
+and -G repaired contrast *visible on* them, which are cross-cutting stylesheet fixes that happen
+to land there. Neither screen's own layout, hierarchy or typography has had a design pass.
+
+**Recorded and not fixed:** `/finance` renders `.card-header.bg-white` inside a dark card — a
+light surface appearing in dark mode, hard-coded in the markup. P2.5-DESIGN-G stops making it
+worse and does not repair it.
 
 Partially covered: **orders** (the grid card's correctness half only; the board's overflow) and
 **dashboard** (the stat grid only — the sidebar's five group labels, four of which head a single

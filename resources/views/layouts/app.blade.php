@@ -483,6 +483,43 @@
                     '--ss-brand-ontext',
                     'rgb(' + text[0] + ',' + text[1] + ',' + text[2] + ')'
                 );
+
+                /* AND THE SAME THING ON THE DARK PAGE, which the loop above cannot serve.
+                   It darkens against a hard-coded LIGHT page, so for a merchant whose colour is
+                   already dark it exits on its FIRST test and returns the brand UNCHANGED. That
+                   is correct on white and is the entire defect on a dark surface.
+
+                   MEASURED across six merchant screens, reading --theme-color off the live body:
+                   light 0 of 44 brand-as-text sites fail, DARK 34 OF 35 -- /setting contributes
+                   20, its whole tab rail. Store Syria's own #335da8 is 2.22:1 there.
+
+                   custom.css said dark needed no change ("the BRIGHT brand colour is already
+                   compliant there"). That was measured on the DEFAULT theme-3 green, #10B77F at
+                   5.34:1, and is true of it. It is not true of a darker brand, and this product
+                   ships one.
+
+                   LIFTED TOWARDS WHITE, WHICH KEEPS THE HUE, and only until AA is met -- the
+                   mirror of the loop above, not a new idea. Against the CARD surface, not the
+                   page: both were measured (page rgb(34,36,44), card rgb(41,42,51)) and for
+                   light text the LIGHTER one is the harder, so a value that clears the card
+                   clears the page too. Computing against the page would under-shoot every card,
+                   which is where the failing text actually sits.
+
+                   The brand colour itself is untouched, exactly as above: this is a separate
+                   property used only where the brand is TEXT, so every fill, border and badge
+                   keeps the merchant's exact colour. */
+                var DARK_SURFACE = [41, 42, 51];
+                var lift = 0;
+                var dark = rgb;
+                while (lift <= 1) {
+                    dark = rgb.map(function (v) { return Math.round(v + (255 - v) * lift); });
+                    if (ratio(dark, DARK_SURFACE) >= 4.5) { break; }
+                    lift += 0.02;
+                }
+                document.documentElement.style.setProperty(
+                    '--ss-brand-ontext-dark',
+                    'rgb(' + dark[0] + ',' + dark[1] + ',' + dark[2] + ')'
+                );
             } catch (e) {}
         })();
     </script>
