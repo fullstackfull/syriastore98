@@ -1302,12 +1302,28 @@ the index, not a replacement for them.
 | **Tests** | 7, 46 assertions; **the bite reddens 3 of 7** after the contrast cases were rewritten to read the token the component actually declares |
 | **Evidence** | `docs/design-system/evidence/design-d-2026-11-04/` |
 
-## 4.5 What the Premium Design objective still does NOT cover
+## 4.5 P2.5-DESIGN-E — the host's soft buttons, both themes (`cf496ca3`, this change)
 
-Named in the owner's brief and **untouched**: **products**, **customers**, **finances**,
-**settings**, and the **Flutter** merchant application's visual pass. **Reports** has had only its
-money figures corrected (D-42.3) — and see `F-DESIGN-6`: its screens cannot be behaviourally tested
-in this suite at all.
+| | |
+|---|---|
+| **Principle** | *dark mode is not an inversion; its contrast is a separate measurement* (`ui-ux-pro-max` `color-dark-mode`) |
+| **Files** | `public/css/store-syria-ds.css` (text colour only, 8 rules); two probes in `docs/development/phase-2.5/tools/` |
+| **Before** | **seven of eight variants failed AA somewhere** — worst **1.62:1** light (`warning`), **1.02:1** dark (`dark`, on the control that opens a merchant's withdrawal requests, where it rendered *invisible*) |
+| **After** | all sixteen combinations clear AA; worst **6.42:1** light, **4.80:1** dark. Fills untouched — these classes span 70 vendored modules |
+| **Tests** | 13, 52 assertions; the full bite reddens **all 13**, and a second bite adds a fill to the block's **last** rule to prove the window reaches it |
+| **Evidence** | `docs/design-system/evidence/design-e-2026-11-05/` — before/after strips at 2x, both themes |
+| **Corrected in flight** | I measured dark first and wrote the package as dark-only; injecting all eight variants showed **light is the worse theme**. Two false sentences from that draft shipped in `cf496ca3` and are repaired here, along with two vacuous test passes |
+
+## 4.6 What the Premium Design objective still does NOT cover
+
+Named in the owner's brief and **untouched**: **products**, **customers**, **settings**, and the
+**Flutter** merchant application's visual pass. **Reports** has had only its money figures
+corrected (D-42.3) — and see `F-DESIGN-6`: its screens cannot be behaviourally tested in this suite
+at all.
+
+**Finances** is no longer untouched but is not covered either: P2.5-DESIGN-E repaired the
+button contrast *visible on* `/finance`, which is a cross-cutting stylesheet fix that happens to
+land there. The screen's own layout, hierarchy and typography have had no design pass.
 
 Partially covered: **orders** (the grid card's correctness half only; the board's overflow) and
 **dashboard** (the stat grid only — the sidebar's five group labels, four of which head a single

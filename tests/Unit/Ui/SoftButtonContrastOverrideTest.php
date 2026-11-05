@@ -23,7 +23,7 @@ use PHPUnit\Framework\TestCase;
  *     success       2.39  BAD     7.48        6.18  ok      6.18
  *     danger        4.14  <AA     7.09        1.09  BAD     4.80
  *     warning       1.62  BAD     8.47        6.09  ok      6.09
- *     info          2.52  BAD     8.72        2.52  BAD    17.23
+ *     info          2.52  BAD     8.04        2.52  BAD     8.04
  *     light        14.63  ok     14.63       14.63  ok     14.63
  *     dark         11.26  ok     11.26        1.02  BAD    12.87
  *
@@ -58,6 +58,35 @@ class SoftButtonContrastOverrideTest extends TestCase
         $this->assertFileExists($path);
 
         return (string) file_get_contents($path);
+    }
+
+    /**
+     * The override block, BOUNDED BY ITS OWN SECTION HEADING AND WITH COMMENTS STRIPPED.
+     *
+     * BOTH HALVES OF THAT ARE REPAIRS. The two cases below used `substr($css, $at, 4200)`, a
+     * magic window that covered the whole block when it was written and covered 63% of it one
+     * comment later. That silently weakened `test_no_override_changes_a_fill` -- a `background:`
+     * added in the uncovered tail would have passed -- and it made the info case match a
+     * `.btn-info` written in PROSE, which ran on to the `.btn-dark` rule and reported that rule`s
+     * colour as the info colour. A declaration counted over commented CSS counts the sentences
+     * that mention a class.
+     */
+    private function block(): string
+    {
+        $css = $this->css();
+        // ANCHORED ON THE COMMENT OPENER, not on the heading text. Starting at the heading
+        // began the slice INSIDE the block comment, so the stripper below found no `/*` to
+        // open on and left the whole prose in -- and the prose names `.btn-info`.
+        $at = strpos($css, '/* ---- Host override defence, part 2');
+        $this->assertNotFalse($at, 'premise: the soft-button override block exists');
+
+        $end = strpos($css, '/* ---- Utilities ---- */', $at);
+        $this->assertNotFalse($end, 'premise: the block is bounded by the next section heading');
+
+        $block = substr($css, $at, $end - $at);
+        $this->assertGreaterThan(1500, strlen($block), 'premise: the block is not empty');
+
+        return (string) preg_replace('#/\*.*?\*/#s', '', $block);
     }
 
     /** @dataProvider darkVariants */
@@ -143,14 +172,54 @@ class SoftButtonContrastOverrideTest extends TestCase
         }
     }
 
+    /**
+     * `.btn-info` IS THE ONE CHIP THE HOST DOES NOT CHANGE WITH THE THEME — it is `#e8f8ff` in
+     * both sheets — so it must take ONE colour across both, and that colour must come from a
+     * token that does not itself flip.
+     *
+     * TWO TOKENS LOOK RIGHT AND ARE NOT. `--ss-info-fg` is the obvious one and it flips: indigo
+     * in light, a light lavender in dark, and the lavender on that pale chip IS the 2.52:1
+     * failure this block exists to remove — so a rule written once with it would reintroduce the
+     * defect in exactly one theme. It is also the wrong hue: the design system's info family is
+     * INDIGO and the host's chip is CYAN, which the first version of this block paired at 8.72:1
+     * and which still read as two different "info" colours on one button. `--ss-fg-onfill` flips
+     * the same way (white in light, grey-950 in dark).
+     *
+     * The cyan ramp is a PRIMITIVE, defined once on `:root`, so it is the same in both themes.
+     */
+    public function test_the_info_override_is_one_theme_independent_colour(): void
+    {
+        $block = $this->block();
+
+        preg_match_all('/\.btn-info[^{]*\{([^}]*)\}/', $block, $m);
+
+        $this->assertNotEmpty($m[1], 'premise: `.btn-info` is overridden in this block at all');
+        $this->assertCount(
+            1,
+            $m[1],
+            'the info chip is the same colour in both themes, so it takes ONE rule. Two rules is '
+            . 'how it ended up with indigo in light and grey-950 in dark for one identical chip.'
+        );
+
+        $this->assertStringNotContainsString(
+            '--ss-info-fg',
+            $m[1][0],
+            '`--ss-info-fg` flips per theme (indigo-800 / #b6b1ef) and the chip does not. In dark '
+            . 'it would put a light lavender on a pale cyan chip — the original 2.52:1 defect.'
+        );
+        $this->assertStringNotContainsString('--ss-fg-onfill', $m[1][0], '`--ss-fg-onfill` flips too.');
+        $this->assertStringContainsString(
+            '--ss-cyan-',
+            $m[1][0],
+            'the info text takes the LOGO\'S OWN cyan ramp, which is the chip\'s own hue and is '
+            . 'a primitive, so it does not change with the theme.'
+        );
+    }
+
     /** Only the TEXT moves. A fill change would alter every vendored module's button shapes. */
     public function test_no_override_changes_a_fill(): void
     {
-        $css = $this->css();
-        $at = strpos($css, 'Host override defence, part 2');
-        $this->assertNotFalse($at, 'premise: the block is where it is expected');
-
-        $block = substr($css, $at, 4200);
+        $block = $this->block();
 
         foreach (['background', 'border-width', 'padding'] as $forbidden) {
             $this->assertStringNotContainsString(

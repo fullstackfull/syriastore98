@@ -1752,11 +1752,17 @@
    ONLY THE TEXT COLOUR MOVES. The fills stay exactly as the host paints them, which keeps each
    button's shape and weight on the page; this is the same minimal intervention the `<p>` colour
    block above makes, and for the same reason -- the host sets these through `--bs-btn-color`, so
-   a class plus `!important` is what reaches them. Nothing here applies in light mode, where all
-   eight variants already pass.
+   a class plus `!important` is what reaches them.
 
-   Driven by SoftButtonDarkContrastTest, which measures the composited ratios rather than
-   asserting the hexes. */
+   TWO THINGS THIS DOES NOT FIX, both visible in the evidence screenshots. `.btn-success` in light
+   and `.btn-dark` in dark now have READABLE labels but still no visible fill, because their
+   `--bs-btn-bg` resolves to nothing and to the page colour respectively. They read as text, not
+   as buttons. That is a SHAPE defect and the fix for it is a fill change, which is deliberately
+   out of scope here: these classes are used across 70 vendored modules.
+
+   Ratchet: SoftButtonContrastOverrideTest. It asserts the OVERRIDES, not the ratios -- the fills
+   live in the vendored sheets and cannot be computed from this file. The ratios are measured by
+   docs/development/phase-2.5/tools/measure-button-contrast.cjs against the running admin. */
 [data-ss-theme="dark"] .btn-dark,
 [data-ss-theme="dark"] .btn-dark:not(:hover):not(:focus):not(:active) {
     color: var(--ss-fg) !important;
@@ -1774,11 +1780,22 @@
     color: var(--ss-fg) !important;
 }
 
-/* `.btn-info` is the odd one out: its chip stays LIGHT in dark mode, so its text has to go DARK.
-   `--ss-fg-onfill` is the token for exactly that -- text on a filled, light surface. */
+/* `.btn-info` IS THE ONLY VARIANT WHOSE CHIP DOES NOT CHANGE WITH THE THEME -- the host paints it
+   `#e8f8ff` in BOTH sheets -- so it gets ONE declaration across both, and the token has to be one
+   that does not flip. A semantic `--ss-*-fg` would: it is a dark step in light and a light step in
+   dark, and a light step on that pale chip is the exact failure this block exists to remove.
+
+   IT TAKES THE CYAN RAMP, NOT `--ss-info-fg`. The design system's info family is INDIGO; the
+   host's info chip is CYAN. The first version of this block paired them -- indigo-800 on pale
+   cyan -- which cleared AA at 8.72:1 and still read as two different "info" colours on one
+   button. `--ss-cyan-900` is the dark step of THE LOGO'S OWN cyan, so the text is the chip's own
+   hue, and it measures 8.04:1 on it. It also replaced `--ss-fg-onfill`, which this block used for
+   the dark half: one chip, one colour. */
 [data-ss-theme="dark"] .btn-info,
-[data-ss-theme="dark"] .btn-info:not(:hover):not(:focus):not(:active) {
-    color: var(--ss-fg-onfill) !important;
+[data-ss-theme="dark"] .btn-info:not(:hover):not(:focus):not(:active),
+:root:not([data-ss-theme="dark"]) .btn-info,
+[data-ss-theme="light"] .btn-info {
+    color: var(--ss-cyan-900) !important;
 }
 
 /* LIGHT MODE. The same pattern, the other way up: a 15% tint over WHITE leaves a pale chip, and
@@ -1794,11 +1811,6 @@
 :root:not([data-ss-theme="dark"]) .btn-success,
 [data-ss-theme="light"] .btn-success {
     color: var(--ss-success-fg) !important;
-}
-
-:root:not([data-ss-theme="dark"]) .btn-info,
-[data-ss-theme="light"] .btn-info {
-    color: var(--ss-info-fg) !important;
 }
 
 :root:not([data-ss-theme="dark"]) .btn-danger,
