@@ -502,6 +502,19 @@
     --ss-shadow-lg: 0 4px 8px rgba(11, 31, 28, 0.07),
                     0 16px 32px rgba(11, 31, 28, 0.10);
 
+    /* THE PINNED COLUMN'S EDGE -- a COMPONENT token, because every elevation token above casts
+       DOWNWARD and this one casts sideways, over content that is really there.
+
+       Two tokens rather than one, and not for symmetry: `box-shadow` has no logical form, so the
+       inline-start direction cannot be expressed once. In LTR the pinned column sits at the
+       trailing edge and casts back towards the start (negative x); in RTL it sits at the leading
+       edge and casts the other way. The hairline beside it already needed the same mirror.
+
+       `-10px` spread pulls the cast off the opposite edge entirely, so the column shows an edge
+       on the side content scrolls under and nothing on the side flush with the card. */
+    --ss-pinned-edge:     -10px 0 12px -10px rgba(11, 31, 28, 0.20);
+    --ss-pinned-edge-rtl:  10px 0 12px -10px rgba(11, 31, 28, 0.20);
+
     /* Motion. Everything is suppressed under prefers-reduced-motion below. */
     --ss-duration-fast: 120ms;
     --ss-duration-base: 180ms;
@@ -581,6 +594,9 @@
     --ss-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.35);
     --ss-shadow-md: 0 2px 4px rgba(0, 0, 0, 0.45), 0 6px 16px rgba(0, 0, 0, 0.40);
     --ss-shadow-lg: 0 4px 8px rgba(0, 0, 0, 0.50), 0 16px 32px rgba(0, 0, 0, 0.45);
+    /* Stronger on a near-black page: the light value's 0.20 tinted near-black is invisible there. */
+    --ss-pinned-edge:     -10px 0 12px -10px rgba(0, 0, 0, 0.60);
+    --ss-pinned-edge-rtl:  10px 0 12px -10px rgba(0, 0, 0, 0.60);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -617,6 +633,8 @@
         --ss-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.35);
         --ss-shadow-md: 0 2px 4px rgba(0, 0, 0, 0.45), 0 6px 16px rgba(0, 0, 0, 0.40);
         --ss-shadow-lg: 0 4px 8px rgba(0, 0, 0, 0.50), 0 16px 32px rgba(0, 0, 0, 0.45);
+        --ss-pinned-edge:     -10px 0 12px -10px rgba(0, 0, 0, 0.60);
+        --ss-pinned-edge-rtl:  10px 0 12px -10px rgba(0, 0, 0, 0.60);
     }
 }
 
@@ -3869,15 +3887,46 @@ a.ss-setup__item:focus-visible {
    decoration -- the actions are already named and reachable without it. */
 .ss-dt-card-body table.dataTable > tbody > tr > td.ss-col-pinned,
 .ss-dt-card-body table.dataTable > thead > tr > th.ss-col-pinned {
-    box-shadow: inset 1px 0 0 var(--ss-border);
+    box-shadow: inset 1px 0 0 var(--ss-border), var(--ss-pinned-edge);
 }
+
+/* ---- P2.5-DESIGN-I: why the hairline was not enough ------------------------------------------
+   THE PINNED COLUMN COVERS THE HEADING BESIDE IT, and measured at 1440px it is not subtle:
+
+       /customer   table 1132 in a 1095 port   "Action" covers "Status"       by  7px
+       /order      table 1199 in a 1095 port   "Action" covers "Order Status" by 23px
+
+   The merchant reads "STATU" and "ORDER STATU". In RTL both tables fit exactly (1095 in 1095) and
+   nothing is covered, so an English-only check calls this screen clean.
+
+   THE PIN IS NOT THE DEFECT AND MUST NOT BE REMOVED. `.table-responsive` really is a scrollport
+   and really does scroll -- driven to the end it moves 37px and 104px, and the covered text comes
+   fully clear (+7 -> -30, +23 -> -81). And P2-03-1 added the pin on measurement: at 390px, 848 of
+   the Arabic table's 1168 pixels are off-screen and WITHOUT it a real click on Edit at the
+   starting scroll position navigated nowhere, 1440px included. Un-pinning trades a cosmetic
+   overlap for an unreachable control.
+
+   NARROWING THE SORT GUTTER DOES NOT WORK EITHER, and that was a guess caught by measuring. The
+   sortable headers carry `padding-right: 30px`, which looks like 10px of slack across five
+   columns -- 50px against 37px of overflow. The sort indicator is two absolutely-positioned
+   pseudo-elements, `::before` at `right: 13px` and `::after` at `right: 6.5px`, each 11.7px wide,
+   so the ink runs to `right: 24.7px`. Real slack is 5.3px per header, 25px in total: LESS than
+   the 37px needed, and a 20px gutter would have clipped the arrows.
+
+   SO WHAT IS WRONG IS THE SIGNAL, NOT THE GEOMETRY. The column floats above content that really
+   continues underneath, and it was drawn with a 1px hairline that reads as another table rule.
+   The cast above says "there is something under here", which is the one true thing a reader
+   needs. `box-shadow` is outside the box model, so nothing moves -- the same reason the note
+   above chose it over a border, which on a `border-collapse: separate` table would shift the cell
+   and knock the column a pixel out of line with its heading.
+   Ratchet: PinnedColumnEdgeAffordanceTest. Geometry: measure-pinned-column-overlap.cjs. */
 /* `inset 1px` is the inline START edge in LTR. In RTL the pinned column sits
    on the left, so the edge the merchant scrolls content under is its RIGHT
    one. `box-shadow` has no logical form, so this is the one place a direction
    override is unavoidable. */
 [dir="rtl"] .ss-dt-card-body table.dataTable > tbody > tr > td.ss-col-pinned,
 [dir="rtl"] .ss-dt-card-body table.dataTable > thead > tr > th.ss-col-pinned {
-    box-shadow: inset -1px 0 0 var(--ss-border);
+    box-shadow: inset -1px 0 0 var(--ss-border), var(--ss-pinned-edge-rtl);
 }
 
 /* The column-visibility button (`buildDataTable`'s `colvis`). The host's

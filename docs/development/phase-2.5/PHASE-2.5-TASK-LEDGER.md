@@ -1344,7 +1344,21 @@ the index, not a replacement for them.
 | **Evidence** | `docs/design-system/evidence/design-f-2026-11-05/` |
 | **Specificity was load-bearing twice** | a plain `html body .text-muted` is (0,1,2) against the host's (0,2,1) and **loses** — measured, the census stopped at 47 survivors, all `p.text-muted`. Reusing the host's own `:not([class^="ss-"]):not([class*=" ss-"])` idiom makes it (0,3,2) and says the true thing while doing it |
 
-## 4.8 What the Premium Design objective still does NOT cover
+## 4.8 P2.5-DESIGN-I — the pinned actions column covers the heading beside it
+
+| | |
+|---|---|
+| **Principle** | *disclose unavoidable truncation* (`ui-ux-pro-max` `compact-label-overflow`) |
+| **Files** | `public/css/store-syria-ds.css` (two component tokens + two box-shadow values) |
+| **Before** | `/customer` reads **"STATU"** (pinned column covers 7px of the `Status` text), `/order` reads **"ORDER STATU"** (23px). **RTL fits exactly and is clean**, so an English-only check calls both screens fine |
+| **After** | the column carries a soft outward cast on the edge content scrolls under, so it reads as floating above something rather than as one more table rule |
+| **Does NOT** | reveal the covered text. The word is still truncated at rest. Stated in the evidence, not left to be noticed |
+| **Three wrong explanations closed by measurement** | **(a)** not a broken pin — `.table-responsive` IS a scrollport and really scrolls; driven to the end the text comes fully clear (`+7→−30`, `+23→−81`). **(b)** not something to un-pin — P2-03-1 measured that without it a real click on Edit navigated **nowhere** at the starting scroll position, 1440px included. **(c)** not fixable by narrowing the 30px sort gutter: the arrows' ink runs to `right: 24.7px`, so real slack is **25px against 37px needed** — my 20px-gutter arithmetic would have clipped them |
+| **Nothing moved** | column geometry captured in all four combinations, before and after, **byte-identical**. A test asserts the rule sets no geometry property |
+| **Tests** | 4, 23 assertions. Five bites, each reddening exactly one case |
+| **Evidence** | `docs/design-system/evidence/design-i-2026-11-05/` — four pairs, including **ar-RTL** |
+
+## 4.9 What the Premium Design objective still does NOT cover
 
 Named in the owner's brief and **untouched**: **products**, **customers**, **settings**, and the
 **Flutter** merchant application's visual pass. **Reports** has had only its money figures
