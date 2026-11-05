@@ -151,7 +151,9 @@
 
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=0, minimal-ui">
+    {{-- P2.5-WAVE-21 -- see layouts/app.blade.php for the reasoning. This is the sign-in page,
+         where a merchant who needs to magnify a field could not. --}}
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta http-equiv="X-UA-Compatible" content="IE=edge" />
     <meta name="author" content="WorkDo.io" />
 

@@ -86,7 +86,16 @@
     @if (isset($setting['cust_darklayout']) && $setting['cust_darklayout'] == 'on') data-ss-theme="dark" data-ss-theme-source="host" @endif>
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=0, minimal-ui" />
+    {{-- P2.5-WAVE-21. `user-scalable=0` asked the browser to prevent zooming, which is WCAG 2.1
+         SC 1.4.4 Resize Text wherever it is honoured -- Chrome on Android honours it unless the
+         person has turned on "Force enable zoom". Read off the RENDERED page during a phone-width
+         pass, not grepped: the tag reached every merchant screen.
+
+         `minimal-ui` went with it: an iOS 7.1-only token, removed in iOS 8 in 2014.
+
+         Ratchet: Tests\Unit\Ui\ViewportAllowsZoomTest, which also pins the twelve out-of-phase
+         views that still carry the token so the set cannot grow unnoticed. --}}
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta http-equiv="X-UA-Compatible" content="IE=edge" />
     <meta name="author" content="WorkDo.io" />
     <meta name="base-url" content="{{ URL::to('/') }}">
