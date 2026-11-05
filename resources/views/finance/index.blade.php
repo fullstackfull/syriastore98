@@ -361,8 +361,8 @@
                                                     <span class="text-muted">-</span>
                                                 @endif
                                             </td>
-                                            <td class="text-end text-muted">{{ number_format($transaction->balance_before, 2) }}</td>
-                                            <td class="text-end fw-bold">{{ number_format($transaction->balance_after, 2) }}</td>
+                                            <td class="text-end text-muted"><span class="ss-money">{{ number_format($transaction->balance_before, 2) }}</span></td>
+                                            <td class="text-end fw-bold"><span class="ss-money">{{ number_format($transaction->balance_after, 2) }}</span></td>
                                             <td class="text-center">
                                                 @if($transaction->status == 'completed')
                                                     <x-ss.status-badge tone="success" :label="__('Completed')" />
@@ -415,12 +415,12 @@
                                     @forelse($orderFinancials as $financial)
                                         <tr>
                                             <td>#{{ $financial->order_id }}</td>
-                                            <td>{{ number_format($financial->product_amount, 2) }}</td>
+                                            <td><span class="ss-money">{{ number_format($financial->product_amount, 2) }}</span></td>
                                             <td class="ss-money ss-money--debit">-{{ number_format($financial->discount_amount, 2) }}</td>
-                                            <td>{{ number_format($financial->tax_amount, 2) }}</td>
-                                            <td>{{ number_format($financial->shipping_amount, 2) }}</td>
-                                            <td><strong>{{ number_format($financial->customer_total, 2) }}</strong></td>
-                                            <td>{{ number_format($financial->product_cost, 2) }}</td>
+                                            <td><span class="ss-money">{{ number_format($financial->tax_amount, 2) }}</span></td>
+                                            <td><span class="ss-money">{{ number_format($financial->shipping_amount, 2) }}</span></td>
+                                            <td><strong class="ss-money">{{ number_format($financial->customer_total, 2) }}</strong></td>
+                                            <td><span class="ss-money">{{ number_format($financial->product_cost, 2) }}</span></td>
                                             <td>
                                                 @if($financial->gross_profit >= 0)
                                                     <span class="ss-money ss-money--credit fw-bold">{{ number_format($financial->gross_profit, 2) }}</span>
@@ -428,8 +428,8 @@
                                                     <span class="ss-money ss-money--debit fw-bold">{{ number_format($financial->gross_profit, 2) }}</span>
                                                 @endif
                                             </td>
-                                            <td>{{ number_format($financial->paid_amount, 2) }}</td>
-                                            <td>{{ number_format($financial->remaining_amount, 2) }}</td>
+                                            <td><span class="ss-money">{{ number_format($financial->paid_amount, 2) }}</span></td>
+                                            <td><span class="ss-money">{{ number_format($financial->remaining_amount, 2) }}</span></td>
                                             <td>
                                                 {{-- ✅ حماية زر تحديث حالة الدفع --}}
                                                 @if(auth()->user()->isAbleTo('Edit Finance Payment Status'))

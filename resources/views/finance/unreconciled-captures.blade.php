@@ -82,7 +82,7 @@
                             <tr>
                                 <td>{{ $capture['gateway'] }}</td>
                                 <td><code>{{ $capture['reference'] }}</code></td>
-                                <td>{{ $capture['amount'] }}</td>
+                                <td><span class="ss-money">{{ $capture['amount'] }}</span></td>
                                 <td>
                                     {{-- "Needs follow-up", which D-29.4 asks for by name. Never "paid". --}}
                                     {{-- The removed `text-dark` was the A-05 interaction, not decoration: `.text-dark` (style.css:9420) and `.bg-warning` (:9504) are equal specificity and both !important, so the later `.bg-warning` won in light mode at 1.68:1, while the shipped A-05 rule beat it in dark. Do not reinstate it on the DS badge. --}}

@@ -75,7 +75,7 @@
 
                             <td>
                                 <strong>
-                                    {{ number_format($withdrawal->amount, 2) }}
+                                    <span class="ss-money">{{ number_format($withdrawal->amount, 2) }}</span>
                                 </strong>
                             </td>
 
