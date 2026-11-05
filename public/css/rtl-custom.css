@@ -5333,3 +5333,63 @@ html[data-ss-theme="dark"] body .bg-white .btn-outline-primary,
 html[data-ss-theme="dark"] body .bg-white a:not(.btn):not(.ss-btn) {
     color: var(--ss-brand-ontext, var(--theme-color)) !important;
 }
+
+
+/* =============================================================================================
+   P2.5-DESIGN-F. THE SUBDUED TEXT ON EVERY MERCHANT SCREEN, IN BOTH THEMES.
+
+   Census grouped BY COLOUR across /dashboard /finance /customer /order /product-list /setting
+   (docs/development/phase-2.5/tools/census-low-contrast-text.cjs), because a per-screen sweep
+   that prints its first five findings hides how many distinct colours are involved:
+
+       DARK   rgb(128,129,145) on rgb(41,42,51)    3.71:1   x51   /dashboard /product-list
+       DARK   rgb(108,117,125) on rgb(41,42,51)    3.04:1   x15   /finance
+       DARK   rgb(128,129,145) on rgb(34,36,44)    4.03:1   x5    /product-list
+       DARK   rgb(108,117,125) on rgb(34,36,44)    3.30:1   x6    all six -- the footer
+       LIGHT  rgb(108,117,125) on rgb(249,250,251) 4.49:1   x7    all six
+
+   IT IS TWO GREYS, NOT ONE. Asked of Chromium rather than grepped:
+
+     `.text-muted { color: #6c757d !important }` -- Bootstrap's default, BYTE-IDENTICAL in the
+        light and the dark sheet. It is theme-blind, which is why it fails in both: 4.49:1 on
+        white (under AA by a hair, on every screen's footer) and 3.04:1 on a dark card.
+     `.details-card, .dashboard-card { color: #808191 !important }` -- a CONTAINER rule, so every
+        element inside a dashboard card inherits it whatever its tag. 51 of the 84 failing nodes
+        are `<b>`, `<span>` and bare `<p>` with no colour of their own.
+     `… .dataTable-info, p:not([class^="ss-"]):not([class*=" ss-"]) { color: #808191 !important }`
+
+   WHAT IT CARRIES IS NOT DECORATION: "Available Balance", "Pending Withdrawals", "Total Income",
+   the 500.00 column on /finance, $462.00 on the dashboard. Money, at 3.04:1.
+
+   `<p>` IS FULL-CONTRAST BODY TEXT IN LIGHT AND SUBDUED IN DARK -- rgb(41,50,64) at 12.37:1
+   against rgb(128,129,145) at 3.71:1. THAT ASYMMETRY IS THE DEFECT, not a design decision, and
+   the fix is to give dark the two levels light already has: body at `--ss-fg`, muted at
+   `--ss-fg-muted`. Measured after: 12.87:1 and 6.19:1 in dark, 12.37:1 and 6.14:1 in light.
+
+   THE DESIGN SYSTEM EXCLUSION IS THE HOST'S OWN IDIOM, copied rather than invented:
+   `:not([class^="ss-"]):not([class*=" ss-"])` is already in the rule being overridden. It anchors
+   at the start of the class list or after a space, so it cannot be fooled by a class that merely
+   CONTAINS "ss-" (`press-note` does). `.ss-section__note`, `.ss-page-header__subtitle` and
+   `.ss-stat__period` already declare `var(--ss-fg-muted)` and already pass; they are left alone.
+
+   `:not(.text-muted)` ON THE BODY ARM IS LOAD-BEARING: without it the `p` arm (0,4,3) outranks the
+   `.text-muted` arm (0,1,2), every muted paragraph becomes body text, and the two levels this
+   block exists to separate collapse back into one.
+
+   AND THE MUTED ARM CARRIES THE SAME EXCLUSION, which is not only consistent but LOAD-BEARING
+   for a second reason: specificity. The host's `p:not([class^="ss-"]):not([class*=" ss-"])` is
+   (0,2,1), and a plain `html body .text-muted` is (0,1,2) -- fewer classes, so IT LOSES. Measured:
+   with the plain selector the census fell from 84 failing nodes to 47 and every survivor was a
+   `p.text-muted`, still at #808191. The same idiom on both arms makes the muted arm (0,3,2),
+   which wins, and says the true thing while doing it.
+
+   Ratchet: MutedTextContrastTest. Ratios measured by census-low-contrast-text.cjs. */
+html body .text-muted:not([class^="ss-"]):not([class*=" ss-"]) {
+    color: var(--ss-fg-muted) !important;
+}
+
+html[data-ss-theme="dark"] body .details-card,
+html[data-ss-theme="dark"] body .dashboard-card,
+html[data-ss-theme="dark"] body p:not(.text-muted):not([class^="ss-"]):not([class*=" ss-"]) {
+    color: var(--ss-fg) !important;
+}

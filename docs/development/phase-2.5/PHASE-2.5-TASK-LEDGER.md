@@ -1330,7 +1330,21 @@ the index, not a replacement for them.
 | **Corrected** | a note in both sheets said dark "needs no change and must not get one". It measured the **default theme-3 green** (5.34:1) and was right about it; a brand that is already dark exits the darkening loop unchanged. Corrected in place |
 | **Repaired a pre-existing guard** | `ReportExportControlContractTest`'s anchor scan read **raw CSS**, matched the words ``an `a.btn` `` inside a new block comment, and reported 900 characters of prose as an unscoped rule. It now strips comments; bitten three ways |
 
-## 4.7 What the Premium Design objective still does NOT cover
+## 4.7 P2.5-DESIGN-F — the subdued text on every merchant screen, both themes
+
+| | |
+|---|---|
+| **Principle** | *subdued is a level in a hierarchy, not an excuse to be unreadable* |
+| **Files** | `public/css/custom.css` **and** `public/css/rtl-custom.css` |
+| **Before** | **86** failing text nodes across 6 screens x 2 themes, in **two** greys: `#6c757d` (Bootstrap's `.text-muted`, byte-identical in both sheets, 4.49:1 light / 3.04:1 dark) and `#808191` (a **container** rule on `.details-card`/`.dashboard-card`, so 51 of the 86 are elements with no colour of their own) |
+| **After** | **0.** Dark gains the two levels light already had: body 12.87:1, muted 6.19:1 |
+| **What it carried** | "Available Balance", "Pending Withdrawals", "Total Income", the `500.00` column on `/finance`, `$462.00` on the dashboard — **money, at 3.04:1** |
+| **Root cause** | a theme **asymmetry**, not a design: `<p>` is full-contrast body text in light (12.37:1) and subdued in dark (3.71:1) |
+| **Tests** | 7, 45 assertions. Six bites, all red — including the block written into `custom.css` only, which leaves every Arabic merchant unfixed while the English screenshots show it working |
+| **Evidence** | `docs/design-system/evidence/design-f-2026-11-05/` |
+| **Specificity was load-bearing twice** | a plain `html body .text-muted` is (0,1,2) against the host's (0,2,1) and **loses** — measured, the census stopped at 47 survivors, all `p.text-muted`. Reusing the host's own `:not([class^="ss-"]):not([class*=" ss-"])` idiom makes it (0,3,2) and says the true thing while doing it |
+
+## 4.8 What the Premium Design objective still does NOT cover
 
 Named in the owner's brief and **untouched**: **products**, **customers**, **settings**, and the
 **Flutter** merchant application's visual pass. **Reports** has had only its money figures

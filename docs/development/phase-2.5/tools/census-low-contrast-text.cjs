@@ -60,7 +60,7 @@ const SCAN = () => {
     if (n >= floor) continue;
     out.push({
       fg: `rgb(${fg.join(',')})`, bg: `rgb(${bg.join(',')})`, ratio: Number(n.toFixed(2)), floor,
-      cls: (el.className || '').toString().trim().slice(0, 40) || el.tagName.toLowerCase(),
+      cls: el.tagName.toLowerCase() + ((el.className || '').toString().trim() ? '.' + (el.className || '').toString().trim().slice(0, 34).replace(/ +/g, '.') : ''),
       text: el.textContent.trim().replace(/\s+/g, ' ').slice(0, 24),
     });
   }
