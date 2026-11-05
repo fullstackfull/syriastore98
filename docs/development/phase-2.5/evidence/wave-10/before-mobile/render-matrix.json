@@ -1,0 +1,58 @@
+[
+ {
+  "path": "/finance",
+  "lang": "en",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": "ltr",
+  "ssTheme": null,
+  "sheet": "style.css",
+  "title": "Laravel - Finance",
+  "h1": "",
+  "consoleErrors": [],
+  "premiseFail": []
+ },
+ {
+  "path": "/finance",
+  "lang": "en",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": "ltr",
+  "ssTheme": "dark",
+  "sheet": "style-dark.css",
+  "title": "Laravel - Finance",
+  "h1": "",
+  "consoleErrors": [],
+  "premiseFail": []
+ },
+ {
+  "path": "/finance",
+  "lang": "ar",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": "rtl",
+  "ssTheme": null,
+  "sheet": "style-rtl.css",
+  "title": "Laravel - المالية",
+  "h1": "",
+  "consoleErrors": [],
+  "premiseFail": []
+ },
+ {
+  "path": "/finance",
+  "lang": "ar",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": "rtl",
+  "ssTheme": "dark",
+  "sheet": "rtl-style-dark.css",
+  "title": "Laravel - المالية",
+  "h1": "",
+  "consoleErrors": [],
+  "premiseFail": []
+ }
+]

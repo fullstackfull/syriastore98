@@ -42,7 +42,7 @@
 
         <div class="table-responsive">
 
-            <table class="table table-hover align-middle">
+            <table class="table ss-table align-middle">
 
                 <thead>
                     <tr>

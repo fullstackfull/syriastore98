@@ -305,8 +305,8 @@
 
                         {{-- جدول الحركات المالية --}}
                         <div class="table-responsive mt-2">
-                            <table class="table table-hover align-middle">
-                                <thead class="table-light">
+                            <table class="table ss-table align-middle">
+                                <thead>
                                     <tr>
                                         <th class="text-nowrap">{{ __('ID') }}</th>
                                         <th class="text-nowrap">{{ __('Date') }}</th>
@@ -395,8 +395,8 @@
                     <div class="card-body">
                         <h5 class="card-title mb-3">{{ __('Order Financial Records') }}</h5>
                         <div class="table-responsive">
-                            <table class="table table-hover align-middle">
-                                <thead class="table-light">
+                            <table class="table ss-table align-middle">
+                                <thead>
                                     <tr>
                                         <th>{{ __('Order') }}</th>
                                         <th>{{ __('Products') }}</th>
