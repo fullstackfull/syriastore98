@@ -370,3 +370,47 @@ The options are an owner decision, not an engineering one — port the date extr
 portable (`whereYear`/`whereMonth`, or `strftime` vs `DATE_FORMAT` behind one helper), or run these
 specific tests against a real MySQL as
 `tests/Support/Security/bin/verify-sec13-migration-on-mysql.php` already does for the schema.
+
+### F-DESIGN-7 — `public/storage` is a tracked REGULAR FILE holding another machine's path, so every uploaded image 404s on a fresh checkout
+
+Found by the broken-image check on `/dashboard` while auditing the merchant screens
+(`audit-merchant-screens.cjs`), then traced. **Not a UI defect; a repository one with a deployment
+consequence, which is why it is recorded here rather than fixed.**
+
+**Measured:**
+
+```
+git ls-files -s public/storage   ->  100755 87ecbd81… 0  public/storage
+                                     (100755 = REGULAR FILE. A symlink is mode 120000.)
+cat public/storage               ->  /var/www/html/Product/EcommerceGo/main_file/storage/app/public
+stat public/storage              ->  regular file  mode=755  size=62
+php artisan storage:link         ->  ERROR  The [public/storage] link already exists.
+```
+
+The file's **content is a symlink target** — an absolute path on a machine that is not this one —
+committed with a regular-file mode in `3c39c160 Initial commit 98`. It is not gitignored;
+`.gitignore` covers `/storage/*` but says nothing about `public/storage`.
+
+**Consequence on any fresh checkout or deployment that restores this path:**
+
+1. Every `/storage/...` URL returns **404** — merchant avatars, product images, store logos, every
+   uploaded file. Measured here: `/storage/uploads/profile/avatar.png` 404s on the dashboard while
+   the real file is present at `storage/app/public/uploads/profile/avatar.png`.
+2. **The standard remedy is blocked.** `php artisan storage:link` refuses because the path exists,
+   so the usual deploy step fails rather than repairing it.
+
+**Why the fallback does not help.** `dashboard.blade.php:263` already falls back to
+`asset(Storage::url('uploads/profile/avatar.png'))` when a merchant has no photo — but that
+fallback resolves through `/storage/` too, so it 404s by the same mechanism. A fallback that
+depends on the broken path is not a fallback.
+
+**The remedy, and why it is not taken here.** Remove the tracked file and let `storage:link` create
+the symlink (adding `public/storage` to `.gitignore`, which is the standard Laravel layout). That
+is a two-line change and it is **deployment-affecting**: a deploy that pulls the deletion and does
+not run `storage:link` would be left with no `public/storage` at all. Whether the production host
+already has a working symlink — in which case the change is neutral there — **cannot be checked
+from here.** Under the owner's escalation rules this is theirs to decide.
+
+**What it does not touch:** no application code reads `public/storage` directly; the path is
+produced by `Storage::url()` and `asset()`.
+
