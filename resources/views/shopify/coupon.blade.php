@@ -40,7 +40,7 @@
                                 @if ( in_array($data['id'],$upddata))
                                 @permission('Edit Shopify Coupon')
                                     <a href="{{ route('shopify_coupon.edit', $data['id']) }}"  class="btn btn-sm btn-info"
-                                        data-title="{{ __('Sync Again') }}"  data-bs-toggle="tooltip" title="{{ __('Sync Again') }}">
+                                        data-title="{{ __('Sync Again') }}"  data-bs-toggle="tooltip" title="{{ __('Sync Again') }}" aria-label="{{ __('Sync Again') }}">
                                         <i class="ti ti-refresh "></i>
                                     </a>
                                 @endpermission
@@ -48,7 +48,7 @@
                                 @permission('Create Shopify Coupon')
                                     <a href="{{ route('shopify_coupon.show', $data['id']) }}" class="btn btn-sm btn-primary"
                                         data-title="{{__('Add Coupon')}}"
-                                        data-bs-toggle="tooltip" title="{{ __('Add Coupon') }}">
+                                        data-bs-toggle="tooltip" title="{{ __('Add Coupon') }}" aria-label="{{__('Add Coupon')}}">
                                         <i class="ti ti-plus"></i>
                                     </a>
                                 @endpermission

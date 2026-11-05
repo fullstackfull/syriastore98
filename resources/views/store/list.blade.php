@@ -11,12 +11,12 @@
             data-bs-placement="top" title="{{ __('Custom Domain') }}">{{ __('Custom Domain') }}</a>
 
             <a href="{{ route('stores.index') }}" data-bs-toggle="tooltip" data-bs-original-title="{{ __('Grid View') }}"
-                class="btn btn-sm btn-primary btn-icon">
+                class="btn btn-sm btn-primary btn-icon" aria-label="{{ __('Grid View') }}">
                 <i class="ti ti-layout-grid"></i>
             </a>
         <a href="javascript::void(0)" class="btn btn-sm btn-primary btn-badge btn-icon" data-ajax-popup="true" data-size="md"
             data-title="{{ __('Create New User') }}" data-url="{{ route('store.user.create') }}" data-bs-toggle="tooltip"
-            title="{{ __('Add New User') }}">
+            title="{{ __('Add New User') }}" aria-label="{{ __('Create New User') }}">
             <i class="ti ti-plus"></i>
         </a>
     </div>

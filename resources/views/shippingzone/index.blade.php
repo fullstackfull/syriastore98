@@ -11,7 +11,7 @@
     <div class="text-end d-flex all-button-box justify-content-md-end justify-content-center">
         <a href="#" class="btn btn-sm btn-primary" data-ajax-popup="true" data-size="md"
             data-title="{{ __('Add Shipping Zone') }}" data-url="{{ route('shipping-zone.create') }}" data-bs-toggle="tooltip"
-            title="{{ __('Add Shipping Zone') }}">
+            title="{{ __('Add Shipping Zone') }}" aria-label="{{ __('Add Shipping Zone') }}">
             <i class="ti ti-plus"></i>
         </a>
     </div>

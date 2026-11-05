@@ -198,7 +198,7 @@
                                                      inside Form::open -- that is what arms the confirmation and what
                                                      submits the DELETE. Shape copied from category/action.blade.php. --}}
                                                 <button type="button" class="ss-btn ss-btn--sm ss-btn--icon ss-btn--danger-quiet show_confirm" data-bs-toggle="tooltip" data-bs-placement="top" data-confirm="{{ __('Are You Sure?') }}"
-                                                data-text="{{ __('This action can not be undone. Do you want to continue?') }}" data-text-yes="{{ __('Yes') }}" data-text-no="{{ __('No') }}"  title="{{ __('Delete') }}">
+                                                data-text="{{ __('This action can not be undone. Do you want to continue?') }}" data-text-yes="{{ __('Yes') }}" data-text-no="{{ __('No') }}"  title="{{ __('Delete') }}" aria-label="{{ __('Delete') }}">
                                                     <i class="ti ti-trash" aria-hidden="true"></i>
                                                 </button>
                                                 {!! Form::close() !!}

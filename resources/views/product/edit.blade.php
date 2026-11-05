@@ -760,7 +760,7 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                                         <label></label>
                                         <a href="javascript:;" data-repeater-delete
                                             class="btn field-trash-btn btn-sm btn-light-danger mt-3 mt-md-8 btn-badge"
-                                            data-bs-toggle="tooltip" title="{{__('Delete')}}">
+                                            data-bs-toggle="tooltip" title="{{__('Delete')}}" aria-label="{{__('Delete')}}">
                                             <i class="ti ti-trash"></i>
                                         </a>
                                     </div>
@@ -785,7 +785,7 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                                         <label></label>
                                         <a href="javascript:;" data-repeater-delete
                                             class="btn field-trash-btn btn-sm btn-light-danger mt-3 mt-md-8 btn-badge"
-                                            data-bs-toggle="tooltip" title="{{__('Delete')}}">
+                                            data-bs-toggle="tooltip" title="{{__('Delete')}}" aria-label="{{__('Delete')}}">
                                             <i class="ti ti-trash"></i>
                                         </a>
                                     </div>

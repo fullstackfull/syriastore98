@@ -12,11 +12,11 @@
 <div class="text-end">
     @permission('Manage Customer')
     <a href="#" class="btn btn-sm btn-primary btn-icon csv" title="{{ __('Export') }}" data-bs-toggle="tooltip"
-        data-bs-placement="top" data-bs-toggle="tooltip" title="{{ __('Export') }}">
+        data-bs-placement="top" data-bs-toggle="tooltip" title="{{ __('Export') }}" aria-label="{{ __('Export') }}">
         <i class="ti ti-file-export"></i>
     </a>
     @endpermission
-    <a href="{{ route('customer.index') }}" data-bs-toggle="tooltip" data-bs-original-title="{{ __('List View') }}" class="btn btn-sm btn-primary btn-icon ">
+    <a href="{{ route('customer.index') }}" data-bs-toggle="tooltip" data-bs-original-title="{{ __('List View') }}" class="btn btn-sm btn-primary btn-icon " aria-label="{{ __('List View') }}">
         <i class="ti ti-list"></i>
     </a>
 </div>
@@ -49,12 +49,12 @@
                                 <div class="m-0 p-0 col-auto">
                                     <a class="btn btn-sm btn-primary" data-bs-toggle="tooltip"
                                         title="{{ __('Apply') }}" id="apply-button"
-                                        data-original-title="{{ __('apply') }}">
+                                        data-original-title="{{ __('apply') }}" aria-label="{{ __('Apply') }}">
                                         <span class="btn-inner--icon"><i class="ti ti-search"></i></span>
                                     </a>
                                     <a href="#!" class="btn btn-sm btn-danger " data-bs-toggle="tooltip"
                                         title="{{ __('Reset') }}" id="clearfilter"
-                                        data-original-title="{{ __('Reset') }}">
+                                        data-original-title="{{ __('Reset') }}" aria-label="{{ __('Reset') }}">
                                         <span class="btn-inner--icon"><i
                                                 class="ti ti-trash-off text-white-off "></i></span>
                                     </a>

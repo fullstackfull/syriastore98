@@ -300,6 +300,7 @@
                                                     </div>
                                                 </div>
                                                 <a href="#" id="socialShareButton"
+                                                    aria-label="{{ __('Share store link') }}"
                                                     class="socialShareButton btn btn-sm btn-outline-primary btn-badge">
                                                     <i class="ti ti-share"></i>
                                                 </a>
@@ -433,13 +434,25 @@
                                             <tr>
                                                 <td>
                                                     <div class="d-flex align-items-center">
-                                                        <a href="{{ route('product.index') }}" target="_blank"
-                                                            class="rounded-1 border overflow-hidden border border-primary border-2 rounded">
-                                                            @if ($latest->cover_image_path)
+                                                        {{-- THE LINK ONLY EXISTS WHEN THERE IS AN
+                                                            IMAGE TO BE. The `@if` used to sit
+                                                            INSIDE the anchor, so a product with no
+                                                            cover image rendered an EMPTY link:
+                                                            measured on /dashboard as a 4x4 control
+                                                            -- two 2px borders and nothing between
+                                                            them -- with no accessible name, which
+                                                            is both a blue dot nobody can explain
+                                                            and a tab stop that announces nothing.
+                                                            The `alt` was the string "images",
+                                                            which names no particular product; it
+                                                            is the product's own name now. --}}
+                                                        @if ($latest->cover_image_path)
+                                                            <a href="{{ route('product.index') }}" target="_blank"
+                                                                class="rounded-1 border overflow-hidden border border-primary border-2 rounded">
                                                                 <img src="{{ get_file($latest->cover_image_path) }}" width="100"
-                                                                    class="cover_img1" alt="images">
-                                                            @endif
-                                                        </a>
+                                                                    class="cover_img1" alt="{{ $latest->name }}">
+                                                            </a>
+                                                        @endif
                                                     </div>
                                                 </td>
                                                 <td>

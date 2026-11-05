@@ -538,7 +538,7 @@
                             </div>
                             <div class="col-md-1">
                               <label></label>
-                              <a href="javascript:;" data-repeater-delete class="btn field-trash-btn btn-sm btn-light-danger mt-3 mt-md-8 btn-badge"  data-bs-toggle="tooltip" title="{{__('Delete')}}">
+                              <a href="javascript:;" data-repeater-delete class="btn field-trash-btn btn-sm btn-light-danger mt-3 mt-md-8 btn-badge"  data-bs-toggle="tooltip" title="{{__('Delete')}}" aria-label="{{__('Delete')}}">
                                   <i class="ti ti-trash"></i>
                               </a>
                             </div>

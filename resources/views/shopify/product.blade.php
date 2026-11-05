@@ -43,13 +43,13 @@
                                         <td class="text-end">
                                             @if (in_array($product_data['id'], $upddata))
                                                 <a href="{{ route('shopify_product.edit', $product_data['id']) }}"
-                                                    class="btn btn-sm btn-info" data-title="{{ __('Sync Again') }}" data-bs-toggle="tooltip" title="{{ __('Sync Again')}}">
+                                                    class="btn btn-sm btn-info" data-title="{{ __('Sync Again') }}" data-bs-toggle="tooltip" title="{{ __('Sync Again')}}" aria-label="{{ __('Sync Again') }}">
                                                     <i class="ti ti-refresh"></i>
                                                 </a>
                                             @else
                                                 <a href="{{ route('shopify_product.show', $product_data['id']) }}"
                                                     class="btn btn-sm btn-primary" data-title="{{ __('Add Product') }}" data-bs-toggle="tooltip"
-                                                    title="{{ __('Add Product') }}">
+                                                    title="{{ __('Add Product') }}" aria-label="{{ __('Add Product') }}">
                                                     <i class="ti ti-plus"></i>
                                                 </a>
                                             @endif

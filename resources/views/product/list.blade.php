@@ -22,11 +22,11 @@ $admin = getAdminAllSetting();
     @include('import-export::export.button', ['module' => 'product'])
     @endpermission
     @endif
-    <a href="{{ route('product.index') }}" data-bs-toggle="tooltip" data-bs-original-title="{{ __('List View') }}" class="btn btn-sm btn-primary btn-icon ">
+    <a href="{{ route('product.index') }}" data-bs-toggle="tooltip" data-bs-original-title="{{ __('List View') }}" class="btn btn-sm btn-primary btn-icon " aria-label="{{ __('List View') }}">
         <i class="ti ti-list"></i>
     </a>
     <a href="{{ route('product.create') }}" class="btn btn-sm btn-primary" data-title="{{ __('Create New Product') }}"
-        data-bs-toggle="tooltip" title="{{ __('Add New Product') }}">
+        data-bs-toggle="tooltip" title="{{ __('Add New Product') }}" aria-label="{{ __('Create New Product') }}">
         <i class="ti ti-plus"></i>
     </a>
 </div>
@@ -57,7 +57,7 @@ $admin = getAdminAllSetting();
                 <div class="card-header-right">
                     <div class="btn-group card-option">
                         <button type="button" class="btn dropdown-toggle" data-bs-toggle="dropdown"
-                            aria-haspopup="true" aria-expanded="false">
+                            aria-haspopup="true" aria-expanded="false" aria-label="{{ __('More actions') }}">
                             <i class="feather icon-more-vertical"></i>
                         </button>
                         <div class="dropdown-menu dropdown-menu-end">

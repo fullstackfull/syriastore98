@@ -208,7 +208,7 @@
                                                 class="download-btn action-btn btn-primary btn btn-sm align-items-center"
                                                 data-bs-toggle="tooltip" data-bs-placement="top"
                                                 title="{{ __('Download') }}"
-                                                data-product-id="{{ $item['product_id'] }}">
+                                                data-product-id="{{ $item['product_id'] }}" aria-label="{{ __('Download') }}">
                                                 <i class="ti ti-download "></i>
                                             </button>
                                         </td>

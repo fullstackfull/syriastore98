@@ -30,12 +30,12 @@
         @endif
 
 
-        <a href="{{ route('product.list') }}" data-bs-toggle="tooltip" data-bs-original-title="{{ __('Grid View') }}" class="btn btn-sm btn-primary btn-icon ">
+        <a href="{{ route('product.list') }}" data-bs-toggle="tooltip" data-bs-original-title="{{ __('Grid View') }}" class="btn btn-sm btn-primary btn-icon " aria-label="{{ __('Grid View') }}">
             <i class="ti ti-layout-grid"></i>
         </a>
 
         <a href="{{ route('product.create') }}" class="btn btn-sm btn-primary" data-title="{{ __('Create New Product') }}"
-            data-bs-toggle="tooltip" title="{{ __('Add New Product') }}">
+            data-bs-toggle="tooltip" title="{{ __('Add New Product') }}" aria-label="{{ __('Create New Product') }}">
             <i class="ti ti-plus"></i>
         </a>
     </div>

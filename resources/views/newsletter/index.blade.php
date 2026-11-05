@@ -21,7 +21,7 @@
 
     @if(isset($module) && $module->isEnabled() && $plan && isset($plan->modules) && strpos($plan->modules, 'Subscribe') !== false)
         <div class="text-end">
-            <a class="btn btn-sm btn-primary btn-icon export-btn btn-badge mr-1" href="{{ route('newsletter.export') }}" data-bs-toggle="tooltip" data-bs-placement="top" title="{{ __('Export') }}" filename="{{ __('Newsletter') }}">
+            <a class="btn btn-sm btn-primary btn-icon export-btn btn-badge mr-1" href="{{ route('newsletter.export') }}" data-bs-toggle="tooltip" data-bs-placement="top" title="{{ __('Export') }}" filename="{{ __('Newsletter') }}" aria-label="{{ __('Export') }}">
                 <i class="ti ti-file-export"></i>
             </a>
         </div>

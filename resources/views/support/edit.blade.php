@@ -6,7 +6,7 @@
 @section('action-button')
     <div class=" text-end d-flex all-button-box justify-content-md-end justify-content-center">
         <a href="#" onclick="saveAsPDF();" id="download-buttons" class="btn btn-sm btn-primary btn-icon d-flex align-items-center"
-            data-bs-toggle="tooltip" data-bs-placement="top" title="{{ __('Print')}}" aria-label="Print">
+            data-bs-toggle="tooltip" data-bs-placement="top" title="{{ __('Print')}}" aria-label="{{ __('Print') }}">
             <i class="ti ti-printer" style="font-size:20px"></i>
         </a>
         @php

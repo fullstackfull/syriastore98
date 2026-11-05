@@ -1358,7 +1358,22 @@ the index, not a replacement for them.
 | **Tests** | 4, 23 assertions. Five bites, each reddening exactly one case |
 | **Evidence** | `docs/design-system/evidence/design-i-2026-11-05/` — four pairs, including **ar-RTL** |
 
-## 4.9 What the Premium Design objective still does NOT cover
+## 4.9 P2.5-DESIGN-J — Bootstrap's tooltip destroys the accessible name it looks like it provides
+
+| | |
+|---|---|
+| **Principle** | *an icon-only control needs a name on the CONTROL* (`ui-ux-pro-max` priority 1, `aria-labels` / `icon-context`) |
+| **Mechanism** | `Tooltip` moves `title` into `data-bs-original-title` and **leaves `title` empty**, so the one attribute carrying the name is gone the moment the plugin initialises — and `drawCallback` re-runs it on **every table draw**. The icon is an icon *font* and contributes no text |
+| **Before / After** | **29 unnamed controls in 11 components → 0**, measured in the running admin in **both** `ltr`/en and `rtl`/ar |
+| **Files** | 31 merchant view files (51 controls), `app/Helper/helper.php` (bulk-delete, reset, reload, pagination arrows), `dashboard.blade.php`, `support/edit.blade.php`, `ar.json` + `en.json` |
+| **The pattern already existed** | `partision/header.blade.php:258` carries `title=X aria-label=X`; 21 controls followed it and 51 did not |
+| **`init`, not `attr`** | `attr` is DataTables Buttons' documented hook and **this build ignores it** — the option was in the live config (`configHasAttr: true`) and the rendered button still had `aria-label: null`. Measured, then switched |
+| **Two instruments corrected** | the census first reported **196** by asking `accessibility.snapshot` and counting buttons named by their own visible text; the source ratchet first reported **110** by deleting Blade echoes before asking whether a control had text. After both corrections the PHP scan and an independent Python sweep agree on **51** exactly |
+| **Tests** | 4 cases, four bites each reddening exactly one; a fifth check confirms a *translated* storefront addition does not redden the exemption |
+| **Evidence** | `docs/design-system/evidence/design-j-2026-11-05/` — **no screenshots, by nature**: nothing in this package is visible |
+| **Recorded, not fixed** | 3 `placeholder-only` search inputs (named, but no visible label); and one pre-existing storefront `Print` control — **Phase 03 owns that surface**, and its merchant twin in `support/edit.blade.php` WAS fixed here |
+
+## 4.10 What the Premium Design objective still does NOT cover
 
 Named in the owner's brief and **untouched**: **products**, **customers**, **settings**, and the
 **Flutter** merchant application's visual pass. **Reports** has had only its money figures

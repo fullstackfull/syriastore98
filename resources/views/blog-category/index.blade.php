@@ -8,7 +8,7 @@
     <a href="#" class="btn btn-sm btn-primary" data-ajax-popup="true" data-size="md"
         data-title="{{__('Add Blog Category')}}"
         data-url="{{ route('blog-category.create') }}"
-        data-bs-toggle="tooltip" title="{{ __('Add Blog Category') }}">
+        data-bs-toggle="tooltip" title="{{ __('Add Blog Category') }}" aria-label="{{__('Add Blog Category')}}">
         <i class="ti ti-plus"></i>
     </a>
 </div>

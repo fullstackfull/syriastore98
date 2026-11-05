@@ -15,7 +15,7 @@
 
             <div class="nex-prev-btn-wrp d-flex align-items-center justify-content-center">
                 @if ($paginator->onFirstPage())
-                <a href="javascript:void(0);" class="btn btn-primary arrow-btn">
+                <a href="javascript:void(0);" class="btn btn-primary arrow-btn" aria-disabled="true" aria-label="{{ __('Next Page') }}">
                     <svg width="18" height="12" viewBox="0 0 18 12" fill="none" xmlns="http://www.w3.org/2000/svg">
                         <path d="M0.469669 5.46967C0.176777 5.76256 0.176777 6.23744 0.469669 6.53033L5.24264 11.3033C5.53553 11.5962 6.01041 11.5962 6.3033 11.3033C6.59619 11.0104 6.59619 10.5355 6.3033 10.2426L2.06066 6L6.3033 1.75736C6.59619 1.46447 6.59619 0.989593 6.3033 0.696699C6.01041 0.403806 5.53553 0.403806 5.24264 0.696699L0.469669 5.46967ZM18 5.25L1 5.25V6.75L18 6.75V5.25Z" fill="#10B77F"/>
                         </svg>
@@ -36,7 +36,7 @@
                     </svg>
                 </a>
                 @else
-                    <a href="javascript:void(0);" class="btn btn-primary arrow-btn">
+                    <a href="javascript:void(0);" class="btn btn-primary arrow-btn" aria-disabled="true" aria-label="{{ __('Next Page') }}">
                         <svg width="18" height="12" viewBox="0 0 18 12" fill="none" xmlns="http://www.w3.org/2000/svg">
                             <path d="M17.5303 6.53033C17.8232 6.23744 17.8232 5.76256 17.5303 5.46967L12.7574 0.696699C12.4645 0.403806 11.9896 0.403806 11.6967 0.696699C11.4038 0.989593 11.4038 1.46447 11.6967 1.75736L15.9393 6L11.6967 10.2426C11.4038 10.5355 11.4038 11.0104 11.6967 11.3033C11.9896 11.5962 12.4645 11.5962 12.7574 11.3033L17.5303 6.53033ZM0 6.75H17V5.25H0V6.75Z" fill="white"/>
                         </svg>

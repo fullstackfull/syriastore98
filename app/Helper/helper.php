@@ -2400,6 +2400,28 @@ if (!function_exists('bulkDeleteForm')) {
     {
         return [
             'text' => '<i class="ti ti-trash" data-bs-toggle="tooltip" title="' . __("Bulk Delete") . '" data-bs-original-title="' . __("Bulk Delete") . '"></i>',
+            /*
+             * THE NAME GOES ON THE BUTTON, NOT ON THE ICON INSIDE IT.
+             *
+             * `text` above puts the tooltip on an `i` element, so the BUTTON -- the thing that is
+             * focusable and clickable -- has no accessible name of its own: measured on the
+             * running admin as `a.btn.btn-light-danger.bulk-delete` with no name, on /customer and
+             * /order. And `drawCallback` below constructs a Bootstrap `Tooltip` for every
+             * `[data-bs-toggle=tooltip]` on each draw, which MOVES `title` into
+             * `data-bs-original-title` and leaves `title` empty -- so even the icon's own name is
+             * gone a moment after it is written.
+             *
+             * `init`, NOT `attr`, AND THAT IS MEASURED. `attr` is DataTables Buttons' documented
+             * hook for attributes on the generated element and this build IGNORES IT: with
+             * `'attr' => ['aria-label' => ...]` the option really is in the page's config --
+             * grepped out of the live HTML -- and the rendered `a.bulk-delete` still had no
+             * `aria-label`. `init` is called with the node after it is built, and this file
+             * already proves raw function strings survive serialisation, because `action` below
+             * is one and it works.
+             */
+            'init' => "function(dt, node, config) {
+                node.attr('aria-label', " . json_encode(__('Bulk Delete')) . ");
+            }",
             'className' => 'btn btn-light-danger bulk-delete',
             'action' => "function(e, dt, button, config) {
                 bulkDelete('{$type}','{$dataTableId}');
@@ -3038,9 +3060,21 @@ if (! function_exists('buildDataTable')) {
             ->minifiedAjax()
             ->orderBy(0)
             ->language([
+                /*
+                 * EACH ARROW CARRIES A VISUALLY HIDDEN NAME. Measured on /customer and /order,
+                 * these two rendered as `a.page-link` wrapping nothing but an icon FONT, which
+                 * contributes no text: four controls announced as nothing.
+                 *
+                 * A hidden span rather than `aria-label`, because DataTables writes these values
+                 * as the link's CONTENT and the element is rebuilt on every draw -- content
+                 * survives that, an attribute set afterwards would have to be reapplied. The name
+                 * is `Previous`/`Next` and NOT `Left`/`Right`: DataTables puts `previous` on the
+                 * inline-start side in both directions, so the semantic word is correct in Arabic
+                 * even where the glyph is not.
+                 */
                 "paginate" => [
-                    "next" => '<i class="ti ti-chevron-right"></i>',
-                    "previous" => '<i class="ti ti-chevron-left"></i>'
+                    "next" => '<i class="ti ti-chevron-right"></i><span class="ss-visually-hidden">' . __('Next') . '</span>',
+                    "previous" => '<i class="ti ti-chevron-left"></i><span class="ss-visually-hidden">' . __('Previous') . '</span>'
                 ],
                 'lengthMenu' => "_MENU_" . __('Entries Per Page'),
                 "searchPlaceholder" => __('Search...'),
@@ -3203,15 +3237,26 @@ if (! function_exists('buildDataTable')) {
             $bulkdeleteButtonConfig,
             $colvisButtonConfig,
             $densityButtonConfig,
+            /*
+             * `init` CARRIES THE NAME, for the reason recorded at `bulkDeleteForm()`: the tooltip
+             * sits on the `i` INSIDE the button, so the focusable element has no name of its own,
+             * and `drawCallback` below builds a Bootstrap Tooltip for every
+             * `[data-bs-toggle=tooltip]` on each draw -- which moves `title` into
+             * `data-bs-original-title` and empties it. Measured on /customer and /order: both of
+             * these rendered with no accessible name at all. `attr` is the documented hook and
+             * this build ignores it; `init` receives the node after it is built.
+             */
             [
                 'text' => '<i class="ti ti-arrow-back-up" data-bs-toggle="tooltip" title="'.__("Reset").'" data-bs-original-title="'.__("Reset").'"></i>',
                 'extend' => 'reset',
                 'className' => 'btn btn-light-info',
+                'init' => "function(dt, node, config) { node.attr('aria-label', " . json_encode(__('Reset')) . "); }",
             ],
             [
                 'text' => '<i class="ti ti-refresh" data-bs-toggle="tooltip" title="'.__("Reload").'" data-bs-original-title="'.__("Reload").'"></i>',
                 'extend' => 'reload',
                 'className' => 'btn btn-light-warning',
+                'init' => "function(dt, node, config) { node.attr('aria-label', " . json_encode(__('Reload')) . "); }",
             ],
         ]);
 
