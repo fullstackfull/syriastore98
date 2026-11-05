@@ -89,7 +89,7 @@ class ProductBrandDataTable extends DataTable
         public function getColumns(): array
     {
         return buildDataTableColumn([
-            'name' => ['title' => __('Name')],
+            'name' => ['title' => __('Name'), 'addClass' => 'ss-dt-ident'],
             'slug' => ['title' => __('Slug')],
             'logo' => ['title' => __('Logo')],
             'status' => ['title' => __('Status'), 'addClass' => 'text-capitalize'],

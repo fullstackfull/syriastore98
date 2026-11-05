@@ -4536,3 +4536,220 @@ a.ss-setup__item:focus-visible {
 .invalid-tooltip {
     color: var(--ss-danger);
 }
+
+/* ---- P2.5-WAVE-1: the merchant list screen ----
+
+   THE OWNER'S DIRECTIVE SAYS, IN TERMS, THAT A SCREEN IS NOT PREMIUM BECAUSE ITS CONTRAST PASSES.
+   Every defect this section repairs passes WCAG today. They are design defects, and they are on
+   roughly a hundred of the 295 inventoried surfaces, because every merchant list screen -- the 38
+   catalogue screens, the 38 settings screens, products, orders, customers -- renders through this
+   one DataTable.
+
+   ALL MEASURED IN THE RUNNING APPLICATION at 1440px on /product, both themes, via
+   docs/development/phase-2.5/tools/measure-table-premium.cjs. None of it was read off the markup.
+
+   ----------------------------------------------------------------------------------------------
+   1. THE TOOLBAR WAS FIVE COLOURS FOR FIVE THINGS THAT ARE NOT DIFFERENT.
+
+      Measured fills, left to right: #FFD8E2 pink (bulk delete), #E9D5E7 (columns), #E9D5E7
+      (density), #D8F4F7 cyan (reset), #FFECD2 amber (reload). Four of those five are undoable
+      view utilities -- they change what you can see, nothing else. The fifth destroys records.
+      The colour carried no meaning, and where it did carry meaning it was backwards: deleting
+      wore the gentlest pastel on the row.
+
+      #E9D5E7 IS NOT A BRAND COLOUR AT ALL. In HSL it is hue 306deg -- magenta. The brand blue is
+      hue 218deg. It is the vendored theme's `btn-light-primary`, never re-derived when the
+      identity became blue, which is exactly why its TEXT measures the correct #335DA8 while its
+      FILL is a leftover from the palette before it. It is also not theme-aware: measured byte-
+      identical in both themes, so it sits at 10.27:1 against the #292A33 dark page -- a pale pink
+      tile glowing on a near-black surface.
+
+      THE RESTING STATE IS NOW GHOST, AND THAT IS A CONTRAST DECISION, NOT A TASTE ONE. A tinted
+      chip needs its boundary to carry the control's identity, and WCAG 2.2 SC 1.4.11 wants 3:1
+      for that boundary. Measured, the quiet neutral fills this redesign wants sit at 1.08:1
+      (light) and 1.19:1 (dark) against their card -- nowhere near it -- so a bordered chip in
+      these colours would have been a REGRESSION dressed as a refinement. A ghost button is
+      identified by its icon instead, and the icon measures 7.41:1 light / 7.44:1 dark. The group
+      gets one container edge so it still reads as a segmented control rather than loose glyphs.
+
+   2. THE TABLE HAD NO TYPOGRAPHIC HIERARCHY. Measured, EVERY body cell on /product is weight 400
+      at 14px in one colour. The product name -- the row's identifier, the thing a merchant scans
+      for -- rendered exactly like the "-" in the empty Brand column beside it.
+
+      THIS IS NOT A CONTRAST PROBLEM AND IS DELIBERATELY NOT TREATED AS ONE. Measured 12.93:1 in
+      light and 5.66:1 in dark; both pass AA comfortably. An earlier reading of mine called the
+      dark figure a failure -- it was the dark theme's own background and the reading was wrong.
+      The repair is weight and colour SEPARATION between the identifier and its row, not more
+      contrast on everything.
+
+   3. MONEY WAS NOT SET AS MONEY. `text-align: start`, `font-variant-numeric: normal`. Proportional
+      digits down a column of prices means the decimal points do not line up; start-alignment means
+      a number's magnitude cannot be seen without reading it. `tabular-nums` goes on the whole
+      grid, where it is correct for every numeric column and harmless everywhere else; `end`
+      alignment goes only on columns marked `.ss-dt-num`, because end-aligning a name would be
+      wrong.
+
+      `end`, NOT `right`. The logical keyword mirrors with the document; `right` would strand the
+      money column on the wrong side of every Arabic table.
+
+   4. `text-transform: uppercase` ON COLUMN HEADERS IS A NO-OP IN ARABIC, because Arabic is
+      unicameral. So one element rendered ALL-CAPS in English and ordinary case in Arabic: the two
+      languages were getting different visual weight for the same thing, on every table in the
+      product. Emphasis a bilingual product carries must exist in both its languages, so the case
+      transform goes and the weight and colour do the work instead -- those render identically in
+      both scripts.
+
+   5. THE ROW SEPARATOR ALL BUT VANISHED IN DARK, having been drawn for a white page.
+
+   WHAT THIS SECTION DELIBERATELY DOES NOT TOUCH
+   ---------------------------------------------
+   `--ss-brand`. Measured, it resolves to #335DA8 in light and to the CYAN #2AC3E5 in dark, so the
+   primary action changes hue with the theme. That is a real identity finding and it is raised for
+   the owner rather than taken here, because cyan is NOT arbitrary -- brand blue separates from the
+   dark page at only 2.22:1 -- and because a lifted blue (#6E93D8: 6.09:1 for its text, 4.63:1
+   against the page) shows the choice was defensible rather than forced. Changing that token moves
+   the sidebar active state, links, focus rings and every chart on every dark screen at once.
+
+   SCOPE IS `.ss-dt-card-body`. An unscoped table rule reaches every table in all 70 vendored
+   WorkDo modules; DesignSystemStylesheetScopeTest refused exactly that in P2.5-DESIGN-K. */
+
+.ss-dt-card-body {
+    --ss-dt-tool-bg: transparent;
+    --ss-dt-tool-bg-hover: #eef1f7;
+    --ss-dt-tool-fg: #475069;
+    --ss-dt-tool-border: #dde3ee;
+    --ss-dt-tool-danger: #b42318;
+    --ss-dt-tool-danger-bg: #fef3f2;
+    --ss-dt-ident-fg: #1a1d23;
+    --ss-dt-ident-weight: 600;
+    --ss-dt-head-fg: #5a6276;
+    --ss-dt-rule: #e9edf4;
+    --ss-dt-row-hover: #f7f9fc;
+}
+
+[data-ss-theme="dark"] .ss-dt-card-body {
+    --ss-dt-tool-bg: transparent;
+    --ss-dt-tool-bg-hover: #3a3d4c;
+    --ss-dt-tool-fg: #c6ccdb;
+    --ss-dt-tool-border: #434759;
+    --ss-dt-tool-danger: #ff9b93;
+    --ss-dt-tool-danger-bg: #3a2321;
+    --ss-dt-ident-fg: #f0f2f6;
+    --ss-dt-ident-weight: 600;
+    --ss-dt-head-fg: #aab2c5;
+    --ss-dt-rule: #3a3d4a;
+    --ss-dt-row-hover: #30323d;
+}
+
+@media (prefers-color-scheme: dark) {
+    [data-ss-theme="auto"] .ss-dt-card-body {
+        --ss-dt-tool-bg: transparent;
+        --ss-dt-tool-bg-hover: #3a3d4c;
+        --ss-dt-tool-fg: #c6ccdb;
+        --ss-dt-tool-border: #434759;
+        --ss-dt-tool-danger: #ff9b93;
+        --ss-dt-tool-danger-bg: #3a2321;
+        --ss-dt-ident-fg: #f0f2f6;
+        --ss-dt-ident-weight: 600;
+        --ss-dt-head-fg: #aab2c5;
+        --ss-dt-rule: #3a3d4a;
+        --ss-dt-row-hover: #30323d;
+    }
+}
+
+/* The four view utilities become one segmented control. `!important` throughout because every
+   one of these properties is set by the vendored theme's `.btn-light-*`, which this cannot edit. */
+.ss-dt-card-body .dt-buttons {
+    border: 1px solid var(--ss-dt-tool-border);
+    border-radius: 10px;
+    padding: 2px;
+    gap: 2px;
+    display: inline-flex;
+    align-items: center;
+}
+
+.ss-dt-card-body .dt-buttons .ss-colvis,
+.ss-dt-card-body .dt-buttons .ss-density,
+.ss-dt-card-body .dt-buttons .buttons-reset,
+.ss-dt-card-body .dt-buttons .buttons-reload {
+    background-color: var(--ss-dt-tool-bg) !important;
+    color: var(--ss-dt-tool-fg) !important;
+    border: 0 !important;
+    border-radius: 8px !important;
+    box-shadow: none !important;
+    min-width: 36px;
+    height: 36px;
+    padding: 0 10px !important;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 120ms ease;
+}
+
+.ss-dt-card-body .dt-buttons .ss-colvis:hover,
+.ss-dt-card-body .dt-buttons .ss-density:hover,
+.ss-dt-card-body .dt-buttons .buttons-reset:hover,
+.ss-dt-card-body .dt-buttons .buttons-reload:hover,
+.ss-dt-card-body .dt-buttons .ss-colvis:focus-visible,
+.ss-dt-card-body .dt-buttons .ss-density:focus-visible,
+.ss-dt-card-body .dt-buttons .buttons-reset:focus-visible,
+.ss-dt-card-body .dt-buttons .buttons-reload:focus-visible {
+    background-color: var(--ss-dt-tool-bg-hover) !important;
+    color: var(--ss-dt-tool-fg) !important;
+}
+
+/* Destroying records does not look like reloading a view. It leaves the segmented group, so the
+   separation is spatial as well as chromatic -- a merchant reaching for "reload" cannot land on
+   "delete" by being one button out. */
+.ss-dt-card-body .bulk-delete {
+    background-color: var(--ss-dt-tool-danger-bg) !important;
+    color: var(--ss-dt-tool-danger) !important;
+    border: 1px solid var(--ss-dt-tool-danger) !important;
+    border-radius: 10px !important;
+    height: 40px;
+    margin-inline-end: 10px;
+    box-shadow: none !important;
+}
+
+/* Column headers: the case transform goes, weight and colour take over. Both render in Arabic. */
+.ss-dt-card-body table.dataTable > thead > tr > th {
+    text-transform: none !important;
+    font-size: 0.8125rem;
+    font-weight: 600 !important;
+    letter-spacing: 0.01em;
+    color: var(--ss-dt-head-fg) !important;
+}
+
+/* Tabular figures on the whole grid: correct for every numeric column, inert for text. */
+.ss-dt-card-body table.dataTable {
+    font-variant-numeric: tabular-nums;
+}
+
+/* The row's subject reads as its subject. */
+.ss-dt-card-body table.dataTable > tbody > tr > td.ss-dt-ident,
+.ss-dt-card-body table.dataTable > tbody > tr > td.ss-dt-ident a {
+    color: var(--ss-dt-ident-fg) !important;
+    font-weight: var(--ss-dt-ident-weight) !important;
+}
+
+/* Money. `end` so it mirrors; `right` would strand it in Arabic. */
+.ss-dt-card-body table.dataTable > tbody > tr > td.ss-dt-num,
+.ss-dt-card-body table.dataTable > thead > tr > th.ss-dt-num {
+    text-align: end;
+    font-variant-numeric: tabular-nums;
+}
+
+/* The rule that disappeared on the dark page, and a row hover the grid never had. */
+.ss-dt-card-body table.dataTable > tbody > tr > td {
+    border-bottom-color: var(--ss-dt-rule) !important;
+}
+
+.ss-dt-card-body table.dataTable > tbody > tr:hover > td {
+    background-color: var(--ss-dt-row-hover) !important;
+}
+
+/* The pinned column is sticky and paints its own background, so a row hover that skipped it would
+   leave one cell unlit as the eye tracks across. It follows the row. */
+.ss-dt-card-body table.dataTable > tbody > tr:hover > td.ss-col-pinned {
+    background-color: var(--ss-dt-row-hover) !important;
+}

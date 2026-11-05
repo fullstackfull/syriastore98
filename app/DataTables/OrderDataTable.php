@@ -557,10 +557,10 @@ class OrderDataTable extends DataTable
  public function getColumns(): array
 {
     return buildDataTableColumn([
-        'product_order_id' => ['title' => __('Order Id')],
+        'product_order_id' => ['title' => __('Order Id'), 'addClass' => 'ss-dt-ident'],
         'order_date' => ['title' => __('Date')],
         'customer_id' => ['title' => __('Customer Info')],
-        'final_price' => ['title' => __('Price')],
+        'final_price' => ['title' => __('Price'), 'addClass' => 'ss-dt-num'],
         'payment_type' => ['title' => __('Payment Type')],
 
         'shipping_method' => [

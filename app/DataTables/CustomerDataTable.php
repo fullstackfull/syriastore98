@@ -276,13 +276,13 @@ class CustomerDataTable extends DataTable
         public function getColumns(): array
     {
         return buildDataTableColumn([
-            'first_name' => ['title' => __('Customer Info')],
+            'first_name' => ['title' => __('Customer Info'), 'addClass' => 'ss-dt-ident'],
             'email' => ['title' => __('Email')],
             'last_active' => ['title' => __('Last Active')],
             'regiester_date' => ['title' => __('Date Registered')],
             'orders' => ['title' => __('Orders'), 'orderable' => false, 'searchable' => false],
-            'total_spend' => ['title' => __('Total Spend'), 'orderable' => false, 'searchable' => false],
-            'aov' => ['title' => __('AOV'), 'orderable' => false, 'searchable' => false],
+            'total_spend' => ['title' => __('Total Spend'), 'orderable' => false, 'searchable' => false, 'addClass' => 'ss-dt-num'],
+            'aov' => ['title' => __('AOV'), 'orderable' => false, 'searchable' => false, 'addClass' => 'ss-dt-num'],
             'status' => ['title' => __('Status'), 'exportable' => false, 'printable' => false, 'width' => 60],
         ]);
     }
