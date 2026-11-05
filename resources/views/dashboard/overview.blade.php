@@ -477,8 +477,13 @@
                class="mb-4">
         <div class="ss-chips">
             @foreach ($ssFulfilment as $ssRow)
+                {{-- P2.5-WAVE-3b. The share is computed HERE and not in the component, because
+                     only this scope knows the whole distribution -- a chip cannot work out its own
+                     proportion from its own count. Guarded against a zero sum: every count is
+                     already >= 0, and a store with no orders at all would otherwise divide by it. --}}
                 <x-ss.chip :label="$ssOrderLabel($ssRow['status'])"
                            :count="number_format($ssRow['count'])"
+                           :share="$ssStatusSum > 0 ? $ssRow['count'] / $ssStatusSum : null"
                            :href="$ssStatusHref($ssRow['status'], $ssRow['count'])"
                            :interactive="false" />
             @endforeach

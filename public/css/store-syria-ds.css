@@ -4895,3 +4895,88 @@ a.ss-setup__item:focus-visible {
 .ss-attention__title {
     font-size: var(--ss-type-section);
 }
+
+/* ---- P2.5-WAVE-3b: the status chip carries its magnitude ----
+
+   MEASURED on /dashboard at 1440px, dark:
+
+       'Pending (55)'         85x32   bg rgb(33,37,44)   fg rgb(120,148,198)
+       'Confirmed Order (2)'  103x32  bg rgb(33,37,44)   fg rgb(120,148,198)
+       'Order Shipped (1)'    129x32  bg rgb(33,37,44)   fg rgb(120,148,198)
+       'Picked Up (0)'        105x32  bg rgb(33,37,44)   fg rgb(195,198,204)
+
+       DISTINCT chip backgrounds across all seven: ONE.
+
+   So the two ENDS of the distribution were pixel-for-pixel identical apart from their digits.
+   The only distinction the card drew was zero versus non-zero. A card headed "Orders by status"
+   showed no distribution: the merchant had to read seven numbers and rank them mentally.
+
+   THE BAR IS UNDER THE CHIP, NOT BEHIND IT, AND THAT IS A CONTRAST DECISION RATHER THAN A TASTE
+   ONE. A proportional BACKGROUND fill is the obvious treatment, and it puts the label on two
+   surfaces at once -- some glyphs over the fill, some over the base -- so the chip's text would
+   have to pass AA against BOTH, in both themes, at every tint, and the pass would depend on where
+   the text happened to fall. A 3px meter along the bottom edge leaves every text/background pair
+   exactly as measured in earlier packages and still answers "which of these is big" before a
+   single number is read.
+
+   IT CARRIES INFORMATION, so WCAG 2.2 SC 1.4.11 applies and 3:1 against the chip surface is
+   required, not optional. The surfaces were READ OUT OF THE RUNNING PAGE, because an assumed
+   surface makes exact-looking arithmetic meaningless -- the first draft of the test asserted
+   against #f1f3f8, which is not what `--ss-neutral-bg` resolves to:
+
+       light   meter #335da8 on chip #eeeff1   5.63:1
+       dark    meter #6e93d8 on chip #21252c   5.00:1
+
+   THE DARK METER IS THE LIFTED BLUE, NOT THE CYAN. #6E93D8 is hue 218deg -- the brand blue
+   family -- and it is the same value the WAVE-1 note proposes for the unresolved `--ss-brand`
+   question. Using cyan here would have quietly spread the substitution this project is trying to
+   decide deliberately.
+
+   THE NUMBERS STAY. The meter is REDUNDANT encoding, not a replacement: SC 1.4.1, and the
+   directive's own rule that colour must never be the sole carrier. A bar replacing "(55)" would
+   be a regression wearing a chart.
+
+   OPT-IN. Only `.ss-chip--metered` is affected, so the filter toggles and every other chip in the
+   product are untouched -- a chip cannot compute its own share, only a caller holding the whole
+   distribution can. */
+
+.ss-chip--metered {
+    --ss-chip-meter: #335da8;
+    position: relative;
+    overflow: hidden;
+}
+
+[data-ss-theme="dark"] .ss-chip--metered {
+    --ss-chip-meter: #6e93d8;
+}
+
+@media (prefers-color-scheme: dark) {
+    [data-ss-theme="auto"] .ss-chip--metered {
+        --ss-chip-meter: #6e93d8;
+    }
+}
+
+/* `inset-inline-start`, so the meter grows from the reading edge in both directions. A physical
+   `left` would strand every bar on the wrong side of the Arabic dashboard. */
+.ss-chip--metered::after {
+    content: "";
+    position: absolute;
+    inset-block-end: 0;
+    inset-inline-start: 0;
+    width: var(--ss-chip-share, 0%);
+    /* A FLOOR, BECAUSE THE SMALL SHARES WERE INVISIBLE. Measured on the real dashboard: a 1.61%
+       share on an 85-130px chip renders a 2.16px bar, which is not distinguishable from the
+       zero case at a glance -- and the zero/non-zero distinction is the one thing the old
+       design DID carry, so losing it would have been a regression. 4px keeps "some" visibly
+       different from "none" while the proportion still does the ranking. */
+    min-width: 4px;
+    height: 3px;
+    background-color: var(--ss-chip-meter);
+    border-radius: 3px;
+    pointer-events: none;
+}
+
+/* A zero-count chip gets no bar at all rather than a 0%-wide one: the absence is the reading. */
+.ss-chip--metered[style*="--ss-chip-share: 0%"]::after {
+    display: none;
+}

@@ -25,6 +25,23 @@
 #                  /login, so the failure looks like a broken application rather than a missing
 #                  dev setting.
 #
+# DO NOT `export` THESE AND THEN RUN THE TEST SUITE IN THE SAME SHELL.
+#
+# MEASURED, by reproducing it on purpose rather than guessing after the fact:
+#
+#     with DB_CONNECTION/DB_DATABASE/CACHE_STORE/SESSION_DRIVER exported   297 failed, 899 passed
+#     same commit, same minute, without them                              1196 passed
+#
+# phpunit.xml pins the suite to sqlite `:memory:` with CACHE_STORE=array. A real environment
+# variable WINS over phpunit.xml, so an exported DB_DATABASE silently points the whole suite at
+# the dev fixture -- 133 tables of seeded merchant data instead of a clean migrated schema -- and
+# CACHE_STORE=file leaves `Cachable` models serving rows between tests. It fails loudly and in
+# bulk, which is the good case; what makes it worth a warning is that the failures look like a
+# code regression and nothing in the output names the cause.
+#
+# Run the harness in its own shell, or prefix the variables onto the single command that needs
+# them (`DB_DATABASE=... node render-matrix.cjs ...`) rather than exporting them.
+#
 # usage:  docs/development/phase-2.5/tools/serve-dev.sh   (leave it running; harnesses connect to it)
 #
 set -e
