@@ -125,8 +125,48 @@ middleware". Both copies sit in the same group here so the practical effect look
 duplicate resource declaration is exactly the construct that makes a middleware change silently
 ineffective later. Recorded for the routing cleanup, not changed here.
 
+## Rows 12-20: real merchant screens, but UNRENDERABLE here (third-party dependency)
+
+The nine WooCommerce and Shopify import tables are genuine merchant surfaces -- but their
+controllers call a live third-party API *before* returning the view, so neither can be rendered in
+this environment:
+
+* `WoocomProductController::index()` sets `config(['woocommerce.consumer_secret' => ...])` and then
+  loops `Product::all(['per_page' => 100, 'page' => $n])` through the WooCommerce SDK until a page
+  comes back empty. No credentials, no view.
+* `ShopifyProductController::index()` calls
+  `ShopifyAdminApi::get($shopify_store_url, "admin/api/2023-07/products/count.json", $token)`
+  against the merchant's own `*.myshopify.com`.
+
+Measured on the fixture: **`woocommerce_conections` holds 0 rows** and no shopify credentials are
+set. Rendering them would need a real connected store plus outbound egress to that host, which this
+container's network policy does not grant.
+
+So they are **not implemented and not claimed**: the `.ss-dt-card-body` treatment is correct for
+them (they carry the `dataTable` class exactly as row 7 did, and row 7's capture proves the
+treatment lands), but applying it to nine files that cannot be rendered would be precisely the
+unverifiable CSS change the directive forbids. They wait for a sandbox credential or a stubbed
+connection.
+
+## §2 AUDIT COMPLETE -- what the "20 merchant tables" really are
+
+| rows | surfaces | outcome |
+|---|---|---|
+| 1, 2, 3 | order detail, quick-view modal, refund detail | **done, verified** (WAVE-11) |
+| 5, 6 | role-permission create/edit modals | **done, verified** (WAVE-12) |
+| 7 | customer orders | **done, verified** (WAVE-13) |
+| 4, 8, 9, 10 | bank-transfer approval, store links, custom domain, subdomain | **Phase 06** -- operator-gated |
+| 11 | email templates index | **dead view** -- unreachable |
+| 12-20 | WooCommerce x4, Shopify x5 imports | **blocked** -- live third-party API + egress |
+
+**Six of the twenty are merchant tables reachable in this environment, and all six are done.** Five
+are out of scope or dead; nine are blocked on a third-party dependency. The table-wrapping track is
+therefore finished for everything that can be reached and verified here -- which is the honest
+reading of "complete", and a different claim from "20 of 20 wrapped".
+
 ## Still next
 
-1. Access-check the remaining §2 rows (roles done; WooCommerce and Shopify not yet) before
-   implementing them.
-2. Decide whether the `email_templates.show` null guard is in scope for a later wave.
+1. Decide whether the `email_templates.show` null guard is in scope for a later wave.
+2. Rows 12-20 need a sandbox credential or a stubbed connection before they can be done properly.
+3. The remaining premium work is NOT more tables -- it is the other dimensions the directive names
+   (iconography, cards, forms, navigation) across the 272 surfaces still PENDING.
