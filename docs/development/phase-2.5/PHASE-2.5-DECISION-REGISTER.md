@@ -543,6 +543,18 @@ them — the vendored-code guard and the uploads guard — were themselves repai
 because they had been *reporting success without measuring anything*. They are now not reporting
 at all.
 
+**The window, measured rather than described.** Surveying the `Static checks` job across every
+`ci.yml` run on this branch:
+
+| | |
+|---|---|
+| last run where the audit step **passed** and all nine ran | `7227d223`, **2026-11-04 17:57:14Z** |
+| first failure | `4cf0ba4e`, **2026-11-04 20:18:52Z** |
+
+So the nine have not run for **26 commits across ~8.5 hours** — every commit from `4cf0ba4e`
+through `91f977f5`, which is the whole of the Premium Design work plus the typography and brand
+packages before it. `php -l on EVERY tracked PHP file` last passed at 17:57Z.
+
 **It applies to `main` too.** `composer.lock` is byte-identical on both (blob
 `27f8d118e08cd75ada473444f72c5c64b1bd52a3`), so a run on `main` today fails at the same step and
 skips the same nine. `main`'s last CI run was 2026-11-03, before the advisories were published, so
@@ -554,3 +566,50 @@ non-blocking / move it last so a growing external database cannot mask nine inte
 last of those is the only one that removes the masking without touching either the ceiling or the
 lock, and it is a workflow change outside this phase's authorisation.
 
+
+### F-DESIGN-11 — I claimed the merge-base regression gate was broken for every PR; it is intermittent, and it passed
+
+**Four public claims of mine were false** — three in PR #130 comment `6636372012`, one in comment
+`6644208103`, and two sentences in **PR #130's body**, which is the text a human security reviewer
+is asked to read. The body is corrected in place; the comments are superseded by
+`6648821775` rather than edited, so the record of what was said survives.
+
+The strongest: *"it will fail identically on **every** PR in this repository, including one that
+changes nothing."*
+
+**What is true, across all 32 `ci.yml` runs on this branch.** Five reached the merge-base stage;
+the other 27 were cancelled by successive pushes.
+
+| head | merge-base stage | outcome |
+|---|---|---|
+| `8e13c594` | `cp -al` → `Invalid cross-device link` | **EXDEV** |
+| `7227d223` | `cp -al` → `Invalid cross-device link` | **EXDEV** |
+| `a160c2e0` | both suites ran | **passed**, new failures: 0 |
+| `c3f90298` | both suites ran | **passed**, new failures: 0 |
+| `91f977f5` | both suites ran | **passed**, new failures: 0 |
+
+`.github/workflows/ci.yml` is byte-identical across all five, so the only variable is **which
+runner the job landed on**. The condition is runner-dependent and intermittent.
+
+**Three things this cost, worth keeping:**
+
+1. **"Deterministic" was the stated reason for not re-running.** A re-run was in fact the cheapest
+   available way to discover the claim was wrong, and I argued myself out of it.
+2. **An `EXDEV` run is not a fast failure.** It runs the full HEAD suite first — 862s and 837s in
+   the two cases — and only then dies at the base `cp` in 4–5s. Each burns ~15 minutes for no
+   verdict.
+3. **The API's step conclusion lies here.** Both suite steps carry `continue-on-error: true`, so
+   the merge-base step reports `success` in both `EXDEV` runs while the log shows
+   `##[error]Process completed with exit code 1`. A merge-base step reading *success / 4s* is a
+   failure. Only the job conclusion, the duration and the log carry information — which means any
+   earlier survey of this gate done by step conclusion is unreliable.
+
+**#131 is still worth landing, for a better reason than the one first given.** Not "the gate is
+broken for everyone" but "today it depends on runner luck". Its own run logs the decision:
+`candidate /home/runner/work/_temp: device 2049 == vendor device 2049 -- hard links possible,
+chosen`. It probes the device ids and falls back to a real copy when they differ, so it is correct
+on both kinds of runner.
+
+**And `main` has zero data on this gate.** The job carries
+`if: github.event_name == 'pull_request'`; all 21 recent `main` runs are `push` events, so it is
+skipped in 0s every time. Nothing about gate health can be read from `main` being green.
