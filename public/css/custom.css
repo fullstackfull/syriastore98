@@ -5235,7 +5235,35 @@ html[data-ss-theme="dark"] body .my-custom-timeline .tl-box {
     color: var(--ss-grey-100, #eeeff1);
 }
 
+/* THE SLAB THE CARDS SIT ON HAD NO DARK ARM.  P2.5-WAVE-16c
+   Measured on the running page: in DARK, `.custom-timeline-inner` computed to rgb(249,249,249) --
+   unchanged from light -- while `.tl-box` above correctly computed #292A33 and the body #22242C.
+   A near-white slab on a dark page, with dark cards floating on it.
+
+   THE VALUE MIRRORS THE LIGHT RELATIONSHIP rather than inventing one. In light the container
+   (#F9F9F9) sits at the body's level (#F9FAFB) and the cards (#ffffff) are BRIGHTER, so they read
+   as raised. In dark the container therefore takes the body's #22242C and the cards keep #292A33,
+   which is lighter -- the same figure/ground, not a new idea.
+
+   NOT scoped under `.my-custom-timeline`: that class is CONDITIONAL on `count($logs) > 0`, so in
+   the empty state the container has no such ancestor and a scoped rule would miss it. */
+html[data-ss-theme="dark"] body .custom-timeline-inner {
+    background: #22242C;
+    color: var(--ss-grey-100, #eeeff1);
+}
+
+/* THE TIMESTAMP IS A CHIP, NOT BARE TEXT.  P2.5-WAVE-16c
+   custom.css:1706 gives every `.time` span its own `background: rgb(248,248,248)` and 4px/6px of
+   padding. That generic rule has no dark arm, so the ink below -- added for the #292A33 card --
+   was landing on a near-white chip instead: MEASURED 2.37:1 on the running dark page, against
+   7.59:1 for the untouched host pairing (#505050 on #F8F8F8). Darkening the ink alone made this
+   site WORSE than leaving it alone, which is why the ink and the fill are set together here.
+
+   #22242C is the slab, not a new colour: in light the chip (#F8F8F8) is darker than its card
+   (#ffffff) and reads as recessed, so in dark it recesses to the page level while the card stays
+   at #292A33. Ink #9DA3B4 on it measures 6.14:1. */
 html[data-ss-theme="dark"] body .my-custom-timeline .tl-box .time-wrapper .time {
+    background: #22242C;
     color: #9DA3B4;
 }
 

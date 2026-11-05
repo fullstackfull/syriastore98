@@ -10,10 +10,10 @@ hand-maintained matrix is precisely how that happens.
 | state | count | of 295 |
 |---|---:|---:|
 | PREMIUM VERIFIED | 0 | 0.0% |
-| REDESIGNED AND VERIFIED | 13 | 4.4% |
+| REDESIGNED AND VERIFIED | 14 | 4.7% |
 | BLOCKED | 9 | 3.1% |
 | OUT OF SCOPE | 1 | 0.3% |
-| PENDING | 272 | 92.2% |
+| PENDING | 271 | 91.9% |
 | **total** | **295** | |
 
 **PENDING is not one of the directive's four states, and that is the point.** The four
@@ -36,7 +36,7 @@ screens and exactly three of them have been looked at. The other ~97 stay PENDIN
 | Phase 2.5 Wave A | 30 | 0 | 0 | 0 | 0 | 30 |
 | Reports/Analytics presentation, Notifications, and the con | 26 | 0 | 0 | 1 | 0 | 25 |
 | Flutter merchant/employee admin app | 24 | 0 | 0 | 3 | 0 | 21 |
-| Customers and customer management | 20 | 0 | 2 | 0 | 0 | 18 |
+| Customers and customer management | 20 | 0 | 3 | 0 | 0 | 17 |
 | ORDERS | 17 | 0 | 3 | 3 | 0 | 11 |
 | PRODUCTS | 16 | 0 | 1 | 1 | 0 | 14 |
 | Merchant admin NAVIGATION SHELL | 13 | 0 | 0 | 0 | 0 | 13 |
@@ -297,7 +297,7 @@ actually been done to it since. They are different questions and the matrix keep
 | Customer filter field metadata | ``GET customer-filter (customer.filter)`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Create customer | ``GET customer/create (customer.create) + POST customer (custom` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Customer orders (reached by the cart icon) | ``GET customer/{id} (customer.show)`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-WAVE-13; four captures under evidence/wave-13/ |
-| Customer activity timeline | ``GET customer-timeline/{id} (customer.timeline)`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
+| Customer activity timeline | ``GET customer-timeline/{id} (customer.timeline)`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-WAVE-16 + 16c; four captures under evidence/wave-16c/ |
 | Archive customer | ``DELETE customer/{customer} (customer.destroy)`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
 | Edit customer (registered, unimplemented) | ``GET customer/{customer}/edit (customer.edit) + PUT/PATCH cust` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Abandoned carts list | ``GET abandon-carts-handled (abandon.carts.handled)`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |

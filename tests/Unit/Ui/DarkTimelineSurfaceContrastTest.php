@@ -74,6 +74,23 @@ class DarkTimelineSurfaceContrastTest extends TestCase
     private const TIME_INK = [157, 163, 180];   // #9DA3B4 — already ratcheted on #292A33 by
                                                 // DarkModalSurfaceContrastTest's FIELD_PLACEHOLD
 
+    /**
+     * THE TIMESTAMP'S REAL GROUND, and the correction of a test below that measured the wrong one.
+     * P2.5-WAVE-16c
+     *
+     * `.time` is not transparent. custom.css:1706 gives the span its own CHIP:
+     * `.time { display:inline-block; padding:4px 6px; background: rgb(248,248,248); }`. So the
+     * timestamp never sits on the card at all -- it sits on a near-white chip, in BOTH themes,
+     * because that generic rule had no dark arm.
+     *
+     * `test_the_timestamp_ink_clears_aa_on_the_dark_card` asserted 5.66:1 of TIME_INK against
+     * CARD_BG and PASSED, while the running page measured 2.37:1. It was measuring a ground the
+     * component does not have. Found by measure-timeline-pills.cjs, which reads the EFFECTIVE
+     * background off the live page instead of the sheet -- the whole reason that tool exists.
+     */
+    private const TIME_CHIP_LIGHT = [248, 248, 248]; // rgb(248,248,248), custom.css:1706
+    private const TIME_CHIP_DARK = [34, 36, 44];     // #22242C — the slab, not a new colour
+
     /** Every `.tl-btn` pastel fill in the sheet, so the guard is proved on all four, not one. */
     private const CHIP_FILLS = [
         '.tl-btn.licence-btn'  => [224, 255, 245], // #E0FFF5 — the only variant this view renders
@@ -176,11 +193,76 @@ class DarkTimelineSurfaceContrastTest extends TestCase
         $this->assertGreaterThanOrEqual(4.5, $this->ratio(self::GREY_100, self::PAGE_BG));
     }
 
-    /** 5.66:1 — and it is a pairing DarkModalSurfaceContrastTest already pins on this surface. */
+    /**
+     * 5.66:1 — a pairing DarkModalSurfaceContrastTest already pins on this surface. KEPT, but it
+     * is NOT the timestamp's ground: see TIME_CHIP_LIGHT. What it proves is that the ink is right
+     * for the card, which matters because the chip's dark arm sits between the two.
+     */
     public function test_the_timestamp_ink_clears_aa_on_the_dark_card(): void
     {
         $this->assertSame(5.66, round($this->ratio(self::TIME_INK, self::CARD_BG), 2));
         $this->assertGreaterThanOrEqual(4.5, $this->ratio(self::TIME_INK, self::CARD_BG));
+    }
+
+    /**
+     * PREMISE: the chip is real and un-themed. If the host ever drops that background, the dark
+     * arm below becomes redundant and should be DELETED, not left painting a dead rule.
+     */
+    public function test_premise_the_timestamp_carries_its_own_light_chip(): void
+    {
+        foreach (self::CUSTOM_SHEETS as $sheet) {
+            $this->assertMatchesRegularExpression(
+                '/^\.time\s*\{[^}]*background:\s*rgb\(248,\s*248,\s*248\)\s*;/mi',
+                $this->read($sheet),
+                $sheet . ': the generic `.time` chip is gone, so the dark arm for it is now dead code.');
+        }
+    }
+
+    /**
+     * THE DEFECT, stated as the live measurement found it: #9DA3B4 on rgb(248,248,248) is 2.37:1.
+     * The dark arm darkened the INK and left the CHIP light, which is worse than doing neither --
+     * the pre-fix pairing (#505050 on #F8F8F8) was 7.59:1 and legible.
+     */
+    public function test_the_unarmed_chip_is_the_failure_this_slice_repairs(): void
+    {
+        $this->assertSame(2.37, round($this->ratio(self::TIME_INK, self::TIME_CHIP_LIGHT), 2));
+        $this->assertLessThan(4.5, $this->ratio(self::TIME_INK, self::TIME_CHIP_LIGHT));
+        // and the ink-only arm made it worse than the untouched host pairing
+        $this->assertGreaterThan(
+            $this->ratio(self::TIME_INK, self::TIME_CHIP_LIGHT),
+            $this->ratio(self::HOST_TIME_INK, self::TIME_CHIP_LIGHT));
+    }
+
+    /** 6.14:1. The chip recesses to the slab, mirroring light where it is darker than the card. */
+    public function test_the_timestamp_ink_clears_aa_on_its_own_dark_chip(): void
+    {
+        $this->assertSame(6.14, round($this->ratio(self::TIME_INK, self::TIME_CHIP_DARK), 2));
+        $this->assertGreaterThanOrEqual(4.5, $this->ratio(self::TIME_INK, self::TIME_CHIP_DARK));
+    }
+
+    /**
+     * The chip must be DARKER than the card it sits on, as it is in light (#F8F8F8 on #ffffff).
+     * A chip lighter than its card reads as raised, which inverts the component's own hierarchy.
+     */
+    public function test_the_dark_chip_stays_recessed_below_its_card(): void
+    {
+        $this->assertLessThan(
+            $this->luminance(self::CARD_BG), $this->luminance(self::TIME_CHIP_DARK));
+        $this->assertLessThan(
+            $this->luminance(self::WHITE), $this->luminance(self::TIME_CHIP_LIGHT));
+    }
+
+    /** Both sheets actually carry the arm. This is the half-fix guard, by file. */
+    public function test_both_sheets_arm_the_timestamp_chip(): void
+    {
+        foreach (self::CUSTOM_SHEETS as $sheet) {
+            $this->assertMatchesRegularExpression(
+                '/html\[data-ss-theme="dark"\]\s+body\s+\.my-custom-timeline\s+\.tl-box\s+'
+                . '\.time-wrapper\s+\.time\s*\{[^}]*background:\s*#22242C\s*;/i',
+                $this->read($sheet),
+                $sheet . ': the timestamp chip has no dark background, so #9DA3B4 lands on '
+                . 'rgb(248,248,248) at 2.37:1 for every merchant this sheet serves.');
+        }
     }
 
     /**
@@ -276,18 +358,56 @@ class DarkTimelineSurfaceContrastTest extends TestCase
     }
 
     /**
-     * `.tl-btn`, `.time` and `.timeline` are SHARED class names, so every selector has to name the
+     * `.tl-btn`, `.time` and `.timeline` are SHARED class names, so every selector has to name a
      * container. The census below is the reason, asserted rather than trusted.
+     *
+     * TWO CONTAINER NAMES ARE ACCEPTED, and the second is not a loophole.  P2.5-WAVE-16c
+     * `.my-custom-timeline` is CONDITIONAL in the view:
+     *
+     *     <div @if (count($logs) > 0) class="my-custom-timeline" @endif>
+     *
+     * so a rule scoped under it silently misses the case where the customer has registered but has
+     * no activity -- precisely the state P2.5-WAVE-16 added an empty state for, and the state the
+     * dev fixture renders. `.custom-timeline-inner` is the UNCONDITIONAL container, and the premise
+     * below asserts it is unique to this one view, so unlike `.timeline` it cannot bleed.
      */
     public function test_every_selector_in_the_block_names_the_timeline_container(): void
     {
         foreach (self::CUSTOM_SHEETS as $sheet) {
             foreach ($this->selectors($sheet) as $one) {
-                $this->assertStringContainsString('.my-custom-timeline', $one,
-                    $sheet . ': `' . $one . '` does not name the timeline container, and .tl-btn, '
-                    . '.time and .timeline all appear on other surfaces.');
+                $this->assertTrue(
+                    str_contains($one, '.my-custom-timeline') || str_contains($one, '.custom-timeline-inner'),
+                    $sheet . ': `' . $one . '` names neither timeline container, and .tl-btn, '
+                    . '.time and .timeline all appear on other surfaces.'
+                );
             }
         }
+    }
+
+    /**
+     * PREMISE for the rule above: the unconditional container really is this screen's alone, so
+     * allowing it as a scope cannot let the block repaint anything else.
+     */
+    public function test_the_unconditional_container_is_unique_to_this_screen(): void
+    {
+        $views = glob(dirname(__DIR__, 3) . '/resources/views/**/*.blade.php', GLOB_BRACE) ?: [];
+        $hits = [];
+
+        $it = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator(dirname(__DIR__, 3) . '/resources/views', \FilesystemIterator::SKIP_DOTS)
+        );
+        foreach ($it as $file) {
+            if (! $file->isFile() || ! str_ends_with($file->getFilename(), '.blade.php')) {
+                continue;
+            }
+            if (str_contains((string) file_get_contents($file->getPathname()), 'custom-timeline-inner')) {
+                $hits[] = basename($file->getPathname());
+            }
+        }
+
+        $this->assertSame(['timeline.blade.php'], $hits,
+            '`custom-timeline-inner` is no longer unique to the customer timeline, so scoping the '
+            . 'dark block to it could now repaint another surface: ' . implode(', ', $hits));
     }
 
     public function test_the_class_names_this_block_touches_really_are_shared(): void

@@ -117,6 +117,35 @@ class TimelinePillContrastTest extends TestCase
         }
     }
 
+    /**
+     * THE SLAB THE CARDS SIT ON NEEDS A DARK ARM TOO.  P2.5-WAVE-16c
+     *
+     * Measured on the running page before the fix: in DARK, `.custom-timeline-inner` computed to
+     * rgb(249,249,249) -- unchanged from light -- while `.tl-box` correctly computed #292A33 and
+     * the body #22242C. A near-white slab on a dark page with dark cards floating on it.
+     *
+     * The rule must NOT be scoped under `.my-custom-timeline`: that class is conditional on
+     * `count($logs) > 0`, so in the empty state the container has no such ancestor and a scoped
+     * rule would miss exactly the case P2.5-WAVE-16 added.
+     */
+    public function test_the_timeline_container_has_a_dark_arm(): void
+    {
+        $css = $this->css();
+
+        $this->assertMatchesRegularExpression(
+            '/html\[data-ss-theme="dark"\]\s+body\s+\.custom-timeline-inner\s*\{[^}]*background:/s',
+            $css,
+            'the timeline container has no dark arm, so it keeps its near-white #F9F9F9 on the '
+                . 'dark page while the cards inside it are dark'
+        );
+        $this->assertDoesNotMatchRegularExpression(
+            '/html\[data-ss-theme="dark"\][^{]*\.my-custom-timeline\s+\.custom-timeline-inner\s*\{/s',
+            $css,
+            'the container dark arm is scoped under .my-custom-timeline, which is conditional on '
+                . 'the log count -- it would miss the empty state entirely'
+        );
+    }
+
     /** And the base pill, which every unmodified `.end-date` falls back to. */
     public function test_the_base_end_date_pill_reaches_aa(): void
     {

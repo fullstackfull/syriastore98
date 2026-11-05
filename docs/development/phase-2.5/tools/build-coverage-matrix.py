@@ -64,6 +64,11 @@ VERIFIED = {
     # not .ss-table. Reaching it needed a fixture permission grant -- the dev role had
     # Manage Customer but not Show Customer, so it had been REDIRECTING to the dashboard.
     'Customer orders (reached by the cart icon)': ('REDESIGNED AND VERIFIED', 'wave-13', '_customer_1__', 'P2.5-WAVE-13'),
+    # P2.5-WAVE-16 + 16c. Empty state, the eight pill colours, the container's missing dark arm
+    # and the timestamp chip, each MEASURED on the running page by measure-timeline-pills.cjs
+    # (36 sites across the four combinations, 0 below 4.5:1) rather than read off the sheet.
+    # 16b had reached only public/css/custom.css; the Arabic sheet is corrected in the same wave.
+    'Customer activity timeline': ('REDESIGNED AND VERIFIED', 'wave-16c', 'timeline-pills__', 'P2.5-WAVE-16 + 16c'),
 }
 
 # Surfaces that are out of the Phase 2.5 merchant scope by the approved phase plan.
