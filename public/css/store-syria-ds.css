@@ -1374,6 +1374,34 @@
     font-weight: var(--ss-weight-medium);
 }
 
+/* P2.5-WAVE-6. THE CASE TRANSFORM IS GONE FROM BOTH LANGUAGES, and this OVERRIDES a rationale
+   that was written here and was not wrong. What stood here was:
+
+       text-transform: uppercase;  letter-spacing: 0.04em;
+       [dir="rtl"] .ss-table thead th { text-transform: none; letter-spacing: 0; }
+
+   with the note "Arabic has no case, so uppercasing is meaningless and slightly harms
+   legibility. Turn it off for Arabic headers." That is a defensible localisation: all-caps with
+   tracking IS the conventional Latin table-header treatment, and Arabic's equivalent emphasis is
+   weight and colour.
+
+   WHAT CHANGED IS THAT IT STOPPED BEING THE ONLY ANSWER. P2.5-WAVE-1 met the same question on
+   the DataTables side -- 39 of the 85 merchant Blade files that render a table -- and answered it
+   the other way, with `text-transform: none` in both languages. I did not know this rule existed
+   when I wrote that. Either answer is defensible; BOTH ANSWERS IN ONE PRODUCT IS NOT. A merchant
+   moving from /product to /finance would meet two table conventions in one admin, and would see
+   them render identically in Arabic while differing in English.
+
+   RESOLVED TOWARDS WAVE-1 for two reasons, not one. First, this rule ALREADY carries
+   `--ss-fg-muted`, `--ss-weight-semibold`, `--ss-text-xs` and a sunken sticky background: the
+   header is unmistakably a header with no help from case at all, so case was the only part of
+   the treatment that one of the two languages could not render -- which makes it the part to
+   drop rather than the part to keep. Second, the DataTables are the larger half, so the smaller
+   half moves to meet them rather than the reverse.
+
+   THE RTL UNDO GOES WITH IT. Keeping `[dir="rtl"] { text-transform: none }` against a rule that
+   no longer uppercases would leave the sheet asserting something about itself that is not true,
+   and would preserve the asymmetry in miniature through `letter-spacing` alone. */
 .ss-table thead th {
     position: sticky;
     inset-block-start: 0;
@@ -1382,21 +1410,25 @@
     color: var(--ss-fg-muted);
     font-size: var(--ss-text-xs);
     font-weight: var(--ss-weight-semibold);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
+    text-transform: none;
+    letter-spacing: 0.01em;
     white-space: nowrap;
     border-block-end: 1px solid var(--ss-border);
 }
-
-/* Arabic has no case, so uppercasing is meaningless and slightly harms
-   legibility. Turn it off for Arabic headers. */
-[dir="rtl"] .ss-table thead th { text-transform: none; letter-spacing: 0; }
 
 .ss-table tbody tr { border-block-end: 1px solid var(--ss-border); }
 .ss-table tbody tr:last-child { border-block-end: 0; }
 .ss-table tbody tr:hover { background: var(--ss-surface-hover); }
 
-.ss-table__num { font-variant-numeric: tabular-nums; }
+/* P2.5-WAVE-6. `text-align: end` added so money sits on the same edge in BOTH table systems.
+   WAVE-1 gave the DataTables `.ss-dt-num` tabular figures AND end alignment; this class had the
+   figures and not the alignment, so the same price landed on a different edge depending on which
+   component the screen happened to use. `end`, not `right`: a physical side strands the money
+   column on the wrong side of every Arabic table. */
+.ss-table__num {
+    font-variant-numeric: tabular-nums;
+    text-align: end;
+}
 
 /* A sortable header is a real <button> so it is keyboard reachable. */
 .ss-table__sort {

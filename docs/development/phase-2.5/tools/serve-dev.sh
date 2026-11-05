@@ -26,18 +26,32 @@
 #                  dev setting.
 #
 # DO NOT `export` THESE AND THEN RUN THE TEST SUITE IN THE SAME SHELL.
-#
-# MEASURED, by reproducing it on purpose rather than guessing after the fact:
-#
-#     with DB_CONNECTION/DB_DATABASE/CACHE_STORE/SESSION_DRIVER exported   297 failed, 899 passed
-#     same commit, same minute, without them                              1196 passed
+# IT DESTROYS THIS FIXTURE. Not "may" -- it did, on 2026-11-05 at 10:42.
 #
 # phpunit.xml pins the suite to sqlite `:memory:` with CACHE_STORE=array. A real environment
-# variable WINS over phpunit.xml, so an exported DB_DATABASE silently points the whole suite at
-# the dev fixture -- 133 tables of seeded merchant data instead of a clean migrated schema -- and
-# CACHE_STORE=file leaves `Cachable` models serving rows between tests. It fails loudly and in
-# bulk, which is the good case; what makes it worth a warning is that the failures look like a
-# code regression and nothing in the output names the cause.
+# variable WINS over phpunit.xml, so an exported DB_DATABASE points the WHOLE SUITE at this file.
+# The suite then does what a test suite does: it migrates a clean schema. `p2dev.sqlite` came out
+# the other side with all 133 tables present and EVERY ROW GONE -- no merchant, no store, no
+# orders -- and `set-admin-preview-state.php` answered `error: no user merchant@example.test` for
+# every harness that depends on it.
+#
+# The visible symptom is milder than the real damage and that is the trap:
+#
+#     with the four variables exported   297 failed, 899 passed   <- looks like a code regression
+#     same commit, same minute, without  1196 passed
+#
+# A reader sees 297 failures, re-runs without the leak, sees green, and concludes it was a fluke.
+# The fixture is already gone by then, and it is GITIGNORED, so `git status` says nothing.
+#
+# RECOVERY, in this order:
+#   1. `database/seed-p2dev.php` is the canonical creator (see phase-2/RESUME-POINT-2026-10-27.md).
+#   2. Failing that, a copy: the one used on 2026-11-05 was an earlier snapshot of this file.
+#   3. EITHER WAY, THEN:
+#        rm -rf storage/framework/cache/data/*
+#        docs/development/phase-2.5/tools/seed-dev-interaction-fixtures.php
+#      The cache clear is NOT optional. 79 of the 95 models are `Cachable`, the file cache was
+#      populated while the database was empty, and the seeder refused with "fixture is missing a
+#      store or merchant@example.test" against a restored database that demonstrably had both.
 #
 # Run the harness in its own shell, or prefix the variables onto the single command that needs
 # them (`DB_DATABASE=... node render-matrix.cjs ...`) rather than exporting them.
