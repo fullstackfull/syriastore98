@@ -1350,7 +1350,7 @@ the index, not a replacement for them.
 |---|---|
 | **Principle** | *disclose unavoidable truncation* (`ui-ux-pro-max` `compact-label-overflow`) |
 | **Files** | `public/css/store-syria-ds.css` (two component tokens + two box-shadow values) |
-| **Before** | `/customer` reads **"STATU"** (pinned column covers 7px of the `Status` text), `/order` reads **"ORDER STATU"** (23px). **RTL fits exactly and is clean**, so an English-only check calls both screens fine |
+| **Before** | `/customer` reads **"STATU"** (pinned column covers 7px of the `Status` text), `/order` reads **"ORDER STATU"** (23px). **RTL fits exactly and is clean**, so an English-only check calls both screens fine. **CORRECTED 2026-11-05:** those figures were measured on a reduced UI (`F-DESIGN-8`). At full permissions `/customer`'s `Action` column grows 90 → 126px — a third row action appears — so overflow is **73px** and the coverage is **43px of a 47px word**: the header reads **"S"**. Every other column is identical; `/order` is unaffected. Conclusion and fix unchanged |
 | **After** | the column carries a soft outward cast on the edge content scrolls under, so it reads as floating above something rather than as one more table rule |
 | **Does NOT** | reveal the covered text. The word is still truncated at rest. Stated in the evidence, not left to be noticed |
 | **Three wrong explanations closed by measurement** | **(a)** not a broken pin — `.table-responsive` IS a scrollport and really scrolls; driven to the end the text comes fully clear (`+7→−30`, `+23→−81`). **(b)** not something to un-pin — P2-03-1 measured that without it a real click on Edit navigated **nowhere** at the starting scroll position, 1440px included. **(c)** not fixable by narrowing the 30px sort gutter: the arrows' ink runs to `right: 24.7px`, so real slack is **25px against 37px needed** — my 20px-gutter arithmetic would have clipped them |
@@ -1373,7 +1373,23 @@ the index, not a replacement for them.
 | **Evidence** | `docs/design-system/evidence/design-j-2026-11-05/` — **no screenshots, by nature**: nothing in this package is visible |
 | **Recorded, not fixed** | 3 `placeholder-only` search inputs (named, but no visible label); and one pre-existing storefront `Print` control — **Phase 03 owns that surface**, and its merchant twin in `support/edit.blade.php` WAS fixed here |
 
-## 4.10 What the Premium Design objective still does NOT cover
+## 4.10 P2.5-DESIGN-K — the row status switch is a 28 x 17.5 target
+
+| | |
+|---|---|
+| **Principle** | *measure against the requirement, not against a threshold* (WCAG 2.2 SC 2.5.8 AA) |
+| **Files** | `public/css/store-syria-ds.css` (one scoped rule, two declarations) |
+| **Before** | **3 of 477** targets fail SC 2.5.8 across seven screens, all one component: `input.form-check-input.page-checkbox` at **28 x 17.5**, with the nearest other target **1.8px** away so the spacing exception cannot apply |
+| **After** | **0 of 477** |
+| **NOT the "43 small targets" the audit reports** | that tool flags anything under **44px** for a non-anchor — Apple's HIG *recommendation* — and counts it alongside the 24px WCAG *requirement*. Against the requirement the number is **3**. The audit answers a different question and is left alone |
+| **Cause is the unit** | Bootstrap sizes the switch in `em`, so it tracks the **local** font size; this admin's base is 14px, and 1.25em of 14px is 17.5px. On a 16px page the same declaration gives 20px — still short — so the unit had to change as well as the value |
+| **Measured by injection BEFORE it was written** | three candidates on the live page: row height stays **55.4px** and table width stays **1168px** for every one, so the switch grows into space the row already had. `40 x 25` keeps Bootstrap's 1.6:1 proportion (square would read as a checkbox) and leaves a pixel over the floor |
+| **Scoped after a guard refused it** | unscoped it reached every switch in all 70 vendored modules; `DesignSystemStylesheetScopeTest` refused it and was right — 12 measured, hundreds not. Now `.ss-dt-card-body …`, which covers all 12 |
+| **Recorded, not fixed** | the same screens hold 27 switches; **15 sit in closed filter panels**, keep the `em` sizing, and were not measured in the open state |
+| **Tests** | 4 cases, four bites each reddening appropriately |
+| **Evidence** | `docs/design-system/evidence/design-k-2026-11-05/` |
+
+## 4.11 What the Premium Design objective still does NOT cover
 
 Named in the owner's brief and **untouched**: **products**, **customers**, **settings**, and the
 **Flutter** merchant application's visual pass. **Reports** has had only its money figures

@@ -11,6 +11,30 @@ The merchant reads **"STATU"** on `/customer` and **"ORDER STATU"** on `/order`.
 | `/customer` | 1132 | 1095 | 37px | `Status` | **7px of its text** |
 | `/order` | 1199 | 1095 | 104px | `Order Status` | **23px of its text** |
 
+> ### CORRECTED 2026-11-05 — the `/customer` figure above was measured on a reduced UI
+>
+> Those numbers were taken against a dev fixture whose merchant held **44 of 202 permissions**
+> (see `F-DESIGN-8`). With the full set granted, `/customer` measures:
+>
+> | | reduced | full |
+> |---|---:|---:|
+> | `Action` column width | 90px | **126px** |
+> | table width | 1132 | **1168** |
+> | overflow beyond the port | 37px | **73px** |
+> | `Status` text covered | 7px | **43px** |
+>
+> **Every other column is byte-identical.** The whole difference is the `Action` column, which
+> grows because the full permission set adds a third row action — the cart view — beside the
+> activity timeline and delete.
+>
+> 43px of a 47px word: the header reads **"S"**, not "STATU".
+> See `thead-full-permissions-light.png`, which is what a fully-permissioned merchant sees.
+>
+> `/order` is unaffected: its columns do not change with the permission set.
+>
+> The conclusion is unchanged and the fix is unchanged — the overlap is inherent to an end-pinned
+> sticky column and the affordance is the remedy. **The defect is simply larger than recorded.**
+
 In **RTL both tables fit exactly** (1095 in 1095) and nothing is covered — so an English-only
 check calls this screen clean. That is why the tool takes a `--dirs` argument and the evidence
 below includes an RTL pair.

@@ -1841,6 +1841,52 @@
     color: var(--ss-fg) !important;
 }
 
+/* ---- P2.5-DESIGN-K: the row status switch is a 28x17.5 target -------------------------------
+
+   WCAG 2.2 SC 2.5.8 Target Size (Minimum), AA, asks for 24x24 CSS px, OR 24px of spacing, OR the
+   inline-in-a-sentence exception. Measured across seven merchant screens with every exception
+   implemented, only THREE of 477 targets fail and they are all this one control:
+
+       input.form-check-input.page-checkbox   28 x 17.5   nearest other target 1.8px away
+
+   The spacing exception cannot rescue it. The row's action cluster is 1.8px away, and that
+   exception needs a 24px-diameter circle centred on the target to touch nothing.
+
+   THE CAUSE IS THE UNIT, NOT THE NUMBER. Bootstrap sizes the switch in `em` -- `.form-check-input
+   { height: 1.25em }` and `.form-switch .form-check-input { width: 2em }` -- so it tracks the
+   LOCAL font size, and this admin's base is 14px rather than 16px. 1.25em of 14px is 17.5px. On a
+   16px page the same declaration gives 20px, which is still short, so the unit has to change as
+   well as the value: `rem` is anchored to the root and does not drift with a screen's type scale.
+
+   NOT THE "43 SMALL TARGETS" THE SCREEN AUDIT REPORTS. That tool flags anything under 44px for a
+   non-anchor, which is Apple's HIG RECOMMENDATION, and counts it alongside the 24px WCAG
+   REQUIREMENT. Against the requirement the number is 3. The audit's figure answers a different
+   question and is left alone.
+
+   MEASURED BY INJECTION BEFORE IT WAS WRITTEN, over three candidate sizes on the live page:
+   the row height stays 55.4px and the table width stays 1168px for all of them, so the switch
+   grows into space the row already had and nothing reflows. 40x25 keeps Bootstrap's 1.6:1 toggle
+   proportion -- a square target would conform and read as a checkbox -- and leaves a pixel of
+   headroom over the 24px floor rather than landing exactly on it.
+
+   SCOPED TO THE DESIGN SYSTEM'S OWN TABLE CARD, and that is a correction rather than caution.
+   Written unscoped, this rule reaches EVERY Bootstrap switch in all 70 vendored modules --
+   `DesignSystemStylesheetScopeTest` refused it for exactly that reason, and the refusal was
+   right: 12 switches were measured and some hundreds were not. `.ss-dt-card-body` is the
+   container the measured ones sit in, and it covers all 12.
+
+   WHAT THAT LEAVES, stated rather than implied: the same three screens hold 27 switches in total,
+   and 15 of them live in filter panels that are closed at rest. Those keep the host's `em` sizing
+   and will measure 28 x 17.5 when their panel is opened. They were NOT measured in that state and
+   are therefore not fixed here.
+
+   Ratchet: SwitchTargetSizeTest. Conformance measured by the SC 2.5.8 probe, which implements the
+   size, spacing and inline exceptions rather than a bare size threshold. */
+.ss-dt-card-body .form-switch .form-check-input {
+    width: 2.5rem;
+    height: 1.5625rem;
+}
+
 /* ---- Utilities ---- */
 
 /* Visually hidden but available to screen readers — used for table captions,
