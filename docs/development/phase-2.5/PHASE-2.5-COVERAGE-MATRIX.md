@@ -10,10 +10,10 @@ hand-maintained matrix is precisely how that happens.
 | state | count | of 295 |
 |---|---:|---:|
 | PREMIUM VERIFIED | 0 | 0.0% |
-| REDESIGNED AND VERIFIED | 3 | 1.0% |
+| REDESIGNED AND VERIFIED | 5 | 1.7% |
 | BLOCKED | 9 | 3.1% |
 | OUT OF SCOPE | 1 | 0.3% |
-| PENDING | 282 | 95.6% |
+| PENDING | 280 | 94.9% |
 | **total** | **295** | |
 
 **PENDING is not one of the directive's four states, and that is the point.** The four
@@ -31,7 +31,7 @@ screens and exactly three of them have been looked at. The other ~97 stay PENDIN
 | area | total | premium | redesigned | blocked | out of scope | pending |
 |---|---:|---:|---:|---:|---:|---:|
 | Flutter merchant admin app | 51 | 0 | 0 | 0 | 0 | 51 |
-| CATALOGUE taxonomy | 38 | 0 | 0 | 0 | 0 | 38 |
+| CATALOGUE taxonomy | 38 | 0 | 1 | 0 | 0 | 37 |
 | Staff/Roles/Permissions + Merchant Settings & Integrations | 38 | 0 | 0 | 1 | 0 | 37 |
 | Phase 2.5 Wave A | 30 | 0 | 0 | 0 | 0 | 30 |
 | Reports/Analytics presentation, Notifications, and the con | 26 | 0 | 0 | 1 | 0 | 25 |
@@ -41,7 +41,7 @@ screens and exactly three of them have been looked at. The other ~97 stay PENDIN
 | PRODUCTS | 16 | 0 | 1 | 1 | 0 | 14 |
 | Merchant admin NAVIGATION SHELL | 13 | 0 | 0 | 0 | 0 | 13 |
 | Stock/inventory reporting + finance/wallet/payout screens | 13 | 0 | 0 | 0 | 0 | 13 |
-| Merchant dashboard and KPI presentation | 9 | 0 | 0 | 0 | 1 | 8 |
+| Merchant dashboard and KPI presentation | 9 | 0 | 1 | 0 | 1 | 7 |
 
 ## Every surface
 
@@ -127,7 +127,7 @@ actually been done to it since. They are different questions and the matrix keep
 | Product label list | ``GET /product-label`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Product label create / edit (modals) | ``GET /product-label/create, GET /product-label/{id}/edit`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Product label row actions | ``partial/component`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Coupon list | ``GET /coupon`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
+| Coupon list | ``GET /coupon`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-WAVE-2; four captures under evidence/wave-2/ |
 | Coupon detail | ``GET /coupon/{coupon}`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Coupon create (modal) | ``GET /coupon/create`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Coupon edit (modal) | ``GET /coupon/{coupon}/edit`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
@@ -393,7 +393,7 @@ actually been done to it since. They are different questions and the matrix keep
 
 | surface | route / kind | audit | state | evidence or reason |
 |---|---|---|---|---|
-| Merchant dashboard (page shell) | ``GET /dashboard`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Merchant dashboard (page shell) | ``GET /dashboard`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-WAVE-3 + 3b; four captures under evidence/wave-3b/ |
 | Dashboard overview region (KPI surface) | ``partial/component (included by GET /dashboard)`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
 | Top Category / Top Brand "By Sales" body | ``POST /top-brand-category-chart (routes/web.php:414)`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | x-ss.stat / x-ss.stats (KPI cell + grid) | ``partial/component`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |

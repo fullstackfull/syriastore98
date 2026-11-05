@@ -40,6 +40,8 @@ VERIFIED = {
     'Product list (table view)':  ('REDESIGNED AND VERIFIED', 'wave-1', '_product__',  'P2.5-WAVE-1'),
     'Order list':                 ('REDESIGNED AND VERIFIED', 'wave-1', '_order__',    'P2.5-WAVE-1'),
     'Customer list':              ('REDESIGNED AND VERIFIED', 'wave-1', '_customer__', 'P2.5-WAVE-1'),
+    'Merchant dashboard (page shell)': ('REDESIGNED AND VERIFIED', 'wave-3b', '_dashboard__', 'P2.5-WAVE-3 + 3b'),
+    'Coupon list':                ('REDESIGNED AND VERIFIED', 'wave-2', '_coupon-empty__', 'P2.5-WAVE-2'),
 }
 
 # Surfaces that are out of the Phase 2.5 merchant scope by the approved phase plan.
@@ -71,9 +73,8 @@ def classify(row):
         return 'OUT OF SCOPE', OUT_OF_SCOPE[row['screen']]
     if row['screen'] in VERIFIED:
         state, wave, prefix, pkg = VERIFIED[row['screen']]
-        missing = [c for c in COMBOS
-                   if not os.path.exists(os.path.join(
-                       ROOT, 'docs/development/phase-2.5/evidence', wave, 'after', f'{prefix}{c}.png'))]
+        base = os.path.join(ROOT, 'docs/development/phase-2.5/evidence', wave, 'after')
+        missing = [c for c in COMBOS if not os.path.exists(os.path.join(base, f'{prefix}{c}.png'))]
         if missing:
             return 'BLOCKED', f'claimed {state} by {pkg} but these captures are absent: {", ".join(missing)}'
         return state, f'{pkg}; four captures under evidence/{wave}/'
