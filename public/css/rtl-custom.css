@@ -4721,6 +4721,7 @@ html[data-ss-theme="dark"] body .modal-content small {
 }
 
 
+
 /* =============================================================================================
    P2.5-A-02 / ledger F126-c — EVERY TEXT INPUT, SELECT AND TEXTAREA IN THE DARK ADMIN.
    =============================================================================================
@@ -4821,6 +4822,47 @@ html[data-ss-theme="dark"] body .dataTable-input::-moz-placeholder {
 }
 /* end P2.5-A-02 — the two directions are compared byte for byte between this marker and the
    P2.5-A-01 banner by Tests\Unit\Ui\DarkModalSurfaceContrastTest, so keep both markers. */
+
+/* ---- P2.5-WAVE-20: the modal footer's divider, which runs wider than the field above it -----
+
+   56 merchant modal views put `.modal-footer` INSIDE the form's `.row`. MEASURED on the running
+   page, box model read off the live elements:
+
+       .row           margin-inline -12px   width 482px   --bs-gutter-x 1.5rem
+       .col-12        padding-inline  12px  width 482px   -> the field's box starts 12px in
+       .modal-footer  padding-inline  16px  width 482px   margin 0
+
+   Bootstrap 5 gives every `.row > *` the gutter padding and `width: 100%`; the footer keeps its
+   own 16px instead. But padding sits INSIDE the border box and `border-top` is drawn ON it, so
+   the divider spans the whole row while the control above it is inset by the gutter.
+
+   MEASURED across four combinations, by the field's own edges rather than by % of the body:
+
+       footer outside the row (faq create)    field 20/20   footer 20/20   delta  +0/+0
+       footer inside  the row (three modals)  field 20/20   footer  8/8    delta -12/-12
+
+   Twelve of sixteen readings overhang, by exactly half the gutter, in both directions and both
+   themes.
+
+   ONE RULE RATHER THAN 56 VIEW EDITS: moving the footer out of the `.row` in every view is 56
+   files of risk for a 12px correction, and each edit could land differently.
+
+   THE WIDTH COMES DOWN BY THE WHOLE GUTTER as well as the margin going on. A margin alone on a
+   `.row > *`, which Bootstrap has already given `width: 100%`, makes the box 100% + 24px and it
+   overflows the row.
+
+   LOGICAL PROPERTIES ONLY. These two sheets are byte-identical and rtl-custom.css is loaded
+   INSTEAD of custom.css for Arabic, so a physical `margin-left` would be wrong in one of the two
+   directions whatever value it took.
+
+   Ratchet: Tests\Unit\Ui\ModalFooterDividerAlignmentTest, which pins the rule in BOTH sheets,
+   compares the two blocks byte for byte, and forbids physical inline properties by name. */
+.modal-content .row > .modal-footer {
+    width: calc(100% - var(--bs-gutter-x, 1.5rem));
+    margin-inline: calc(var(--bs-gutter-x, 1.5rem) * .5);
+}
+/* end P2.5-WAVE-20 */
+
 
 /* =============================================================================================
    P2.5-A-05 — `.text-dark` IN DARK MODE: 1.11:1, ON THE ORDER PRICE.
