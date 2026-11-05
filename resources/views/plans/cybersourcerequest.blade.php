@@ -37,16 +37,14 @@
                         <div class="row">
                             <div class="col-12">
                                 <div class="form-group mb-3">
-                                    <label class="d-block mb-1">{{ __('Owner Name') }} <sup aria-hidden="true"
-                                            class="text-danger">*</sup></label>
+                                    <label class="d-block mb-1">{{ __('Owner Name') }} <span class="ss-label__required" aria-hidden="true">*</span></label>
                                     <input class="form-control" type="text" placeholder="Name"
                                         value="{{ $name }}" disabled>
                                 </div>
                             </div>
                             <div class="col-12">
                                 <div class="form-group mb-3">
-                                    <label class="d-block mb-1">{{ __('Amount') }}<sup aria-hidden="true"
-                                            class="text-danger">*</sup></label>
+                                    <label class="d-block mb-1">{{ __('Amount') }}<span class="ss-label__required" aria-hidden="true">*</span></label>
                                     <div class="input-group">
                                         <span class="input-group-prepend"><span
                                                 class="input-group-text">{{ admin_setting('defult_currancy') ? admin_setting('defult_currancy') : 'USD' }}</span></span>
@@ -57,8 +55,7 @@
                             </div>
                             <div class="col-12">
                                 <div class="form-group mb-3">
-                                    <label class="d-block mb-1">{{ __('Card Number') }}<sup aria-hidden="true"
-                                            class="text-danger">*</sup></label>
+                                    <label class="d-block mb-1">{{ __('Card Number') }}<span class="ss-label__required" aria-hidden="true">*</span></label>
                                     <input class="form-control" type="text" placeholder="Enter Card Number"
                                         name="cardNumber" required>
                                     <small
@@ -67,15 +64,13 @@
                             </div>
                             <div class="col-6">
                                 <div class="form-group ">
-                                    <label class="d-block mb-1">{{ __('CVV') }}<sup aria-hidden="true"
-                                            class="text-danger" class="text-danger">*</sup></label>
+                                    <label class="d-block mb-1">{{ __('CVV') }}<span class="ss-label__required" aria-hidden="true">*</span></label>
                                     <input class="form-control" type="text" placeholder="Enter CVV" name="cvv"
                                         maxlength="3" size="3" required>
                                 </div>
                             </div>
                             <div class="col-6 form-group">
-                                <label class="d-block mb-1">{{ __('Expiration') }}<sup aria-hidden="true"
-                                        class="text-danger">*</sup></label>
+                                <label class="d-block mb-1">{{ __('Expiration') }}<span class="ss-label__required" aria-hidden="true">*</span></label>
                                 <div class=" expiration form-control">
                                     <input type="text" class="" name="month" placeholder="MM" maxlength="2"
                                         size="2" />
@@ -86,8 +81,7 @@
                             </div>
                             <div class="col-6">
                                 <div class="form-group mb-3">
-                                    <label class="d-block mb-1">{{ __('First Name') }}<sup aria-hidden="true"
-                                            class="text-danger">*</sup></label>
+                                    <label class="d-block mb-1">{{ __('First Name') }}<span class="ss-label__required" aria-hidden="true">*</span></label>
                                     <input class="form-control" type="text" placeholder="Enter First Name"
                                         name="first_name" required>
 
@@ -95,8 +89,7 @@
                             </div>
                             <div class="col-6">
                                 <div class="form-group mb-3">
-                                    <label class="d-block mb-1">{{ __('Last Name') }}<sup aria-hidden="true"
-                                            class="text-danger">*</sup></label>
+                                    <label class="d-block mb-1">{{ __('Last Name') }}<span class="ss-label__required" aria-hidden="true">*</span></label>
                                     <input class="form-control" type="text" placeholder="Enter Last Name"
                                         name="last_name" required>
 
@@ -104,48 +97,42 @@
                             </div>
                             <div class="col-12">
                                 <div class="form-group mb-3">
-                                    <label class="d-block mb-1">{{ __('Address') }}<sup aria-hidden="true"
-                                            class="text-danger">*</sup></label>
+                                    <label class="d-block mb-1">{{ __('Address') }}<span class="ss-label__required" aria-hidden="true">*</span></label>
                                     <input class="form-control" type="text" placeholder="Enter Address"
                                         name="address" required>
                                 </div>
                             </div>
                             <div class="col-6">
                                 <div class="form-group mb-3">
-                                    <label class="d-block mb-1">{{ __('Locality') }}<sup aria-hidden="true"
-                                            class="text-danger">*</sup></label>
+                                    <label class="d-block mb-1">{{ __('Locality') }}<span class="ss-label__required" aria-hidden="true">*</span></label>
                                     <input class="form-control" type="text" placeholder="Enter locality"
                                         name="locality" required>
                                 </div>
                             </div>
                             <div class="col-6">
                                 <div class="form-group mb-3">
-                                    <label class="d-block mb-1">{{ __('AdministrativeArea') }}<sup aria-hidden="true"
-                                            class="text-danger">*</sup></label>
+                                    <label class="d-block mb-1">{{ __('AdministrativeArea') }}<span class="ss-label__required" aria-hidden="true">*</span></label>
                                     <input class="form-control" type="text" placeholder="Enter AdministrativeArea"
                                         name="administrativearea" required>
                                 </div>
                             </div>
                             <div class="col-6">
                                 <div class="form-group mb-3">
-                                    <label class="d-block mb-1">{{ __('PostalCode') }}<sup aria-hidden="true"
-                                            class="text-danger">*</sup></label>
+                                    <label class="d-block mb-1">{{ __('PostalCode') }}<span class="ss-label__required" aria-hidden="true">*</span></label>
                                     <input class="form-control" type="text" placeholder=" Enter Postalcode"
                                         name="postalcode" required>
                                 </div>
                             </div>
                             <div class="col-6">
                                 <div class="form-group mb-3">
-                                    <label class="d-block mb-1">{{ __('Country') }}<sup aria-hidden="true"
-                                            class="text-danger">*</sup></label>
+                                    <label class="d-block mb-1">{{ __('Country') }}<span class="ss-label__required" aria-hidden="true">*</span></label>
                                     <input class="form-control" type="text" placeholder="Enter Country"
                                         name="country" required>
                                 </div>
                             </div>
                             <div class="col-12">
                                 <div class="form-group mb-3">
-                                    <label class="d-block mb-1">{{ __('Phone No') }}<sup aria-hidden="true"
-                                            class="text-danger">*</sup></label>
+                                    <label class="d-block mb-1">{{ __('Phone No') }}<span class="ss-label__required" aria-hidden="true">*</span></label>
                                     <input class="form-control" type="number" placeholder="Enter Phone No"
                                         name="phone_no" required>
                                 </div>

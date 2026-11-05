@@ -13,7 +13,7 @@
 
 <div class="row">
     <div class="form-group col-md-12">
-        {{ Form::label('coupon_name', __('Name'), ['class' => 'form-label']) }}
+        {{ Form::label('coupon_name', __('Name'), ['class' => 'form-label']) }}<span class="ss-label__required" aria-hidden="true">*</span>
         {{ Form::text('coupon_name', old('coupon_name'), ['class' => 'form-control font-style', 'required' => 'required']) }}
     </div>
 
@@ -77,11 +77,11 @@
         {{ Form::number('maximum_spend', old('maximum_spend'), ['class' => 'form-control']) }}
     </div>
     <div class="form-group col-md-6">
-        {{ Form::label('discount_amount', __('Discount'), ['class' => 'form-label']) }}
+        {{ Form::label('discount_amount', __('Discount'), ['class' => 'form-label']) }}<span class="ss-label__required" aria-hidden="true">*</span>
         {{ Form::number('discount_amount', old('discount_amount'), ['class' => 'form-control', 'required' => 'required', 'min' => '1', 'max' => '100', 'step' => '0.01']) }}
     </div>
     <div class="form-group col-md-6">
-        {{ Form::label('coupon_limit', __('Usage limit per coupon'), ['class' => 'form-label']) }}
+        {{ Form::label('coupon_limit', __('Usage limit per coupon'), ['class' => 'form-label']) }}<span class="ss-label__required" aria-hidden="true">*</span>
         {{ Form::number('coupon_limit', old('coupon_limit'), ['class' => 'form-control', 'min' => '1', 'required' => 'required']) }}
     </div>
     <div class="form-group col-md-6">
@@ -93,7 +93,7 @@
         {{ Form::number('coupon_limit_x_item', old('coupon_limit_x_item'), ['class' => 'form-control', 'min' => '1']) }}
     </div>
     <div class="form-group col-md-6">
-        {{ Form::label('coupon_expiry_date', __('Expiry Date'), ['class' => 'form-label']) }}
+        {{ Form::label('coupon_expiry_date', __('Expiry Date'), ['class' => 'form-label']) }}<span class="ss-label__required" aria-hidden="true">*</span>
         {{ Form::date('coupon_expiry_date', old('coupon_expiry_date'), ['class' => 'form-control', 'required' => 'required', 'placeholder' => 'Select date']) }}
     </div>
     <div class="form-group">

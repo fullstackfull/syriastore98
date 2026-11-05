@@ -55,7 +55,7 @@
                 <div class="col-md-6 col-12">
                     <div class="form-group">
                         <label for="PowerTranz_cardholder_name"
-                            class="col-form-label">{{ __('Cardholder Name') }}</label>
+                            class="col-form-label">{{ __('Cardholder Name') }}</label><span class="ss-label__required" aria-hidden="true">*</span>
                         <input class="form-control"
                             placeholder="Enter Cardholder Name"
                             name="PowerTranz_cardholder_name" type="text"
@@ -65,7 +65,7 @@
                 <div class="col-md-6 col-12">
                     <div class="form-group">
                         <label for="PowerTranz_card_number"
-                            class="col-form-label">{{ __('Credit Card Number') }}</label>
+                            class="col-form-label">{{ __('Credit Card Number') }}</label><span class="ss-label__required" aria-hidden="true">*</span>
                         <input class="form-control"
                             placeholder="Enter Credit Card Number"
                             name="PowerTranz_card_number" type="text"
@@ -75,7 +75,7 @@
                 <div class="col-md-6 col-12">
                     <div class="form-group">
                         <label for="PowerTranz_expiration_date"
-                            class="col-form-label">{{ __('Expiration Date') }}</label>
+                            class="col-form-label">{{ __('Expiration Date') }}</label><span class="ss-label__required" aria-hidden="true">*</span>
                         <input class="form-control"
                             placeholder="MM/YY"
                             name="PowerTranz_expiration_date" type="text"
@@ -84,7 +84,7 @@
                 </div>
                 <div class="col-md-6 col-12">
                     <div class="form-group">
-                        <label for="PowerTranz_cvv_code" class="col-form-label">{{ __('CVV') }}</label>
+                        <label for="PowerTranz_cvv_code" class="col-form-label">{{ __('CVV') }}</label><span class="ss-label__required" aria-hidden="true">*</span>
                         <input class="form-control cvv_code" placeholder="Enter CVV" name="PowerTranz_cvv_code" type="number" required>
                     </div>
                 </div>

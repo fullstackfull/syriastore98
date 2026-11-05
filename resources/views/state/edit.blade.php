@@ -2,7 +2,7 @@
 <div class="row">
 <input type="hidden" name="country_active_tab" value="pills-state-tab">
     <div class="form-group col-md-12">
-        {!! Form::label('state', __('State'), ['class' => 'form-label', 'id' => 'adv_label']) !!}
+        {!! Form::label('state', __('State'), ['class' => 'form-label', 'id' => 'adv_label']) !!}<span class="ss-label__required" aria-hidden="true">*</span>
         {{ Form::text('state', !empty($state->name) ? $state->name : '', ['class' => 'form-control', 'placeholder' => 'Enter State Name', 'required' => 'required', 'state' => 'state']) }}
     </div>
     <div class="form-group col-md-12">

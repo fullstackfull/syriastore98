@@ -484,7 +484,7 @@
                 </div>
                 <div class="modal-body">
                     <div class="mb-3">
-                        <label class="form-label" for="addBalanceAmount">{{ __('Amount') }}</label>
+                        <label class="form-label" for="addBalanceAmount">{{ __('Amount') }}</label><span class="ss-label__required" aria-hidden="true">*</span>
                         <input type="number" name="amount" id="addBalanceAmount" class="form-control" min="0.01" step="0.01" required>
                     </div>
                     <div class="mb-3">

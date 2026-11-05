@@ -9,7 +9,7 @@
 @endif
 <div class="row">
     <div class="form-group col-md-12">
-        {{ Form::label('coupon_name', __('Name'), ['class' => 'form-label']) }}
+        {{ Form::label('coupon_name', __('Name'), ['class' => 'form-label']) }}<span class="ss-label__required" aria-hidden="true">*</span>
         {{ Form::text('coupon_name', null, ['class' => 'form-control font-style', 'required' => 'required']) }}
     </div>
 
@@ -46,11 +46,11 @@
         {{ Form::number('maximum_spend', null, ['class' => 'form-control']) }}
     </div>
     <div class="form-group col-md-6">
-        {{ Form::label('discount_amount', __('Discount'), ['class' => 'form-label']) }}
+        {{ Form::label('discount_amount', __('Discount'), ['class' => 'form-label']) }}<span class="ss-label__required" aria-hidden="true">*</span>
         {{ Form::number('discount_amount', null, ['class' => 'form-control discount_amount', 'required' => 'required', 'min' => '1', 'max' => '100', 'step' => '0.01']) }}
     </div>
     <div class="form-group col-md-6">
-        {{ Form::label('coupon_limit', __('Limit'), ['class' => 'form-label']) }}
+        {{ Form::label('coupon_limit', __('Limit'), ['class' => 'form-label']) }}<span class="ss-label__required" aria-hidden="true">*</span>
         {{ Form::number('coupon_limit', null, ['class' => 'form-control', 'min' => '1', 'required' => 'required']) }}
     </div>
     <div class="form-group col-md-6">
@@ -62,7 +62,7 @@
         {{ Form::number('coupon_limit_x_item', null, ['class' => 'form-control', 'min' => '1']) }}
     </div>
     <div class="form-group col-md-6">
-        {{ Form::label('coupon_expiry_date', __('Expiry Date'), ['class' => 'form-label']) }}
+        {{ Form::label('coupon_expiry_date', __('Expiry Date'), ['class' => 'form-label']) }}<span class="ss-label__required" aria-hidden="true">*</span>
         {{ Form::date('coupon_expiry_date', null, ['class' => 'form-control', 'required' => 'required', 'placeholder' => 'Select date']) }}
     </div>
     <div class="form-group">

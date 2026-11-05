@@ -727,7 +727,7 @@
                                 <div class="form-group col-lg-6 col-sm-6 col-md-6">
                                     <div class="custom-control form-switch p-0 ">
                                         <label class="form-check-label mb-2 text-primary"
-                                            for="is_checkout_login_required">{{ __('Is Checkout Login Required') }}</label><br>
+                                            for="is_checkout_login_required">{{ __('Is Checkout Login Required') }}</label><span class="ss-label__required" aria-hidden="true">*</span><br>
                                         <small class="mb-2 d-inline-block"> {{ __('Note') }}:
                                             {{ __('Use the Is Checkout Required feature to prevent guest checkout, requiring users to log in before completing their purchase for added security.') }}</small><br>
                                         {!! Form::hidden('is_checkout_login_required', 'off') !!}

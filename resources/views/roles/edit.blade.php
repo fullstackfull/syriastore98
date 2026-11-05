@@ -2,7 +2,7 @@
 <div class="modal-body">
     <div class="row">
         <div class="form-group">
-            {{ Form::label('name', __('Name'), ['class' => 'form-label']) }}
+            {{ Form::label('name', __('Name'), ['class' => 'form-label']) }}<span class="ss-label__required" aria-hidden="true">*</span>
 
             <div class="form-icon-user">
                 {{ Form::text('name', null, ['class' => 'form-control', 'placeholder' => __('Enter Role Name'), 'required' => 'required']) }}

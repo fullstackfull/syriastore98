@@ -74,7 +74,7 @@
                     </select>
                   </div>
                   <div class="col-sm-6 col-12">
-                    {!! Form::label('', __('Tags'), ['class' => 'form-label']) !!}
+                    {!! Form::label('', __('Tags'), ['class' => 'form-label']) !!}<span class="ss-label__required" aria-hidden="true">*</span>
                     <select name ="tag_id[]" class="select2 form-control" id="tag_id" multiple required>
                       @foreach ($tag as $key => $t)
                         <option value="{{ $key }}">{{ $t }}</option>

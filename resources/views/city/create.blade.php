@@ -2,7 +2,7 @@
 <div class="row">
 <input type="hidden" name="country_active_tab" value="pills-city-tab">
     <div class="form-group col-md-12">
-        {{ Form::label('name', __('Name'), ['class' => 'form-label']) }}
+        {{ Form::label('name', __('Name'), ['class' => 'form-label']) }}<span class="ss-label__required" aria-hidden="true">*</span>
         {{ Form::text('name', null, ['class' => 'form-control font-style', 'placeholder' => 'Enter City Name', 'required' => 'required', 'id' => 'name']) }}
     </div>
     <div class="form-group  col-md-12">
@@ -14,7 +14,7 @@
         ]) !!}
     </div>
     <div class="form-group col-md-12">
-        {{ Form::label('city_state_id', __('State'), ['class' => 'form-label']) }}
+        {{ Form::label('city_state_id', __('State'), ['class' => 'form-label']) }}<span class="ss-label__required" aria-hidden="true">*</span>
         {{ Form::select('state_id', [], old('state_id'), ['class' => 'form-control', 'id' => 'city_state_id', 'required' => 'required', 'placeholder' => 'Select Option']) }}
     </div>
     <div class="modal-footer pb-0">

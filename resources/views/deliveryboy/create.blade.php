@@ -2,15 +2,15 @@
     @csrf
     <div class="row">
         <div class="form-group col-md-12">
-            {{Form::label('name',__('Name'),array('class'=>'form-label'))}}
+            {{Form::label('name',__('Name'),array('class'=>'form-label'))}}<span class="ss-label__required" aria-hidden="true">*</span>
             {{Form::text('name',old('name'),array('class'=>'form-control','placeholder'=>__('Enter Name'),'required'=>'required'))}}
         </div>
         <div class="form-group col-md-12">
-            {{ Form::label('Email',__('Email'),array('class'=>'form-label')) }}
+            {{ Form::label('Email',__('Email'),array('class'=>'form-label')) }}<span class="ss-label__required" aria-hidden="true">*</span>
             {{ Form::email('email',old('email'),array('class'=>'form-control','placeholder'=>__('Enter Email'),'required'=>'required')) }}
         </div>
         <div class="form-group col-md-12">
-            {{ Form::label('Password',__('Password'),array('class'=>'form-label')) }}
+            {{ Form::label('Password',__('Password'),array('class'=>'form-label')) }}<span class="ss-label__required" aria-hidden="true">*</span>
             {{ Form::password('password',array('class'=>'form-control','placeholder'=>__('Enter Password'),'required'=>'required')) }}
         </div>
         <div class="form-group col-md-12">

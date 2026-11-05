@@ -2,11 +2,11 @@
 <div class="row">
     <div class="col-12">
         <div class="form-group">
-            {{ Form::label('Platform', __('Platform'), ['class' => 'col-form-label']) }}
+            {{ Form::label('Platform', __('Platform'), ['class' => 'col-form-label']) }}<span class="ss-label__required" aria-hidden="true">*</span>
             {{ Form::select('platform', $pixel_plateforms,$pixelFields->platform, ['class' => 'form-control', 'placeholder'=>'Please Select','required'=>'required']) }}
         </div>
         <div class="form-group">
-            {{  Form::label('Pixel Id',__('Pixel Id'),['class'=>'col-form-label'])  }}
+            {{  Form::label('Pixel Id',__('Pixel Id'),['class'=>'col-form-label'])  }}<span class="ss-label__required" aria-hidden="true">*</span>
             {{ Form::text('pixel_id',$pixelFields->pixel_id,array('class'=>'form-control','placeholder'=>'Enter Pixel Id','required'=>'required')) }}
         </div>
     </div>

@@ -12,7 +12,7 @@
 
 <div class="row">
     <div class="form-group col-md-6">
-        {!! Form::label('title', __('Title'), ['class' => 'form-label']) !!}
+        {!! Form::label('title', __('Title'), ['class' => 'form-label']) !!}<span class="ss-label__required" aria-hidden="true">*</span>
         {!! Form::text('title', old('title'), ['class' => 'form-control', 'required' => 'required', 'id' => 'title']) !!}
     </div>
     <div class="form-group col-md-6">
@@ -20,7 +20,7 @@
         {{ Form::text('slug', null, ['class' => 'form-control', 'id' => 'slug']) }}
     </div>
     <div class="form-group col-md-12">
-        {!! Form::label('short_description', __('Short Description'), ['class' => 'form-label']) !!}
+        {!! Form::label('short_description', __('Short Description'), ['class' => 'form-label']) !!}<span class="ss-label__required" aria-hidden="true">*</span>
         {!! Form::text('short_description', old('short_description'), [
             'class' => 'form-control',
             'required' => 'required',

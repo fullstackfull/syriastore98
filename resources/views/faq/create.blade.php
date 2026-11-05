@@ -1,7 +1,7 @@
 {{ Form::open(['route' => 'faqs.store', 'method' => 'post', 'enctype' => 'multipart/form-data']) }}
 <div class="row">
     <div class="form-group col-md-12">
-        {!! Form::label('topic', __('Topic'), ['class' => 'form-label']) !!}
+        {!! Form::label('topic', __('Topic'), ['class' => 'form-label']) !!}<span class="ss-label__required" aria-hidden="true">*</span>
         {!! Form::text('topic', old('topic'), ['class' => 'form-control', 'required' => 'required']) !!}
     </div>
 </div>

@@ -106,7 +106,7 @@
                             </div>
                             <div class="row">
                                 <div class="form-group col-12">
-                                    {!! Form::label('', __('Tags'), ['class' => 'form-label']) !!}
+                                    {!! Form::label('', __('Tags'), ['class' => 'form-label']) !!}<span class="ss-label__required" aria-hidden="true">*</span>
                                     <select name ="tag_id[]" class="select2 form-control" id="tag_id" multiple required>
                                         @foreach ($tag as $key => $t)
                                             <option @if (in_array($key, $get_tags)) selected @endif

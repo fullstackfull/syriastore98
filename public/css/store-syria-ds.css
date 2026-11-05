@@ -909,6 +909,30 @@
 /* Optional-marking is better than required-marking when most fields are
    required, but the host's forms mark required, so we match the host. */
 
+/* ---- P2.5-WAVE-18: the marker inside the white modal --------------------------------------
+
+   `--ss-danger` is SEMANTIC: #b3261e in a light scope, #f3a9a4 in a dark one. The AJAX modal is a
+   LIGHT surface inside a DARK scope -- the host keeps `--bs-modal-bg: #ffffff` in style-dark.css
+   (:6238) and P2.5-A-01/A-02 deliberately left it that way -- so on the dark page the marker was
+   painting the DARK red onto WHITE.
+
+   MEASURED on the running page the moment the 149 markers landed, before this was suspected:
+   24 markers across four combinations, and all twelve DARK ones read 1.91:1. The light half read
+   6.54:1. An illegible asterisk is worse than no asterisk, so the markers could not ship without
+   this rule.
+
+   CONFINED TO THE MODAL, because on the two dark grounds the semantic token is RIGHT -- 7.48:1 on
+   the card, 8.12:1 on the page -- and this primitive would be unreadable there (2.18:1, 2.37:1).
+   An unconfined version trades one failure for two. Same shape, same reasoning and same arithmetic
+   as the P2.5-WAVE-17a block further down this file.
+
+   Ratchet: Tests\Unit\Ui\RequiredFieldMarkerTest, which recomputes all six ratios and asserts
+   that the unconfined form is absent by name. */
+[data-ss-theme="dark"] .modal-content .ss-label__required {
+    color: var(--ss-red-700);
+}
+/* end P2.5-WAVE-18 */
+
 .ss-input, .ss-select, .ss-textarea {
     display: block;
     width: 100%;

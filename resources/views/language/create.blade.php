@@ -1,6 +1,6 @@
 {{ Form::open(array('route' => array('store.language'))) }}
 <div class="form-group">
-    {{ Form::label('code', __('Language Code'),array('class'=>'form-label'))}}
+    {{ Form::label('code', __('Language Code'),array('class'=>'form-label'))}}<span class="ss-label__required" aria-hidden="true">*</span>
     {{ Form::text('code', '', array('class' => 'form-control','required'=>'required','placeholder'=>__('Enter Language Code'))) }}
     @error('code')
     <span class="invalid-code" role="alert">
@@ -9,7 +9,7 @@
     @enderror
 </div>
 <div class="form-group">
-    {{ Form::label('name', __('Language Name'),array('class'=>'form-label'))}}
+    {{ Form::label('name', __('Language Name'),array('class'=>'form-label'))}}<span class="ss-label__required" aria-hidden="true">*</span>
     {{ Form::text('name', '', array('class' => 'form-control','required'=>'required','placeholder'=>__('Enter Language Name'))) }}
     @error('name')
     <span class="invalid-name" role="alert">

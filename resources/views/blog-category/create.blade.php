@@ -12,7 +12,7 @@
 
 <div class="row">
     <div class="form-group col-md-12">
-        {!! Form::label('title', __('Title'), ['class' => 'form-label']) !!}
+        {!! Form::label('title', __('Title'), ['class' => 'form-label']) !!}<span class="ss-label__required" aria-hidden="true">*</span>
         {!! Form::text('name', old('title'), ['class' => 'form-control', 'required' => 'required', 'id' => 'title']) !!}
     </div>
 

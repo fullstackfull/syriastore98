@@ -2,7 +2,7 @@
 <div class="row">
     <div class="col-12">
         <div class="form-group">
-            {{ Form::label('name', __('Tag Name'), ['class' => 'form-label']) }}
+            {{ Form::label('name', __('Tag Name'), ['class' => 'form-label']) }}<span class="ss-label__required" aria-hidden="true">*</span>
             {{ Form::text('name', null, ['class' => 'form-control', 'required' => 'required', 'placeholder' => __('Enter Tag Name')]) }}
         </div>
     </div>
