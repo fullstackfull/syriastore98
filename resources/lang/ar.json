@@ -1,4 +1,6 @@
 {
+    "No activity yet": "لا نشاط بعد",
+    "This customer has registered but has not browsed, added to cart or placed an order yet. Their activity will appear here as it happens.": "سجّل هذا العميل حسابه لكنه لم يتصفّح أو يُضف إلى السلة أو يطلب بعد. سيظهر نشاطه هنا فور حدوثه.",
     "Search By Field": "البحث حسب الحقل",
     "Select a field...": "اختر حقلاً...",
     "ID": "المعرّف",

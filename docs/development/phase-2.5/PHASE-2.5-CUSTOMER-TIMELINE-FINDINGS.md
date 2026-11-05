@@ -60,13 +60,32 @@ The tiles do need work -- they are `h6` + `h3` with a coloured `theme-avtar` bad
 scale, and `custom.css:1968-1970` forces the `h3` to 24px. But the answer is a **profile-fact
 card**, which the design system does not have yet, not a metric component bent to fit.
 
-## 3. What is genuinely ready to do
+## 3. The 7 date-pill hues are BLOCKED, correcting an earlier line in this file
 
-* The 7 date-pill hues have **no dark arm at all**, so the pills keep Material colours on the dark
-  page regardless of theme. Tokenising them is self-contained -- they are used by this one view.
-* The screen has **no empty state**: `@forelse`/`@empty` appear zero times in 511 lines, and the
-  `@else` that exists answers "never registered", not "registered but no activity" -- the commoner
-  case, which currently renders nothing.
+An earlier version of this section called tokenising the 7 pill hues "genuinely ready". **That was
+wrong and is withdrawn.** Measured since: `activity_logs` holds **0 rows**, so no pill renders at
+all, and a live contrast reading returned EMPTY in both themes -- there was no `span.end-date` on
+the page to measure.
+
+The pills carry TEXT (a date, a product name, a variant), and no rule sets their text colour, so it
+inherits the page's -- dark in light mode, light in dark mode -- over grounds that include
+`#FFC107` (very light) and `#795548` (dark). Both ends of that range are suspect, but **suspect is
+not measured**, and this project has been bitten by exactly that. They need `activity_logs` seeded
+with the seven event types (each with the `remark` JSON shape the view decodes) before any colour
+decision is made.
+
+## 4. What WAS ready, and is now done (P2.5-WAVE-16)
+
+The missing empty state -- and it was verifiable immediately, precisely BECAUSE the fixture has no
+activity: the blank screen was the live state.
+
+`<div @if (count($logs) > 0) class="my-custom-timeline" @endif>` with zero logs rendered an
+unclassed, empty div and a `@foreach` over nothing: a blank panel under the stat cards, with no way
+to tell "this customer has done nothing" from "this screen is broken". It now renders `<x-ss.empty>`
+with a translated title and body, verified in all four combinations.
+
+`ti-timeline` -- the obvious icon name -- does **not** exist in the bundled font, and a missing name
+is valid CSS that paints nothing. `ti-activity` does, and is what the screen means.
 
 ## Status
 

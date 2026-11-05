@@ -62,6 +62,15 @@
 
         @if (!empty($customer_data->regiester_date))
         <div @if (count($logs) > 0) class="my-custom-timeline" @endif>
+            {{-- REGISTERED, BUT NOTHING HAS HAPPENED YET. The `@else` further down answers
+                 "never registered"; this answers the commoner case, which rendered an empty
+                 unclassed <div> and nothing else -- a blank panel with no explanation. --}}
+            @if (count($logs) === 0)
+                <x-ss.empty
+                    icon="activity"
+                    :title="__('No activity yet')"
+                    :body="__('This customer has registered but has not browsed, added to cart or placed an order yet. Their activity will appear here as it happens.')" />
+            @endif
             <div class="custom-timeline-inner">
                 <div class="timeline">
                     @foreach ($logs as $key => $value)
