@@ -377,7 +377,7 @@
                                         ->where('store_id', $ssOrderStore)->get()->keyBy('id');
                             @endphp
                             <div class="table-responsive">
-                                <table class="table">
+                                <table class="table ss-table">
                                     <thead>
                                         <tr>
                                             <th>{{ __('Item') }}</th>

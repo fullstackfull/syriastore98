@@ -108,7 +108,7 @@
         <div class="col-lg-12">
             <div class="table-responsive">
 
-            <table class="table modal-table">
+            <table class="table ss-table modal-table">
                 <thead>
                     <tr>
                         <th>{{ __('Item') }}</th>

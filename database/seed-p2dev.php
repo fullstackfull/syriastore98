@@ -923,11 +923,39 @@ foreach ($galleryTargets as $gp) {
 
 }
 
+/*
+ * ONE REFUND REQUEST (P2.5-WAVE-11). `order_refunds` was empty in this fixture, so
+ * `/refund-request/{id}` and `order/refund_details.blade.php` could not be rendered at all:
+ * `OrderRefundController::show()` dereferences `product_refund_id` on `OrderRefund::first()`,
+ * which was null. One idempotent row for the first store order. `product_refund_id` names
+ * product 4 (Linen Tea Towel Set, a NON-variant, so `Product::find()->name` resolves without a
+ * `ProductVariant` lookup that would throw). Status `Processing` is the initial pending state the
+ * refund-detail view renders with its full action set; `attachments` is an empty array so the
+ * evidence-image block is correctly skipped rather than pointing at a missing upload.
+ */
+$ssRefundOrder = Order::where('store_id', $store->id)->orderBy('id')->first();
+if ($ssRefundOrder && ! \App\Models\OrderRefund::where('order_id', $ssRefundOrder->id)->exists()) {
+    \App\Models\OrderRefund::create([
+        'order_id' => $ssRefundOrder->id,
+        'refund_status' => 'Processing',
+        'refund_reason' => 'Item arrived with a damaged seam',
+        'custom_refund_reason' => '',
+        'attachments' => json_encode([]),
+        'product_refund_id' => json_encode([
+            ['product_refund_id' => 4, 'quantity' => 1, 'return_price' => '18.00'],
+        ]),
+        'product_refund_price' => '18.00',
+        'refund_amount' => 18.00,
+        'store_id' => $store->id,
+    ]);
+}
+
 echo "seeded: merchant={$merchant->id} store={$store->id}"
     . " categories=" . \App\Models\Category::where("store_id", $store->id)->count()
     . " tags=" . \App\Models\Tag::where("store_id", $store->id)->count()
     . " products=" . Product::where('store_id', $store->id)->count()
    . " orders=" . Order::where('store_id', $store->id)->count()
+   . " refunds=" . \App\Models\OrderRefund::where('store_id', $store->id)->count()
    . " billing=" . DB::table('order_billing_details')->count()
    . " notes=" . \App\Models\OrderNote::where('store_id', $store->id)->count()
    . " attrs=" . \App\Models\ProductAttribute::where('store_id', $store->id)->count()
