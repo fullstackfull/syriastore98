@@ -1710,6 +1710,107 @@
 .ss-alert__title,
 .ss-alert__body        { color: inherit !important; }
 
+/* ---- Host override defence, part 2: the SOFT BUTTONS, BOTH THEMES (P2.5-DESIGN-E) ----
+
+   SEVEN OF THE HOST'S EIGHT BUTTON VARIANTS FAIL AA SOMEWHERE, five of them in LIGHT mode, and
+   one of the dark failures is the control that debits a merchant's wallet.
+
+   I FOUND DARK FIRST AND ASSUMED THAT WAS THE PROBLEM. It was not: the screen sweep that found it
+   only sees the variants a screen happens to use, and /finance uses four. Injecting all eight into
+   the live page showed LIGHT is the worse theme -- `warning` at 1.62:1 is the worst figure in
+   either. Had I shipped the dark-only fix with the heading it originally carried, the record would
+   have pointed at the wrong theme.
+
+   Measured in Chromium on the real admin, each
+   variant injected into the live page so the cascade and the page background are the real ones,
+   with every translucent layer COMPOSITED rather than skipped:
+
+                    LIGHT                                    DARK
+       variant      text        on bg            ratio       text        on bg            ratio
+       primary      255,255,255 51,93,168        6.42  ok     255,255,255 51,93,168        6.42  ok
+       secondary    108,117,125 214,217,220      3.31  <AA    108,117,125 53,56,64         2.50  BAD
+       success      94,184,57   249,250,251      2.39  BAD    94,184,57   34,36,44         6.18  ok
+       danger       216,0,39    251,219,226      4.14  <AA    216,0,39    125,93,103       1.09  BAD
+       warning      244,180,26  248,240,217      1.62  BAD    244,180,26  66,58,41         6.09  ok
+       info         53,171,182  232,248,255      2.52  BAD    53,171,182  232,248,255      2.52  BAD
+       light        33,37,41    248,249,250     14.63  ok     33,37,41    248,249,250     14.63  ok
+       dark         28,35,47    216,218,220     11.26  ok     28,35,47    33,36,44         1.02  BAD
+
+   THE CAUSE IS ONE PATTERN COPIED FROM A LIGHT PAGE. `style-dark.css` builds its soft buttons as
+   `--bs-btn-color: X` over `--bs-btn-bg: rgba(X, 0.15)` -- a 15% tint of the button's OWN text
+   colour (:3544 secondary, :3595 warning, :3646 dark; :3612 danger uses a pink tint). On a white
+   page that gives a pale chip with dark text. On a dark page the tint composites TOWARDS THE PAGE
+   instead of away from it, so the text and its background converge. `.btn-dark` ends as
+   rgb(28,35,47) on rgb(33,36,44): the same colour twice, 1.02:1, a label nobody can read.
+   `.btn-info` fails the other way round -- it keeps a LIGHT `#e8f8ff` chip in dark mode and puts
+   mid-teal text on it.
+
+   `.btn-success` FAILS IN LIGHT FOR A DIFFERENT REASON: `--bs-btn-bg` is `var(--third-color)`,
+   which resolves transparent, so it is green text on the PAGE with a 0px border -- not a soft
+   button at all, just coloured text that happens to be clickable. 2.39:1.
+
+   ONLY THE TEXT COLOUR MOVES. The fills stay exactly as the host paints them, which keeps each
+   button's shape and weight on the page; this is the same minimal intervention the `<p>` colour
+   block above makes, and for the same reason -- the host sets these through `--bs-btn-color`, so
+   a class plus `!important` is what reaches them. Nothing here applies in light mode, where all
+   eight variants already pass.
+
+   Driven by SoftButtonDarkContrastTest, which measures the composited ratios rather than
+   asserting the hexes. */
+[data-ss-theme="dark"] .btn-dark,
+[data-ss-theme="dark"] .btn-dark:not(:hover):not(:focus):not(:active) {
+    color: var(--ss-fg) !important;
+}
+
+[data-ss-theme="dark"] .btn-secondary,
+[data-ss-theme="dark"] .btn-secondary:not(:hover):not(:focus):not(:active) {
+    color: var(--ss-fg-muted) !important;
+}
+
+/* The danger fill composites to a mid mauve, so a LIGHT text clears it where `--ss-danger-fg`
+   -- designed for the much darker `--ss-danger-bg` -- would not. */
+[data-ss-theme="dark"] .btn-danger,
+[data-ss-theme="dark"] .btn-danger:not(:hover):not(:focus):not(:active) {
+    color: var(--ss-fg) !important;
+}
+
+/* `.btn-info` is the odd one out: its chip stays LIGHT in dark mode, so its text has to go DARK.
+   `--ss-fg-onfill` is the token for exactly that -- text on a filled, light surface. */
+[data-ss-theme="dark"] .btn-info,
+[data-ss-theme="dark"] .btn-info:not(:hover):not(:focus):not(:active) {
+    color: var(--ss-fg-onfill) !important;
+}
+
+/* LIGHT MODE. The same pattern, the other way up: a 15% tint over WHITE leaves a pale chip, and
+   the host then puts the UNDILUTED hue on it -- amber on pale amber is 1.62:1. Each takes the
+   design system's own `*-fg` token, which is the darkened form of that hue chosen to clear 4.5:1
+   on its matching tint. `.btn-secondary` takes `--ss-fg` rather than `--ss-fg-muted`: muted is
+   grey-600, which IS the host's failing colour, so it would change nothing. */
+:root:not([data-ss-theme="dark"]) .btn-warning,
+[data-ss-theme="light"] .btn-warning {
+    color: var(--ss-warning-fg) !important;
+}
+
+:root:not([data-ss-theme="dark"]) .btn-success,
+[data-ss-theme="light"] .btn-success {
+    color: var(--ss-success-fg) !important;
+}
+
+:root:not([data-ss-theme="dark"]) .btn-info,
+[data-ss-theme="light"] .btn-info {
+    color: var(--ss-info-fg) !important;
+}
+
+:root:not([data-ss-theme="dark"]) .btn-danger,
+[data-ss-theme="light"] .btn-danger {
+    color: var(--ss-danger-fg) !important;
+}
+
+:root:not([data-ss-theme="dark"]) .btn-secondary,
+[data-ss-theme="light"] .btn-secondary {
+    color: var(--ss-fg) !important;
+}
+
 /* ---- Utilities ---- */
 
 /* Visually hidden but available to screen readers — used for table captions,
