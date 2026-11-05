@@ -140,6 +140,290 @@ jobs:
 
           echo "::warning title=Unbound dependency constraints (OWNER DECISION)::myfatoorah/laravel-package and laravel/pint are declared as \"*\". composer.lock pins what installs today, but any composer update resolves them afresh. Recommended: myfatoorah/laravel-package \"^2.2\" (2.2.4 is what the lock holds) and laravel/pint \"^1.0\". Editing composer.json is an owner decision, so this is reported, not worked around."
 
+
+      - name: Guard - test-database isolation is intact
+        # THE SINGLE MOST VALUABLE STEP IN THIS FILE (8.2). RefreshDatabase runs
+        # migrate:fresh, which DROPS EVERY TABLE in whatever database the suite points
+        # at. This fails the build if the sqlite overrides are removed, commented out,
+        # stripped of force="true", or re-pointed -- and if the bootstrap= line or
+        # tests/bootstrap.php disappears, which would uninstall the PRIMARY control
+        # while leaving the two <env> lines looking correct.
+        run: .github/scripts/guard-test-isolation.sh .
+
+      - name: Guard - the known .env exposure is reported, and no new one appeared
+        # NOT "no live .env in the checkout or the index", which is what this step was
+        # called until 2026-11-02. `.env` stopped being tracked, that phrasing became
+        # true, and the guard went silent on an exposure that is still reachable in
+        # history. This job checks out with fetch-depth: 0, so it is the one of the three
+        # call sites that can actually examine history and report the finding.
+        run: .github/scripts/guard-no-env-files.sh .
+
+      - name: Guard - the attestation gate behaves as specified
+        # THE GATE'S OWN BEHAVIOUR IS RATCHETED, which is the lesson of P1-SEC-48 through
+        # -53: four controls in a row reported success without measuring anything, and the
+        # checklist gate was satisfied BY A SENTENCE SAYING IT WAS NOT. A property defended
+        # only by a comment is a property that will drift, so the twenty-five scenarios --
+        # positive, negative, quoted marker, denied marker, stale review, author
+        # self-approval, and every error path -- run here on every pull request. Offline,
+        # no network, about one second.
+        run: tests/Support/Security/bin/verify-attestation-gate-scenarios.sh .
+
+      - name: Guard - GATE F money tables are still created by nothing
+        # BLOCKING, and deliberately duplicated from
+        # tests/Unit/Database/GateFSchemaContainmentTest.php, which asserts the same
+        # property more thoroughly. The duplication is STILL the point even now that the
+        # `tests` job is required and unconditional: that job cannot run a single test
+        # until `composer install` from the lock succeeds, and it currently cannot succeed
+        # anywhere (one dead package, PayHere -- see the `tests` job header). So the
+        # PHPUnit guard over six MONEY-BEARING tables is unreachable until an owner
+        # decision lands. This script needs no vendor/ at all, so it runs on every push
+        # and pull request regardless, which is exactly why it was written as a script.
+        #
+        # It fails the build if any discoverable migration, in either tree, creates
+        # store_wallets, store_wallet_transactions, store_withdrawals,
+        # store_order_financials, currency_rates or delivery_earnings -- and also if the
+        # parked drafts disappear, which would make the first check pass for the wrong
+        # reason. FIFTEEN of the suite's seventeen skips exist because these tables are
+        # absent (the figure recorded here, "seven of eight ... three of these tables", was
+        # correct for an earlier branch and is superseded -- re-measured on this one, and
+        # all six tables now appear in a named skip, not just three). There is therefore
+        # standing pressure to green them by inventing a schema; the
+        # hasTable() guards in the surrounding migrations would then turn the real
+        # migration into a silent no-op and freeze the guessed column types permanently.
+        #
+        # Verified not vacuous before being added: run against a throwaway 213-file tree
+        # it passes, and against the same tree with one invented
+        # Schema::create('store_wallets') migration it exits non-zero and names the file.
+        run: .github/scripts/guard-gate-f-containment.sh .
+
+      - name: Guard - packages/workdo/ is unmodified
+        # BASE RESOLUTION NOW MATCHES `php -l` AND THE SECRET SCAN, AND DID NOT BEFORE.
+        # This step read only the pull-request base and fell straight through to HEAD~1, so a
+        # PUSH of N commits was inspected exactly ONE commit deep: a packages/workdo/ edit in
+        # commit 1 of a 3-commit push was never seen by the guard that exists to catch it.
+        # `github.event.before` is the pushed range's true base. The all-zeros check is the
+        # new-branch case, where there is no before-commit to diff against.
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          base="${BASE_SHA:-$BEFORE_SHA}"
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
+            base="$(git rev-parse HEAD~1 2>/dev/null || true)"
+          fi
+          .github/scripts/guard-no-workdo-changes.sh "$base" .
+
+      - name: Guard - no NEW user upload is committed to the repository root
+        # P1-OWN-10 (#103), OWNER DECISION 11. The 407 files already tracked under `uploads/` are
+        # ACCEPTED RISK and are not touched: the owner's decision is "Do not delete or rewrite
+        # historical user uploads in Git." This guard stops that set GROWING, which is the half of
+        # D11 that is not accepted risk.
+        #
+        # WHY IT MATTERS MORE THAN "a binary in the repo". A file that EXISTS at the repository root
+        # is served directly by the webserver: the tracked `.htaccess` rewrites `/uploads/...` to
+        # `public/uploads/...` only when the file is NOT there (`!-f` at :33-35), and the
+        # front-controller rule above it is skipped for image extensions (:23). So a new upload
+        # committed to `uploads/` is a new unauthenticated disclosure path, not just repository
+        # weight. See docs/security/P01-OWN-10-ROOT-UPLOADS-EXPOSURE.md.
+        #
+        # Same base resolution as the sibling guard above, and for the same measured reason: a push
+        # of N commits must be inspected over its whole range, not one commit deep.
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          base="${BASE_SHA:-$BEFORE_SHA}"
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
+            base="$(git rev-parse HEAD~1 2>/dev/null || true)"
+          fi
+          BASE_REF="$base" .github/scripts/guard-no-new-root-uploads.sh
+
+      - name: php -l on changed PHP files
+        # Scoped to the diff so it stays fast on a large legacy codebase and so
+        # pre-existing issues in untouched files do not block unrelated work.
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          base="${BASE_SHA:-$BEFORE_SHA}"
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
+            base="$(git rev-parse HEAD~1 2>/dev/null || git rev-parse HEAD)"
+          fi
+          changed="$(git diff --name-only --diff-filter=ACMR "$base" HEAD -- '*.php' \
+                     | grep -v '^vendor/' || true)"
+          if [ -z "$changed" ]; then
+            echo "No PHP files changed."
+            exit 0
+          fi
+          rc=0
+          while IFS= read -r f; do
+            [ -f "$f" ] || continue
+            php -l "$f" || rc=1
+          done <<< "$changed"
+          exit "$rc"
+
+      - name: php -l on EVERY tracked PHP file
+        # ADDED IN P01-A', AND IT IS AN ADDITION RATHER THAN A REPLACEMENT. The step above is
+        # deliberately diff-scoped so a pre-existing issue in an untouched file cannot block
+        # unrelated work, and that reasoning still holds -- it is the fast, precise signal.
+        # What it cannot see is a file the diff does not list: a bad merge resolution, a
+        # rename that left a broken copy behind, or a module file nobody edited this cycle.
+        #
+        # SAFE TO MAKE BLOCKING BECAUSE IT WAS MEASURED FIRST, not assumed: at
+        # 26b0014e all 3,413 tracked PHP files outside vendor/ parse -- measured with this
+        # step's own file list, not a narrower one. So it starts from a clean baseline and can
+        # only go red on something newly broken.
+        #
+        # `laravel/pint` was the other candidate here and was REJECTED ON MEASUREMENT, not on
+        # principle: run against three files written fresh for this branch in the surrounding
+        # style, the default `laravel` preset reports concat_space, single_quote,
+        # not_operator, unary_operator and binary_operator_spaces on all three. The preset
+        # disagrees with this codebase's established style, so adding it blocking would redden
+        # immediately and adding it report-only produces noise nobody acts on. It needs either
+        # a pint.json that codifies the existing style or an authorised reformatting package --
+        # an owner decision, recorded in the sprint report rather than guessed at here.
+        #
+        # PARALLELISED ON PURPOSE. Serially this is ~3,400 PHP process spawns and it turned the
+        # `static` job from roughly fifteen seconds into eight-plus minutes, which defeats the
+        # point of the job that exists to give the FAST signal. `xargs -P4 -n64` keeps the same
+        # file list and the same verdict; only the wall clock changes. xargs exits non-zero if
+        # any invocation did, which is the whole result we need.
+        run: |
+          set -uo pipefail
+          git ls-files '*.php' | grep -v '^vendor/' > /tmp/php-files.txt
+          count=$(wc -l < /tmp/php-files.txt)
+          echo "linting ${count} tracked PHP files"
+          # A run that linted almost nothing would pass vacuously, the same failure mode the
+          # GATE F guard's own non-vacuity floor exists for.
+          if [ "$count" -lt 2000 ]; then
+            echo "::error::Only ${count} PHP files were listed (expected >2000). The file list is"
+            echo "::error::wrong, so this guard would pass without checking anything. Refusing."
+            exit 1
+          fi
+          # -n1 for the report pass so the failing FILE is named, not just the batch.
+          if ! xargs -P4 -n64 -a /tmp/php-files.txt php -l > /dev/null 2>&1; then
+            echo "::error::A tracked PHP file does not parse. Re-running serially to name it:"
+            xargs -n1 -a /tmp/php-files.txt php -l 2>&1 | grep -v '^No syntax errors' || true
+            exit 1
+          fi
+          echo "all ${count} files parse"
+
+      - name: Design-system token contrast must stay WCAG-conformant
+        # P01B HANDOVER. The imported design system ships two verification tools and NEITHER was
+        # wired into CI, so a token edit that destroyed a contrast ratio would have shipped
+        # silently. This is the half that costs nothing to run: pure Python 3, no pip install, no
+        # browser, ~1s. It resolves every --ss-* var() chain and computes real WCAG 2.1 ratios for
+        # 40 foreground/background pairs across light and dark, and also fails if the `auto` scope
+        # drifts from the `dark` scope.
+        #
+        # THE BROWSER HALF IS DELIBERATELY NOT HERE. docs/design-system/tools/browser-checks.cjs
+        # covers focus rings, tab order, RTL geometry and overflow at 7 widths -- 66 checks that
+        # all passed during the handover -- but it needs Playwright, Chromium and eight rendered
+        # fixtures. Adding that to every run is a dependency and a runtime decision for the owner,
+        # not something to slip into a security sprint. It stays a documented manual run.
+        run: python3 docs/design-system/tools/check-contrast.py public/css/store-syria-ds.css
+
+      - name: Cross-repo API contract - the shipped Flutter app must not be broken
+        # The Flutter admin app pins its endpoint paths as constants compiled into a
+        # binary already on merchants' phones. A server-side route rename silently
+        # breaks every installed copy, visible only as a 404 in the logs. Runs against
+        # the committed manifest, so no Flutter checkout is required here.
+        run: php tests/Support/ApiContract/bin/check-contract.php
+
+      - name: Admin API auth coverage must not regress
+        # Fails if an /api/admin/* route without authentication middleware appears
+        # outside the recorded baseline.
+        #
+        # UPDATED IN PHASE 1C. This comment previously read "13 such routes already do;
+        # 10 of them must be protected", which was true of the Phase 1B manifest and is
+        # no longer true of the file this step actually reads: the baseline is now
+        # 3 ROUTES, ALL THREE LEGITIMATELY PUBLIC, and must_be_protected is EMPTY. The
+        # 10 that had to be protected were protected in Phase 1C, including the
+        # anonymous write to /api/admin/orders/notes/create that was confirmed
+        # empirically. See the manifest's _history for what each phase closed.
+        #
+        # Two separate branches described this same artefact in Phase 1C -- one shrank
+        # the manifest, the other rewrote this file -- and because they touched
+        # different files Git reported no conflict at all. The contradiction landed
+        # here. AdminApiSurfaceTest now PINS the manifest's contents, so the file
+        # cannot drift from reality again without a test failing.
+        run: php tests/Support/ApiContract/bin/check-auth-coverage.php
+
+      # THE SECURITY-SENSITIVE DIFF CHECKLIST IS DELIBERATELY NOT A STEP IN THIS JOB.
+      #
+      # P01-A' put it here, and the reasoning was sound: this job runs on every event, so it
+      # covered the direct push to main that the pull_request-only `regression-gate` never saw,
+      # enforcing on a pull request and reporting on a push. Independently, main moved the same
+      # step out of `regression-gate` into .github/workflows/security-attestation.yml, because
+      # that job could not be cleared by a DESCRIPTION edit -- ci.yml does not run on `edited`,
+      # so a reviewer who signed the checklist watched the gate stay red.
+      #
+      # Both fixes were right about their own hole, and keeping both would have left TWO
+      # enforcing copies of one gate -- the "duplicated incorrectly" failure, where clearing one
+      # copy still leaves the other red for a reason the reviewer cannot see. The reconciliation:
+      #
+      #   pull request  ->  .github/workflows/security-attestation.yml       ENFORCING
+      #                     (runs on `edited` too, so signing the checklist clears it)
+      #   push          ->  .github/workflows/security-attestation-push.yml  REPORT ONLY
+      #                     (no body to acknowledge in; makes the bypass visible, not reviewed)
+      #
+      # tests/Unit/Ci/SecurityAttestationWiringTest.php asserts this file never names
+      # flag-sensitive-diff.sh, which is what stops the step being reinstated here by someone
+      # fixing the push hole a third time. tests/Unit/Ci/RequiredGateWiringTest.php asserts the
+      # split above: exactly one ENFORCING workflow, and every other caller in `report` mode.
+
+  # ---------------------------------------------------------------------------
+  # P2.5-CI. THE DEPENDENCY ADVISORY GATE, IN ITS OWN JOB.
+  #
+  # These two steps used to sit at positions 6 and 7 of eighteen inside `static`, and a
+  # GitHub Actions step defaults to `if: success()`. So when `composer audit must not grow`
+  # went red -- which it did on 2026-11-04 at 20:18Z, when the ADVISORY DATABASE grew past
+  # the ceiling against a composer.lock that had not changed -- every one of the ELEVEN
+  # steps after it was skipped.
+  #
+  # MEASURED. Two of those eleven also run in the `tests` jobs; NINE RUN NOWHERE ELSE:
+  # the .env exposure guard, the attestation-gate guard, `packages/workdo/` is unmodified,
+  # no new user upload at the repository root, BOTH `php -l` passes, the design-system
+  # token contrast gate, the cross-repo Flutter API contract, and admin API auth coverage.
+  # They had not run for 26 commits across ~8.5 hours when this was found, and the same
+  # was true of `main`, whose lock is byte-identical.
+  #
+  # A gate keyed on an EXTERNAL database that grows on its own schedule must not be able to
+  # switch off this repository's own guards. Splitting the job is the one remedy that needs
+  # neither the ceiling raised (a standing directive forbids that -- it was LOWERED 70->58
+  # for that reason) nor the lock changed: the advisories still fail, loudly, in a check of
+  # their own, and the guards now pass or fail on their own evidence.
+  #
+  # NOTHING IS WEAKENED. The same two steps run, with the same AUDIT_CEILING and the same
+  # lock-change condition, and a real advisory still turns a required check red.
+  # ---------------------------------------------------------------------------
+  advisories:
+    name: Dependency advisories (composer audit)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the lock-change condition diffs against the base ref
+
+      - name: Refuse to run as root
+        run: |
+          if [ "$(id -u)" = "0" ]; then
+            echo "::error::CI is running as root (uid 0). Refusing to proceed."
+            exit 1
+          fi
+          echo "Running as uid $(id -u) ($(id -un)) -- not root."
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: ctype, curl, dom, fileinfo, filter, gd, iconv, intl, mbstring, openssl, pdo, pdo_sqlite, phar, simplexml, sodium, tokenizer, xml, xmlreader, xmlwriter, zip
+          coverage: none
+          tools: composer:v2
+
+
       - name: composer audit (locked set, no install)
         # Queries the advisory database against composer.lock. It needs NO vendor/ and
         # no install, which is why it can run in this job at all -- Phase 0 recorded a
@@ -535,237 +819,6 @@ jobs:
             echo "::notice::Advisory count fell to $found. Lower AUDIT_CEILING to $found so the ratchet keeps holding."
           fi
 
-      - name: Guard - test-database isolation is intact
-        # THE SINGLE MOST VALUABLE STEP IN THIS FILE (8.2). RefreshDatabase runs
-        # migrate:fresh, which DROPS EVERY TABLE in whatever database the suite points
-        # at. This fails the build if the sqlite overrides are removed, commented out,
-        # stripped of force="true", or re-pointed -- and if the bootstrap= line or
-        # tests/bootstrap.php disappears, which would uninstall the PRIMARY control
-        # while leaving the two <env> lines looking correct.
-        run: .github/scripts/guard-test-isolation.sh .
-
-      - name: Guard - the known .env exposure is reported, and no new one appeared
-        # NOT "no live .env in the checkout or the index", which is what this step was
-        # called until 2026-11-02. `.env` stopped being tracked, that phrasing became
-        # true, and the guard went silent on an exposure that is still reachable in
-        # history. This job checks out with fetch-depth: 0, so it is the one of the three
-        # call sites that can actually examine history and report the finding.
-        run: .github/scripts/guard-no-env-files.sh .
-
-      - name: Guard - the attestation gate behaves as specified
-        # THE GATE'S OWN BEHAVIOUR IS RATCHETED, which is the lesson of P1-SEC-48 through
-        # -53: four controls in a row reported success without measuring anything, and the
-        # checklist gate was satisfied BY A SENTENCE SAYING IT WAS NOT. A property defended
-        # only by a comment is a property that will drift, so the twenty-five scenarios --
-        # positive, negative, quoted marker, denied marker, stale review, author
-        # self-approval, and every error path -- run here on every pull request. Offline,
-        # no network, about one second.
-        run: tests/Support/Security/bin/verify-attestation-gate-scenarios.sh .
-
-      - name: Guard - GATE F money tables are still created by nothing
-        # BLOCKING, and deliberately duplicated from
-        # tests/Unit/Database/GateFSchemaContainmentTest.php, which asserts the same
-        # property more thoroughly. The duplication is STILL the point even now that the
-        # `tests` job is required and unconditional: that job cannot run a single test
-        # until `composer install` from the lock succeeds, and it currently cannot succeed
-        # anywhere (one dead package, PayHere -- see the `tests` job header). So the
-        # PHPUnit guard over six MONEY-BEARING tables is unreachable until an owner
-        # decision lands. This script needs no vendor/ at all, so it runs on every push
-        # and pull request regardless, which is exactly why it was written as a script.
-        #
-        # It fails the build if any discoverable migration, in either tree, creates
-        # store_wallets, store_wallet_transactions, store_withdrawals,
-        # store_order_financials, currency_rates or delivery_earnings -- and also if the
-        # parked drafts disappear, which would make the first check pass for the wrong
-        # reason. FIFTEEN of the suite's seventeen skips exist because these tables are
-        # absent (the figure recorded here, "seven of eight ... three of these tables", was
-        # correct for an earlier branch and is superseded -- re-measured on this one, and
-        # all six tables now appear in a named skip, not just three). There is therefore
-        # standing pressure to green them by inventing a schema; the
-        # hasTable() guards in the surrounding migrations would then turn the real
-        # migration into a silent no-op and freeze the guessed column types permanently.
-        #
-        # Verified not vacuous before being added: run against a throwaway 213-file tree
-        # it passes, and against the same tree with one invented
-        # Schema::create('store_wallets') migration it exits non-zero and names the file.
-        run: .github/scripts/guard-gate-f-containment.sh .
-
-      - name: Guard - packages/workdo/ is unmodified
-        # BASE RESOLUTION NOW MATCHES `php -l` AND THE SECRET SCAN, AND DID NOT BEFORE.
-        # This step read only the pull-request base and fell straight through to HEAD~1, so a
-        # PUSH of N commits was inspected exactly ONE commit deep: a packages/workdo/ edit in
-        # commit 1 of a 3-commit push was never seen by the guard that exists to catch it.
-        # `github.event.before` is the pushed range's true base. The all-zeros check is the
-        # new-branch case, where there is no before-commit to diff against.
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          BEFORE_SHA: ${{ github.event.before }}
-        run: |
-          base="${BASE_SHA:-$BEFORE_SHA}"
-          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
-            base="$(git rev-parse HEAD~1 2>/dev/null || true)"
-          fi
-          .github/scripts/guard-no-workdo-changes.sh "$base" .
-
-      - name: Guard - no NEW user upload is committed to the repository root
-        # P1-OWN-10 (#103), OWNER DECISION 11. The 407 files already tracked under `uploads/` are
-        # ACCEPTED RISK and are not touched: the owner's decision is "Do not delete or rewrite
-        # historical user uploads in Git." This guard stops that set GROWING, which is the half of
-        # D11 that is not accepted risk.
-        #
-        # WHY IT MATTERS MORE THAN "a binary in the repo". A file that EXISTS at the repository root
-        # is served directly by the webserver: the tracked `.htaccess` rewrites `/uploads/...` to
-        # `public/uploads/...` only when the file is NOT there (`!-f` at :33-35), and the
-        # front-controller rule above it is skipped for image extensions (:23). So a new upload
-        # committed to `uploads/` is a new unauthenticated disclosure path, not just repository
-        # weight. See docs/security/P01-OWN-10-ROOT-UPLOADS-EXPOSURE.md.
-        #
-        # Same base resolution as the sibling guard above, and for the same measured reason: a push
-        # of N commits must be inspected over its whole range, not one commit deep.
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          BEFORE_SHA: ${{ github.event.before }}
-        run: |
-          base="${BASE_SHA:-$BEFORE_SHA}"
-          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
-            base="$(git rev-parse HEAD~1 2>/dev/null || true)"
-          fi
-          BASE_REF="$base" .github/scripts/guard-no-new-root-uploads.sh
-
-      - name: php -l on changed PHP files
-        # Scoped to the diff so it stays fast on a large legacy codebase and so
-        # pre-existing issues in untouched files do not block unrelated work.
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          BEFORE_SHA: ${{ github.event.before }}
-        run: |
-          set -euo pipefail
-          base="${BASE_SHA:-$BEFORE_SHA}"
-          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
-            base="$(git rev-parse HEAD~1 2>/dev/null || git rev-parse HEAD)"
-          fi
-          changed="$(git diff --name-only --diff-filter=ACMR "$base" HEAD -- '*.php' \
-                     | grep -v '^vendor/' || true)"
-          if [ -z "$changed" ]; then
-            echo "No PHP files changed."
-            exit 0
-          fi
-          rc=0
-          while IFS= read -r f; do
-            [ -f "$f" ] || continue
-            php -l "$f" || rc=1
-          done <<< "$changed"
-          exit "$rc"
-
-      - name: php -l on EVERY tracked PHP file
-        # ADDED IN P01-A', AND IT IS AN ADDITION RATHER THAN A REPLACEMENT. The step above is
-        # deliberately diff-scoped so a pre-existing issue in an untouched file cannot block
-        # unrelated work, and that reasoning still holds -- it is the fast, precise signal.
-        # What it cannot see is a file the diff does not list: a bad merge resolution, a
-        # rename that left a broken copy behind, or a module file nobody edited this cycle.
-        #
-        # SAFE TO MAKE BLOCKING BECAUSE IT WAS MEASURED FIRST, not assumed: at
-        # 26b0014e all 3,413 tracked PHP files outside vendor/ parse -- measured with this
-        # step's own file list, not a narrower one. So it starts from a clean baseline and can
-        # only go red on something newly broken.
-        #
-        # `laravel/pint` was the other candidate here and was REJECTED ON MEASUREMENT, not on
-        # principle: run against three files written fresh for this branch in the surrounding
-        # style, the default `laravel` preset reports concat_space, single_quote,
-        # not_operator, unary_operator and binary_operator_spaces on all three. The preset
-        # disagrees with this codebase's established style, so adding it blocking would redden
-        # immediately and adding it report-only produces noise nobody acts on. It needs either
-        # a pint.json that codifies the existing style or an authorised reformatting package --
-        # an owner decision, recorded in the sprint report rather than guessed at here.
-        #
-        # PARALLELISED ON PURPOSE. Serially this is ~3,400 PHP process spawns and it turned the
-        # `static` job from roughly fifteen seconds into eight-plus minutes, which defeats the
-        # point of the job that exists to give the FAST signal. `xargs -P4 -n64` keeps the same
-        # file list and the same verdict; only the wall clock changes. xargs exits non-zero if
-        # any invocation did, which is the whole result we need.
-        run: |
-          set -uo pipefail
-          git ls-files '*.php' | grep -v '^vendor/' > /tmp/php-files.txt
-          count=$(wc -l < /tmp/php-files.txt)
-          echo "linting ${count} tracked PHP files"
-          # A run that linted almost nothing would pass vacuously, the same failure mode the
-          # GATE F guard's own non-vacuity floor exists for.
-          if [ "$count" -lt 2000 ]; then
-            echo "::error::Only ${count} PHP files were listed (expected >2000). The file list is"
-            echo "::error::wrong, so this guard would pass without checking anything. Refusing."
-            exit 1
-          fi
-          # -n1 for the report pass so the failing FILE is named, not just the batch.
-          if ! xargs -P4 -n64 -a /tmp/php-files.txt php -l > /dev/null 2>&1; then
-            echo "::error::A tracked PHP file does not parse. Re-running serially to name it:"
-            xargs -n1 -a /tmp/php-files.txt php -l 2>&1 | grep -v '^No syntax errors' || true
-            exit 1
-          fi
-          echo "all ${count} files parse"
-
-      - name: Design-system token contrast must stay WCAG-conformant
-        # P01B HANDOVER. The imported design system ships two verification tools and NEITHER was
-        # wired into CI, so a token edit that destroyed a contrast ratio would have shipped
-        # silently. This is the half that costs nothing to run: pure Python 3, no pip install, no
-        # browser, ~1s. It resolves every --ss-* var() chain and computes real WCAG 2.1 ratios for
-        # 40 foreground/background pairs across light and dark, and also fails if the `auto` scope
-        # drifts from the `dark` scope.
-        #
-        # THE BROWSER HALF IS DELIBERATELY NOT HERE. docs/design-system/tools/browser-checks.cjs
-        # covers focus rings, tab order, RTL geometry and overflow at 7 widths -- 66 checks that
-        # all passed during the handover -- but it needs Playwright, Chromium and eight rendered
-        # fixtures. Adding that to every run is a dependency and a runtime decision for the owner,
-        # not something to slip into a security sprint. It stays a documented manual run.
-        run: python3 docs/design-system/tools/check-contrast.py public/css/store-syria-ds.css
-
-      - name: Cross-repo API contract - the shipped Flutter app must not be broken
-        # The Flutter admin app pins its endpoint paths as constants compiled into a
-        # binary already on merchants' phones. A server-side route rename silently
-        # breaks every installed copy, visible only as a 404 in the logs. Runs against
-        # the committed manifest, so no Flutter checkout is required here.
-        run: php tests/Support/ApiContract/bin/check-contract.php
-
-      - name: Admin API auth coverage must not regress
-        # Fails if an /api/admin/* route without authentication middleware appears
-        # outside the recorded baseline.
-        #
-        # UPDATED IN PHASE 1C. This comment previously read "13 such routes already do;
-        # 10 of them must be protected", which was true of the Phase 1B manifest and is
-        # no longer true of the file this step actually reads: the baseline is now
-        # 3 ROUTES, ALL THREE LEGITIMATELY PUBLIC, and must_be_protected is EMPTY. The
-        # 10 that had to be protected were protected in Phase 1C, including the
-        # anonymous write to /api/admin/orders/notes/create that was confirmed
-        # empirically. See the manifest's _history for what each phase closed.
-        #
-        # Two separate branches described this same artefact in Phase 1C -- one shrank
-        # the manifest, the other rewrote this file -- and because they touched
-        # different files Git reported no conflict at all. The contradiction landed
-        # here. AdminApiSurfaceTest now PINS the manifest's contents, so the file
-        # cannot drift from reality again without a test failing.
-        run: php tests/Support/ApiContract/bin/check-auth-coverage.php
-
-      # THE SECURITY-SENSITIVE DIFF CHECKLIST IS DELIBERATELY NOT A STEP IN THIS JOB.
-      #
-      # P01-A' put it here, and the reasoning was sound: this job runs on every event, so it
-      # covered the direct push to main that the pull_request-only `regression-gate` never saw,
-      # enforcing on a pull request and reporting on a push. Independently, main moved the same
-      # step out of `regression-gate` into .github/workflows/security-attestation.yml, because
-      # that job could not be cleared by a DESCRIPTION edit -- ci.yml does not run on `edited`,
-      # so a reviewer who signed the checklist watched the gate stay red.
-      #
-      # Both fixes were right about their own hole, and keeping both would have left TWO
-      # enforcing copies of one gate -- the "duplicated incorrectly" failure, where clearing one
-      # copy still leaves the other red for a reason the reviewer cannot see. The reconciliation:
-      #
-      #   pull request  ->  .github/workflows/security-attestation.yml       ENFORCING
-      #                     (runs on `edited` too, so signing the checklist clears it)
-      #   push          ->  .github/workflows/security-attestation-push.yml  REPORT ONLY
-      #                     (no body to acknowledge in; makes the bypass visible, not reviewed)
-      #
-      # tests/Unit/Ci/SecurityAttestationWiringTest.php asserts this file never names
-      # flag-sensitive-diff.sh, which is what stops the step being reinstated here by someone
-      # fixing the push hole a third time. tests/Unit/Ci/RequiredGateWiringTest.php asserts the
-      # split above: exactly one ENFORCING workflow, and every other caller in `report` mode.
 
   # ---------------------------------------------------------------------------
   # Secret scanning. Two layers: a dependency-free screen over the diff that always
