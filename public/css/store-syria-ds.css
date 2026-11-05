@@ -4842,3 +4842,56 @@ a.ss-setup__item:focus-visible {
     line-height: 1.5;
     color: var(--ss-dt-empty-hint-fg);
 }
+
+/* ---- P2.5-WAVE-3: the merchant type scale ----
+
+   THE PAGE TITLE WAS THE SMALLEST HEADING ON THE PAGE. Measured at 1440px on /dashboard,
+   /product and /order alike:
+
+       <h2 class="h3 mb-0 ss-scope">    14px  <- THE PAGE TITLE, on every merchant screen
+       <h2 class="ss-attention__title"> 14px
+       <h2 class="ss-card__title">      18px  <- a card INSIDE that page
+       <h4 class="m-0">                 20px
+       <h3 class="ss-navgroup">         12px
+
+   So the page's own title was outranked by every card on it and by a stray `<h4>`. One cause,
+   one place: layouts/app.blade.php emitted the title wearing the VENDORED THEME's `.h3` utility,
+   which resolves to 14px -- and 334 views set `@section('page-title')`, so all of them inherited
+   it. This is the single highest-leverage typographic change available in the merchant admin.
+
+   NOT AN ACCESSIBILITY DEFECT, and it must not be filed as one. The heading ORDER is already
+   correct and every one of these passes AA. It is a type-scale defect, which is the kind the
+   directive is actually asking for.
+
+   NOTHING IS SHRUNK. Pulling card titles down to meet the page title would touch far more
+   surfaces than it repairs; the inversion is cured by raising the one element that was wrong.
+
+       24px  --ss-type-page      the page is about THIS
+       18px  --ss-type-section   a section within it
+       12px                      a navigation label (ss-navgroup, already correct, untouched)
+
+   `.ss-attention__title` moves 14 -> 18 to join the section step. It heads a panel sitting beside
+   cards whose headings are 18, and two panel headings at different sizes on one screen is the
+   same inconsistency one level down.
+
+   `!important` IS NOT DECORATION HERE. `.h3` is (0,1,0) and sits on the SAME element, so
+   `.ss-page-title` at (0,1,0) would be decided purely by which sheet loaded last.
+   store-syria-ds.css is `@push`ed and does currently load later -- but "currently" is not a
+   guarantee, and a silently-lost tie would restore the 14px title with nothing going red. */
+
+:root {
+    --ss-type-page: 1.5rem;
+    --ss-type-section: 1.125rem;
+}
+
+.ss-page-title {
+    font-size: var(--ss-type-page) !important;
+    font-weight: 650 !important;
+    line-height: 1.25 !important;
+    letter-spacing: -0.01em;
+}
+
+.ss-card__title,
+.ss-attention__title {
+    font-size: var(--ss-type-section);
+}

@@ -574,7 +574,7 @@
                                      was h4, on every merchant screen. Browsers recover from it,
                                      so nothing broke visibly -- but the DOM a screen reader and
                                      any heading-order audit walk was malformed. --}}
-                                <h2 class="h3 mb-0 ss-scope">@yield('page-title')</h2>
+                                <h2 class="h3 mb-0 ss-scope ss-page-title">@yield('page-title')</h2>
                                 {{-- WS C: AN OPT-IN SUBTITLE, and it is opt-in on purpose.
                                      `x-ss.page-header` has carried a `store` prop since P2-01-11
                                      — "the store name is restated here on screens where knowing

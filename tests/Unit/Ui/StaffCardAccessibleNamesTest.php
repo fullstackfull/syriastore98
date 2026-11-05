@@ -488,10 +488,30 @@ class StaffCardAccessibleNamesTest extends TestCase
          */
         $layout = $this->source(self::LAYOUT);
 
-        $this->assertSame(1, preg_match('/<h2 class="h3 mb-0 ss-scope">@yield\(\'page-title\'\)<\/h2>/', $layout),
-            'the shared layout no longer emits the page heading as an <h2 class="h3">, so the level '
+        /*
+         * THE LEVEL IS THE PREMISE; THE CLASS LIST IS NOT. This asserted the exact string
+         * `<h2 class="h3 mb-0 ss-scope">` and went red in P2.5-WAVE-3, which added
+         * `ss-page-title` so the page title could stop being 14px -- the heading LEVEL never
+         * moved and the outline this file reasons about was never affected.
+         *
+         * That is the same failure mode the comment above already warns about one level up: the
+         * finding named a LINE NUMBER, the line number went stale, so the assertion was moved to
+         * content. A presentational class list is just as volatile as a line number, and pinning
+         * it made a typography change look like an accessibility regression.
+         *
+         * So: the level and the yield are asserted, any class list is tolerated, and the wrong
+         * levels are refused by name -- which is what "re-measure the outline" actually means.
+         */
+        $this->assertSame(1, preg_match('/<h2[^>]*>@yield\(\'page-title\'\)<\/h2>/', $layout),
+            'the shared layout no longer emits the page heading as an <h2>, so the level '
             . 'the staff cards must hang off has changed — re-measure the outline before trusting '
             . 'the h3 below');
+
+        foreach (['h1', 'h3', 'h4', 'h5'] as $wrong) {
+            $this->assertSame(0, preg_match('/<' . $wrong . '[^>]*>@yield\(\'page-title\'\)<\/' . $wrong . '>/', $layout),
+                "the page heading is emitted as <{$wrong}>, not <h2>, so the staff cards' h3 no "
+                . 'longer hangs off it correctly');
+        }
     }
 
     public function test_the_toolbar_controls_keep_the_names_they_already_had(): void

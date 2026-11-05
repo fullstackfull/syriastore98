@@ -1,0 +1,130 @@
+[
+ {
+  "path": "/dashboard",
+  "lang": "en",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": "ltr",
+  "ssTheme": null,
+  "sheet": "style.css",
+  "title": "Laravel - Dashboard",
+  "h1": "",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 404 (Not Found)",
+   "Failed to load resource: the server responded with a status of 404 (Not Found)",
+   "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/product",
+  "lang": "en",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": "ltr",
+  "ssTheme": null,
+  "sheet": "style.css",
+  "title": "Laravel - Product",
+  "h1": "",
+  "consoleErrors": [],
+  "premiseFail": []
+ },
+ {
+  "path": "/dashboard",
+  "lang": "en",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": "ltr",
+  "ssTheme": "dark",
+  "sheet": "style-dark.css",
+  "title": "Laravel - Dashboard",
+  "h1": "",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 404 (Not Found)",
+   "Failed to load resource: the server responded with a status of 404 (Not Found)",
+   "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/product",
+  "lang": "en",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": "ltr",
+  "ssTheme": "dark",
+  "sheet": "style-dark.css",
+  "title": "Laravel - Product",
+  "h1": "",
+  "consoleErrors": [],
+  "premiseFail": []
+ },
+ {
+  "path": "/dashboard",
+  "lang": "ar",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": "rtl",
+  "ssTheme": null,
+  "sheet": "style-rtl.css",
+  "title": "Laravel - لوحة التحكم",
+  "h1": "",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 404 (Not Found)",
+   "Failed to load resource: the server responded with a status of 404 (Not Found)",
+   "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/product",
+  "lang": "ar",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": "rtl",
+  "ssTheme": null,
+  "sheet": "style-rtl.css",
+  "title": "Laravel - المنتج",
+  "h1": "",
+  "consoleErrors": [],
+  "premiseFail": []
+ },
+ {
+  "path": "/dashboard",
+  "lang": "ar",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": "rtl",
+  "ssTheme": "dark",
+  "sheet": "rtl-style-dark.css",
+  "title": "Laravel - لوحة التحكم",
+  "h1": "",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 404 (Not Found)",
+   "Failed to load resource: the server responded with a status of 404 (Not Found)",
+   "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/product",
+  "lang": "ar",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": "rtl",
+  "ssTheme": "dark",
+  "sheet": "rtl-style-dark.css",
+  "title": "Laravel - المنتج",
+  "h1": "",
+  "consoleErrors": [],
+  "premiseFail": []
+ }
+]
