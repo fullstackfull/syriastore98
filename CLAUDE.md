@@ -68,16 +68,10 @@ Each of these has produced a real defect. Do not assume the framework default.
 
 **Routing**
 
-- The admin API is **whatever is inside the `Route::prefix('admin')->as('admin.')->group()` in
-  `routes/api.php`** — locate it with `grep -n "prefix('admin')" routes/api.php`, do not trust a
-  line number. This file used to say "lines 133–387"; measured 2026-11-05 the group runs
-  **169–423**, and that drift mis-aimed two probes in one session — line 133 and line 184 are a
-  *storefront* route and a comment, so a sabotage planted at either reads as "the auth-coverage
-  guard is blind" when the guard is correct. Those paths are `api/admin/<x>`; the admin app's base
-  URL is `https://storesyria.com/api/admin`. Routes **outside** that group are the **storefront**
-  API (`api/{slug}/...`), which no client in either repository calls — and
-  `tests/Support/ApiContract/bin/check-auth-coverage.php` only watches `/api/admin/*`, so a
-  storefront route stripped of `custom.auth` does **not** redden it.
+- The admin API is what sits inside `Route::prefix('admin')` in `routes/api.php` — **find it with
+  `grep -n "prefix('admin')"`, never a line number** (this file said 133–387; it is 169–423). Outside
+  it is the **storefront** API, which no client calls — and `check-auth-coverage.php` watches
+  `/api/admin/*` only, so a storefront route stripped of `custom.auth` does **not** redden it.
 - Later route declarations **replace** earlier ones for the same method+URI, silently dropping the
   earlier middleware. Check for duplicates before trusting a route's middleware.
 - `APP_KEY` is in git history and unrotated, so **`Crypt::encrypt()` is an encoding, not a
