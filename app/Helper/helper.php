@@ -3029,15 +3029,21 @@ if (! function_exists('buildDataTable')) {
      */
     function dataTableEmptyState(string $tableId): array
     {
+        /* THE ICON IS PART OF THE MESSAGE, so it is chosen per list for what the list HOLDS --
+           a package for products, a receipt for orders, people for customers. A single generic
+           glyph on every screen would be decoration; these are the semantics the directive asks
+           for. Each is `aria-hidden` when rendered, because the title says the same thing and a
+           screen reader should not hear it twice. */
         $known = [
-            'product-table'  => [__('No products yet'), __('Add your first product with the button above.')],
-            'order-table'    => [__('No orders yet'), __('Orders appear here as soon as a customer buys something.')],
-            'customer-table' => [__('No customers yet'), __('Customers appear here once someone registers or places an order.')],
-            'category-table' => [__('No categories yet'), __('Add a category to group your products.')],
-            'coupon-table'   => [__('No coupons yet'), __('Create a coupon to offer a discount.')],
+            'product-table'  => ['ti-package',  __('No products yet'), __('Add your first product with the button above.')],
+            'order-table'    => ['ti-receipt',  __('No orders yet'), __('Orders appear here as soon as a customer buys something.')],
+            'customer-table' => ['ti-users',    __('No customers yet'), __('Customers appear here once someone registers or places an order.')],
+            'category-table' => ['ti-category', __('No categories yet'), __('Add a category to group your products.')],
+            'coupon-table'   => ['ti-ticket',   __('No coupons yet'), __('Create a coupon to offer a discount.')],
         ];
 
-        [$title, $hint] = $known[$tableId] ?? [
+        [$icon, $title, $hint] = $known[$tableId] ?? [
+            'ti-inbox',
             __('Nothing here yet'),
             __('Items appear here once you add them.'),
         ];
@@ -3045,10 +3051,30 @@ if (! function_exists('buildDataTable')) {
         /* ONE MESSAGE FOR THE FILTERED CASE, whatever the list, because the cause is the filter
            rather than the screen -- and because the way out is the same everywhere: the filter
            bar's own Clear control from P2-06-5. */
+        /* MARKUP, NOT A SENTENCE. DataTables writes the language string into the cell as HTML,
+           and the two sentences were being concatenated into one undifferentiated grey line --
+           measured 44px tall with no icon and no type scale. Separate elements let the title and
+           the hint be told apart; the styling is in store-syria-ds.css under P2.5-WAVE-2.
+
+           THE FILTERED CASE GETS A DIFFERENT ICON ON PURPOSE. An empty list and a list hidden by
+           a filter look identical today, and they are not the same situation: nothing is wrong
+           with the list, and the way out is the filter bar's own Clear control rather than
+           creating a record. A magnifier says that before the sentence is read. */
+        $render = static function (string $icon, string $title, string $hint): string {
+            return '<span class="ss-dt-empty">'
+                . '<i class="ti ' . $icon . ' ss-dt-empty-icon" aria-hidden="true"></i>'
+                . '<span class="ss-dt-empty-title">' . e($title) . '</span>'
+                . '<span class="ss-dt-empty-hint">' . e($hint) . '</span>'
+                . '</span>';
+        };
+
         return [
-            'emptyTable' => $title . ' ' . $hint,
-            'zeroRecords' => __('Nothing matches your search or filters.') . ' '
-                . __('Clear them to see everything again.'),
+            'emptyTable' => $render($icon, $title, $hint),
+            'zeroRecords' => $render(
+                'ti-zoom-cancel',
+                __('Nothing matches your search or filters.'),
+                __('Clear them to see everything again.')
+            ),
         ];
     }
 

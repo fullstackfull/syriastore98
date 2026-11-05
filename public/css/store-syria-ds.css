@@ -4753,3 +4753,92 @@ a.ss-setup__item:focus-visible {
 .ss-dt-card-body table.dataTable > tbody > tr:hover > td.ss-col-pinned {
     background-color: var(--ss-dt-row-hover) !important;
 }
+
+/* ---- P2.5-WAVE-2: the empty list ----
+
+   MEASURED on /coupon (0 rows) at 1440px before this: the cell was 44px tall, centred, 14px, one
+   concatenated grey sentence. `hasIcon: false`, `hasAction: false`. And `dataTables_empty` appeared
+   ZERO times in this file and ZERO times in custom.css -- there was no styling for it anywhere. A
+   merchant who opens a list for the first time, which is the single most common first-run screen
+   in the product, met a table row with an apology in it.
+
+   THE COPY WAS ALREADY RIGHT AND IS NOT TOUCHED. `dataTableEmptyState()` already distinguishes
+   `emptyTable` from `zeroRecords` -- a distinction core DataTables gets wrong, which that helper's
+   comment documents with sentinel strings -- and already carries a per-list title and hint. The
+   defect was that the two sentences were CONCATENATED, so no type scale could tell them apart.
+   They are separate elements now; everything below is presentation.
+
+   THE FILTERED CASE IS DRAWN DIFFERENTLY, because it is a different situation. An empty list and a
+   list hidden by a filter were identical on screen, and the way out is not the same: one asks you
+   to create a record, the other to clear a filter. The magnifier says so before the sentence is
+   read.
+
+   NO ACTION BUTTON YET, and that is a scope line rather than an oversight: the copy already says
+   "Add your first product with the button above", and wiring a real create route per list is a
+   controller change, not a presentational one. Next slice.
+
+   SCOPED TO `.ss-dt-card-body`. Unscoped, this restyles the empty state of every table in all 70
+   vendored WorkDo modules. */
+
+.ss-dt-card-body {
+    --ss-dt-empty-icon-fg: #aeb6c7;
+    --ss-dt-empty-title-fg: #2b3245;
+    --ss-dt-empty-hint-fg: #5a6276;
+}
+
+[data-ss-theme="dark"] .ss-dt-card-body {
+    --ss-dt-empty-icon-fg: #6e7689;
+    --ss-dt-empty-title-fg: #e8eaed;
+    --ss-dt-empty-hint-fg: #aab2c5;
+}
+
+@media (prefers-color-scheme: dark) {
+    [data-ss-theme="auto"] .ss-dt-card-body {
+        --ss-dt-empty-icon-fg: #6e7689;
+        --ss-dt-empty-title-fg: #e8eaed;
+        --ss-dt-empty-hint-fg: #aab2c5;
+    }
+}
+
+/* The row stops being a row. `!important` on padding because the vendored theme sets 11.2px on
+   every `td` and this cell is a `td`. */
+.ss-dt-card-body table.dataTable > tbody > td.dataTables_empty,
+.ss-dt-card-body table.dataTable > tbody > tr > td.dataTables_empty {
+    padding: 56px 24px !important;
+    text-align: center;
+    vertical-align: middle;
+}
+
+/* The row hover from WAVE-1 would light this up as though it were selectable. It is not. */
+.ss-dt-card-body table.dataTable > tbody > tr:hover > td.dataTables_empty {
+    background-color: transparent !important;
+}
+
+.ss-dt-card-body .ss-dt-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    max-width: 38ch;
+    margin: 0 auto;
+}
+
+.ss-dt-card-body .ss-dt-empty-icon {
+    font-size: 40px;
+    line-height: 1;
+    margin-bottom: 6px;
+    color: var(--ss-dt-empty-icon-fg);
+}
+
+.ss-dt-card-body .ss-dt-empty-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--ss-dt-empty-title-fg);
+}
+
+.ss-dt-card-body .ss-dt-empty-hint {
+    font-size: 0.875rem;
+    font-weight: 400;
+    line-height: 1.5;
+    color: var(--ss-dt-empty-hint-fg);
+}
