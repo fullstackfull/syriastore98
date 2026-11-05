@@ -10,10 +10,10 @@ hand-maintained matrix is precisely how that happens.
 | state | count | of 295 |
 |---|---:|---:|
 | PREMIUM VERIFIED | 0 | 0.0% |
-| REDESIGNED AND VERIFIED | 8 | 2.7% |
+| REDESIGNED AND VERIFIED | 10 | 3.4% |
 | BLOCKED | 9 | 3.1% |
 | OUT OF SCOPE | 1 | 0.3% |
-| PENDING | 277 | 93.9% |
+| PENDING | 275 | 93.2% |
 | **total** | **295** | |
 
 **PENDING is not one of the directive's four states, and that is the point.** The four
@@ -37,7 +37,7 @@ screens and exactly three of them have been looked at. The other ~97 stay PENDIN
 | Reports/Analytics presentation, Notifications, and the con | 26 | 0 | 0 | 1 | 0 | 25 |
 | Flutter merchant/employee admin app | 24 | 0 | 0 | 3 | 0 | 21 |
 | Customers and customer management | 20 | 0 | 1 | 0 | 0 | 19 |
-| ORDERS | 17 | 0 | 1 | 3 | 0 | 13 |
+| ORDERS | 17 | 0 | 3 | 3 | 0 | 11 |
 | PRODUCTS | 16 | 0 | 1 | 1 | 0 | 14 |
 | Merchant admin NAVIGATION SHELL | 13 | 0 | 0 | 0 | 0 | 13 |
 | Stock/inventory reporting + finance/wallet/payout screens | 13 | 0 | 3 | 0 | 0 | 10 |
@@ -316,7 +316,7 @@ actually been done to it since. They are different questions and the matrix keep
 |---|---|---|---|---|
 | Order list | ``GET order (order.index)`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-WAVE-1; four captures under evidence/wave-1/ |
 | Order board (Kanban) | ``GET order-kanban (order.kanban)`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Order detail | ``GET order-view/{id} (order.view)`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Order detail | ``GET order-view/{id} (order.view)`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-WAVE-11; four captures under evidence/wave-11/ |
 | Order quick preview (side panel fragment) | ``GET order-preview/{id} (order.preview)`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
 | Order AJAX modal (the eye / Show button) | ``GET orders/order_view/{id} (order.order_view)`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Order grid (card view) | ``GET order-grid (order.grid)`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
@@ -324,7 +324,7 @@ actually been done to it since. They are different questions and the matrix keep
 | Order filter bar + saved views | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
 | Create order | ``GET order/create (order.create); POST order (order.store)`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Refund request list | ``GET refund-request (refund-request.index)`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
-| Refund detail / decision screen | ``GET refund-request/{id} (refund-request.show)`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
+| Refund detail / decision screen | ``GET refund-request/{id} (refund-request.show)`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-WAVE-11; four captures under evidence/wave-11/ |
 | Printable receipt | ``GET order-receipt/{id} (order.receipt)`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
 | Printable shipping label | ``GET shippinglabel/pdf/{id} (shippinglabel.pdf)`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
 | Order note author (metadata partial) | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |

@@ -49,6 +49,12 @@ VERIFIED = {
     'Finance dashboard':          ('REDESIGNED AND VERIFIED', 'wave-10', '_finance__', 'P2.5-WAVE-10 + #12'),
     'Withdrawal queue':           ('REDESIGNED AND VERIFIED', 'wave-10', '_finance_withdrawals__', 'P2.5-WAVE-10 + #12'),
     'Payments Awaiting Review (unreconciled captures)': ('REDESIGNED AND VERIFIED', 'wave-10', '_finance_unreconciled_captures__', 'P2.5-WAVE-10'),
+    # P2.5-WAVE-11 wrapped the three merchant order tables onto .ss-table, verified in a real
+    # browser by probe-wave11-order-tables.cjs (order detail + refund detail via encrypted-id
+    # URLs; the quick-view modal by clicking the grid eye action). The quick-view modal is not
+    # a separate inventory surface, so it earns no row here though it is in evidence/wave-11.
+    'Order detail':               ('REDESIGNED AND VERIFIED', 'wave-11', 'order-view__', 'P2.5-WAVE-11', 'order-view'),
+    'Refund detail / decision screen': ('REDESIGNED AND VERIFIED', 'wave-11', 'refund-detail__', 'P2.5-WAVE-11'),
 }
 
 # Surfaces that are out of the Phase 2.5 merchant scope by the approved phase plan.
@@ -79,12 +85,19 @@ def classify(row):
     if row['screen'] in OUT_OF_SCOPE:
         return 'OUT OF SCOPE', OUT_OF_SCOPE[row['screen']]
     if row['screen'] in VERIFIED:
-        state, wave, prefix, pkg = VERIFIED[row['screen']]
-        base = os.path.join(ROOT, 'docs/development/phase-2.5/evidence', wave, 'after')
-        missing = [c for c in COMBOS if not os.path.exists(os.path.join(base, f'{prefix}{c}.png'))]
-        if missing:
-            return 'BLOCKED', f'claimed {state} by {pkg} but these captures are absent: {", ".join(missing)}'
-        return state, f'{pkg}; four captures under evidence/{wave}/'
+        entry = VERIFIED[row['screen']]
+        state, wave, prefix, pkg = entry[0], entry[1], entry[2], entry[3]
+        route_needle = entry[4] if len(entry) > 4 else None
+        # A screen NAME can repeat across areas -- "Order detail" is BOTH the Laravel web screen
+        # (route order-view/{id}) and the Flutter screen (OrderDetailScreen). A verified entry that
+        # carries a route needle claims only the row whose route contains it; the other falls
+        # through to PENDING, so a web capture can never mark a Flutter surface verified.
+        if route_needle is None or route_needle in row['route']:
+            base = os.path.join(ROOT, 'docs/development/phase-2.5/evidence', wave, 'after')
+            missing = [c for c in COMBOS if not os.path.exists(os.path.join(base, f'{prefix}{c}.png'))]
+            if missing:
+                return 'BLOCKED', f'claimed {state} by {pkg} but these captures are absent: {", ".join(missing)}'
+            return state, f'{pkg}; four captures under evidence/{wave}/'
     if row['audit'] == 'unknown':
         return 'BLOCKED', 'audit could not determine its state; it needs to be rendered and classified'
     return 'PENDING', f'audited {row["audit"]}; not yet redesigned or verified'
