@@ -83,13 +83,50 @@ already records. Wrapping it would style a screen no merchant can open.
 (The HTTP 500 above stands on its own as a finding about `email_templates.show`, which IS reachable:
 `EmailTemplate::first()` is null-dereferenced on an empty table and carries no store predicate.)
 
+## Row 8 is Phase 06 as well -- settled by the codebase's own comment
+
+`store/view-storelinks` is reached only through `store/index.blade.php:94` and
+`store/action.blade.php:32`, and **`StoreController::index()` opens with
+`type == 'super admin'`** exactly as `customDomain()` does. The `StoreLinks()` method carries a
+comment that states the family outright (NEW-STORELINKS-UNGATED-01):
+
+> "It is the only one in this **platform-operator family** without a `type == 'super admin'` test --
+> upgradePlan (:813), activePlan (:826), customDomain (:867), subDomain, index (:44) and
+> LoginWithAdmin ... all have one ... the only screens that mint one
+> (store/index.blade.php:94 and store/action.blade.php:32) are themselves **super-admin-only**
+> because StoreController::index refuses anyone else."
+
+So rows **8, 9 and 10 are one operator family**, not three merchant tables, and no fixture grant
+would make them merchant surfaces. They go to Phase 06 together.
+
+## Net result for §2
+
+Of the five rows this wave was scoped to:
+
+| row | surface | outcome |
+|---|---|---|
+| 7 | customer orders | **implemented and verified** |
+| 8 | store links modal | Phase 06 (operator family) |
+| 9 | store custom domain | Phase 06 (operator) |
+| 10 | store subdomain | Phase 06 (operator) |
+| 11 | email templates index | **dead view**, struck |
+
+**One of five is a merchant table.** §2's headline of "20 merchant tables on 20 render sites" is an
+overcount: it classified by markup and parent chain, which were read correctly, but not by whether
+a merchant can reach the screen at all. The remaining rows (roles, WooCommerce, Shopify) should be
+access-checked the same way *before* any of them is implemented, not after.
+
+## Also noticed, not acted on
+
+`routes/web.php` declares **`Route::resource('stores', StoreController::class);` twice**, identically
+(two separate lines in the same group). CLAUDE.md records this shape as a live hazard -- "later route
+declarations REPLACE earlier ones for the same method+URI, silently dropping the earlier
+middleware". Both copies sit in the same group here so the practical effect looks nil, but a
+duplicate resource declaration is exactly the construct that makes a middleware change silently
+ineffective later. Recorded for the routing cleanup, not changed here.
+
 ## Still next
 
-1. Row 8 (`store/view-storelinks`, a modal with no `.card-body`) needs a modal-drive capture -- and
-   the dev role holds neither `Manage Store` nor `Show Store`, so its entry points need checking
-   first, exactly as row 7 did.
-2. Re-scope rows 9 and 10 to Phase 06 in the work-list.
-3. Decide whether the `email_templates.show` null guard is in scope for a later wave.
-
-**Net: of the five rows this wave was scoped to, one was implemented, one is dead, two are Phase 06,
-and one remains.** The work-list's §2 count of "20 merchant tables" is therefore an overcount.
+1. Access-check the remaining §2 rows (roles done; WooCommerce and Shopify not yet) before
+   implementing them.
+2. Decide whether the `email_templates.show` null guard is in scope for a later wave.
