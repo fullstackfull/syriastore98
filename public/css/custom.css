@@ -5471,3 +5471,294 @@ html[data-ss-theme="dark"] body .dashboard-card,
 html[data-ss-theme="dark"] body p:not(.text-muted):not([class^="ss-"]):not([class*=" ss-"]) {
     color: var(--ss-fg) !important;
 }
+
+/* ---- P2.5-WAVE-22: the merchant header is three rows tall on a phone -----------------------
+
+   MEASURED at 320x568, on every merchant screen:
+
+       .header-wrapper        320 x 158   flex, WRAP, padding 15px 20px
+         > ul (hamburger+company)  88 x 40     — 88 of 280 usable px, the rest of that line empty
+         > .dash-right-drp        280 x 79     — display:block, so it cannot share the line
+             > .header-icon-list  280 x 79     — inline-flex, WRAP: six icons over two rows
+
+   Eight controls in three rows, 158px of a 568px screen — 28% of the phone spent on chrome
+   before the page's own title. The first row uses 88 of its 280 usable pixels and leaves the
+   rest empty, because `.dash-right-drp` is a 280px BLOCK and therefore wraps whole.
+
+   THE REPAIR IS ONE ROW, NOT SMALLER TARGETS. Shrinking the icons to make eight fit would have
+   traded a layout defect for a touch-target one, and this project already repaired a target-size
+   failure (P2.5-DESIGN-K). Instead the right-hand group is allowed to SHARE the line and its
+   icon strip WRAPS to a second line when it runs out of room, so every control keeps its 40px box.
+
+   THIS PARAGRAPH USED TO SAY THE STRIP SCROLLED, and measurement refuted it in P2.5-WAVE-22 --
+   see the rule below. `justify-content: flex-end` sends the overflow in the START direction,
+   which no scroll can reach, and two controls were being clipped away entirely. The claim that
+   "focusing a control that is out of view scrolls it into view" was true of a scroller and this
+   was not one. The correction is recorded rather than quietly overwritten, because the wrong
+   version of it shipped.
+
+   NOTHING IS REMOVED OR HIDDEN. All eight controls stay in the DOM, in order, on screen, and
+   keyboard reachable — now verified by a sweep that checks every header control against every
+   ancestor overflow box rather than by reading the rule.
+
+   ONLY BELOW 576px. Above it the header is exactly as it was.
+
+   Mirrored: custom.css serves LTR and rtl-custom.css serves Arabic INSTEAD of it, so this block
+   is byte-identical in both. Logical properties throughout.
+
+   Ratchet: Tests\Unit\Ui\PhoneHeaderCompactionTest. */
+
+/* Above the phone breakpoint the bar is untouched, so the toggle must not exist visually. Stated
+   OUTSIDE the media query on purpose: the script sets `data-ss-controls` on every screen width, and
+   this is the one declaration that makes that harmless. Without it the button would render on every
+   desktop list screen -- and it would do nothing, because the show/hide rules are phone-only.
+
+   IT MUST PRECEDE THE MEDIA QUERY. A media query adds no specificity, so with both selectors at
+   (0,1,0) the later declaration wins -- stated after, `display: none` would also win below 576px
+   and the toggle would never appear at all. Caught by measuring, not by reading. */
+.ss-dt-controls__toggle { display: none; }
+
+@media (max-width: 575.98px) {
+    .dash-header .header-wrapper {
+        flex-wrap: nowrap;
+        gap: var(--ss-space-2, 8px);
+        padding: var(--ss-space-2, 8px) var(--ss-space-3, 12px);
+    }
+
+    /* It was a 280px block on its own line; now it takes whatever the first group leaves. */
+    .dash-header .dash-right-drp {
+        flex: 1 1 auto;
+        min-width: 0;
+    }
+
+    /* IT WRAPS. The first version of this rule scrolled, and MEASURING IT REFUTED THE PARAGRAPH
+       ABOVE: the list reported clientWidth 192 and scrollWidth 192 -- NOTHING to scroll -- while
+       its own items ran from x=4 to x=308. A flex row justified to the end overflows towards the
+       START, and start-direction overflow is clipped and cannot be reached by scrolling at all.
+       An independent sweep of every header control against its ancestors' overflow boxes named
+       the casualties in both directions: Notifications and Store Link (الإخطارات، وصلة التخزين).
+       They were gone, not merely off-screen.
+
+       Eight controls at a 40px box do not fit one 320px row, and that is arithmetic: the left
+       group measures 88px and the right group 278px against 296px of usable width. So the row
+       wraps, the header costs about 44px more than the scrolling version did, and every control
+       keeps its size, its order and its reachability. A clipped control is worse than a second
+       row -- and a screenshot caught this where the height number did not. */
+    .dash-header .header-icon-list {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        row-gap: var(--ss-space-1, 4px);
+    }
+
+    /* Children must not shrink, or the 40px targets become 20px ones. */
+    .dash-header .header-icon-list > li { flex: 0 0 auto; }
+
+    /* THE CONTENT'S OFFSET HAS TO FOLLOW THE HEADER, and before this slice it did not.
+       MEASURED: `.dash-header` is `position: absolute` at top 0 and `.dash-container` is
+       `position: relative; top: 105px` -- a hard-coded number. With the old 158px header that
+       put 53px of the page UNDER it: the page title and breadcrumb sat behind the chrome at
+       phone width, which is why the first screen looked even emptier than the numbers said.
+       With the header now 70px the same constant leaves a 35px dead band instead.
+
+       A SECOND HARD-CODED NUMBER WAS THE WRONG ANSWER, and this slice shipped one before
+       measuring its consequence: `top: 70px` matched the one-row header exactly, and then the
+       icon strip had to wrap to stop clipping controls, the header became 96px, and 26px of the
+       page went back under it. The header's height is NOT a constant -- it depends on how many
+       controls the merchant's permissions put in the strip and how many rows those wrap to.
+
+       SO THE CONSTANT GOES. At phone width the header stops being `position: absolute` and
+       becomes a sticky element in normal flow: it occupies its own height, whatever that turns
+       out to be, and `.dash-container` starts at 0 directly beneath it. Nothing can sit under the
+       header because nothing is overlapping any more, and the header still stays pinned while the
+       list scrolls, which is the app-bar behaviour the absolute version was there to provide. */
+    .dash-header {
+        position: sticky;
+        inset-block-start: 0;
+    }
+
+    .dash-container { top: 0; }
+
+    /* ---- The table toolbar and the page header ------------------------------------------
+
+       `.dataTable-top` MEASURED 103px on every list screen, of which 50 is its own
+       `padding: 25px 0`. It is 905px wide because it sits INSIDE the horizontally scrolling
+       `.table-responsive`, so its width is not the cost -- only that padding is. Halving it
+       changes no control and no behaviour.
+
+       `.page-header` MEASURED 60px on /product and 108px on /order, because the order list
+       carries more action buttons and they wrap onto a second row. Letting the cluster scroll
+       instead of wrap gives every screen the same one-row header, and keeps every button: the
+       same app-bar pattern as the site header above, for the same reason. */
+    /* FOUR classes, and the count is MEASURED rather than guessed. Two earlier attempts had no
+       effect at all: the winning declaration is `.card:not(.table-card) .dataTable-top
+       { padding: 25px 0 }` in the vendored theme sheet, and `:not(.table-card)` counts as a class,
+       so that selector is (0,3,0) -- it outranks both `.dataTable-top` (0,1,0) and
+       `.ss-dt-card-body .dataTable-top` (0,2,0). Read off the rendered page with
+       CSS.getMatchedStylesForNode, not inferred. (0,4,0) settles it without `!important`, which
+       would win here but would also be unarguable for the next slice that needs to override it.
+       Horizontal padding is deliberately NOT restated: the theme's shorthand already sets it to 0
+       and `padding-block` touches only the block axis. */
+    .card.ss-dt-card .ss-dt-card-body .dataTable-top { padding-block: var(--ss-space-3, 12px); }
+
+    /* ============================================================================================
+       THE TABLE CONTROL BAR IS OFF-SCREEN AT PHONE WIDTH -- and that is the real defect here, not
+       its height. MEASURED on /order at 320px: `.table-responsive` has clientWidth 250 and
+       scrollWidth 1141, `.dataTable-top` is 905px wide, and its button block starts at x=376 --
+       56px PAST the right edge of a 320px screen. So the search box, the export button, the
+       column-visibility collection and the reset button are all present in the DOM and all
+       unreachable without first discovering that the table scrolls sideways. The length selector
+       at x=35 is the only control a merchant can actually see.
+
+       The width comes from the wrapper, which DataTables sizes to the TABLE rather than to its
+       container. Pinning the wrapper back to its container's own inline size puts every control
+       on screen; the table keeps overflowing it and `.table-responsive` keeps scrolling the table,
+       which is the behaviour Wave 21 measured and deliberately left alone.
+
+       NOTHING IS HIDDEN OR MOVED -- the same controls, in the same order, inside the viewport. */
+    .card.ss-dt-card .ss-dt-card-body > .table-responsive > .dataTables_wrapper {
+        inline-size: 100%;
+        min-inline-size: 0;
+    }
+
+    /* The bar itself then has to be allowed to reflow inside 250px instead of laying its two
+       blocks out side by side: the length selector on one line, the button/search block under it.
+       `min-inline-size: 0` on the children is what lets the search input actually shrink -- a flex
+       item's default `min-width: auto` would otherwise hold it at its content width. */
+    .card.ss-dt-card .ss-dt-card-body .dataTable-top {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--ss-space-2, 8px);
+        align-items: center;
+    }
+
+    .card.ss-dt-card .ss-dt-card-body .dataTable-top > * {
+        min-inline-size: 0;
+        max-inline-size: 100%;
+        float: none;
+    }
+
+    /* The search field is the one control a merchant reaches for most, so it gets the full line
+       rather than whatever is left over after four buttons. */
+    /* `.dataTable-botton` is the theme's own wrapper around the button group and the search box,
+       and it is a flex row ending at `flex-end`. MEASURED: with 280px of content in a 250px box
+       the overflow goes LEFT, so `.dt-buttons` rendered at x=1 -- 34px outside the card, under the
+       page gutter. Wrapping it is what keeps the overflow inside the box. */
+    .card.ss-dt-card .ss-dt-card-body .dataTable-top .dataTable-botton {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-start;
+        gap: var(--ss-space-2, 8px);
+        inline-size: 100%;
+        min-inline-size: 0;
+    }
+
+    .card.ss-dt-card .ss-dt-card-body .dataTable-top .dataTables_filter { inline-size: 100%; }
+    .card.ss-dt-card .ss-dt-card-body .dataTable-top .dataTables_filter label { inline-size: 100%; }
+    .card.ss-dt-card .ss-dt-card-body .dataTable-top .dataTables_filter input {
+        inline-size: 100%;
+        min-block-size: 2.75rem;
+    }
+
+    .page-header .all-button-box {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+        justify-content: flex-end;
+    }
+    .page-header .all-button-box::-webkit-scrollbar { display: none; }
+    .page-header .all-button-box > * { flex: 0 0 auto; }
+
+    /* --------------------------------------------------------------------------------------------
+       The control-bar disclosure. The button is built by store-syria-ds.js, which explains why --
+       `.dataTable-top` is created by DataTables at run time, so there is no view to put it in.
+       The BREAKPOINT LIVES HERE, not in the script: the script sets the attribute unconditionally
+       and these rules only act below 576px, so a resize or a rotation needs no JavaScript at all.
+       -------------------------------------------------------------------------------------------- */
+    .ss-dt-controls__toggle {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex: 0 0 auto;
+        inline-size: 2.75rem;
+        min-block-size: 2.75rem;
+        padding: 0;
+        border: 1px solid var(--ss-border, #D5DBE3);
+        border-radius: var(--ss-radius-md, 8px);
+        background: var(--ss-surface-sunken, #F4F6F9);
+        color: var(--ss-fg, #10151C);
+        font-size: 1.125rem;
+        line-height: 1;
+        cursor: pointer;
+    }
+
+    .ss-dt-controls__toggle:focus-visible {
+        outline: var(--ss-focus-width, 3px) solid var(--ss-focus-ring, #1C7ED6);
+        outline-offset: var(--ss-focus-offset, 2px);
+    }
+
+    /* Closed: the search field keeps the line beside the toggle, because it is the control a
+       merchant reaches for most. The length selector and the button group are one tap away. */
+    .dataTable-top[data-ss-controls] .dataTable-dropdown,
+    .dataTable-top[data-ss-controls] .dt-buttons { display: none; }
+
+    /* The long prefix is NOT decoration. The base rule a few lines up is
+       `.card.ss-dt-card .ss-dt-card-body .dataTable-top .dataTable-botton { inline-size: 100% }`
+       at (0,4,0); the short form of this selector is (0,3,0) and MEASURED as losing -- the search
+       field dropped to its own line at y=619 instead of sitting beside the toggle at y=567, which
+       cost 60px of the height this whole disclosure exists to save. */
+    .card.ss-dt-card .ss-dt-card-body .dataTable-top[data-ss-controls] .dataTable-botton {
+        /* `1 1 0`, not `1 1 auto`. MEASURED with `auto`: the bar stayed 128px because a flex item
+           sized from its content asks for the search input's intrinsic width, which does not fit
+           beside a 44px toggle in 250px, so it wrapped to its own line -- exactly the 60px this
+           disclosure exists to remove. A zero basis plus `min-inline-size: 0` lets it take the
+           space that is left instead of demanding the space it would like. */
+        flex: 1 1 0;
+        inline-size: auto;
+        min-inline-size: 0;
+    }
+
+    .dataTable-top[data-ss-controls="open"] .dataTable-dropdown {
+        display: block;
+        inline-size: 100%;
+    }
+
+    .dataTable-top[data-ss-controls="open"] .dt-buttons {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--ss-space-2, 8px);
+        inline-size: 100%;
+    }
+
+    .card.ss-dt-card .ss-dt-card-body .dataTable-top[data-ss-controls="open"] .dataTable-botton {
+        flex: 1 1 100%;
+        inline-size: 100%;
+    }
+
+    /* --------------------------------------------------------------------------------------------
+       CHROME ONLY. Each of these is a gap or a pad, never content: MEASURED as 20 + 16 + 24 + 16 +
+       16 + 15 = 107px of pure spacing above the first order on a 568px screen. Halving the ones
+       that are the host's desktop rhythm keeps the vertical grouping readable -- related blocks
+       still sit closer to each other than to the next -- while giving ~45px back to data.
+       -------------------------------------------------------------------------------------------- */
+    .dash-container > .dash-content { padding-block-start: var(--ss-space-3, 12px); }
+
+    /* NOT HERE: `.ss-filterbar`, `.ss-filterbar__saved` and `.ss-dt-card-body` padding. Three rules
+       were written here first and MEASURED as dead -- `store-syria-ds.css` is loaded AFTER this
+       sheet (layouts/app.blade.php), so its own `.ss-filterbar { padding: var(--ss-space-3) }` won
+       on source order and the computed padding never moved off 12px. The two `ss-` components are
+       now tuned in that sheet, where they belong; `.ss-dt-card-body`'s 15px belongs to a host rule
+       more specific than (0,3,0) and is left alone rather than chased for 3px. */
+
+    /* `!important`, and NOT as a shortcut. `mb-3`, `mb-4` and `mb-md-4` are Bootstrap spacing
+       utilities and Bootstrap declares every one of them `!important`, so nothing without it can
+       win however specific it is -- MEASURED: six rules written without it changed none of the six
+       margins. The alternative was editing the utility class out of 107 views, which would move the
+       desktop rhythm too. The override is phone-only and named, so the desktop spacing is intact. */
+    .dash-content > .page-header { margin-block-end: var(--ss-space-2, 8px) !important; }
+    .ss-attention { margin-block-end: var(--ss-space-3, 12px) !important; }
+    .ss-filterbar { margin-block-end: var(--ss-space-2, 8px) !important; }
+    .ss-filterbar__saved { margin-block-end: var(--ss-space-2, 8px) !important; }
+}
+/* end P2.5-WAVE-22 */

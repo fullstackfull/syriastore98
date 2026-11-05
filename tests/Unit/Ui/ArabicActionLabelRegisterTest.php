@@ -32,9 +32,20 @@ use PHPUnit\Framework\TestCase;
  * DELIBERATELY NOT TOUCHED, and recorded so the next reader does not think they were missed:
  *   - Export الصادرات is a KNOWN mistranslation with its own written decision. coupon/index
  *     explains why it is tolerated in a tooltip and must not become a visible word. Out of scope.
- *   - Reset إعادة التشغيل means restart-a-machine rather than reset-a-form, Back إلى الخلف reads
- *     oddly for a nav control, and Download/Search/Approve carry definite articles the rest of the
- *     file does not. Real, but each needs its own look at where it renders.
+ *   - Back إلى الخلف reads oddly for a nav control, and Download/Search/Approve carry definite
+ *     articles the rest of the file does not. Real, but each needs its own look at where it
+ *     renders.
+ *
+ * RESET WAS ON THAT DEFERRED LIST AND IS NOW OFF IT (P2.5-WAVE-22). The deferral asked for exactly
+ * one thing -- "its own look at where it renders" -- and that look has now been taken: ALL SIXTEEN
+ * `__('Reset')` call sites are a clear-the-filters control, with nothing else among them. Twelve
+ * are the `id="clearfilter"` button on customer/index, customer/grid and the three sale_by_*
+ * reports; two are an X-in-a-circle link on the marketplace and LandingPage pricing pages that
+ * clears a chosen filter; one is a `ti-trash-off` button on Campaigns linking back to
+ * `campaigns.index` with no query; one is the Marketing appointments equivalent. NONE of them
+ * restarts anything, and إعادة التشغيل is restart -- of a machine, a service, a device.
+ * إعادة تعيين is the term this means. So the fix applies the reasoning recorded here; it decides
+ * nothing new.
  */
 class ArabicActionLabelRegisterTest extends TestCase
 {
@@ -48,6 +59,10 @@ class ArabicActionLabelRegisterTest extends TestCase
         'Delete' => 'حذف',
         'Submit' => 'إرسال',
         'Show'   => 'عرض',
+
+        // P2.5-WAVE-22. See the RESET note in the docblock above for the sixteen call sites that
+        // were read before this moved.
+        'Reset'  => 'إعادة تعيين',
 
         // FOUND BY THIS FILE'S OWN khalq TEST, not by the census that preceded it: the census
         // compared whole VALUES and so saw only the bare `Create` key, while these two carry خلق

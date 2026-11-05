@@ -1619,6 +1619,106 @@
 
     /* ------------------------------------------------------------------ init */
 
+    /* ============================================================================================
+       P2.5-WAVE-22 — the DataTables control bar at phone width.
+       --------------------------------------------------------------------------------------------
+       MEASURED on /order at 320x568 before this existed: `.table-responsive` had clientWidth 250
+       and scrollWidth 1141, `.dataTable-top` was 905px wide, and its button block started at
+       x=376 -- 56px past the right edge of the screen. The search box, the export button, the
+       column-visibility collection and the reset button were all in the DOM and all unreachable
+       unless the merchant first discovered that the table scrolls sideways. Only the length
+       selector was visible.
+
+       Pinning the wrapper to its container (see the WAVE-22 block in custom.css) put every control
+       on screen, and MEASURED the cost: the bar grew 77px -> 182px, which then became the tallest
+       band on the page and pushed the first order further down. So the controls are on screen AND
+       the bar is one row: the search field -- the control a merchant reaches for most -- stays
+       visible beside this toggle, and the length selector and the button group sit behind it.
+
+       NOTHING IS REMOVED. Every control keeps its place in the DOM, its order and its handlers;
+       the toggle is a real <button> with aria-expanded and an accessible name, so it is reachable
+       by keyboard and announced as a disclosure. Above 575.98px the toggle is display:none and the
+       bar is untouched, which is why the attribute is set unconditionally: the breakpoint lives in
+       CSS, so there is no width to re-check on resize or rotation.
+
+       WHY HERE AND NOT IN A BLADE VIEW. `.dataTable-top` does not exist in any view -- DataTables
+       builds it at run time -- so a server-rendered checkbox could not be placed inside it. The
+       bar is already entirely JavaScript, so this adds no dependency that was not already load
+       bearing, and if it never runs the bar renders exactly as the CSS leaves it: all controls
+       present, on screen, 182px tall. Degrades to usable, not to broken.
+    */
+    var ssControlBarSeq = 0;
+
+    function wireTableControlDisclosure(bar) {
+        if (!bar || bar.getAttribute('data-ss-controls')) {
+            return; // already wired -- init() and the observer can both reach the same bar
+        }
+
+        var hidden = bar.querySelectorAll('.dataTable-dropdown, .dt-buttons');
+        if (!hidden.length) {
+            return; // nothing to disclose, so no toggle: an empty one would be a lie
+        }
+
+        if (!bar.id) {
+            bar.id = 'ss-dt-top-' + (++ssControlBarSeq);
+        }
+
+        var name = (document.body && document.body.getAttribute('data-ss-label-table-options'))
+            || 'Table options';
+
+        var toggle = document.createElement('button');
+        toggle.type = 'button';
+        toggle.className = 'ss-dt-controls__toggle';
+        toggle.setAttribute('aria-expanded', 'false');
+        toggle.setAttribute('aria-controls', bar.id);
+        toggle.setAttribute('aria-label', name);
+        toggle.setAttribute('title', name);
+        toggle.innerHTML = '<i class="ti ti-adjustments-horizontal" aria-hidden="true"></i>';
+
+        toggle.addEventListener('click', function () {
+            var open = bar.getAttribute('data-ss-controls') === 'open';
+            bar.setAttribute('data-ss-controls', open ? 'closed' : 'open');
+            toggle.setAttribute('aria-expanded', open ? 'false' : 'true');
+        });
+
+        bar.setAttribute('data-ss-controls', 'closed');
+        bar.insertBefore(toggle, bar.firstChild);
+    }
+
+    /* DataTables initialises after DOMContentLoaded on most of these screens, so the bars do not
+       exist when init() runs. Observed rather than polled, and rather than hooked onto `draw.dt`,
+       which would make this file depend on jQuery for the first time. */
+    function observeTableControlBars() {
+        Array.prototype.forEach.call(
+            document.querySelectorAll('.dataTable-top'),
+            wireTableControlDisclosure
+        );
+
+        if (typeof MutationObserver !== 'function' || !document.body) {
+            return;
+        }
+
+        new MutationObserver(function (records) {
+            for (var i = 0; i < records.length; i++) {
+                var added = records[i].addedNodes;
+                for (var j = 0; j < added.length; j++) {
+                    var node = added[j];
+                    if (node.nodeType !== 1) {
+                        continue;
+                    }
+                    if (node.classList && node.classList.contains('dataTable-top')) {
+                        wireTableControlDisclosure(node);
+                    } else if (node.querySelectorAll) {
+                        Array.prototype.forEach.call(
+                            node.querySelectorAll('.dataTable-top'),
+                            wireTableControlDisclosure
+                        );
+                    }
+                }
+            }
+        }).observe(document.body, { childList: true, subtree: true });
+    }
+
     function init() {
         Array.prototype.forEach.call(
             document.querySelectorAll('form[data-ss-dirty-track]'),
@@ -1632,6 +1732,9 @@
         updateNotificationBadge();
         // P2-06-7. Delegated on the document, so it is wired once and survives re-render.
         wireFavouriteToggle();
+        // P2.5-WAVE-22. Wires the bars that already exist and watches for the ones DataTables
+        // builds after this point.
+        observeTableControlBars();
     }
 
     if (document.readyState === 'loading') {
@@ -1931,6 +2034,9 @@
         clearFormErrors: clearFormErrors,
         // P2-06-6. ColReorder is pointer-only; this is the keyboard path, built on
         // its own `colReorder.move()` so there is one mover and two ways to reach it.
-        wireColumnReorderKeys: wireColumnReorderKeys
+        wireColumnReorderKeys: wireColumnReorderKeys,
+        // P2.5-WAVE-22. Exposed so a screen that builds a DataTable from its own script can wire
+        // the control-bar disclosure without waiting for the observer.
+        wireTableControlDisclosure: wireTableControlDisclosure
     };
 })();

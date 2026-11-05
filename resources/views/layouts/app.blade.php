@@ -282,7 +282,7 @@
          The file guards itself against a second execution, because the opt-in partial is still
          included by dashboard.blade.php and attribute_option/index.blade.php and a repeated
          <script src> runs again rather than being skipped. --}}
-    <script defer src="{{ asset('js/store-syria-ds.js') }}?v=p02-7"></script>
+    <script defer src="{{ asset('js/store-syria-ds.js') }}?v=p02-8"></script>
 
     {{-- P2-A-02. THE DARK-MODE HOOK, in <head> and on every admin page.
 
@@ -380,7 +380,11 @@
 
 </head>
 
-<body class="{{ $themeColor ?? 'theme-3'}}">
+{{-- P2.5-WAVE-22: the one localised string the design-system script needs. It builds the
+     DataTables control-bar disclosure, and `.dataTable-top` does not exist in any view, so
+     the label cannot be written where the button is. Read with an English fallback, so a
+     layout that forgets it degrades to a named button rather than an unnamed one. --}}
+<body class="{{ $themeColor ?? 'theme-3'}}" data-ss-label-table-options="{{ __('Table options') }}">
     {{-- P2-01-11: restore the collapsed rail BEFORE the sidebar paints.
 
          This is inline and first-in-body rather than in store-syria-nav.js for

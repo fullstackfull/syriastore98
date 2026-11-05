@@ -5111,3 +5111,146 @@ a.ss-setup__item:focus-visible {
 .dataTables_processing {
     color: var(--ss-fg);
 }
+
+/* ---- P2.5-WAVE-22: the filter bar collapses on a phone, and the receipt does not -----------
+
+   MEASURED BEFORE, at 320x568, identically in all four combinations:
+
+       .dash-header            158px
+       .page-header             58px
+       form.ss-filterbar       427px   FOUR fields, three quarters of the screen
+       first data row at       814px   -- /order: 1293px -- ZERO rows above the fold
+
+   A list screen whose first screen carries no list is not a premium screen, whatever its
+   contrast ratios. This is the owner's Wave 22.
+
+   WHAT COLLAPSES AND WHAT DOES NOT. The FIELDS, the hint and the actions collapse. The
+   `.ss-filterbar__summary` receipt does NOT: it is the thing that says which filters are in
+   force, and its component's docblock exists because a silently narrowed list reads as lost
+   data. Collapsing the CONTROLS while the STATE stays on screen is the whole design -- it is
+   progressive disclosure, not hiding.
+
+   NOTHING IS REMOVED. Every filter, its hint, Apply and Clear are one keyboard-reachable control
+   away, and above 576px the control is `display: none` and the bar is exactly as it was.
+
+   THE RING IS MOVED TO THE LABEL BECAUSE THE INPUT IS CLIPPED. `.ss-visually-hidden` uses
+   `clip`, so the checkbox stays focusable -- and store-syria-a11y.css restores an outline for
+   `*:focus-visible`, which would therefore be drawn on a 1px box no keyboard user can see.
+
+   THE TARGET IS 44px, not the 24px WCAG 2.2 floor: this is a primary phone control and the
+   Apple HIG / Material figure is the one that fits a thumb.
+
+   Ratchet: Tests\Unit\Ui\FilterDisclosureTest. */
+
+/* Above the phone breakpoint the bar is untouched and the control does not exist on screen. */
+.ss-filterbar__disclosure { display: none; }
+
+@media (max-width: 575.98px) {
+    /* SIZED TO ITS CONTENT, not to the screen. The first version was `inline-size: 100%` and a
+       screenshot of the Arabic order list settled it: a full-width grey block read as the heaviest
+       thing above the table, heavier than «إنشاء طلب» -- the actual primary action -- which sits a
+       row above it at about half the width. That is an inverted hierarchy, and ui-ux-pro-max's
+       `primary-action` rule names it: one primary CTA per screen, secondary actions visually
+       subordinate. The target stays 44px tall, so nothing is lost but the weight. */
+    .ss-filterbar__disclosure {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: var(--ss-space-2);
+        inline-size: auto;
+        align-self: flex-start;
+        min-block-size: 2.75rem;
+        padding-inline: var(--ss-space-4);
+        border: 1px solid var(--ss-border);
+        border-radius: var(--ss-radius-md);
+        background: var(--ss-surface-sunken);
+        color: var(--ss-fg);
+        font-size: var(--ss-text-sm);
+        font-weight: var(--ss-weight-medium);
+        cursor: pointer;
+    }
+
+    .ss-filterbar__toggle:focus-visible + .ss-filterbar__disclosure {
+        outline: var(--ss-focus-width) solid var(--ss-focus-ring);
+        outline-offset: var(--ss-focus-offset);
+    }
+
+    /* One label at a time, so the control's ACCESSIBLE NAME states what it will do.
+       `display: none` content is excluded from the name computation, which is what makes this
+       work with no ARIA and no script. */
+    .ss-filterbar__disclosure-hide { display: none; }
+    .ss-filterbar__toggle:checked + .ss-filterbar__disclosure .ss-filterbar__disclosure-show { display: none; }
+    .ss-filterbar__toggle:checked + .ss-filterbar__disclosure .ss-filterbar__disclosure-hide { display: inline; }
+
+    /* Collapsed. The general sibling combinator is why the checkbox has to precede the fields in
+       the markup; the summary sits BEFORE it and is therefore untouched by every rule here. */
+    .ss-filterbar__toggle ~ .ss-filterbar__field,
+    .ss-filterbar__toggle ~ .ss-filterbar__hint,
+    .ss-filterbar__toggle ~ .ss-filterbar__actions { display: none; }
+
+    .ss-filterbar__toggle:checked ~ .ss-filterbar__field { display: flex; }
+    .ss-filterbar__toggle:checked ~ .ss-filterbar__hint { display: block; }
+    .ss-filterbar__toggle:checked ~ .ss-filterbar__actions { display: flex; }
+
+    /* With the fields gone the bar is one control tall, so its own padding is the only thing
+       still spending the screen. */
+    /* 8px, not 12px: collapsed the bar is a single 44px disclosure button, so the desktop
+       framing is padding around a control that no longer needs framing. MEASURED: 70px -> 60px on
+       every list screen that carries filters. */
+    .ss-filterbar { padding: var(--ss-space-2); gap: var(--ss-space-2); }
+    .ss-filterbar__saved { padding-block: var(--ss-space-2); }
+
+    /* COLLAPSED, THE BAR IS NOT A PANEL. A screenshot made the case: with the disclosure sized to
+       its content, the card's border and fill became a frame drawn around a frame -- a wide empty
+       white box holding one small grey button. The card earns its chrome when it holds four
+       fields, a hint and two actions; it does not when it holds a single control.
+
+       `:has()` IS A PROGRESSIVE ENHANCEMENT HERE, deliberately. Where it is unsupported the whole
+       rule is dropped and the bar keeps the framing it has today, which is merely less elegant --
+       never broken, never unreachable. That is the only reason it is acceptable to express a
+       visual state this way rather than in the markup. */
+    .ss-filterbar:has(.ss-filterbar__toggle:not(:checked)) {
+        padding: 0;
+        border: 0;
+        background: none;
+        box-shadow: none;
+    }
+
+    /* ---- The attention panel, measured at 264px on /order --------------------------------
+
+       MEASURED at 320x568: `section.ss-attention` 264px, of which the two
+       `.ss-attention__item` rows were 112px and 84px. The cost is the rule a few hundred lines
+       above, which gives the row's action its OWN FULL-WIDTH LINE -- and that rule's reasoning
+       is right and is kept in force here: letting the button wrap only when the text is long
+       made some rows inline and others stacked, which reads as a rendering fault.
+
+       SO THE ANSWER IS NOT TO LET IT WRAP, IT IS TO STOP IT NEEDING TO. A three-column grid --
+       count, text, action -- lays every row out identically whatever its text length, which is
+       the property the full-width rule was protecting, at a third of the height. The text wraps
+       inside its own column instead of pushing the button onto a new line.
+
+       THE PANEL IS NOT COLLAPSED. It is the one region that earns an accent bar and its whole
+       job is to be noticed; a merchant on a phone needs it as much as one on a laptop. Nothing
+       is removed, nothing is hidden, and the action stays a real link rather than becoming a
+       row-wide click target -- which its own component docblock refuses. */
+    .ss-attention { padding: var(--ss-space-3); }
+    .ss-attention__title { margin-block-end: var(--ss-space-2); }
+
+    .ss-attention__item {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        align-items: center;
+        column-gap: var(--ss-space-2);
+        row-gap: 0;
+    }
+
+    /* Overrides the full-width rule above -- same specificity, later in the file. The button
+       keeps its own 44px box; only its COLUMN changes. */
+    .ss-attention__item > .ss-btn {
+        flex: 0 0 auto;
+        justify-content: center;
+        min-block-size: 2.75rem;
+        white-space: nowrap;
+    }
+}
+/* end P2.5-WAVE-22 */
