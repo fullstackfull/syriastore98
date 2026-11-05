@@ -44,7 +44,7 @@
                                         {{ Form::label('checkall-' . strtolower($module), 'Assign ' . Module_Alias_Name($module) . ' Permission to Roles', ['class' => 'form-check-label pointer']) }}
                                     </small>
                                     <div class="table-responsive role-data-table">
-                                    <table class="table table-striped mb-0  mt-3" id="dataTable-1">
+                                    <table class="table ss-table mb-0 mt-3" id="dataTable-1">
                                         <thead>
                                             <tr>
                                                 <th>
