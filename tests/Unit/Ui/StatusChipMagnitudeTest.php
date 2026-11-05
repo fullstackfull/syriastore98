@@ -105,11 +105,29 @@ class StatusChipMagnitudeTest extends TestCase
             $chip,
             'the share never reaches CSS'
         );
+        // THE HOOK IS THE STYLE ATTRIBUTE, NOT A CLASS (WAVE-9b). WAVE-3b first used an
+        // `ss-chip--metered` class and it broke two Feature tests that match the chip's exact
+        // class string -- a contract status-badge.blade.php documents. The meter is now driven
+        // by a `--ss-chip-share` custom property emitted only when a share is passed, so a
+        // share-less chip is byte-identical to before and the class string is untouched.
         $this->assertStringContainsString(
-            'ss-chip--metered',
+            "is_null(\$ssShare) ? '' :",
             $chip,
-            'there is no class distinguishing a metered chip, so the meter would apply to every chip '
-                . 'in the product including the filter toggles'
+            'a chip with no share must emit no style attribute, or every chip in the product '
+                . 'gets a (0%) meter including the filter toggles'
+        );
+
+        // AGAINST THE CODE, NOT THE COMMENT. The chip's own doc-comment explains the WAVE-9b
+        // history by NAMING `ss-chip--metered`, so a raw not-contains check fails on the prose
+        // describing the very thing it forbids -- the sixth time in this project a detector has
+        // counted documentation as code. Strip the Blade `{{-- --}}` and PHP `/* */` comments
+        // first; what is left is the markup and the @php logic.
+        $chipCode = (string) preg_replace(['/\{\{--.*?--\}\}/s', '~/\*.*?\*/~s'], '', $chip);
+        $this->assertStringNotContainsString(
+            'ss-chip--metered',
+            $chipCode,
+            'the meter is back to a class, which changes the chip class string the dashboard and '
+                . 'finance Feature tests match exactly'
         );
     }
 
@@ -135,18 +153,18 @@ class StatusChipMagnitudeTest extends TestCase
         // `var(--ss-chip-share, 0%)` -- which is the BETTER declaration, since a metered chip
         // whose style attribute is stripped then renders no bar rather than an auto-width one.
         $this->assertMatchesRegularExpression(
-            '/\.ss-chip--metered::after[^{]*\{[^}]*width:\s*var\(--ss-chip-share[,)]/s',
+            '/\.ss-chip\[style\*="--ss-chip-share"\]::after[^{]*\{[^}]*width:\s*var\(--ss-chip-share[,)]/s',
             $decls,
             'the meter does not take its width from the share'
         );
         $this->assertMatchesRegularExpression(
-            '/\.ss-chip--metered::after[^{]*\{[^}]*height:\s*\d/s',
+            '/\.ss-chip\[style\*="--ss-chip-share"\]::after[^{]*\{[^}]*height:\s*\d/s',
             $decls,
             'the meter has no explicit height, so it is not an edge bar'
         );
         // A background fill on the chip itself is the treatment this deliberately avoids.
         $this->assertDoesNotMatchRegularExpression(
-            '/\.ss-chip--metered\s*\{[^}]*linear-gradient/s',
+            '/\.ss-chip\[style\*="--ss-chip-share"\]\s*\{[^}]*linear-gradient/s',
             $decls,
             'the chip is filled with a gradient, which puts its label on two surfaces at once'
         );
@@ -163,7 +181,7 @@ class StatusChipMagnitudeTest extends TestCase
             'the meter is anchored with a physical property, so it grows from the wrong edge in RTL'
         );
         $this->assertDoesNotMatchRegularExpression(
-            '/\.ss-chip--metered::after[^{]*\{[^}]*[^-]left:/s',
+            '/\.ss-chip\[style\*="--ss-chip-share"\]::after[^{]*\{[^}]*[^-]left:/s',
             $decls,
             'a physical `left` on the meter hard-codes LTR'
         );

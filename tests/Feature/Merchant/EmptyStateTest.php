@@ -133,7 +133,13 @@ class EmptyStateTest extends TestCase
         $start = strpos($helper, 'function buildDataTable(');
         $this->assertNotFalse($start, 'premise: buildDataTable was renamed');
 
-        $body = substr($helper, $start, 4000);
+        // BOUNDED BY THE NEXT FUNCTION, NOT A FIXED 4000 CHARS. P2.5-WAVE-8 and WAVE-9 added
+        // `processing`, `infoEmpty`, `infoFiltered` and `loadingRecords` (with comments) to this
+        // language block ABOVE `emptyTable`, pushing it from ~3800 to char 4157 -- past the old
+        // window, so the assertion failed although `emptyTable` is still passed. The window now
+        // ends at the next `function ` declaration, so it cannot be outrun by the block growing.
+        $next = strpos($helper, "\n    function ", $start + 10);
+        $body = $next === false ? substr($helper, $start) : substr($helper, $start, $next - $start);
         $body = (string) preg_replace('~/\*.*?\*/~s', '', $body);
         $body = (string) preg_replace('~^[ \t]*//.*$~m', '', $body);
 

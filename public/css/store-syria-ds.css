@@ -4968,29 +4968,32 @@ a.ss-setup__item:focus-visible {
    directive's own rule that colour must never be the sole carrier. A bar replacing "(55)" would
    be a regression wearing a chart.
 
-   OPT-IN. Only `.ss-chip--metered` is affected, so the filter toggles and every other chip in the
+   OPT-IN, AND DRIVEN BY THE STYLE ATTRIBUTE NOT A CLASS (P2.5-WAVE-9b -- the class broke two
+   Feature tests that match the chip's exact class string, which status-badge.blade.php documents as
+   a contract). Only a chip carrying a `--ss-chip-share` custom property is affected, so the filter
+   toggles and every other chip in the
    product are untouched -- a chip cannot compute its own share, only a caller holding the whole
    distribution can. */
 
-.ss-chip--metered {
+.ss-chip[style*="--ss-chip-share"] {
     --ss-chip-meter: #335da8;
     position: relative;
     overflow: hidden;
 }
 
-[data-ss-theme="dark"] .ss-chip--metered {
+[data-ss-theme="dark"] .ss-chip[style*="--ss-chip-share"] {
     --ss-chip-meter: #6e93d8;
 }
 
 @media (prefers-color-scheme: dark) {
-    [data-ss-theme="auto"] .ss-chip--metered {
+    [data-ss-theme="auto"] .ss-chip[style*="--ss-chip-share"] {
         --ss-chip-meter: #6e93d8;
     }
 }
 
 /* `inset-inline-start`, so the meter grows from the reading edge in both directions. A physical
    `left` would strand every bar on the wrong side of the Arabic dashboard. */
-.ss-chip--metered::after {
+.ss-chip[style*="--ss-chip-share"]::after {
     content: "";
     position: absolute;
     inset-block-end: 0;
@@ -5009,7 +5012,7 @@ a.ss-setup__item:focus-visible {
 }
 
 /* A zero-count chip gets no bar at all rather than a 0%-wide one: the absence is the reading. */
-.ss-chip--metered[style*="--ss-chip-share: 0%"]::after {
+.ss-chip[style*="--ss-chip-share: 0%"]::after {
     display: none;
 }
 
