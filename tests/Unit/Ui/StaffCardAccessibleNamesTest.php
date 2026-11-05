@@ -589,10 +589,26 @@ class StaffCardAccessibleNamesTest extends TestCase
     {
         $kebab = $this->kebab();
 
-        $this->assertSame(1, preg_match('/<i class="feather icon-more-vertical" aria-hidden="true">/', $kebab),
+        /*
+         * THE ATTRIBUTE IS THE SUBJECT; THE CLASS LIST IS NOT. This asserted the exact string
+         * `<i class="feather icon-more-vertical" aria-hidden="true">` and went red in
+         * P2.5-WAVE-4b, which retired Feather and made the glyph `ti ti-dots-vertical`. The
+         * `aria-hidden` never moved and the defect this test guards never returned.
+         *
+         * That is the second time in this file a presentational detail has been pinned as though
+         * it were the finding -- the page-heading premise above asserted a class list for the
+         * same reason and was relaxed for the same reason. The ORIGINAL defect is family-neutral
+         * and the comment below says so: Tabler draws its glyphs through CSS `content` exactly as
+         * Feather did, so `aria-hidden` on the `<i>` is still load-bearing whatever the family.
+         */
+        $this->assertSame(1, preg_match('/<i class="[^"]*"\s+aria-hidden="true">/', $kebab),
             'the kebab\'s <i> still lacks aria-hidden. With the button named this is no longer the '
             . 'whole name, but it is still a name source: strip the aria-label and it reappears, '
-            . 'and any descendant-driven recomputation picks U+E89A back up.');
+            . 'and any descendant-driven recomputation picks the glyph back up.');
+
+        $this->assertMatchesRegularExpression('/<i class="ti ti-[a-z-]+"/', $kebab,
+            'the kebab glyph is not from the house icon family (Tabler); IconFamilyCoherenceTest '
+            . 'pins the census, and this keeps THIS control from drifting back');
 
         /*
          * BOTH halves have to come off for the glyph to return: `aria-label` wins at step 2C
@@ -601,8 +617,15 @@ class StaffCardAccessibleNamesTest extends TestCase
          */
         $bare = (string) preg_replace('/\s+aria-label="[^"]*"/', '', $kebab, 1);
 
+        // THE GLYPH THE MARKUP ACTUALLY CARRIES. P2.5-WAVE-4b retired Feather, so asking for
+        // `icon-more-vertical` asks for a class the kebab no longer has: the model returned the
+        // Feather codepoint U+E89A while the page computes nothing, and the two empty-looking
+        // strings differed by an invisible Private-Use character. `glyph()` already reads BOTH
+        // stylesheets, so it finds `.ti-dots-vertical:before { content: "\ea94" }` unchanged --
+        // the mechanism is identical, which is the whole point: Tabler leaks a generated glyph
+        // into the accessible name exactly as Feather did.
         $this->assertSame(
-            $this->glyph('icon-more-vertical'),
+            $this->glyph('ti-dots-vertical'),
             $this->accessibleName($bare, dropAriaHidden: true),
             'stripping BOTH halves of the repair no longer reproduces the pre-repair name, so the '
             . 'model cannot see this half of the defect at all');
