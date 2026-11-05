@@ -45,13 +45,27 @@ const SCAN = () => {
     return 0.2126 * f(c[0]) + 0.7152 * f(c[1]) + 0.0722 * f(c[2]); };
   const ratio = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
 
+  // CLIPPED-AWAY TEXT IS NOT ON THE SCREEN, and a size check alone does not find it. The
+  // visually-hidden idiom is `position:absolute; width:1px; height:1px; clip:rect(0,0,0,0)` --
+  // but a container's own sizing can override the 1px and leave only the CLIP doing the hiding.
+  // MEASURED: the pagination's screen-reader labels compute 35x35, because the pager sizes its
+  // children, while `clip: rect(0px, 0px, 0px, 0px)` still paints nothing -- confirmed against
+  // the rendered pixels, which show chevrons and an active "1" and no stray words. Without this,
+  // this tool reported 8 "failures" that are invisible by design, every one of them a label this
+  // phase added on purpose. The audit tool has carried the same check from the start.
+  const clippedAway = (cs) => cs.clip === 'rect(0px, 0px, 0px, 0px)'
+    || /inset\(\s*50%/.test(cs.clipPath || '')
+    || (cs.clipPath || '') === 'circle(0px)';
+
   const out = [];
   for (const el of document.querySelectorAll('*')) {
     if (![...el.childNodes].some(n => n.nodeType === 3 && n.textContent.trim())) continue;
+    if (el.closest('.visually-hidden, .sr-only, .ss-visually-hidden')) continue;
     const r = el.getBoundingClientRect();
     if (r.width < 2 || r.height < 2) continue;
     const cs = getComputedStyle(el);
     if (cs.visibility === 'hidden' || cs.display === 'none' || parseFloat(cs.opacity) <= 0.05) continue;
+    if (clippedAway(cs)) continue;
     const fg = parse(cs.color).slice(0, 3); if (fg.length < 3) continue;
     const bg = paintedBg(el);
     const size = parseFloat(cs.fontSize);

@@ -414,3 +414,53 @@ from here.** Under the owner's escalation rules this is theirs to decide.
 **What it does not touch:** no application code reads `public/storage` directly; the path is
 produced by `Storage::url()` and `asset()`.
 
+
+### F-DESIGN-8 — every screen audit this phase ran against a merchant holding 50 of 202 permissions, so half the UI was never measured
+
+Found while trying to reproduce the open item *"the 500 on a valid product-brand / product-label
+create"*. **That premise does not reproduce**, and the reason explains something larger.
+
+**What is actually there.** The dev fixture's owner role, `p2dev-owner`, was hand-built with **44**
+permissions. `Create Product Brand` is not among them — and the index view gates its create button
+on `@permission('Create Product Brand')`, so **no create control renders at all**, and
+`ProductBrandController::store()` refuses anything posted directly. UI and handler agree; there is
+no 500 and no silent failure in the real flow.
+
+It is a **fixture** gap, not a product one: both permission lists in `Utility::addNewData()` — the
+product's own seeder — include `Create Product Brand`, so a real installation grants it.
+`database/p2dev.sqlite` is gitignored, so this never entered the repository.
+
+**The consequence for this phase's evidence, measured.** Granting the role the full defined set
+(44 → 202) and reloading:
+
+| screen | controls before | controls after |
+|---|---:|---:|
+| `/customer` | 65 | **139** |
+| `/order` | 121 | **185** |
+| `/product-brand` | — | 124, of which 15 create-type |
+
+**More than half the merchant UI was not rendering during every audit this phase ran.** 152
+permissions were ungranted, 31 of them `Create-*`, so every `@permission`-gated control — and the
+modals behind them — was absent from the contrast censuses, the accessible-name census and the
+screenshots.
+
+**Re-measured against the full set**, which is the useful half of this finding:
+
+| census | reduced UI | full UI |
+|---|---|---|
+| unnamed controls (`/customer /order /product-list /dashboard /finance` + brand + label) | 0 | **0** |
+| low-contrast text, 8 screens × 2 themes | 0 | **0** |
+
+So P2.5-DESIGN-E/F/G/I/J hold across the whole merchant UI, not only the part that was rendering.
+**The earlier figures were not wrong, they were narrow**, and they are now superseded by wider ones.
+
+**One instrument was corrected to get there.** `census-low-contrast-text.cjs` reported 8 failures
+at 1.33:1 on `span.ss-visually-hidden` carrying `Previous`/`Next` — labels P2.5-DESIGN-J added on
+purpose. They are invisible: `clip: rect(0px, 0px, 0px, 0px)`. The size check alone misses them
+because the pager **sizes its own children**, so the spans compute 35×35 and only the clip hides
+them — confirmed against the rendered pixels, which show two chevrons and an active `1` and no
+stray words. The census is now clip-aware, as `audit-merchant-screens.cjs` already was.
+
+**Not changed:** nothing in the repository. The fixture is gitignored and was corrected locally so
+future measurement sees the whole application.
+
