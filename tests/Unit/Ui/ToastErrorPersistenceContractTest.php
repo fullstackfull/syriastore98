@@ -305,7 +305,16 @@ class ToastErrorPersistenceContractTest extends TestCase
     public function test_no_stylesheet_is_touched_and_no_new_toast_component_appears(): void
     {
         foreach (['public/css/store-syria-ds.css', 'public/css/custom.css', 'public/css/rtl-custom.css'] as $css) {
-            $sheet = $this->read($css);
+            /* DECLARATIONS, NOT BYTES (P2.5-WAVE-23). This counted raw occurrences and reddened on
+               a COMMENT -- the phone-overflow block records, in prose, why `.notifier-container`
+               was investigated as a cause of page overflow and then deliberately left alone: it
+               is `position: fixed`, `width: 400px; max-width: 98%`, empty, and hiding it changed
+               scrollWidth by nothing on all five affected screens. A comment cannot style
+               anything, so stripping comments does not weaken this guarantee -- it makes the
+               assertion say what its own name says. FOURTH time a test in this project has failed
+               on its own explanation; the others were ModalFooterButtonContrastTest,
+               ModalFooterDividerAlignmentTest and FocusIndicatorRestorationTest. */
+            $sheet = (string) preg_replace('#/\*.*?\*/#s', '', $this->read($css));
 
             $this->assertSame(0, preg_match_all('~notifier~i', $sheet),
                 $css . ' now styles the notifier. This slice changes no CSS: a toast restyle is a '

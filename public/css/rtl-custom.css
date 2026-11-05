@@ -5752,5 +5752,74 @@ html[data-ss-theme="dark"] body p:not(.text-muted):not([class^="ss-"]):not([clas
     .ss-attention { margin-block-end: var(--ss-space-3, 12px) !important; }
     .ss-filterbar { margin-block-end: var(--ss-space-2, 8px) !important; }
     .ss-filterbar__saved { margin-block-end: var(--ss-space-2, 8px) !important; }
+
+    /* ============================================================================================
+       P2.5-WAVE-23 — the two things that still pushed the PAGE sideways at 320px.
+       MEASURED by sweeping all 24 destinations the merchant's sidebar offers: 5 of 21 list
+       screens had documentElement.scrollWidth > clientWidth, which Wave 21 defined as always a
+       defect (a table scrolling inside its own container is not).
+       -------------------------------------------------------------------------------------------- */
+
+    /* 1. THE TOAST OVERLAY IS NOT TOUCHED HERE, and the reason is worth keeping.
+       MEASURED: `.notifier-container` is `position: fixed`, `width: 400px; max-width: 98%`, with
+       ZERO children and 8px of height on every merchant screen -- an empty overlay whose
+       percentage resolves against a containing block that tracks the document, so on a wide page
+       it widens further (400px at left 146 on /product-brand). It LOOKS like the cause and it is
+       not: hiding it changed scrollWidth by exactly nothing, on all five screens.
+
+       A clamp was written here and then REMOVED. ToastErrorPersistenceContractTest asserts that
+       no stylesheet styles the notifier, because a toast restyle is a separate sequencing item
+       that needs the mirrored pair AND a dark variant -- and shipping an unmeasured change to
+       satisfy a hunch is exactly what this project's measuring discipline exists to stop.
+
+       The observation is handed over rather than acted on: when a toast IS present, a 400px
+       container in a 320px window puts part of it off-screen. That belongs to the slice that owns
+       the toast, with its own measurement of a toast actually rendered. */
+
+    /* 2. The chart legend chips on the three sale-report screens. MEASURED: four
+       `button.ss-chip.chart-data` at left=55, width 299, right=354 in a 320px viewport -- in
+       normal flow, so they push the page itself rather than scrolling inside anything. */
+    .ss-chip.chart-data {
+        max-inline-size: 100%;
+        min-inline-size: 0;
+        white-space: normal;
+        overflow-wrap: anywhere;
+    }
+
+    /* 3. AND THE ONE THAT ACTUALLY DID IT on the sale-report screens -- the chips above were a
+       passenger, which measuring proved: clamping them removed them from the over-edge list and
+       left scrollWidth at 354 exactly. The real cause is one level up. `.ss-toolbar` is 250px
+       wide at x=35, correct, and `.ss-field` inside it renders 299px wide at x=55 -- it overflows
+       its own parent by 69px, and `.ss-toolbar` is `overflow-x: visible`, so that reaches the
+       page. A flex item defaults to `min-width: auto`, which refuses to shrink below its content,
+       and the content is a date input carrying an intrinsic width. */
+    .ss-toolbar { flex-wrap: wrap; }
+    .ss-toolbar > .ss-field,
+    .ss-toolbar .ss-field {
+        min-inline-size: 0;
+        max-inline-size: 100%;
+    }
+    .ss-toolbar .ss-field > .ss-input,
+    .ss-toolbar .ss-field > .ss-select { inline-size: 100%; min-inline-size: 0; }
+
+    /* 4. /product-brand and /product-label: scrollWidth 550 and 342 in a 320px viewport with NOT
+       ONE visible box past the edge -- the notifier was already clamped to 304, the scroller was
+       already scrolling internally (clientWidth 250, scrollWidth 634), body and footer were both
+       320. The overflow was in the document's scrollable-overflow region, not in anything a
+       rectangle sweep could point at.
+
+       THREE HYPOTHESES WERE MEASURED AND REFUTED before this one: the empty `.notifier-container`
+       (hiding it changed nothing), the chart chips (clamping them left scrollWidth at 354
+       exactly), and the sticky actions column (`position: static !important` on `.ss-col-locked`
+       left it at 550). `contain: paint` on the scroller took /product-brand 550 -> 320 and
+       /product-label 342 -> 320, and left /product -- which never overflowed -- at 320.
+
+       WHY IT IS SAFE HERE, and the concern is real: `contain: paint` makes the element a
+       containing block for absolutely positioned descendants, so one could now be clipped where
+       it used to escape. Inside this scroller the only absolutely positioned descendants MEASURED
+       are two `.ss-visually-hidden` spans, and `overflow-x: auto` already forces `overflow-y` to
+       a non-visible value, so anything that paints outside is already cut today. It is scoped to
+       phone width, where that scroller is 250px wide and nothing useful could escape it anyway. */
+    .ss-dt-card-body > .table-responsive { contain: paint; }
 }
 /* end P2.5-WAVE-22 */
