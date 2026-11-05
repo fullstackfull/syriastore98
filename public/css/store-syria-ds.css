@@ -3510,8 +3510,35 @@ a.ss-setup__item:focus-visible {
 @media (max-width: 575.98px) {
     .ss-page-header { flex-direction: column; align-items: stretch; }
     .ss-page-header__actions .ss-btn { flex: 1 1 auto; }
-    .ss-toolbar { flex-direction: column; align-items: stretch; }
+    /* P2.5-WAVE-24. A WRAPPING ROW, NOT A COLUMN -- and the column is kept as the default for
+       every child, so nothing that relied on it changes.
+
+       `flex-direction: column` made every toolbar child full width, which is right for a search
+       box and a filter group and wrong for the four period chips of the report picker: four
+       mutually exclusive options are ONE choice, and stacking them reads as four separate
+       controls. MEASURED on /Brand-order-sale-reports at 320px: four 210px pills, one per line,
+       164px of them. A `flex-basis` written against the old column had no effect whatsoever,
+       because in a column the main axis is vertical -- which is why this rule is here rather than
+       in custom.css, where it was first written and measured as dead. */
+    .ss-toolbar {
+        flex-direction: row;
+        flex-wrap: wrap;
+        align-items: stretch;
+        padding: var(--ss-space-3);
+        gap: var(--ss-space-2);
+    }
+
+    .ss-toolbar > * { flex: 1 1 100%; }
     .ss-toolbar__filters > * { flex: 1 1 auto; }
+
+    /* The four report periods, two-up. ~136px per cell, which fits "Last 7 days", the longest of
+       the four. The date field and Generate keep their own line above: they are a different kind
+       of control, and sharing a row would say they belong to the period beside them. */
+    .ss-toolbar .ss-chip.chart-data {
+        flex: 1 1 calc(50% - var(--ss-space-2));
+        min-block-size: 2.75rem;
+        justify-content: center;
+    }
     .ss-card__body { padding: var(--ss-space-4); }
     .ss-table th, .ss-table td { padding-inline: var(--ss-space-3); }
     .ss-dialog__footer { flex-direction: column-reverse; }

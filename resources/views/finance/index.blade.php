@@ -46,8 +46,13 @@
 @section('content')
 
 {{-- الإحصائيات والأزرار العلوية --}}
-<div class="row">
-    <div class="d-flex gap-2 mb-3 flex-wrap">
+{{-- P2.5-WAVE-24: two scoped hooks, so the phone rules do not have to target `.d-flex.gap-2` or
+     `.col-xl.col-md-6`, which appear all over the admin. MEASURED at 320x568 before them: these
+     four buttons stacked one per line at four different widths (199, 148, 170, 206) for 196px, and
+     the five stat cards below them stacked at 102px each, putting the first ledger row at y=2131
+     on a 568px screen. --}}
+<div class="row ss-finance-overview">
+    <div class="d-flex gap-2 mb-3 flex-wrap ss-finance-actions">
         
         {{-- ✅ زر طلب السحب --}}
         @if(auth()->user()->isAbleTo('Request Finance Withdrawal'))

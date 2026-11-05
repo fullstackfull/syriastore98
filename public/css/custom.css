@@ -5829,5 +5829,100 @@ html[data-ss-theme="dark"] body p:not(.text-muted):not([class^="ss-"]):not([clas
        a non-visible value, so anything that paints outside is already cut today. It is scoped to
        phone width, where that scroller is 250px wide and nothing useful could escape it anyway. */
     .ss-dt-card-body > .table-responsive { contain: paint; }
+
+    /* ============================================================================================
+       P2.5-WAVE-24 — the reports and finance family, which the list-screen work never reached.
+       MEASURED at 320x568 across every sidebar destination: these screens render a table but have
+       NO `.dataTable-top`, so every Wave 22 control-bar improvement missed them. Their first data
+       rows: /finance 2131, /category-order-sale-reports 1543, /Brand-order-sale-reports 1496,
+       /product-order-sale-reports 1358, /stock-reports 684, /order-country-reports 598,
+       /Status-reports 558 -- all with ZERO rows visible.
+
+       They are ANALYTICS screens, not list screens: the table is a detail panel under a chart, so
+       the chart and the filters legitimately come first. What does not is a desktop multi-column
+       grid stacking into a tall single column on a phone.
+       -------------------------------------------------------------------------------------------- */
+
+    /* 1. The shared report period picker, used by reports/index and the three sale-by screens.
+       MEASURED: four mutually exclusive period options rendered as four FULL-WIDTH pills, one per
+       line, about 41px each. Four options that are one choice read as a group, not a stack, so
+       they go two-up -- 164px of pills becomes ~96px and every label still fits at ~136px wide
+       ("Last 7 days" is the longest). The date field and Generate keep their own full line,
+       because they are a different kind of control and sharing a row with a period would say they
+       belong to it. */
+    /* NOT HERE: the `.ss-toolbar` rules. They were written in this sheet first and MEASURED as
+       dead -- `store-syria-ds.css` loads AFTER this one, and it already carries
+       `.ss-toolbar { flex-direction: column }` at this breakpoint, which makes the main axis
+       VERTICAL so a `flex-basis` of 50% means nothing at all. The pills stayed 210px wide, one per
+       line, and the padding stayed 16px/20px. They now live in that sheet, beside the rule they
+       have to argue with. Same trap as Wave 22's `.ss-filterbar`, hit twice. */
+
+    /* 2. /finance's action row. MEASURED: four permission-gated buttons at four different widths,
+       each on its own line, 196px in total, and reading as four different levels of importance
+       because they carry four different Bootstrap variants. Two-up with a shared width makes them
+       one group of actions; the variants are left alone, because which of them is primary is a
+       product decision and not a layout one. */
+    /* THE HOOK IS `ss-finance-actions`, AND THE FIRST NAME I GAVE IT WAS A BUG.
+       It was `ss-actionbar` -- a class that ALREADY EXISTS in this design system as the sticky
+       action bar (`components/ss/actionbar.blade.php`, `store-syria-ds.css:2442`, with
+       `__status` and `__actions` children, a box-shadow and `flex-direction: column` at this very
+       breakpoint). So the finance row silently inherited a different component's layout, and the
+       rules written here to correct it would have changed that component everywhere it is used.
+
+       THE SYMPTOM IS WORTH REMEMBERING because it cost four refuted hypotheses: every declaration
+       applied -- `flex: 1 1 calc(50% - 8px)`, `white-space: normal`, `min-width: 0` all read back
+       correctly off the element -- and the layout ignored all of them, because in a COLUMN
+       `flex-basis: 50%` is half the HEIGHT. The buttons came out 206px wide and 96px tall, two
+       columns overflowing a 320px window. What settled it was CSS.getMatchedStylesForNode, which
+       showed TWO `.ss-actionbar` rules at this breakpoint and the later one winning.
+
+       CHECK WHETHER A CLASS NAME IS TAKEN BEFORE INVENTING ONE. A grep would have cost seconds. */
+    .ss-finance-actions {
+        flex: 1 1 100%;
+        inline-size: 100%;
+        min-inline-size: 0;
+    }
+
+    .ss-finance-actions > .btn {
+        flex: 1 1 calc(50% - var(--ss-space-2, 8px));
+        justify-content: center;
+        text-align: center;
+        min-block-size: 2.75rem;
+        /* BOTH OF THESE ARE LOAD BEARING, and the first version had neither. `.btn` carries
+           `white-space: nowrap`, so its min-content width is the whole label -- 206px for
+           "Withdrawal Requests" -- and a flex item cannot shrink below min-content while
+           `min-width` is `auto`. MEASURED: the second column started at x=235 and ran to 441 in a
+           320px window, i.e. I introduced a page overflow on /finance while removing one
+           elsewhere. Wrapping the label is the honest fix; truncating it would hide which button
+           is which. */
+        min-inline-size: 0;
+        white-space: normal;
+    }
+
+    /* 3. /finance's stat cards. MEASURED: five cards at 102px each, of which about 50px is empty
+       space under the figure. They are NOT put two-up: a card would then be ~130px wide and a
+       real balance like 1,234,567.00 at `h3` size would not fit, which trades a height defect for
+       a truncation one. Instead each card becomes a single line -- label on one side, figure on
+       the other -- which keeps the full width for the number and still halves the height. */
+    .ss-finance-overview > [class*="col-"] .card-body {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: var(--ss-space-3, 12px);
+        padding: var(--ss-space-3, 12px) var(--ss-space-4, 16px);
+    }
+
+    .ss-finance-overview > [class*="col-"] .card-body > h6 {
+        margin-block-end: 0 !important;
+        min-inline-size: 0;
+    }
+
+    .ss-finance-overview > [class*="col-"] .card-body > h3 {
+        margin-block-end: 0;
+        white-space: nowrap;
+        font-size: var(--ss-text-xl, 1.25rem);
+    }
+
+    .ss-finance-overview > [class*="col-"].mb-4 { margin-block-end: var(--ss-space-2, 8px) !important; }
 }
 /* end P2.5-WAVE-22 */
