@@ -30,7 +30,8 @@ a colour I nominated. Across `/dashboard /finance /customer /order /product-list
 
 `/setting` alone contributed **20** — its entire tab rail, twenty labels at 2.22:1.
 
-Whole-screen audit, low-contrast findings in dark: **26 → 17**. Light is **identical to HEAD** on
+Whole-screen audit, low-contrast findings in dark: **26 → 17**, and the inactive
+pagination numbers gained a fix nobody asked for: **3.37:1 → 5.15:1**. Light is **identical to HEAD** on
 all six screens (1, 1, 1, 1, 2, 1).
 
 Images: `pair-setting--en-ltr-dark.png`, `pair-setting--ar-rtl-dark.png`,
@@ -65,8 +66,19 @@ re-measuring the running application after the change, not by review.
 | `.bg-white` | `/finance` hard-codes a **white card header inside a dark card**. The dark token on a white strip took a passing **6.42:1 to 3.07:1**. |
 | `:not(.active)` | An **active** tab sits on the brand fill, so its label is white via `--ss-onbrand`. Both arms hit it and the undo arm won: `rgb(51,93,168)` on `rgb(51,93,168)` — **the same colour twice, 1:1** — worse than anything this package set out to fix, on a tab that was correct at HEAD. Confirmed by re-measuring at HEAD rather than assumed. |
 
-The third one is the principle the other two are instances of: **the text colour follows the
-surface, not the theme.**
+| `:not(.page-link)` | Found **after** the package was committed, by the general census. The **active pagination number** sits on the brand fill: `rgb(255,255,255)` on `rgb(51,93,168)` at **6.42:1** before, `rgb(120,148,198)` on the same fill at **2.09:1** after — measured at the parent commit and at HEAD, not inferred. The *inactive* numbers keep the lift and are a genuine gain: **3.37:1 → 5.15:1**, a failure that was already there. |
+
+The third and fourth are instances of the first principle: **the text colour follows the surface,
+not the theme.**
+
+### My own probe could not see the fourth
+
+`find-brand-text-failures.cjs` looks for elements painting the **raw** brand colour. After the fix
+the regressed element paints the **lifted** colour, so the targeted tool reported "0 of 0" on the
+very screens carrying it. `census-low-contrast-text.cjs`, which groups *every* failing colour
+rather than hunting one, found it in the first run.
+
+**A probe built for a fix cannot validate that fix.** It is the instrument that agrees with you.
 
 ## 5. Two guards were vacuous and are repaired
 

@@ -294,7 +294,7 @@ class BrandTextOnDarkContrastTest extends TestCase
         preg_match('/(html\[data-ss-theme="dark"\]\s+body\s+\.dash-content\s+a[^,{\s]*)/', $rules, $arm);
         $this->assertCount(2, $arm, "{$rel}: premise: the plain-anchor arm exists and is scoped to .dash-content");
 
-        foreach ([':not(.btn)', ':not(.ss-btn)', ':not(.nav-link)'] as $exclusion) {
+        foreach ([':not(.btn)', ':not(.ss-btn)', ':not(.nav-link)', ':not(.page-link)'] as $exclusion) {
             $this->assertStringContainsString(
                 $exclusion,
                 $arm[1],
@@ -315,6 +315,43 @@ class BrandTextOnDarkContrastTest extends TestCase
         );
 
         $this->assertStringContainsString('.bg-white', $rules, "{$rel}: a light island inside dark mode keeps the LIGHT token.");
+    }
+
+    /**
+     * THE ACTIVE PAGINATION NUMBER SITS ON THE BRAND FILL, and it is the FOURTH element of this
+     * kind the rule swallowed. It was `rgb(255,255,255)` on `rgb(51,93,168)` at 6.42:1 before the
+     * package and came out `rgb(120,148,198)` on the same fill at **2.09:1** — measured at the
+     * parent commit and at HEAD, not inferred.
+     *
+     * MY OWN PROBE COULD NOT SEE IT. `find-brand-text-failures.cjs` looks for elements painting
+     * the RAW brand colour, and after the fix this one paints the LIFTED colour — so the targeted
+     * tool reported "0 of 0" on the very screens carrying the regression. The general census
+     * found it. A probe built for a fix cannot validate that fix.
+     *
+     * It is EXCLUDED from the anchor arm rather than undone by a later rule, because that arm
+     * carries four `:not()` classes and its specificity (0,5,3) beats any undo arm that names the
+     * element honestly. The INACTIVE numbers keep the lift: they measured 3.37:1 before this
+     * package — a failure that was already there — and reach 5.15:1 with it.
+     *
+     * @dataProvider sheets
+     */
+    public function test_the_active_pagination_number_keeps_its_white_on_the_brand_fill(string $rel): void
+    {
+        $css = $this->sheet($rel);
+
+        $this->assertStringContainsString(
+            '.page-item:not(.active) > .page-link',
+            $css,
+            "{$rel}: the lift must be scoped to INACTIVE page numbers. An active one is white on "
+            . 'the brand fill; the unscoped rule made it 2.09:1.'
+        );
+
+        $this->assertDoesNotMatchRegularExpression(
+            '/\.dash-content\s+a(?![^,{]*:not\(\.page-link\))[^,{]*\{/',
+            (string) preg_replace('#/\*.*?\*/#s', '', $css),
+            "{$rel}: the plain-anchor arm must exclude `.page-link`, or it reaches the active "
+            . 'pagination number sitting on the brand fill.'
+        );
     }
 
     /**

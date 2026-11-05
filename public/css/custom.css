@@ -5292,7 +5292,16 @@ html[data-ss-theme="dark"] body .text-primary,
 html[data-ss-theme="dark"] body .btn-outline-primary,
 html[data-ss-theme="dark"] body .nav-link:not(.active),
 html[data-ss-theme="dark"] body .nex-prev-btn-wrp .btn,
-html[data-ss-theme="dark"] body .dash-content a:not(.btn):not(.ss-btn):not(.nav-link) {
+html[data-ss-theme="dark"] body .dash-content a:not(.btn):not(.ss-btn):not(.nav-link):not(.page-link) {
+    color: var(--ss-brand-ontext-dark, var(--theme-color)) !important;
+}
+
+/* PAGINATION NUMBERS ARE SPLIT BY STATE, and the ACTIVE one is excluded above rather than undone
+   below because the anchor arm's specificity -- (0,5,3), four `:not()` classes -- beats any undo
+   arm that names the element honestly. An active page number sits on the BRAND FILL and is white
+   via the host; the INACTIVE ones sit on rgb(28,35,47) and measured 3.37:1 BEFORE this package,
+   which is a failure that was already there and that the lift repairs to 5.15:1. */
+html[data-ss-theme="dark"] body .page-item:not(.active) > .page-link {
     color: var(--ss-brand-ontext-dark, var(--theme-color)) !important;
 }
 
