@@ -5608,7 +5608,13 @@ html[data-ss-theme="dark"] body p:not(.text-muted):not([class^="ss-"]):not([clas
        which is the behaviour Wave 21 measured and deliberately left alone.
 
        NOTHING IS HIDDEN OR MOVED -- the same controls, in the same order, inside the viewport. */
-    .card.ss-dt-card .ss-dt-card-body > .table-responsive > .dataTables_wrapper {
+    /* NO `.card.ss-dt-card` PREFIX, and dropping it is a repair rather than a tidy-up.
+       MEASURED on /stock-reports: its card carries `card mb-3` while its BODY carries
+       `ss-dt-card-body`, so the prefixed form never matched and that screen's wrapper stayed
+       905px wide inside a 250px scroller -- its search input rendered at x=35 with a width of
+       314, i.e. 29px past the right edge of the window, exactly the defect this rule exists to
+       remove. The body class is the honest hook; the card class is not always beside it. */
+    .ss-dt-card-body > .table-responsive > .dataTables_wrapper {
         inline-size: 100%;
         min-inline-size: 0;
     }
@@ -5643,6 +5649,25 @@ html[data-ss-theme="dark"] body p:not(.text-muted):not([class^="ss-"]):not([clas
         gap: var(--ss-space-2, 8px);
         inline-size: 100%;
         min-inline-size: 0;
+    }
+
+    /* THE SEARCH FIELD, ON BOTH TABLE LAYOUTS. The `.dataTable-top` form below is the list
+       family's; /stock-reports and its siblings put the same control in a Bootstrap `.row`
+       inside the wrapper and have no `.dataTable-top` at all, so a rule scoped to that element
+       misses them. MEASURED there: the input rendered at x=35 with a width of 314 in a 320px
+       window -- 29px past the edge -- and pinning the wrapper alone did NOT fix it, because an
+       `<input>` carries an intrinsic width and nothing was telling it to shrink. */
+    .ss-dt-card-body .dataTables_filter { inline-size: 100%; min-inline-size: 0; }
+    .ss-dt-card-body .dataTables_filter label { display: block; inline-size: 100%; }
+    /* The long form is MEASURED, not decorative. The vendored theme carries
+       `div.dataTables_wrapper div.dataTables_filter input { width: auto }` at (0,2,3), and
+       `auto` on an <input> means its intrinsic size -- 314px here. The short selector
+       `.ss-dt-card-body .dataTables_filter input` is (0,2,1) and lost, which is why pinning the
+       wrapper alone left the field exactly as wide as before. */
+    .ss-dt-card-body div.dataTables_wrapper div.dataTables_filter input {
+        inline-size: 100%;
+        min-inline-size: 0;
+        box-sizing: border-box;
     }
 
     .card.ss-dt-card .ss-dt-card-body .dataTable-top .dataTables_filter { inline-size: 100%; }

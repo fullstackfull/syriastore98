@@ -16,11 +16,34 @@ use PHPUnit\Framework\TestCase;
  *     /Brand-order-sale-reports    1496 -> 1410      /Status-reports           558 (unchanged)
  *     /product-order-sale-reports  1358 -> 1272      /dashboard               1817 (unchanged)
  *
- * SAID PLAINLY: THIS IS A SMALLER WIN THAN WAVE 22, and the reason is not a missing idea. These
- * are ANALYTICS screens. The table is a detail panel under a chart, so the chart and the filters
- * legitimately come first, and most of the height above the first row is content a merchant came
- * for. What is NOT content is a desktop multi-column grid stacking into a tall single column, and
- * that is what this slice corrects.
+ * CORRECTION, MEASURED AFTER THE FACT AND RECORDED RATHER THAN OVERWRITTEN. The figures above
+ * are real but they do NOT mean what the first version of this docblock said they meant. On the
+ * four chart-report screens the table sits inside a `<details>` that is CLOSED on first paint,
+ * with the summary "Show the numbers":
+ *
+ *     document.scrollHeight on /Brand-order-sale-reports   closed 1513   open 2133
+ *     row.closest('details:not([open])')                   true
+ *     elementFromPoint at the row's centre                 hits a button, not the row
+ *
+ * `getBoundingClientRect` still reports a box for that row because Chromium keeps the last
+ * layout under `content-visibility: hidden` -- but the row is not rendered. So "first data row
+ * at 1410px" measured a row the merchant cannot see and is not meant to see. The metric is right
+ * for the LIST screens, where the table IS the content, and wrong for these, where the chart is
+ * and the table is an opt-in disclosure the project built deliberately -- the very
+ * progressive-disclosure pattern this phase was asked for, already present.
+ *
+ * A SECOND QUALIFICATION: the heights are a property of the DEV FIXTURE, not of the layout.
+ * `.ss-stats` emits one cell per brand or product plus a total row and is forced to one column
+ * at phone width -- measured 4 cells / 423px on /Brand-order-sale-reports against 2 cells /
+ * 212px on /product-order-sale-reports. A merchant with ten brands gets eleven stacked rows.
+ *
+ * WHAT SURVIVES, because it was measured independently of that premise: the three changes below
+ * all act on VISIBLE content. The period picker's four full-width pills (164px of real controls)
+ * going two-up, /finance's four stacked action buttons going two-up, and /finance's stat cards
+ * going to one line each. /finance carries no `<details>` at all -- 21 columns and a rendered
+ * table -- so its 2131 -> 1887 stands as stated.
+ *
+ * Full correction: docs/development/phase-2.5/PHASE-2.5-WAVE-24-CORRECTION-AR.md
  *
  * TWO CHANGES, both shared rather than per-screen:
  *
