@@ -133,7 +133,7 @@
                                         <h4 class="text-capitalize">{{ $value[0] }} ({{ __('Free Add-On') }}) </h4>
                                         @if(!in_array($value[0],['stylique', 'greentic', 'techzonix']))
                                                <a href="https://s3.ap-southeast-1.wasabisys.com/workdo-main-file.rajodiya/ecommercego/main_files/{{$value[0]}}/theme-addon/{{$value[0]}}.zip" target="_new" class="btn btn-outline-primary btn-sm" title="Free Download">{{ __('Free Download') }}
-                                                <!-- <i class="fa fa-download"
+                                                <!-- <i class="ti ti-download"
                                                         aria-hidden="true"></i> -->
                                                     </a>
                                             @endif

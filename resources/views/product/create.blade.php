@@ -391,7 +391,7 @@
                                         </div>
                                         <div class="col-auto">
                                             <a href="#" class="dropdown-item btn-badge" data-dz-remove>
-                                                <i class="fas fa-trash-alt"></i>
+                                                <i class="ti ti-trash"></i>
                                             </a>
                                         </div>
                                     </div>

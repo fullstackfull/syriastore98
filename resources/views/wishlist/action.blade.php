@@ -3,7 +3,7 @@
     <button aria-label="{{ __('Send Mail :thing', ['thing' => __('Wishlist')]) }}" class="ss-btn ss-btn--sm ss-btn--icon ss-btn--ghost bandonwish"
             data-size="md" data-id="{{$wishlist->id}}"  data-bs-toggle="tooltip"
             title="{{ __('Send Mail') }}">
-        <i class="fa fa-paper-plane"> </i>
+        <i class="ti ti-send" aria-hidden="true"> </i>
     </button>
 @endpermission
 

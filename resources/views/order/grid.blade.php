@@ -33,7 +33,7 @@
     @php
         /* THE STATUS LABEL. It is rendered as a labelled design-system badge in the card header
            below, so the status is now VISIBLE TEXT. It used to be the hue of an icon and nothing
-           else: Cancel was `fa fa-check text-danger` and Comfirmed `fa fa-check text-primary` --
+           else: Cancel was `ti ti-check text-danger` and Comfirmed `ti ti-check text-primary` --
            the SAME glyph, separated by a colour utility, which is WCAG 1.4.1. On the `theme-5`
            preset the merchant's own --theme-color is #b9406b, 5.5 hue-degrees from text-danger,
            so the two were not merely colour-dependent but the same colour; and measured in the

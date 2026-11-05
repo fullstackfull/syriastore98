@@ -32,7 +32,7 @@
                 <div class="d-flex justify-content-center">
                     @if($user->plan_id==$plan->id)
                     <span class="d-flex align-items-center badge bg-primary d-block p-2 position-absolute justify-content-center" style="top: 10px; right: 10px; border-radius:5px 0 0 5px">
-                        <i class="f-10 lh-1 fas fa-circle text-primary"></i>
+                        <i class="f-10 lh-1 ti ti-circle text-primary"></i>
                         <span class="ms-2">{{ __('Active')}}</span>
                     </span>
                     @else

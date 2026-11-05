@@ -322,7 +322,7 @@
                             <div class="row mt-2">
                                 <div class="col-md-6">
                                     <div class="form-group">
-                                        <i class="fab fa-google fs-3 me-1" aria-hidden="true"></i>
+                                        <i class="ti ti-brand-google fs-3 me-1" aria-hidden="true"></i>
                                         {{ Form::label('google_analytic', __('Google Analytic'), ['class' => 'form-label']) }}
                                         {{ Form::text('google_analytic', null, ['class' => 'form-control', 'placeholder' => 'UA-XXXXXXXXX-X']) }}
                                         @error('google_analytic')
@@ -335,7 +335,7 @@
 
                                 <div class="col-md-6">
                                     <div class="form-group">
-                                        <i class="fab fa-facebook-f fs-3 me-1" aria-hidden="true"></i>
+                                        <i class="ti ti-brand-facebook fs-3 me-1" aria-hidden="true"></i>
                                         {{ Form::label('facebook_pixel_code', __('Facebook Pixel'), ['class' => 'form-label']) }}
                                         {{ Form::text('fbpixel_code', null, ['class' => 'form-control', 'placeholder' => 'UA-0000000-0']) }}
                                         @error('facebook_pixel_code')
@@ -562,7 +562,7 @@
                                             aria-describedby="button-addon2" readonly>
                                         <div class="input-group-append">
                                             <button class="btn btn-outline-primary btn-badge" type="button"
-                                                onclick="myFunction()" id="button-addon2"><i class="far fa-copy"></i>
+                                                onclick="myFunction()" id="button-addon2"><i class="ti ti-copy"></i>
                                                 {{ __('Copy Link') }}</button>
                                         </div>
                                     </div>
@@ -594,7 +594,7 @@
                                             aria-describedby="button-addon2" readonly>
                                         <div class="input-group-append">
                                             <button class="btn btn-outline-primary btn-badge" type="button"
-                                                onclick="myFunction()" id="button-addon2"><i class="far fa-copy"></i>
+                                                onclick="myFunction()" id="button-addon2"><i class="ti ti-copy"></i>
                                                 {{ __('Copy Link') }}</button>
                                         </div>
                                     </div>

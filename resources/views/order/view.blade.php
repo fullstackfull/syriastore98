@@ -107,13 +107,13 @@
                                             <h5 class="dropdown-header text-wrap ss-menu__group" style="font-size: 14px;">{{ __('Set order status') }}</h5>
                                             @if ($order['order_status'] == 0 || $order['order_status'] == 8)
                                                 <a class="dropdown-item order_status ss-menu__item" href="#" data-value="confirmed">
-                                                    <i class="fa fa-check-circle text-success me-1" style="margin-left: -5px;"></i> {{ __(' Confirmed') }}
+                                                    <i class="ti ti-circle-check text-success me-1"></i> {{ __(' Confirmed') }}
                                                 </a>
                                                 @stack('AddOrderStatus')
                                             @endif
                                             @if ($order['order_status'] == 0 || $order['order_status'] == 4 || $order['order_status'] == 7 || $order['order_status'] == 8)
                                                 <a class="dropdown-item order_status ss-menu__item" href="#" data-value="pickedup">
-                                                    <i class="fa fa-truck text-success me-1" style="margin-left: -5px;"></i> {{ __(' Picked Up') }}
+                                                    <i class="ti ti-package text-success me-1"></i> {{ __(' Picked Up') }}
                                                 </a>
                                             @endif
                                             @if (
@@ -123,7 +123,7 @@
                                                     $order['order_status'] == 7 ||
                                                     $order['order_status'] == 8)
                                                 <a class="dropdown-item order_status ss-menu__item" href="#" data-value="shipped">
-                                                    <i class="fa fa-spinner text-success me-1" style="margin-left: -5px;"></i> {{ __(' Shipped') }}
+                                                    <i class="ti ti-truck-delivery text-success me-1"></i> {{ __(' Shipped') }}
                                                 </a>
                                             @endif
                                             @if (
@@ -134,7 +134,7 @@
                                                     $order['order_status'] == 7 ||
                                                     $order['order_status'] == 8)
                                                 <a class="dropdown-item order_status ss-menu__item" href="#" data-value="delivered">
-                                                    <i class="fa fa-check text-success me-1" style="margin-left: -5px;"></i> {{ __(' Delivered') }}
+                                                    <i class="ti ti-check text-success me-1"></i> {{ __(' Delivered') }}
                                                 </a>
                                             @endif
                                             @if (
@@ -144,7 +144,7 @@
                                                     $order['order_status'] == 7 ||
                                                     $order['order_status'] == 8)
                                                 <a class="dropdown-item order_status ss-menu__item ss-menu__item--danger" href="#" data-value="cancel">
-                                                    <i class="fa fa-check text-danger me-1" style="margin-left: -5px;"></i> {{ __(' Cancel Order') }}
+                                                    <i class="ti ti-ban text-danger me-1"></i> {{ __(' Cancel Order') }}
                                                 </a>
                                             @endif
                                             {{--
@@ -173,12 +173,12 @@
                                                     data-text-yes="{{ __('Yes') }}"
                                                     data-text-no="{{ __('No') }}"
                                                     aria-label="{{ __('Cancel and replace order :id', ['id' => $order['order_id'] ?? $order['id']]) }}">
-                                                    <i class="ti ti-refresh text-danger me-1" style="margin-left: -5px;" aria-hidden="true"></i> {{ __('Cancel and Replace') }}
+                                                    <i class="ti ti-refresh text-danger me-1" aria-hidden="true"></i> {{ __('Cancel and Replace') }}
                                                 </a>
                                             @endif
                                             @if ($order['order_status'] == 1 && $order['is_guest'] == 0)
                                                 <a class="dropdown-item order_status ss-menu__item ss-menu__item--danger" href="#" data-value="return">
-                                                    <i class="fa fa-check text-danger me-1" style="margin-left: -5px;"></i> {{ __(' Return Order') }}
+                                                    <i class="ti ti-arrow-back-up text-danger me-1"></i> {{ __(' Return Order') }}
                                                 </a>
                                             @endif
                                         </div>

@@ -28,15 +28,15 @@
                     <h6 class="dropdown-header">{{ __('Set Ticket status') }}</h6>
                     @if($ticket->status == 'open')
                         <a class="dropdown-item ticket_status" href="#" data-value="In Progress">
-                            <i class="fa fa-check text-success"></i> {{ __('In Progress') }}
+                            <i class="ti ti-check text-success"></i> {{ __('In Progress') }}
                         </a>
                         <a class="dropdown-item ticket_status" href="#" data-value="Solved">
-                            <i class="fa fa-check text-success"></i> {{ __('Solved') }}
+                            <i class="ti ti-check text-success"></i> {{ __('Solved') }}
                         </a>
                     @endif
                     @if($ticket->status == 'In Progress')
                         <a class="dropdown-item ticket_status" href="#" data-value="Solved">
-                            <i class="fa fa-check text-success"></i> {{ __('Solved') }}
+                            <i class="ti ti-check text-success"></i> {{ __('Solved') }}
                         </a>
                     @endif
                 </div>
@@ -84,7 +84,7 @@
 
                                     @foreach ($attachments as $index => $attachment)
                                         <li class="list-group-item px-0">
-                                            {{ $attachment }} <a download="" href="{{ get_file($attachment) }}" class="edit-icon py-1 ml-2" title="{{ __('Download') }}"><i class="fas fa-download ms-2"></i></a>
+                                            {{ $attachment }} <a download="" href="{{ get_file($attachment) }}" class="edit-icon py-1 ml-2" title="{{ __('Download') }}"><i class="ti ti-download ms-2"></i></a>
                                         </li>
                                     @endforeach
                                 </ul>
@@ -109,7 +109,7 @@
                                 <ul class="list-group list-group-flush">
                                     @foreach ($attachments as $index => $attachment)
                                     <li class="list-group-item px-0">
-                                        {{ $attachment }}<a download="" href="{{ get_file($attachment) }}" class="edit-icon py-1 ml-2" title="{{ __('Download') }}"><i class="fa fa-download ms-2"></i></a>
+                                        {{ $attachment }}<a download="" href="{{ get_file($attachment) }}" class="edit-icon py-1 ml-2" title="{{ __('Download') }}"><i class="ti ti-download ms-2"></i></a>
                                     </li>
                                     @endforeach
                                 </ul>

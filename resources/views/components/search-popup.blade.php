@@ -4,14 +4,14 @@
     <div class="flex justify-between items-center md:mb-5 mb-4">
         <h3 class="text-xl font-bold text-gray-800">{{__("Search Products")}}</h3>
         <button type="button" id="close-search" class="text-gray-500 hover:text-primary transition-colors">
-        <i class="fas fa-times text-xl"></i>
+        <i class="ti ti-x text-xl"></i>
         </button>
     </div>
 
     <div class="relative mb-6">
         <input type="text" id="search-input" placeholder="What are you looking for?" class="w-full form-input pe-10" />
         <button type="button" class="absolute ltr:right-4 rtl:left-4  top-3 flex">
-        <i class="fas fa-search text-gray-400"></i>
+        <i class="ti ti-search text-gray-400"></i>
         </button>
     </div>
     <button class="w-full btn-primary">{{ __('Search Now') }}</button>

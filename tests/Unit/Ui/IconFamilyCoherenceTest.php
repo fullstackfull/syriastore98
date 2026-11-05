@@ -50,10 +50,28 @@ class IconFamilyCoherenceTest extends TestCase
         'bootstrap' => '/class="[^"]*\bbi\s+bi-[a-z0-9-]+/',
     ];
 
-    /** MEASURED 2026-11-05. Lower these as the convergence lands; never raise them. */
-    private const CEILING_FONTAWESOME_FILES = 46;
+    /**
+     * MEASURED 2026-11-05, LOWERED THE SAME DAY BY P2.5-WAVE-15. Lower these as the convergence
+     * lands; never raise them.
+     *
+     *   fontawesome  46 -> 10 files
+     *   mixed        18 -> 0  files   (no merchant view mixes two icon families any more)
+     *
+     * THE TEN THAT REMAIN ARE ALL `vendor/installer/`, and they stay. They are the published
+     * Laravel-installer views -- a merchant never sees them after setup, they are not a Phase 2.5
+     * merchant surface, and rewriting a vendored installer's markup to win a coherence number
+     * would risk the one flow nobody can re-run easily. The ceiling of 10 pins them: it cannot
+     * grow, and if the installer views are ever retired it drops to 0.
+     *
+     * WHAT WAS CONVERTED: 66 uses across 38 app views, every target validated against
+     * `tabler-icons.min.css` BEFORE the edit -- three first choices (`ti-robot`, `ti-icons`,
+     * `ti-help-circle`) do not exist in the bundled font and were replaced by ones that do.
+     * `fas fa-robot` was the "Generate with AI" button, so it became `ti-wand` (generate), not a
+     * literal robot, because the glyph has to mean what the control does.
+     */
+    private const CEILING_FONTAWESOME_FILES = 10;
     private const CEILING_FEATHER_FILES = 0;
-    private const CEILING_MIXED_FILES = 18;
+    private const CEILING_MIXED_FILES = 0;
 
     private function root(): string
     {

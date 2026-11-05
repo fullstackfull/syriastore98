@@ -109,7 +109,7 @@
                                             <div class="input-group-append">
                                                 <button class="btn btn-outline-primary" type="button"
                                                     onclick="AppFunction()" id="button-addon2"><i
-                                                        class="far fa-copy"></i>
+                                                        class="ti ti-copy"></i>
                                                     {{ __('Copy Link') }}</button>
                                             </div>
                                         </div>
@@ -522,7 +522,7 @@
                                                                                                 data-toggle="tooltip"
                                                                                                 data-original-title="{{ __('Download') }}">
                                                                                                 <i
-                                                                                                    class="fas fa-download"></i>
+                                                                                                    class="ti ti-download"></i>
                                                                                             </a>
                                                                                         </div>
                                                                                         <div class="col-auto actions">
@@ -530,7 +530,7 @@
                                                                                                 class="action-item deleteRecord"
                                                                                                 data-name="{{ $file_pathh }}">
                                                                                                 <i
-                                                                                                    class="fas fa-trash"></i>
+                                                                                                    class="ti ti-trash"></i>
                                                                                             </a>
                                                                                         </div>
                                                                                     </div>
@@ -905,14 +905,14 @@
                                                                                                 href=" {{ get_file($file_pathh) }}"
                                                                                                 download="" data-toggle="tooltip"
                                                                                                 data-original-title="{{ __('Download') }}">
-                                                                                                <i class="fas fa-download"></i>
+                                                                                                <i class="ti ti-download"></i>
                                                                                             </a>
                                                                                         </div>
                                                                                         <div class="col-auto actions">
                                                                                             <a name="deleteRecord"
                                                                                                 class="action-item deleteRecord"
                                                                                                 data-name="{{ $file_pathh }}">
-                                                                                                <i class="fas fa-trash"></i>
+                                                                                                <i class="ti ti-trash"></i>
                                                                                             </a>
                                                                                         </div>
                                                                                     </div>

@@ -40,7 +40,7 @@
                 {{ Form::text('coupon_code', null, ['class' => 'form-control', 'required' => 'required', 'id' => 'auto-code', 'placeholder' => __('Generate Code')]) }}
             </div>
             <div class="col-md-2" id="autogerate_button">
-                <a href="#" class="btn btn-primary" id="code-generate"><i class="fas fa-history"></i></a>
+                <a href="#" class="btn btn-primary" id="code-generate"><i class="ti ti-history"></i></a>
             </div>
         </div>
     </div>

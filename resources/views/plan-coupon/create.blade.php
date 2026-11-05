@@ -18,7 +18,7 @@
         <div class="input-group">
             {{ Form::text('code', null, ['class' => 'form-control', 'id' => 'auto-code', 'required' => 'required', 'oninput'=>'this.value = this.value.toUpperCase()']) }}
             <button class="btn btn-outline-primary" type="button" id="code-generate"><i
-                    class="fa fa-history pr-1"></i>{{ __(' Generate') }}</button>
+                    class="ti ti-history pr-1"></i>{{ __(' Generate') }}</button>
         </div>
     </div>
     <div class="modal-footer pb-0">
