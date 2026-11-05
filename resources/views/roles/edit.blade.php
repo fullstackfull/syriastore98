@@ -1,5 +1,8 @@
 {{ Form::model($role, ['route' => ['roles.update', $role->id], 'method' => 'PUT']) }}
-<div class="modal-body">
+{{-- P2.5-WAVE-25: a scope for the permission grid, and the name was checked against the
+     sheets and the views before being used -- Wave 24 learned that lesson by colliding
+     with `.ss-actionbar`, an existing component. --}}
+<div class="modal-body ss-permission-matrix">
     <div class="row">
         <div class="form-group">
             {{ Form::label('name', __('Name'), ['class' => 'form-label']) }}<span class="ss-label__required" aria-hidden="true">*</span>

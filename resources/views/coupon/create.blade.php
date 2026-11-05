@@ -110,6 +110,15 @@
         </div>
     </div>
     <div class="form-group col-md-12">
+        {{-- P2.5-WAVE-25. THE ONLY FIELD IN THIS FORM WITH NO LABEL, and it is the coupon code --
+             the one value the merchant hands to a customer. Every other field here uses
+             `Form::label`; this one carried a PLACEHOLDER only, and a placeholder is not a label:
+             it disappears the moment anything is typed, it is not announced as the field's name,
+             and it fails WCAG 2.2 SC 3.3.2 and 4.1.2. MEASURED by opening the modal at 320px and
+             listing every control with no label[for], no aria-label and no wrapping label -- this
+             was the single real one; the other two the sweep flagged were `<input type="submit">`
+             and `<input type="button">`, which ARE named, by their `value`. --}}
+        {{ Form::label('auto-code', __('Coupon Code'), ['class' => 'form-label']) }}
         <div class="row">
             <div class="col-md-10" id="code_text">
                 <input class="form-control" name="coupon_code" type="text" id="auto-code"

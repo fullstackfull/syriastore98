@@ -1,6 +1,9 @@
 {{ Form::open(['route' => 'roles.store', 'method' => 'post']) }}
 
-<div class="row">
+{{-- P2.5-WAVE-25: the same scope as roles/edit, on this view's own root -- it has no
+     `.modal-body`, so the class goes on the first row instead. The name was checked against the
+     sheets and the views before being used. --}}
+<div class="row ss-permission-matrix">
     <div class="form-group">
         {{ Form::label('name', __('Name'), ['class' => 'form-label']) }}<span class="ss-label__required" aria-hidden="true">*</span>
         <div class="form-icon-user">

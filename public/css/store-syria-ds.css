@@ -5281,3 +5281,31 @@ a.ss-setup__item:focus-visible {
     }
 }
 /* end P2.5-WAVE-22 */
+
+
+/* ================================================================================================
+   P2.5-WAVE-25 — the role-permission grid's checkboxes are below the WCAG 2.2 target minimum.
+
+   MEASURED by opening /roles/1/edit and reading every checkbox in the modal:
+
+       123 checkboxes          122 at 16x16 CSS px, 1 at 18x18
+       SC 2.5.8 (AA) needs     24x24, OR centres at least 24px apart (the spacing exception)
+       closest pair of centres 23.0px
+       pairs under 24px        55 at a 320px viewport, 28 at 1440px
+
+   SO THE SPACING EXCEPTION DOES NOT RESCUE THEM, and it fails at BOTH widths -- which is why this
+   rule is not inside a phone media query. It misses by ONE pixel, and relying on 23-vs-24 would
+   be fragile anyway: a font change, a zoom step or a different locale's row height moves it.
+   Setting the target itself to 24px satisfies the criterion outright.
+
+   `1.5rem` rather than `24px` so it tracks the root font size: a merchant who enlarges text keeps
+   a proportionate target instead of a shrinking one.
+
+   WHY NOT A BIGGER TARGET. P2.5-DESIGN-K chose 44px for the row status switch, which is one
+   control on a row. This is a grid of 123, and 44px each would add roughly 900px to a modal that
+   already scrolls. 24px is the criterion, and for a dense matrix it is also the honest ceiling.
+   ================================================================================================ */
+.ss-permission-matrix input[type="checkbox"] {
+    inline-size: 1.5rem;
+    block-size: 1.5rem;
+}
