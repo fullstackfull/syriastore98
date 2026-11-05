@@ -129,7 +129,7 @@
                         <li>
                             <a class="ss-command__shortcut" href="{{ $ssAction['href'] }}"
                                data-ss-quick-action="{{ $ssActionName }}">
-                                <span aria-hidden="true">{{ $ssAction['glyph'] }}</span>
+                                <i class="ti {{ $ssAction['glyph'] }}" aria-hidden="true"></i>
                                 <span class="ss-command__shortcuttitle">{{ $ssAction['title'] }}</span>
                             </a>
                         </li>
