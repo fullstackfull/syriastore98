@@ -67,7 +67,12 @@ const SURFACES = [
   ['Create order', '/order/create'],
   ['Refund request list', '/refund-request'],
   ['Refund detail (CONTROL, verified)', '/refund-request/{refundEnc}'],
-  ['Printable receipt', '/order-receipt/{orderEnc}'],
+  // NAVIGATES AWAY BY DESIGN, and reading that as a refusal was this census's fifth wrong
+  // reading. `order/receipt.blade.php:294` calls `window.print()` and `:299`
+  // `window.history.back()` -- a printable document that prints itself and returns. The response
+  // is 200 with the receipt in it; the browser then leaves. A classifier keyed on "where did we
+  // land" called that REFUSED (back to dashboard), identically to a permission denial.
+  ['Printable receipt', '/order-receipt/{orderEnc}', { navigatesAway: true }],
   ['Printable shipping label', '/shippinglabel/pdf/{orderEnc}'],
   // --- CUSTOMERS
   ['Customer list (CONTROL, verified)', '/customer'],
@@ -185,7 +190,7 @@ function fixtureIds() {
                { cwd: path.dirname(STATE_TOOL), env: DEV_ENV, encoding: 'utf8' });
 
   const rows = [];
-  for (const [name, template] of SURFACES) {
+  for (const [name, template, opts] of SURFACES) {
     const missing = [...template.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).filter((k) => !ids[k]);
     if (missing.length) {
       rows.push({ surface: name, route: template, status: null, landed: null,
@@ -222,7 +227,11 @@ function fixtureIds() {
     });
 
     const redirected = landed !== url;
-    const kind = gotoFailed ? 'NAV FAILED'
+    // A page that prints itself and calls history.back() is NOT a refusal. The response status is
+    // what carries the verdict for one of those; where it navigates away we say so explicitly
+    // instead of inferring a denial from the landing path.
+    const kind = (opts && opts.navigatesAway && status === 200) ? 'PAGE (prints, then returns)'
+      : gotoFailed ? 'NAV FAILED'
       : status >= 500 ? 'HTTP ' + status
       : landed === '/dashboard' && url !== '/dashboard' ? 'REFUSED (back to dashboard)'
       : probe.dataNotFound ? 'DATA NOT FOUND (wrong id?)'
@@ -246,7 +255,7 @@ function fixtureIds() {
   const tally = rows.reduce((a, r) => { a[r.shape] = (a[r.shape] || 0) + 1; return a; }, {});
   console.log('\n' + Object.entries(tally).map(([k, v]) => `${k}=${v}`).join('  '));
 
-  const badControls = rows.filter((r) => r.surface.includes('CONTROL') && r.shape !== 'PAGE');
+  const badControls = rows.filter((r) => r.surface.includes('CONTROL') && !r.shape.startsWith('PAGE'));
   if (badControls.length) {
     console.log('\nCONTROLS DID NOT RENDER -- the session or fixture is wrong, not the screens:');
     for (const c of badControls) { console.log('  ' + c.surface + ' -> ' + c.shape); }

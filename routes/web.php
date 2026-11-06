@@ -1164,7 +1164,31 @@ Route::get(
         ->name('generate.response');
 
     // Customer Route
-    Route::resource('customer', CustomerController::class);
+    /*
+     * P2.5-PKG-C (F-C-04). `except(['edit','update'])`, because `CustomerController` has NEITHER
+     * METHOD and the resource was registering both anyway.
+     *
+     * MEASURED: `GET /customer/1/edit` answered HTTP 500,
+     * `BadMethodCallException: Method App\Http\Controllers\CustomerController::edit does not
+     * exist.` The coverage matrix already describes this surface as "registered, unimplemented" --
+     * but unimplemented here meant a 500 ERROR PAGE, not a 404, and a registered route that
+     * throws is a defect regardless of whether anything links to it.
+     *
+     * NOTHING LINKS EITHER ONE, verified rather than assumed: a repository-wide search for
+     * `customer.edit` and `customer.update` (any quoting, including the `'route' => ...` form that
+     * a `route('...')`-only grep would miss) returns no hit outside the Shopify and WooCommerce
+     * controllers, which have their own separate resources. For contrast the same search finds
+     * `customer.store` at `customer/create.blade.php:28`, so the method is sound.
+     *
+     * 404 IS THE CORRECT ANSWER for a screen that does not exist. This is the opposite call to
+     * F-SEC-07's -- there the routes stayed registered because a handler existed and had to start
+     * REFUSING; here there is no handler at all, so there is nothing to refuse with.
+     *
+     * WHETHER A MERCHANT SHOULD BE ABLE TO EDIT A CUSTOMER IS A SEPARATE, FUNCTIONAL QUESTION and
+     * is not answered here. Implementing it would be new merchant functionality, which Phase 2.5
+     * does not authorise; this change only stops the dead URL throwing.
+     */
+    Route::resource('customer', CustomerController::class)->except(['edit', 'update']);
     Route::get('/customer-filter', [CustomerController::class, 'CustomFilter'])->name('customer.filter');
     Route::get('/customer-filter-data', [CustomerController::class, 'CustomFilterData'])->name('customer.filter.data');
     /*

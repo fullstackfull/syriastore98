@@ -26,6 +26,27 @@ use Illuminate\Http\RedirectResponse;
 use Session;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Crypt;
+/*
+ * P2.5-PKG-C (F-C-05). THIS IMPORT WAS MISSING, AND IT MADE FOUR CATCH BLOCKS DEAD CODE.
+ *
+ * `OrderController.php` carries `catch (DecryptException $e)` at four sites -- 829 (order_view),
+ * 1170 (shippinglabel), 1193 (order_receipt) and 1871 (orderDetails) -- all UNQUALIFIED. An
+ * unqualified class name in a catch resolves against the current namespace, so every one of them
+ * named `App\Http\Controllers\DecryptException`. MEASURED: that class does not exist
+ * (`class_exists()` is false) while `Illuminate\Contracts\Encryption\DecryptException` does.
+ *
+ * WHY IT WENT UNNOTICED FOR SO LONG: two of the four sites have a SECOND, fully-qualified
+ * `catch (\Exception $e)` immediately after, producing the same message -- so `order_view` and
+ * `order_receipt` handled a bad id correctly BY ACCIDENT. The two that do not, `shippinglabel`
+ * (dead catch only) and `show()` (no try at all), answered HTTP 500 with the exception's own
+ * stack page. Driven and measured in both directions before this line was added.
+ *
+ * Severity is modest and worth stating rather than inflating: a merchant always arrives from a
+ * list link carrying a token this application produced, so this is the quality of the error page
+ * on a stale or hand-edited URL. But four handlers that have never once run is not a thing to
+ * leave in place, and the fix is one line that revives all of them.
+ */
+use Illuminate\Contracts\Encryption\DecryptException;
 use App\Http\Controllers\Api\ApiController;
 use Maatwebsite\Excel\Facades\Excel;
 use App\Exports\OrderExport;
@@ -660,10 +681,23 @@ public function store(Request $request)
 
     public function show(Order $order, $id)
     {
+        // P2.5-PKG-C (F-C-05). NO try AT ALL before this, so a `Crypt::decrypt()` failure left the
+        // method as an uncaught `DecryptException` and the user got a 500 stack page. Its three
+        // siblings all intend to redirect with a message instead; this one simply had no handler.
+        // MEASURED before: `GET /orders/order_view/1` answered HTTP 500 with
+        // `Illuminate\Contracts\Encryption\DecryptException` in the log.
+        //
+        // The message matches the siblings' wording exactly rather than inventing a new one, so a
+        // merchant who follows a stale link reads the same sentence whichever order surface it was.
+        try {
+            $id = Crypt::decrypt($id);
+        } catch (DecryptException $e) {
+            return redirect()->back()->with('error', __('Something was wrong.'));
+        }
 
-        $id = Crypt::decrypt($id);
         $order = Order::order_detail($id);
         $orders = Order::find($id);
+
         return view('order.order_show', compact('order', 'orders'));
     }
 
