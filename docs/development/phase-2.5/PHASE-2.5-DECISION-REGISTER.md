@@ -953,3 +953,178 @@ clear — written down as a **hypothesis, not a finding**, because it was not es
 It does not weaken what the row is about: every drive made 69–117 real responses, and each is now
 pinned to a floor, so a drive that stops fetching fails the floor rather than passing the assertions
 above in silence.
+
+---
+
+### F-DESIGN-18 — the bar chart has no magnitude reference, and my earlier note about it was wrong
+
+**Status:** MEASURED and designed, **deferred to Package D** with the reason below. Not fixed in
+Package A.
+
+**First, the correction.** P2.5-PKG-A-03 recorded this component as rendering "one solid full-height
+bar with no axis and no value labels". Driven and measured, that is **not accurate** and the record
+should not stand uncorrected:
+
+| | |
+|---|---|
+| bars | 7, heights `[2, 2, 2, 2, 2, 2, 119]` — six days at zero with a deliberate baseline stub |
+| x-axis | **present** — `31-Oct … 06-Nov` in `.ss-chart__labels` |
+| the numbers | **present** — a `<details>` disclosure holding a full `<table>` with per-day values and a total |
+| caption | present — "Orders placed each day, last 7 days…" |
+| `aria-hidden="true"` | **correct**, and deliberate: the table below is the accessible content, not a fallback |
+
+The component is carefully written: one scale across stacked series, a max floored at zero so a
+negative money series cannot invert every height, numeric coercion that refuses NAN/INF, and a
+baseline marker that survives an exactly-zero float. None of that deserved the sentence I wrote.
+
+**What is genuinely missing is a magnitude reference.** There is no number anywhere on the *picture*
+telling you the height of that bar. A merchant glancing at the dashboard sees six empty days and one
+tall column and cannot tell whether it is 3 orders or 300 without opening the disclosure. The
+picture, on its own, carries shape but not size.
+
+**The designed fix,** kept to one accessory rather than a full axis: a narrow leading scale column
+holding two quiet ticks — the series maximum at the top of the plot and `0` at the baseline —
+built with `flex-direction: column; justify-content: space-between` so it needs **no physical
+offset** and mirrors in RTL by itself, with `.ss-chart__labels` given a matching
+`padding-inline-start` so the date row stays aligned under its columns. `$ssMax` and `$ssFormat`
+already exist in the component, so this adds no computation and no new source of truth.
+
+**Why it is not done in Package A.** `x-ss.bar-chart` is used by **ten** views and **nine of them are
+report screens** — Package D (Finance & Analytics) by the approved plan. Implementing it here would
+change ten surfaces while verifying one, which is the evidence discipline this phase exists to hold.
+It belongs in the Package D sweep, where the other nine are driven and captured in the same pass.
+The dashboard's `x-ss.bar-chart` row therefore stays **PENDING** rather than being claimed on a
+component that still cannot be read at a glance.
+
+**Scope note:** a scale label is presentation only. It adds no computation and changes no figure, so
+it stays inside the directive's "financial changes must remain PRESENTATION ONLY" boundary.
+
+---
+
+### F-DESIGN-19 — the Arabic dashboard drew an English axis under its own Arabic caption
+
+**Status:** FIXED in P2.5-PKG-A-10. Ratcheted by `tests/Unit/Ui/DashboardChartAxisLocaleTest.php`
+and by `verify-dashboard-components.cjs` (60 checks, 0 failed, four combinations).
+
+**Measured** on `/dashboard`: the "Orders per day" chart labelled its seven columns
+`31-Oct, 01-Nov, 02-Nov …` on the **Arabic** page, directly beneath its own caption reading
+`الطلبات يومياً — آخر ٧ أيام`. Both sites built the label with `date('d-M', …)`, which has no notion
+of a locale.
+
+**One of the two sites looked like it handled this and never had.** `best_selling_brand_chart`
+wrapped the call as `__(date('d-M', …))` — which asks the translator for the key `"31-Oct"`.
+Measured: `resources/lang/ar.json` holds **no** `DD-Mon` key, and exactly one month name (`"May"`,
+present as an ordinary English word). Laravel returns an unresolvable key unchanged, so that `__()`
+had never translated a single label. It was decoration that made the defect look handled, which is
+why the test asserts the **absence of that shape** rather than only the presence of the fix.
+
+**Carbon, not a translation table.** Carbon is already a dependency and already imported in this
+controller, and carries month names for every locale. Adding 365 `DD-Mon` keys would be a table to
+maintain forever and still wrong in the next language.
+
+**Western digits, deliberately.** `isoFormat('D MMM')` yields `31 أكتوبر`, not `٣١ أكتوبر`. That
+agrees with what the rest of this dashboard renders — the KPI figures measure as `62`, not `٦٢` —
+so the axis does not contradict the numbers directly above it.
+
+**Checked before editing, not assumed: this is not an API change.** `getOrderChart` is called from
+exactly two web dashboard actions and appears nowhere in `routes/api.php`, so no client contract
+reads these strings and the Flutter admin app cannot see them.
+
+| | before | after |
+|---|---|---|
+| en | `31-Oct, 01-Nov, 02-Nov` | `31 Oct, 1 Nov, 2 Nov` |
+| ar | `31-Oct, 01-Nov, 02-Nov` | `31 أكتوبر, 1 نوفمبر, 2 نوفمبر` |
+
+Reverting the helper alone produced 6 failures, so the assertions are not vacuous.
+
+---
+
+### M-PKG-A-10 — the fifth time a detector matched its author's prose
+
+`DashboardChartAxisLocaleTest` failed on its **own docblock**. The explanation quotes both
+`date('d-M', ...)` and `__(date('d-M', ...))` verbatim while describing why they are wrong, and the
+two assertions searched the raw file — so they matched the explanation and reported the thing it
+forbids.
+
+This phase has now done that five times: a `/* end … */` marker inside prose, a `.dash-container {
+… top: }` quotation, a `data-feather` reference in a Blade comment, an `rgba(146, 44, 136, 0.3)`
+in prose, and now this. `MerchantHeaderStaysOnScreenTest` and `SidebarDirectionAndSubItemMarkerTest`
+already strip comments before asserting for exactly this reason; this test now does too.
+
+Worth stating as a rule rather than a recurring surprise: **a detector that reads source must read
+declarations, not prose** — otherwise the only way to keep it green is to stop writing down the
+evidence beside the rule, and the evidence is the more valuable half.
+
+---
+
+### D-NOTE — `x-ss.progress` and `x-ss.setup-checklist` render zero times on the dashboard
+
+Measured in all four combinations, not inferred from a grep: `.ss-progress` and `.ss-setup` are
+present in the component library and appear **0 times** on `/dashboard`. Their matrix rows therefore
+stay PENDING — a component that does not render cannot be verified from a page that does not use
+it, and a harness that silently measures nothing while reporting no failure is the shape of mistake
+recorded in M-PKG-A-09c. They need a surface that actually uses them, which is a later package's
+work to find.
+
+---
+
+### M-PKG-A-10b — REFUTED: the Arabic "Quantity" header is not truncated, and I filed it from a screenshot
+
+Filed from the P2.5-PKG-A-09 shell capture: the product table's Arabic quantity header appeared to
+read `كمي` where `ar.json` holds `كمية`. **It does not reproduce, and the finding is withdrawn.**
+
+Measured on the running page, in the DOM rather than in an image:
+
+```
+  8: "حالة المخزون"  len=12  box=133x49  hOverflow=0  vOverflow=0
+  9: "كمية المخزون"  len=12  box=111x49  hOverflow=0  vOverflow=0
+```
+
+The header is `كمية المخزون` — "stock quantity", twelve characters, rendered whole, clipped on
+neither axis. A census of all five reachable merchant list screens in **both** languages found
+**0 clipped headers out of 50**. What I read as `كمي` was a misreading of a downscaled screenshot.
+
+**This is the fourth reading of mine refuted by measurement in this session alone**, and they are all
+the same mistake:
+
+| claimed from | reality, measured |
+|---|---|
+| the chip has `NO TRIGGER` | a correct listbox button — the probe searched inside the element that *was* the button |
+| the open panel is misaligned | identical boxes: 25/229/204 LTR, 1210/1415/205 RTL |
+| the chart has "no axis and no value labels" | both present; `aria-hidden` correct *because* the table exists |
+| the Arabic quantity header is clipped | renders whole, zero overflow, 0 of 50 headers clipped |
+
+**The rule this earns:** a screenshot is good for noticing that something *might* be wrong and worth
+nothing as the basis of a finding. Nothing goes in the register, the matrix or the ledger from an
+image alone — the DOM is measured first. Three of the four above would have become committed work
+on surfaces that had no defect, and the fourth would have put a wrong sentence about a well-built
+component into a document the owner reads.
+
+The corresponding tracker row is closed as refuted rather than carried into Package B.
+
+---
+
+### D-NOTE-2 — why `x-ss.setup-checklist` and `x-ss.progress` cannot be verified on this fixture, precisely
+
+The earlier note said only that they "render zero times on the dashboard". That is true and
+incomplete, and the difference matters for how their rows get closed.
+
+**`x-ss.setup-checklist` is used in exactly one place** — `dashboard/overview.blade.php` — behind
+`@unless ($ssSetupComplete)`. The component's own design is that **it disappears when it is done**:
+"an onboarding panel that stays forever stops being onboarding and becomes furniture." The dev
+merchant has completed every step she can act on, so the panel is correctly absent. Its absence is
+the `@unless` working, not a defect, and not evidence about the component.
+
+**`x-ss.progress` has no usage anywhere** in `resources/views/` or `packages/workdo/` — measured, not
+inferred. It renders only as part of `setup-checklist`, which emits `.ss-progress` internally. So it
+is gated by the same condition, one level down.
+
+**What closing these rows actually needs:** a merchant whose setup is *incomplete*. That means
+changing fixture data — unsetting a setting or removing a seeded record — and that is the one class
+of change `serve-dev.sh` records as having destroyed this fixture twice. It is doable safely and
+reversibly, but it is a deliberate piece of work with its own verification, not a side effect of a
+dashboard pass.
+
+**They stay PENDING, and the route is written down** rather than the rows being claimed on a
+component that was never drawn, or quietly dropped. A Blade-render test would prove the component's
+markup but would not be a capture in four combinations, which is what the matrix asks of a row.

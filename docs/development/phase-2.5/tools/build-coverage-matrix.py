@@ -294,6 +294,38 @@ VERIFIED = {
     'Page-header component': ('PREMIUM VERIFIED', 'pkg-a-09', 'pageheader__', 'P2.5-PKG-A-09'),
     'Footer + script bundle': ('PREMIUM VERIFIED', 'pkg-a-09', 'footer__', 'P2.5-PKG-A-09'),
     'Merchant admin layout (the shell itself)': ('REDESIGNED AND VERIFIED', 'pkg-a-09', 'layout__', 'P2.5-PKG-A-09'),
+
+    # ----------------------------------------------------------------------------------------
+    # P2.5-PKG-A-10. The dashboard's own widgets, driven as components on /dashboard.
+    # 60 checks, 0 failed, four combinations, every premise asserted.
+    #
+    # MEASURED CLEAN AND UNCHANGED: 4 stat cells and 1 attention panel render on every
+    # combination; worst text 6.14 / 5.05 (KPI) and 6.42 / 6.17 (attention); and the figure
+    # outranks its own label in size AND weight (28px/600 "62" against 13px/500 "Orders"), so
+    # the surface reads as a number with a caption rather than a list of words.
+    #
+    # ONE DEFECT, FIXED: the chart's axis spoke English on the Arabic page -- `31-Oct` under a
+    # caption reading `الطلبات يومياً`. Both label sites used `date('d-M')`, and the one that
+    # LOOKED handled (`__(date('d-M'))`) never was: ar.json holds no DD-Mon key, so the
+    # translator returned the key unchanged. Now `31 أكتوبر` / `31 Oct` via Carbon.
+    #
+    # WHAT IS DELIBERATELY NOT CLAIMED:
+    #   'x-ss.bar-chart'  the AXIS was fixed, but F-DESIGN-18 is open against the component
+    #       itself: nothing on the picture gives a magnitude, so a merchant cannot tell 3
+    #       orders from 300 without opening the disclosure. Nine of its ten usages are report
+    #       screens, so it is Package D work. Claiming the row while holding a recorded defect
+    #       against it would be an overclaim.
+    #   'x-ss.progress' / 'x-ss.setup-checklist'  MEASURED to render ZERO times on this page,
+    #       in all four combinations. A component that does not render cannot be verified here;
+    #       they need a surface that uses them.
+    #   the bare component rows ('x-ss.stat', 'x-ss.stats', 'x-ss.attention',
+    #       'x-ss.attention-item')  those name a REUSABLE component, which means every usage,
+    #       not one page. The rows below name the dashboard's use of them, which is what was
+    #       driven. Claiming both from one drive would be two rows for one verification.
+    # ----------------------------------------------------------------------------------------
+    'Dashboard overview region (KPI surface)': ('PREMIUM VERIFIED', 'pkg-a-10', 'kpi__', 'P2.5-PKG-A-10'),
+    'x-ss.stat / x-ss.stats (KPI cell + grid)': ('PREMIUM VERIFIED', 'pkg-a-10', 'stat__', 'P2.5-PKG-A-10'),
+    'x-ss.attention / x-ss.attention-item': ('PREMIUM VERIFIED', 'pkg-a-10', 'attention__', 'P2.5-PKG-A-10'),
 }
 
 # Surfaces that are out of the Phase 2.5 merchant scope by the approved phase plan.

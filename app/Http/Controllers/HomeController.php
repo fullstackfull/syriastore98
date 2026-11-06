@@ -613,6 +613,37 @@ class HomeController extends Controller
         }
     }
 
+    /**
+     * A day label for a chart axis, in the language the page is being rendered in.
+     *
+     * P2.5-PKG-A-10. Both chart axes called `date('d-M', ...)`, which is locale-blind: the Arabic
+     * dashboard drew `31-Oct` under its bars while its own caption read `الطلبات يومياً — آخر ٧ أيام`.
+     *
+     * ONE OF THE TWO SITES LOOKED LIKE IT HANDLED THIS AND DID NOT. `best_selling_brand_chart`
+     * wrapped the call as `__(date('d-M', ...))`, which asks the translator for the key "31-Oct".
+     * MEASURED: `resources/lang/ar.json` holds no `DD-Mon` key at all, and exactly one month name
+     * ("May", which is there as an ordinary English word). `__()` returns a key it cannot resolve
+     * unchanged, so that call has never translated anything — it was decoration that made the
+     * defect look handled.
+     *
+     * Carbon is already a framework dependency and carries the month names for every locale, so
+     * this needs no new translation keys and no per-month table to maintain.
+     *
+     * WESTERN DIGITS ON PURPOSE. `isoFormat('D MMM')` yields `31 أكتوبر`, not `٣١ أكتوبر`, which
+     * matches what the rest of this dashboard already renders — the KPI figures measure as `62`,
+     * not `٦٢`. Forcing Arabic-Indic numerals here would make the axis disagree with the numbers
+     * directly above it.
+     *
+     * NOT AN API CHANGE. `getOrderChart` is called only from two web dashboard actions and appears
+     * nowhere in `routes/api.php`, so no client contract reads these strings.
+     */
+    private function ssDayLabel(int $timestamp): string
+    {
+        return Carbon::createFromTimestamp($timestamp)
+            ->locale(app()->getLocale())
+            ->isoFormat('D MMM');
+    }
+
     public function getOrderChart($arrParam)
     {
         $user = auth()->user();
@@ -635,7 +666,7 @@ class HomeController extends Controller
                 $previous_week = strtotime('-1 week +1 day');
 
                 for ($i = 0; $i < 7; $i++) {
-                    $arrDuration[date('Y-m-d', $previous_week)] = date('d-M', $previous_week);
+                    $arrDuration[date('Y-m-d', $previous_week)] = $this->ssDayLabel($previous_week);
                     $previous_week = strtotime(date('Y-m-d', $previous_week) . ' +1 day');
                 }
             }
@@ -1668,7 +1699,7 @@ class HomeController extends Controller
             for ($i = 0; $i <= 7 - 1; $i++) {
                 $date = date('Y-m-d', $previous_week);
                 $previous_week = strtotime(date('Y-m-d', $previous_week) . ' +1 day');
-                $monthList[] = __(date('d-M', strtotime($date)));
+                $monthList[] = $this->ssDayLabel(strtotime($date));
 
                 $ordersForDate = Order::whereDate('order_date', $date)
                     ->where('store_id', getCurrentStore())

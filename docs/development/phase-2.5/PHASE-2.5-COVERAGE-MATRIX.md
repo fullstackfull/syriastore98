@@ -9,11 +9,11 @@ hand-maintained matrix is precisely how that happens.
 
 | state | count | of 295 |
 |---|---:|---:|
-| PREMIUM VERIFIED | 18 | 6.1% |
+| PREMIUM VERIFIED | 21 | 7.1% |
 | REDESIGNED AND VERIFIED | 24 | 8.1% |
 | BLOCKED | 9 | 3.1% |
 | OUT OF SCOPE | 1 | 0.3% |
-| PENDING | 243 | 82.4% |
+| PENDING | 240 | 81.4% |
 | **total** | **295** | |
 
 **PENDING is not one of the directive's four states, and that is the point.** The four
@@ -41,7 +41,7 @@ screens and exactly three of them have been looked at. The other ~97 stay PENDIN
 | PRODUCTS | 16 | 1 | 2 | 1 | 0 | 12 |
 | Merchant admin NAVIGATION SHELL | 13 | 4 | 7 | 0 | 0 | 2 |
 | Stock/inventory reporting + finance/wallet/payout screens | 13 | 0 | 3 | 0 | 0 | 10 |
-| Merchant dashboard and KPI presentation | 9 | 0 | 2 | 0 | 1 | 6 |
+| Merchant dashboard and KPI presentation | 9 | 3 | 2 | 0 | 1 | 3 |
 
 ## Every surface
 
@@ -394,11 +394,11 @@ actually been done to it since. They are different questions and the matrix keep
 | surface | route / kind | audit | state | evidence or reason |
 |---|---|---|---|---|
 | Merchant dashboard (page shell) | ``GET /dashboard`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-WAVE-3 + 3b; four captures under evidence/wave-3b/ |
-| Dashboard overview region (KPI surface) | ``partial/component (included by GET /dashboard)`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
+| Dashboard overview region (KPI surface) | ``partial/component (included by GET /dashboard)`` | premium-already | **PREMIUM VERIFIED** | P2.5-PKG-A-10; four captures under evidence/pkg-a-10/ |
 | Top Category / Top Brand "By Sales" body | ``POST /top-brand-category-chart (routes/web.php:414)`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-PKG-A-03; four captures under evidence/package-a/ |
-| x-ss.stat / x-ss.stats (KPI cell + grid) | ``partial/component`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| x-ss.stat / x-ss.stats (KPI cell + grid) | ``partial/component`` | needs-polish | **PREMIUM VERIFIED** | P2.5-PKG-A-10; four captures under evidence/pkg-a-10/ |
 | x-ss.bar-chart | ``partial/component`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| x-ss.attention / x-ss.attention-item | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
+| x-ss.attention / x-ss.attention-item | ``partial/component`` | premium-already | **PREMIUM VERIFIED** | P2.5-PKG-A-10; four captures under evidence/pkg-a-10/ |
 | x-ss.setup-checklist | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
 | x-ss.progress | ``partial/component`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Super Admin dashboard | ``GET /dashboard (type='super admin' branch)`` | unknown | **OUT OF SCOPE** | Phase 06 (SaaS & Super Admin), not Phase 2.5 Merchant Experience |
