@@ -4107,6 +4107,66 @@ a.ss-setup__item:focus-visible {
     box-shadow: inset -1px 0 0 var(--ss-border), var(--ss-pinned-edge-rtl);
 }
 
+/* ---- P2.5-WAVE-28: AND AT PHONE WIDTH THE PIN IS WITHDRAWN ------------------------------------
+   Everything above is a statement about a COLUMN in a table that scrolls sideways. At <=575.98px
+   the mirrored sheets turn each row into a block card -- `display: block` on the table, its tbody
+   and its rows, one `grid` per cell, headings read from `data-ss-label` -- so there is no sideways
+   scroll, no column beside this one, and nothing for a sticky cell to stay still against.
+
+   Leaving the pin in place is not merely redundant, it is wrong in two measured ways: a
+   `position: sticky` cell parks over the cell beside it (the overlap P2.5-DESIGN-I above measured
+   at 7px and 23px at 1440px), and the edge that signals "content continues underneath" keeps
+   being drawn with nothing underneath -- a screenshot of `/order` at 320px showed it as a grey
+   bar floating beside the Action row, which is what sent me looking.
+
+   IT HAS TO LIVE HERE, not with the rest of the block-card rules in `custom.css` /
+   `rtl-custom.css`. Those sheets load BEFORE this one, the pinning rules above are global rather
+   than width-scoped, and the two selectors carry the same specificity -- so a `box-shadow: none`
+   written there loses on document order and the edge stays drawn. MEASURED with
+   `CSS.getMatchedStylesForNode`: the neutralising declaration was matched and then overridden by
+   the rule 2000 lines above it. A component's behaviour is withdrawn beside the component.
+
+   `.ss-col-locked` is included because the same cell carries both classes and `.ss-col-locked`
+   is the half that sets `inset-inline-end`. Ratchet: StackedTableRowTest. */
+@media (max-width: 575.98px) {
+    .ss-dt-card-body table.dataTable > tbody > tr > td.ss-col-locked,
+    .ss-dt-card-body table.dataTable > thead > tr > th.ss-col-locked,
+    .ss-dt-card-body table.dataTable > tbody > tr > td.ss-col-pinned,
+    .ss-dt-card-body table.dataTable > thead > tr > th.ss-col-pinned,
+    [dir="rtl"] .ss-dt-card-body table.dataTable > tbody > tr > td.ss-col-pinned,
+    [dir="rtl"] .ss-dt-card-body table.dataTable > thead > tr > th.ss-col-pinned {
+        position: static;
+        inset-inline-end: auto;
+        box-shadow: none;
+    }
+
+    /* AND THE EDGE GUTTERS GO WITH IT, for the same reason and by the same cascade. The host
+       theme insets the FIRST and LAST cell of every row so a table's outer columns do not touch
+       the card's edge:
+
+           .card:not(.table-card) .table tr td:first-child              padding-left:  25px   (0,4,2)
+           .dash-content .card:not(.table-card) .table tr td:last-child padding-right: 10px   (0,5,2)
+
+       Stacked, "first" and "last" are the top and bottom cells of a card, where an inline inset
+       is not a gutter, it is a dent. MEASURED on `/order` at 320px: the select-all checkbox cell
+       computed `padding-inline-start: 25px` and the Action cell `padding-inline-end: 10px`, so
+       its 232px box held a 222px grid and its label and value sat 4px to the inline start of the
+       other nine -- one row of the card out of step with the rest.
+
+       The mirrored sheets already declare `padding-inline: 0` on these cells and it is MATCHED
+       AND THEN OVERRIDDEN: at (0,2,4) it loses on class count, not on sheet order, so moving it
+       here alone would not have fixed it. Each theme rule therefore gets a named counterpart that
+       outweighs it -- one without `.dash-content` for the 25px, one with it for the 10px, because
+       a card outside `.dash-content` matches only the first. Logical against physical is a real
+       contest: both resolve onto the same physical longhand and the more specific one wins. */
+    .card:not(.table-card) .ss-dt-card-body table.dataTable > tbody > tr > td,
+    .card:not(.table-card) .ss-dt-card-body table.dataTable > thead > tr > th,
+    .dash-content .card:not(.table-card) .ss-dt-card-body table.dataTable > tbody > tr > td,
+    .dash-content .card:not(.table-card) .ss-dt-card-body table.dataTable > thead > tr > th {
+        padding-inline: 0;
+    }
+}
+
 /* The column-visibility button (`buildDataTable`'s `colvis`). The host's
    `.btn-light-primary` carries no visible focus ring, and this control is
    keyboard-reachable and opens a menu, so it gets the system's ring. */

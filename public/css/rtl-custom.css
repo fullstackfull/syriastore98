@@ -5941,5 +5941,142 @@ html[data-ss-theme="dark"] body p:not(.text-muted):not([class^="ss-"]):not([clas
     }
 
     .ss-finance-overview > [class*="col-"].mb-4 { margin-block-end: var(--ss-space-2, 8px) !important; }
+
+    /* ============================================================================================
+       P2.5-WAVE-28 — each row becomes a readable block instead of one column of twelve.
+
+       MEASURED at 320x568 over eleven list screens: 4 to 12 columns per table, 2 to 4 inside the
+       250px scrollport, of which one is the empty select-all column and one is the pinned Action
+       column. /order showed an order id and NOTHING else -- no date, no customer, no total, no
+       status. Tables measured 417 to 1200px inside that 250px box.
+
+       NOTHING IS HIDDEN. Every cell is still rendered; it is laid out as a labelled line instead
+       of a column the merchant has to scroll sideways to reach. The label is the cell's own column
+       heading, copied onto it by store-syria-ds.js, because CSS cannot read another element's text
+       and DataTables generates the cells.
+
+       `thead` IS CLIPPED, NOT REMOVED. The script reads the headings from it, and a screen reader
+       still needs the column headers to make sense of the roles. `display: none` would take both.
+       -------------------------------------------------------------------------------------------- */
+    .ss-dt-card-body table.dataTable,
+    .ss-dt-card-body table.dataTable > tbody,
+    .ss-dt-card-body table.dataTable > tbody > tr,
+    .ss-dt-card-body table.dataTable > tbody > tr > td {
+        display: block;
+        inline-size: auto;
+        max-inline-size: 100%;
+    }
+
+    .ss-dt-card-body table.dataTable > thead {
+        position: absolute;
+        inline-size: 1px;
+        block-size: 1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        clip-path: inset(50%);
+        white-space: nowrap;
+    }
+
+    .ss-dt-card-body table.dataTable > tbody > tr {
+        border: 1px solid var(--ss-border, #D5DBE3);
+        border-radius: var(--ss-radius-md, 8px);
+        margin-block-end: var(--ss-space-2, 8px);
+        padding: var(--ss-space-2, 8px);
+        background: var(--ss-surface, #FFF);
+    }
+
+    /* Label on one side, value on the other: the same shape the finance stat cards took, so a
+       merchant reads one vocabulary across the admin rather than two. */
+    /* `display: table`, NOT `grid`, and that is the second attempt. A two-column grid holds only
+       while the value is ONE box, and a cell is free to hold several: MEASURED on `/product`, the
+       Review cell is `<i class="ti..."></i> 0` -- an element and a text run, so grid auto-placement
+       put the icon in column 2 and wrapped the number to column 1 of the next row, directly under
+       the label. Every multi-child cell in the admin would have done the same.
+
+       CSS table fixup is what makes this robust: contiguous content after a `table-cell` is wrapped
+       in exactly ONE anonymous cell, however many nodes it is, so the value is a single box by
+       construction rather than by assumption. `table-layout: fixed` makes the label's 40% hold
+       instead of being renegotiated per row, which also keeps every label the same width down the
+       card -- the thing a merchant actually scans. Baseline alignment is the table default. */
+    .ss-dt-card-body table.dataTable > tbody > tr > td {
+        display: table;
+        table-layout: fixed;
+        inline-size: 100%;
+        border-spacing: var(--ss-space-2, 8px) 0;
+        padding-block: var(--ss-space-1, 4px);
+        padding-inline: 0;
+        border: 0;
+        overflow-wrap: anywhere;
+    }
+
+    /* A COLUMN ALIGNMENT IS A STATEMENT ABOUT A COLUMN, and stacked there are no columns.
+       MEASURED on `/order`: the Price cell carries the design system's own `.ss-dt-num`
+       (`text-align: end`) and the Action cell Bootstrap's `.text-center` -- both right for a
+       table, both wrong for a card, and together they put values and labels at three different x
+       positions down one card with nothing for the eye to follow.
+
+       This is the one place in the wave that out-shouts a utility, and it is deliberate: the
+       utility's premise -- that there is a column to align within -- is false for exactly this
+       width, the override is withdrawn with the media query, and the alternative was wrapping
+       every cell's contents in a span from JavaScript on every DataTables redraw. */
+    .ss-dt-card-body table.dataTable > tbody > tr > td {
+        text-align: start !important;
+    }
+
+    .ss-dt-card-body table.dataTable > tbody > tr > td::before {
+        content: attr(data-ss-label);
+        display: table-cell;
+        inline-size: 40%;
+        /* The label is a LABEL, whatever the column it came from was. MEASURED on `/order`: every
+           `::before` inherited `white-space: nowrap` from the table, so "Shipping Method" -- 108px
+           of text in a 100px column -- ran straight over its own value; and the Order Id cell
+           carries `.ss-dt-ident`, whose `font-weight: 600` the label inherited too, so one label
+           down the card was bold and the other eight were not. A label that wraps keeps the value
+           column where it is; a label that does not wrap moves into it. */
+        white-space: normal;
+        font-weight: 400;
+        color: var(--ss-fg-muted, #5A6472);
+        font-size: var(--ss-text-sm, 0.875rem);
+    }
+
+    /* A column with no heading -- the select-all checkbox -- gets no label cell either, so its
+       content is the only thing in the table and the anonymous cell takes the full width. The
+       empty string is written deliberately by the script so this can tell "no heading" apart from
+       "not processed yet". */
+    .ss-dt-card-body table.dataTable > tbody > tr > td[data-ss-label=""]::before { content: none; }
+
+    /* The pinned Action column is unpinned for this width in `store-syria-ds.css`, beside the
+       rules that pin it -- NOT here. Those rules are global and that file loads AFTER this one,
+       so an equal-specificity `box-shadow: none` written here loses the cascade and the pinned
+       edge stays drawn: MEASURED, as a grey bar floating beside the Action row. Withdrawing a
+       component's behaviour belongs with the component. */
+
+    /* The row status switch is inset by `.card .form-switch { margin: 0 4px !important }`, which
+       in a table is breathing room beside a 24px target (P2.5-DESIGN-K) and in a card is 4px of
+       drift: MEASURED on `/customer`, its value box started at 103px while the other eight started
+       at 99px, so the one switch in the card hung out of line with every value above it.
+
+       THIS IS THE SECOND AND LAST `!important` IN THIS BLOCK, and it is here because the first
+       attempt without it was MATCHED AND IGNORED -- an `!important` declaration cannot be beaten
+       on specificity, only answered. Both overrides are the same shape: a declaration that is
+       right for a table row and wrong for a card, withdrawn again above 575.98px. Only the START
+       margin goes; the end one still separates the switch from anything beside it. */
+    .ss-dt-card-body table.dataTable > tbody > tr > td > .form-check {
+        margin-inline-start: 0 !important;
+    }
+
+    /* PREVENTION, AND SAID AS PREVENTION. A screenshot of `/order` read as though the status chip
+       were cut off at the card's edge, and this rule was written to fix that. Measuring it
+       refuted the premise: the chip's right edge sits 8px INSIDE its own cell and 17px inside the
+       row, on every screen tested in all four combinations. It was tight, not truncated.
+
+       The rule stays because `table-layout: fixed` means the value cell does not grow for its
+       content, and a cell is free to hold something that does not shrink -- a product image, a
+       long badge, an embedded chart. Nothing measured overflows today; this keeps that true. It
+       is NOT evidence that anything was ever observed to overflow. */
+    .ss-dt-card-body table.dataTable > tbody > tr > td > * {
+        max-inline-size: 100%;
+    }
+    /* end P2.5-WAVE-28 */
 }
 /* end P2.5-WAVE-22 */
