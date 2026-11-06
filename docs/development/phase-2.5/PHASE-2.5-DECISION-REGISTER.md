@@ -2284,3 +2284,186 @@ change than withdrawing a URL some client may hold.
 **Evidence:** 19 passed. Reverting the three guards alone fails exactly the oracle test and nothing
 else. The test compares the foreign-row status against an existing-nowhere status rather than
 asserting 404 on the foreign id — which would pass for a method that 404s everything.
+
+---
+
+### F-SEC-08 — the shape stops recurring: a ratchet, and the two blind spots that kept it alive
+
+**Status:** FIXED, proved, and **ratcheted**. This entry closes the eleventh through eighteenth
+instance of the empty-body existence oracle, and — more importantly — replaces the hand census
+that kept under-reporting it with a structural test in the blocking Unit suite.
+
+**Why this entry is not just "three more guards".** F-SEC-02 closed five instances and declared
+the shape closed. F-SEC-05 found a sixth. F-SEC-07 found three more and declared it closed again.
+Each sweep used a regex census over `app/Http/Controllers`, and each time the regex was the thing
+at fault, not the diligence. Two independent structural blind spots were measured this time:
+
+| Blind spot | What the regex required | What it therefore skipped |
+|---|---|---|
+| Comment count | a body of `{` + **at most one** `//` line + `}` | nothing, as it happened — but it was never true by construction |
+| Parameter position | the model as the **first** parameter: `\(\s*([A-Z]\w*)\s+\$` | **every** `update(Request $request, Model $m)` — i.e. the entire `update` half of every resource controller |
+
+The second one is why `WishlistController::update` and `NewsletterController::update` were reported
+as absent by a census I had already corrected four times. They are not exotic signatures; they are
+the Laravel resource default. A census keyed on surface syntax will keep missing a different slice
+of the same shape each time it is rewritten.
+
+**The fix is therefore a test, not a sweep.**
+`tests/Unit/Security/OwnedResourceMethodsAreGuardedTest.php` walks the **real route table** by
+reflection — not the filesystem — and fails when a routed action is route-model-bound to a model
+absent from `scoped_models` and its body contains nothing but whitespace and comments.
+
+Three deliberate design choices, each a response to a measured failure of the censuses:
+
+1. **The rule is "the body is empty", not "a guard is present."** A name-based guard check is
+   exactly what was wrong four times: it counted `$x->store_id = …` as a check, counted
+   `creatorId()` as a tenant predicate, and once matched its own explanatory comment. "Empty" is
+   not a heuristic — adding *any* guard satisfies it, and nothing else does. The test makes no
+   claim about whether a non-empty guard is *correct*; `tenant-authz-reviewer` and the driven
+   Feature tests carry that.
+2. **It tokenises.** `//` inside a string literal and `}` inside a comment both defeated the first
+   draft of the body-emptiness helper.
+3. **It asserts a floor on how much it examined** (`MINIMUM_BOUND_METHODS_EXAMINED`). Three earlier
+   censuses reported zero findings because they had walked nothing. A ratchet that can pass by
+   measuring nothing is worse than no ratchet, because it reads as coverage.
+
+**Stated limitation, not hidden:** no WorkDo module loads in any test run (CLAUDE.md §1), so
+module routes are absent from the table this test walks. It covers first-party controllers only.
+
+**`Plan` is the only allowlist entry,** with a measured reason: `plans` has no `store_id` column at
+all. A SaaS plan is a platform object offered *to* stores, not owned *by* one.
+
+**The eight guards closed here** — the three found by hand plus the five the ratchet found on its
+first run:
+
+| Endpoint | Guard | Found by |
+|---|---|---|
+| `GET /flash-sale/{id}` | `scopedFlashSale()` | hand |
+| `GET /shipping-method/{id}` | `scopedShippingMethod()` | hand |
+| `DELETE /shipping-method/{id}` | `scopedShippingMethod()` | hand |
+| `GET /testimonial/{id}` | `callerOwnsTestimonial()` | hand |
+| `GET /product-attributes/{id}` | `ownedAttribute()` | hand |
+| `GET /webhook/{id}` | inline `store_id` predicate | hand |
+| `GET /wishlist/{id}/edit` | inline `store_id` predicate | hand |
+| `PUT /wishlist/{id}` | inline `store_id` predicate | **the ratchet** |
+| `PUT /newsletter/{id}` | `callerOwnsNewsletter()` | **the ratchet** |
+
+**Measured from the route table, and worth recording on its own:** every one of these routes
+carries exactly `web, Authenticate, XSS, SetLocate, EmailIsVerified` — **no permission middleware
+of any kind** — and the bodies held no `isAbleTo()` call because they held nothing at all. The
+reachable principal was therefore any authenticated merchant holding zero permissions.
+
+**What the fix does NOT do, stated rather than implied.** It closes the cross-tenant oracle. It
+adds no permission check, because these are unimplemented resource stubs that return no data —
+there is nothing for a permission to gate. The owner's response is unchanged: an empty 200, which
+is what the positive controls assert.
+
+**Evidence.**
+- `tests/Feature/Security/EmptyBodyExistenceOracleTest.php` — 15 passed, 24 assertions. Every
+  endpoint has an owner positive control, because a guard that 404s *everyone* would satisfy every
+  cross-tenant assertion in the file.
+- `test_a_foreign_row_and_an_absent_row_answer_identically` compares the foreign status against
+  the existing-nowhere status rather than asserting 404 on the foreign id. A 403-for-foreign,
+  404-for-absent fix would leave the oracle intact while looking like a fix; this catches that.
+- **Mutation-checked in both directions.** Reverting each of the eight guards individually to `//`
+  reddens the structural ratchet (4/4 probed) and reddens the behavioural test (8/8). The tree
+  restores green after each.
+
+---
+
+### F-SEC-09 — `WishlistController::show` reads another tenant's wishlist, with data
+
+**Status:** FIXED and proved. **Found by the tenant-authz review of F-SEC-08**, and the way it was
+missed is the part worth recording.
+
+F-SEC-08 guarded `WishlistController::edit` (`:72`) and `::update` (`:95`) — the two methods either
+side of `show` (`:54`) **in the same file** — and left `show` open. Three instruments were pointed
+at that file and all three were blind to it:
+
+- the census was keyed on the **empty-body** shape, and `show` has a body;
+- the new structural ratchet only flags empty bodies, **by design**;
+- F-SEC-08's feature test had **no `show` case**.
+
+So the one method in the file that actually returns bytes was the one none of them examined. That
+is the cost of a guard-by-shape approach stated precisely: it is thorough about its shape and
+silent about everything else, and the silence reads like coverage.
+
+**Two defects in eleven lines, and fixing either alone leaves the other:**
+
+1. **The bound row was not ownership-checked.** `Wishlist` is absent from `scoped_models`, so
+   binding resolved any store's row. The permission that *was* checked, `Show Wishlist`, says what
+   the caller may do to a wishlist and never *which* one — and it is in the default grant list
+   (`Utility.php:2959`) that `Utility::addNewData()` gives every merchant **on every login**. So
+   this was live platform-wide, not a rare configuration.
+2. **The inner query had no store predicate.** `Wishlist::where('customer_id', $wish_id)->get()`
+   collected every row carrying that customer id in **any** store. Guarding the bound row does not
+   close this: ids collide across tenants in a shared database — `customers` is store-scoped
+   precisely because the id space is reused — so a store-B row sharing a customer id rendered on
+   store A's page.
+
+**Unlike F-SEC-08's stubs this returned data:** `wishlist/show.blade.php:3` renders
+`{{ $product->ProductData->name }}`, so the body carried another tenant's product names, and the
+bound row disclosed the victim customer's id.
+
+**Evidence — `tests/Feature/Security/WishlistShowCrossTenantTest.php`, 3 passed.**
+
+- Written **before** the fix and confirmed red against the unfixed code: the cross-tenant case
+  answered **200 with the victim's product name in the body**, and the shared-customer-id case
+  rendered the other store's product.
+- **The first draft of that test proved nothing, and the positive control is what said so.** It
+  answered **302 for the attacker *and* for the owner**, because `makeMerchant()` does not run
+  `addNewData()` and so the fixture merchant held no `Show Wishlist`. Had the owner control been
+  absent, a 302-for-everyone would have read as a closed hole. **Fourth time in this project that
+  a cross-tenant assertion passed for the wrong reason.** The tests now grant the permission
+  explicitly, with that reason written into the file.
+- **Each half mutation-checked separately.** Removing only the bound-row guard reddens exactly the
+  cross-tenant test; removing only `->where('store_id', $storeId)` reddens exactly the
+  shared-customer-id test. Neither mutation reddens the other's test, which is what establishes
+  that both changes are load-bearing.
+
+---
+
+### M-SEC-10 — two latent items from the F-SEC-08 review, recorded rather than changed
+
+Both were raised by the tenant-authz review, both are **fail-closed**, and neither has any effect
+today. Recorded here so a future implementer does not inherit them silently.
+
+**(a) `= current_store` is narrower than this project's own definition of "this merchant's
+stores".** All nineteen guards resolve the tenant as exactly `getCurrentStore()`.
+`StoreScope::admissibleStoreIds()` (`app/Scopes/StoreScope.php:1045-1060`) admits
+`{current_store} ∪ {stores whose created_by = creatorId()}`, and the rationale at `:1006-1010`
+says plainly why the narrower form "FIGHTS the controller": a merchant owning stores 5 and 7 with
+`current_store = 5` gets zero rows for an authorised store-7 request — *"a legitimate, authorised
+request answers empty with no error."*
+
+**Direction is safe** (it refuses, never admits) and **impact today is nil**, because every one of
+the eight F-SEC-08 bodies returns no data. But if any stub is implemented it reproduces exactly the
+silent-blank failure `StoreScope` was widened to avoid. **No change now; recording it is the fix.**
+
+**(b) Three methods now bypass their class's operator and permission gates.**
+`FlashSaleController::show` and `ShippingMethodController::show`/`::destroy` call
+`scopedFlashSale()` / `scopedShippingMethod()` directly, so they skip the explicit operator
+refusals their neighbours carry (`FlashSaleController:69-71`, `ShippingMethodController:97-99`).
+Nil impact — no data, no write — but `ShippingMethodController`'s own docblock at `:40-47` says the
+operator must not write, and an implemented `destroy()` would inherit an unrefused operator.
+**A note has been written into all three method bodies** naming the gate to add first.
+
+**(c) Coverage the review named as absent, now present.** `makeTenant()` always sets
+`current_store`, so every earlier test exercised exactly one of `getCurrentStore()`'s four branches.
+Four tests were added to `EmptyBodyExistenceOracleTest` to drive the rest by measurement:
+
+| Principal / row | Measured result |
+|---|---|
+| staff of the owning tenant | **200** — correctly admitted, so the guards lock no one out |
+| staff with `current_store = null` | **404** — the `Store::where('created_by', $user->id)` fallback finds nothing; fails closed, availability edge recorded |
+| operator with `current_store = null` | **404** on a non-store-1 row — scoped to the literal store 1, **no super-admin bypass** |
+| row with `store_id = null` | **404** to its apparent owner — the orphan matches no predicate anywhere, and must not become visible here |
+
+The operator test needed two tenants: its own premise assertion failed on first run because the
+first store created on a fresh migration **is** store 1, which would have made "refused"
+indistinguishable from "allowed because the helper returned 1". The assertion is left in place.
+
+**(d) One assertion in `EmptyBodyExistenceOracleTest` is not evidence, and now says so.** The
+"shipping method row still exists after the attacker's DELETE" check passes under the fix *and*
+under reversion, because `destroy()` deletes nothing for anybody. It is future-proofing; the status
+assertion beside it is what carries the test. Labelled in the file rather than removed.

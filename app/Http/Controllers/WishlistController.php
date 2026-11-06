@@ -54,8 +54,37 @@ class WishlistController extends Controller
     public function show(Wishlist $wishlist)
     {
         if (auth()->user() && auth()->user()->isAbleTo('Show Wishlist')) {
+            // P2.5-PKG-B (F-SEC-09). TWO defects here, and fixing either alone leaves the other.
+            //
+            // (1) THE BOUND ROW. `Wishlist` is absent from `scoped_models`, so binding resolved
+            // ANY store's row. The permission above says what the caller may do to a wishlist,
+            // never WHICH wishlist -- and `Show Wishlist` is in the default grant list at
+            // `Utility.php:2959` that `addNewData()` gives every merchant on every login, so this
+            // was live platform-wide, not a rare configuration. MEASURED at 200 with the victim's
+            // product name in the body before this guard existed.
+            //
+            // (2) THE QUERY BELOW had no store predicate, so it collected every row carrying that
+            // customer id in ANY store. Guarding the bound row does NOT close it: ids collide
+            // across tenants in a shared database -- `customers` is store-scoped precisely because
+            // the id space is reused -- so a store-B row sharing a customer id rendered on store
+            // A's page. `WishlistShowCrossTenantTest` asserts the two separately, because one test
+            // could not tell me which of them I had actually repaired.
+            //
+            // Found by the tenant-authz review of F-SEC-08, which guarded `edit` and `update` on
+            // either side of this method and left the one method in the file that returns bytes.
+            // The empty-body census could not see it, the structural ratchet does not look at
+            // non-empty bodies by design, and F-SEC-08's feature test had no `show` case.
+            $storeId = getCurrentStore();
+
+            if (empty($storeId) || empty($wishlist->store_id)
+                || (int) $wishlist->store_id !== (int) $storeId) {
+                abort(404);
+            }
+
             $wish_id = $wishlist->customer_id;
-            $wishlist_product = Wishlist::where('customer_id', $wish_id)->get();
+            $wishlist_product = Wishlist::where('customer_id', $wish_id)
+                ->where('store_id', $storeId)
+                ->get();
 
             return view('wishlist.show', compact('wishlist_product'));
         } else {
@@ -71,7 +100,16 @@ class WishlistController extends Controller
      */
     public function edit(Wishlist $wishlist)
     {
-        //
+        // P2.5-PKG-B. AN EMPTY BODY IS STILL AN EXISTENCE ORACLE: binding resolves the row before
+        // this method runs and `Wishlist` is absent from `scoped_models`, so the response was an
+        // empty 200 for a row in ANY store and 404 only for one existing nowhere.
+        // Wishlist rows are CUSTOMER data belonging to a store; the predicate matches the one
+        // the list paths already use.
+        $storeId = getCurrentStore();
+        if (empty($storeId) || empty($wishlist->store_id)
+            || (int) $wishlist->store_id !== (int) $storeId) {
+            abort(404);
+        }
     }
 
     /**
@@ -83,7 +121,18 @@ class WishlistController extends Controller
      */
     public function update(Request $request, Wishlist $wishlist)
     {
+        // P2.5-PKG-B. AN EMPTY BODY IS STILL AN EXISTENCE ORACLE, and this one survived the hand
+        // census for a SECOND structural reason: that regex required the model to be the FIRST
+        // parameter, so `(Request $request, Wishlist $x)` was never examined. Found only by
+        // `OwnedResourceMethodsAreGuardedTest`, which walks the real route table by reflection.
         //
+        // The method is an unimplemented resource stub and stays inert -- the guard changes
+        // nothing for a caller who owns the row, and removes the oracle for one who does not.
+        $storeId = getCurrentStore();
+        if (empty($storeId) || empty($wishlist->store_id)
+            || (int) $wishlist->store_id !== (int) $storeId) {
+            abort(404);
+        }
     }
 
     /**

@@ -27,6 +27,27 @@
  * and three of the label "failures" turned out to be a fixture inventing a column. Read a row as
  * "look here", never as "this is exploitable".
  *
+ * SUPERSEDED FOR ONE SHAPE, AND THE REASON MATTERS (F-SEC-08). The EMPTY-BODY variant of this
+ * finding -- a routed, route-model-bound method whose body is nothing but `//` -- is no longer
+ * censused here at all. It is asserted by `tests/Unit/Security/OwnedResourceMethodsAreGuardedTest`,
+ * which walks the REAL ROUTE TABLE by reflection instead of the filesystem by pattern.
+ *
+ * That test exists because a source-pattern census was wrong about this shape FIVE times, and each
+ * time for a different structural reason, not for want of care:
+ *
+ *   - it counted an ASSIGNMENT (`$x->store_id = ...`) as an ownership check;
+ *   - it counted `creatorId()` as a tenant predicate;
+ *   - it matched its OWN explanatory comment as evidence of a guard;
+ *   - its method-name list omitted `updateStatus`, so a live ungated endpoint read as absent;
+ *   - and it required the model to be the FIRST parameter, so every `update(Request $request,
+ *     Model $m)` -- the Laravel resource default -- was never examined. Two real holes hid there.
+ *
+ * The lesson is not "write a better regex". A census keyed on surface syntax will keep missing a
+ * DIFFERENT slice of the same shape each time it is rewritten, and each rewrite will look like it
+ * closed the shape. Where the property can be asserted structurally -- "is this routed", "is this
+ * bound", "is this body empty" -- assert it in a test that fails CI, and keep the census for the
+ * shapes that genuinely need judgement.
+ *
  * Usage:  php docs/development/phase-2.5/tools/census-unowned-model-resolution.php [--all]
  */
 

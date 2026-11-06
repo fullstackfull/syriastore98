@@ -68,7 +68,15 @@ class WebhookController extends Controller
      */
     public function show(Webhook $webhook)
     {
-        //
+        // P2.5-PKG-B. AN EMPTY BODY IS STILL AN EXISTENCE ORACLE: binding resolves the row before
+        // this method runs and `Webhook` is absent from `scoped_models`, so the response was an
+        // empty 200 for a row in ANY store and 404 only for one existing nowhere.
+        // No helper existed here; the predicate matches the one update() already uses at :79.
+        $storeId = getCurrentStore();
+        if (empty($storeId) || empty($webhook->store_id)
+            || (int) $webhook->store_id !== (int) $storeId) {
+            abort(404);
+        }
     }
 
     /**

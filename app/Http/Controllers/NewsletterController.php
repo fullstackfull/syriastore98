@@ -144,7 +144,16 @@ class NewsletterController extends Controller
      */
     public function update(Request $request, Newsletter $newsletter)
     {
+        // P2.5-PKG-B. AN EMPTY BODY IS STILL AN EXISTENCE ORACLE, and this one survived the hand
+        // census for a SECOND structural reason: that regex required the model to be the FIRST
+        // parameter, so `(Request $request, Newsletter $x)` was never examined. Found only by
+        // `OwnedResourceMethodsAreGuardedTest`, which walks the real route table by reflection.
         //
+        // The method is an unimplemented resource stub and stays inert -- the guard changes
+        // nothing for a caller who owns the row, and removes the oracle for one who does not.
+        if (! $this->callerOwnsNewsletter($newsletter)) {
+            abort(404);
+        }
     }
 
     /**

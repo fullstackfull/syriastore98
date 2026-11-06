@@ -125,6 +125,14 @@ class TestimonialController extends Controller
      */
     public function show(Testimonial $Testimonial)
     {
+        // P2.5-PKG-B. AN EMPTY BODY IS STILL AN EXISTENCE ORACLE: route model binding resolves
+        // the row BEFORE this method runs and `Testimonial` is absent from `scoped_models`, so the
+        // response was an empty 200 for a row in ANY store and 404 only for one existing nowhere.
+        // Eleventh instance of a shape closed five times in F-SEC-02, once in F-SEC-05 and three
+        // times in F-SEC-07; `OwnedResourceMethodsAreGuardedTest` now makes a twelfth fail CI.
+        if (! $this->callerOwnsTestimonial($Testimonial)) {
+            abort(404);
+        }
     }
 
     /**
