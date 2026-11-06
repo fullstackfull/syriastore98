@@ -427,6 +427,48 @@ class ContentFamilyCrossTenantTest extends SecurityTestCase
             'The owner can no longer delete their own newsletter subscriber.');
     }
 
+    /**
+     * `GET newsletter/export` HAD NO PERMISSION CHECK AT ALL.
+     *
+     * Named by the tenant-authz review of the seven-controller fix, and verified here by reading
+     * the handler: `NewsletterController::fileExport()` is four lines with no `isAbleTo` of any
+     * kind, routed at `routes/web.php:1402` inside the ['auth','xss','setlocate','verified']
+     * group. `NewsletterExport::collection()` scopes to `getCurrentStore()`, so this is a
+     * WITHIN-TENANT bypass rather than a cross-tenant one -- but the payload is the store's entire
+     * subscriber email list, which is personal data, and a staff member holding ZERO permissions
+     * could download it.
+     *
+     * `Manage Newsletter` is the right gate and locks nobody out: `index()` already requires it,
+     * and the export button lives on `newsletter/index.blade.php:24`, a page that principal cannot
+     * reach. Anyone who can see the button already holds the permission.
+     */
+    public function test_the_newsletter_export_refuses_a_principal_with_no_permission(): void
+    {
+        [$owner, $store] = $this->makeTenant();
+        $this->makeNewsletter($store->id, 'secret-subscriber@example.test');
+
+        // A staff member of the SAME tenant holding nothing at all.
+        $staff = $this->makeStaff($owner);
+
+        $response = $this->actingAs($staff)->get('/newsletter/export');
+
+        $this->assertNotSame(200, $response->status(),
+            'A principal holding no permissions downloaded the store\'s full subscriber list.');
+        $this->assertStringNotContainsString('secret-subscriber@example.test',
+            $response->getContent(),
+            'The subscriber list reached a principal holding no permissions.');
+    }
+
+    public function test_the_newsletter_export_still_works_for_a_principal_who_may_manage_it(): void
+    {
+        // The positive control: a gate that refused everyone would satisfy the test above.
+        [$owner, $store] = $this->makeTenant();
+        $this->grantPermission($owner, 'Manage Newsletter');
+        $this->makeNewsletter($store->id, 'own-subscriber@example.test');
+
+        $this->actingAs($owner)->get('/newsletter/export')->assertStatus(200);
+    }
+
     // =============================================================================================
     // PRODUCT QUESTION -- the reply modal has no permission check AND no tenant predicate, so the
     // answer a merchant publishes can be written onto another store's question.

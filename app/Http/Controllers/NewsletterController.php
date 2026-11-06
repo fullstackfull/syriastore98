@@ -162,8 +162,29 @@ class NewsletterController extends Controller
         }
     }
 
+    /**
+     * P2.5-PKG-B. THIS HAD NO PERMISSION CHECK AT ALL.
+     *
+     * Four lines, routed at `routes/web.php:1402` inside the ['auth','xss','setlocate','verified']
+     * group, returning the store's ENTIRE SUBSCRIBER EMAIL LIST as a spreadsheet.
+     * `NewsletterExport::collection()` scopes to `getCurrentStore()`, so this is a WITHIN-TENANT
+     * bypass and not a cross-tenant one -- but the payload is personal data and a staff member
+     * holding ZERO permissions could download it. MEASURED in
+     * `ContentFamilyCrossTenantTest::test_the_newsletter_export_refuses_a_principal_with_no_permission`
+     * before this check existed.
+     *
+     * `Manage Newsletter` and not a new name: `index()` already requires exactly that, and the
+     * export button lives on `newsletter/index.blade.php:24` -- a page this principal cannot
+     * reach. So anyone who can SEE the button already holds the permission, and this locks nobody
+     * out. Found by the tenant-authz review of the seven-controller tenancy fix; it is an
+     * authorization gap rather than a tenancy one, which is why neither census surfaced it.
+     */
     public function fileExport()
     {
+        if (! auth()->user() || ! auth()->user()->isAbleTo('Manage Newsletter')) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
         $fileName = 'Newsletter.xlsx';
         return Excel::download(new NewsletterExport, $fileName);
     }

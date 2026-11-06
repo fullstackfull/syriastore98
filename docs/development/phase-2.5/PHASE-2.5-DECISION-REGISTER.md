@@ -2216,10 +2216,7 @@ has no menu entry and no index page to reach an id from.
 
 #### Recorded, NOT fixed — named with file:line by the review
 
-- **`NewsletterController::fileExport()` (`:165`, route `routes/web.php:1402`) has no permission
-  check at all** — any authenticated principal in the tenant, staff holding nothing included,
-  downloads the store's full subscriber email list. Store-scoped, so **within-tenant**, not
-  cross-tenant. **Live.** This is the sharpest remainder in these seven files.
+- ~~`NewsletterController::fileExport()`~~ **— FIXED, see F-SEC-06 below.**
 - **`edit()` still checks ownership only on six of the seven**, departing from the
   ProductBrand/Page precedent which added the permission. A zero-permission staff member of the
   tenant can still read Contact submissions and full blog posts. Within-tenant bypass on personal
@@ -2236,3 +2233,29 @@ has no menu entry and no index page to reach an id from.
   `GET /blog/{id}` is a 500 for everyone. Pre-existing availability bug, not authorization.
 - **Side effect of this fix, accepted:** anonymous `POST /contacts` writes `store_id = null`; such
   rows were already invisible to the list and are now also permanently un-editable through the UI.
+
+
+---
+
+### F-SEC-06 — the newsletter export had no permission check at all
+
+**Status:** FIXED and proved. An **authorization** gap, not a tenancy one — which is precisely why
+neither census surfaced it: both look for a model resolved from caller-supplied id, and this
+handler takes no id at all.
+
+`NewsletterController::fileExport()` was four lines with no `isAbleTo` of any kind, routed at
+`routes/web.php:1402` inside the `['auth','xss','setlocate','verified']` group, returning the
+store's **entire subscriber email list** as a spreadsheet. `NewsletterExport::collection()` scopes
+to `getCurrentStore()`, so the payload is within-tenant — but it is personal data, and a **staff
+member holding zero permissions** could download it.
+
+**Measured:** before the gate, a staff principal created with `makeStaff()` and granted nothing
+received HTTP 200 and the subscriber address in the body. After: refused. Reverting the gate alone
+fails exactly that test and nothing else; the positive control passes in both states.
+
+**`Manage Newsletter`, not a new permission name.** `index()` already requires exactly that, and
+the export button lives on `newsletter/index.blade.php:24` — a page the refused principal cannot
+reach. So anyone who can *see* the button already holds it, and the gate locks nobody out.
+
+Found by the tenant-authz review of F-SEC-05, not by either census. Worth noting as the cost of a
+census keyed on one defect shape: it finds that shape thoroughly and is blind to every other.
