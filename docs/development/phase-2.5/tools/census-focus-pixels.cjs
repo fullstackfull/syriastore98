@@ -56,13 +56,28 @@
  *   half the size SC 2.4.11 asks for. A 27-agent adversarial review found that regression; this
  *   run finds it in a minute. That is the whole argument for the tool.
  *
- *   FALSE NEGATIVE, verified by hand. On /dashboard it reports `summary 1103x36 -- 0px changed`.
- *   A focused/unfocused screenshot pair of that same control (evidence/focus-2026-11-06/
- *   summary-{focused,UNfocused}.png) shows an unmistakable 2px teal ring appearing on focus, and
- *   driving the same tab walk confirms the states really do differ: `outline: solid 2px
- *   rgb(104,203,225)` focused, `none` after blur. So the page is right and the COMPARISON is
- *   wrong, and I have not isolated why. Until that is explained, a zero in this tool's output
- *   means "look at it", not "it fails".
+ *   FALSE NEGATIVE, verified by hand and then PARTLY explained. On /dashboard it reports
+ *   `summary 1103x36 -- 0px changed`. A focused/unfocused pair of that control
+ *   (evidence/focus-2026-11-06/summary-{focused,UNfocused}.png) shows an unmistakable 2px teal
+ *   ring, and the tab walk confirms `outline: solid 2px rgb(104,203,225)` focused versus `none`
+ *   blurred.
+ *
+ *   WHAT WAS RULED OUT. The comparison itself is CORRECT: replaying the census walk, dumping the
+ *   two captures it would have compared, and running the very same `diffInPage` over them gives
+ *   3662 changed pixels with a max channel delta of 174 -- and the same function returns exactly
+ *   0 when an image is compared with itself. The capture is correct too: the two PNGs differ in
+ *   byte length, so they are not the same image. The zero was a transient that a faithful replay
+ *   could not reproduce.
+ *
+ *   WHAT WAS DONE ABOUT IT. A zero is now MEASURED TWICE -- the walk and both captures are
+ *   repeated before the stop is reported -- because a zero is the one reading this tool must not
+ *   get wrong: it is the one that reads as "this control has no focus indicator at all". That
+ *   change earned itself immediately: on the next run three `a.ss-chip` stops that had read 0px
+ *   read 344px, 340px and 426px on their second pass.
+ *
+ *   WHAT IS STILL UNEXPLAINED. Three stops still read 0px across BOTH passes -- `summary`,
+ *   `div.simplebar-content-wrapper` and one `a.ss-chip` -- and for `summary` a hand replay
+ *   measured 3662. So a double zero is still "look at this control", not "it fails".
  *
  * WHAT THAT MEANS IN PRACTICE. Use it as a DIFFERENTIAL -- run it before and after a change and
  * compare the two lists, which is how the true positive above was established and what catches
@@ -207,8 +222,30 @@ async function diffInPage([a, b]) {
       await p.waitForTimeout(SETTLE);
       const resting = (await p.screenshot({ clip: info.clip })).toString('base64');
 
-      const d = await judge.evaluate(diffInPage, [focused, resting]);
+      let d = await judge.evaluate(diffInPage, [focused, resting]);
       if (d.error) { continue; }
+
+      /* A ZERO IS RE-TAKEN BEFORE IT IS BELIEVED. This tool once reported
+         `summary 1103x36 -- 0px changed` on /dashboard, and a hand-made screenshot pair of that
+         same control showed an obvious 2px teal ring. Replaying the walk faithfully and running
+         the very same diff over the captured images gave 3662 changed pixels, so the comparison
+         was never wrong -- that reading was a transient the replay could not reproduce. An
+         unexplained zero is the one result this tool must not get wrong, because it is the one
+         that reads as "this control has no focus indicator at all". So it is measured twice. */
+      if (d.changed === 0) {
+        await p.evaluate(() => { document.body.setAttribute('tabindex', '-1'); document.body.focus(); });
+        for (let k = 0; k < i; k++) { await p.keyboard.press('Tab'); }
+        await p.waitForTimeout(SETTLE);
+        const focused2 = (await p.screenshot({ clip: info.clip })).toString('base64');
+        await p.evaluate(() => { if (document.activeElement && document.activeElement.blur) { document.activeElement.blur(); } });
+        await p.waitForTimeout(SETTLE);
+        const resting2 = (await p.screenshot({ clip: info.clip })).toString('base64');
+        const d2 = await judge.evaluate(diffInPage, [focused2, resting2]);
+        if (!d2.error && d2.changed > 0) {
+          console.log(`      (retaken: ${info.name} read 0px once and ${d2.changed}px on the second pass -- using the second)`);
+          d = d2;
+        }
+      }
 
       /* the area a conformant indicator must at least cover: a PERIMETER_PX ring round the control */
       const needed = Math.round(PERIMETER_PX * 2 * (info.w + info.h));
