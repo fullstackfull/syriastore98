@@ -212,6 +212,27 @@ VERIFIED = {
     # languages, all three fixed, and the four announcement paths re-measured.
     # ----------------------------------------------------------------------------------------
     'Command palette (global search)': ('REDESIGNED AND VERIFIED', 'package-a', 'palette_', 'P2.5-PKG-A-07'),
+
+    # ----------------------------------------------------------------------------------------
+    # 'Page-header component' STAYS PENDING, AND A HYPOTHESIS ABOUT IT IS RECORDED AS REFUTED.
+    #
+    # The file counts looked like a defect: `.ss-page-header` appears in 36 views while seven
+    # driven routes -- /dashboard, /product, /order, /customer, /users, /finance and
+    # /merchant-notifications -- rendered NO `.ss-page-header` at all, their h1 coming from the
+    # layout's own `@section('page-title')` mechanism instead. Two vocabularies for one thing,
+    # and P2.5-PKG-A-01 had already found one view running BOTH and showing its title twice.
+    #
+    # MEASURED, and it does not reproduce. Of the 36, all but a handful are `setting/*_setting`
+    # TAB PARTIALS loaded by AJAX into the settings hub, plus `components/ss/*` and
+    # `dashboard/overview`, which is included. None of them is a page, so none of them needs
+    # `page-title`, and the `<title>` tag they would otherwise blank is set by the hub that
+    # loads them. The component serves partials and the layout serves pages: they coexist by
+    # design, not by accident.
+    #
+    # The row stays PENDING because it has not been driven in four combinations and measured --
+    # not because a defect is owed. The spacing difference the probe did find (24px under the
+    # header at 1440, 8px at 390) is the phone-density work WAVE-22 and WAVE-24 did on purpose.
+    # ----------------------------------------------------------------------------------------
 }
 
 # Surfaces that are out of the Phase 2.5 merchant scope by the approved phase plan.
