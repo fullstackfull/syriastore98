@@ -1137,8 +1137,8 @@ Route::get(
 
     // abandon carts handled
     Route::get('abandon-carts-handled', [CartController::class, 'abandon_carts_handled'])->name('abandon.carts.handled');
-    Route::get('abandon-carts-show/{cartId}', [CartController::class, 'abandon_carts_show'])->name('carts.show');
-    Route::delete('abandon-carts-destroy/{cartId}', [CartController::class, 'abandon_carts_destroy'])->name('carts.destroy');
+    Route::get('abandon-carts-show/{customerId}', [CartController::class, 'abandon_carts_show'])->name('carts.show');
+    Route::delete('abandon-carts-destroy/{customerId}', [CartController::class, 'abandon_carts_destroy'])->name('carts.destroy');
     Route::post('abandon-carts-emailsend', [CartController::class, 'abandon_carts_emailsend'])->name('carts.emailsend');
 
     Route::post('abandon-carts-messagesend', [CartController::class, 'abandon_carts_messsend'])->name('carts.messagesend');

@@ -87,7 +87,7 @@ class WishlistDataTable extends DataTable
         return buildDataTableColumn([
             'customer_id' => ['title' => __('Customer'), 'addClass' => 'text-capitalize'],
             'email' => ['title' => __('Email')],
-            'product' => ['title' => __('Product'), 'searchable' => false]
+            'product' => ['title' => __('Products'), 'searchable' => false]
         ]);
     }
 
