@@ -346,6 +346,49 @@ class AbandonedCartShowIdentifierTest extends SecurityTestCase
     }
 
     /**
+     * AND THE `empty($storeId)` REFUSAL IS LOAD-BEARING, which the test above does NOT show.
+     *
+     * MUTATION FOUND THIS, after the same gap was found and closed on both send handlers and on
+     * the wishlist pair. Deleting the `empty($storeId)` guard leaves the storeless test above
+     * green, because without it the probe compiles to `store_id IS NULL` and no fixture row
+     * carries a null store, so the probe misses and the handler refuses for the predicate's
+     * reason rather than the guard's. Three handlers, the same illusion in all three, and in each
+     * case the first test I wrote measured the predicate while claiming to measure the guard.
+     *
+     * `carts.store_id` is nullable with no default (2024_01_18_103138), so the row below is the
+     * legacy or imported line `config/tenancy.php` already names as the operator's precondition --
+     * and for a caller whose store does not resolve, `store_id IS NULL` MATCHES it.
+     */
+    public function test_a_storeless_merchant_cannot_read_a_null_store_cart(): void
+    {
+        [$victim, $victimStore] = $this->makeTenant();
+        $this->grantPermission($victim, 'Show Cart');
+
+        $customer = $this->makeCustomer($victimStore->id);
+        $orphan = $this->makeCartRow($victimStore->id, $victim->id, $customer->id, 'NullStoreOrphanItem');
+        \DB::table('carts')->where('id', $orphan->id)->update(['store_id' => null]);
+
+        $storeless = $this->makeMerchant(['current_store' => null]);
+        $this->grantPermission($storeless, 'Show Cart');
+
+        $this->assertNull(
+            \DB::table('carts')->where('id', $orphan->id)->value('store_id'),
+            'premise: the row must carry a NULL store_id, or `store_id IS NULL` would not match '
+            . 'it and this test would pass without the guard'
+        );
+
+        $response = $this->actingAs($storeless)->get('/abandon-carts-show/' . $customer->id);
+
+        $this->assertNotSame(
+            200,
+            $response->getStatusCode(),
+            'a storeless caller read a NULL-store cart line. Only the explicit refusal stops this; '
+            . 'the `store_id` predicate alone MATCHES a null-store row for this caller.'
+        );
+        $response->assertDontSee('NullStoreOrphanItem');
+    }
+
+    /**
      * A PRODUCT DELETED WHILE SITTING IN AN ABANDONED CART NO LONGER TAKES THE MODAL DOWN.
      *
      * `cart/show.blade.php` read `$product->product_data->name` with no null check, and

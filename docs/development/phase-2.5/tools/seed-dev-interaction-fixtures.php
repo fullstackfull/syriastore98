@@ -544,6 +544,21 @@ if ($pkgCCustomers->count() < 3 || $pkgCProducts->count() < 5) {
     // harness cannot pass by reading one.
     $pkgCPlan = [0 => 1, 1 => 3, 2 => 5];
 
+    // THE WISHLIST GETS ITS OWN SHAPE, and a CI guard is why. The first version of this fixture
+    // wrote the same count and the SAME products to both tables, so a customer's wishlist was a
+    // verbatim copy of their cart -- which is not what a wishlist is, and which made the two
+    // screens' product cells render IDENTICAL PIXELS. `check-distinct-surface-captures.py` failed
+    // the build on exactly that: four collisions between `cell-carts-*` and `cell-wishlists-*`,
+    // with the right complaint -- a capture that is byte-identical to another surface's cannot
+    // evidence the surface it claims. Different counts AND a different product window, so each
+    // cell shows a different number and each modal a different list.
+    // Each entry differs from `$pkgCPlan`'s at the same index, so NO customer's wishlist count
+    // equals their cart count and the cell differs whichever row sorts first. All three are <= 5
+    // because the fixture guarantees exactly 5 products -- a larger number would wrap on the
+    // modulo below, hit the `exists()` check, and silently under-fill while the plan claimed more.
+    $pkgCWishPlan = [0 => 4, 1 => 2, 2 => 3];
+    $pkgCWishOffset = 2;
+
     $foreignCarts = Cart::withoutGlobalScopes()
         ->where('cookie_session_id', '!=', $PROBE_TAG_C)->orWhereNull('cookie_session_id')->count();
     $foreignWishes = Wishlist::withoutGlobalScopes()
@@ -578,11 +593,19 @@ if ($pkgCCustomers->count() < 3 || $pkgCProducts->count() < 5) {
                     ]);
                 }
 
+            }
+
+            // The wishlist loop is SEPARATE because its count and its product window differ from
+            // the cart's; sharing the loop is what produced the identical captures.
+            $wantedWish = $pkgCWishPlan[$i];
+            for ($n = 0; $n < $wantedWish; $n++) {
+                $wishProduct = $pkgCProducts[($n + $pkgCWishOffset) % count($pkgCProducts)];
+
                 if (! Wishlist::withoutGlobalScopes()->where('status', $PROBE_WISH_STATUS)
-                        ->where('customer_id', $customer->id)->where('product_id', $product->id)->exists()) {
+                        ->where('customer_id', $customer->id)->where('product_id', $wishProduct->id)->exists()) {
                     Wishlist::forceCreate([
                         'customer_id' => $customer->id,
-                        'product_id' => $product->id,
+                        'product_id' => $wishProduct->id,
                         'variant_id' => 0,
                         'status' => $PROBE_WISH_STATUS,
                         'store_id' => $pkgCStoreId,
@@ -611,6 +634,30 @@ if ($pkgCCustomers->count() < 3 || $pkgCProducts->count() < 5) {
         if (count(array_unique($cartCounts)) < 3 || count(array_unique($wishCounts)) < 3) {
             fwrite(STDERR, "          WARNING: the per-customer counts are not three distinct values, so the\n"
                 . "          count badge renders fewer than three and cannot be verified properly.\n");
+        }
+
+        // AND NO CUSTOMER'S CART COUNT MAY EQUAL THEIR WISHLIST COUNT. This is the property the
+        // CI guard `check-distinct-surface-captures.py` needs and the first version of this
+        // fixture broke: it wrote the same count and the same products to both tables, so the two
+        // screens' product cells rendered IDENTICAL PIXELS and the build failed with four
+        // collisions between `cell-carts-*` and `cell-wishlists-*`. The guard was right -- a
+        // capture byte-identical to another surface's cannot evidence the surface it claims.
+        // Asserted here rather than left to the capture step, so a future edit to either plan
+        // fails HERE with the reason instead of in CI with a pixel hash.
+        $collisions = [];
+        foreach ($pkgCCustomers as $i => $customer) {
+            if ($cartCounts[$i] === $wishCounts[$i]) {
+                $collisions[] = sprintf('customer %d: both %d', $customer->id, $cartCounts[$i]);
+            }
+        }
+        if ($collisions !== []) {
+            fwrite(STDERR, "          WARNING: cart and wishlist counts coincide for "
+                . count($collisions) . " customer(s) -- " . implode('; ', $collisions) . ".\n"
+                . "          The two product cells will photograph identically and the distinct-\n"
+                . "          surface capture guard will fail the build. Change \$pkgCWishPlan.\n");
+        } else {
+            printf("          cart vs wishlist counts differ for every customer: %s vs %s\n",
+                json_encode($cartCounts), json_encode($wishCounts));
         }
     }
 }

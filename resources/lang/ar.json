@@ -2717,7 +2717,7 @@
     "Something is wrong": "هناك خطب ما",
     "Something is wrong.": "هناك خطب ما",
     "Something was wrong.": "كان هناك شيء خاطئ",
-    "Something went wrong": "شيء ما ذهب خاطئ",
+    "Something went wrong": "حدث خطأ ما",
     "Something went wrong!": "شيء ما ذهب خاطئ!",
     "Something Went Wrong!": "شيء ما ذهب خاطئ!",
     "something Went wrong!": "شيء ما حدث خطأ!",
@@ -3440,5 +3440,6 @@
     "Last active": "آخر نشاط",
     "Abandoned carts": "عربات التسوق المتروكة",
     "Abandoned wishlists": "قوائم الرغبات المتروكة",
-    "Product no longer available": "منتج غير متوفّر"
+    "Product no longer available": "منتج غير متوفّر",
+    "Cart not found.": "عربة التسوق غير موجودة"
 }

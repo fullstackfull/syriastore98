@@ -45,6 +45,54 @@ Both handlers now refuse when no store resolves and name `store_id` on the looku
 follow-up `customer_id` query — the follow-up separately, because customer ids are reused across
 tenants. `AbandonedCartSendStoreScopeTest` drives all four cases.
 
+### Defect 9 — the wishlist twins were F-SEC-09 again, and worse
+
+Adding an `error` leg to the four recovery actions (they had none, so every failure was silent)
+and then driving a missing row put this on the merchant's screen, in a toast:
+
+> **Error** — `Attempt to read property "customer_id" on null`
+
+A raw PHP error, verbatim, in the interface. The defect was always there; the silence hid it. That
+is the argument for the error leg — and a warning, since surfacing errors surfaces the ones you
+did not know about.
+
+The wishlist send handlers are **worse than the cart twins**: `Wishlist` is absent from
+`scoped_models` *entirely*, so unlike `Cart` there is no global scope behind them for anybody. An
+ordinary merchant with their own store, holding a permission `Utility::addNewData()` grants on
+every login, could name any wishlist id on the platform. This is F-SEC-09 — closed on
+`WishlistController::show` earlier in this phase — standing unrepaired in two more methods of the
+same file, which is exactly how F-SEC-09 survived F-SEC-08.
+
+`abandonWishlistMsgSend` carried four defects in five lines: `Wishlist::find()`,
+`$cart->customer_id` and `$cart->UserData` all ran **before** `isAbleTo()` (so an unpermitted
+caller drove the lookup, and a missing row 500'd ahead of the refusal — the cart twin had this
+corrected under P1-SEC and this one was left); no null guard; no store predicate; and it gates on
+`Abandon Cart` rather than `Abandon Wishlist`. The first three are fixed. The fourth is **not**:
+correcting the permission name changes who may do what, and §8 reserves that to the owner, so it
+is recorded and the test asserts the permission actually checked rather than the one that ought to
+be.
+
+`abandon_wish_emailsend`'s refusal also answered **`redirect()->back()` — a 302 — to an AJAX
+POST**, so jQuery followed it and got the list page's HTML; the refusal never arrived as a
+refusal. It is now a 403 JSON, matching the cart twin.
+
+### The error leg relays only a 4xx body
+
+Its first cut relayed any `message`, which is how the raw PHP error reached the screen — Laravel's
+debug JSON uses the same key. A 4xx is the class the controller authored for a person to read; a
+5xx now gets a generic message. The underlying 500 is fixed, but the next one should not be a
+disclosure.
+
+Measured, driving a real 404 through the page's own button in all four combinations: the toast
+appears (it did not before), body contrast 6.17–6.42, title 14.23–16.88, 0 page errors, and the
+body reads `عربة التسوق غير موجودة` / `البيانات غير موجودة` on the Arabic page — `Cart not found.`
+had no Arabic entry at all and rendered in English until this slice added one.
+
+**The toast TITLE is still English** on the Arabic page, and that is not this slice's doing:
+`show_toastr(title, message, type)` discards `title` and calls `notifier.show('Error', ...)` with a
+hardcoded literal (`public/js/custom.js:342`), so every toast title in the admin is English. It
+reaches every merchant screen, so it is recorded for its own slice rather than changed here.
+
 Defect 5 is the one worth remembering. The page renders, the route returns 200, the cell is
 present and the permission is correct. It is only wrong **after a click**, which is exactly what
 §6 of the directive means by not marking a screen premium because it rendered.
@@ -95,6 +143,32 @@ step and is now done): `carts.qty` was already fetched and discarded, and a coun
 The wishlist modal deliberately does not match — `wishlists` has no `qty` column, so the two
 differ because the data differs.
 
+### Defect 10 — any registered shopper could delete any wishlist row on the platform
+
+The review's answer to "what else has this shape" found the third member of the family:
+
+```php
+public function delete_wishlist(Request $request, $slug)
+{
+    Wishlist::where('id', $request->id)->delete();
+}
+```
+
+No customer predicate, no store predicate, no scope behind it — and on a **GET** route
+(`routes/customer.php:338`), so no CSRF token is involved: an `<img src=".../delete-wishlist?id=
+123">` on any page a signed-in shopper loads fires it. Driven before the fix: a shopper of one
+store deleted a foreign store's row, and another shopper's row in their own store, while their own
+delete still worked — so the feature was working for everybody's rows.
+
+**Why it survived an earlier pass** is the part worth keeping. `routes/customer.php:303-306`
+records this exact line being looked at and left, reasoned as *"delete.wishlist proves guests
+cannot own wishlist rows at all"*, after which the route was put behind customer authentication.
+That reasoning is about **guests** and is sound as far as it goes — but authenticating a handler
+that trusts a caller-supplied id only narrows the attacker from "anyone on the internet" to
+"anyone with an account", which on a public storefront is barely a narrowing. The verb is left
+alone: `StateChangingGetInventoryTest` already carries this route as a declared state-changing GET
+needing its own caller sweep.
+
 ## Mutation results, stated because "a guard is present" is not "a guard is tested"
 
 | Mutant | Outcome |
@@ -105,6 +179,42 @@ differ because the data differs.
 | either send guard alone is removed | green — the two are independently sufficient |
 | **both** send guards removed | **RED** |
 | `cart/show.blade.php` loses its null guard | **RED** — `Attempt to read property "name" on null` |
+| either wishlist send guard alone removed | **RED** |
+| `delete_wishlist` loses `customer_id` | **RED** |
+| `delete_wishlist` loses `store_id` | **RED** |
+
+### Four guards that looked tested and were not
+
+This is the uncomfortable part, and it is the clearest thing this package learned. For **three**
+handlers the `empty($storeId)` refusal could be deleted with every test still green, and for
+`delete_wishlist` the `store_id` predicate could be deleted the same way. In each case the first
+test I wrote measured the **predicate** while claiming to measure the **guard**:
+
+- `where('store_id', null)` compiles to `store_id IS NULL`. No fixture row carried a null store,
+  so the query missed and the handler refused — for the predicate's reason, not the guard's. Fixed
+  by adding a row with a **NULL `store_id`**, which `carts.store_id` and `wishlists.store_id` both
+  permit (nullable, no default), and which is the legacy/imported row `config/tenancy.php` already
+  names as the operator's precondition.
+- `delete_wishlist`'s cross-store tests used a victim whose customer id *differed* from the
+  attacker's, so `customer_id` alone refused. Fixed by the id-collision shape: a foreign store's
+  row carrying the attacker's own customer id, which is what a shared database actually produces.
+
+Every one of those was found by deleting the guard and watching the suite stay green. None would
+have been found by reading the code.
+
+## The CI guard that caught my evidence
+
+`check-distinct-surface-captures.py` failed the build on commit `3841696e` with four collisions
+between `cell-carts-*.png` and `cell-wishlists-*.png` — **byte-identical pixels for two different
+surfaces**. It was right. The dev fixture wrote the same count and the same products to both
+tables, so a customer's wishlist was a verbatim copy of their cart; the cropped cell could not
+evidence which screen it came from, and a wishlist that duplicates the cart is not realistic data
+either. The fixture now gives the wishlist its own counts and its own product window
+(cart `[1,3,5]` vs wishlist `[4,2,3]`) and **asserts in the seeder** that no customer's two counts
+coincide, so a future edit fails there with the reason rather than in CI with a pixel hash. The
+modal check was also changed from a hardcoded `expected 5` — which was a restatement of the
+fixture and went stale the moment the fixture changed — to the invariant that the modal must list
+exactly as many products as the cell's figure claims.
 
 ## Two claims of mine that were wrong, and what corrected them
 
@@ -117,3 +227,20 @@ differ because the data differs.
    opposite: `wishlists.product_id` carries `onDelete('cascade')` and `carts` has none, so with
    foreign keys enforced the delete left both cart lines and removed the wishlist row. Caught by
    measuring it instead of reasoning about it.
+3. A comment of mine claimed the cart email handler "already answers 403". It did not — only
+   `abandon_carts_messsend` did; `abandon_carts_emailsend` was still returning
+   `redirect()->back()`, a 302 that jQuery follows into a 200, so its refusal arrived in the
+   *success* branch as a string and produced a **blank** error toast. The new error leg could not
+   reach it. Caught by the review; the cart handler is corrected in the same change, so all four
+   members of the family now answer a refusal a caller can read.
+
+### One claim of mine the review challenged and that survived
+
+The review suggested the email path's cross-tenant read might be **latent rather than live**, on
+the reading that a pre-change gate written `isAbleTo(...)` would have been an undefined *function*
+and 500'd for everyone. It was conditioned on shorthand in my briefing, and the actual pre-change
+line is `if (auth()->user() && auth()->user()->isAbleTo('Abandon Wishlist'))` — Laratrust's
+**method** on the User object, which exists. Corroborated independently: driving that endpoint
+produced `Attempt to read property "customer_id" on null`, an error from the line *after* the gate.
+The gate passed, execution continued, the read was live. The claim stands unamended — recorded
+here because a challenge that is checked and rejected is worth as much as one that is accepted.

@@ -37,6 +37,25 @@ EXPECTED_TOTAL = 295
 # carries the directory its four captures live in and the generator checks the files exist.
 # ---------------------------------------------------------------------------------------------
 VERIFIED = {
+    # ---- P2.5-PKG-C: the abandoned carts and wishlists family ---------------------------------
+    # SIX surfaces, and the first time any of them was seen WITH DATA -- the fixture that puts
+    # carts and wishlists on these screens landed in this package, and every finding came out of
+    # it. The two ROW-ACTION rows are deliberately NOT here: their security and their silent-
+    # failure gap were repaired in the same package, but the buttons themselves had no design pass
+    # and their feedback was measured in two combinations, not four. Promoting them would be the
+    # exact overclaim the directive's §6 forbids.
+    'Abandoned carts list':
+        ('REDESIGNED AND VERIFIED', 'pkg-c-abandoned', 'abandoned-carts-list_', 'P2.5-PKG-C'),
+    'Abandoned-cart product cell':
+        ('REDESIGNED AND VERIFIED', 'pkg-c-abandoned', 'abandoned-cart-cell_', 'P2.5-PKG-C'),
+    'Abandoned-cart products modal':
+        ('REDESIGNED AND VERIFIED', 'pkg-c-abandoned', 'abandoned-cart-modal_', 'P2.5-PKG-C'),
+    'Abandoned wishlists list':
+        ('REDESIGNED AND VERIFIED', 'pkg-c-abandoned', 'abandoned-wishlists-list_', 'P2.5-PKG-C'),
+    'Abandoned-wishlist product cell':
+        ('REDESIGNED AND VERIFIED', 'pkg-c-abandoned', 'abandoned-wishlist-cell_', 'P2.5-PKG-C'),
+    'Abandoned-wishlist products modal':
+        ('REDESIGNED AND VERIFIED', 'pkg-c-abandoned', 'abandoned-wishlist-modal_', 'P2.5-PKG-C'),
     'Product list (table view)':  ('REDESIGNED AND VERIFIED', 'wave-1', '_product__',  'P2.5-WAVE-1'),
     'Order list':                 ('REDESIGNED AND VERIFIED', 'wave-1', '_order__',    'P2.5-WAVE-1'),
     'Customer list':              ('REDESIGNED AND VERIFIED', 'wave-1', '_customer__', 'P2.5-WAVE-1'),

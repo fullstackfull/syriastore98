@@ -1305,7 +1305,22 @@ foreach ($response->data->product_list as $item) {
                 );
             }
         } else {
-            return redirect()->back()->with('error', __('Permission denied.'));
+            /*
+             * P2.5-PKG-C. THIS WAS THE LAST MEMBER OF THE FOUR STILL ANSWERING A REDIRECT TO AN
+             * AJAX POST, and the tenant-authz review caught me claiming otherwise in a comment on
+             * the wishlist side. `redirect()->back()` is a 302; jQuery follows it and receives the
+             * list page's HTML, so this handler's refusal arrived in the SUCCESS branch as a
+             * string -- `response.is_success` undefined, and `cart/index.blade.php` then called
+             * `show_toastr('Error', undefined, 'error')`. A blank error toast. Adding an `error`
+             * leg in the same change did not reach it, because a followed 302 is a 200.
+             *
+             * Its sibling `abandon_carts_messsend` has answered 403 JSON since P1-SEC; the two
+             * disagreed for no reason anyone recorded. The only caller is
+             * `cart/index.blade.php:25`, the route is web-only (nothing in `routes/api.php`
+             * matches `abandon`), and 403 is not 401, so the Flutter force-logout rule is not
+             * engaged on either count.
+             */
+            return response()->json(['is_success' => false, 'message' => __('Permission denied.')], 403);
         }
     }
 

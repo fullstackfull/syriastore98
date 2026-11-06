@@ -670,9 +670,56 @@ public function city_list(Request $request, $slug)
     }
     
 
+    /**
+     * Remove ONE row from the signed-in shopper's own wishlist.
+     *
+     * P2.5-PKG-C. THIS DELETED BY CALLER-SUPPLIED ID WITH NO OWNERSHIP PREDICATE AT ALL --
+     * `Wishlist::where('id', $request->id)->delete()`, and `Wishlist` is absent from
+     * `config/tenancy.php`'s `scoped_models`, so no global scope stood behind it either. Any
+     * registered shopper could delete ANY wishlist row on the platform, in any store. Driven:
+     * both a foreign store's row and another shopper's row in the caller's own store were deleted
+     * before the two predicates below existed, while the owner's own delete still worked -- so the
+     * feature was not merely broken, it was working for everybody's rows.
+     *
+     * AND IT IS A DESTRUCTIVE WRITE ON A GET ROUTE (`routes/customer.php:338`), so no CSRF token
+     * is involved: an `<img src=".../delete-wishlist?id=123">` on any page a signed-in shopper
+     * loads fires it. The verb is NOT changed here -- `StateChangingGetInventoryTest` carries this
+     * route as a declared state-changing GET needing "its own caller sweep", and the storefront's
+     * own caller is `front-theme.js:1162-1178`. Converting it is that sweep's job; the missing
+     * predicate is this one's.
+     *
+     * WHY IT SURVIVED AN EARLIER PASS, which is the part worth recording: `routes/customer.php`
+     * :303-306 shows this exact line was looked at and left, reasoned as "delete.wishlist proves
+     * guests cannot own wishlist rows at all", and the route was put behind customer
+     * authentication. That reasoning is about GUESTS and is sound as far as it goes -- but
+     * authenticating a handler that trusts a caller-supplied id only narrows the attacker from
+     * "anyone on the internet" to "anyone with an account", which on a public storefront is
+     * barely a narrowing. Found by the tenant-authz review of the two merchant-side wishlist send
+     * handlers, as the third member of a family of which I had repaired two.
+     *
+     * BOTH PREDICATES ARE NEEDED AND FAIL FOR DIFFERENT REASONS: `store_id` alone still lets a
+     * shopper delete another shopper's row in the SAME store, and `customer_id` alone relies on
+     * customer ids not repeating across tenants, which in a shared database they do.
+     * `$slug` is deliberately not used: the route's placeholder is `storeSlug`, so that parameter
+     * never binds, and the neighbouring methods read `$request->route('storeSlug')` for the same
+     * reason.
+     *
+     * The return stays void. The only caller ignores the response and refetches the list, so the
+     * contract is unchanged; a refused delete simply leaves the row on screen.
+     */
     public function delete_wishlist(Request $request, $slug)
     {
-        Wishlist::where('id', $request->id)->delete();
+        $customer = auth('customers')->user();
+        $store = getStore($request->route('storeSlug'));
+
+        if (! $customer || ! $store) {
+            return;
+        }
+
+        Wishlist::where('id', $request->id)
+            ->where('customer_id', $customer->id)
+            ->where('store_id', $store->id)
+            ->delete();
     }
     // wishlist end
 

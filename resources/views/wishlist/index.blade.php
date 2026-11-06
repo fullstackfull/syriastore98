@@ -58,6 +58,10 @@
                     method: 'POST',
                     data: {wish_id :wish_id},
                     context: this,
+                    // The pending state: see the first handler in cart/index.blade.php. `complete` runs after
+                    // both success and error, so no path leaves the button spinning.
+                    beforeSend: function() { $(this).attr('aria-busy', 'true').prop('disabled', true); },
+                    complete: function() { $(this).removeAttr('aria-busy').prop('disabled', false); },
                     success: function(response) {
                         $('#loader').fadeOut();
                         if(response.is_success){
@@ -69,6 +73,18 @@
                         }
 
 
+                    },
+                    error: function(xhr) {
+                        // See the first handler in this file: a 403 or 404 was silent without this.
+                        $('#loader').fadeOut();
+                        var payload = xhr.responseJSON || {};
+                        // Only a 4xx body is relayed. The first cut of this handler relayed any
+                        // `message`, and driving a missing wishlist row put `Attempt to read property
+                        // "customer_id" on null` on the merchant's screen -- Laravel's debug JSON uses
+                        // the same key. That 500 is fixed; the next one must not be a disclosure, and a
+                        // 4xx is the class the controller authored for a person to read.
+                        var authored = (xhr.status >= 400 && xhr.status < 500) ? payload.message : null;
+                        show_toastr('{{ __('Error') }}', authored || '{{ __('Something went wrong') }}', 'error');
                     }
                 });
 
@@ -82,6 +98,10 @@
             method: 'POST',
             data: { wish_id: wish_id },
             context: this,
+            // The pending state: see the first handler in cart/index.blade.php. `complete` runs after
+            // both success and error, so no path leaves the button spinning.
+            beforeSend: function() { $(this).attr('aria-busy', 'true').prop('disabled', true); },
+            complete: function() { $(this).removeAttr('aria-busy').prop('disabled', false); },
             success: function(response) {
                 $('#loader').fadeOut();
                 if(response.is_success){
@@ -93,6 +113,18 @@
                 }
 
 
+            },
+            error: function(xhr) {
+                // See the first handler in this file: a 403 or 404 was silent without this.
+                $('#loader').fadeOut();
+                var payload = xhr.responseJSON || {};
+                // Only a 4xx body is relayed. The first cut of this handler relayed any
+                // `message`, and driving a missing wishlist row put `Attempt to read property
+                // "customer_id" on null` on the merchant's screen -- Laravel's debug JSON uses
+                // the same key. That 500 is fixed; the next one must not be a disclosure, and a
+                // 4xx is the class the controller authored for a person to read.
+                var authored = (xhr.status >= 400 && xhr.status < 500) ? payload.message : null;
+                show_toastr('{{ __('Error') }}', authored || '{{ __('Something went wrong') }}', 'error');
             }
         });
 

@@ -10,10 +10,10 @@ hand-maintained matrix is precisely how that happens.
 | state | count | of 295 |
 |---|---:|---:|
 | PREMIUM VERIFIED | 24 | 8.1% |
-| REDESIGNED AND VERIFIED | 24 | 8.1% |
+| REDESIGNED AND VERIFIED | 30 | 10.2% |
 | BLOCKED | 9 | 3.1% |
 | OUT OF SCOPE | 1 | 0.3% |
-| PENDING | 237 | 80.3% |
+| PENDING | 231 | 78.3% |
 | **total** | **295** | |
 
 **PENDING is not one of the directive's four states, and that is the point.** The four
@@ -36,7 +36,7 @@ screens and exactly three of them have been looked at. The other ~97 stay PENDIN
 | Phase 2.5 Wave A | 30 | 0 | 0 | 0 | 0 | 30 |
 | Reports/Analytics presentation, Notifications, and the con | 26 | 0 | 0 | 1 | 0 | 25 |
 | Flutter merchant/employee admin app | 24 | 0 | 0 | 3 | 0 | 21 |
-| Customers and customer management | 20 | 0 | 3 | 0 | 0 | 17 |
+| Customers and customer management | 20 | 0 | 9 | 0 | 0 | 11 |
 | ORDERS | 17 | 0 | 3 | 3 | 0 | 11 |
 | PRODUCTS | 16 | 1 | 2 | 1 | 0 | 12 |
 | Merchant admin NAVIGATION SHELL | 13 | 4 | 7 | 0 | 0 | 2 |
@@ -300,13 +300,13 @@ actually been done to it since. They are different questions and the matrix keep
 | Customer activity timeline | ``GET customer-timeline/{id} (customer.timeline)`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-WAVE-16 + 16c; four captures under evidence/wave-16c/ |
 | Archive customer | ``DELETE customer/{customer} (customer.destroy)`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
 | Edit customer (registered, unimplemented) | ``GET customer/{customer}/edit (customer.edit) + PUT/PATCH cust` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
-| Abandoned carts list | ``GET abandon-carts-handled (abandon.carts.handled)`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Abandoned-cart product cell | ``partial/component (DataTable 'product' column)`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
-| Abandoned-cart products modal | ``GET abandon-carts-show/{cartId} (carts.show)`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
+| Abandoned carts list | ``GET abandon-carts-handled (abandon.carts.handled)`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-PKG-C; four captures under evidence/pkg-c-abandoned/ |
+| Abandoned-cart product cell | ``partial/component (DataTable 'product' column)`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-PKG-C; four captures under evidence/pkg-c-abandoned/ |
+| Abandoned-cart products modal | ``GET abandon-carts-show/{customerId} (carts.show)`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-PKG-C; four captures under evidence/pkg-c-abandoned/ |
 | Abandoned-cart row actions (send mail / send message / delete) | ``partial/component; POST abandon-carts-emailsend (carts.emails` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
-| Abandoned wishlists list | ``GET wishlist (wishlist.index)`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Abandoned-wishlist product cell | ``partial/component (DataTable 'product' column)`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
-| Abandoned-wishlist products modal | ``GET wishlist/{wishlist} (wishlist.show)`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
+| Abandoned wishlists list | ``GET wishlist (wishlist.index)`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-PKG-C; four captures under evidence/pkg-c-abandoned/ |
+| Abandoned-wishlist product cell | ``partial/component (DataTable 'product' column)`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-PKG-C; four captures under evidence/pkg-c-abandoned/ |
+| Abandoned-wishlist products modal | ``GET wishlist/{wishlist} (wishlist.show)`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-PKG-C; four captures under evidence/pkg-c-abandoned/ |
 | Abandoned-wishlist row actions (send mail / send message / delete) | ``partial/component; POST abandon-wish-emailsend (wish.emailsen` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Wishlist create / edit / store / update (registered, unimplemented) | ``GET wishlist/create, GET wishlist/{wishlist}/edit, POST wishl` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 

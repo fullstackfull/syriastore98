@@ -51,11 +51,14 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
  *
  * WHAT MUTATION SHOWS, because "both guards present" is not the same as "both guards tested":
  *
- *   - Remove only the two `empty($storeId)` refusals: these tests STAY GREEN. The lookup's
- *     `where('store_id', $storeId)` compiles to `store_id IS NULL` for this caller, and no `carts`
- *     row carries a NULL `store_id`, so the lookup misses and the handler 404s anyway.
- *   - Remove only the lookup predicates: also green -- the early refusal fires first.
- *   - Remove BOTH: two of these tests turn RED. The pair is what the tests detect.
+ *   - Remove only the lookup predicates: green -- the early refusal fires first.
+ *   - Remove only the two `empty($storeId)` refusals: RED, but ONLY because of
+ *     `test_a_storeless_caller_cannot_reach_a_null_store_cart_row`. Without that case this mutant
+ *     survived, and the first version of this file recorded it as surviving: the predicate alone
+ *     refuses a storeless caller, so the guards were credited for the predicate's work. A row
+ *     with a NULL `store_id` is what separates them, and `carts.store_id` is nullable with no
+ *     default, so that row is a real possibility rather than a contrivance.
+ *   - Remove BOTH: RED.
  *
  * So the two guards are independently sufficient, and that is deliberate rather than redundant.
  * The predicate closes the hole given what the table CONTAINS; the explicit refusal closes it
@@ -128,6 +131,46 @@ class AbandonedCartSendStoreScopeTest extends SecurityTestCase
             . '. Status ' . $response->getStatusCode() . '. A 500 means the handler read the row '
             . 'and died downstream; a 200 means it read the row and handed it to the mail or SMS '
             . 'gateway.'
+        );
+    }
+
+    /**
+     * THE ROW THAT MAKES THE `empty($storeId)` GUARDS LOAD-BEARING: a cart line with a NULL store.
+     *
+     * ADDED AFTER MUTATION, and after the same gap was found and closed on the wishlist side. The
+     * mutation table above records that removing the two guards alone left these tests green --
+     * because without them the lookup compiles to `store_id IS NULL` and no fixture row carries a
+     * null store, so the query misses and the handler 404s for the wrong reason. The guards were
+     * being credited for a refusal the predicate produced.
+     *
+     * `carts.store_id` IS nullable with no default (2024_01_18_103138). For a caller whose
+     * `getCurrentStore()` is NULL, `store_id IS NULL` MATCHES such a row, so without the explicit
+     * refusal a storeless caller reads and acts on a line belonging to no tenant -- and on the SMS
+     * path, hands it to the gateway. With the refusal, no query runs at all.
+     *
+     * @dataProvider sendEndpoints
+     */
+    public function test_a_storeless_caller_cannot_reach_a_null_store_cart_row(string $endpoint): void
+    {
+        [, $orphanCart] = $this->victimWithCart();
+        \DB::table('carts')->where('id', $orphanCart->id)->update(['store_id' => null]);
+
+        $storeless = $this->makeMerchant(['current_store' => null]);
+        $this->grantPermission($storeless, 'Abandon Cart');
+
+        $this->assertNull(
+            \DB::table('carts')->where('id', $orphanCart->id)->value('store_id'),
+            'premise: the row under test must carry a NULL store_id, or `store_id IS NULL` would '
+            . 'not match it and this test would pass without the guard'
+        );
+
+        $response = $this->actingAs($storeless)->postJson($endpoint, ['cart_id' => $orphanCart->id]);
+
+        $this->assertSame(
+            404,
+            $response->getStatusCode(),
+            'a storeless caller reached a NULL-store cart row through ' . $endpoint
+            . '. Status ' . $response->getStatusCode()
         );
     }
 

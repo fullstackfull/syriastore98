@@ -159,18 +159,46 @@ class WishlistController extends Controller
     public function abandon_wish_emailsend(Request $request)
     {
         if (auth()->user() && auth()->user()->isAbleTo('Abandon Wishlist')) {
-            $wish = Wishlist::find($request->wish_id);
+            /*
+             * P2.5-PKG-C -- F-SEC-09 AGAIN, in the sibling method. `Wishlist` is absent from
+             * `config/tenancy.php`'s `scoped_models` ENTIRELY, so unlike `Cart` there is NO global
+             * scope to fall back on for anybody: a bare `Wishlist::find()` resolved any tenant's
+             * row for an ORDINARY merchant holding `Abandon Wishlist` -- a name
+             * `Utility::addNewData()` grants on every login. F-SEC-09 was closed on
+             * `WishlistController::show` earlier in this phase and these two were left, which is
+             * the same way F-SEC-09 itself survived F-SEC-08: the fix went to the method under
+             * review and the siblings that return no HTML were not looked at.
+             *
+             * The second predicate is not redundant with the first. It is keyed on `customer_id`,
+             * and customer ids are reused across tenants in a shared database -- `customers` is
+             * store-scoped precisely because the id space repeats -- so a correctly resolved row
+             * can still collect another store's wishlist lines for the same id.
+             *
+             * AND A MISSING ROW NOW REFUSES. `$wish->customer_id` on null was a 500, which reached
+             * the merchant as a toast reading `Attempt to read property "customer_id" on null`
+             * once this screen's actions grew an error handler. Found exactly that way.
+             */
+            $storeId = getCurrentStore();
+            if (empty($storeId)) {
+                return response()->json(['is_success' => false, 'message' => __('Data not found.')], 404);
+            }
+
+            $wish = Wishlist::where('id', $request->wish_id)->where('store_id', $storeId)->first();
+            if (! $wish) {
+                return response()->json(['is_success' => false, 'message' => __('Data not found.')], 404);
+            }
+
             $customer_id = $wish->customer_id;
-            $wish_product = Wishlist::where('customer_id', $customer_id)->get();
+            $wish_product = Wishlist::where('customer_id', $customer_id)->where('store_id', $storeId)->get();
             $email = $wish->UserData->email ?? null;
 
-            $store = getStoreById(getCurrentStore());
-            $owner = User::find($store->created_by);
+            $store = getStoreById($storeId);
+            $owner = $store ? User::find($store->created_by) : null;
             $product_id = Crypt::encrypt($wish->product_id);
 
 
             try {
-                $dArr = Wishlist::where('customer_id', $customer_id)->get();
+                $dArr = Wishlist::where('customer_id', $customer_id)->where('store_id', $storeId)->get();
 
                 $order_id = 1;
                 $resp = Utility::sendEmailTemplate('Abandon Wishlist', $email, $dArr, $owner, $store, $product_id, $customer_id);
@@ -201,7 +229,21 @@ class WishlistController extends Controller
                 );
             }
         } else {
-            return redirect()->back()->with('error', __('Permission denied.'));
+            /*
+             * P2.5-PKG-C. THIS ANSWERED A REDIRECT TO AN AJAX POST. `redirect()->back()` is a 302,
+             * so jQuery followed it and received the list page's HTML -- the refusal never reached
+             * the caller as a refusal, and with no `error` leg on the button it was silent twice
+             * over. The screen's new error handler relays `message` for a 4xx, so this is what
+             * makes "Permission denied." visible.
+             *
+             * AN EARLIER DRAFT OF THIS COMMENT SAID the cart twin "already answers 403", citing
+             * `CartController::abandon_carts_emailsend`. It did NOT -- only
+             * `abandon_carts_messsend` did; the email handler was still redirecting, so the two
+             * cart handlers disagreed with each other. Caught by the tenant-authz review of this
+             * change, and the cart one is corrected in the same commit, so all four members of
+             * the family now answer a refusal that a caller can actually read.
+             */
+            return response()->json(['is_success' => false, 'message' => __('Permission denied.')], 403);
         }
     }
 
@@ -371,53 +413,77 @@ class WishlistController extends Controller
 
     public function abandonWishlistMsgSend(Request $request)
     {
-        $cart = Wishlist::find($request->wish_id);
+        /*
+         * P2.5-PKG-C. FOUR DEFECTS IN FIVE LINES, and the ORDERING was the one that hid the rest:
+         * `Wishlist::find()`, `$cart->customer_id` and `$cart->UserData` all ran BEFORE
+         * `isAbleTo()`, so a caller without the permission still drove the lookup and the relation
+         * load -- and a missing row answered 500 ahead of the refusal, which is also how a caller
+         * holding nothing learns whether a row exists. The cart twin had precisely this corrected
+         * under P1-SEC; this one was left. Authorization now runs first.
+         *
+         * Then the store predicate, because `Wishlist` is absent from `scoped_models` and there is
+         * no scope behind it for any caller; and a null guard, because the 500 reached the
+         * merchant as a toast reading `Attempt to read property "customer_id" on null`.
+         *
+         * THE FOURTH IS NOT FIXED HERE, ON PURPOSE: this is a WISHLIST action gating on
+         * `Abandon Cart`. Correcting the name changes who may do what -- a role holding
+         * `Abandon Cart` without `Abandon Wishlist` can send these today and could not afterwards
+         * -- and §8 of the owner directive reserves permission changes. Recorded, not changed, and
+         * `AbandonedWishlistSendCrossTenantTest` asserts the permission actually checked rather
+         * than the one that ought to be, so this comment cannot quietly become false.
+         */
+        if (! auth()->user() || ! auth()->user()->isAbleTo('Abandon Cart')) {
+            return response()->json(['is_success' => false, 'message' => __('Permission denied.')], 403);
+        }
+
+        $storeId = getCurrentStore();
+        if (empty($storeId)) {
+            return response()->json(['is_success' => false, 'message' => __('Data not found.')], 404);
+        }
+
+        $cart = Wishlist::where('id', $request->wish_id)->where('store_id', $storeId)->first();
+        if (! $cart) {
+            return response()->json(['is_success' => false, 'message' => __('Data not found.')], 404);
+        }
+
         $customer_id = $cart->customer_id;
         $mobile = $cart->UserData;
-        if (auth()->user() && auth()->user()->isAbleTo('Abandon Cart')) {
-            try {
-                $dArr = Wishlist::where('customer_id', $customer_id)->pluck('product_id')->toArray();
+        try {
+            $dArr = Wishlist::where('customer_id', $customer_id)->where('store_id', $storeId)
+                ->pluck('product_id')->toArray();
 
-                $product = [];
-                foreach ($dArr as $item) {
-                    $product[] = Product::where('id', $item)->pluck('name')->first();
-                }
-                $product_name = implode(',', $product);
-                $store = getStoreById(getCurrentStore());
-                $msg = __("We noticed that you have been browsing our site and have added some fantastic items to your wishlist. Hurry, some of these items are selling out fast. With limited stock and high demand, now is the perfect time to make your dream purchases, Added Product name : $product_name");
-                $resp = Utility::SendMsgs('Abandon Cart', $mobile, $msg);
+            $product = [];
+            foreach ($dArr as $item) {
+                $product[] = Product::where('id', $item)->pluck('name')->first();
+            }
+            $product_name = implode(',', $product);
+            $store = getStoreById(getCurrentStore());
+            $msg = __("We noticed that you have been browsing our site and have added some fantastic items to your wishlist. Hurry, some of these items are selling out fast. With limited stock and high demand, now is the perfect time to make your dream purchases, Added Product name : $product_name");
+            $resp = Utility::SendMsgs('Abandon Cart', $mobile, $msg);
 
-                // $return = 'Mail send successfully';
-                if ($resp == false) {
-                    return response()->json(
-                        [
-                            'is_success' => false,
-                            'message' => __("Invalid Auth access token - Cannot parse access token"),
-                        ]
-                    );
-                } else {
-                    return response()->json(
-                        [
-                            'is_success' => true,
-                            'message' => __('Message send successfully'),
-                        ]
-                    );
-                }
-            } catch (\Exception $e) {
-
-                $smtp_error = __('Invalid Auth access token - Cannot parse access token');
+            // $return = 'Mail send successfully';
+            if ($resp == false) {
                 return response()->json(
                     [
                         'is_success' => false,
-                        'message' => $smtp_error,
+                        'message' => __("Invalid Auth access token - Cannot parse access token"),
+                    ]
+                );
+            } else {
+                return response()->json(
+                    [
+                        'is_success' => true,
+                        'message' => __('Message send successfully'),
                     ]
                 );
             }
-        } else {
-             return response()->json(
+        } catch (\Exception $e) {
+
+            $smtp_error = __('Invalid Auth access token - Cannot parse access token');
+            return response()->json(
                 [
                     'is_success' => false,
-                    'message' => __('Permission denied.'),
+                    'message' => $smtp_error,
                 ]
             );
         }
