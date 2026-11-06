@@ -308,7 +308,7 @@
                                                     data-link="{{ $theme_url }}" data-bs-toggle="tooltip"
                                                     data-bs-placement="top" title="{{ __('Click to copy link') }}">
                                                     {{ __('Theme Link') }}
-                                                    <i class="ms-1" data-feather="copy"></i>
+                                                    <i class="ti ti-copy ms-1"></i>
                                                 </a>
 
                                                 <div id="sharingButtonsContainer" class="sharingButtonsContainer"

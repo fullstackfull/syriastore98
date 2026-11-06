@@ -427,12 +427,26 @@ class SwitchKnobContrastTest extends TestCase
     }
 
     /**
-     * CONTROL, AND THE ONE THAT CLOSES THE REAL TRAP. `.dash-sidebar` re-points eight DS tokens
-     * inside `@media (max-width: 1024px)` with NO theme selector — it is dark below 1025px even in
-     * light mode — and `--ss-brand` is not among them. Any knob token that appears in that set
-     * would render #263331 on the LIGHT brand #335da8 = 2.04:1, worse than the defect repaired
-     * here, in a place no theme-scoped checker looks. `--ss-fg-onfill` and `--ss-grey-400` must
-     * therefore stay out of it.
+     * CONTROL, AND THE ONE THAT CLOSES THE REAL TRAP: no host stylesheet may re-point a token the
+     * switch reads, because a re-pointed token is invisible to every theme-scoped contrast gate
+     * in this suite — they check the design system's own blocks, not an override somewhere else.
+     *
+     * THE TRAP USED TO HAVE A CONCRETE ADDRESS, and this docblock used to state it as fact:
+     * "`.dash-sidebar` re-points eight DS tokens inside `@media (max-width: 1024px)` with NO theme
+     * selector — it is dark below 1025px even in light mode". The second half was never true.
+     * P2.5-PKG-A-02 measured it at 390px with the drawer open and settled: `.dash-sidebar` carries
+     * the host's `background: #1c232f`, `.dash-sidebar.light-sidebar` carries `background: #fff`
+     * and WINS, and `partision/sidebar.blade.php:65,67` writes both classes unconditionally. The
+     * drawer is white at every width, so those eight dark tokens were stranded on it and a
+     * merchant on a phone read their navigation at 1.61:1. The block was removed from both
+     * direction stylesheets; `SidebarActiveStateAndIconographyTest` keeps it removed.
+     *
+     * SO THE ANCHOR CHANGED AND THE GUARANTEE GOT STRONGER. This test used to prove it had really
+     * read the file by asserting one declaration FROM that block. With the block gone it asserts
+     * the general form instead: no `.dash-sidebar { --ss-…: … }` re-pointing exists anywhere in
+     * either host stylesheet, at any width. That covers --ss-brand, which the old assertion
+     * singled out, and everything else besides. Weakening the test to accommodate the deletion
+     * would have been the easy move and the wrong one.
      */
     public function test_neither_switch_token_is_repointed_by_the_host_sidebar_overrides(): void
     {
@@ -449,10 +463,21 @@ class SwitchKnobContrastTest extends TestCase
                 );
             }
 
-            // The sidebar block still exists and still omits --ss-brand, which is why a knob token
-            // landing in it would be invisible to the theme-scoped contrast gate.
-            $this->assertStringContainsString('--ss-border-strong:  #7d8a88;', $body);
-            $this->assertSame(0, preg_match('/\.dash-sidebar\s*\{[^}]*--ss-brand\s*:/s', $body));
+            // NO `.dash-sidebar` TOKEN RE-POINTING AT ALL, at any width. This supersedes the
+            // narrower check it replaces (which named --ss-brand alone and anchored itself on a
+            // declaration from a block that no longer exists).
+            $this->assertSame(
+                0,
+                preg_match('/\.dash-sidebar[^{}]*\{[^}]*--ss-[a-z0-9-]+\s*:/s', $body),
+                "{$host} re-points a design-system token inside a .dash-sidebar rule. Whatever "
+                . 'the value, it is invisible to every theme-scoped contrast gate here, and the '
+                . 'last such block put dark text on a white drawer for every merchant on a phone.'
+            );
+
+            // Anti-vacuity, on something structural rather than on one wave's declaration: this
+            // IS the host stylesheet, it IS about the sidebar, and it was really read.
+            $this->assertStringContainsString('.dash-sidebar', $body);
+            $this->assertGreaterThan(100_000, strlen($body));
         }
 
         // Both switch tokens are declared in the design system and nowhere else.

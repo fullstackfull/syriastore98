@@ -725,7 +725,28 @@
         <h3 class="loader-content"> {{ __('Loading . . .') }} </h3>
     </div>
 
-    @include('partision.settingPopup')
+    {{-- P2.5-PKG-A-02 -- `partision/settingPopup.blade.php` WAS DELETED, NOT MOVED.
+
+         It rendered a 62-line Bootstrap modal into EVERY merchant page, and it was dead on four
+         counts, each one checked rather than assumed:
+
+          - UNREACHABLE. It carried `id="notification-modal"`, and a repository-wide search for
+            that id outside the file itself returns only CSS rules for the class -- no
+            `data-bs-target`, no `data-bs-toggle`, no `new bootstrap.Modal`, nothing in any first-
+            party or WorkDo javascript. No merchant could open it.
+          - NON-FUNCTIONAL. Its five switches had no `name`, sat in no `<form>`, and posted to no
+            action; its "Save changes" button had no handler. Toggling anything did nothing.
+          - UNTRANSLATED, and broken in English as shipped: a heading reading "  settings" with a
+            doubled space and no noun, "you get lettest content at a time when data will updated",
+            "Automaticaly take backup as par schedule". On every page, in Arabic too.
+          - IN THE WAY. `OrderDetailControlNamesTest` had to scope its label census around this
+            partial's labels, and said so in its docblock. It cost real work and returned none.
+
+         It also held three of the five remaining feather icons and squatted on an id the real
+         notifications feature shipped in P2-06-3 would naturally want.
+
+         NOTHING OF VALUE WAS LOST: no function, no data field, no permission, no workflow -- there
+         was none to preserve. Sixty-odd DOM nodes leave every admin page with it. --}}
     {{-- P2-06-2: the global search palette, once per admin page. --}}
     {{-- P2-01-19 — THE "GENERATE WITH AI" SURFACE, AS A SIDE PANEL INSTEAD OF A SECOND MODAL.
 

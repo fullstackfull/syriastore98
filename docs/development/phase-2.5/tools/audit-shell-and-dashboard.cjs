@@ -91,11 +91,26 @@ const PROBE = () => {
     out.sidebarLinkCount = items.length;
     const hs = items.map((a) => Math.round(a.getBoundingClientRect().height));
     out.sidebarItemHeights = [...new Set(hs)].sort((a, b) => a - b);
-    const active = side.querySelector('.active, [aria-current]');
-    out.sidebarActive = active ? { sel: active.tagName.toLowerCase() + '.' + String(active.className).trim().split(/\s+/).slice(0, 2).join('.'),
-      bg: getComputedStyle(active).backgroundColor, color: getComputedStyle(active).color,
-      borderInlineStart: getComputedStyle(active).borderInlineStartWidth } : null;
-    out.sidebarGroupHeadings = [...side.querySelectorAll('.pc-caption, .ss-nav-caption, li.pc-caption, .nav-caption')].length;
+    // THE ACTIVE LINK, NOT THE FIRST `.active` IN THE SIDEBAR. `side.querySelector('.active')`
+    // returned `div.navbar-content.active` -- a scroll container -- so every reading this tool
+    // ever printed under "sidebar active" described the wrong element and reported the active
+    // state as having no background, no weight and no marker. Measured by hand against the real
+    // `a.dash-link` it is white on #335da8 at 700. A tool that answers a different question than
+    // the one printed beside it is worse than no tool.
+    const describe = (el) => el ? {
+      sel: el.tagName.toLowerCase() + '.' + String(el.className).trim().split(/\s+/).slice(0, 2).join('.'),
+      bg: getComputedStyle(el).backgroundColor, color: getComputedStyle(el).color,
+      weight: getComputedStyle(el).fontWeight,
+      borderInlineStart: getComputedStyle(el).borderInlineStartWidth + ' ' + getComputedStyle(el).borderInlineStartColor,
+    } : null;
+    out.sidebarActiveTop = describe(side.querySelector('.dash-navbar > li.dash-item.active > a.dash-link'));
+    out.sidebarActiveSub = describe(side.querySelector('.dash-submenu > li.dash-item.active > a.dash-link'));
+    out.sidebarActiveSibling = describe(side.querySelector('.dash-submenu > li.dash-item:not(.active) > a.dash-link'));
+    // `.ss-navgroup` IS THE CLASS. The four this line used to look for -- .pc-caption,
+    // .ss-nav-caption, li.pc-caption, .nav-caption -- exist nowhere in this application, so the
+    // count printed 0 on a sidebar carrying five of them. Guessed selectors, never checked
+    // against a rendered page.
+    out.sidebarGroupHeadings = [...side.querySelectorAll('.ss-navgroup')].length;
   }
 
   // ---- the icon inventory: families, sizes, stroke widths
@@ -164,7 +179,9 @@ const PROBE = () => {
     console.log('  NAV OVERLAP       ' + r.navOverlapPx + 'px   (guideline: fixed nav must not obscure content)');
     console.log('  sidebar           ' + JSON.stringify(r.sidebar) + '  links=' + r.sidebarLinkCount
       + '  item heights=' + JSON.stringify(r.sidebarItemHeights) + '  group headings=' + r.sidebarGroupHeadings);
-    console.log('  sidebar active    ' + JSON.stringify(r.sidebarActive));
+    console.log('  active top-level  ' + JSON.stringify(r.sidebarActiveTop));
+    console.log('  active sub-item   ' + JSON.stringify(r.sidebarActiveSub));
+    console.log('  an inactive peer  ' + JSON.stringify(r.sidebarActiveSibling));
     console.log('  HEADING SEQUENCE  ' + JSON.stringify(r.headingSequence));
     console.log('  heading skips     ' + (r.headingSkips.length ? r.headingSkips.join(', ') : 'none'));
     r.headingTexts.forEach((t) => console.log('      ' + t));

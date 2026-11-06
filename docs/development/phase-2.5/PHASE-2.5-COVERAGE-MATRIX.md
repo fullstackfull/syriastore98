@@ -10,10 +10,10 @@ hand-maintained matrix is precisely how that happens.
 | state | count | of 295 |
 |---|---:|---:|
 | PREMIUM VERIFIED | 15 | 5.1% |
-| REDESIGNED AND VERIFIED | 16 | 5.4% |
+| REDESIGNED AND VERIFIED | 19 | 6.4% |
 | BLOCKED | 9 | 3.1% |
 | OUT OF SCOPE | 1 | 0.3% |
-| PENDING | 254 | 86.1% |
+| PENDING | 251 | 85.1% |
 | **total** | **295** | |
 
 **PENDING is not one of the directive's four states, and that is the point.** The four
@@ -39,7 +39,7 @@ screens and exactly three of them have been looked at. The other ~97 stay PENDIN
 | Customers and customer management | 20 | 0 | 3 | 0 | 0 | 17 |
 | ORDERS | 17 | 0 | 3 | 3 | 0 | 11 |
 | PRODUCTS | 16 | 1 | 2 | 1 | 0 | 12 |
-| Merchant admin NAVIGATION SHELL | 13 | 1 | 0 | 0 | 0 | 12 |
+| Merchant admin NAVIGATION SHELL | 13 | 1 | 3 | 0 | 0 | 9 |
 | Stock/inventory reporting + finance/wallet/payout screens | 13 | 0 | 3 | 0 | 0 | 10 |
 | Merchant dashboard and KPI presentation | 9 | 0 | 1 | 0 | 1 | 7 |
 
@@ -358,9 +358,9 @@ actually been done to it since. They are different questions and the matrix keep
 | surface | route / kind | audit | state | evidence or reason |
 |---|---|---|---|---|
 | Merchant admin layout (the shell itself) | ``partial/component — the layout for the 85 merchant views that` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Sidebar (navigation rail) | ``partial/component`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Sidebar nav tree (items + submenus) | ``partial/component (recursive @include of itself)`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
-| Sidebar navigation zones (group headings) | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
+| Sidebar (navigation rail) | ``partial/component`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-PKG-A-02; four captures under evidence/package-a/ |
+| Sidebar nav tree (items + submenus) | ``partial/component (recursive @include of itself)`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-PKG-A-02; four captures under evidence/package-a/ |
+| Sidebar navigation zones (group headings) | ``partial/component`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-PKG-A-02; four captures under evidence/package-a/ |
 | Workspace chip (store switcher, sidebar) | ``partial/component; switching posts to POST /change-store/{id}` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
 | Header / topbar | ``partial/component`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Command palette (global search) | ``partial/component; data from GET /merchant-search and POST /m` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |

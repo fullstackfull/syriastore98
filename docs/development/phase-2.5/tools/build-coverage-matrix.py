@@ -120,6 +120,38 @@ VERIFIED = {
     'Tag list':                     ('PREMIUM VERIFIED', 'wave-33', '_tag__', 'P2.5-WAVE-33'),
     'Testimonial list':             ('PREMIUM VERIFIED', 'wave-33', '_testimonial__', 'P2.5-WAVE-33'),
     'Users / staff list (table view)': ('PREMIUM VERIFIED', 'wave-33', '_user_list__', 'P2.5-WAVE-33'),
+
+    # ----------------------------------------------------------------------------------------
+    # P2.5-PKG-A-02. The sidebar's active state, the zone caption's rank, the mobile drawer's
+    # legibility, and the shell's last feather icons. Measured on the running /product page by
+    # `tools/verify-sidebar-states.cjs` in EIGHT passes -- {light,dark} x {ltr,rtl} x {1440,390}
+    # -- 192 checks, 0 failed, and every rule was mutated one at a time and seen to redden a
+    # named check before being kept.
+    #
+    # THE PHONE PASSES ARE WHY THESE ROWS CAN BE CLAIMED AT ALL. A desktop-only verification
+    # reported all three clean while the drawer measured 1.61:1 in light mode on every phone and
+    # tablet; the defect was found by looking at a screenshot, not by the harness, and the
+    # harness now opens the drawer and reads the element that renders the words.
+    #
+    # The three rows below are the three the slice actually changed, each with its OWN four
+    # captures rather than three readings of one picture:
+    #   'Sidebar (navigation rail)'            sidebar_*       the whole rail as a component
+    #   'Sidebar nav tree (items + submenus)'  active_marker_* the active item beside its siblings
+    #   'Sidebar navigation zones ...'         nav_zone_*      a caption above the items it labels
+    #
+    # WHAT IS DELIBERATELY NOT CLAIMED, and why:
+    #   'Merchant admin layout (the shell itself)'  this slice changed the layout -- it deleted a
+    #       dead modal from it -- and the layout was driven in all four combinations. But that row
+    #       covers the header, the footer bundle, the command palette and the page-header
+    #       mechanism as well, and none of those were touched here. Claiming the row from a
+    #       sidebar slice is exactly the overclaim this matrix exists to prevent.
+    #   'Workspace chip (store switcher, sidebar)'  it is inside every sidebar_* capture and was
+    #       verified unchanged, but "unchanged and in frame" is not the same fact as verified,
+    #       and it was premium-already before this slice started.
+    # ----------------------------------------------------------------------------------------
+    'Sidebar (navigation rail)':    ('REDESIGNED AND VERIFIED', 'package-a', 'sidebar_', 'P2.5-PKG-A-02'),
+    'Sidebar nav tree (items + submenus)': ('REDESIGNED AND VERIFIED', 'package-a', 'active_marker_', 'P2.5-PKG-A-02'),
+    'Sidebar navigation zones (group headings)': ('REDESIGNED AND VERIFIED', 'package-a', 'nav_zone_', 'P2.5-PKG-A-02'),
 }
 
 # Surfaces that are out of the Phase 2.5 merchant scope by the approved phase plan.

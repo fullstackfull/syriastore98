@@ -6017,3 +6017,190 @@ a.ss-setup__item:focus-visible {
     color: var(--ss-grey-900);
 }
 /* end P2.5-WAVE-33 */
+
+/* ============================================================================
+   P2.5-PKG-A-02 — THE SIDEBAR'S ACTIVE STATE, ZONE RANK AND ARROW
+   ============================================================================
+
+   THE ACTIVE SUB-ITEM WAS NOT WEAK. IT WAS ABSENT. Measured on the running
+   /product page, in both themes, on `.dash-submenu > li.dash-item.active >
+   a.dash-link` against its own inactive siblings:
+
+       light   active #335da8   inactive #333333   =  1.97:1
+       dark    active #9da3b4   inactive #9da3b4   =  1.00:1
+
+   In dark the two are the SAME COLOUR: a merchant inside Products has no way
+   to tell which sub-item they are on. The cause is a cascade collision, not a
+   missing rule. The host sets
+
+       html[data-ss-theme="dark"] body .dash-sidebar .dash-link
+           { color: #9DA3B4 !important }
+
+   while the host's own active rule is
+
+       .dash-sidebar .dash-item.active > .dash-link { color: #fff }
+
+   with NO `!important`. So the dark theme arm overrides the active state
+   wherever it applies. The active state is not under-specified; it is
+   cancelled. Read off CSS.getMatchedStylesForNode on the rendered page, not
+   inferred from the stylesheets.
+
+   WHY COLOUR ALONE CANNOT FIX IT. The best candidate in dark is --ss-fg
+   (#e8eaed, 11.83:1 on the sidebar's #292a33), which against the inactive
+   grey measures 2.09:1 -- under the 3:1 SC 1.4.11 asks of a non-text
+   indicator. In light, --ss-brand against the inactive ink is the 1.97:1
+   above. Every colour pair available here is under 3:1 against its own
+   siblings, so a colour-only indicator cannot carry this state in either
+   theme, and a colour-only indicator would be SC 1.4.1 regardless.
+
+   SO THE INDICATOR IS A SHAPE. An inline-start marker bar: the same 3px
+   `border-inline-start` the .ss-attention family already uses, in --ss-brand.
+   Because --ss-brand flips with the theme, ONE rule serves both, and each
+   side lands well over the 3:1 floor against the surface the bar sits on:
+
+       light   --ss-brand #335da8 on #ffffff  = 6.42:1
+       dark    --ss-brand #2ac3e5 on #292a33  = 6.81:1
+
+   Cyan is NOT used in light: #2ac3e5 on white measures 2.09:1, so the token
+   flip is doing real work here rather than being a convenience.
+
+   Logical, not physical, so the bar sits on the right edge in Arabic with no
+   second rule -- verified rendered in rtl, not assumed from the property name.
+
+   NO LAYOUT SHIFT. The measured `padding-inline-start` is 35px; the bar takes
+   3 of it and the padding drops to 32, so the label does not move by a pixel
+   between states. A marker that nudged every active label sideways would be a
+   new defect dressed as a fix.
+
+   THREE CUES, NOT ONE: shape (the bar), weight (500 to 600) and colour. Any
+   two of them surviving is enough for the state to read.
+
+   THE ZONE CAPTION OUT-RANKED EVERY ITEM IT LABELLED. Dark, measured: the
+   caption rendered at pure #ffffff, 14.25:1, while the items under it sat at
+   5.66:1 and the active one at nothing at all. The loudest text in the
+   sidebar was a group label. `.ss-navgroup` asks for --ss-fg-muted and loses
+   to the host's element selector
+
+       h1, h2, h3, h4, h5, h6 { color: var(--bs-white) !important }
+
+   which is why this needs `!important` to answer, and why the component's own
+   colour declaration was never in effect on a heading.
+
+   --ss-fg-subtle, NOT --ss-fg-muted, and the choice is the .ss-navgroup
+   comment's own reasoning applied to a surface it did not cover. That comment
+   rejects --ss-fg-subtle because in LIGHT it measures 4.46:1 on the sidebar's
+   #f8f9fd -- under AA by 0.04. On the DARK sidebar surface #292a33 the same
+   token measures 4.98:1: it passes AA for the 12px label, and it is quieter
+   than the 5.66:1 items it labels, which is the whole point. --ss-fg-muted
+   measures 6.18:1 there, BRIGHTER than the items, so it would not restore the
+   rank. The light arm is untouched and keeps --ss-fg-muted for the documented
+   reason.
+
+   THE ARROW WAS THE LAST FEATHER IN THE SHELL: six renderings of
+   `<i data-feather="chevron-right">` inside span.dash-arrow, measured on
+   /product, in a sidebar whose every other icon is Tabler. The span keeps its
+   own geometry -- the host positions it absolutely and rotates the SPAN, not
+   the svg, when a menu opens
+
+       .dash-sidebar .dash-hasmenu.dash-trigger>.dash-link>.dash-arrow
+           { transform: rotate(90deg) }
+
+   so the open and closed affordance survives the swap untouched. Only the
+   16px the host gave `.dash-arrow > svg` has to be restated for a glyph.
+
+   SCOPED ON [data-ss-admin], which layouts/app.blade.php puts on <body>
+   unconditionally. NOT on [data-ss-theme]: that attribute is ABSENT in light
+   mode -- measured null on the rendered page -- so a rule hung on it alone
+   would silently never apply to half the states this slice repairs.
+   ============================================================================ */
+
+/* The arrow, now a glyph, in the box the svg occupied. `font-size` alone is not
+   enough: an INLINE glyph takes its box height from the font's ascent and
+   descent, which measured 16.2 x 22.5 against the svg's 16 x 16 and dropped the
+   arrow 6.5px lower inside the link. `display: block` with `line-height: 1`
+   makes the line box the font size, measured back to 16.2 x 16 -- the 0.2px is
+   the glyph's own advance width and is sub-pixel. */
+[data-ss-admin] .dash-sidebar .dash-arrow > i.ti {
+    display: block;
+    font-size: 16px;
+    line-height: 1;
+}
+
+/* The active sub-item. One rule, both themes, three cues.
+
+   THE TWO RADIUS DECLARATIONS ARE NOT COSMETIC, they repair the bar. The link
+   carries `border-radius: 6px` on all four corners and is 26px tall, so a
+   border drawn down its inline-start edge curves over 6px at each end -- 12 of
+   26px -- and renders as a CRESCENT, not a bar. Seen in the captured
+   screenshots, not predicted: the first version of this rule shipped a cyan
+   sliver and the evidence is what caught it. At 2px only 4 of the 26 curve,
+   which softens the ends to match the 6px items around it without bending the
+   bar. */
+[data-ss-admin] .dash-submenu > li.dash-item.active > a.dash-link {
+    border-inline-start: 3px solid var(--ss-brand);
+    border-start-start-radius: 2px;
+    border-end-start-radius: 2px;
+    padding-inline-start: 32px;
+    font-weight: var(--ss-weight-semibold);
+}
+
+/* Dark only, and `!important` on `color` alone: the host's dark arm carries
+   `!important` on exactly that property, and nothing else here is contested. */
+[data-ss-theme="dark"] [data-ss-admin] .dash-submenu > li.dash-item.active > a.dash-link {
+    color: var(--ss-fg) !important;
+}
+
+/* The zone caption, dark only -- the light arm is correct and stays. */
+[data-ss-theme="dark"] .ss-navgroup {
+    color: var(--ss-fg-subtle) !important;
+}
+/* THE ACTIVE NAV ITEM CAST A MAGENTA GLOW. Found by scanning the captured
+   screenshot pixel by pixel after three purple rows showed under the active
+   item, then traced with CSS.getMatchedStylesForNode to
+
+       body.custom-color .dash-sidebar.light-sidebar .dash-navbar
+           > .dash-item.active > .dash-link
+           { box-shadow: 0 5px 7px -1px rgba(146, 44, 136, 0.3) }
+
+   `rgba(146, 44, 136)` is magenta, hard-coded, and belongs to the WorkDo demo
+   theme -- nothing in Store Syria's identity is that hue. It is NOT
+   conditional: `layouts/app.blade.php:43-50` sets `$themeColor` to
+   `custom-color` in every branch, and the rendered body class measured
+   `custom-color`, so every merchant saw it under the one item they are on,
+   on every page, in both themes.
+
+   Replaced with the design system's own elevation, which is theme-aware: a
+   soft ink lift in light and a near-black one in dark, instead of one magenta
+   tint used for both. `.light-sidebar` is in the selector to carry (0,7,2)
+   against the host's (0,7,1) and win on element count rather than by shouting
+   `!important`. */
+[data-ss-admin] .dash-sidebar.light-sidebar .dash-navbar > li.dash-item.active > a.dash-link {
+    box-shadow: var(--ss-shadow-md);
+}
+/* THE MOBILE DRAWER'S NAV WAS 1.61:1. The host paints every nav link #c7ccd4 below 1025px
+
+       @media (max-width: 1024px) { .dash-sidebar .dash-navbar .dash-link { color: #c7ccd4 } }
+
+   which is a light grey written for a DARK drawer. The drawer is white at every width -- the
+   markup adds `light-sidebar` unconditionally and that class's `background: #fff` beats the
+   host's `#1c232f` -- so on a phone or a tablet, in light mode, the whole navigation list
+   measured 1.61:1 against the surface it sits on. Dark mode was never affected: the host's own
+   dark arm carries `!important` and lands at 5.66:1.
+
+   ONE VALUE AT EVERY WIDTH, not a second mobile-only grey. The host already uses #333333 above
+   1025px and #c7ccd4 below it, so the sidebar's foreground had two values before this rule and
+   one after: --ss-fg, which is #1a1d23 in light and measures 16.10:1 on the white drawer
+   against the #333333 it replaces at 12.63:1. Both are near-black and the change is invisible
+   on screen; what changes is that the design system owns the value instead of inheriting two.
+
+   `:not(.active)` IS LOAD-BEARING. Without it this rule is (0,5,1) against the host's
+   `.dash-sidebar .dash-item.active > .dash-link { color: #fff }` at (0,4,0), and it would win
+   -- putting near-black text on the active item's blue fill. Excluding active links means this
+   rule cannot reach any selected state in any theme, by construction rather than by luck.
+
+   Dark mode is excluded explicitly rather than left to lose the cascade: `data-ss-theme` reads
+   `dark` or is absent, so `:not([data-ss-theme="dark"])` is how light is named. */
+html:not([data-ss-theme="dark"]) [data-ss-admin] .dash-sidebar .dash-item:not(.active) > a.dash-link {
+    color: var(--ss-fg);
+}
+/* end P2.5-PKG-A-02 */
