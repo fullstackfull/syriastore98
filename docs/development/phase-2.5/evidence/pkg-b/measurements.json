@@ -197,12 +197,12 @@
     "route": "/product/1",
     "title": "Product",
     "worst": {
-      "value": 2.31,
+      "value": 5.05,
       "floor": 4.5,
       "px": 12,
-      "weight": "500",
-      "text": "ColourRemove item",
-      "tag": "div.choices__item.choices__item--selectable"
+      "weight": "400",
+      "text": "Switch store",
+      "tag": "span.ss-workspace__meta"
     },
     "first": {
       "kind": "card",
@@ -629,12 +629,12 @@
     "route": "/product/1",
     "title": "المنتج",
     "worst": {
-      "value": 2.31,
+      "value": 5.05,
       "floor": 4.5,
       "px": 12,
-      "weight": "500",
-      "text": "ColourRemove item",
-      "tag": "div.choices__item.choices__item--selectable"
+      "weight": "400",
+      "text": "تبديل المتجر",
+      "tag": "span.ss-workspace__meta"
     },
     "first": {
       "kind": "card",

@@ -6443,3 +6443,108 @@ html:not([data-ss-theme="dark"]) [data-ss-admin] .dash-sidebar .dash-item:not(.a
     transform: scale(0.78);
 }
 /* end P2.5-PKG-A-09b */
+
+/* ============================================================================
+   P2.5-PKG-B — THE REQUIRED MARKER AND THE VARIANT CHIP, both measured failing.
+
+   WHAT IS IN THIS BLOCK: only the chip. The marker's rule was written, MEASURED
+   NOT TO WORK, and removed -- see the note at the end. ===================
+
+   F-DESIGN-20 — THE REQUIRED-FIELD MARKER FAILS AA IN BOTH THEMES.
+   `<span class="text-danger">*</span>` is painted `rgb(255, 0, 0)` — a hard-coded
+   pure red, not a token:
+
+       light   #FF0000 on rgb(249,250,251)   3.83:1     fails 4.5
+       dark    #FF0000 on rgb(34,36,44)      3.87:1     fails 4.5
+
+   THE SAME FIGURE IN BOTH THEMES IS THE TELL that no design-system token is
+   involved — a theme-aware colour would differ between them. `#FF0000` on
+   near-white is the classic trap: it looks loud and measures badly, because
+   pure red is only slightly dark in luminance terms.
+
+   The design system already carries the right colour and has done all along:
+
+       --ss-danger  light #b3261e on rgb(249,250,251)   6.25:1
+       --ss-danger  dark  #f3a9a4 on rgb(34,36,44)      8.12:1
+
+   So this names the token rather than picking a new red. Wave 18 put this
+   marker on 145 required fields across 52 merchant views, so one rule reaches
+   all of them.
+
+   AND THE SELECTOR IS BROADER THAN THE FINDING, WHICH WAS CHECKED RATHER THAN
+   ASSUMED. `.text-danger` is a Bootstrap utility and could legitimately be a
+   negative figure or an error message, where a token meant for a marker might
+   be wrong. Censused across FOURTEEN driven pages in both themes -- the seven
+   catalogue screens plus the dashboard, finance, orders, customers, staff and
+   notifications -- every `.text-danger` rendering is the required marker `*`:
+   two distinct renderings, one per theme, identical colour and background, and
+   NONE on a money screen. The broad selector and the narrow finding coincide
+   here; if `.text-danger` is ever used for something else, this rule is the
+   place that has to be revisited.
+
+   F-DESIGN-21 — THE VARIANT CHIP IS WHITE TEXT AT 2.31:1, light mode only.
+   `.choices__list--multiple .choices__item` is the attribute chip in the
+   product editor's variant composer. ds.css already dresses Choices' SINGLE and
+   DROPDOWN lists; the MULTIPLE list was never covered, so it kept the library's
+   own colours:
+
+       light   #fff on rgb(159,172,185)   2.31:1     fails 4.5 at 12px
+       dark    #fff on rgb(0,0,0)        21.00:1    passes, on PURE BLACK
+
+   AND THE DARK FIGURE GOES DOWN, WHICH IS DELIBERATE AND WORTH STATING.
+   21:1 is not a virtue here: it comes from the library painting the chip pure
+   black, which is not the dark surface this product uses anywhere else. The
+   rule below converges the chip on `.ss-chip`'s own neutral pair — the same
+   treatment every other chip in the merchant admin already has — which
+   measures:
+
+       light   #43474d on #eeeff1   8.12:1
+       dark    #c3c6cc on #21252c   8.98:1
+
+   Still close to twice the requirement, on palette, and one chip style instead
+   of two. The remove button inside it inherits the same foreground, so it
+   clears SC 1.4.11's 3:1 for a non-text control as well.
+
+   TOKENS, NOT HUES, throughout: both rules name `--ss-*` so they follow the
+   theme and any future owner decision about the palette rather than becoming a
+   second place that has to be found and changed. ========================= */
+[data-ss-admin] .choices__list--multiple .choices__item {
+    background: var(--ss-neutral-bg);
+    color: var(--ss-neutral-fg);
+    border: 1px solid var(--ss-border);
+    border-radius: var(--ss-radius-pill);
+}
+
+[data-ss-admin] .choices__list--multiple .choices__item .choices__button {
+    border-inline-start: 1px solid var(--ss-border);
+}
+/* WHY NO RULE FOR THE MARKER, AFTER ALL THAT MEASUREMENT.
+   `[data-ss-admin] .text-danger { color: var(--ss-danger) }` was written, applied
+   and re-measured: STILL 3.83:1. It cannot work, and the reason is already
+   recorded twice in this sheet, at the P2.5-WAVE-33 and P2.5-MONEY blocks above.
+   `custom.css:195` and `rtl-custom.css:195` both declare
+   `.text-danger { color: red !important }`, and the layout loads custom.css
+   AFTER the theme sheet -- so no amount of specificity reaches it.
+
+   AND OUT-IMPORTANTING IT IS THE WRONG FIX, which those blocks also settled:
+   it would repaint `.text-danger` in all 70 vendored WorkDo modules for a defect
+   measured on a handful of screens, and it would fail
+   DesignSystemStylesheetScopeTest's confinement property.
+
+   The established answer in this project is to CHANGE THE MARKUP to the design
+   system's own class, which exists and is already measured:
+   `.ss-text-danger { color: var(--ss-danger-fg) }` -- 9.12:1 light, 7.48:1 dark.
+
+   That is a markup sweep, not a stylesheet rule, and it is bounded but not
+   trivial: of 68 `class="text-danger"` uses in resources/views, only 11 are the
+   bare `*` marker, 51 are notes and examples (mostly the `plans` views, which
+   are Phase 06 -- the literal glob is spelled out here rather than written,
+   because a `slash-star` sequence inside a comment is what
+   DesignSystemStylesheetScopeTest's nesting guard exists to catch, and it
+   caught this prose. That guard is right: an unnoticed opener is exactly how
+   P2.5-TYPE once spliced eight font-face rules into the middle of this file's
+   header comment and silently discarded the whole :root block),
+   and the live pages render 12 markers -- so some come from partials a
+   static count does not reach. It is its own slice, with its own census.
+   Recorded as F-DESIGN-20. */
+/* end P2.5-PKG-B-CONTRAST */
