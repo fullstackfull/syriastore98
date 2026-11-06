@@ -127,8 +127,8 @@
                         <div class="col-xxl-4 col-12">
                             <div class="dashboard-card">
                                 <div class="d-flex align-items-center justify-content-between gap-3 mb-4">
-                                    <h2 class="h4 m-0">{{ __('Top Category') }}</h2>
-                                    <p class="m-0">{{ __('By Sales') }}</p>
+                                    <h2 class="ss-card__title">{{ __('Top Category') }}</h2>
+                                    <p class="ss-card__meta">{{ __('By Sales') }}</p>
                                 </div>
                                 <div class="dash-category-tab" id="useradd-sidenav">
                                     <ul class="nav nav-pills w-100 pro-cat row store-setting-tab" id="pills-cat-tab"
@@ -189,8 +189,8 @@
                         <div class="col-xxl-4 col-12">
                             <div class="dashboard-card">
                                 <div class="d-flex align-items-center justify-content-between gap-3 mb-4">
-                                    <h2 class="h4 m-0">{{ __('Top Brand') }}</h2>
-                                    <p class="m-0">{{ __('By Sales') }}</p>
+                                    <h2 class="ss-card__title">{{ __('Top Brand') }}</h2>
+                                    <p class="ss-card__meta">{{ __('By Sales') }}</p>
                                 </div>
                                 <div class="dash-brand-tab" id="brand-sidenav">
                                     <ul class="nav nav-pills w-100 pro-cat row store-setting-tab" id="pills-brand-tab"
@@ -266,7 +266,11 @@
                                                 alt="user-image">
                                         </a>
                                         <div class="user-info">
-                                            <h2 class="h4 mb-2">{{ __(auth()->user()->name) }}
+                                            {{-- THE GREETING CARD'S TITLE, on the same component as every
+                                                 other card title here. It was the last `h4` on the page and
+                                                 therefore the last 20px: measured, one element at one size,
+                                                 which is how a type scale acquires a step nobody chose. --}}
+                                            <h2 class="ss-card__title mb-2">{{ __(auth()->user()->name) }}
                                             </h2>
                                             <p>{{ __('Have a nice day! Did you know that you can quickly add your favorite product or category to the theme?') }}
                                             </p>
@@ -381,7 +385,16 @@
                                             $ssStorageNote = __(':used MB used', ['used' => $ssStorageUsed]);
                                         }
                                     @endphp
-                                    <h2 class="h4">{{ __('Storage Status') }}<small>({{ $ssStorageNote }})</small></h2>
+                                    {{-- THE NOTE IS NOT PART OF THE HEADING. It used to sit inside this
+                                         <h2> as a <small>, which put it in the heading's accessible
+                                         name -- a screen reader announced "Storage Status (0 MB used of
+                                         unlimited storage)" as one heading -- and rendered it at 16px
+                                         weight 600, measured, so on screen it read as a second title
+                                         that had wrapped. The parentheses go with it: they were there to
+                                         separate the note from the title, and a separate element does
+                                         that better. --}}
+                                    <h2 class="ss-card__title">{{ __('Storage Status') }}</h2>
+                                    <p class="ss-card__meta">{{ $ssStorageNote }}</p>
                                 </div>
                                 <div class="card-body">
                                     @if ($ssStorageKnown)
@@ -407,7 +420,7 @@
                 <div class="col-xxl-4 col-12">
                     <div class="overflow-auto dashboard-card">
                         <div class="d-flex justify-content-between align-items-center gap-3 flex-wrap">
-                            <h2 class="h4 m-0">{{ __('Latest Products') }}</h2>
+                            <h2 class="ss-card__title">{{ __('Latest Products') }}</h2>
                             @if ($latests && count($latests) > 0)
                                 <a class="text-primary" href="{{ route('product.index') }}">{{ __('View All') }}</a>
                             @endif

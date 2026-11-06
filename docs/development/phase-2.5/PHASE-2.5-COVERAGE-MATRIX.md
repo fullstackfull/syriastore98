@@ -10,10 +10,10 @@ hand-maintained matrix is precisely how that happens.
 | state | count | of 295 |
 |---|---:|---:|
 | PREMIUM VERIFIED | 15 | 5.1% |
-| REDESIGNED AND VERIFIED | 19 | 6.4% |
+| REDESIGNED AND VERIFIED | 20 | 6.8% |
 | BLOCKED | 9 | 3.1% |
 | OUT OF SCOPE | 1 | 0.3% |
-| PENDING | 251 | 85.1% |
+| PENDING | 250 | 84.7% |
 | **total** | **295** | |
 
 **PENDING is not one of the directive's four states, and that is the point.** The four
@@ -41,7 +41,7 @@ screens and exactly three of them have been looked at. The other ~97 stay PENDIN
 | PRODUCTS | 16 | 1 | 2 | 1 | 0 | 12 |
 | Merchant admin NAVIGATION SHELL | 13 | 1 | 3 | 0 | 0 | 9 |
 | Stock/inventory reporting + finance/wallet/payout screens | 13 | 0 | 3 | 0 | 0 | 10 |
-| Merchant dashboard and KPI presentation | 9 | 0 | 1 | 0 | 1 | 7 |
+| Merchant dashboard and KPI presentation | 9 | 0 | 2 | 0 | 1 | 6 |
 
 ## Every surface
 
@@ -395,7 +395,7 @@ actually been done to it since. They are different questions and the matrix keep
 |---|---|---|---|---|
 | Merchant dashboard (page shell) | ``GET /dashboard`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-WAVE-3 + 3b; four captures under evidence/wave-3b/ |
 | Dashboard overview region (KPI surface) | ``partial/component (included by GET /dashboard)`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
-| Top Category / Top Brand "By Sales" body | ``POST /top-brand-category-chart (routes/web.php:414)`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
+| Top Category / Top Brand "By Sales" body | ``POST /top-brand-category-chart (routes/web.php:414)`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-PKG-A-03; four captures under evidence/package-a/ |
 | x-ss.stat / x-ss.stats (KPI cell + grid) | ``partial/component`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | x-ss.bar-chart | ``partial/component`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | x-ss.attention / x-ss.attention-item | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |

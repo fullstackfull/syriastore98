@@ -51,9 +51,13 @@
             <div class="cat-img rounded-1 border overflow-hidden border border-primary border-2 rounded">
                 <img src="{{ asset($sale->sale_image_path ?? '#') }}" alt="product-img">
             </div>
-            <div class="cat-tab-text d-flex align-items-start gap-2">
-                <p class="m-0 text-muted">{{ $sale->sale_name }}</p>
-                <span class="cat-price"><b>{{ currency_format_with_sym(($sale->total_sale ?? 0), getCurrentStore()) }}</b></span>
+            <div class="cat-tab-text ss-rank d-flex align-items-start gap-2">
+                {{-- THE NAME WAS BIGGER AND QUIETER THAN THE NUMBER IT LABELS: measured
+                     18px/400 muted against 16px/600 for the figure, so the row read
+                     upside down. `text-muted` goes rather than being overridden, which
+                     is what this project does with a host utility a later sheet owns. --}}
+                <p class="ss-rank__name">{{ $sale->sale_name }}</p>
+                <span class="cat-price ss-rank__value">{{ currency_format_with_sym(($sale->total_sale ?? 0), getCurrentStore()) }}</span>
             </div>
         </div>
     @endforeach

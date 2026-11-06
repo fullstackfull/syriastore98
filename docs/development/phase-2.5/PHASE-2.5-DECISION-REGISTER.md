@@ -388,8 +388,15 @@ php artisan storage:link         ->  ERROR  The [public/storage] link already ex
 ```
 
 The file's **content is a symlink target** — an absolute path on a machine that is not this one —
-committed with a regular-file mode in `3c39c160 Initial commit 98`. It is not gitignored;
-`.gitignore` covers `/storage/*` but says nothing about `public/storage`.
+committed with a regular-file mode in `3c39c160 Initial commit 98`.
+
+**CORRECTED 2026-11-06 (P2.5-PKG-A-03).** This paragraph used to read "It is not gitignored;
+`.gitignore` covers `/storage/*` but says nothing about `public/storage`". That stopped being true
+in `2528db62`, which added `/public/storage` to `.gitignore` — verified with
+`git log -S'/public/storage' -- .gitignore`. The rule does not untrack an already-tracked file, so
+the defect and every consequence below are unchanged and still measured as stated; what changed is
+the SIZE of the remedy, which the owner is being asked to weigh. It is now one command,
+`git rm --cached public/storage`, with no `.gitignore` edit needed.
 
 **Consequence on any fresh checkout or deployment that restores this path:**
 
@@ -404,9 +411,9 @@ committed with a regular-file mode in `3c39c160 Initial commit 98`. It is not gi
 fallback resolves through `/storage/` too, so it 404s by the same mechanism. A fallback that
 depends on the broken path is not a fallback.
 
-**The remedy, and why it is not taken here.** Remove the tracked file and let `storage:link` create
-the symlink (adding `public/storage` to `.gitignore`, which is the standard Laravel layout). That
-is a two-line change and it is **deployment-affecting**: a deploy that pulls the deletion and does
+**The remedy, and why it is not taken here.** Untrack the file and let `storage:link` create the
+symlink, which is the standard Laravel layout; `.gitignore` already carries the rule, so the change
+is `git rm --cached public/storage` alone. It is one command and it is **deployment-affecting**: a deploy that pulls the deletion and does
 not run `storage:link` would be left with no `public/storage` at all. Whether the production host
 already has a working symlink — in which case the change is neutral there — **cannot be checked
 from here.** Under the owner's escalation rules this is theirs to decide.

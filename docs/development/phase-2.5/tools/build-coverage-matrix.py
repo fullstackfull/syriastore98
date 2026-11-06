@@ -152,6 +152,31 @@ VERIFIED = {
     'Sidebar (navigation rail)':    ('REDESIGNED AND VERIFIED', 'package-a', 'sidebar_', 'P2.5-PKG-A-02'),
     'Sidebar nav tree (items + submenus)': ('REDESIGNED AND VERIFIED', 'package-a', 'active_marker_', 'P2.5-PKG-A-02'),
     'Sidebar navigation zones (group headings)': ('REDESIGNED AND VERIFIED', 'package-a', 'nav_zone_', 'P2.5-PKG-A-02'),
+
+    # ----------------------------------------------------------------------------------------
+    # P2.5-PKG-A-03. The dashboard's type scale: nine distinct rendered sizes down to seven,
+    # fifteen size/weight pairs down to thirteen. Measured by `tools/verify-dashboard-type-
+    # scale.cjs` in four passes -- 40 checks, 0 failed -- with every rule mutated and seen to
+    # redden a named check.
+    #
+    # This row, and only this row. It is the body behind POST /top-brand-category-chart --
+    # `order/brand_category_chart.blade.php` -- audited `deficient`, and it is what the slice
+    # redesigned: the two card titles onto the shared component, "By Sales" onto a note
+    # treatment instead of inheriting the title's 18px, and the ranked row turned right way up
+    # (the category name measured 18px/400 MUTED against a 16px/600 figure, so the label was
+    # both larger and quieter than the value it labels).
+    #
+    # NOT CLAIMED, each for a reason:
+    #   'Dashboard overview region (KPI surface)'  untouched here.
+    #   'x-ss.stat / x-ss.stats'                   untouched; its 28px figures were already the
+    #       top of the scale and this slice did not change them.
+    #   'x-ss.bar-chart'                           the Orders-per-day chart renders one solid
+    #       full-height bar with no axis and no value labels. MEASURED and recorded, NOT fixed:
+    #       it is composition work in its own right, and claiming the row from a type-scale
+    #       slice would be the overclaim this matrix exists to prevent.
+    #   'Merchant dashboard (page shell)'          already REDESIGNED AND VERIFIED by WAVE-3.
+    # ----------------------------------------------------------------------------------------
+    'Top Category / Top Brand "By Sales" body': ('REDESIGNED AND VERIFIED', 'package-a', 'dashboard_rankcard_', 'P2.5-PKG-A-03'),
 }
 
 # Surfaces that are out of the Phase 2.5 merchant scope by the approved phase plan.

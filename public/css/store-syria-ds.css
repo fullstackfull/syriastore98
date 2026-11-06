@@ -6204,3 +6204,84 @@ html:not([data-ss-theme="dark"]) [data-ss-admin] .dash-sidebar .dash-item:not(.a
     color: var(--ss-fg);
 }
 /* end P2.5-PKG-A-02 */
+
+/* ============================================================================
+   P2.5-PKG-A-03 — A CARD TITLE HAS ONE SIZE, AND A NOTE BESIDE IT IS NOT A TITLE
+   ============================================================================
+
+   MEASURED on /dashboard, over every element that renders its own text inside
+   `.dash-content`, 15 distinct size/weight pairs. Two of them do the same job:
+
+       20px/600   x5   h2.h4              "Top Category", "Top Brand", "Latest Products", …
+       18px/600   x6   h2.ss-card__title  "Orders by status", "Needs attention", …
+
+   Both are the title of a card. The design system already answers this --
+   `.ss-card__title` is `--ss-text-lg` and it is what `components/ss/card.blade.php`
+   and six settings screens use -- so the dashboard was the one screen opting out.
+   Moving its four card titles onto the component removes 20px from the page
+   entirely and leaves one title size.
+
+   THE NOTES BESIDE THEM HAD NO TREATMENT AT ALL, so they inherited one:
+
+       "By Sales"                        p.m-0    18px/400   beside an 18px title
+       "(0 MB used of unlimited sto…)"   <small>  16px/600   INSIDE the h2
+
+   The second is the clearer defect. It sits inside the heading element, so it is
+   part of the heading's accessible name -- a screen reader announces "Storage
+   Status (0 MB used of unlimited storage)" as one heading -- and at weight 600 it
+   reads on screen as a second title that wrapped. Both are notes ABOUT the card,
+   which is a real and repeating pattern with no class for it, so this adds one.
+
+   `--ss-text-sm`, NOT `--ss-text-xs`. The design system's own comments call xs
+   "meta, table captions" and sm "helper text", and these are helper text: "By
+   Sales" tells the merchant which measure the ranking uses, and the storage note
+   carries the only number on that card. Measured on the surfaces they land on,
+   --ss-fg-muted is 6.42:1 on the light card and 6.17:1 on the dark one.
+   ============================================================================ */
+.ss-card__meta {
+    margin: 0;
+    font-size: var(--ss-text-sm);
+    font-weight: var(--ss-weight-normal);
+    color: var(--ss-fg-muted);
+}
+/* A RANKED ROW: an image, the thing, and the number it is ranked by.
+
+   MEASURED in the Top Category and Top Brand cards, whose rows come from
+   `order/brand_category_chart.blade.php`:
+
+       the category name   p.m-0.text-muted   18px/400, MUTED
+       the sales figure    span.cat-price b   16px/600
+
+   The label was larger than the value AND quieter than it -- inverted on both
+   axes at once. In a card titled "Top Category / By Sales" the figure is the
+   reason the row is there and the ranking it is sorted by; the name identifies
+   it. So the figure takes --ss-text-md at semibold and the name drops to the
+   admin body size, in the normal foreground rather than muted.
+
+   `text-muted` is removed from the markup rather than overridden here, which is
+   this project's established move for a host utility that a later sheet owns. */
+/* SCOPED THROUGH `.ss-rank`, WHICH IS WHY THE ROW GETS A ROOT CLASS. The host
+   rule is `.dash-order-status .dash-category-tab-content .cat-tab-text p` at
+   (0,3,1); a bare `.ss-rank__name` is (0,1,0) and loses, which is exactly what
+   happened on the first attempt -- the weight changed and the SIZE did not, and
+   the census caught it. `[data-ss-admin] .ss-rank p.ss-rank__name` is (0,3,1)
+   too, and store-syria-ds.css loads after the theme, so it wins on order rather
+   than by reaching into the host's class names.
+
+   The host also scales both down in a media query (18 to 16, 16 to 14). These
+   fixed sizes do not reproduce that, deliberately: 14 and 16 are already at or
+   below its small-screen pair, and the name stays smaller than the value at
+   every width, which is the property that was broken. */
+[data-ss-admin] .ss-rank p.ss-rank__name {
+    margin: 0;
+    font-size: var(--ss-text-base);
+    font-weight: var(--ss-weight-medium);
+    color: var(--ss-fg);
+}
+
+[data-ss-admin] .ss-rank .ss-rank__value {
+    font-size: var(--ss-text-md);
+    font-weight: var(--ss-weight-semibold);
+    color: var(--ss-fg);
+}
+/* end P2.5-PKG-A-03 */
