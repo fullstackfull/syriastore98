@@ -106,14 +106,32 @@ use Tests\Feature\Security\SecurityTestCase;
  * DEFECTS FOUND IN THESE FILES AND NOT REPAIRED HERE -- recorded so nobody has to rediscover them.
  * Each would change WHETHER a request is accepted or WHICH row it touches, which this slice must
  * not do:
- *   - BlogController:150 `Blog::find($id)`, ContactController::update's bound `Contact`,
- *     PageController:113 `Page::find($page->id)` and PixelFieldsController:104
- *     `PixelFields::find($id)` take a bare id with no store predicate, and `Blog`, `Page`,
- *     `Contact` and `PixelFields` are all absent from `config/tenancy.php`'s `scoped_models`
- *     (asserted below). Page:120 and PixelFields:121 then assign `store_id = getCurrentStore()`,
- *     which MOVES a foreign row into the caller's store. `WebhookController::update()` is the one
- *     update() in this group already repaired (P1-SEC-33, :111).
- *   - PageController::update()'s gate is `isAbleTo('Edit Menu')`, not 'Edit Page'.
+ *   - **HALF OF THIS ENTRY IS NOW REPAIRED (P2.5-PKG-B). Read it as a record of what was found,
+ *     not of what is still open.** The shape was: a bare id with no store predicate, where the
+ *     model is absent from `config/tenancy.php`'s `scoped_models` (asserted below), and -- on Page
+ *     and PixelFields -- a following `store_id = getCurrentStore()` that MOVED a foreign row into
+ *     the caller's store rather than merely editing it.
+ *
+ *     REPAIRED, with the cross-tenant access measured before and after by
+ *     `tests/Feature/Security/SettingsAndContentCrossTenantTest`:
+ *       * `PageController` -- edit, update, destroy, show, AND `updateStatus()`, which had no
+ *         authorization of any kind and let any authenticated principal holding zero permissions
+ *         unpublish any store's live storefront page.
+ *       * `PixelFieldsController` -- edit, update, destroy, show.
+ *       * (siblings outside this file: ProductBrand, ProductLabel, Tax, Category::show.)
+ *     Both takeover assignments were DELETED rather than guarded, so a future weakening of a
+ *     guard re-opens an unauthorised edit and not a transfer. Line numbers in this entry are from
+ *     before that change and no longer resolve.
+ *
+ *     STILL OPEN, same shape, not repaired: `BlogController:150` `Blog::find($id)` and
+ *     `ContactController::update()`'s bound `Contact`. Both are in the census at
+ *     `docs/development/phase-2.5/tools/census-unowned-model-resolution.php` and neither has been
+ *     driven by a request yet, so each is a SHAPE and not yet a finding.
+ *     `WebhookController::update()` was already repaired earlier (P1-SEC-33, :111).
+ *   - PageController::update()'s gate is `isAbleTo('Edit Menu')`, not 'Edit Page' -- and
+ *     `resources/views/page/action.blade.php` gates the Edit BUTTON on `Edit Page`, so the two
+ *     disagree. Left alone: changing which permission the handler demands is a business-rule
+ *     change. Recorded for the owner.
  *   - PageController:63 `implode(',', $request->page_meta_keywords)` is a TypeError on PHP 8.3 for
  *     a valid post that omits the field, so the positive control below must send it.
  *   - WebhookController:34 reads `$store->id` BEFORE the validator, so a caller with no

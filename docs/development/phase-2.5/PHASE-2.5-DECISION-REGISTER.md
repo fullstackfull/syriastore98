@@ -1534,3 +1534,150 @@ label tests died inside the fixture before reaching a route — and three of the
 that looked **exactly** like the cross-tenant hole they were written to prove. The positive control
 failing alongside them is what gave it away. A test that fails for the wrong reason proves nothing,
 and three of those failures would have been reported as evidence.
+
+---
+
+### F-SEC-02 — the F-SEC-01 shape was not confined to brands and labels
+
+**Status:** FIXED and proved on four more controllers plus one endpoint that had **no authorization
+of any kind**. **A tenancy finding, not a design one**, recorded here because it was found during
+the Package B catalogue pass. Independently reviewed by `tenant-authz-reviewer`, which found one
+live hole the census had missed and refuted two of my own claims.
+
+#### Why a census, and why its output is not evidence
+
+F-SEC-01 was fixed on two controllers. The obvious next question — how many more — needed a
+measurement, because the existing coverage had already *looked* like coverage and wasn't:
+`BrandLabelStatusAuthorizationTest` has fifteen tests and every one drives the two brand methods
+that **were** hardened.
+
+`docs/development/phase-2.5/tools/census-unowned-model-resolution.php` walks PHP's own token stream
+over all 132 controllers in `app/Http/Controllers/` and reports single-record methods that resolve
+a model from caller-supplied id where the model is absent from `config/tenancy.php`'s
+`scoped_models` — so `StoreScope::isActiveFor()` short-circuits and no predicate is added for any
+principal.
+
+**The census was wrong four times before it was believed, and every correction mattered:**
+
+| reading | why it was wrong | consequence |
+|---|---|---|
+| `$x->store_id = getCurrentStore()` counted as an owner check | an ownership **assignment** is not an ownership **check** | hid **both** `update()` methods — i.e. the takeover primitive itself |
+| `\Auth::user()->creatorId()` counted as an owner check | it bills a storage quota to the caller's own account; the caller naming *themselves* says nothing about who owns the row | hid `ProductBrandController::destroy`, a **proved** hole |
+| `update()` reported as TAKEOVER on the *fixed* tree | the detector matched the comment quoting the line it had **deleted** | the eighth time a detector in this phase matched its author's prose |
+| `CategoryController::update` reported unguarded | its guard is `categoryIsOutsideCurrentStore()`, a name my hand-written list did not hold | **contradicted a correct human review**; a list of guard names can only recognise guards its author already knew |
+
+Fixed respectively by stripping assignments before the scan, requiring every owner marker to sit in
+a comparison / query predicate / refusing call, excluding `T_COMMENT` from the token stream, and
+resolving same-class guard helpers transitively to a fixpoint. It now passes four oracles — all
+seven proved-holed pre-fix methods surface; the fixed tree reads as fixed; it agrees with the human
+review on `CategoryController`; and it agrees with the registered policy on `SavedViewController`
+(`$user->can('delete', $view)`, which it had to learn to credit, since a **one**-argument
+`->can('Permission')` is always false here while a **two**-argument one is a real policy call).
+
+**It is still only a shape detector.** Every row below was driven with a real request before being
+called anything.
+
+#### What was reachable
+
+`tests/Feature/Security/SettingsAndContentCrossTenantTest.php`, failing first. **Reverted: 12
+failed, 5 passed** — the 5 are every positive control, so no fixture was broken. **With the fix: 17
+passed.**
+
+| request | by a principal holding | result before |
+|---|---|---|
+| `GET /pixel-setting/{B}/edit` | **nothing at all** | **200, carrying store B's tracking id** |
+| `PUT /pixel-setting/{B}` | **nothing at all** | **rewrote the id, and moved the row into store A** |
+| `DELETE /pixel-setting/{B}` | any merchant owner | **deleted store B's pixel row** |
+| `GET /taxes/{B}/edit`, `PUT`, `DELETE` | `Edit Tax` / `Delete Tax` | **opened, renamed, took, deleted** |
+| `GET /taxes/{B}` | `Show Tax` | **200, store B's tax name in the breadcrumb** |
+| `PUT /pages/{B}`, `DELETE`, `GET …/edit` | `Edit Menu` / `Delete Page` | **rewrote, took, deleted, opened** |
+| **`POST /update-page-status`** | **nothing at all** | **took store B's live storefront page offline** |
+
+#### Severity, stated accurately — it was live for every merchant by default
+
+Understated once on F-SEC-01, so measured this time. `Utility::addNewData()` runs on **every
+login** and grants the shared global `admin` role — the role every self-registered merchant is
+attached at registration — `Edit Menu`, `Manage/Create/Edit/Delete Page` and
+`Manage/Create/Show/Edit/Delete Tax`. **No admin intervention, no role editing, no privilege grant
+was required.** PixelFields and `update-page-status` were broader still: reachable by *any*
+authenticated, verified principal, including a staff member holding zero permissions.
+
+The pixel write is the worst of them, because the Marketing module emits those rows as **script
+into the victim's storefront pages** — so it executes in the victim's visitors' browsers.
+
+#### The one the census never looked at
+
+`PageController::updateStatus()` was found by the **human review**, not the census: the census
+filters on a list of method names that held `changeStatus` and not `updateStatus`.
+`resolvedModels()` would have matched its `Page::findOrFail(` perfectly well — only the spelling
+excluded it. The list has been widened to every status-write spelling actually present in the tree,
+and re-running it found no further unguarded status endpoint. **It remains a list, and that remains
+its limit — which is the argument for not trusting a census alone.**
+
+#### Shape of the fix
+
+As F-SEC-01, reviewed and accepted there: a private `callerOwnsX()` helper failing closed when
+either side is empty; `abort(404)` for foreign-or-absent so the response is not an existence
+oracle; the guard above every validator and every write; and the `store_id` assignment **deleted**
+rather than guarded, so a future weakening re-opens an unauthorised edit and not a transfer.
+404 rather than 401 throughout — these are web routes the Flutter app does not call, so no forced
+logout.
+
+`show()` was closed on five controllers (Page, PixelFields, ProductBrand, Category, Tax). Four have
+an empty body, but binding resolves the row first, so the response was an empty 200 for a row
+existing in **any** store and 404 only for one existing nowhere — an existence oracle over every
+id. `TaxController::show` was not an oracle but a real read: `taxes/show.blade.php:7` renders the
+name. The table beneath it was never the leak — `TaxMethodDataTable::query()` already filters
+`store_id` as well as `tax_id`.
+
+#### Claims of mine the review refuted, corrected in place
+
+1. **"No pixel permission exists to check."** False. `business pixel settings` is seeded in the
+   Marketing module. The decision not to gate on it stands for a better reason: it is a *module*
+   permission, `Utility::addNewData()` never grants it, the module seeder's own grant is skipped on
+   any install where the row already exists, and the first-party UI renders Add/Edit/Delete with no
+   `@permission` wrapper — so gating would refuse merchants their own settings on an
+   install-dependent basis.
+2. **"These methods already refuse the operator because `isAbleTo()` alone does."** True in effect,
+   wrong in mechanism. It holds only because `$superadminNewPermission` contains no Tax or Page
+   permission. If an operator is ever granted one, the helper fires and `getCurrentStore()` returns
+   the hardcoded literal **1** for a super admin with an empty `current_store`, so the operator
+   would be silently scoped to store 1 rather than refused.
+3. **"`destroy()`'s `type == 'admin'` is not a gate at all."** Overstated. It is not a *tenant*
+   gate and admits every merchant owner, but it does exclude `staff` and `super admin` — which is
+   the reason to **leave** it, not merely a reason not to bother: removing it would *grant* staff a
+   delete they do not have today.
+
+#### Recorded, NOT fixed
+
+- **Still the same shape, not yet driven by a request:** `BlogController::update/destroy`,
+  `ContactController::update/destroy`, `CouponController`, `FaqController`, `TagController`,
+  `TestimonialController`, `ProductQuestionController`, `NewsletterController`,
+  `BlogCategoryController`. All are tenant data (`store_id` present, verified against the live
+  schema). 33 unguarded writes remain in the census. Each is a **shape**, not a finding.
+- **A separate concern, not cross-tenant:** `CityController`, `CountryController`,
+  `StateController`, `TaxMethodController` write with **no permission check**, but City/Country/
+  State/Plan/PlanCoupon/Store/User carry no `store_id` at all — these are platform surfaces, so
+  the question there is authorization, not tenancy.
+- **Intra-tenant gap (owner decision):** any principal inside a tenant, staff holding nothing
+  included, can still read and rewrite their own store's pixel ids. Pre-existing.
+- **Permission mismatch (owner decision):** `PageController::update()` demands `Edit Menu` while
+  `page/action.blade.php` gates the Edit button on `Edit Page`. Changing which permission the
+  handler demands is a business-rule change. `taxes/action.blade.php` wraps its Edit button in no
+  `@permission` at all, so a principal with only `Manage Tax` now sees "Permission denied" one
+  click earlier than before.
+- **Lockout edge, shared with the accepted F-SEC-01 fix:** `getCurrentStore($user->id)` falls back
+  to `Store::where('created_by', $user->id)` — the staff member's **own** id, not `creatorId()` —
+  so a staff member with an empty `users.current_store` now gets 404 on their *own* store's pixel,
+  tax and page rows. Not a live regression (`UserController:161` copies the creator's
+  `current_store` into every staff row at creation) and identical to `callerOwnsBrand`, so
+  consistency says accept — but it is the one way this change produces a support ticket.
+- **Form-vs-submit asymmetry:** `TaxController::create()` and `PageController::create()` render
+  their forms with no permission check while `store()` requires one. Discloses nothing
+  cross-tenant; left as hardening.
+
+#### Evidence
+
+`SettingsAndContentCrossTenantTest` 17 passed (12 failed on revert); `BrandCrossTenantReadWriteTest`
+9 passed; `ContentAndIntegrationRefusalNamesEveryFieldTest` 24 passed; Unit 1414 passed; Contract 27
+passed; `tests/Feature/Security` + `tests/Feature/Tenancy` **5326 passed, 1 declared skip**.

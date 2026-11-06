@@ -149,7 +149,19 @@ class CategoryController extends Controller
      */
     public function show(Category $category)
     {
-        //
+        // P2.5-PKG-B. AN EMPTY BODY IS STILL AN EXISTENCE ORACLE. Route model binding resolves the
+        // row BEFORE this method runs, and `Category` is absent from `config/tenancy.php`'s
+        // `scoped_models`, so it resolves any tenant's id: the response was an empty 200 for a row
+        // that exists in ANY store and a 404 only for one that exists nowhere. That difference
+        // answers "does row N exist on this platform" for every id, to any authenticated
+        // principal. The guard makes the two indistinguishable. Nothing in the repository
+        // references this route -- `category.show` has no callers in resources/, app/, routes/ or
+        // packages/ -- so the route is left registered rather than removed: refusing what it must
+        // not serve is a smaller change than withdrawing a URL some client may hold.
+
+        if ($this->categoryIsOutsideCurrentStore($category)) {
+            abort(404);
+        }
     }
 
     /**
