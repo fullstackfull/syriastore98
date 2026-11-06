@@ -72,4 +72,24 @@
     </div>
 </div>
 
-<script src="{{ asset('public/assets/js/plugins/apexcharts.min.js') }}"></script>
+{{-- P2.5-WAVE-33. A duplicate `<script src="apexcharts.min.js">` was REMOVED here, not
+     corrected -- the same decision F16 recorded for html2pdf in partision/footerlink.blade.php.
+
+     It was `asset('public/assets/js/plugins/apexcharts.min.js')`, which 404s because `asset()`
+     already prepends an application url whose docroot IS `public/`. The first repair of this wave
+     corrected the path; MEASURING the result showed that was the wrong repair:
+
+                                      before          after correcting   after removing
+         window.ApexCharts            function        function           function
+         404 requests                 1               0                  0
+         script[src*=apexcharts]      2               2                  1
+
+     `window.ApexCharts` is `function` in ALL THREE states because
+     `partision/footerlink.blade.php:55` already loads the library at the correct path and is
+     included by `layouts/app.blade.php`, so it is on EVERY admin page. This tag could therefore
+     never have been what made a chart appear, and correcting it only turned a failing request into
+     a SECOND 478 KB download, parse and `window.ApexCharts` redefinition on three report screens.
+
+     So the defect this fixes is a wasted 404, not a missing chart. (`svg=0` on all three pages
+     before and after, in every state above: these charts draw nothing in the dev fixture for an
+     unrelated reason, and nothing in this wave claims to change that.) --}}

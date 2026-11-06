@@ -343,14 +343,21 @@ function show_toastr(title, message, type) {
     var o, i;
     var icon = '';
     var cls = '';
+    // P2.5-WAVE-33. These two urls were `site_url + '/public/assets/...'` and 404d: the docroot
+    // already IS `public/`, so the segment doubled -- the same mistake as P2-A-01 (the layout
+    // stylesheet) and F16 (three script tags). MEASURED on the running admin: the old url answers
+    // 404 on /dashboard and /profile while `/assets/images/notification/high_priority-48.png`
+    // answers 200 for the file that is on disk. It is VISIBLE, not just a wasted request:
+    // notifier.js:34-42 appends `<img class="img" src=icon>` whenever `icon.length > 0` and
+    // notifier.css sizes `.img` at 48x48, so every toast carried a broken-image glyph.
     if (type == 'success') {
         cls = 'primary';
-        notifier.show('Success', message, 'success', site_url + '/public/assets/images/notification/ok-48.png', 4000);
+        notifier.show('Success', message, 'success', site_url + '/assets/images/notification/ok-48.png', 4000);
     } else {
         cls = 'danger';
         var persist = ss_errors_persist();
         if (persist) { ss_cap_error_stack(3); }
-        notifier.show('Error', message, 'danger', site_url + '/public/assets/images/notification/high_priority-48.png', persist ? 0 : 4000);
+        notifier.show('Error', message, 'danger', site_url + '/assets/images/notification/high_priority-48.png', persist ? 0 : 4000);
     }
 
     // The toast is visual only; this is the same message for anyone who cannot see it.
