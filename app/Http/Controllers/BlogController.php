@@ -167,6 +167,18 @@ class BlogController extends Controller
     {
         if(auth()->user() && auth()->user()->isAbleTo('Edit Blog'))
         {
+            $blog = Blog::find($id);
+
+            // P2.5-PKG-B. The permission was checked and the owner was not, so this rewrote
+            // ANOTHER STORE'S post. ABOVE THE VALIDATOR deliberately: with the guard below it, an
+            // INVALID payload returned the validation redirect and a VALID one returned 404, which
+            // distinguishes "exists elsewhere" from "refused" for a caller who can vary the
+            // payload. Raised by the tenant-authz review, which measured that my first placement
+            // did not hold the invariant this comment claims.
+            if (! $this->callerOwnsBlog($blog)) {
+                abort(404);
+            }
+
             $validator = \Validator::make(
                 $request->all(),
                 [
@@ -183,12 +195,6 @@ class BlogController extends Controller
             {
                 $messages = $validator->getMessageBag();
                 return redirect()->back()->with('error', implode(' ', $messages->all()));
-            }
-
-            $blog = Blog::find($id);
-            // P2.5-PKG-B. Permission was checked, owner was not. The guard precedes the delete.
-            if (! $this->callerOwnsBlog($blog)) {
-                abort(404);
             }
 
             $dir        = 'uploads/'. getCurrentStore();

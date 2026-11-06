@@ -121,6 +121,14 @@ class BlogCategoryController extends Controller
         
         if(auth()->user() && auth()->user()->isAbleTo('Edit Blog Category'))
         {
+            $blogCategory = BlogCategory::find($id);
+
+            // P2.5-PKG-B. ABOVE THE VALIDATOR, for the reason recorded on BlogController::update():
+            // below it, the response shape itself distinguishes a foreign row from a refusal.
+            if (! $this->callerOwnsBlogCategory($blogCategory)) {
+                abort(404);
+            }
+
             $validator = \Validator::make(
                 $request->all(), [
                                    'name' => 'required',
@@ -130,11 +138,6 @@ class BlogCategoryController extends Controller
             {
                 $messages = $validator->getMessageBag();
                 return redirect()->back()->with('error', $messages->first());
-            }
-            $blogCategory = BlogCategory::find($id);
-            // P2.5-PKG-B. Permission was checked, owner was not. The guard precedes the delete.
-            if (! $this->callerOwnsBlogCategory($blogCategory)) {
-                abort(404);
             }
 
 

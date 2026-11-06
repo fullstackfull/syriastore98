@@ -357,6 +357,63 @@ class ContentFamilyCrossTenantTest extends SecurityTestCase
             "A merchant deleted another tenant's newsletter subscriber.");
     }
 
+    /**
+     * THE BRANCH THAT COULD NOT FAIL. Raised by the tenant-authz review: revert the guard in
+     * `NewsletterController::edit()` and the whole suite stayed green, because the Newsletter case
+     * drove `destroy` only. `edit()` has an EMPTY body (`//`), but binding resolves the row first,
+     * so the response was an empty 200 for a subscriber in ANY store and 404 only for one existing
+     * nowhere -- the existence-oracle shape closed on five controllers in F-SEC-02.
+     *
+     * Comparing the two statuses is what makes this an oracle test: asserting 404 on the foreign
+     * id alone would pass for a method that 404s everything.
+     */
+    public function test_the_newsletter_edit_route_is_not_a_cross_tenant_existence_oracle(): void
+    {
+        [$victim, $victimStore] = $this->makeTenant();
+        [$attacker] = $this->makeTenant();
+
+        $foreign = $this->makeNewsletter($victimStore->id, 'oracle-probe@example.test');
+
+        $foreignStatus = $this->actingAs($attacker)
+            ->get('/newsletter/' . $foreign->id . '/edit')->status();
+        $absentStatus = $this->actingAs($attacker)
+            ->get('/newsletter/99999903/edit')->status();
+
+        $this->assertSame($absentStatus, $foreignStatus,
+            "newsletter edit answers differently for another tenant's subscriber "
+            . "({$foreignStatus}) than for an id that exists nowhere ({$absentStatus}), so it "
+            . 'reports whether any store holds that id.');
+    }
+
+    /**
+     * THE NON-ORACLE PROPERTY THE WHOLE FIX IS JUSTIFIED BY, and which nothing pinned until the
+     * review pointed it out: every guard returns 404 for a FOREIGN row and 404 for an ABSENT one,
+     * so the two are indistinguishable. Driven on one controller of each binding style.
+     */
+    public function test_a_foreign_row_and_an_absent_row_are_indistinguishable(): void
+    {
+        [$victim, $victimStore] = $this->makeTenant();
+        [$attacker] = $this->makeTenant();
+        $this->grantPermission($attacker, 'Edit Blog');
+        $this->grantPermission($attacker, 'Edit Faqs');
+
+        $foreignBlog = $this->makeBlog($victimStore->id, 'OracleBlog');       // bare $id binding
+        $foreignFaq = $this->makeFaq($victimStore->id, 'OracleFaq');          // route-model binding
+
+        foreach ([
+            'blog' => ['/blog/' . $foreignBlog->id . '/edit', '/blog/99999904/edit'],
+            'faqs' => ['/faqs/' . $foreignFaq->id . '/edit', '/faqs/99999905/edit'],
+        ] as $label => [$foreignUrl, $absentUrl]) {
+            $foreignStatus = $this->actingAs($attacker)->get($foreignUrl)->status();
+            $absentStatus = $this->actingAs($attacker)->get($absentUrl)->status();
+
+            $this->assertSame($absentStatus, $foreignStatus,
+                "{$label}: a foreign row ({$foreignStatus}) and an absent one ({$absentStatus}) "
+                . 'are distinguishable, so the response is an existence oracle.');
+            $this->assertSame(404, $foreignStatus, "{$label}: expected 404, got {$foreignStatus}.");
+        }
+    }
+
     public function test_the_newsletter_owner_can_still_delete_their_own(): void
     {
         [$owner, $store] = $this->makeTenant();

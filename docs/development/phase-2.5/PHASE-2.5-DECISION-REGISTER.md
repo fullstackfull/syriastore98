@@ -2151,3 +2151,88 @@ reason to **look**, and this project has measured repeatedly that it is not a su
 looking: the census was wrong four times before it was believed, and three of the F-SEC-03 "failures"
 were a fixture inventing a column. Each of the seven gets a failing test, a positive control, and a
 mutation check before it is called fixed.
+
+---
+
+### F-SEC-05 — seven more controllers, driven and fixed; and four corrections the review forced
+
+**Status:** FIXED and proved on all seven. **20 guards, 7 helpers.** Independently reviewed, which
+corrected four of my own claims and found one branch of my fix that could not fail.
+
+#### What was reachable, pre-fix, by any self-registered merchant incrementing an id
+
+Every permission family below is granted to the shared global `admin` role on every login
+(`Utility::addNewData`, `$companyNewPermission`), so no admin intervention was required.
+
+| controller | cross-tenant read | write | delete |
+|---|---|---|---|
+| Blog | **yes, NO PERMISSION NEEDED** (`edit()` ungated) — full post | yes | yes |
+| BlogCategory | yes, ungated | yes | yes |
+| Faq | yes, ungated | yes | yes |
+| Tag | yes, ungated | yes | yes |
+| ProductQuestion | yes, ungated — question text **and the victim's product name** | yes | yes |
+| **Contact** | **yes, ungated — first/last name, email, phone, subject and message body of people who wrote to another merchant** | yes | yes |
+| **Newsletter** | **no** | n/a (inert) | **yes** |
+
+Measured: 7 failed / 7 passed before, 16 passed after, 7 failed / 7 passed on revert.
+
+#### Four claims of mine the review corrected
+
+1. **"21 guards" — wrong, there are 20.** I counted `abort(404)` occurrences; `NewsletterController`
+   already contained one. Newsletter has 2 guards (edit, destroy) because its `update()` is inert.
+2. **"The guard is above every validator" — wrong for two of them.** In `BlogController::update`
+   and `BlogCategoryController::update` the guard sat *below* the validator. No write happens in a
+   validator, so it was not a hole — but it left a response-shape oracle: an **invalid** payload
+   returned the validation redirect and a **valid** one returned 404, which distinguishes "exists
+   elsewhere" from "refused" for a caller who can vary the payload. **Both moved**; the invariant
+   the comment claims now actually holds.
+3. **"Answering is the only write" in `ProductQuestionController::update` — wrong, and this RAISES
+   the pre-fix severity.** It also overwrites `question` from request input and rewrites
+   `created_by`, so a foreign merchant could put words in a shopper's mouth and claim authorship.
+4. **Newsletter subscriber emails were NOT readable cross-tenant.** Both read paths
+   (`NewsletterDataTable:40`, `NewsletterExport:35-36`) are store-scoped. They were **deletable**.
+   I had stated otherwise in conversation; the real finding is destruction of another merchant's
+   subscriber list, not disclosure of it.
+
+#### A branch of my own fix that could not fail
+
+The guard in `NewsletterController::edit()` had **no test**: reverting it left the suite green,
+because the Newsletter case drove `destroy` only. Now covered by an oracle test that compares the
+foreign-row status against an existing-nowhere status — and **mutation-checked in isolation**:
+reverting only that guard fails exactly that test and nothing else.
+
+A second gap the review named is also closed: nothing pinned the **non-oracle property** the whole
+fix is justified by. There is now a test asserting that a foreign row and an absent row both answer
+404, driven on one controller of each binding style.
+
+#### A wrong justification left in the code, and why the code is still right
+
+Each helper's docblock says *"No operator limb, as on `ProductBrandController::callerOwnsBrand()`"*.
+That precedent's stated reason is "the methods already refuse the operator, because `isAbleTo()`
+alone does" — **false for these `edit()` methods, which check no permission at all.** So the fix
+does narrow the platform operator here. It is **theoretical, not a live regression**: the
+`super admin` role is granted none of these permissions (`Utility.php:3240-3270`), so the operator
+has no menu entry and no index page to reach an id from.
+
+#### Recorded, NOT fixed — named with file:line by the review
+
+- **`NewsletterController::fileExport()` (`:165`, route `routes/web.php:1402`) has no permission
+  check at all** — any authenticated principal in the tenant, staff holding nothing included,
+  downloads the store's full subscriber email list. Store-scoped, so **within-tenant**, not
+  cross-tenant. **Live.** This is the sharpest remainder in these seven files.
+- **`edit()` still checks ownership only on six of the seven**, departing from the
+  ProductBrand/Page precedent which added the permission. A zero-permission staff member of the
+  tenant can still read Contact submissions and full blog posts. Within-tenant bypass on personal
+  data. The review confirms adding the permission would lock nobody out.
+- Three more empty-body `show()` oracles: `ContactController:82`, `FaqController:70`,
+  `NewsletterController:84`.
+- `newsletters.email` is `unique` **globally, not per store**, so an address subscribed to store A
+  cannot subscribe to store B — and an unauthenticated caller learns whether an address is a
+  subscriber anywhere on the platform.
+- `ProductQuestionController::more_question()` (`:221`) uses `getCurrentStore()` on a **storefront**
+  route, so a merchant browsing another store's storefront sees their **own** questions rendered on
+  it. Own data, so no leak — a wrong-source tenant predicate and a functional bug.
+- `BlogController` has **no `show()` method** while `Route::resource` registers `blog.show`, so
+  `GET /blog/{id}` is a 500 for everyone. Pre-existing availability bug, not authorization.
+- **Side effect of this fix, accepted:** anonymous `POST /contacts` writes `store_id = null`; such
+  rows were already invisible to the list and are now also permanently un-editable through the UI.
