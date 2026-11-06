@@ -34,6 +34,33 @@
  * Contrast is COMPOSITED up the ancestor chain: a non-composited reading turned a real 16.15:1
  * into 1.24:1 earlier in this phase.
  *
+ * STATUS, STATED PLAINLY: THIS TOOL HAS NOT PRODUCED A VERIFIED FINDING, AND ITS CURRENT NUMBERS
+ * SHOULD NOT BE QUOTED. It has been wrong five times, each time confidently:
+ *
+ *   1. el.focus() instead of Tab, so :focus-visible rules were never active for buttons or links.
+ *   2. "the computed string changed" read as "an indicator appeared", when both states painted
+ *      nothing (outline none/3px -> none/0px; box-shadow none -> transparent at zero size).
+ *   3. only document.activeElement inspected, missing a ring drawn on a wrapper.
+ *   4. computed styles read the INSTANT focus moved. The rings here are ANIMATED, so at t=0 the
+ *      value is still the unfocused one. Measured on input#sideBarsearch: t=0 box-shadow
+ *      rgba(0,0,0,0) 0px 0px 0px 0px; t=260ms rgb(51,93,168) 0px 0px 0px 3.2px plus a blue
+ *      border. Same element, same focus, opposite verdict. A settle delay fixed the main loop.
+ *   5. only RINGS counted as indicators. A screenshot pair of a.btn on /finance/withdrawals:
+ *      unfocused it is grey with dark text, focused it is SOLID BLUE with white text. The fill
+ *      comparison added for this reads the element immediately after blur() -- and runs into
+ *      fault 4 all over again, because the fill transitions back too. It currently reports 0.
+ *
+ * BOTH CONTROLS SAMPLED WITH A FOCUSED/UNFOCUSED SCREENSHOT PAIR SHOWED STRONG, OBVIOUS FOCUS
+ * INDICATION, and both had been flagged by this tool as having none. So the honest summary of the
+ * focus work in this admin, from the evidence that exists, is: no verified failure found.
+ *
+ * WHAT THE NEXT ATTEMPT SHOULD DO DIFFERENTLY. Stop reading computed styles. Every one of those
+ * reads races a transition, and faults 2, 4 and 5 are all the same fault wearing different
+ * clothes. Clip a screenshot of the control unfocused, Tab to it, wait for the transition, clip
+ * the same region again, and compare the two images. A pixel difference is what a merchant sees;
+ * a computed value at an arbitrary instant is not. The pair under
+ * docs/design-system/evidence/focus-2026-11-06/ is that comparison done by hand, twice.
+ *
  * usage: node docs/development/phase-2.5/tools/census-focus-visibility.cjs [--routes a,b] [--theme dark] [--stops 40]
  */
 const { chromium } = require('playwright');
@@ -119,7 +146,21 @@ const PROBE = `(() => {
   const hit = document.elementFromPoint(Math.round(q2.left + q2.width / 2), Math.round(q2.top + q2.height / 2));
   const obscured = !!(hit && hit !== el && !el.contains(hit) && !hit.contains(el));
 
-  if (!ink) { return { name, verdict: 'none', obscured, hit: obscured && hit ? hit.tagName.toLowerCase() : null }; }
+  if (!ink) {
+    /* A RING IS NOT THE ONLY INDICATOR, and the fifth correction to this tool is that it only
+       looked for one. A focused/unfocused screenshot pair of a.btn on /finance/withdrawals:
+       unfocused it is a light grey button with dark text; focused it is SOLID BLUE with white
+       text. Nothing rings it, and it is unmistakably focused -- SC 2.4.7 asks for a visible
+       indication, not for an outline. So before calling a stop bare, the fill is compared with
+       the same element unfocused. */
+    const was = { bg: cs.backgroundColor, fg: cs.color, bd: cs.borderColor };
+    el.blur();
+    const off = getComputedStyle(el);
+    const changed = off.backgroundColor !== was.bg || off.color !== was.fg || off.borderColor !== was.bd;
+    el.focus();
+    if (changed) { return { name, verdict: 'fill', obscured, hit: obscured && hit ? hit.tagName.toLowerCase() : null }; }
+    return { name, verdict: 'none', obscured, hit: obscured && hit ? hit.tagName.toLowerCase() : null };
+  }
   const bg = bgOf(el);
   const r = ratio(over(ink, bg), bg);
   return { name, verdict: r < 3 ? 'low' : 'ok', ratio: +r.toFixed(2), inkOn, obscured, hit: obscured && hit ? hit.tagName.toLowerCase() : null };
@@ -134,7 +175,7 @@ const PROBE = `(() => {
   await p.fill('input[name="password"]', 'password');
   await Promise.all([p.waitForLoadState('domcontentloaded'), p.click('button[type="submit"], input[type="submit"]')]);
 
-  let tNone = 0, tLow = 0, tObsc = 0, tAll = 0;
+  let tNone = 0, tLow = 0, tObsc = 0, tAll = 0, tFill = 0;
 
   for (const r of ROUTES) {
     let status = 0;
@@ -148,12 +189,19 @@ const PROBE = `(() => {
     // start from the document, then walk the real tab order
     await p.evaluate(() => { document.body.setAttribute('tabindex', '-1'); document.body.focus(); });
 
-    const none = [], low = [], obscured = [];
+    const none = [], low = [], fill = [], obscured = [];
     const seen = new Set();
     let stops = 0;
 
     for (let i = 0; i < STOPS; i++) {
       await p.keyboard.press('Tab');
+      /* LET THE TRANSITION FINISH. This is the fourth and decisive correction to this tool, and
+         it defeated the other three: the rings here are animated, so a computed style read the
+         instant focus moves returns the UNFOCUSED value. Measured on input#sideBarsearch -- at
+         t=0 `box-shadow: rgba(0,0,0,0) 0px 0px 0px 0px`; at t=260ms
+         `box-shadow: rgb(51,93,168) 0px 0px 0px 3.2px` and a blue border. Same element, same
+         focus, opposite verdict. A focused/unfocused screenshot pair is what exposed it. */
+      await p.waitForTimeout(260);
       const v = await p.evaluate(PROBE);
       if (!v) { continue; }
       stops++;
@@ -161,18 +209,21 @@ const PROBE = `(() => {
       if (seen.has(key)) { continue; }
       seen.add(key);
       if (v.verdict === 'none') { none.push(v.name); }
+      if (v.verdict === 'fill') { fill.push(v.name); }
       if (v.verdict === 'low') { low.push(v.name + '@' + v.ratio); }
       if (v.obscured) { obscured.push(v.name + '<' + v.hit); }
     }
 
-    tAll += stops; tNone += none.length; tLow += low.length; tObsc += obscured.length;
+    tAll += stops; tNone += none.length; tLow += low.length; tObsc += obscured.length; tFill += fill.length;
     console.log(`  ${r.padEnd(14)} ${String(stops).padStart(3)} tab stops   no-indicator=${none.length}  below-3:1=${low.length}  obscured=${obscured.length}`
+      + `  fill-only=${fill.length}`
       + ((none.length || low.length || obscured.length) ? '' : '  clean'));
     if (none.length) { console.log(`      no indicator: ${[...new Set(none)].slice(0, 6).join(' ')}`); }
     if (low.length) { console.log(`      below 3:1   : ${[...new Set(low)].slice(0, 6).join(' ')}`); }
     if (obscured.length) { console.log(`      obscured    : ${[...new Set(obscured)].slice(0, 6).join(' ')}`); }
   }
 
-  console.log(`\n  ${THEME}/${LANG}: of ${tAll} tab stops -- ${tNone} paint NO indicator, ${tLow} paint one below 3:1, ${tObsc} are obscured when focused`);
+  console.log(`\n  ${THEME}/${LANG}: of ${tAll} tab stops -- ${tNone} show NOTHING, ${tLow} ring below 3:1, `
+    + `${tFill} indicate by a fill change rather than a ring, ${tObsc} are obscured when focused`);
   await b.close();
 })();
