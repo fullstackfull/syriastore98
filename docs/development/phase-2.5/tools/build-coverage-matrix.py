@@ -177,6 +177,26 @@ VERIFIED = {
     #   'Merchant dashboard (page shell)'          already REDESIGNED AND VERIFIED by WAVE-3.
     # ----------------------------------------------------------------------------------------
     'Top Category / Top Brand "By Sales" body': ('REDESIGNED AND VERIFIED', 'package-a', 'dashboard_rankcard_', 'P2.5-PKG-A-03'),
+
+    # ----------------------------------------------------------------------------------------
+    # P2.5-PKG-A-06 / F-DESIGN-13. The header left the screen on every width from 576 up:
+    # measured by scrolling 1100px, `position: absolute` put it at y = -1085 at 1440, 1200,
+    # 1024, 768 and 576, in BOTH directions, while the phone kept it. Seven to eight controls
+    # went with it. `position: fixed` above the phone breakpoint pins it while inheriting the
+    # host's own left/right placement, so the geometry is byte-identical to the baseline at
+    # every width -- 24 checks, 0 failed, x, width and the gap under it unchanged row for row.
+    #
+    # ONE ROW THIS SLICE DOES NOT CLAIM, AND A QUESTION WITH IT:
+    #   'Settings popup (vendored, inert)'  P2.5-PKG-A-02 DELETED this surface -- nothing opened
+    #       it, its switches had no name, form or action, its copy was untranslated English, and
+    #       `SidebarActiveStateAndIconographyTest` now keeps it deleted. But "removed" is not one
+    #       of the directive's four states: it was not redesigned, it is not premium, it is not
+    #       blocked, and it is not out of phase scope. Marking it verified would claim work that
+    #       did not happen; leaving it PENDING implies work that is not owed. It stays PENDING
+    #       and the discrepancy is stated here rather than resolved by inventing a fifth state --
+    #       retiring an inventory row is the owner's call, not mine.
+    # ----------------------------------------------------------------------------------------
+    'Header / topbar': ('REDESIGNED AND VERIFIED', 'package-a', 'header_pinned_', 'P2.5-PKG-A-06'),
 }
 
 # Surfaces that are out of the Phase 2.5 merchant scope by the approved phase plan.

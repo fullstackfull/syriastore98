@@ -6285,3 +6285,52 @@ html:not([data-ss-theme="dark"]) [data-ss-admin] .dash-sidebar .dash-item:not(.a
     color: var(--ss-fg);
 }
 /* end P2.5-PKG-A-03 */
+
+/* ============================================================================
+   P2.5-PKG-A-06 — THE HEADER STAYS ON SCREEN (F-DESIGN-13)
+   ============================================================================
+
+   MEASURED on /dashboard by scrolling 1100px and reading the header's box, in
+   both directions, before this rule:
+
+       1440 1200 1024 768 576   position: absolute   y = -1085   GONE
+                        390     position: sticky     y =     0   pinned
+
+   Ten readings, five widths times two directions, and the phone is the only one
+   that keeps it. Seven to eight controls leave with it -- notifications, the
+   store switcher, Quick Add, the language switcher, the profile menu, the
+   storefront link, POS -- on pages two to five screens tall.
+
+   `fixed`, NOT `sticky`, AND THAT IS THE WHOLE DESIGN OF THIS FIX. Sticky was
+   tried first and measured: it moved the header from x=255 w=1185 to x=0
+   w=1440, putting the profile control at [20-222] behind a sidebar whose right
+   edge is 255. The reason is that the host positions this header with
+
+       LTR   .dash-header { position: absolute; left: 255px;  right: 0 }
+       RTL   .dash-header { position: absolute; right: 255px; left: 0 }
+
+   and `absolute` and `fixed` both treat `left`/`right` as POSITION, while
+   `sticky` treats them as offset constraints and leaves the box at its static
+   place. So `fixed` keeps the geometry the host already computes -- including
+   the RTL mirror, and including the breakpoints where the sidebar goes
+   off-canvas and the same rules already resolve to x=0 -- and changes only
+   whether the box scrolls away. Nothing here hard-codes a sidebar width,
+   because nothing here needs to know one.
+
+   IT ALSO LEAVES THE 70px ALONE. `.dash-container { position: relative; top:
+   70px }` exists to clear an out-of-flow header. `fixed` is out of flow, like
+   `absolute`, so that offset stays exactly as correct as it was; the sticky
+   attempt put the header back IN flow and doubled it into a 90px dead band.
+
+   BELOW 576px NOTHING CHANGES, deliberately. `custom.css` makes the header
+   sticky-in-flow at `max-width: 575.98px` and zeroes the container offset, and
+   its comment records why: at phone width the icon strip wraps, so the header's
+   height is NOT a constant and any fixed offset is wrong for some merchant's
+   permission set. This rule is scoped to the exact complement of that query and
+   does not reach it. ============================================================================ */
+@media (min-width: 576px) {
+    [data-ss-admin] .dash-header {
+        position: fixed;
+    }
+}
+/* end P2.5-PKG-A-06 */

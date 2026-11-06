@@ -706,8 +706,38 @@ one direction or the other. The honest options are to move the header inside the
 already carries the offset, which is a markup change to the shell every admin page renders, or to
 drive the header's inline-start from the same variable the sidebar's width comes from.
 
-**The change was REVERTED and the tree left clean** — verified: `position` back to `absolute`,
-page height back to 2738px, `git status` empty. A half-fix that hides the profile menu is worse
-than the defect it repairs.
+**The sticky change was REVERTED and the tree left clean** — verified: `position` back to
+`absolute`, page height back to 2738px, `git status` empty. A half-fix that hides the profile menu
+is worse than the defect it repairs.
+
+---
+
+**CLOSED the same day by P2.5-PKG-A-06, with `fixed` rather than `sticky`.** The reason sticky
+failed is the reason `fixed` works: `absolute` and `fixed` both treat `left`/`right` as a
+POSITION, while `sticky` treats them as offset constraints. So `position: fixed` inherits the
+host's own placement — the RTL mirror at `style-rtl.css` included, and the breakpoints where the
+sidebar goes off-canvas and those same rules already resolve to x=0 — and changes only whether the
+box scrolls away. Nothing in the fix knows a sidebar width, so none of the coupling listed above
+applies to it.
+
+It is also out of flow, like `absolute`, so `.dash-container { top: 70px }` stays exactly as
+correct as it was and no second rule is needed; the sticky attempt had to zero that offset and
+produced a 90px dead band when it did not.
+
+Scoped to `@media (min-width: 576px)`, the exact complement of `custom.css`'s
+`max-width: 575.98px` arm, which makes the header sticky-in-flow at phone width for a measured
+reason of its own — the icon strip wraps there, so the header's height is not a constant.
+
+**Measured, 24 checks over six viewports in both directions:**
+
+| | before | after |
+|---|---|---|
+| pinned after a 1100px scroll | 2 of 12 | **12 of 12** |
+| header x / width | 255/1185, 255/945, 0/1024, 0/768, 0/576 | **identical, row for row** |
+| controls obscured | 0 | **0** |
+
+`MerchantHeaderStaysOnScreenTest` pins it, including that it must NOT be sticky, must not restate
+any geometry, must not move the container, and must not reach the phone arm — each mutated and
+seen to redden.
 
 
