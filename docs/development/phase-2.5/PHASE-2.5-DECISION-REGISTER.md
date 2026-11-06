@@ -1380,3 +1380,61 @@ two Blade files and no stylesheet.
 
 The name is not in `edit.blade.php` — it is rendered from variant data — so the fix is a rule, not a
 markup swap. Next slice.
+
+---
+
+### F-DESIGN-23 — CLOSED, and the cause was FAQ styling reaching the product editor
+
+The variant panel's heading — the text naming which variant you are about to edit, "S-Natural",
+"M/L-Indigo" — had two dark-mode defects. Measured in all four states, because measuring one would
+have fixed the better half:
+
+| theme | state | before | after |
+|---|---|---|---|
+| light | collapsed | 12.37:1 | 12.37:1 (untouched) |
+| light | expanded | 5.28:1 | 5.28:1 (untouched) |
+| dark | collapsed | **4.03:1 — fails** | **12.84:1** |
+| dark | expanded | 5.28:1 **on a near-white bar** | **10.68:1 on a dark surface** |
+
+**1. The collapsed heading was the host's muted grey**, `#808191` at 16px/700 — 4.03:1, under the
+floor because 16px/700 is not "large text" (SC 1.4.3 needs 18.66px *and* 700, or 24px). The boldest
+text on the panel was also the quietest.
+
+**2. The expanded header bar was a light surface on a dark page.** Its background is
+`--bs-accordion-active-bg: #e8e9ea`, and that declaration is **byte-identical** in `style.css:5216`
+and `style-dark.css:5222` — the vendor never gave the accordion a dark-mode active state. **Its
+5.28:1 PASSES**, which is exactly why a contrast sweep alone would never have flagged it: the defect
+is not the ratio, it is a near-white bar in a dark interface. Same shape as F151 on the breadcrumb.
+
+#### The root cause is worth recording on its own
+
+The first collapsed rule was written without `!important`, applied, and **measured not to work** —
+the button stayed `#808191`. Enumerating every rule matching the button found the winner, and it is
+not an accordion rule:
+
+```
+.plan_card .card.price-card .card-body span.text-sm,
+.faq .accordion .accordion-item .accordion-button.collapsed
+    { color: rgb(128,129,145) !important }
+```
+
+**A rule written for the FAQ screen.** It reaches the product editor because the editor wraps its
+variant accordion in `<div class="faq">` — verified directly: `btn.closest('.faq')` returns a
+`div.faq`, and the button matches that selector while matching the `.plan_card` one not at all. So
+FAQ styling paints variant headings.
+
+It also explains why the expanded arm needed no `!important`: the FAQ rule carries `.collapsed`, so
+it never competes for the open state. Two arms of one defect, two different cascade situations.
+
+#### Why `!important` is right here and was wrong for `.text-danger`
+
+Both decisions were made in the same session and they point opposite ways, so the distinction
+matters. `.text-danger` is a **Bootstrap utility**: out-importanting it repaints every use in all 70
+vendored WorkDo modules, which is why that one was fixed in the markup instead. This rule is scoped
+to `.attribute_option_data` — the product editor's variant list and nothing else. FAQs keep their
+own colour. Narrowness is the whole difference.
+
+**Light is untouched by construction**: both arms are `[data-ss-theme="dark"]`-scoped, and the light
+figures above are identical before and after.
+
+After: the Package B page sweep reports **252 checks, 0 failed**.

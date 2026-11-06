@@ -389,12 +389,12 @@
     "route": "/product/1/edit",
     "title": "Product",
     "worst": {
-      "value": 4.03,
+      "value": 4.89,
       "floor": 4.5,
-      "px": 16,
-      "weight": "700",
-      "text": "S-Natural",
-      "tag": "span.d-flex.align-items-center"
+      "px": 14,
+      "weight": "500",
+      "text": "Hi, Amina Haddad!",
+      "tag": "span.hide-mob"
     },
     "first": {
       "kind": "card",
@@ -821,12 +821,12 @@
     "route": "/product/1/edit",
     "title": "المنتج",
     "worst": {
-      "value": 4.03,
+      "value": 4.89,
       "floor": 4.5,
-      "px": 16,
-      "weight": "700",
-      "text": "S-Natural",
-      "tag": "span.d-flex.align-items-center"
+      "px": 14,
+      "weight": "500",
+      "text": "مرحباً، Amina Haddad!",
+      "tag": "span.hide-mob"
     },
     "first": {
       "kind": "card",

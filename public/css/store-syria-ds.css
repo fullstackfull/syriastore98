@@ -6548,3 +6548,75 @@ html:not([data-ss-theme="dark"]) [data-ss-admin] .dash-sidebar .dash-item:not(.a
    static count does not reach. It is its own slice, with its own census.
    Recorded as F-DESIGN-20. */
 /* end P2.5-PKG-B-CONTRAST */
+
+/* ============================================================================
+   P2.5-PKG-B — THE VARIANT PANEL'S HEADING, in dark mode only.
+
+   The product editor lists each saved variant as an accordion panel whose
+   heading IS the variant's identity -- "S-Natural", "M/L-Indigo". Measured on
+   /product/1/edit in all four states:
+
+                    collapsed                          expanded
+     light   #293240 on #f9fafb  12.37:1  ok    #335da8 on #e8e9ea  5.28:1  ok
+     dark    #808191 on #22242c   4.03:1  FAIL  #335da8 on #e8e9ea  5.28:1  see below
+
+   TWO DEFECTS, BOTH DARK-ONLY, AND LIGHT IS LEFT ALONE BECAUSE IT PASSES.
+
+   1. THE COLLAPSED HEADING IS THE HOST'S MUTED GREY. `#808191` at 16px/700 is
+      4.03:1 -- under the 4.5 floor, because 16px/700 is NOT "large text" (SC
+      1.4.3 needs 18.66px AND 700, or 24px). So the boldest text on the panel is
+      also the quietest, and it is the only thing naming which variant you are
+      about to edit.
+
+   2. THE EXPANDED HEADER BAR IS A LIGHT SURFACE ON A DARK PAGE. Its background
+      is `--bs-accordion-active-bg: #e8e9ea`, and that declaration is
+      BYTE-IDENTICAL in `style.css:5216` and `style-dark.css:5222` -- the vendor
+      never gave the accordion a dark-mode active state. Its 5.28:1 PASSES, which
+      is why a contrast sweep alone would never flag it: the defect is not the
+      ratio, it is a near-white bar in a dark interface. Same shape as F151 on the
+      breadcrumb, whose component docblock records the identical reasoning.
+
+   AND THE EXPANDED TEXT HAS TO MOVE WITH THE BACKGROUND. It is `#335da8` from
+   the host's `var(--theme-color)`; on a dark surface that is the 2.22:1
+   brand-as-text problem P2.5-DESIGN-G already measured. Setting the background
+   without the foreground would trade a light-surface defect for a contrast one,
+   so this sets both.
+
+   WHY THE COLLAPSED ARM CARRIES `!important`, WHICH THIS SHEET OTHERWISE AVOIDS.
+   The first version of it did not, was applied, and MEASURED NOT TO WORK -- the
+   button stayed `#808191`. Enumerating the rules that match the button found
+   the winner, and it is not an accordion rule at all:
+
+       .plan_card .card.price-card .card-body span.text-sm,
+       .faq .accordion .accordion-item .accordion-button.collapsed
+           { color: rgb(128,129,145) !important }
+
+   A rule written for the FAQ screen. It reaches the product editor because the
+   editor WRAPS ITS VARIANT ACCORDION IN `<div class="faq">` -- verified:
+   `btn.closest('.faq')` returns a `div.faq`, and the button matches that
+   selector while matching the `.plan_card` one not at all. So FAQ styling paints
+   variant headings, and only an `!important` reaches past it.
+
+   THIS IS NARROW, WHICH IS THE WHOLE DIFFERENCE from the `.text-danger` case in
+   the P2.5-PKG-B-CONTRAST block above, where out-importanting was rejected: that
+   selector is a Bootstrap utility and repainting it would have reached all 70
+   vendored WorkDo modules. This one is scoped to `.attribute_option_data` -- the
+   product editor's variant list and nothing else. FAQs keep their own colour.
+
+   It also explains why the EXPANDED arm needed no `!important`: the FAQ rule
+   carries `.collapsed`, so it never competes for the open state.
+
+   `--ss-fg` RATHER THAN `--ss-brand`, deliberately. The expanded state is still
+   obvious from the bar and the rotated chevron; it does not need a branded
+   label, and `--ss-brand` resolves to cyan in dark mode, which is open owner
+   decision #35. Naming the foreground keeps this rule out of that question.
+   ========================================================================= */
+[data-ss-theme="dark"] [data-ss-admin] .attribute_option_data .accordion-button.collapsed {
+    color: var(--ss-fg) !important;
+}
+
+[data-ss-theme="dark"] [data-ss-admin] .attribute_option_data .accordion-button:not(.collapsed) {
+    background-color: var(--ss-surface-hover);
+    color: var(--ss-fg);
+}
+/* end P2.5-PKG-B-VARIANT-HEADING */
