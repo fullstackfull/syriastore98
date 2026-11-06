@@ -209,7 +209,12 @@ $logo = asset(Storage::url('uploads/profile/'));
                              title (`resources/views/layouts/app.blade.php:517`; the finding said
                              :498, which is the skip link). `class="h4"` keeps the rendered type
                              scale byte-identical to the old `<h4>`. --}}
-                        <h3 class="h4 mt-2 text-primary">{{ $user->name }}</h3>
+                        {{-- PACKAGE A. h3 -> h2. The page title became the document's h1, so a
+                             card at h3 left a measured h1->h3 skip on this screen -- the only
+                             skip the h1 change introduced anywhere, found by driving five list
+                             surfaces rather than by reasoning about it. `class="h4"` is unchanged,
+                             so the rendered 20px/600 does not move. --}}
+                        <h2 class="h4 mt-2 text-primary">{{ $user->name }}</h2>
                         <small class="">{{ $user->email }}</small>
                     </div>
                 </div>
@@ -228,7 +233,7 @@ $logo = asset(Storage::url('uploads/profile/'));
                      the staff cards would have left the outline h2, h3, h3, h3, h6 -- the skip
                      SHORTENED from four levels to three rather than removed. This tile is a sibling
                      of the staff cards, so it takes the same level; `class="h6"` keeps its size. --}}
-                <h3 class="h6 mt-4 mb-2">{{ __('Create New User') }}</h3>
+                <h2 class="h6 mt-4 mb-2">{{ __('Create New User') }}</h2>
                 <p class="text-muted text-center">{{ __('Click here to Create New User') }}</p>
             </a>
             @endpermission

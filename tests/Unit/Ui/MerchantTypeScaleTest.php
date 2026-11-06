@@ -82,13 +82,19 @@ class MerchantTypeScaleTest extends TestCase
         );
     }
 
-    /** The layout stops borrowing the vendored theme's utility for the page title. */
+    /**
+     * The layout stops borrowing the vendored theme's utility for the page title.
+     *
+     * PACKAGE A, 2026-11-06: the element is an `h1` now. The class is what this test is about and
+     * it is unchanged; the LEVEL changed because there was no h1 on any merchant page, which
+     * MerchantPageHeadingOutlineTest records with the measured before/after outlines.
+     */
     public function test_the_layout_gives_the_page_title_its_own_class(): void
     {
         $layout = $this->read(self::LAYOUT);
 
         $this->assertMatchesRegularExpression(
-            '/<h2[^>]*class="[^"]*ss-page-title[^"]*"[^>]*>\s*@yield\(\'page-title\'\)/',
+            '/<h1[^>]*class="[^"]*ss-page-title[^"]*"[^>]*>\s*@yield\(\'page-title\'\)/',
             $layout,
             'the page title still has no design-system class of its own'
         );

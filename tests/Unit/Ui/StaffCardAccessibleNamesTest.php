@@ -479,7 +479,29 @@ class StaffCardAccessibleNamesTest extends TestCase
             . 'tell the correct repair from the plausible-looking wrong one');
     }
 
-    public function test_the_page_heading_level_the_outline_hangs_off_is_still_h2(): void
+    /**
+     * PACKAGE A, 2026-11-06. THIS TEST DID ITS JOB AND IS UPDATED BECAUSE OF IT.
+     *
+     * Its message said: "the shared layout no longer emits the page heading as an <h2>, so the
+     * level the staff cards must hang off has changed -- re-measure the outline before trusting
+     * the h3 below". The layout's title became the document's h1, because there was no h1 anywhere
+     * in the admin, and this went red exactly as designed.
+     *
+     * THE OUTLINE WAS THEN RE-MEASURED, in a browser, on five list surfaces -- which is how the
+     * one consequence was found rather than reasoned about:
+     *
+     *     /users       [3,3,3,3,3,1,3,3,3,3]   SKIP h1->h3    <- the staff cards
+     *     /user-list   [3,3,3,3,3,1]           none
+     *     /customer    [3,3,3,3,3,1]           none
+     *     /order       [3,3,3,3,3,1,2]         none
+     *     /finance     [...,1,6,3,6,3,...]     h1->h6, h3->h6  <- PRE-EXISTING, see below
+     *
+     * So the staff cards moved to h2, and `/users` now measures [3,3,3,3,3,1,2,2,2,2] with no
+     * skips and the name still rendering 20px/600. `/finance` was already skipping before this
+     * package (its title was an h2 and the cells are h6, so the skip read h2->h6); it is recorded
+     * for package D rather than claimed here.
+     */
+    public function test_the_page_heading_level_the_outline_hangs_off_is_now_h1(): void
     {
         /*
          * PREMISE for the outline rule. The finding named layouts/app.blade.php:498; the real line
@@ -502,14 +524,14 @@ class StaffCardAccessibleNamesTest extends TestCase
          * So: the level and the yield are asserted, any class list is tolerated, and the wrong
          * levels are refused by name -- which is what "re-measure the outline" actually means.
          */
-        $this->assertSame(1, preg_match('/<h2[^>]*>@yield\(\'page-title\'\)<\/h2>/', $layout),
-            'the shared layout no longer emits the page heading as an <h2>, so the level '
-            . 'the staff cards must hang off has changed — re-measure the outline before trusting '
-            . 'the h3 below');
+        $this->assertSame(1, preg_match('/<h1[^>]*>@yield\(\'page-title\'\)<\/h1>/', $layout),
+            'the shared layout no longer emits the page heading as an <h1>, so the level '
+            . 'the staff cards must hang off has changed — re-measure the outline in a browser '
+            . 'before trusting the h2 below');
 
-        foreach (['h1', 'h3', 'h4', 'h5'] as $wrong) {
+        foreach (['h2', 'h3', 'h4', 'h5'] as $wrong) {
             $this->assertSame(0, preg_match('/<' . $wrong . '[^>]*>@yield\(\'page-title\'\)<\/' . $wrong . '>/', $layout),
-                "the page heading is emitted as <{$wrong}>, not <h2>, so the staff cards' h3 no "
+                "the page heading is emitted as <{$wrong}>, not <h1>, so the staff cards' h2 no "
                 . 'longer hangs off it correctly');
         }
     }
@@ -713,9 +735,11 @@ class StaffCardAccessibleNamesTest extends TestCase
             count($headings),
             implode(', ', array_map(fn ($h) => "h{$h['level']} \"{$h['text']}\"", $headings))));
 
-        $this->assertSame(3, $headings[0]['level'],
-            'the staff card\'s heading is not an h3. The shared layout emits the page title as an '
-            . 'h2, so h3 is the only level that neither skips nor reverses.');
+        $this->assertSame(2, $headings[0]['level'],
+            'the staff card\'s heading is not an h2. The shared layout emits the page title as the '
+            . 'document h1 (package A), so h2 is the only level that neither skips nor reverses. '
+            . 'It was h3 while the page title was an h2, and `/users` measured an h1->h3 skip in a '
+            . 'browser the moment the title moved.');
         $this->assertSame(self::FIXTURE_NAME, $headings[0]['text'],
             'the staff card\'s heading is not the staff member\'s name');
     }
@@ -732,7 +756,9 @@ class StaffCardAccessibleNamesTest extends TestCase
 
         $this->assertNotSame([], $levels, 'premise: @section(\'content\') emits no headings');
 
-        $previous = 2; // the layout's <h2 class="h3 mb-0 ss-scope">@yield('page-title')</h2>
+        // the layout's <h1 class="h3 mb-0 ss-scope ss-page-title">@yield('page-title')</h1>.
+        // It was 2 until package A gave the admin the h1 it had never had.
+        $previous = 1;
 
         foreach ($levels as $i => $level) {
             $this->assertLessThanOrEqual($previous + 1, $level, sprintf(
@@ -743,9 +769,18 @@ class StaffCardAccessibleNamesTest extends TestCase
             $previous = max($previous, $level);
         }
 
-        $this->assertSame([], array_filter($levels, fn (int $l): bool => $l < 3), sprintf(
-            '@section(\'content\') emits a heading at h1 or h2, which competes with the page title '
-            . 'the layout already emits. Levels seen: %s',
+        /*
+         * PACKAGE A moved the floor by one. This refused h1 AND h2 because the page title was an
+         * h2 and a content h2 would have COMPETED with it. The title is the document h1 now, so
+         * h2 is exactly where a content section belongs and only h1 still competes.
+         *
+         * `$previous = 1` above already refuses a skip past h2, so the two assertions together say
+         * what they always said: nothing in the content may claim the document's subject, and
+         * nothing may skip a level getting there.
+         */
+        $this->assertSame([], array_filter($levels, fn (int $l): bool => $l < 2), sprintf(
+            '@section(\'content\') emits a heading at h1, which competes with the page title the '
+            . 'layout already emits as the document h1. Levels seen: %s',
             implode(', ', array_map(fn ($l) => "h{$l}", $levels))));
     }
 

@@ -601,8 +601,39 @@
                                 {{-- `</h2>`, not `</h4>`: the opening tag is h2 and the close
                                      was h4, on every merchant screen. Browsers recover from it,
                                      so nothing broke visibly -- but the DOM a screen reader and
-                                     any heading-order audit walk was malformed. --}}
-                                <h2 class="h3 mb-0 ss-scope ss-page-title">@yield('page-title')</h2>
+                                     any heading-order audit walk was malformed.
+
+                                     PACKAGE A, 2026-11-06. IT IS NOW AN h1, AND THERE WAS NO h1
+                                     ON ANY MERCHANT PAGE BEFORE THIS. Measured on /dashboard: the
+                                     visible heading sequence read
+                                     [3,3,3,3,3,2,2,2,2,2,2,4,4,4,5,4,4,6,...] -- the five sidebar
+                                     zone captions at h3, then the page's own title at h2, then two
+                                     SKIPS, h2->h4 and h4->h6. `grep -rn "<h1"` over the whole
+                                     layout chain returned nothing. So every one of the 152 views
+                                     that set `@section('page-title')` described itself to a screen
+                                     reader and to every heading audit as a SUBSECTION of a document
+                                     that had no subject.
+
+                                     `class="h3"` is kept, so the rendered type scale does not move
+                                     by a pixel: this is an outline change, not a visual one.
+
+                                     AND IT IS NOW CONDITIONAL, which fixes a second defect found
+                                     while making the first. The block was unconditional, so a view
+                                     that sets no page-title rendered an EMPTY heading --
+                                     `notification/index.blade.php` renders its own
+                                     `<x-ss.page-header>` (which correctly emits an h1) and sets no
+                                     section, so it had an empty h2 above a real h1. As an h1 that
+                                     would have been two h1s, one of them blank. `@hasSection` reads
+                                     BOTH `@section('x', 'y')` and `@section('x') … @endsection`,
+                                     verified on the running application rather than assumed: the
+                                     dashboard uses the inline form at dashboard.blade.php:3.
+
+                                     The sidebar's zone captions stay h3 and that is deliberate --
+                                     see the rejected alternative in
+                                     PHASE-2.5-PACKAGE-A-REPORT-AR.md. --}}
+                                @hasSection('page-title')
+                                <h1 class="h3 mb-0 ss-scope ss-page-title">@yield('page-title')</h1>
+                                @endif
                                 {{-- WS C: AN OPT-IN SUBTITLE, and it is opt-in on purpose.
                                      `x-ss.page-header` has carried a `store` prop since P2-01-11
                                      — "the store name is restated here on screens where knowing

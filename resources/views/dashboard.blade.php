@@ -127,7 +127,7 @@
                         <div class="col-xxl-4 col-12">
                             <div class="dashboard-card">
                                 <div class="d-flex align-items-center justify-content-between gap-3 mb-4">
-                                    <h4 class="m-0">{{ __('Top Category') }}</h4>
+                                    <h2 class="h4 m-0">{{ __('Top Category') }}</h2>
                                     <p class="m-0">{{ __('By Sales') }}</p>
                                 </div>
                                 <div class="dash-category-tab" id="useradd-sidenav">
@@ -189,7 +189,7 @@
                         <div class="col-xxl-4 col-12">
                             <div class="dashboard-card">
                                 <div class="d-flex align-items-center justify-content-between gap-3 mb-4">
-                                    <h4 class="m-0">{{ __('Top Brand') }}</h4>
+                                    <h2 class="h4 m-0">{{ __('Top Brand') }}</h2>
                                     <p class="m-0">{{ __('By Sales') }}</p>
                                 </div>
                                 <div class="dash-brand-tab" id="brand-sidenav">
@@ -266,8 +266,8 @@
                                                 alt="user-image">
                                         </a>
                                         <div class="user-info">
-                                            <h4 class="mb-2">{{ __(auth()->user()->name) }}
-                                            </h4>
+                                            <h2 class="h4 mb-2">{{ __(auth()->user()->name) }}
+                                            </h2>
                                             <p>{{ __('Have a nice day! Did you know that you can quickly add your favorite product or category to the theme?') }}
                                             </p>
                                             <div
@@ -321,7 +321,7 @@
                                         </div>
                                     </div>
                                     <div class="qr-code-wrp">
-                                        <h5 class="text-capitalize text-center">{{ $store->name }}</h5>
+                                        <h3 class="h5 text-capitalize text-center">{{ $store->name }}</h3>
                                         <div class="code-img">
                                             {!! QrCode::generate($theme_url) !!}
                                         </div>
@@ -381,7 +381,7 @@
                                             $ssStorageNote = __(':used MB used', ['used' => $ssStorageUsed]);
                                         }
                                     @endphp
-                                    <h4>{{ __('Storage Status') }}<small>({{ $ssStorageNote }})</small></h4>
+                                    <h2 class="h4">{{ __('Storage Status') }}<small>({{ $ssStorageNote }})</small></h2>
                                 </div>
                                 <div class="card-body">
                                     @if ($ssStorageKnown)
@@ -407,7 +407,7 @@
                 <div class="col-xxl-4 col-12">
                     <div class="overflow-auto dashboard-card">
                         <div class="d-flex justify-content-between align-items-center gap-3 flex-wrap">
-                            <h4 class="m-0">{{ __('Latest Products') }}</h4>
+                            <h2 class="h4 m-0">{{ __('Latest Products') }}</h2>
                             @if ($latests && count($latests) > 0)
                                 <a class="text-primary" href="{{ route('product.index') }}">{{ __('View All') }}</a>
                             @endif
@@ -457,22 +457,36 @@
                                                 </td>
                                                 <td>
                                                     <div class="d-flex align-items-center">
-                                                        <h6 class="m-0">{{ $latest->name }}
-                                                        </h6>
+                                                        {{-- PACKAGE A. A TABLE CELL'S VALUE IS NOT A HEADING. These three were
+                                                             `<h6>`: a product name, a price and a
+                                                             status word, inside `<td>`s. A screen
+                                                             reader's heading list filled with
+                                                             product names and prices, and the
+                                                             dashboard's outline measured a
+                                                             h4->h6 skip because of them. The
+                                                             design system already carries the
+                                                             right classes and says so in its own
+                                                             docblock -- `.ss-text-strong` is "the
+                                                             emphasised text of a row ... a VALUE,
+                                                             not a heading", and `.ss-money` gives
+                                                             a numeric column tabular figures so it
+                                                             aligns. --}}
+                                                        <span class="ss-text-strong d-block">{{ $latest->name }}
+                                                        </span>
                                                     </div>
                                                 </td>
                                                 @if ($latest->variant_product == 0)
 
                                                                         <td>
-                                                                            <h6 class="m-0">
+                                                                            <span class="ss-money">
                                                                                 {{ currency_format_with_sym($latest->final_price ?? 0, getCurrentStore()) ??
                                                     SetNumberFormat($latest->final_price) }}
-                                                                            </h6>
+                                                                            </span>
                                                                         </td>
                                                 @else
 
                                                     <td>
-                                                        <h6 class="m-0">{{ __('In Variant') }}</h6>
+                                                        <span class="text-muted">{{ __('In Variant') }}</span>
                                                     </td>
                                                 @endif
                                             </tr>

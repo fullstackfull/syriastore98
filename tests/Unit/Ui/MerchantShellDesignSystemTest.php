@@ -144,10 +144,18 @@ class MerchantShellDesignSystemTest extends TestCase
             . 'a screen reader and any heading-order audit walk is malformed on every screen.'
         );
 
+        /*
+         * PACKAGE A, 2026-11-06: IT IS AN h1 NOW, AND THE WELL-FORMEDNESS QUESTION IS UNCHANGED.
+         * This assertion read `h2` because that is what the layout emitted when it was written.
+         * There was no h1 anywhere in the admin -- measured, `grep -rn "<h1"` over the layout
+         * chain returned nothing -- so every page announced itself as a subsection of a document
+         * with no subject. The level moved; the thing this test guards, that the pair matches, did
+         * not. MerchantPageHeadingOutlineTest owns the level itself.
+         */
         $this->assertMatchesRegularExpression(
-            '/<h2[^>]*>@yield\(\'page-title\'\)<\/h2>/',
+            '/<h1[^>]*>@yield\(\'page-title\'\)<\/h1>/',
             $layout,
-            'the page title is no longer inside a well-formed h2'
+            'the page title is no longer inside a well-formed h1'
         );
     }
 
