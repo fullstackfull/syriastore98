@@ -9,11 +9,11 @@ hand-maintained matrix is precisely how that happens.
 
 | state | count | of 295 |
 |---|---:|---:|
-| PREMIUM VERIFIED | 0 | 0.0% |
-| REDESIGNED AND VERIFIED | 14 | 4.7% |
+| PREMIUM VERIFIED | 15 | 5.1% |
+| REDESIGNED AND VERIFIED | 16 | 5.4% |
 | BLOCKED | 9 | 3.1% |
 | OUT OF SCOPE | 1 | 0.3% |
-| PENDING | 271 | 91.9% |
+| PENDING | 254 | 86.1% |
 | **total** | **295** | |
 
 **PENDING is not one of the directive's four states, and that is the point.** The four
@@ -31,15 +31,15 @@ screens and exactly three of them have been looked at. The other ~97 stay PENDIN
 | area | total | premium | redesigned | blocked | out of scope | pending |
 |---|---:|---:|---:|---:|---:|---:|
 | Flutter merchant admin app | 51 | 0 | 0 | 0 | 0 | 51 |
-| CATALOGUE taxonomy | 38 | 0 | 1 | 0 | 0 | 37 |
-| Staff/Roles/Permissions + Merchant Settings & Integrations | 38 | 0 | 2 | 1 | 0 | 35 |
+| CATALOGUE taxonomy | 38 | 9 | 1 | 0 | 0 | 28 |
+| Staff/Roles/Permissions + Merchant Settings & Integrations | 38 | 4 | 3 | 1 | 0 | 30 |
 | Phase 2.5 Wave A | 30 | 0 | 0 | 0 | 0 | 30 |
 | Reports/Analytics presentation, Notifications, and the con | 26 | 0 | 0 | 1 | 0 | 25 |
 | Flutter merchant/employee admin app | 24 | 0 | 0 | 3 | 0 | 21 |
 | Customers and customer management | 20 | 0 | 3 | 0 | 0 | 17 |
 | ORDERS | 17 | 0 | 3 | 3 | 0 | 11 |
-| PRODUCTS | 16 | 0 | 1 | 1 | 0 | 14 |
-| Merchant admin NAVIGATION SHELL | 13 | 0 | 0 | 0 | 0 | 13 |
+| PRODUCTS | 16 | 1 | 2 | 1 | 0 | 12 |
+| Merchant admin NAVIGATION SHELL | 13 | 1 | 0 | 0 | 0 | 12 |
 | Stock/inventory reporting + finance/wallet/payout screens | 13 | 0 | 3 | 0 | 0 | 10 |
 | Merchant dashboard and KPI presentation | 9 | 0 | 1 | 0 | 1 | 7 |
 
@@ -108,23 +108,23 @@ actually been done to it since. They are different questions and the matrix keep
 
 | surface | route / kind | audit | state | evidence or reason |
 |---|---|---|---|---|
-| Category list | ``GET /category`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
+| Category list | ``GET /category`` | premium-already | **PREMIUM VERIFIED** | P2.5-WAVE-33; four captures under evidence/wave-33/ |
 | Category create (modal) | ``GET /category/create`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
 | Category edit (modal) | ``GET /category/{category}/edit`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
 | Category row actions | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
-| Brand list | ``GET /product-brand`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Brand list | ``GET /product-brand`` | needs-polish | **PREMIUM VERIFIED** | P2.5-WAVE-33; four captures under evidence/wave-33/ |
 | Brand create (modal) | ``GET /product-brand/create`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Brand edit (modal) | ``GET /product-brand/{productBrand}/edit`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Brand row actions | ``partial/component`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Attributes list | ``GET /product-attributes`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
+| Attributes list | ``GET /product-attributes`` | premium-already | **PREMIUM VERIFIED** | P2.5-WAVE-33; four captures under evidence/wave-33/ |
 | Attribute create / edit (modals) | ``GET /product-attributes/create, GET /product-attributes/{id}/` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
 | Attribute row actions | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
 | Attribute options (DS pilot screen) | ``GET /attribute-option/{id?}`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
 | Attribute option create / edit (modals) | ``GET /add-attribute-option/{id?}, GET /edit-attribute-option/{` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
-| Tag list | ``GET /tag`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Tag list | ``GET /tag`` | needs-polish | **PREMIUM VERIFIED** | P2.5-WAVE-33; four captures under evidence/wave-33/ |
 | Tag create / edit (modals) | ``GET /tag/create, GET /tag/{tag}/edit`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Tag row actions | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
-| Product label list | ``GET /product-label`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Product label list | ``GET /product-label`` | needs-polish | **PREMIUM VERIFIED** | P2.5-WAVE-33; four captures under evidence/wave-33/ |
 | Product label create / edit (modals) | ``GET /product-label/create, GET /product-label/{id}/edit`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Product label row actions | ``partial/component`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Coupon list | ``GET /coupon`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-WAVE-2; four captures under evidence/wave-2/ |
@@ -132,17 +132,17 @@ actually been done to it since. They are different questions and the matrix keep
 | Coupon create (modal) | ``GET /coupon/create`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Coupon edit (modal) | ``GET /coupon/{coupon}/edit`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Coupon row actions | ``partial/component`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Flash sale list | ``GET /flash-sale`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Flash sale list | ``GET /flash-sale`` | needs-polish | **PREMIUM VERIFIED** | P2.5-WAVE-33; four captures under evidence/wave-33/ |
 | Flash sale status cell | ``partial/component`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Flash sale create (modal) | ``GET /flash-sale/create`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Flash sale edit (modal) | ``GET /flash-sale/{id}/edit`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
-| Product question list | ``GET /product-question`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Product question list | ``GET /product-question`` | needs-polish | **PREMIUM VERIFIED** | P2.5-WAVE-33; four captures under evidence/wave-33/ |
 | Product question reply (modal) | ``GET /product-question/{id}/edit`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Product question row actions | ``partial/component`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Testimonial list | ``GET /testimonial`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
+| Testimonial list | ``GET /testimonial`` | deficient | **PREMIUM VERIFIED** | P2.5-WAVE-33; four captures under evidence/wave-33/ |
 | Testimonial create / edit (modals) | ``GET /testimonial/create, GET /testimonial/{Testimonial}/edit`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Testimonial row actions | ``partial/component`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| FAQ list | ``GET /faqs`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| FAQ list | ``GET /faqs`` | needs-polish | **PREMIUM VERIFIED** | P2.5-WAVE-33; four captures under evidence/wave-33/ |
 | FAQ create (modal) | ``GET /faqs/create`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | FAQ edit (modal, repeater) | ``GET /faqs/{faq}/edit`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | FAQ row actions | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
@@ -164,21 +164,21 @@ actually been done to it since. They are different questions and the matrix keep
 | Pixel Settings tab | ``partial/component (resource pixel-setting)`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Tax Option / Payment / reCAPTCHA / Cookie / SEO / Stock / Refund / PWA / Style / ChatGPT / Twilio / WhatsApp x3 / Email x3 / Loyalty tabs | ``partial/component (POST /setting-form + per-panel save routes` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Delivery Syria (wallet + parcels) | ``GET /setting (tab) and POST /delivery-syria/update`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Users / staff list (card grid) | ``GET /users`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Users / staff list (table view) | ``GET /user-list`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
+| Users / staff list (card grid) | ``GET /users`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-WAVE-33; four captures under evidence/wave-33/ |
+| Users / staff list (table view) | ``GET /user-list`` | premium-already | **PREMIUM VERIFIED** | P2.5-WAVE-33; four captures under evidence/wave-33/ |
 | Create staff user (modal) | ``GET /users/create -> POST /users`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Edit staff user (modal) | ``GET /users/{id}/edit -> PUT /users/{id}`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Reset staff password (modal) | ``POST users.resetpassword`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
 | Staff detail / user info | ``GET /user-info/{id}`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Own profile (WorkDo) | ``GET /profile`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
+| Own profile (WorkDo) | ``GET /profile`` | premium-already | **PREMIUM VERIFIED** | P2.5-WAVE-33; four captures under evidence/wave-33/ |
 | Breeze profile (orphan) | ``GET /profile/edit`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
-| Roles list | ``GET /roles`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
+| Roles list | ``GET /roles`` | premium-already | **PREMIUM VERIFIED** | P2.5-WAVE-33; four captures under evidence/wave-33/ |
 | Create role (xl modal, permission matrix) | ``GET /roles/create -> POST /roles`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-WAVE-12; four captures under evidence/wave-12/ |
 | Edit role (xl modal, permission matrix) | ``GET /roles/{id}/edit -> PUT /roles/{id}`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-WAVE-12; four captures under evidence/wave-12/ |
 | Shipping classes / zones / methods | ``GET /shipping, /shipping-zone, /shipping-method (+ free-shipp` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Taxes and tax methods | ``GET /taxes, /taxes/{id}, /taxes-method/create/{tax_option_id}` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Webhooks (create/edit modals) | ``GET /webhook/create, /webhook/{id}/edit -> POST\` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
-| Delivery boys | ``GET /deliveryboy, /deliveryboy-list, /deliveryboy/reset-passw` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Delivery boys | ``GET /deliveryboy, /deliveryboy-list, /deliveryboy/reset-passw` | needs-polish | **PREMIUM VERIFIED** | P2.5-WAVE-33; four captures under evidence/wave-33/ |
 | Shopify import screens (product, category, sub_category, coupon, customer) | ``GET /shopify_product, /shopify_category, /shopify_sub_categor` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | WooCommerce import screens (product, category, coupon, customer) | ``GET /woocom_product, /woocom_category, /woocom_coupon, /wooco` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Pixel create/update (modals) | ``GET /pixel-setting/create, /pixel-setting/{id}/edit`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
@@ -337,8 +337,8 @@ actually been done to it since. They are different questions and the matrix keep
 | surface | route / kind | audit | state | evidence or reason |
 |---|---|---|---|---|
 | Product list (table view) | ``GET /product → product.index`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-WAVE-1; four captures under evidence/wave-1/ |
-| Product list (grid view) | ``GET /product-list → product.list`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
-| Product editor — create | ``GET /product/create → product.create`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Product list (grid view) | ``GET /product-list → product.list`` | deficient | **PREMIUM VERIFIED** | P2.5-WAVE-33; four captures under evidence/wave-33/ |
+| Product editor — create | ``GET /product/create → product.create`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-WAVE-33; four captures under evidence/wave-33/ |
 | Product editor — edit | ``GET /product/{product}/edit → product.edit`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Product detail (read-only) | ``GET /product/{product} → product.show`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Product row actions (list cell fragment) | ``partial/component — rendered by ProductDataTable::dataTable()` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
@@ -366,7 +366,7 @@ actually been done to it since. They are different questions and the matrix keep
 | Command palette (global search) | ``partial/component; data from GET /merchant-search and POST /m` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Breadcrumb component | ``partial/component (rendered by the layout on every screen exc` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
 | Page-header component | ``partial/component`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Notifications (the bell's destination) | ``GET /merchant-notifications`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Notifications (the bell's destination) | ``GET /merchant-notifications`` | needs-polish | **PREMIUM VERIFIED** | P2.5-WAVE-33; four captures under evidence/wave-33/ |
 | Settings popup (vendored, inert) | ``partial/component — included by layouts/app.blade.php:573 on ` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Footer + script bundle | ``partial/component`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Design-system opt-in partial | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |

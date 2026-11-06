@@ -69,6 +69,57 @@ VERIFIED = {
     # (36 sites across the four combinations, 0 below 4.5:1) rather than read off the sheet.
     # 16b had reached only public/css/custom.css; the Arabic sheet is corrected in the same wave.
     'Customer activity timeline': ('REDESIGNED AND VERIFIED', 'wave-16c', 'timeline-pills__', 'P2.5-WAVE-16 + 16c'),
+
+    # ----------------------------------------------------------------------------------------
+    # P2.5-WAVE-33. The sweep that drove the 46 PENDING rows carrying a concrete static GET
+    # route. 23 answered as real pages; 21 answered 200 with a modal FRAGMENT (no `dir`, no
+    # linked sheet) and are click-driven, not pages; `/languages` is 404 for a merchant,
+    # `/config-cache` does not render, and `/product-order-reports` is 500 on SQLite only
+    # (`no such function: MONTH`), which is the fixture and not the product.
+    #
+    # All 25 captured routes report `100 rows, 0 not clean` from render-matrix.cjs -- every one
+    # 200, with the direction the layout really emitted and the sheet the partial really linked
+    # -- and `0 of 100 readings with a defect` from measure-surface-premium.cjs, which measures
+    # page overflow at 1440 and 320, light surfaces in dark, and the lowest alpha-composited
+    # text contrast.
+    #
+    # TWO STATES, USED AS THE DIRECTIVE DEFINES THEM. `REDESIGNED AND VERIFIED` is for a surface
+    # this wave actually CHANGED. `PREMIUM VERIFIED` -- which was 0 until now -- is for one that
+    # was driven, captured and measured clean and needed no change. Calling the second group
+    # "redesigned" would be a claim about work that did not happen.
+    #
+    # WHAT IS DELIBERATELY NOT CLAIMED HERE, each for a stated reason:
+    #   'Dashboard overview region (KPI surface)'  a COMPONENT, not a page. Claiming it from a
+    #       page capture is the overclaim this matrix exists to prevent.
+    #   'Settings hub (26 AJAX tabs)'              the row names 26 tabs; one hub capture is not
+    #       26 tabs.
+    #   'Shipping classes / zones / methods'       the row names three surfaces.
+    #   'Stock Reports (3-tab shell)' + 'Stock Reports'  two rows share one route, so a single
+    #       entry would claim both and the route-needle cannot separate them.
+    #   'Shopify import screens (product, ...)'    the row names FIVE screens, one was captured,
+    #       and all five are BLOCKED on a sandbox credential anyway.
+    #   'Breeze profile (orphan)'                  it renders unstyled Tailwind markup on a
+    #       registered route (CLAUDE.md). It was captured, but nothing redesigned it, so it
+    #       stays PENDING rather than be dressed up as verified.
+    # ----------------------------------------------------------------------------------------
+    'Product editor — create':      ('REDESIGNED AND VERIFIED', 'wave-33', '_product_create__', 'P2.5-WAVE-33'),
+    'Users / staff list (card grid)': ('REDESIGNED AND VERIFIED', 'wave-33', '_users__', 'P2.5-WAVE-33'),
+
+    'Category list':                ('PREMIUM VERIFIED', 'wave-33', '_category__', 'P2.5-WAVE-33'),
+    'Delivery boys':                ('PREMIUM VERIFIED', 'wave-33', '_deliveryboy__', 'P2.5-WAVE-33'),
+    'FAQ list':                     ('PREMIUM VERIFIED', 'wave-33', '_faqs__', 'P2.5-WAVE-33'),
+    'Flash sale list':              ('PREMIUM VERIFIED', 'wave-33', '_flash_sale__', 'P2.5-WAVE-33'),
+    "Notifications (the bell's destination)": ('PREMIUM VERIFIED', 'wave-33', '_merchant_notifications__', 'P2.5-WAVE-33'),
+    'Attributes list':              ('PREMIUM VERIFIED', 'wave-33', '_product_attributes__', 'P2.5-WAVE-33'),
+    'Brand list':                   ('PREMIUM VERIFIED', 'wave-33', '_product_brand__', 'P2.5-WAVE-33'),
+    'Product label list':           ('PREMIUM VERIFIED', 'wave-33', '_product_label__', 'P2.5-WAVE-33'),
+    'Product list (grid view)':     ('PREMIUM VERIFIED', 'wave-33', '_product_list__', 'P2.5-WAVE-33'),
+    'Product question list':        ('PREMIUM VERIFIED', 'wave-33', '_product_question__', 'P2.5-WAVE-33'),
+    'Own profile (WorkDo)':         ('PREMIUM VERIFIED', 'wave-33', '_profile__', 'P2.5-WAVE-33'),
+    'Roles list':                   ('PREMIUM VERIFIED', 'wave-33', '_roles__', 'P2.5-WAVE-33'),
+    'Tag list':                     ('PREMIUM VERIFIED', 'wave-33', '_tag__', 'P2.5-WAVE-33'),
+    'Testimonial list':             ('PREMIUM VERIFIED', 'wave-33', '_testimonial__', 'P2.5-WAVE-33'),
+    'Users / staff list (table view)': ('PREMIUM VERIFIED', 'wave-33', '_user_list__', 'P2.5-WAVE-33'),
 }
 
 # Surfaces that are out of the Phase 2.5 merchant scope by the approved phase plan.
@@ -122,6 +173,17 @@ def build():
     if len(rows) != EXPECTED_TOTAL:
         sys.exit(f'REFUSING: the inventory parses to {len(rows)} surfaces, not {EXPECTED_TOTAL}. '
                  f'A surface was added or lost. Update EXPECTED_TOTAL deliberately, never silently.')
+
+    # A VERIFIED KEY THAT MATCHES NO INVENTORY ROW IS A SILENT NO-OP, and silent is the problem:
+    # the entry looks like a promotion, the tally does not move, and nobody reads the difference.
+    # P2.5-WAVE-33 added 17 entries and checked this by hand -- which is exactly the check that
+    # should not be by hand. A screen RENAMED in the inventory would otherwise quietly un-verify
+    # itself, which is the failure mode this file's own header says it exists to prevent.
+    names = {r['screen'] for r in rows}
+    orphans = sorted(k for k in list(VERIFIED) + list(OUT_OF_SCOPE) if k not in names)
+    if orphans:
+        sys.exit('REFUSING: these VERIFIED/OUT_OF_SCOPE keys match no inventory row, so they claim '
+                 'nothing and move no count:\n  ' + '\n  '.join(repr(o) for o in orphans))
 
     for r in rows:
         r['state'], r['why'] = classify(r)

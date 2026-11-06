@@ -1581,3 +1581,36 @@ recovery note.
 Ratchets: `PublicAssetPathDoublingTest` (5), `SsButtonVariantTest` (4),
 `DarkEditorAndPickerSurfaceTest` (5). Nine mutations run against them, each reddening its own
 assertion. Full account: `PHASE-2.5-WAVE-33-REPORT-AR.md`.
+
+### The inventory moved, with evidence per surface
+
+`render-matrix.cjs` captured all 25 routes in the four combinations into
+`evidence/wave-33/after/`: **100 rows, 0 not clean, 0 premise failures** — every one 200, with the
+direction the layout really emitted and the sheet the partial really linked. The generator checks
+those four files exist per claimed surface and returns BLOCKED with a reason when they do not, so a
+row cannot be promoted by editing a table.
+
+| state | before | after |
+|---|---|---|
+| PREMIUM VERIFIED | 0 | **15** |
+| REDESIGNED AND VERIFIED | 14 | **16** |
+| PENDING | 271 | **254** |
+| BLOCKED | 9 | 9 |
+| OUT OF SCOPE | 1 | 1 |
+
+**31 of 295, up from 14.** The two states are used as the directive defines them: *redesigned* only
+for the two surfaces this wave actually changed, *premium verified* for the fifteen that were driven,
+captured and measured clean and needed no change. Calling the second group redesigned would be a
+claim about work that did not happen.
+
+**Seven surfaces were captured and deliberately NOT promoted**, each for a reason written into the
+generator: the dashboard KPI region is a component, not a page; 'Settings hub (26 AJAX tabs)' and
+'Shipping classes / zones / methods' name more surfaces than one capture covers; the two Stock
+Reports rows share one route so a single entry would claim both; the Shopify row names five screens
+and all five are blocked on a sandbox credential; and the Breeze profile orphan renders unstyled
+Tailwind markup that nothing in this wave redesigned.
+
+A guard was added to the generator while doing this: a `VERIFIED` key matching no inventory row was
+a **silent no-op** — the entry looks like a promotion and no count moves. 17 entries were checked by
+hand, which is exactly the check that should not be by hand, and a screen renamed in the inventory
+would otherwise quietly un-verify itself. It now refuses and names the orphan; proved by mutation.
