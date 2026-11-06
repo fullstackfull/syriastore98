@@ -1989,3 +1989,103 @@ capture of the right screen in the wrong state, and a lone impostor in a wave wh
 collides all still pass the CI half. **Every remaining wave-33 claim should be re-verified against
 a correctly-permissioned fixture before Phase 2.5 is presented for acceptance** — this finding says
 the sweep that produced them could not tell a refusal from a screen, not that the rest are wrong.
+
+---
+
+### F-SEC-03 — a cross-tenant catalogue read, and a cross-tenant WRITE in the same file
+
+**Status:** FIXED and proved. Four handlers in `TestimonialController`. Reviewed by
+`tenant-authz-reviewer`, which confirmed the first fix, **refuted a claim in my own docblock**, and
+found the write — which is worse than the read I had set out to close.
+
+#### 1. `POST get-product` returned every tenant's product names and ids
+
+```php
+$Product = Product::where('category_id', $request->id)->get();   // no store predicate
+```
+
+No permission check, no ownership check — and `Product` is absent from `config/tenancy.php`'s
+`scoped_models`, so `StoreScope::isActiveFor()` short-circuits and the global scope adds **no
+predicate for any principal**. CLAUDE.md records that property and records that it already produced
+a live cross-tenant stock drain (S19).
+
+**Reachable:** `routes/web.php:944` registers it as `POST get-product` inside
+`['auth','xss','setlocate','verified']` — a *separate* declaration, not part of
+`Route::resource('testimonial')`.
+
+**Severity:** any authenticated web principal in any tenant, **holding zero permissions**. Category
+ids are small per-store integers with an FK to `categories(id)`, so this is enumeration, and the
+product ids it returns then feed the handlers in the "not fixed" list below.
+
+**The strongest evidence the fix restores intended behaviour rather than inventing it:** the
+server-rendered twin of this exact query, `edit()` at `:140`, **already had**
+`->where('store_id', getCurrentStore())`, and so does the ProductReview module's controller. Only
+the AJAX path was missing it.
+
+#### 2. `edit()`, `update()` and `destroy()` — a cross-tenant WRITE
+
+Found by the review of the above, not by me. `Testimonial` uses only `HasFactory, Cachable` and is
+deliberately absent from `scoped_models`, so `Route::resource`'s implicit binding resolves **any**
+row by bare primary key:
+
+| handler | gate before | effect |
+|---|---|---|
+| `edit()` | **nothing at all** | read another store's testimonial |
+| `update()` | `Edit Testimonial` only | **rewrote** title, description, rating, status, username on a foreign row |
+| `destroy()` | `Delete Testimonial` only | **deleted** it — and `changeStorageLimit(creatorId(), $avatar)` ran first, so the **attacker's own** storage quota was debited for the victim's file |
+
+The index DataTable **is** store-filtered, so an attacker is never *shown* a foreign id — they are
+small sequential integers, the same enumeration argument as above.
+
+#### A claim of mine the review refuted
+
+My docblock said the lookup needs no permission check because *"the form that calls it is already
+gated"*. **That is false:** `create()` has no permission check at all, so `GET /testimonial/create`
+renders for any authenticated principal including staff holding nothing. The conclusion survives
+for a better reason, now recorded in the code: the endpoint is **shared by three unrelated
+features** — the testimonial form, `wishlist/index.blade.php`, and the ProductReview module — so
+any single permission name would break the dropdown for the other two.
+
+#### Evidence
+
+`TestimonialProductLookupCrossTenantTest`: **8 passed**. Reverted: **6 failed, 2 passed** — the two
+being the positive controls, which hold in both states.
+
+Two fixture errors were caught on the way, both by a failing positive control rather than by luck:
+`products.category_id` and `testimonials.category_id` each carry an FK to `categories(id)` (the
+latter **defaults to 0**, which is not a valid id), and `testimonials.status` has no `->nullable()`,
+so a payload omitting it writes NULL and the row is rejected by the column — which made the
+**owner's** own rename fail and would have rendered the three cross-tenant passes meaningless.
+
+#### A branch that could not fail, now ratcheted
+
+The review found that reverting the `empty($currentStore)` short-circuit **alone** left all tests
+green — half the fix was untestable. `products.store_id` is nullable and `where('store_id', null)`
+compiles to `store_id is null`, so without it a principal with no current store is served every
+**orphan** product on the platform. There is now a test with exactly that principal and an orphan
+row.
+
+#### Recorded, NOT fixed — named with file:line by the review
+
+- **`ProductController::getProductsVariantQuantity()` (`:5369`, routed `GET
+  get-products-variant-quantity` at `routes/web.php:1350`)** — returns another tenant's **price and
+  per-variant stock** as JSON. Certain and live for any authenticated principal. **This is the
+  sharpest of the remainder.**
+- `ProductController::productVariant()` (`:5361`), `PreOrderSettingController::getVariants()`,
+  `ProductPricingController` (`:199`, another store's discount rules),
+  `CustomerDonationController::get_donation_amount()` — same shape.
+- **Unescaped output:** `$Category->name` is concatenated into `<option>` with no `e()`
+  (`TestimonialController:284`, same at `CategoryController:656`), and the `xss` middleware strips
+  only `&lt;`, `&gt;`, `javascript` and `alert`, so `<img onerror=…>` survives storage. My fix
+  **narrowed** this from cross-tenant stored-XSS to intra-tenant; it is a one-token fix and belongs
+  in its own change.
+- **`create()` has no permission check** while `store()` requires `Create Testimonial` — the
+  form-vs-submit asymmetry, same as the ones already recorded.
+
+#### Why neither census found the read
+
+The controller census filters to **single-record method names** (`show`, `edit`, `update`,
+`destroy`, status toggles). `get_product` is a **list query** under none of them. The review names
+the productive signature instead: `->where('<x>_id', $request->…)` or `::find($request->…)` with no
+sibling `store_id` term, plus `<option value=` concatenation in a controller — which matches exactly
+one handler in `app/Http/Controllers/` and two under `packages/workdo/`.
