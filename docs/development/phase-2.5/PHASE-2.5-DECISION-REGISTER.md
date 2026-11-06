@@ -1848,3 +1848,55 @@ assertion-free file is `tests/Unit/ExampleTest.php` — **Laravel's shipped scaf
 ratchet would need an exemption for framework scaffolding in order to guard against one file that
 is already gone, and an exemption list on a hygiene check is the kind that rots into noise.
 Recorded rather than silently skipped.
+
+---
+
+### M-PKG-B-04 — the 16 Package B pages, driven in all four combinations: 448 checks, 0 failed
+
+**Status:** VERIFIED. `verify-package-b-pages.cjs` extended from 9 pages to **16** — the seven that
+M-PKG-B-03 unblocked — and run across AR RTL / EN LTR × light / dark. **448 checks, 0 failed, 64
+captures** under `evidence/pkg-b-pages/after/`.
+
+Every surface passes, in every combination:
+
+| check | result |
+|---|---|
+| premises (the combination asked for is the one that rendered, on the page asked for) | pass |
+| measured text nodes (not an empty page) | 31–144 per page |
+| no sideways scroll at 1440 | 0px everywhere |
+| no emoji used as an interface icon | 0 |
+| one icon family | tabler only, **0 feather** |
+| worst text contrast | **4.89:1** ≥ 4.5 |
+| first real content | **174–375px** |
+
+The first-content figure is the one worth keeping: WAVE-24 found merchant screens whose first data
+sat at **1358–2131px**. These answer the merchant inside the first screenful.
+
+#### The ids are read from the probe's JSON, not written into the harness
+
+The seeded rows' ids move every time the fixture is removed and re-seeded — the coupon went **2 → 3
+within one session**, because sqlite's AUTOINCREMENT does not reuse a deleted id. A literal
+`/coupon/3` in the harness would read as a 404, and then as a defect, the next time anybody runs
+the seed tool. `verify-package-b-pages.cjs` now reads `package-b-reachability.json`'s `ids`.
+
+#### Why twelve of these supersede `evidence/pkg-b/after/`
+
+Compared against the earlier `pkg-b` capture set: the six product-editor captures are
+**byte-identical**, and twelve **list-page** captures differ. The difference is explained and
+expected — it is the permission grants and the seeded rows, measured:
+
+- `/product-brand` now renders a **"+ Add Brand"** control in the page header. Before the
+  `Create Product Brand` grant the probe measured *"no VISIBLE trigger fetching
+  /product-brand/create (0 matched)"*; after it, the modal opens. The screenshot corroborates the
+  measurement rather than standing in for it.
+- The sidebar's Catalogue zone now carries **Testimonial** and **Question Answer**, from
+  `Manage Testimonial` and `Manage Product Question`.
+- The coupon list has a row where it had none.
+
+So the earlier set shows a merchant missing half their own controls, and this one shows the UI a
+merchant with ordinary permissions actually sees. `evidence/pkg-b/after/` is kept as the record the
+earlier wave was accepted on; for the twelve list pages it is **superseded**, and it should not be
+cited as current.
+
+All 64 come from **one run** of the tool that produced the numbers, so the pictures and the figures
+cannot disagree — the discipline WAVE-20 set.

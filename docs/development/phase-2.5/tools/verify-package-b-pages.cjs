@@ -57,17 +57,42 @@ const COMBOS = [
   { lang: 'ar', dir: 'rtl', theme: 'dark' },
 ];
 
-/** The 9 that probe-package-b-reachability.cjs measured as PAGE. */
+/**
+ * THE 16 THAT probe-package-b-reachability.cjs MEASURES AS PAGE -- was 9.
+ *
+ * Seven were unreachable until P2.5-PKG-B closed the fixture gaps: tag, flash-sale,
+ * product-question, testimonial and faqs were refused because the dev merchant held no
+ * `Manage *` permission (granted with grant-dev-screen-permissions.php); coupon-detail had no
+ * coupon row at all (seeded by seed-dev-interaction-fixtures.php); and attribute-option was
+ * neither -- the probe was asking for `/attribute-option` with no id, where the route is `{id?}`
+ * and the id is an ATTRIBUTE id, so `ownedAttribute(null)` failed closed and returned denied().
+ *
+ * IDS COME FROM THE PROBE'S OWN JSON, not from a literal in this file. The seeded rows' ids move
+ * every time the fixture is removed and re-seeded -- the coupon went from 2 to 3 within one
+ * session, because sqlite's AUTOINCREMENT does not reuse a deleted id -- so a hardcoded
+ * `/coupon/3` reads as a 404 and then as a defect the next time anyone runs the seed tool.
+ */
+const REACH = JSON.parse(fs.readFileSync(
+  path.join(__dirname, 'package-b-reachability.json'), 'utf8'));
+const ID = REACH.ids || {};
+
 const PAGES = [
   ['category', '/category'],
   ['brand', '/product-brand'],
   ['attribute', '/product-attributes'],
+  ['attribute-option', '/attribute-option/' + (ID.attribute ?? 1)],
+  ['tag', '/tag'],
   ['label', '/product-label'],
   ['coupon', '/coupon'],
+  ['coupon-detail', '/coupon/' + (ID.coupon ?? 1)],
+  ['flash-sale', '/flash-sale'],
+  ['product-question', '/product-question'],
+  ['testimonial', '/testimonial'],
+  ['faqs', '/faqs'],
   ['product-list', '/product'],
   ['product-create', '/product/create'],
-  ['product-edit', '/product/1/edit'],
-  ['product-show', '/product/1'],
+  ['product-edit', '/product/' + (ID.product ?? 1) + '/edit'],
+  ['product-show', '/product/' + (ID.product ?? 1)],
 ];
 
 let checks = 0, fails = 0;
