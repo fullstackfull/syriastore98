@@ -969,8 +969,14 @@
         });
 
         cmd.input.setAttribute('aria-expanded', cmd.items.length ? 'true' : 'false');
-        cmd.status.textContent = String(cmd.items.length);
-        if (cmd.items.length) { cmdActivate(0); }
+        /* "Results: 5", NOT "5". This region is the only thing that tells a screen-reader user
+           how many results arrived, and it used to put a bare number into it. "LABEL: COUNT" is
+           also why there is no plural machinery here: it is grammatical in English and in Arabic
+           for every count, where "5 الإجراءات" -- a number in front of a definite plural, which
+           is what the old concatenation produced -- is not. */
+        cmd.status.textContent = (cmd.input.getAttribute('data-ss-results-label') || 'Results')
+            + ': ' + cmd.items.length;
+        if (cmd.items.length) { cmdActivate(0, false); }
     }
 
     /**
@@ -990,7 +996,7 @@
      * empty list renders an empty bar. Nothing here is filtered, hidden or re-checked, because a
      * client-side filter would mean the full action list had been sent to every caller.
      */
-    function cmdActions(option) {
+    function cmdActions(option, announce) {
         var box = document.getElementById('ss-command-actions');
         if (!box) { return; }
 
@@ -1013,10 +1019,13 @@
            actions that moved with it -- so a merchant arrowing down had no way to know an action
            had appeared, changed or gone. The count goes into the palette's own existing status
            region rather than a new one: two live regions for one dialog compete. */
-        if (cmd.status) {
+        if (cmd.status && announce !== false) {
+            /* Same shape as the result count, for the same reason: the label leads and the
+               number follows. The old order put the count in front of the translated word and
+               read "1 الإجراءات" in Arabic. */
             cmd.status.textContent = (option.ssTitle || '') + ' — '
-                + actions.length + ' '
-                + (box.getAttribute('data-ss-actions-label') || 'Actions');
+                + (box.getAttribute('data-ss-actions-label') || 'Actions')
+                + ': ' + actions.length;
         }
 
         actions.forEach(function (action) {
@@ -1039,7 +1048,15 @@
         });
     }
 
-    function cmdActivate(i) {
+    /* `announce` is false for the FIRST activation after a render, and that is not a detail.
+       `cmdRender` writes the result count into the status region and then activates row 0 in the
+       next statement; `cmdActions` wrote over it synchronously, and an `aria-live="polite"`
+       region announces only the value it holds at the next rendering opportunity. So the count
+       this component's own markup comment promises -- "the result COUNT is announced as it
+       changes" -- was never heard: MEASURED, the region read "#P25PROBE-55 — Actions: 1" every
+       time, never "Results: 5". Skipping the write on that one call lets the count be announced
+       when the set changes, and the option when the merchant arrows to it. */
+    function cmdActivate(i, announce) {
         if (!cmd.items.length) { return; }
         if (cmd.active >= 0 && cmd.items[cmd.active]) {
             cmd.items[cmd.active].setAttribute('aria-selected', 'false');
@@ -1051,7 +1068,7 @@
            keep typing while the selection moves. */
         cmd.input.setAttribute('aria-activedescendant', el.id);
         if (el.scrollIntoView) { el.scrollIntoView({ block: 'nearest' }); }
-        cmdActions(el);
+        cmdActions(el, announce !== false);
     }
 
     function cmdSearch() {

@@ -197,6 +197,21 @@ VERIFIED = {
     #       retiring an inventory row is the owner's call, not mine.
     # ----------------------------------------------------------------------------------------
     'Header / topbar': ('REDESIGNED AND VERIFIED', 'package-a', 'header_pinned_', 'P2.5-PKG-A-06'),
+
+    # ----------------------------------------------------------------------------------------
+    # P2.5-PKG-A-07. The command palette. Measured open, with results, in both themes and both
+    # directions: every text layer clears AA -- input 16.88 / 11.81, result title 5.89 / 7.18,
+    # result meta 4.63 / 5.25, group head 5.58 / 6.84, action 16.88 / 11.81, shortcut 14.67 /
+    # 13.08 -- focus lands on the input, `aria-expanded` flips to true, and the live region
+    # reports the set.
+    #
+    # WHAT NEEDED REPAIR WAS WHAT IT SAID, not how it looked. The status region announced a bare
+    # "5"; the count was then overwritten synchronously by the first activation, so a polite
+    # live region never read it at all; and the action line was concatenated in English word
+    # order, rendering "1 الإجراءات" in Arabic. All three measured on the running page in both
+    # languages, all three fixed, and the four announcement paths re-measured.
+    # ----------------------------------------------------------------------------------------
+    'Command palette (global search)': ('REDESIGNED AND VERIFIED', 'package-a', 'palette_', 'P2.5-PKG-A-07'),
 }
 
 # Surfaces that are out of the Phase 2.5 merchant scope by the approved phase plan.
