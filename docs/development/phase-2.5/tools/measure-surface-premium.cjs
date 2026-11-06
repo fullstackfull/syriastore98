@@ -102,12 +102,13 @@ const PAGE_PROBE = (minArea) => {
   const bgStack = (el) => {
     const layers = [];
     let crossedImage = false;
+    let opaqueAt = null;
     let n = el;
     while (n && n.nodeType === 1) {
       const cs = getComputedStyle(n);
       if (cs.backgroundImage && cs.backgroundImage !== 'none') { crossedImage = true; }
       const c = parse(cs.backgroundColor);
-      if (c && c.a > 0) { layers.push(c); if (c.a >= 0.999) { break; } }
+      if (c && c.a > 0) { layers.push(c); if (c.a >= 0.999) { opaqueAt = n; break; } }
       n = n.parentElement;
     }
     if (!layers.length || layers[layers.length - 1].a < 0.999) {
@@ -115,7 +116,7 @@ const PAGE_PROBE = (minArea) => {
     }
     let out = layers.pop();
     while (layers.length) { out = over(layers.pop(), out); }
-    return { colour: out, crossedImage };
+    return { colour: out, crossedImage, opaqueAt };
   };
 
   const de = document.documentElement;
@@ -160,6 +161,27 @@ const PAGE_PROBE = (minArea) => {
   // A first draft of this tool therefore reported `span.ss-visually-hidden "Previous"` at 1.33:1
   // as the worst contrast on THIRTEEN screens. It is the pagination's assistive label, deliberately
   // unpainted, and measuring it says nothing about what a sighted merchant sees.
+  // ELEMENT `opacity` IS NOT IN `color`'s ALPHA, and ignoring it over-reports contrast by the
+  // whole factor of that opacity. Measured on /product/create: Choices.js paints its placeholder
+  // and its dropdown OPTIONS as `#808191` with `opacity: 0.5`. Against the dark page that reads
+  // 4.03:1 if the opacity is dropped and 2.02:1 once it is composited -- and 2.02:1 is what a
+  // merchant sees. This is the third defect found in this tool by checking it against the page.
+  //
+  // Strictly, `opacity < 1` makes a new stacking context and the whole subtree is composited as a
+  // group. For a contrast reading the useful approximation is the PRODUCT of the opacities from
+  // the text's element up to the element that supplied the opaque background, which is where the
+  // group is painted. Stated as an approximation rather than presented as exact.
+  const groupOpacity = (el, stopAt) => {
+    let o = 1;
+    let n = el;
+    while (n && n.nodeType === 1 && n !== stopAt && n !== document.body) {
+      const v = parseFloat(getComputedStyle(n).opacity);
+      if (!Number.isNaN(v) && v < 1) { o *= v; }
+      n = n.parentElement;
+    }
+    return o;
+  };
+
   const isVisuallyHidden = (el) => {
     let n = el;
     while (n && n.nodeType === 1 && n !== document.body) {
@@ -188,9 +210,10 @@ const PAGE_PROBE = (minArea) => {
     if (isVisuallyHidden(el)) { continue; }
     const fg = parse(cs.color);
     if (!fg) { continue; }
-    const { colour: bg, crossedImage } = bgStack(el);
+    const { colour: bg, crossedImage, opaqueAt } = bgStack(el);
     if (crossedImage) { out.imageBacked++; continue; }
-    const ink = fg.a >= 0.999 ? fg : over(fg, bg);
+    const alpha = (fg.a >= 0.999 ? 1 : fg.a) * groupOpacity(el, opaqueAt);
+    const ink = alpha >= 0.999 ? fg : over({ r: fg.r, g: fg.g, b: fg.b, a: alpha }, bg);
     const r = ratio(ink, bg);
     out.textNodes++;
     if (out.minContrast === null || r < out.minContrast) {
@@ -263,6 +286,25 @@ const PAGE_PROBE = (minArea) => {
       if (!signedIn) { row.premiseFail = 'not signed in'; }
       else if ((premise.dir === 'rtl') !== (combo.dir === 'rtl')) { row.premiseFail = `dir=${premise.dir} wanted ${combo.dir}`; }
       else if (/style-dark\.css/.test(premise.sheet || '') !== (combo.theme === 'dark')) { row.premiseFail = `sheet=${premise.sheet} wanted ${combo.theme}`; }
+      // ONE RETRY ON A PREMISE FAILURE. Six of 100 readings in one run reported
+      // `dir=ltr wanted rtl` where the previous run of the same list reported none: the state tool
+      // writes through Eloquent and the server reads its own cache, which serve-dev.sh warns about
+      // in as many words. A flake reported as a reading is worse than a slower harness.
+      if (row.premiseFail) {
+        setState(combo.theme, combo.dir, combo.lang);
+        await page.goto(BASE + p, { waitUntil: 'domcontentloaded' }).catch(() => null);
+        await page.waitForTimeout(SETTLE);
+        const again = await page.evaluate(() => ({
+          dir: document.documentElement.getAttribute('dir'),
+          sheet: ((document.getElementById('main-style-link') || {}).href || '').split('/').pop(),
+        }));
+        row.docDir = again.dir;
+        row.sheet = again.sheet;
+        row.premiseRetried = true;
+        row.premiseFail = null;
+        if ((again.dir === 'rtl') !== (combo.dir === 'rtl')) { row.premiseFail = `dir=${again.dir} wanted ${combo.dir} (twice)`; }
+        else if (/style-dark\.css/.test(again.sheet || '') !== (combo.theme === 'dark')) { row.premiseFail = `sheet=${again.sheet} wanted ${combo.theme} (twice)`; }
+      }
       if (row.premiseFail) { rows.push(row); continue; }
 
       const at1440 = await page.evaluate(PAGE_PROBE, MIN_AREA);

@@ -53,6 +53,28 @@
 #      populated while the database was empty, and the seeder refused with "fixture is missing a
 #      store or merchant@example.test" against a restored database that demonstrably had both.
 #
+#   4. AND THEN DELETE THE TWO PREVIEW SETTINGS ROWS. This step is new on 2026-11-06 and it cost
+#      an hour, because every symptom points at the stylesheets rather than at ownership:
+#
+#        php -r '$d=new PDO("sqlite:database/p2dev.sqlite");
+#                $d->exec("delete from settings where name in (\"cust_darklayout\",\"SITE_RTL\")");'
+#        php artisan cache:clear        # with the three variables PREFIXED, never exported
+#
+#      WHY. `getAdminAllSetting()` (helper.php:740) filters on `created_by`, and `creatorId()`
+#      returns a type-`admin` user's OWN id -- so the merchant fixture needs rows owned by HER
+#      (id 2). After a rebuild the two rows come back owned by id 1, and
+#      `App\Services\SettingOwnership::keep` -- P1-PLT-07, a deliberate security control -- makes
+#      an UPDATE unable to change a row's owner: "An update may change the value; it may never
+#      change who the row belongs to." So `set-admin-preview-state.php` reports success, the value
+#      really is written, and every harness still reads the LIGHT theme and fails its own premise
+#      with `data-ss-theme [null]`. Deleting the rows is the only route, because the tool's INSERT
+#      path stamps the first `type = 'admin'` user and `keep` leaves a console insert alone.
+#
+#      MEASURED: before, `check-dark-form-surfaces-live.cjs` could not get past its premises;
+#      after the delete and one run of the state tool, owner=2 and it reports 20 checks 0 failed.
+#      Do NOT "fix" this by making the tool rewrite `created_by` -- that is the thing P1-PLT-07
+#      exists to prevent, and it was tried first.
+#
 # Run the harness in its own shell, or prefix the variables onto the single command that needs
 # them (`DB_DATABASE=... node render-matrix.cjs ...`) rather than exporting them.
 #

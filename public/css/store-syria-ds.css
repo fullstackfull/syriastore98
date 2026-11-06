@@ -3705,6 +3705,8 @@ a.ss-setup__item:focus-visible {
     background-color: var(--ss-surface-sunken);
 }
 
+
+
 /* ---- P2.5-WAVE-30: the toast a merchant cannot read ------------------------------------------
    THE FEEDBACK SURFACE OF THE WHOLE ADMIN, measured with full alpha compositing on `/pages` in
    both themes. Every figure below is the composited ratio against the panel the text actually
@@ -3790,6 +3792,8 @@ a.ss-setup__item:focus-visible {
     color: var(--ss-fg);
     background: var(--ss-surface-hover);
 }
+
+
 
 /* ---- P2.5-WAVE-29: and the summary tables that only need to FIT -----------------------------
    NOT EVERY OVERFLOWING TABLE WANTS STACKING, and measuring said which. The dashboard's own
@@ -5725,3 +5729,291 @@ a.ss-setup__item:focus-visible {
     inline-size: 1.5rem;
     block-size: 1.5rem;
 }
+
+/* ---- WHERE THIS BLOCK SITS, AND WHY IT IS AT THE END OF THE FILE --------------------------
+
+   IT WAS MOVED TWICE, BY TWO DIFFERENT TESTS, AND BOTH WERE RIGHT.
+
+   This sheet is carved into regions by wave markers, and several tests own a region and assert a
+   property over ALL of it: each finds its own marker with `strpos`, then takes the NEXT wave
+   marker as the end. So a block dropped between two markers is INSIDE the earlier wave's region
+   and inherits its rules.
+
+     first placement, after the WAVE-31 arms
+       -> DarkPageSurfaceTest::test_every_dark_arm_is_confined_to_the_page_and_cannot_reach_a_modal
+          WAVE-31's region runs to the WAVE-30 marker, and it requires every selector to begin
+          `[data-ss-theme="dark"] .dash-content`. These cannot: `.select2-dropdown` and
+          `.note-dropdown-menu` are appended to <body>. It was a REAL hazard, not a boundary
+          accident -- see the modal exemption below, which exists because of it.
+
+     second placement, after the WAVE-30 notifier rules
+       -> ToastContrastTest::test_the_panel_edge_does_not_touch_a_border_property
+          WAVE-30's region runs to the WAVE-29 marker, and it forbids any `border` property,
+          because in RTL a border lands on the plugin's own 4px type bar and paints over the
+          status colour. This block sets `border-color` eleven times, legitimately, on elements
+          that have nothing to do with the toast.
+
+   SO IT LIVES AT THE END OF THE FILE, past the last marker any test uses as a boundary, and it
+   carries its own `end P2.5-WAVE-33` close marker (written with the delimiters, below) so that
+   DarkEditorAndPickerSurfaceTest delimits it exactly
+   rather than by what happens to follow. A later wave that needs a region of its own should do
+   the same, and should not insert itself between two existing markers. */
+
+/* ---- P2.5-WAVE-33: THE RICH-TEXT EDITOR AND THE TAG PICKER IN DARK MODE ----------------------
+
+   A merchant could not read what they were typing. Measured on /product/create at 1440x1100 with
+   full alpha compositing -- which is the only way to see this, because the editor's surfaces are
+   TRANSPARENT and therefore do not appear in a search for light backgrounds:
+
+       part                         own bg       effective    ink       ratio
+       .note-editable  427x200      transparent  #22242c      #293240    1.20:1   the TYPING AREA
+       .note-editor.note-frame      transparent  #22242c      #293240    1.20:1
+       .note-toolbar   427x80       transparent  #22242c      #333333    1.23:1
+       .note-statusbar              transparent  #2c2e35      #293240    1.05:1
+       .note-btn       54x32        #ffffff      #ffffff      #333333   12.63:1   white, floating
+       .select2-selection--multiple #ffffff      #ffffff      #293240   12.93:1   white on a dark form
+
+   I FIRST GOT THIS WRONG IN THE OTHER DIRECTION and the correction is the point. Reading
+   summernote-bs4.css says `.note-btn{background:#fff}`, `.note-toolbar{background:#f5f5f5}` and
+   `.note-frame{color:#000}` -- which computes to a legible light island (12.63, 11.59 and 21.00),
+   so I concluded the editor was a deliberate light surface like `.modal-content` under the A-01
+   decision, and not a defect. The RENDERED page refutes it: only `.note-btn` keeps its white
+   fill. Something in the host's cascade zeroes the toolbar's and the frame's backgrounds, so
+   their near-black ink lands on the dark PAGE. Nobody designed white buttons floating over
+   invisible chrome. Reasoning from the stylesheet instead of the rendering is the error this
+   project keeps recording, and it produced the wrong verdict here within one step.
+
+   WHY THE EDITOR GOES DARK AND `.modal-content` DOES NOT. A modal is a white sheet whose ink was
+   repaired on it; this is not that, because the editor's own surfaces are already transparent --
+   there is no white sheet to preserve, only ink stranded on the page. A merchant's own inline
+   colours inside `.note-editable` still win over this rule, as inline styles always do, so their
+   explicitly-coloured text is unchanged.
+
+   NO !important ANYWHERE, AND THAT IS MEASURED, NOT HOPED. Read off the running page by CDP
+   (`CSS.getMatchedStylesForNode`), the winning rules are `.note-btn` (0,1,0), `.note-toolbar`
+   (0,1,0), `.note-editor.note-frame` (0,2,0) and
+   `.select2-container--default .select2-selection--multiple` (0,2,0) -- not one of them carries
+   `!important`. Source order matters for summernote only: of the 24 stylesheets the page really
+   loads, `select2.min.css` is index 0 and `summernote-bs4.css` is index 17, while this file is
+   index 15. So select2 is beaten by source order at equal specificity and summernote is not,
+   which is why every selector below carries `[data-ss-theme="dark"]` and so outweighs the plugin
+   by one class either way.
+
+   THE COLOUR SWATCHES ARE SAFE WITHOUT A CARVE-OUT. Summernote paints its palette buttons with an
+   inline `background-color`, and an inline declaration beats any rule here, so they keep their
+   colours. Checked rather than assumed: `.note-color-palette` carries no rule below.
+
+   THE DROPDOWNS ARE REACHED BECAUSE THE SCOPE IS `[data-ss-theme]` ON <html>, NOT `.dash-content`.
+   `.select2-dropdown` and `.note-dropdown-menu` are appended to <body>, outside the content
+   column -- the same reason the A-01 modal rules are written the way they are. */
+
+/* -- the rich-text editor -- */
+[data-ss-theme="dark"] .note-editor.note-frame,
+[data-ss-theme="dark"] .note-editor.note-airframe {
+    background-color: var(--ss-surface);
+    border-color: var(--ss-border);
+    color: var(--ss-fg);
+}
+[data-ss-theme="dark"] .note-editor .note-editable {
+    background-color: var(--ss-surface);
+    color: var(--ss-fg);
+}
+[data-ss-theme="dark"] .note-editor .note-placeholder {
+    color: var(--ss-fg-muted);
+}
+/* `.note-statusbar` IS DELIBERATELY NOT HERE. It was, and the rule was DEAD: read off the running
+   page by CDP, summernote's own `.note-editor.note-frame .note-statusbar` is specificity (0,3,0),
+   identical to what this selector would weigh, and summernote-bs4.css is sheet 17 against this
+   file's 15 -- so it wins on source order. What it paints is `rgba(128, 128, 128, 0.11)`, a
+   translucent grey that composites correctly over EITHER theme's frame: measured 10.33:1 once the
+   frame below went dark. The plugin was already right about that one, and a rule that cannot win
+   is worse than no rule, because the next reader believes it. */
+[data-ss-theme="dark"] .note-editor .note-toolbar {
+    background-color: var(--ss-surface-sunken);
+    border-color: var(--ss-border);
+    color: var(--ss-fg);
+}
+[data-ss-theme="dark"] .note-editor .note-btn {
+    background-color: var(--ss-surface);
+    border-color: var(--ss-border);
+    color: var(--ss-fg);
+}
+[data-ss-theme="dark"] .note-editor .note-btn:hover,
+[data-ss-theme="dark"] .note-editor .note-btn:focus,
+[data-ss-theme="dark"] .note-editor .note-btn.active {
+    background-color: var(--ss-surface-hover);
+    color: var(--ss-fg);
+}
+[data-ss-theme="dark"] .note-dropdown-menu {
+    background-color: var(--ss-surface);
+    border-color: var(--ss-border);
+    color: var(--ss-fg);
+}
+[data-ss-theme="dark"] .note-dropdown-menu a,
+[data-ss-theme="dark"] .note-dropdown-item {
+    color: var(--ss-fg);
+}
+[data-ss-theme="dark"] .note-dropdown-item:hover {
+    background-color: var(--ss-surface-hover);
+    color: var(--ss-fg);
+}
+
+/* -- the tag / category picker: a form FIELD is chrome, so it follows the theme like the
+      `.form-control` and `.form-select` beside it, which P2.5-WAVE-31 and 32 already themed -- */
+[data-ss-theme="dark"] .select2-container--default .select2-selection--single,
+[data-ss-theme="dark"] .select2-container--default .select2-selection--multiple {
+    background-color: var(--ss-surface);
+    border-color: var(--ss-border);
+    color: var(--ss-fg);
+}
+[data-ss-theme="dark"] .select2-container--default .select2-selection__rendered,
+[data-ss-theme="dark"] .select2-container--default .select2-search__field {
+    color: var(--ss-fg);
+}
+/* The placeholder needs BOTH themes, not just the dark arm. Driving a real single select2 on
+   /order/create measured select2's own `#999` at 2.85:1 on white -- an AA failure in the DEFAULT
+   theme, which the dark arm alone would have left in place. `--ss-fg-muted` is theme-aware:
+   #5b5f66 on white is 6.42:1 and #a7abb2 on the dark field is 6.17:1. Scoped `[data-ss-admin]`,
+   which only `layouts/app.blade.php` emits, because this one is not conditioned on the theme and
+   must not reach the storefront -- though in fact this sheet is never loaded there either. */
+[data-ss-admin] .select2-container--default .select2-selection__placeholder {
+    color: var(--ss-fg-muted);
+}
+[data-ss-theme="dark"] .select2-container--default .select2-selection__choice {
+    background-color: var(--ss-surface-hover);
+    border-color: var(--ss-border);
+    color: var(--ss-fg);
+}
+[data-ss-theme="dark"] .select2-container--default .select2-selection__arrow b {
+    border-top-color: var(--ss-fg-muted);
+}
+/* `color` as well as the surface. With the surface alone, the dropdown's own direct text -- the
+   "Searching..." and "No results found" messages select2 writes into `.select2-results` rather
+   than into an option -- kept the inherited #293240 and measured 1.10:1 on the new dark panel.
+   Driven and measured with the dropdown really open, not inferred from the closed field. */
+[data-ss-theme="dark"] .select2-dropdown {
+    background-color: var(--ss-surface);
+    border-color: var(--ss-border);
+    color: var(--ss-fg);
+}
+[data-ss-theme="dark"] .select2-container--default .select2-results__option {
+    color: var(--ss-fg);
+}
+[data-ss-theme="dark"] .select2-container--default .select2-results__option--highlighted[aria-selected],
+[data-ss-theme="dark"] .select2-container--default .select2-results__option[aria-selected="true"] {
+    background-color: var(--ss-surface-hover);
+    color: var(--ss-fg);
+}
+[data-ss-theme="dark"] .select2-container--default .select2-search--dropdown .select2-search__field {
+    background-color: var(--ss-surface-sunken);
+    border-color: var(--ss-border);
+    color: var(--ss-fg);
+}
+/* -- the category picker is a THIRD select-enhancement library, and the host half-themed it --
+
+   /product/create uses Choices.js, not select2, for Category -- `footerlink.blade.php:60` loads
+   `choices.min.js` and the STYLES come from the host's own style/style-dark pair, which is why no
+   `choices.css` appears among the 24 sheets the page loads. The host's dark arm themes the
+   SURFACES to the page colour and leaves the INK at the light theme's value:
+
+       part                          surface    ink                       ratio
+       .choices__inner               #22242c    #293240                    1.20:1
+       .choices__list--dropdown      #22242c    #293240                    1.20:1
+       .choices__placeholder         #22242c    #808191 at opacity 0.5     2.02:1
+
+   2.02:1 AND NOT 4.03:1, which is what this wave's own measuring tool first reported, because
+   element `opacity` is NOT in `color`'s alpha and dropping it over-reports contrast by exactly
+   that factor. The tool composites it now. The placeholder therefore takes `--ss-fg-muted` AND
+   `opacity: 1`: the token already carries the muted tone, so halving it again would undo it.
+
+   Winning rules read off the page by CDP: `.choices__inner` (0,1,0), `.choices__list--dropdown`
+   (0,1,0), `.choices__placeholder` (0,1,0), `.choices__list--single .choices__item` (0,2,0), none
+   `!important`, all from style-dark.css at sheet index 11 against this file's 15. One class of
+   scope is therefore enough. */
+[data-ss-theme="dark"] .choices__inner,
+[data-ss-theme="dark"] .choices__list--dropdown {
+    background-color: var(--ss-surface);
+    border-color: var(--ss-border);
+    color: var(--ss-fg);
+}
+[data-ss-theme="dark"] .choices__list--single .choices__item,
+[data-ss-theme="dark"] .choices__list--dropdown .choices__item {
+    color: var(--ss-fg);
+}
+/* BOTH THEMES, like the select2 placeholder beside it, and for the same reason found the same way.
+   With the opacity composited, Choices.js's placeholder measures 2.88:1 in LIGHT -- `#293240` at
+   `opacity: 0.5` over white paints `#9498a0` -- so the dark-only arm would have left the DEFAULT
+   theme failing AA. The arithmetic and the browser agree to the hundredth here, which is what
+   validated the tool's new opacity maths: 2.88 predicted, 2.88 measured. After: 6.42:1 light,
+   6.17:1 dark, at `opacity: 1` because `--ss-fg-muted` already carries the muted tone and halving
+   it again would undo it. */
+/* THE SELECTOR CARRIES `.choices__list--single .choices__item` AS WELL, so it outweighs the item
+   rule above at (0,4,0) against (0,3,0). Written the short way first, it LOST in dark mode and won
+   in light -- a placeholder that reads muted in one theme and full strength in the other, measured
+   6.42:1 light against 11.81:1 dark. Both clear AA, which is exactly why a contrast census would
+   have passed it: the defect was that "nothing is chosen yet" stopped looking different from a
+   real choice, and only in one theme. */
+[data-ss-admin] .choices__list--single .choices__item.choices__placeholder,
+[data-ss-admin] .choices__placeholder {
+    color: var(--ss-fg-muted);
+    opacity: 1;
+}
+[data-ss-theme="dark"] .choices__list--dropdown .choices__item--selectable.is-highlighted {
+    background-color: var(--ss-surface-hover);
+    color: var(--ss-fg);
+}
+[data-ss-theme="dark"] .choices__input {
+    background-color: var(--ss-surface);
+    color: var(--ss-fg);
+}
+
+/* ---- THE MODAL IS EXEMPT, AND THE HAZARD WAS FOUND BY AN EXISTING TEST ---------------------
+
+   `DarkPageSurfaceTest::test_every_dark_arm_is_confined_to_the_page_and_cannot_reach_a_modal`
+   reddened the moment this block was first written, and it was RIGHT to: `.modal-content` is
+   deliberately WHITE in dark mode under P2.5-A-01, which repaired the INK on that surface rather
+   than darkening it, and 20 driven checks depend on that. These rules are not `.dash-content`-
+   confined -- they cannot be, because `.select2-dropdown` and `.note-dropdown-menu` are appended
+   to <body> -- so inside a modal they would have darkened a field on a white sheet.
+
+   HOW REAL IS IT? Measured, not argued. 5 admin views carry select2 or summernote inside modal
+   markup: category/create, category/edit, coupon/create, webhook/create and page/create|edit.
+   Driving the real Add Category modal in dark mode, both directions,
+   `check-dark-form-surfaces-live.cjs` reports 20 checks 0 failed WITH this block in place,
+   including "modal select (incl. select2 source element) clears 4.5:1" -- because the modal
+   arrives by AJAX after `$(document).ready` has already run select2's initialiser, so that
+   `<select>` is still a native control and nothing here matches it.
+
+   So the hazard is LATENT, not live. It is exempted anyway: a later change that re-initialises
+   select2 on `shown.bs.modal` would otherwise turn a passing A-01 into a regression nobody was
+   looking for, and the exemption costs four rules. The values are the DS LAYER-1 PRIMITIVES, not
+   the themed tokens, for the same reason custom.css gives for its own modal rules: a primitive
+   keeps its light-surface meaning inside a dark scope where `--ss-surface` would not. */
+[data-ss-theme="dark"] .modal-content .note-editor.note-frame,
+[data-ss-theme="dark"] .modal-content .note-editor .note-editable,
+[data-ss-theme="dark"] .modal-content .note-editor .note-btn,
+[data-ss-theme="dark"] .modal-content .select2-container--default .select2-selection--single,
+[data-ss-theme="dark"] .modal-content .select2-container--default .select2-selection--multiple {
+    background-color: var(--ss-grey-0);
+    border-color: var(--ss-grey-300);
+    color: var(--ss-grey-900);
+}
+[data-ss-theme="dark"] .modal-content .note-editor .note-toolbar {
+    background-color: var(--ss-grey-100);
+    border-color: var(--ss-grey-300);
+    color: var(--ss-grey-900);
+}
+[data-ss-theme="dark"] .modal-content .select2-container--default .select2-selection__rendered {
+    color: var(--ss-grey-900);
+}
+[data-ss-theme="dark"] .modal-content .choices__inner,
+[data-ss-theme="dark"] .modal-content .choices__list--dropdown {
+    background-color: var(--ss-grey-0);
+    border-color: var(--ss-grey-300);
+    color: var(--ss-grey-900);
+}
+[data-ss-theme="dark"] .modal-content .choices__list--single .choices__item,
+[data-ss-theme="dark"] .modal-content .choices__list--dropdown .choices__item {
+    color: var(--ss-grey-900);
+}
+/* end P2.5-WAVE-33 */
