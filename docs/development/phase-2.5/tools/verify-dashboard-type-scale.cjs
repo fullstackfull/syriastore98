@@ -66,7 +66,17 @@ function ck(name, ok, detail) {
     //                shipped files for them. A fixture gap; `database/p2dev.sqlite` is
     //                gitignored and none of it enters the repository.
     // Anything else 404ing on this page reddens the run, which is the point of keeping it.
-    const KNOWN_ABSENT = [/\/themes\/[a-z]+\/theme_img\//, /\/uploads\/1\/p2dev\//];
+    //   /storage/uploads/profile/avatar.png  F-DESIGN-7. The file EXISTS at
+    //                storage/app/public/uploads/profile/avatar.png; `public/storage` is a tracked
+    //                regular file holding another machine's path, so `storage:link` refuses and
+    //                the URL cannot resolve. The remedy is escalated to the owner and the tracked
+    //                file is deliberately left untouched here, so this container shows the defect.
+    //                ONLY this exact path is excluded -- any other /storage/ URL reddens the run.
+    const KNOWN_ABSENT = [
+      /\/themes\/[a-z]+\/theme_img\//,
+      /\/uploads\/1\/p2dev\//,
+      /^\/storage\/uploads\/profile\/avatar\.png$/,
+    ];
     const errs = [];
     const bad404 = [];
     page.on('response', (r) => {
@@ -128,6 +138,22 @@ function ck(name, ok, detail) {
         rankValue: sample('.ss-rank__value'),
         storageHeadingText: storage ? storage.textContent.trim() : null,
         storageHasSmall: storage ? !!storage.querySelector('small') : null,
+        // every grid row's unused width: a row whose columns do not fill it leaves a hole
+        rowGaps: [...root.querySelectorAll('.row')].map((r) => {
+          const rr = r.getBoundingClientRect();
+          if (rr.height < 10) { return null; }
+          const cols = [...r.children].filter((c) => c.getBoundingClientRect().height > 4);
+          if (cols.length < 2) { return null; }
+          const used = cols.reduce((a, c) => a + c.getBoundingClientRect().width, 0);
+          const gap = rr.width - used;
+          if (gap <= 120) { return null; }
+          const titles = cols.map((c) => { const t = c.querySelector('h2,h3'); return t ? t.textContent.trim().slice(0, 18) : '-'; });
+          return Math.round(gap) + 'px in [' + titles.join(' | ') + ']';
+        }).filter(Boolean),
+        // the empty state the two ranked cards fall back to
+        bareEmpty: [...root.querySelectorAll('.tab-pane, .dash-category-tab-content')]
+          .filter((e) => /No Data Found|لا توجد بيانات/.test(e.textContent)).length,
+        ssEmpty: root.querySelectorAll('.ss-empty').length,
       };
     });
 
@@ -156,7 +182,15 @@ function ck(name, ok, detail) {
     ck('storage heading carries no note', o.storageHasSmall === false && !/[()]/.test(o.storageHeadingText || ''),
       JSON.stringify(o.storageHeadingText));
 
-    ck('no unexpected 404s', bad404.length === 0, bad404.join(' | ') || 'none beyond the two known-absent fixtures');
+    // A ROW THAT DOES NOT FILL ITSELF. `admin-cards` held two col-xxl-4 cards in a twelve-column
+    // row, so a third of a 1440px viewport was empty permanently, not conditionally.
+    ck('no grid row leaves a third empty', o.rowGaps.length === 0, o.rowGaps.join(' ; ') || 'none over 120px');
+
+    // The ranked cards' empty state is the design system's, not two bare words.
+    ck('no bare "No Data Found" left', o.bareEmpty === 0, o.bareEmpty + ' bare empty states');
+    ck('the empty state is the component', o.ssEmpty >= 1, o.ssEmpty + ' .ss-empty on the page');
+
+    ck('no unexpected 404s', bad404.length === 0, bad404.join(' | ') || 'none beyond the ' + KNOWN_ABSENT.length + ' known-absent paths named above');
     ck('no console errors', errs.length === 0, errs.join(' | ') || 'none');
 
     await browser.close();

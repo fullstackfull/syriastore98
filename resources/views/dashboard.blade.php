@@ -253,7 +253,7 @@
                 </div>
             </div>
             <div class="row g-4 admin-cards">
-                <div class="col-xxl-4 col-12">
+                <div class="col-xxl-6 col-12">
                     <div class="row g-4">
                         <div class="col-12">
                             <div class="dashboard-card">
@@ -417,7 +417,7 @@
                      best-selling and no other region on the page answers it. --}}
                 @if (\App\Support\MerchantDashboardAbilities::mayManageProducts())
                 {{-- latest product --}}
-                <div class="col-xxl-4 col-12">
+                <div class="col-xxl-6 col-12">
                     <div class="overflow-auto dashboard-card">
                         <div class="d-flex justify-content-between align-items-center gap-3 flex-wrap">
                             <h2 class="ss-card__title">{{ __('Latest Products') }}</h2>

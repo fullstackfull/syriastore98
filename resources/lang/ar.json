@@ -3071,8 +3071,8 @@
     "Toggle navigation": "إظهار أو إخفاء القائمة",
     "Tone": "نغمة",
     "Top Bar": "البار الأعلى",
-    "Top Brand": "العلامة التجارية الراقية",
-    "Top Category": "الفئة العليا",
+    "Top Brand": "أعلى العلامات التجاريّة",
+    "Top Category": "أعلى الفئات",
     "Top Customers": "الزبائن الكبار",
     "Top Payment Method": "طريقة الدفع الأساسية",
     "Top Sales Report": "تقرير مبيعات الأعلى",
@@ -3430,5 +3430,10 @@
     "your-shop-name": "اسم-متجرك",
     "YYYY-MM-DD": "سنة-ميل-ميل",
     "Zipcode": "الرمز البريدي",
-    "© 2025, eCommerce Theme Powered by:workdo.io": "© 2025, موضوع التجارة الإلكترونية Powered by: workdo.io"
+    "© 2025, eCommerce Theme Powered by:workdo.io": "© 2025, موضوع التجارة الإلكترونية Powered by: workdo.io",
+    "No category sales yet": "لا مبيعات حسب الفئة بعد",
+    "Once orders include products that belong to a category, the categories that sell most appear here.": "ما إن تتضمّن الطلبات منتجاتٍ تنتمي إلى فئة، تظهر هنا الفئات الأكثر مبيعًا.",
+    "No brand sales yet": "لا مبيعات حسب العلامة التجاريّة بعد",
+    "Once orders include products that carry a brand, the brands that sell most appear here.": "ما إن تتضمّن الطلبات منتجاتٍ تحمل علامةً تجاريّة، تظهر هنا العلامات الأكثر مبيعًا.",
+    "Top sellers appear here once orders start coming in.": "تظهر هنا الأكثر مبيعًا ما إن تبدأ الطلبات بالورود."
 }

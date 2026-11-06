@@ -159,6 +159,80 @@ class DashboardTypeScaleTest extends TestCase
         );
     }
 
+    public function test_the_ranked_cards_fall_back_to_the_design_systems_empty_state(): void
+    {
+        $partial = $this->withoutBladeComments($this->read(self::RANK_PARTIAL));
+
+        $this->assertStringNotContainsString(
+            "__('No Data Found')",
+            $partial,
+            'Two words centred in a card measured at 490px tall, with no icon and no guidance, '
+            . 'and identical on both cards because the partial could not tell Top Category from '
+            . 'Top Brand.'
+        );
+
+        $this->assertStringContainsString('<x-ss.empty', $partial, 'The empty state must be the shared component.');
+
+        // Each card names its own dimension, which is why the controller passes $type.
+        $this->assertStringContainsString("__('No category sales yet')", $partial);
+        $this->assertStringContainsString("__('No brand sales yet')", $partial);
+
+        // And a third branch, because $type can be neither on a direct POST.
+        $this->assertStringContainsString("__('No sales yet')", $partial);
+
+        $controller = $this->read('app/Http/Controllers/HomeController.php');
+        $this->assertStringContainsString(
+            "compact('tab_name', 'top_sales', 'type')",
+            $controller,
+            'The view cannot name the dimension unless the controller passes it.'
+        );
+    }
+
+    public function test_the_dashboards_card_row_fills_its_width(): void
+    {
+        $view = $this->read(self::DASHBOARD);
+        $lines = explode("\n", $view);
+
+        // The `admin-cards` row holds exactly two columns. At col-xxl-4 each they fill eight of
+        // twelve, so a third of a wide viewport stayed empty permanently -- not conditionally,
+        // because there is no third card and no branch that would add one.
+        $rowAt = null;
+        foreach ($lines as $i => $line) {
+            if (str_contains($line, 'row g-4 admin-cards')) {
+                $rowAt = $i;
+                break;
+            }
+        }
+
+        $this->assertNotNull($rowAt, 'The admin-cards row is gone; this test no longer measures anything.');
+
+        $slice = implode("\n", array_slice($lines, $rowAt, 270));
+        $this->assertSame(
+            2,
+            substr_count($slice, 'col-xxl-6 col-12'),
+            'Both columns of the admin-cards row must be col-xxl-6, or the row leaves a third of '
+            . 'a 1440px viewport empty. Measured before the change: 389px of 1169px unused.'
+        );
+    }
+
+    public function test_the_two_ranked_card_titles_say_best_selling_in_arabic(): void
+    {
+        $ar = json_decode($this->read('resources/lang/ar.json'), true, 512, JSON_THROW_ON_ERROR);
+
+        // "Top" here means BEST-SELLING -- both cards carry "By Sales" beside the title. The
+        // shipped Arabic said something else: "الفئة العليا" is the UPPER category, a rank or a
+        // tier, and "العلامة التجارية الراقية" is the REFINED or upscale brand, a judgement about
+        // taste. A merchant reading Arabic was told the wrong thing on their first screen.
+        $this->assertSame('أعلى الفئات', $ar['Top Category'] ?? null);
+        $this->assertSame('أعلى العلامات التجاريّة', $ar['Top Brand'] ?? null);
+
+        $this->assertStringNotContainsString('الراقية', $ar['Top Brand'] ?? '');
+        $this->assertStringNotContainsString('العليا', $ar['Top Category'] ?? '');
+
+        // The meta beside them still says "by sales", which is what makes the shorter title exact.
+        $this->assertSame('حسب المبيعات', $ar['By Sales'] ?? null);
+    }
+
     public function test_the_block_is_present_and_this_test_is_not_vacuous(): void
     {
         $css = $this->read(self::DS_SHEET);

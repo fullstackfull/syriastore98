@@ -620,3 +620,44 @@ on both kinds of runner.
 **And `main` has zero data on this gate.** The job carries
 `if: github.event_name == 'pull_request'`; all 21 recent `main` runs are `push` events, so it is
 skipped in 0s every time. Nothing about gate health can be read from `main` being green.
+### F-DESIGN-12 — `asset('themes/…')` points outside the document root, so 29 views ask for files the web server cannot reach
+
+Found by the 404 check on `/dashboard` during P2.5-PKG-A-03, then traced. **A sibling of
+F-DESIGN-7: a repository-and-deployment question, not a UI one, which is why it is recorded here
+rather than fixed.** (Numbered 12: 9, 10 and 11 were taken, which a first draft of this entry got
+wrong by reusing 9.)
+
+**Measured:**
+
+```
+dashboard.blade.php:98   ->  asset('themes/' . APP_THEME() . '/theme_img/img_1.png')
+                             i.e. the URL  /themes/stylique/theme_img/img_1.png
+curl that URL            ->  404
+ls public/themes         ->  No such file or directory
+find . -path '*themes/stylique/theme_img*'
+                         ->  ./themes/stylique/theme_img/img_1.png     (REPOSITORY ROOT)
+git ls-files themes/     ->  265 tracked files
+routes/web.php           ->  no route for /themes
+public/.htaccess         ->  no rewrite for /themes
+.github/workflows/*.yml  ->  no step that copies or links themes into public/
+```
+
+`asset()` builds a URL relative to the application URL, which a standard Laravel deployment serves
+from `public/`. The files are one directory above it and nothing bridges the gap.
+
+**Extent:** 27 first-party views and 2 vendored ones reference `asset('themes/…')`. They are not
+all admin screens — `front_end/layouts/app.blade.php` is the STOREFRONT's layout, so the same
+mechanism carries shopper-facing theme assets.
+
+**What CANNOT be checked from here, and why it decides the answer.** Some hosts serve the
+repository root rather than `public/`, in which case `/themes/…` resolves today and this is a
+non-issue in production. Others symlink `public/themes`. Whether the production host does either
+is not observable from this container, and the remedy differs: a symlink created at deploy, a
+build step that copies, or changing 29 call sites to a helper that resolves correctly. Under the
+owner's escalation rules the choice is theirs.
+
+**What is certain either way:** on a fresh checkout served the standard way — which is how this
+container runs, and how CI would run it — those URLs 404. The dashboard's theme card renders a
+broken image in that state, which is how this was found.
+
+

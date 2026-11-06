@@ -1486,7 +1486,11 @@ class HomeController extends Controller
         ));
 
         $html = '';
-        $html = view('order.brand_category_chart', compact('tab_name', 'top_sales'))->render();
+        /* `$type` goes to the view so its EMPTY STATE can name what is missing. The partial is
+           shared by the Top Category and Top Brand cards and had no way to tell them apart, so
+           both rendered the same bare "No Data Found" -- display-only; nothing is computed from
+           it and the populated path is untouched. */
+        $html = view('order.brand_category_chart', compact('tab_name', 'top_sales', 'type'))->render();
 
         $return['html'] = $html;
         $return['tab_name'] = $tab_name;
