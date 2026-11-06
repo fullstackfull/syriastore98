@@ -294,13 +294,27 @@ class ToastErrorPersistenceContractTest extends TestCase
     }
 
     /**
-     * NEGATIVE CONTROL. ZERO stylesheets change. A `.ss-toast` component is the over-reach here:
-     * it would need `public/css/custom.css` AND `public/css/rtl-custom.css` plus a dark variant,
-     * and it is a separate sequencing item in
-     * `docs/design-system/ADMIN-LAYOUT-ARCHITECTURE.md`. Note what is deliberately NOT fixed:
-     * `.notifier-container` is hardcoded `right:4px` with no RTL mirror, so a persistent error
-     * sits top-right in Arabic too. Pre-existing, and mirroring it here is exactly the
+     * NEGATIVE CONTROL. A `.ss-toast` component is the over-reach here: it would need
+     * `public/css/custom.css` AND `public/css/rtl-custom.css` plus a dark variant, and it is a
+     * separate sequencing item in `docs/design-system/ADMIN-LAYOUT-ARCHITECTURE.md`. Note what is
+     * deliberately NOT fixed: `.notifier-container` is hardcoded `right:4px` with no RTL mirror,
+     * so a persistent error sits top-right in Arabic too (RE-MEASURED 2026-11-06: left=1040 in a
+     * 1440 viewport, Arabic, both themes). Pre-existing, and mirroring it here is exactly the
      * two-stylesheet trap this project keeps falling into.
+     *
+     * NARROWED BY P2.5-WAVE-30, which is that separate sequencing item, and the narrowing answers
+     * this assertion's own reason rather than working around it. The reason given was that a
+     * restyle "would need the custom.css / rtl-custom.css pair plus a dark variant, which is how
+     * half the merchants get missed". Wave 30 needs neither: it is written in
+     * `store-syria-ds.css`, which is ONE sheet served to both directions -- there is no pair to
+     * get half-applied -- and it sets colours from the theme tokens, so the dark variant is not a
+     * second block that can be forgotten but the same declaration resolving differently.
+     *
+     * THE MIRRORED PAIR IS STILL REFUSED, and is now the more important half of this test: it is
+     * exactly the route Wave 30 declined to take. The design system's own sheet is exempted for
+     * `notifier` only, and `.ss-toast` is still refused in all three. What Wave 30 does there is
+     * pinned by ToastContrastTest, including the host plugin's SHA-256 and the structural gate
+     * that keeps the repair off checkout and the public website.
      */
     public function test_no_stylesheet_is_touched_and_no_new_toast_component_appears(): void
     {
@@ -316,10 +330,13 @@ class ToastErrorPersistenceContractTest extends TestCase
                ModalFooterDividerAlignmentTest and FocusIndicatorRestorationTest. */
             $sheet = (string) preg_replace('#/\*.*?\*/#s', '', $this->read($css));
 
-            $this->assertSame(0, preg_match_all('~notifier~i', $sheet),
-                $css . ' now styles the notifier. This slice changes no CSS: a toast restyle is a '
-                . 'separate sequencing item and would need the custom.css / rtl-custom.css pair '
-                . 'plus a dark variant, which is how half the merchants get missed');
+            if ($css !== 'public/css/store-syria-ds.css') {
+                $this->assertSame(0, preg_match_all('~notifier~i', $sheet),
+                    $css . ' now styles the notifier. A toast restyle written in the mirrored pair '
+                    . 'is how half the merchants get missed: the Arabic layout loads '
+                    . 'rtl-custom.css INSTEAD of custom.css. P2.5-WAVE-30 restyled the toast in '
+                    . 'store-syria-ds.css precisely to avoid this, and ToastContrastTest pins it.');
+            }
             $this->assertSame(0, preg_match_all('~ss-toast~i', $sheet),
                 $css . ' introduces an .ss-toast component — that is the over-reach, not this slice');
         }

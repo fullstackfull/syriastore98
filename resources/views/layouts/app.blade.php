@@ -384,7 +384,22 @@
      DataTables control-bar disclosure, and `.dataTable-top` does not exist in any view, so
      the label cannot be written where the button is. Read with an English fallback, so a
      layout that forgets it degrades to a named button rather than an unnamed one. --}}
-<body class="{{ $themeColor ?? 'theme-3'}}" data-ss-label-table-options="{{ __('Table options') }}">
+{{-- `data-ss-admin` MARKS THE MERCHANT SHELL, and it exists so the design system can reach a
+     host element that is appended to <body> outside every `.ss-` container -- today the notifier
+     toast, which the plugin creates with `document.body.appendChild`.
+
+     IT IS NOT DECORATION AND IT IS NOT A SPARE HOOK. DesignSystemStylesheetScopeTest requires
+     every selector in store-syria-ds.css to be confined by an `.ss-` class or a `data-ss-`
+     attribute, and `data-ss-theme` cannot serve: MEASURED, it is set only in dark mode and reads
+     `null` in light, so a rule hung on it would fix half the themes. The other always-present
+     attribute on this element is `data-ss-label-table-options`, a TRANSLATED LABEL -- hanging a
+     stylesheet's scope on a label string couples the toast's legibility to a translation key that
+     a later author could rename without ever seeing what broke.
+
+     Only this layout carries it. `layouts/guest.blade.php`, `theme_layout.blade.php`, the
+     storefront and the vendored LandingPage do not, which is what keeps `store-syria-ds.css` off
+     checkout and the public website. Pinned by ToastContrastTest. --}}
+<body class="{{ $themeColor ?? 'theme-3'}}" data-ss-admin data-ss-label-table-options="{{ __('Table options') }}">
     {{-- P2-01-11: restore the collapsed rail BEFORE the sidebar paints.
 
          This is inline and first-in-body rather than in store-syria-nav.js for

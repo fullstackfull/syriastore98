@@ -3570,6 +3570,81 @@ a.ss-setup__item:focus-visible {
     .ss-command { inset-block-start: var(--ss-space-4); }
 }
 
+/* ---- P2.5-WAVE-30: the toast a merchant cannot read ------------------------------------------
+   THE FEEDBACK SURFACE OF THE WHOLE ADMIN, measured with full alpha compositing on `/pages` in
+   both themes. Every figure below is the composited ratio against the panel the text actually
+   sits on, not against a parent's declared colour -- the distinction that once turned a real
+   16.15:1 into a reported 1.24:1 in this phase.
+
+                        light            dark
+       panel            #ffffff          #ffffff   <- the plugin's `.notifier{background:#fff}`
+                                                      has no dark counterpart, so it does not move
+       title "Error"    21.00:1  AA      1.00:1  <- WHITE ON WHITE. Invisible.
+       body text        2.85:1   FAIL    2.85:1  FAIL   (`.notifier-container{color:#999}`)
+       close "x"        2.32:1   FAIL    2.32:1  FAIL   (`#aaa`, and `opacity:.5` on top of that)
+
+   So the merchant cannot read WHY A SAVE FAILED: in dark mode the word "Error" is not there at
+   all, and the sentence under it fails AA in both themes. SC 1.4.3 wants 4.5:1 for body text.
+
+   THE PLUGIN CANNOT BE EDITED. `public/assets/js/plugins/notifier.js` is pinned by SHA-256 in
+   ToastErrorPersistenceContractTest, whose whole subtlety is that `public/js/custom.js` is also
+   loaded by checkout, the payment hand-off pages and the vendored LandingPage -- surfaces Phase
+   2.5 does not authorise. This repair inherits that gate STRUCTURALLY rather than by a condition:
+   MEASURED, of the six layouts that load `notifier.css`, `layouts/app.blade.php` is the ONLY one
+   that also loads this stylesheet. The storefront's `jQueryRoute`, `theme_layout`, LandingPage,
+   Helpdesk and ReviewReminder load the plugin without it and are untouched by anything below.
+
+   `[data-ss-admin]` is the confinement the scope test requires. See the note at the top of
+   `<body>` in layouts/app.blade.php for why neither `data-ss-theme` nor the table-options label
+   could serve. Ratchet: ToastContrastTest. */
+[data-ss-admin] .notifier {
+    background: var(--ss-surface);
+    /* THE EDGE IS A SHADOW RING, NOT A BORDER, and that is the second attempt. The plugin's only
+       boundary is `box-shadow: rgba(0,0,0,.1)` -- a shadow of BLACK on a page that is already
+       near-black, so on the dark theme the panel has no edge at all and the text floats on the
+       page.
+
+       Adding `border: 1px` plus `border-left: 4px` was the obvious repair and it is wrong twice.
+       `border-left` is physical and the design system's own guard refuses it (it paints the wrong
+       side of the Arabic build). And the logical form is worse here, not better: the plugin draws
+       the TYPE BAR as physical `border-left: 4px` with `.notifier.danger{border-left-color}`, so
+       in RTL `border-inline-end` resolves to that same left edge and would overwrite a 4px status
+       colour with a 1px grey -- a regression invented by the fix.
+
+       `box-shadow` paints OUTSIDE the border box, so it rings all four sides without touching a
+       single border property, leaves the type bar exactly as the plugin drew it, and needs no
+       direction handling at all. The second layer is the elevation the original shadow was for,
+       at an opacity that survives the dark page. */
+    box-shadow: 0 0 0 1px var(--ss-border), 0 2px 12px rgb(0 0 0 / 0.18);
+}
+
+[data-ss-admin] .notifier-title {
+    color: var(--ss-fg);
+}
+
+/* The body colour is inherited from `.notifier-container{color:#999}`, so it is set on the
+   container as well as the body: a toast rendered without a `.notifier-body` wrapper would
+   otherwise keep #999. `--ss-fg-muted` is the token P2.5-DESIGN-F re-solved for AA in both
+   themes, so this inherits that work instead of inventing a second grey. */
+[data-ss-admin] .notifier-container,
+[data-ss-admin] .notifier-body {
+    color: var(--ss-fg-muted);
+}
+
+/* The dismiss control. `opacity: .5` is removed rather than compensated for: it halves the
+   contrast of whatever colour is chosen, so tuning the colour around it would mean picking a
+   darker grey than the design system has, to arrive at the same place. */
+[data-ss-admin] .notifier-close {
+    color: var(--ss-fg-muted);
+    opacity: 1;
+}
+
+[data-ss-admin] .notifier-close:focus,
+[data-ss-admin] .notifier-close:hover {
+    color: var(--ss-fg);
+    background: var(--ss-surface-hover);
+}
+
 /* ---- P2.5-WAVE-29: and the summary tables that only need to FIT -----------------------------
    NOT EVERY OVERFLOWING TABLE WANTS STACKING, and measuring said which. The dashboard's own
    summary cards -- "recent orders" and "top products", rendered on four routes through a shared
