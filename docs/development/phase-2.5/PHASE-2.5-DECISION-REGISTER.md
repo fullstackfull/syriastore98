@@ -1438,3 +1438,99 @@ own colour. Narrowness is the whole difference.
 figures above are identical before and after.
 
 After: the Package B page sweep reports **252 checks, 0 failed**.
+
+---
+
+### F-SEC-01 — a merchant could read, rename, TAKE and delete another merchant's brands and labels
+
+**Status:** FIXED and proved, both controllers. **This is a tenancy finding, not a design one**, and
+it is recorded here because it was found during the Package B catalogue pass.
+
+#### What was reachable
+
+Measured with a failing test first (`tests/Feature/Security/BrandCrossTenantReadWriteTest.php`),
+not inferred from reading. Before the fix: **4 failed, 1 passed** — the one that passed was the
+positive control, so the fixture was sound.
+
+| request by a merchant in store A | result |
+|---|---|
+| `GET /product-brand/{B}/edit` | **200, carrying store B's brand name** |
+| `PUT /product-brand/{B}` | **renamed store B's brand** |
+| the same `PUT` | **moved the brand into store A** |
+| `DELETE /product-brand/{B}` | **deleted store B's brand** |
+
+`ProductLabelController` has the identical shape, confirmed the same way, including
+`edit()` with **no permission check at all** — any authenticated web principal, with zero label
+permissions, could read another store's label.
+
+#### Two things made it reachable rather than theoretical
+
+**Route model binding is not tenant scoped.** `ProductBrand` and `ProductLabel` register no global
+scope and neither is in `config/tenancy.php`'s `scoped_models`, so a bound instance — or a
+`find($id)` — is any row in the table. This is the trap CLAUDE.md already records for `Product`.
+
+**And `update()` ASSIGNED the owner rather than checking it:**
+
+```php
+$productBrand->store_id = getCurrentStore();   // and the identical line in ProductLabelController
+```
+
+That is the difference between an unauthorised edit and a **takeover**: a foreign row reaching that
+line changed hands.
+
+#### I understated the severity, and the review corrected me
+
+I wrote that the attacker held "ordinary catalogue permissions". The authorization review traced the
+seeder: `Utility::addNewData()` grants `Edit Product Brand` and `Delete Product Brand` to the role
+named `admin` that **self-registered merchants are given** (`app/Models/Utility.php:3184-3185`,
+granted at `:3233-3234`). So this was live for **every merchant by default**, not only one with a
+configured role.
+
+#### Why the existing coverage never saw it
+
+`BrandLabelStatusAuthorizationTest` has fifteen tests and every one drives `changeStatus` or
+`changePopular` — the two methods that **were** hardened, via a real `resolveOwnedBrand()` check.
+Nothing in the suite reached the editor. That helper's own docblock even says
+`Edit Product Brand` "is the permission `edit()` and `update()` on this same row already use", so
+the gap was in view and left: a census keyed on the surface somebody was looking at rather than on
+the model, which is the same shape its own comment warns about for the API sibling.
+
+#### The fix
+
+One pattern, both controllers: a `callerOwns…()` helper comparing `store_id` against
+`getCurrentStore($user->id)` and failing closed when either side is empty; `abort(404)` for a
+foreign or absent row so the two are indistinguishable; the permission check added to `edit()` and
+`create()` so a form refuses exactly when its submit would; and **the `store_id` assignment deleted
+rather than guarded**, because leaving it means any future weakening of the guard re-opens a
+transfer instead of an edit.
+
+**No operator limb, deliberately.** The review verified this rather than taking my word: the
+`super admin` role is granted none of these permissions (`Utility.php:3240-3270`,
+`PermissionTableSeeder.php:55-66`), `User` does not override `isAbleTo`, so all these methods
+already refused the operator — the change removes nothing. Owner decision F206 says the operator may
+read merchant catalogues but not edit them, and an operator limb here would widen what F206 narrows.
+
+#### Recorded, not fixed
+
+- **`show()` on both controllers is an existence oracle.** Its body is a bare `//`, so it leaks no
+  content — but `SubstituteBindings` resolves the row first, so it answers 200 for any id that
+  exists in any store and 404 for one that does not, with no permission check. That partly
+  undermines the property `edit()`'s 404 was chosen for. One-line close if wanted:
+  `->except(['show'])` on the resource route; nothing references `product-brand.show`.
+- **The toggles are now the inconsistent half.** `resolveOwnedBrand()` grants the operator a pass,
+  so the operator may still flip `status`/`is_popular` on any store's brand — and `status` is what
+  the storefront filters on. If F206 is meant to reach brands, that argues for narrowing the
+  toggles, not widening the editor. **An owner decision, not mine.**
+- `product_brand/action.blade.php` renders its pencil and delete controls with no `@permission`
+  wrapper, so adding the permission check to `edit()` makes the pencil a dead control for a
+  `Manage`-only staff member. UI follow-up, not security.
+- The vendored `ImportExport` module's `exportBrand()`/`fileImport()` have no permission check,
+  though both are tenant-scoped. Vendored — not ours to edit.
+
+#### And a ninth instrument error, caught by its own positive control
+
+The first ProductLabel fixture invented a `color` column. `product_labels` has none, so all four
+label tests died inside the fixture before reaching a route — and three of them "failed" in a way
+that looked **exactly** like the cross-tenant hole they were written to prove. The positive control
+failing alongside them is what gave it away. A test that fails for the wrong reason proves nothing,
+and three of those failures would have been reported as evidence.

@@ -51,13 +51,27 @@ const COMBOS = [
   { lang: 'ar', dir: 'rtl', theme: 'dark' },
 ];
 
-/** list page -> the trigger that opens the modal. Create triggers first; edit triggers are row actions. */
+/**
+ * list page -> the modal, identified by THE PATH ITS TRIGGER FETCHES rather than by a bare
+ * `a[data-ajax-popup="true"]`.
+ *
+ * THE FIRST VERSION USED THE BARE SELECTOR AND NEVER OPENED A SINGLE MODAL. It matched FOUR
+ * elements on /category, and the first was a hidden "Create Tax" item inside the header's Quick
+ * Add dropdown -- `class="dropdown-item text-wrap" data-url=".../taxes/create"`. Playwright waited
+ * for it to become visible, timed out, and the click never happened. All twenty rows then reported
+ * PREMISE FAILED, which reads like twenty broken modals and was twenty broken clicks. The premise
+ * check is the only reason that was visible rather than filed as a finding.
+ *
+ * Matching on `data-url` ties the trigger to the surface the row claims to measure, and the
+ * visibility filter at the call site keeps a hidden duplicate in a collapsed menu from winning
+ * over the control a merchant actually uses.
+ */
 const MODALS = [
-  ['category-create', '/category', 'a[data-ajax-popup="true"]'],
-  ['brand-create', '/product-brand', 'a[data-ajax-popup="true"]'],
-  ['attribute-create', '/product-attributes', 'a[data-ajax-popup="true"]'],
-  ['label-create', '/product-label', 'a[data-ajax-popup="true"]'],
-  ['coupon-create', '/coupon', 'a[data-ajax-popup="true"]'],
+  ['category-create', '/category', '/category/create'],
+  ['brand-create', '/product-brand', '/product-brand/create'],
+  ['attribute-create', '/product-attributes', '/product-attributes/create'],
+  ['label-create', '/product-label', '/product-label/create'],
+  ['coupon-create', '/coupon', '/coupon/create'],
 ];
 
 let checks = 0, fails = 0;
@@ -167,7 +181,7 @@ const MEASURE = () => {
       { cwd: path.dirname(STATE_TOOL), encoding: 'utf8', env: DEV_ENV });
     if (!/\S/.test(stateOut)) throw new Error('state tool printed nothing -- it did not run');
 
-    for (const [name, listRoute, trigger] of MODALS) {
+    for (const [name, listRoute, fetchPath] of MODALS) {
       await page.goto(BASE + '/dashboard', { waitUntil: 'domcontentloaded' });
       const resp = await page.goto(BASE + listRoute, { waitUntil: 'load' }).catch(() => null);
       if (!resp || new URL(page.url()).pathname !== listRoute) {
@@ -175,10 +189,24 @@ const MEASURE = () => {
       }
       await page.waitForTimeout(SETTLE);
 
-      const t = await page.$(trigger);
-      if (!t) { note(`${tag} ${name}: no trigger matching ${trigger}`); continue; }
-      await t.click().catch(() => {});
-      await page.waitForTimeout(1500);
+      // THE VISIBLE trigger whose data-url fetches this surface. A hidden duplicate in the
+      // header's Quick Add dropdown is not the control a merchant uses, and clicking it is what
+      // the first version of this harness spent twenty rows failing to do.
+      const candidates = await page.$$('a[data-ajax-popup="true"][data-url*="' + fetchPath + '"]');
+      let t = null;
+      for (const c of candidates) {
+        if (await c.isVisible().catch(() => false)) { t = c; break; }
+      }
+      if (!t) {
+        note(`${tag} ${name}: no VISIBLE trigger fetching ${fetchPath} `
+           + `(${candidates.length} matched, all hidden or none)`);
+        continue;
+      }
+      await t.click().catch((e) => note(`${tag} ${name}: click threw ${e.message.slice(0, 60)}`));
+      // the fragment arrives by ajax, so wait for the dialog rather than a fixed delay.
+      // The host injects into `#commanModel` -- its spelling, not a typo here.
+      await page.waitForSelector('#commanModel.show, .modal.show', { timeout: 8000 }).catch(() => {});
+      await page.waitForTimeout(600);
 
       const m = await page.evaluate(MEASURE);
 
