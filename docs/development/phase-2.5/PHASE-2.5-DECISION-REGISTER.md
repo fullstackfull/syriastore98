@@ -2089,3 +2089,65 @@ The controller census filters to **single-record method names** (`show`, `edit`,
 the productive signature instead: `->where('<x>_id', $request->…)` or `::find($request->…)` with no
 sibling `store_id` term, plus `<option value=` concatenation in a controller — which matches exactly
 one handler in `app/Http/Controllers/` and two under `packages/workdo/`.
+
+---
+
+### F-SEC-04 (QUEUED, NOT YET DRIVEN) — seven more controllers of the F-SEC-02 shape, independently confirmed
+
+**Status:** CONFIRMED BY ANALYSIS, **not yet driven by a request**, therefore **not yet a finding**
+by this project's own rule. Recorded so the next slice starts from evidence rather than from the
+census's raw output.
+
+The 33 unguarded writes F-SEC-02 left in the census were each a *shape*. Ten controllers were read
+independently — one agent per controller, read-only, briefed on this codebase's counter-intuitive
+facts — and every hole claimed was then put to **two adversarial verifiers with distinct lenses**:
+one hunting for the guard the report missed, one hunting for a reason the row is unreachable
+regardless of any guard.
+
+**8 of 10 survived 2/2. One of those eight was `TestimonialController`, fixed in F-SEC-03.** Seven
+remain:
+
+| controller | shape |
+|---|---|
+| `BlogController` | `update`/`destroy` permission-checked, owner never; **`edit()` has no permission check at all** |
+| `BlogCategoryController` | same, cascading to `Blog` |
+| `ContactController` | bound `Contact`, no owner check |
+| `FaqController` | `edit`/`create` ungated; `update`/`destroy` owner-less |
+| `NewsletterController` | `destroy` owner-less |
+| `ProductQuestionController` | reply modal has no permission check **and** no tenant predicate |
+| `TagController` | `edit`/`update` use `Tag::find($id)` with no store predicate |
+
+They share one remedy — the `callerOwnsX()` + `abort(404)` pattern already accepted on F-SEC-01/02/03
+— which makes them **one coherent slice rather than seven waves**, as §1 asks.
+
+**`BlogController` is the sharpest, and it shows my census UNDER-reported:** `edit()` has no
+permission check whatsoever, so any authenticated web user — staff holding zero permissions — reads
+any tenant's full blog post by id. The census never listed `edit()` at all, because it only reports
+a *read* when the method also lacks an owner marker **and** it had classified that method as
+guarded. `Edit Blog` and `Delete Blog` are both granted to the shared global `admin` role on every
+login, so the write holes were live for every self-registered merchant.
+
+#### The two that were refuted, and why the second matters
+
+- **`PlanCouponController` — correctly restricted.** `plan_coupons` has **no `store_id` column at
+  all** (verified independently in my own triage), so there is no cross-tenant question; all seven
+  routes carry `PlatformOperatorOnly`, which admits only `'super admin'` and `abort(403)`s everyone
+  else.
+- **`WoocomCouponController` — a FALSE POSITIVE my census could not have seen.** Its
+  `Coupon::find($id)` is `Codexshaper\WooCommerce\Facades\Coupon` — a **remote HTTP call to the
+  merchant's own WooCommerce shop**, not an Eloquent read of a local row. The local writes are two
+  INSERTs, so the `store_id` assignments stamp new rows rather than moving existing ones.
+
+**That is a real limitation of the census, now known:** `resolvedModels()` matches
+`ClassName::find(` **lexically** and never resolves the name through the file's `use` statements,
+so any imported facade or third-party class sharing a model's name reads as that model. It is why
+the takeover column fired on a row that creates records remotely. Worth fixing before the census is
+pointed at `packages/workdo/`, where imported facades are common.
+
+#### What is NOT claimed here
+
+Nothing in this entry has been driven by a request. Static analysis plus two refuters is a strong
+reason to **look**, and this project has measured repeatedly that it is not a substitute for
+looking: the census was wrong four times before it was believed, and three of the F-SEC-03 "failures"
+were a fixture inventing a column. Each of the seven gets a failing test, a positive control, and a
+mutation check before it is called fixed.
