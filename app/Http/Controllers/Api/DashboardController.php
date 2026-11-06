@@ -8443,14 +8443,46 @@ public function getCustomerOrdersApi(Request $request)
 
         $aov = $ordersCount > 0 ? ($totalSpend / $ordersCount) : 0;
 
-        $ordersQuery = \App\Models\Order::where('customer_id', $id);
-        if ($ordersQuery->count() == 0) {
+        /*
+         * P2.5-PKG-C (F-C-08). `->where('store_id', $storeId)` ON BOTH BRANCHES, which the count
+         * and the sum TEN LINES ABOVE already had and this list did not.
+         *
+         * That asymmetry is what makes it an omission rather than a decision: `$ordersCount` at
+         * :8436 and `$totalSpend` at :8440 are both scoped, and this query -- the one whose rows
+         * are expanded in full by `Order::order_detail()` below and returned -- was not. So the
+         * figures were this store's and the ORDERS were every store's.
+         *
+         * MEASURED before this change (CustomerOrderAggregateTenancyTest): merchant A, their own
+         * customer, one $100 guest order in A and one $900 guest order in B billed to the same
+         * email -- the response listed BOTH, with full order detail for each.
+         *
+         * `resolveOwnedStore($storeId)` above guards the store_id PARAMETER, not these rows: the
+         * merchant legitimately owns the store they named and the customer really is theirs, so
+         * that check passes and cannot help here. `Order` is absent from `scoped_models`, so
+         * `StoreScope` adds no predicate either. `$storeId` is already authorised at this point.
+         *
+         * THIS IS THE API TWIN of `Customer::ownStoreOrders()`, and it is the one with a shipped
+         * client: the route is `/api/admin/customer/orders`, inside `Route::prefix('admin')`,
+         * which is the Flutter admin app's base URL. The response SHAPE is unchanged and no new
+         * status code is introduced -- the orders array simply no longer carries another store's
+         * rows, so the app sees fewer entries and never a new error.
+         *
+         * NOT CHANGED, and recorded instead: `$ordersCount` uses only the direct branch while
+         * this list has the email fallback, so for a guest-only customer the response still says
+         * "0 orders" and "$0 total spend" while listing their orders. That incoherence is real and
+         * pre-existing, but reconciling it is a decision about what the figure MEANS.
+         */
+        $ordersQuery = \App\Models\Order::where('store_id', $storeId)->where('customer_id', $id);
+
+        if ($ordersQuery->clone()->count() == 0) {
             $orders_detail = \App\Models\OrderBillingDetail::where('email', $customer->email)->get()->toArray();
             $order_id = [];
             foreach ($orders_detail as $orders) {
                 $order_id[] = $orders['order_id'];
             }
-            $ordersQuery = \App\Models\Order::whereIn('id', $order_id)->where('customer_id', 0);
+            $ordersQuery = \App\Models\Order::where('store_id', $storeId)
+                ->whereIn('id', $order_id)
+                ->where('customer_id', 0);
         }
 
         $perPage = $request->query('per_page', 15);

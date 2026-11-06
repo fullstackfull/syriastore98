@@ -69,6 +69,8 @@ the row is the point: it was wrong for the same reason as the four corrections a
 | F-C-04 | `GET /customer/{customer}/edit` → 500 | **FIXED** |
 | F-C-05 | four dead `catch (DecryptException)` blocks | **FIXED** |
 | F-C-06 | `CustomFilterData()` had no permission check at all | **FIXED** — found by the review, not the census |
+| F-C-07 | a customer's order count and **total spend** included other stores' orders | **FIXED** |
+| F-C-08 | the same defect on `/api/admin/customer/orders`, which the **Flutter app calls** | **FIXED** — found by the review of F-C-07 |
 
 ### F-C-01 — WITHDRAWN. The printable receipt prints itself and returns, by design
 
@@ -394,3 +396,105 @@ executables (`tests/Support/Security/bin/verify-dev-fixture-write-guard.sh`) whi
 fixture is byte-for-byte unchanged by every refusal **and** carry a positive control, because a
 guard that refused everything would pass every refusal case while leaving the tools dead rather
 than safe. Mutation-checked: removing the guard from one tool reddens the script.
+
+
+---
+
+## 6. F-C-07 and F-C-08 — a cross-tenant MONEY disclosure, found while starting the design pass
+
+**Not found by hunting.** The premium pass's hygiene run flagged `/customer-grid` at 2.09:1 in
+dark. Chasing that into the markup found the customer's name wrapped in a `badge bg-primary`, and
+reading the card's data source found this.
+
+### F-C-07 — `Customer::Ordercount()` and `Customer::total_spend()`
+
+Five near-identical lines each, and **neither carried a store predicate in any of its three
+queries**. `Order` is absent from `scoped_models`; `order_billing_details` has **no `store_id`
+column at all** and its model registers no scope, so the only route to a tenant is
+`order_id → orders.store_id`.
+
+**Measured.** Store A customer, a $100 guest order in A and a $900 guest order in B, both billed
+to the same email:
+
+| | before | correct |
+|---|---:|---:|
+| `Ordercount()` | **2** | 1 |
+| `total_spend()` | **1000.0** | 100.0 |
+
+So store A's merchant was shown **store B's $900 of revenue** attributed to their own customer. The
+direct branch leaked identically, since `orders.customer_id` has no composite key with `store_id`.
+It also feeds **AOV** (`total_spend() / Ordercount()`), computed in four places, so both inputs
+were wrong.
+
+**The guest branch is the live one**, not an edge case: it runs whenever no order carries the
+customer's own id — the ordinary state for someone who checked out as a guest — and it matched
+billing records **by email across every store**. One person shopping at two stores with one email
+address is the normal case.
+
+**One shared helper, because the duplication was the defect:** the same five lines twice, both
+missing the same predicate, so fixing one would have left the other leaking.
+
+**The review confirmed the authority is right, and that matters:** scoping to the customer's own
+`store_id` rather than `getCurrentStore()` is the *only* correct choice, because
+`getCurrentStore()` returns the literal `1` for a super admin with an empty `current_store` — so a
+`getCurrentStore()` predicate would have shown a store-7 customer "0 orders, $0", a **fabrication**
+rather than a refusal.
+
+### F-C-08 — the same defect on an API the shipped Flutter app calls
+
+Raised by the review of F-C-07, and the more serious of the two: every row this endpoint returns
+is expanded in full by `Order::order_detail()`, so it leaks **whole orders**, not a number. The
+route is `/api/admin/customer/orders`, inside `Route::prefix('admin')` — the Flutter admin app's
+base URL.
+
+**The endpoint contradicted itself, which is what makes it an omission rather than a decision:**
+the count and the sum **ten lines above** the list both carried `->where('store_id', $storeId)`;
+the list did not. `resolveOwnedStore()` guards the store_id *parameter*, not the rows, so it cannot
+help — the merchant legitimately owns the store they named and the customer really is theirs. The
+pre-existing `ApiStoreOwnershipPredicateTest` drives only the foreign-merchant 403 and was green
+against this hole.
+
+Response **shape unchanged, no new status code** — the orders array simply no longer carries
+another store's rows, so the app sees fewer entries and never a new error. Contract suite 27
+passed; `ApiStoreOwnershipPredicateTest` 20 passed.
+
+### The mutation check found two untested branches, both mine
+
+This is the part worth keeping. Twice, tests that looked complete were not:
+
+1. Replacing the storeless fail-closed limb with `Order::query()` left **all four** other tests
+   green — and that mutant returns *every* store's orders for a customer with no store, the
+   original defect inverted and total.
+2. Unscoping the **API's direct branch** left the API test green, because that test's orders all
+   carry `customer_id = 0` and so only ever exercise the email fallback. Driving one branch of an
+   if/else is not driving the method.
+
+Both gaps now have their own test, and both mutants redden.
+
+### One of my own assertions was wrong as a specification
+
+My first API test asserted that `data.customer.orders` and `data.pagination.total` must agree.
+Driven, it reported **0 against 2**: the scoped count uses only the direct branch while the list
+has the email fallback, so they measure different things by construction and can legitimately
+differ. Replaced with the tenancy property, which is unambiguous.
+
+**Recorded, not fixed:** that incoherence is real and pre-existing — for a guest-only customer the
+endpoint reports "0 orders" and "$0 total spend" *while listing their orders*. Reconciling it is a
+decision about what the figure means.
+
+**Also surfaced by the review, not fixed** (same defect family, different surfaces):
+
+- `ActivityLog::totalspend()` — the same money figure on the customer timeline. **Already declared
+  OPEN** in `ResidualTenancyExposureTest:588-605` with an exact-path assertion, so a fix must move
+  that ratchet in the same commit.
+- `CustomerController:411,415` — the activity feed itself is cross-store, and `ActivityLog` *has* a
+  `store_id` column. Its `remark` JSON carries `order_id`, `price` and `payment_type`, so it leaks
+  foreign order prices. **Not in any ratchet.**
+- `AccountProfileController:48,700,795` — storefront, the shopper's own orders unscoped by store.
+  Hardening: their own data, rendered under the wrong storefront.
+
+**And a pre-existing behaviour worth knowing:** the direct/guest branch is **exclusive, not a
+union**. A customer with both a direct order and guest orders in the same store has the guest ones
+excluded from both figures — so the first time a long-standing guest shopper places an identified
+order, their displayed Total Spend *drops*. Unchanged by this work, and a second independent reason
+a figure can look wrong to a merchant.
