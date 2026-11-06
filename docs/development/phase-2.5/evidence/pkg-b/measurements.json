@@ -149,12 +149,12 @@
     "route": "/product/create",
     "title": "Product",
     "worst": {
-      "value": 3.83,
+      "value": 5.05,
       "floor": 4.5,
-      "px": 14,
+      "px": 12,
       "weight": "400",
-      "text": "*",
-      "tag": "span.text-danger"
+      "text": "Switch store",
+      "tag": "span.ss-workspace__meta"
     },
     "first": {
       "kind": "card",
@@ -173,12 +173,12 @@
     "route": "/product/1/edit",
     "title": "Product",
     "worst": {
-      "value": 3.83,
+      "value": 5.05,
       "floor": 4.5,
-      "px": 14,
+      "px": 12,
       "weight": "400",
-      "text": "*",
-      "tag": "span.text-danger"
+      "text": "Switch store",
+      "tag": "span.ss-workspace__meta"
     },
     "first": {
       "kind": "card",
@@ -365,12 +365,12 @@
     "route": "/product/create",
     "title": "Product",
     "worst": {
-      "value": 3.87,
+      "value": 4.89,
       "floor": 4.5,
       "px": 14,
-      "weight": "400",
-      "text": "*",
-      "tag": "span.text-danger"
+      "weight": "500",
+      "text": "Hi, Amina Haddad!",
+      "tag": "span.hide-mob"
     },
     "first": {
       "kind": "card",
@@ -389,12 +389,12 @@
     "route": "/product/1/edit",
     "title": "Product",
     "worst": {
-      "value": 3.87,
+      "value": 4.03,
       "floor": 4.5,
-      "px": 14,
-      "weight": "400",
-      "text": "*",
-      "tag": "span.text-danger"
+      "px": 16,
+      "weight": "700",
+      "text": "S-Natural",
+      "tag": "span.d-flex.align-items-center"
     },
     "first": {
       "kind": "card",
@@ -581,12 +581,12 @@
     "route": "/product/create",
     "title": "المنتج",
     "worst": {
-      "value": 3.83,
+      "value": 5.05,
       "floor": 4.5,
-      "px": 14,
+      "px": 12,
       "weight": "400",
-      "text": "*",
-      "tag": "span.text-danger"
+      "text": "تبديل المتجر",
+      "tag": "span.ss-workspace__meta"
     },
     "first": {
       "kind": "card",
@@ -605,12 +605,12 @@
     "route": "/product/1/edit",
     "title": "المنتج",
     "worst": {
-      "value": 3.83,
+      "value": 5.05,
       "floor": 4.5,
-      "px": 14,
+      "px": 12,
       "weight": "400",
-      "text": "*",
-      "tag": "span.text-danger"
+      "text": "تبديل المتجر",
+      "tag": "span.ss-workspace__meta"
     },
     "first": {
       "kind": "card",
@@ -797,12 +797,12 @@
     "route": "/product/create",
     "title": "المنتج",
     "worst": {
-      "value": 3.87,
+      "value": 4.89,
       "floor": 4.5,
       "px": 14,
-      "weight": "400",
-      "text": "*",
-      "tag": "span.text-danger"
+      "weight": "500",
+      "text": "مرحباً، Amina Haddad!",
+      "tag": "span.hide-mob"
     },
     "first": {
       "kind": "card",
@@ -821,12 +821,12 @@
     "route": "/product/1/edit",
     "title": "المنتج",
     "worst": {
-      "value": 3.87,
+      "value": 4.03,
       "floor": 4.5,
-      "px": 14,
-      "weight": "400",
-      "text": "*",
-      "tag": "span.text-danger"
+      "px": 16,
+      "weight": "700",
+      "text": "S-Natural",
+      "tag": "span.d-flex.align-items-center"
     },
     "first": {
       "kind": "card",

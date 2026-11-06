@@ -104,7 +104,7 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                             <div class="col-12">
                                 <input type="hidden" name="id" value="{{ $product->id }}">
                                 {!! Form::label('name', __('Name'), ['class' => 'form-label']) !!}<span
-                                    class="text-danger">*</span>
+                                    class="ss-text-danger">*</span>
                                 {!! Form::text('name', null, ['class' => 'form-control name']) !!}
                             </div>
                             <div class="col-12 parmalink ">
@@ -119,7 +119,7 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                                 </div>
                             </div>
                             <div class="col-sm-6 col-12">
-                                <label for="category_id" class="form-label">{{ __('Category') }}</label><span class="text-danger">*</span>
+                                <label for="category_id" class="form-label">{{ __('Category') }}</label><span class="ss-text-danger">*</span>
                                 <select name="category_id" class="form-control" data-role="tagsinput" id="category_id">
                                     <option value="">{{ __('Select Category') }}</option>
                                     @foreach ($categoryTree as $cat)
@@ -197,13 +197,13 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                             </div>
                             <div class="col-md-6 col-12 product_price product-weight">
                                 {!! Form::label('price', __('Price'), ['class' => 'form-label']) !!}<span
-                                    class="text-danger">*</span>
+                                    class="ss-text-danger">*</span>
                                 {!! Form::number('price', null, ['class' => 'form-control', 'min' => '0', 'step' =>
                                 '0.01']) !!}
                             </div>
                             <div class="col-md-6 col-12 product-weight">
                                 {!! Form::label('sale_price', __('Sale Price'), ['class' => 'form-label']) !!}<!--<span
-                                    class="text-danger">*</span>-->
+                                    class="ss-text-danger">*</span>-->
                                 {!! Form::number('sale_price', null, ['class' => 'form-control', 'min' => '0',
                                 'step' => '0.01', 'aria-describedby' => 'sale_price-help']) !!}
                                 <x-ss.field-help for="sale_price">{{ __('The discounted price customers pay. It must be lower than the price.') }}</x-ss.field-help>
@@ -212,7 +212,7 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                  
                               <div class="col-md-6 col-12 product-weight">
     {!! Form::label('cost_price', __('Cost Price'), ['class' => 'form-label']) !!}
-    <span class="text-danger">*</span>
+    <span class="ss-text-danger">*</span>
     {!! Form::number('cost_price', null, [
         'class' => 'form-control',
         'min' => '0',
@@ -390,7 +390,7 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                             <div class="row row-gap">
                                 <div class="col-12">
                                     {{ Form::label('sub_images', __('Upload Product Images'), ['class' => 'form-label f-w-800']) }}<span
-                                        class="text-danger">*</span>
+                                        class="ss-text-danger">*</span>
                                     <div class="dropzone dropzone-multiple" data-toggle="dropzone1"
                                         data-dropzone-url="http://" data-dropzone-multiple>
                                         <!-- Dropzone message with icon -->
@@ -491,7 +491,7 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                                 <div class="col-12">
                                     <label for="cover_image"
                                         class="form-label">{{ __('Upload Cover Image') }}</label><span
-                                        class="text-danger">*</span>
+                                        class="ss-text-danger">*</span>
                                     {{-- P2-03-4 / F75: `accept` is the server's own configured list, verbatim --
                                          narrowing it here would newly block a `pdf` or `csv` that works today. --}}
                                     <input type="file" name="cover_image" id="cover_image"

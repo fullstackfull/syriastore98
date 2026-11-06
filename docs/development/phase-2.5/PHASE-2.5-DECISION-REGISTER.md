@@ -1303,3 +1303,80 @@ have had me "fix" the contrast of text no sighted reader can see.
 **252 checks, 10 failed** after both corrections, and the 10 are the two findings above. The ~30
 that disappeared were the instrument, not the product — which is the whole reason a harness states
 what it excluded and why, rather than printing a number.
+
+---
+
+### F-DESIGN-20 — CLOSED. The required marker now takes the design-system colour
+
+Fixed in the markup, as the sheet's own P2.5-WAVE-33 and P2.5-MONEY blocks had already settled it
+must be. `<span class="text-danger">*</span>` became `<span class="ss-text-danger">*</span>` in the
+two views that actually render it.
+
+| | before | after |
+|---|---|---|
+| light | `rgb(255,0,0)` → **3.83:1** | `rgb(140,29,23)` = `#8c1d17` → **9.12:1** |
+| dark | `rgb(255,0,0)` → **3.87:1** | `rgb(243,169,164)` = `#f3a9a4` → **7.48:1** |
+
+`span.text-danger` now matches **zero** elements on those pages, which is the check that the swap is
+complete rather than partial. The live sweep went from 10 failures to 2.
+
+**THE LIVE CENSUS IS WHY THIS WAS 2 FILES AND NOT 36.** A static grep finds `class="text-danger"`
+in 36 views, 68 times. Driving the pages finds **12 rendered markers, on exactly two screens** —
+`/product/create` and `/product/1/edit`, six each: Name, Category, Price, Cost Price, Upload Product
+Images, Upload Cover Image. `/product/1`, `/category`, `/coupon`, `/product-brand`,
+`/product-attributes` and `/product-label` render **none**. Of the other 56 uses, most are notes and
+examples in the `plans` views — Phase 06 — and repainting those would have changed super-admin copy
+for a defect measured on the product editor.
+
+**What was deliberately NOT touched:** `edit.blade.php:1586/1597/1617`, where javascript does
+`addClass('text-danger')` on upload ERROR text. That is a message, not a marker; it has the same
+colour problem and belongs to whoever fixes error presentation.
+
+---
+
+### F-DESIGN-22 — the required marker is decorative: five of six controls are not programmatically required
+
+**Status:** MEASURED, NOT FIXED — fixing it changes form behaviour, which is beyond a presentation
+pass.
+
+Found while deciding whether to add `aria-hidden="true"` to the marker. The accessible pattern is
+`required` on the control plus a visible convention, with the `*` hidden from assistive technology
+as a duplicate. That is only correct if the control really is required. Measured on
+`/product/create`:
+
+| field | control | `required` | `aria-required` |
+|---|---|---|---|
+| Name | `input[text]` | **false** | none |
+| Category | `select` | **false** | none |
+| Price | `input[number]` | **false** | none |
+| Cost Price | `input[number]` | true | none |
+| Upload Product Images | *no control in the group* | — | — |
+| Upload Cover Image | `input[file]` | **false** | none |
+
+**So the asterisk is the ONLY indication of requirement on five of six fields, and it carries no
+semantics at all** — a screen reader announces "star" beside the label and nothing more. Adding
+`aria-hidden` would have removed the sole signal and made the screen without it *less* usable than
+the one with it, which is why this was checked before the attribute was added rather than after.
+
+**Why it is not fixed here.** Adding `required` to Name, Category, Price and Cover Image changes
+what the browser will submit: a merchant mid-edit who leaves one blank would be blocked where today
+they are not. That is a change to a merchant workflow, not to its presentation, and the directive
+reserves those. The honest fix is `aria-required="true"` plus server-side validation that already
+agrees — which needs checking against the controller's rules first.
+
+---
+
+### F-DESIGN-23 — a variant name renders at 4.03:1 in dark mode, and it was hidden behind the marker
+
+`span.d-flex.align-items-center` carrying a variant name — measured on `"S-Natural"` — renders at
+**4.03:1** at 16px/700 on `/product/1/edit`, dark only. At 16px it is not "large text" under SC
+1.4.3 (which needs ≥18.66px *and* ≥700, or ≥24px), so its floor is 4.5:1 and it misses.
+
+**It is not a regression and it is not new** — it was always 4.03:1. The harness reports the WORST
+text node per page, and the required marker at 3.87:1 was worse, so this sat behind it. Fixing the
+worst reveals the next, which is the expected behaviour of a worst-case instrument and worth saying
+plainly rather than letting it read as damage from the marker change: the diff for that change is
+two Blade files and no stylesheet.
+
+The name is not in `edit.blade.php` — it is rendered from variant data — so the fix is a rule, not a
+markup swap. Next slice.
