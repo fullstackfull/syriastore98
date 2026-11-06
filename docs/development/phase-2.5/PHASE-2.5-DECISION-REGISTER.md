@@ -1217,3 +1217,89 @@ is also what a middleware redirect produces — plus a **positive control** asse
 still renders the composer, because a refusal test alone is satisfied by a controller that refuses
 everything. Reverting the defaults fails exactly the two refusal tests and leaves the other twenty
 green.
+
+---
+
+### F-DESIGN-20 — the required-field marker fails AA in both themes, on 145 fields across 52 views
+
+**Status:** MEASURED and verified. Fix held until the in-flight Feature suite reports, because
+Feature tests read `store-syria-ds.css` and editing it mid-run invalidates them.
+
+The marker Wave 18 added to every required field is `<span class="text-danger">*</span>`, and it is
+painted with a **hard-coded pure red** rather than a design-system token:
+
+| | light | dark |
+|---|---|---|
+| colour | `rgb(255, 0, 0)` | `rgb(255, 0, 0)` |
+| background | `rgb(249, 250, 251)` | `rgb(34, 36, 44)` |
+| **ratio** | **3.83:1** | **3.87:1** |
+| size / weight | 14px / 400 | 14px / 400 |
+
+Both fail SC 1.4.3 (4.5:1 for text under 18.66px). `#FF0000` on near-white is a classic trap: it
+*looks* loud and measures badly, because pure red is dark in luminance terms only by a little.
+
+**It is the same figure in both themes, which is the tell** that no token is involved: a
+theme-aware colour would differ. Six occurrences on `/product/create` alone, and Wave 18 put this
+marker on **145 required fields across 52 merchant views**, so the fix is one rule at the component
+and reaches all of them.
+
+**Two other things measured about it, neither of them contrast.** It carries no `aria-hidden`, so a
+screen reader announces a bare "star" beside the label with nothing to say what it means; and it
+carries no `title`, so a sighted merchant who does not already know the convention is not told
+either. The accessible way to mark a required field is the `required` attribute plus a visible
+convention explained once — worth settling when the contrast is fixed rather than separately.
+
+---
+
+### F-DESIGN-21 — the product editor's attribute chip is white text at 2.31:1
+
+**Status:** MEASURED and verified, after a first reading that was wrong. Fix held with F-DESIGN-20.
+
+On `/product/{id}`, the selected-attribute chip in the variant composer renders **white text at
+12px** on a mid-tone background: **2.31:1**. At 12px the floor is 4.5:1, so it is less than half of
+what it needs, and it sits on the surface merchants use to build every variant.
+
+**The first reading of this was mine and it was wrong**, which is worth recording because it nearly
+became a finding about the wrong element. The harness reported
+`div.choices__item.choices__item--selectable` with the text `"ColourRemove item"` — a concatenation
+of a visible label and its remove button's text, because `textContent` includes descendants. Sampling
+"a chip" then measured a *different* chip:
+
+```
+  Textiles          rgb(41, 50, 64)   10.90:1
+  Select Category   rgb(91, 95, 102)   6.42:1
+  Homeware          rgb(41, 50, 64)   12.93:1
+  Scarves & Shawls  rgb(41, 50, 64)   12.93:1
+  Soaps             rgb(41, 50, 64)   12.93:1
+  Textiles          rgb(41, 50, 64)   12.93:1
+```
+
+Every one of those is fine, and on that evidence the finding looked like a false positive. It is
+not: filtering for the element whose own text is `Colour` finds it —
+`rgb(255, 255, 255)`, 12px, **2.31:1**. The lesson is the same one this phase keeps paying for:
+**measure the element the reading came from, not one like it.**
+
+---
+
+### M-PKG-B-01 — the Package B harness reported ~30 failures that were all its own
+
+Recorded because the first run of `verify-package-b-pages.cjs` produced a page of red that would
+have become a page of findings.
+
+**"Emoji used as an interface icon", 4 to 14 per page — every one false.** The check used the range
+`☀-➿`, which is *Miscellaneous Symbols and Dingbats*: the block a UI legitimately draws
+from. MEASURED, the only character it ever matched was `☆` U+2606 WHITE STAR, in a rating control.
+There are **no emoji** on any Package B page. The check now uses `\p{Emoji_Presentation}`, verified
+in this runtime to be false for star, check, chevron and warning-sign and true for rocket and
+glowing-star.
+
+**Visually-hidden text reported at 1.33:1 — and the box was not the test.** `.ss-visually-hidden`
+declares `width:1px; height:1px`, so excluding by box size looked sufficient. MEASURED on
+`/category`, the pagination's "Previous"/"Next" spans report **35x35**: something overrides their
+size. What actually hides them is `clip: rect(0px, 0px, 0px, 0px)`, which clips to nothing whatever
+the box says. Excluding on the clip rather than the box is correct, and the earlier version would
+have had me "fix" the contrast of text no sighted reader can see.
+
+**252 checks, 10 failed** after both corrections, and the 10 are the two findings above. The ~30
+that disappeared were the instrument, not the product — which is the whole reason a harness states
+what it excluded and why, rather than printing a number.
