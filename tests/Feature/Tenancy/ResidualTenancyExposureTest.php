@@ -588,18 +588,30 @@ class ResidualTenancyExposureTest extends TestCase
     public function test_the_single_db_raw_expression_site_is_inside_an_eloquent_query(): void
     {
         // ActivityLog::totalspend(). `\DB::raw('SUM(final_price) ..., COUNT(*) ...')` is a select
-        // expression on `Order::where('customer_id', $userId)`, so the surrounding query carries
-        // its global scopes and this is NOT a bypass.
+        // expression on an Eloquent query, so the surrounding builder carries its global scopes
+        // and this is NOT a bypass. That half of this test is unchanged and still holds.
         //
-        // IT IS STILL A CROSS-TENANT AGGREGATION, for a different reason, and that is the finding:
-        // the query filters on `customer_id` ALONE with no store predicate, and `Order` is not on
-        // the allowlist, so a customer's "total spend" and "total orders" sum their purchases
-        // across EVERY store on the platform. One merchant's dashboard therefore shows a figure
-        // that includes other merchants' revenue. Scoping `Order` would close it; Order is
-        // reported OPEN above with the reasons, so this is recorded as the concrete harm that
-        // deferral leaves behind rather than being quietly folded into the bypass list.
+        // THE CROSS-TENANT HARM THIS COMMENT USED TO RECORD IS CLOSED (P2.5-PKG-C, F-C-09).
+        //
+        // What it said, and it was right at the time: the query filtered on `customer_id` ALONE
+        // with no store predicate, and `Order` is not on the allowlist, so a customer's "total
+        // spend" and "total orders" summed their purchases across EVERY store -- one merchant's
+        // page showing another merchant's revenue. It was recorded here as "the concrete harm that
+        // deferral leaves behind".
+        //
+        // MEASURED before the fix (`CustomerTimelineTenancyTest`): a customer with a $25 order in
+        // store A and a $775 order in store B returned total_orders 2 and total_spend 800 for
+        // store A's merchant.
+        //
+        // `totalspend()` now takes a REQUIRED `$storeId` and the query carries
+        // `->where('store_id', $storeId)`. The raw expression stays, because the raw SQL was never
+        // the defect -- the missing predicate was. `Order` remains off the allowlist and remains
+        // reported OPEN above; this particular consequence of that deferral no longer exists, so
+        // the claim is rewritten rather than left standing. A resolved declaration is fiction.
+        //
+        // The path assertion still pins the site, which is the part that must not drift.
         $this->assertSame(
-            ['app/Models/ActivityLog.php:70'],
+            ['app/Models/ActivityLog.php:97'],
             $this->rawSqlSites(self::RAW_EXPRESSION_PATTERN)
         );
     }

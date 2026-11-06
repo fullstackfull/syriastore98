@@ -408,13 +408,40 @@ public function destroy(Customer $customer)
             }
         }
 
-        $activityLog = ActivityLog::where('customer_id', $ids)
-            ->groupBy('customer_id')
-            ->first();
+        /*
+         * P2.5-PKG-C (F-C-09). SCOPED TO THE CUSTOMER'S OWN STORE, which these three queries were
+         * not. The ownership check above decides WHICH CUSTOMER may be opened; it says nothing
+         * about whose activity is then listed, and `ActivityLog` is absent from `scoped_models`
+         * even though it HAS a `store_id` column.
+         *
+         * WHAT THE FEED LEAKED IS NOT MERELY "ACTIVITY": `ActivityLog::order_entry()` writes
+         * `remark` as JSON carrying `order_id`, `order_date`, `product`, `price` and
+         * `payment_type`, so a merchant reading one of their OWN customers' timelines saw another
+         * store's order references, products and PRICES. Measured in
+         * CustomerTimelineTenancyTest.
+         *
+         * THE CUSTOMER'S OWN STORE, not `getCurrentStore()`, and that is deliberate for the reason
+         * F-C-07 records: `getCurrentStore()` returns the literal 1 for a super admin with an
+         * empty `current_store`, and this route explicitly admits the operator to ANY store's
+         * customer -- so a `getCurrentStore()` predicate would have shown store 1's activity on a
+         * store-7 customer's page. A fabrication is worse than a refusal.
+         *
+         * Fails closed: a customer with no store matches no activity rather than all of it.
+         */
+        $timelineStoreId = (int) ($customer->store_id ?? 0);
 
-        $logs = ActivityLog::where('customer_id', $ids)->get();
+        $activityLog = $timelineStoreId > 0
+            ? ActivityLog::where('store_id', $timelineStoreId)
+                ->where('customer_id', $ids)
+                ->groupBy('customer_id')
+                ->first()
+            : null;
 
-        $totalSpend = ActivityLog::totalspend($ids);
+        $logs = $timelineStoreId > 0
+            ? ActivityLog::where('store_id', $timelineStoreId)->where('customer_id', $ids)->get()
+            : collect();
+
+        $totalSpend = ActivityLog::totalspend($ids, $timelineStoreId > 0 ? $timelineStoreId : null);
 
         $customer_data = Customer::find($ids);
 

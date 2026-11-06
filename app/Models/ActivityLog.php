@@ -60,13 +60,40 @@ class ActivityLog extends Model
         return $variant->variant ?? null;
     }
 
-    public static function totalspend($userId = null)
+    /**
+     * P2.5-PKG-C (F-C-09). `$storeId` IS NOW REQUIRED, and the query carries it.
+     *
+     * This summed `Order::where('customer_id', $userId)` with NO store predicate, and `Order` is
+     * absent from `config/tenancy.php`'s `scoped_models`, so Total Spend and Total Orders on the
+     * customer timeline aggregated the customer's purchases across EVERY STORE on the platform --
+     * one merchant's page showing another merchant's revenue.
+     *
+     * ALREADY DECLARED OPEN before this fix: `ResidualTenancyExposureTest`'s raw-expression test
+     * recorded this exact site by path and stated the harm in as many words. Its narrative has
+     * been updated in the same change, because a resolved declaration is fiction.
+     *
+     * MEASURED (CustomerTimelineTenancyTest): a customer with a $25 order in store A and a $775
+     * order in store B returned total_orders 2 and total_spend 800 for store A's merchant.
+     *
+     * THE `DB::raw` STAYS. It is a SELECT EXPRESSION on an Eloquent query, not a bypass -- the
+     * surrounding builder carries its scopes, and the ratchet above says so explicitly. The defect
+     * was never the raw SQL; it was the missing predicate.
+     *
+     * FAILS CLOSED when either argument is absent. The parameter has no default, so a caller that
+     * forgets it is a TypeError at the call site rather than a silent platform-wide sum -- which
+     * is how this would otherwise come back. There is exactly one caller
+     * (`CustomerController::customerTimeline`), so requiring it costs nothing.
+     *
+     * @param int|null $storeId the store whose orders may be counted; null sums nothing
+     */
+    public static function totalspend($userId = null, ?int $storeId = null)
     {
         $totalSpend = 0;
         $totalOrders = 0;
-        if($userId)
+        if($userId && $storeId)
         {
-            $results = Order::where('customer_id', $userId)
+            $results = Order::where('store_id', $storeId)
+                    ->where('customer_id', $userId)
                     ->select(\DB::raw('SUM(final_price) as total_price ,COUNT(*) as order_count'))
                     ->first();
             if ($results) {
