@@ -428,6 +428,52 @@ class ContentFamilyCrossTenantTest extends SecurityTestCase
     }
 
     /**
+     * THE LAST THREE EMPTY-BODY `show()` ORACLES in this family.
+     *
+     * `ContactController::show`, `FaqController::show` and `NewsletterController::show` each have
+     * a bare `//` body, but route model binding resolves the row BEFORE the method runs and none
+     * of these models is in `scoped_models` -- so the response was an empty 200 for a row existing
+     * in ANY store and 404 only for one existing nowhere. That answers "does row N exist on this
+     * platform" for every id, to any authenticated principal.
+     *
+     * Same shape, same remedy as the five closed in F-SEC-02. None of the three routes is
+     * referenced anywhere in the repository: `faqs.show` and `newsletter.show` have zero hits, and
+     * the single `contacts.show` hit is `business.contacts.show` -- a different route name on the
+     * Marketing module's own controller. So the routes are left registered and simply refuse what
+     * they must not serve, which is a smaller change than withdrawing a URL some client may hold.
+     *
+     * Comparing the two statuses is what makes this an oracle test: asserting 404 on the foreign
+     * id alone would pass for a method that 404s everything.
+     */
+    public function test_the_remaining_show_routes_are_not_cross_tenant_existence_oracles(): void
+    {
+        [$victim, $victimStore] = $this->makeTenant();
+        [$attacker] = $this->makeTenant();
+
+        $cases = [
+            'contacts' => ['/contacts/' . $this->makeContact($victimStore->id, 'OracleContact')->id,
+                           '/contacts/99999906'],
+            'faqs' => ['/faqs/' . $this->makeFaq($victimStore->id, 'OracleFaqTopic')->id,
+                       '/faqs/99999907'],
+            'newsletter' => ['/newsletter/' . $this->makeNewsletter($victimStore->id, 'oracle@example.test')->id,
+                             '/newsletter/99999908'],
+        ];
+
+        foreach ($cases as $label => [$foreignUrl, $absentUrl]) {
+            $foreignStatus = $this->actingAs($attacker)->get($foreignUrl)->status();
+            $absentStatus = $this->actingAs($attacker)->get($absentUrl)->status();
+
+            $this->assertSame(
+                $absentStatus,
+                $foreignStatus,
+                "{$label}: show() answers differently for another tenant's row ({$foreignStatus}) "
+                . "than for an id that exists nowhere ({$absentStatus}), so it reports whether any "
+                . 'store owns that id.'
+            );
+        }
+    }
+
+    /**
      * `GET newsletter/export` HAD NO PERMISSION CHECK AT ALL.
      *
      * Named by the tenant-authz review of the seven-controller fix, and verified here by reading

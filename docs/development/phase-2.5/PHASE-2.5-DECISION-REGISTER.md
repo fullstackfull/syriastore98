@@ -2221,8 +2221,7 @@ has no menu entry and no index page to reach an id from.
   ProductBrand/Page precedent which added the permission. A zero-permission staff member of the
   tenant can still read Contact submissions and full blog posts. Within-tenant bypass on personal
   data. The review confirms adding the permission would lock nobody out.
-- Three more empty-body `show()` oracles: `ContactController:82`, `FaqController:70`,
-  `NewsletterController:84`.
+- ~~Three more empty-body `show()` oracles~~ **— FIXED, see F-SEC-07 below.**
 - `newsletters.email` is `unique` **globally, not per store**, so an address subscribed to store A
   cannot subscribe to store B — and an unauthenticated caller learns whether an address is a
   subscriber anywhere on the platform.
@@ -2259,3 +2258,29 @@ reach. So anyone who can *see* the button already holds it, and the gate locks n
 
 Found by the tenant-authz review of F-SEC-05, not by either census. Worth noting as the cost of a
 census keyed on one defect shape: it finds that shape thoroughly and is blind to every other.
+
+
+---
+
+### F-SEC-07 — the last three empty-body `show()` existence oracles in this family
+
+**Status:** FIXED and proved. `ContactController::show`, `FaqController::show` and
+`NewsletterController::show` each had a bare `//` body — but route model binding resolves the row
+**before** the method runs, and none of these models is in `scoped_models`, so the response was an
+empty **200** for a row existing in any store and **404** only for one existing nowhere.
+
+**Measured before the fix:** `/contacts/{foreign}` answered **200** while `/contacts/99999906`
+answered **404**. That difference answers *"does row N exist on this platform"* for every id, to any
+authenticated principal.
+
+This is the eighth, ninth and tenth instance of a shape already closed five times in F-SEC-02 and
+once in F-SEC-05 — the same `//`-bodied resource method, the same binding, the same consequence.
+
+**The routes are left registered.** None is referenced anywhere: `faqs.show` and `newsletter.show`
+have zero hits, and the single `contacts.show` hit is `business.contacts.show`, a different route
+name on the Marketing module's own controller. Refusing what a route must not serve is a smaller
+change than withdrawing a URL some client may hold.
+
+**Evidence:** 19 passed. Reverting the three guards alone fails exactly the oracle test and nothing
+else. The test compares the foreign-row status against an existing-nowhere status rather than
+asserting 404 on the foreign id — which would pass for a method that 404s everything.

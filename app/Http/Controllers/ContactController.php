@@ -81,7 +81,14 @@ class ContactController extends Controller
      */
     public function show(Contact $contact)
     {
-        //
+        // P2.5-PKG-B. AN EMPTY BODY IS STILL AN EXISTENCE ORACLE. Route model binding resolves
+        // the row BEFORE this method runs, and `Contact` is absent from scoped_models, so the
+        // response was an empty 200 for a row in ANY store and 404 only for one existing nowhere.
+        // Nothing in the repository references `contacts.show`, so the route is left registered and
+        // simply refuses what it must not serve -- a smaller change than withdrawing a URL.
+        if (! $this->callerOwnsContact($contact)) {
+            abort(404);
+        }
     }
 
     /**
